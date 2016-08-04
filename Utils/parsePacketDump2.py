@@ -16,6 +16,9 @@ nRows = 125
 nCols = 80
 
 def parsePacketData(words,verbose=False):
+
+    nWords = len(words)
+
     fakePhotonWord = 2**63-1
     headerFirstByte = 0xff
 
@@ -161,7 +164,8 @@ if __name__=='__main__':
     ax.plot(phasesDeg[np.where(pixelIds==selPixelId)])
     ax.plot(basesDeg[np.where(pixelIds==selPixelId)])
     ax.set_title('phases (deg)')
-    #ax.plot(pixelIds)
+    #ax.plot(pixelIds) 
+    
     plotArray(image,origin='upper')
 
     np.savez('/mnt/data0/test2/{}.npz'.format(pathTstamp),**parseDict)
