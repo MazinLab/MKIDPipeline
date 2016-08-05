@@ -154,7 +154,7 @@ if __name__=='__main__':
     #selPixelId = 0#(1<<10)+23
     selPixelId = (30<<10)+46
     print 'selected pixel',selPixelId
-    print np.where(pixelIds==selPixelId),'photons for selected pixel'
+    print len(np.where(pixelIds==selPixelId)),'photons for selected pixel'
 
     print 'phase',phasesDeg[0:10]
     print 'base',basesDeg[0:10]
@@ -164,8 +164,7 @@ if __name__=='__main__':
     ax.plot(phasesDeg[np.where(pixelIds==selPixelId)])
     ax.plot(basesDeg[np.where(pixelIds==selPixelId)])
     ax.set_title('phases (deg)')
-    #ax.plot(pixelIds) 
-    
+    #ax.plot(pixelIds)
     plotArray(image,origin='upper')
 
     np.savez('/mnt/data0/test2/{}.npz'.format(pathTstamp),**parseDict)

@@ -21,6 +21,10 @@ from Utils import binTools
 from Utils.arrayPopup import plotArray
 from parsePacketDump2 import parsePacketData
 
+# Choose the row and column of the desired pixel. Quickest way to determine this is to use darkQuickViewer.py
+selPixelRow = 9 #yCoord from darkQuickViewer
+selPixelCol = 35 #xCoord from darkQuickViewer
+
 if len(sys.argv) > 1:
     path = sys.argv[1]
 else:
@@ -41,12 +45,15 @@ phasesDeg = parseDict['phasesDeg']
 basesDeg = parseDict['basesDeg']
 pixelIds = parseDict['pixelIds']
 image = parseDict['image']
+xCoords = parseDict['xCoords']
+yCoords = parseDict['yCoords']
 
-#selPixelId = 0#(1<<10)+23
-#selPixelId = (30<<10)+46
-selPixelId = 0
+selPixelId = pixelIds[np.where((xCoords==selPixelCol) & (yCoords==selPixelRow))][0]
+print selPixelId
+
+
 print 'selected pixel',selPixelId
-print np.where(pixelIds==selPixelId),'photons for selected pixel'
+print len(np.where(pixelIds==selPixelId)[0]),'photons for selected pixel'
 
 print 'phase',phasesDeg[0:10]
 print 'base',basesDeg[0:10]
@@ -58,9 +65,21 @@ ax.plot(basesDeg[np.where(pixelIds==selPixelId)])
 ax.set_title('phases (deg)')
 #ax.plot(pixelIds)
 
-phaseHist, bins = np.histogram(phasesDeg[np.where(pixelIds==selPixelId)]-basesDeg[np.where(pixelIds==selPixelId)], 100)
+nbins = 70
+
+phaseHist, bins = np.histogram(phasesDeg[np.where(pixelIds==selPixelId)], nbins)
 fig,ax = plt.subplots(1,1)
 ax.plot(bins[:-1], phaseHist)
+ax.set_title('phase histogram')
+
+baseHist, bins = np.histogram(basesDeg[np.where(pixelIds==selPixelId)], nbins)
+fig,ax = plt.subplots(1,1)
+ax.plot(bins[:-1], baseHist)
+ax.set_title('base histogram')
+
+subHist, bins = np.histogram(phasesDeg[np.where(pixelIds==selPixelId)]-basesDeg[np.where(pixelIds==selPixelId)], nbins)
+fig,ax = plt.subplots(1,1)
+ax.plot(bins[:-1], subHist)
 ax.set_title('phase-base histogram')
     
 plotArray(image,origin='upper')

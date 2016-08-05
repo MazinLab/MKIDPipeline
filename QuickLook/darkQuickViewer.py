@@ -20,6 +20,12 @@ imageShape = {'nRows':125,'nCols':80}
 
 class DarkQuick(QtGui.QMainWindow):
     def __init__(self, startTstamp, endTstamp):
+        
+        self.startTstamp = startTstamp
+        self.endTstamp = endTstamp
+        self.imageStack = []
+        self.currentImageIndex = 0
+        
         self.app = QtGui.QApplication([])
         self.app.setStyle('plastique')
         super(DarkQuick,self).__init__()
@@ -30,11 +36,6 @@ class DarkQuick(QtGui.QMainWindow):
         self.createStatusBar()
         self.arrangeMainFrame()
         self.connectControls()
-
-        self.startTstamp = startTstamp
-        self.endTstamp = endTstamp
-        self.imageStack = []
-        self.currentImageIndex = 0
 
 
         self.beammap=None
@@ -63,6 +64,10 @@ class DarkQuick(QtGui.QMainWindow):
     def createWidgets(self):
         self.mainFrame = QtGui.QWidget()
         
+        self.label_startTstamp = QtGui.QLabel(str(self.startTstamp))
+        self.label_endTstamp = QtGui.QLabel(str(self.endTstamp))
+        self.lineEdit_currentTstamp = QtGui.QLineEdit(str(self.startTstamp+self.currentImageIndex))
+        
         self.arrayImageWidget = ArrayImageWidget(parent=self,hoverCall=self.hoverCanvas)
         self.button_jumpToBeginning = QtGui.QPushButton('|<')
         self.button_jumpToEnd = QtGui.QPushButton('>|')
@@ -81,9 +86,9 @@ class DarkQuick(QtGui.QMainWindow):
     def arrangeMainFrame(self):
 
         canvasBox = layoutBox('V',[self.arrayImageWidget])
-        incrementControlsBox = layoutBox('H',[1,self.button_jumpToBeginning,
-                self.button_incrementBack,
-                self.button_incrementForward,self.button_jumpToEnd,1])
+        incrementControlsBox = layoutBox('H',[1,self.label_startTstamp,self.button_jumpToBeginning,
+                self.button_incrementBack,self.lineEdit_currentTstamp,
+                self.button_incrementForward,self.button_jumpToEnd,self.label_endTstamp,1])
 
 
         mainBox = layoutBox('V',[canvasBox,incrementControlsBox])
@@ -119,7 +124,7 @@ class DarkQuick(QtGui.QMainWindow):
         self.connect(self.button_jumpToEnd,QtCore.SIGNAL('clicked()'), self.jumpToEnd)
         self.connect(self.button_incrementForward,QtCore.SIGNAL('clicked()'), self.incrementForward)
         self.connect(self.button_incrementBack,QtCore.SIGNAL('clicked()'), self.incrementBack)
-
+        self.connect(self.lineEdit_currentTstamp,QtCore.SIGNAL('editingFinished()'),self.jumpToTstamp)
 
     def addClickFunc(self,clickFunc):
         self.arrayImageWidget.addClickFunc(clickFunc)
@@ -128,22 +133,25 @@ class DarkQuick(QtGui.QMainWindow):
         self.timestampList = np.arange(self.startTstamp,self.endTstamp+1)
         images = []
         for iTs,ts in enumerate(self.timestampList):
-            imagePath = os.path.join(dataPath,str(ts)+'.img')
-            image = np.fromfile(open(imagePath, mode='rb'),dtype=np.uint16)
-            image = np.transpose(np.reshape(image, (imageShape['nCols'], imageShape['nRows'])))
-            if self.beammap is not None:
-                newImage = np.zeros(image.shape)
-                for y in range(len(newImage)):
-                    for x in range(len(newImage[0])):
-                        newX=int(self.beammap[y,x][0])
-                        newY=int(self.beammap[y,x][1])
-                        if newX >0 and newY>0: 
-                            newImage[newY,newX] = image[y,x]
-                            #print '('+str(x)+', '+str(y)+') --> ('+str(newX)+', '+str(newY)+')'
-                        #else: 
-                        #    print '('+str(x)+', '+str(y)+') --> 0'
-                        #    newImage[y,x]=0
-                image = newImage
+            try:
+                imagePath = os.path.join(dataPath,str(ts)+'.img')
+                image = np.fromfile(open(imagePath, mode='rb'),dtype=np.uint16)
+                image = np.transpose(np.reshape(image, (imageShape['nCols'], imageShape['nRows'])))
+                if self.beammap is not None:
+                    newImage = np.zeros(image.shape)
+                    for y in range(len(newImage)):
+                        for x in range(len(newImage[0])):
+                            newX=int(self.beammap[y,x][0])
+                            newY=int(self.beammap[y,x][1])
+                            if newX >0 and newY>0: 
+                                newImage[newY,newX] = image[y,x]
+                                #print '('+str(x)+', '+str(y)+') --> ('+str(newX)+', '+str(newY)+')'
+                            #else: 
+                            #    print '('+str(x)+', '+str(y)+') --> 0'
+                            #    newImage[y,x]=0
+                    image = newImage
+            except IOError:
+                image = np.zeros((imageShape['nRows'], imageShape['nCols']))  
             images.append(image)
         self.imageStack = np.array(images)
 
@@ -172,6 +180,7 @@ class DarkQuick(QtGui.QMainWindow):
                 
 
     def getObsImage(self):
+        self.lineEdit_currentTstamp.setText(str(self.startTstamp+self.currentImageIndex))
         paramsDict = self.imageParamsWindow.getParams()
         self.image = self.imageStack[self.currentImageIndex]
         self.plotArray(self.image,**paramsDict['plotParams'])
@@ -198,6 +207,14 @@ class DarkQuick(QtGui.QMainWindow):
         else:
             print 'Warning: can\'t decrement any more'
         self.getObsImage()
+
+    def jumpToTstamp(self):
+        desiredTstamp = int(self.lineEdit_currentTstamp.text())
+        if (desiredTstamp > self.endTstamp) or (desiredTstamp < self.startTstamp):
+            print 'Warning: requested time stamp is outside available range'
+        else:
+            self.currentImageIndex = desiredTstamp-self.startTstamp
+            self.getObsImage()
 
     def savePlot(self):
         file_choices = "PNG (*.png)|*.png"
@@ -362,11 +379,10 @@ class PlotWindow(QtGui.QDialog):
         for col,row in self.selectedPixels:
             self.lightCurve = self.parent.imageStack[:,row,col]
 
-        self.axes.plot(self.lightCurve)
-            #returnDict = self.parent.obs.getTimedPacketList(iRow=row,iCol=col,firstSec=firstSec,integrationTime=duration)
-
-        #self.lightCurve = 1.*hist/binWidths
-        #plotHist(self.axes,histBinEdges,self.lightCurve)
+        self.axes.plot(self.parent.timestampList, self.lightCurve)
+        x_formatter = matplotlib.ticker.ScalarFormatter(useOffset=False)
+        x_formatter.set_scientific(False)
+        self.axes.xaxis.set_major_formatter(x_formatter)
         self.axes.set_xlabel('time (s)')
         self.axes.set_ylabel('counts per sec')
             
