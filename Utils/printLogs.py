@@ -14,6 +14,9 @@ INPUTS:
         
 OUTPUTS:
         None. Prints logs to command line.
+        
+TODO:
+        Allow user to specify optional range of timestamps to print logs from
 '''
 
 import sys
@@ -22,6 +25,7 @@ import glob
 
 if len(sys.argv) < 2:
     print 'Usage: python ',sys.argv[0],' targetName [logPath]'
+    print 'To print all log files use targetName = All'
     exit(1)
 targetName = sys.argv[1]
 
@@ -30,7 +34,12 @@ try:
 except IndexError:
     logPath = '/mnt/data0/ScienceData/'
 
-for log in sorted(glob.glob(os.path.join(logPath,'*_%s.log')%targetName)):
+if targetName in ['all','All','ALL']:
+    fileName = '*.log'
+else:
+    fileName = '*_%s.log'%targetName
+
+for log in sorted(glob.glob(os.path.join(logPath,fileName))):
 
     print '\n-------------------------------------\n'
 
