@@ -293,6 +293,7 @@ class PlotWindow(QtGui.QDialog):
         #self.canvasToolbar = NavigationToolbar(self.canvas, self)
         self.axes = self.fig.add_subplot(111)
         self.fig.subplots_adjust(left=0.07,right=.93,top=.93,bottom=0.15)
+        self.axes.tick_params(axis='both', which='major', labelsize=8)
 
         cid = self.fig.canvas.mpl_connect('button_press_event', self.buttonPressCanvas)
         cid = self.fig.canvas.mpl_connect('button_release_event', self.buttonReleaseCanvas)

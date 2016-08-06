@@ -49,7 +49,8 @@ def parsePacketData(words,verbose=False):
     roachNumMask = binTools.bitmask(nBitsHdrRoach)
     roachNums = (headers >> (nBitsHdrNum+nBitsHdrTstamp)) & roachNumMask
     roachList = np.unique(roachNums)
-    print np.unique(roachNums)
+    if verbose:
+        print np.unique(roachNums)
 
     frameNumMask = binTools.bitmask(nBitsHdrNum)
     frameNums = (headers >> nBitsHdrTstamp) & frameNumMask
