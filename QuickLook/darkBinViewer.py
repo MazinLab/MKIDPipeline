@@ -1,8 +1,16 @@
 '''
-Author: Matt Strader        Date: July 20, 2016
+Author: Seth Meeker        Date: August 5, 2016
+Based mostly on darkQuickViewer.py
+
+TODO:
+        Right now images are loaded and diplayed properly from the parsed dictionary
+        Need to implement appending of phases and other parsed data into full photon lists
+        Speed up parsing of data packets. VERY SLOW NOW!
+        Implement plotting of phase histograms
+        Implement user-specified time resolution of lightcurves, and histograms of intensities
 '''
 
-import sys, os
+import sys, os, time, struct
 import numpy as np
 from PyQt4 import QtCore
 from PyQt4 import QtGui
@@ -11,10 +19,11 @@ from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib
 from functools import partial
+from parsePacketDump2 import parsePacketData
 
 
 
-dataPath = '/mnt/data0/ScienceDataIMGs/'
+dataPath = '/mnt/data0/ScienceData/'
 imageShape = {'nRows':125,'nCols':80}
 
 
@@ -29,7 +38,7 @@ class DarkQuick(QtGui.QMainWindow):
         self.app = QtGui.QApplication([])
         self.app.setStyle('plastique')
         super(DarkQuick,self).__init__()
-        self.setWindowTitle('Darkness Image Viewer')
+        self.setWindowTitle('Darkness Binary Viewer')
         self.createWidgets()
         self.initWindows()
         self.createMenu()
@@ -130,13 +139,42 @@ class DarkQuick(QtGui.QMainWindow):
         self.arrayImageWidget.addClickFunc(clickFunc)
 
     def loadImageStack(self):
+    
         self.timestampList = np.arange(self.startTstamp,self.endTstamp+1)
         images = []
+        photonTstamps = []
+        photonPhases = []
+        photonBases = []
+        photonXs = []
+        photonYs = []
+        photonPixelIDs = []
+        
+        
         for iTs,ts in enumerate(self.timestampList):
             try:
-                imagePath = os.path.join(dataPath,str(ts)+'.img')
-                image = np.fromfile(open(imagePath, mode='rb'),dtype=np.uint16)
-                image = np.transpose(np.reshape(image, (imageShape['nCols'], imageShape['nRows'])))
+                imagePath = os.path.join(dataPath,str(ts)+'.bin')
+                print imagePath
+                with open(imagePath,'rb') as dumpFile:
+                    data = dumpFile.read()
+
+                nBytes = len(data)
+                nWords = nBytes/8 #64 bit words
+                
+                #break into 64 bit words
+                words = np.array(struct.unpack('>{:d}Q'.format(nWords), data),dtype=object)
+
+                parseDict = parsePacketData(words,verbose=False)
+
+                photonTimes = parseDict['photonTimestamps']
+                phasesDeg = parseDict['phasesDeg']
+                basesDeg = parseDict['basesDeg']
+                xCoords = parseDict['xCoords']
+                yCoords = parseDict['yCoords']
+                pixelIds = parseDict['pixelIds']
+                image = parseDict['image']
+
+                #image = np.transpose(np.reshape(image, (imageShape['nCols'], imageShape['nRows'])))
+                
                 if self.beammap is not None:
                     newImage = np.zeros(image.shape)
                     for y in range(len(newImage)):
@@ -150,7 +188,7 @@ class DarkQuick(QtGui.QMainWindow):
                             #    print '('+str(x)+', '+str(y)+') --> 0'
                             #    newImage[y,x]=0
                     image = newImage
-            except IOError:
+            except (IOError, ValueError):
                 image = np.zeros((imageShape['nRows'], imageShape['nCols']))  
             images.append(image)
         self.imageStack = np.array(images)
@@ -293,6 +331,7 @@ class PlotWindow(QtGui.QDialog):
         #self.canvasToolbar = NavigationToolbar(self.canvas, self)
         self.axes = self.fig.add_subplot(111)
         self.fig.subplots_adjust(left=0.07,right=.93,top=.93,bottom=0.15)
+        self.axes.tick_params(axis='both', which='major', labelsize=8)
 
         cid = self.fig.canvas.mpl_connect('button_press_event', self.buttonPressCanvas)
         cid = self.fig.canvas.mpl_connect('button_release_event', self.buttonReleaseCanvas)
