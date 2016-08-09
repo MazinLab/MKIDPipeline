@@ -41,6 +41,7 @@ words = np.array(struct.unpack('>{:d}Q'.format(nWords), data),dtype=object)
 
 parseDict = parsePacketData(words,verbose=True)
 
+timestamps = parseDict['photonTimestamps']
 phasesDeg = parseDict['phasesDeg']
 basesDeg = parseDict['basesDeg']
 pixelIds = parseDict['pixelIds']
@@ -55,10 +56,11 @@ print selPixelId
 print 'selected pixel',selPixelId
 print len(np.where(pixelIds==selPixelId)[0]),'photons for selected pixel'
 
+print 'timestamps', timestamps[0:10]
 print 'phase',phasesDeg[0:10]
 print 'base',basesDeg[0:10]
 print 'IDs',pixelIds[0:10]
-
+np.where(pixelIds==selPixelId)
 fig,ax = plt.subplots(1,1)
 ax.plot(phasesDeg[np.where(pixelIds==selPixelId)])
 ax.plot(basesDeg[np.where(pixelIds==selPixelId)])
