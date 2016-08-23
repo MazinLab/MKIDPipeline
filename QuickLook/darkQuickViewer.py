@@ -6,10 +6,12 @@ import sys, os
 import numpy as np
 from PyQt4 import QtCore
 from PyQt4 import QtGui
+#from matplotlib.backends.qt_compat import QtCore
+#from matplotlib.backends.qt_compat import QtGui
 import matplotlib
+matplotlib.rcParams['backend.qt4']='PyQt4'
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-import matplotlib
 from functools import partial
 
 
@@ -616,7 +618,7 @@ def layoutBox(type,elements):
     else:
         raise TypeError('type should be one of [\'vertical\',\'horizontal\',\'V\',\'H\']')
 
-    for element in elements:
+    for element in elements:      
         try:
             box.addWidget(element)
         except:

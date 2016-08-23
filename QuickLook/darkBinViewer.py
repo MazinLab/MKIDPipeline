@@ -15,10 +15,10 @@ import numpy as np
 from PyQt4 import QtCore
 from PyQt4 import QtGui
 import matplotlib
+matplotlib.rcParams['backend.qt4']='PyQt4'
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 #from matplotlib.backends.backend_qt4agg import NavigationToolbar2QTAgg as NavigationToolbar
 from matplotlib.figure import Figure
-import matplotlib
 from functools import partial
 from parsePacketDump2 import parsePacketData
 
@@ -36,6 +36,12 @@ class DarkQuick(QtGui.QMainWindow):
         self.imageStack = []
         self.currentImageIndex = 0
         
+        self.darkLoaded = False
+        self.subtractDark = True
+        #temporary kludge to select dark frame time range
+        self.darkStart = 1469342778
+        self.darkEnd = 1469342798
+        
         self.app = QtGui.QApplication([])
         self.app.setStyle('plastique')
         super(DarkQuick,self).__init__()
@@ -50,10 +56,10 @@ class DarkQuick(QtGui.QMainWindow):
 
         self.beammap=None
         #self.applyBeammap()
+        if self.subtractDark:
+            self.generateDarkFrame()        
         self.loadImageStack()
         self.getObsImage()
-        
-        
 
     def show(self):
         super(DarkQuick,self).show()
@@ -139,6 +145,43 @@ class DarkQuick(QtGui.QMainWindow):
     def addClickFunc(self,clickFunc):
         self.arrayImageWidget.addClickFunc(clickFunc)
 
+    def generateDarkFrame(self):
+        self.darkTimes = np.arange(self.darkStart, self.darkEnd+1)
+        darkFrames = []
+        for iTs,ts in enumerate(self.darkTimes):
+            try:
+                imagePath = os.path.join(dataPath,str(ts)+'.bin')
+                print imagePath
+                with open(imagePath,'rb') as dumpFile:
+                    data = dumpFile.read()
+
+                nBytes = len(data)
+                nWords = nBytes/8 #64 bit words
+                
+                #break into 64 bit words
+                words = np.array(struct.unpack('>{:d}Q'.format(nWords), data),dtype=object)
+                parseDict = parsePacketData(words,verbose=False)
+                image = parseDict['image']
+                
+                if self.beammap is not None:
+                    newImage = np.zeros(image.shape)
+                    for y in range(len(newImage)):
+                        for x in range(len(newImage[0])):
+                            newX=int(self.beammap[y,x][0])
+                            newY=int(self.beammap[y,x][1])
+                            if newX >0 and newY>0: 
+                                newImage[newY,newX] = image[y,x]
+                    image = newImage
+
+            except (IOError, ValueError):
+                image = np.zeros((imageShape['nRows'], imageShape['nCols']),dtype=uint16)  
+            darkFrames.append(image)
+            
+        self.darkStack = np.array(darkFrames)
+        self.darkFrame = np.median(self.darkStack, axis=0)
+        print "Generated median dark frame from timestamps %i to %i"%(self.darkStart, self.darkEnd)
+        self.darkLoaded = True
+
     def loadImageStack(self):
     
         self.timestampList = np.arange(self.startTstamp,self.endTstamp+1)
@@ -192,7 +235,7 @@ class DarkQuick(QtGui.QMainWindow):
                 
                 
             except (IOError, ValueError):
-                image = np.zeros((imageShape['nRows'], imageShape['nCols']))  
+                image = np.zeros((imageShape['nRows'], imageShape['nCols']),dtype=uint16)  
                 
             self.photonTstamps = np.append(self.photonTstamps,photonTimes)
             self.photonPhases = np.append(self.photonPhases,phasesDeg)
@@ -231,7 +274,16 @@ class DarkQuick(QtGui.QMainWindow):
     def getObsImage(self):
         self.lineEdit_currentTstamp.setText(str(self.startTstamp+self.currentImageIndex))
         paramsDict = self.imageParamsWindow.getParams()
-        self.image = self.imageStack[self.currentImageIndex]
+        image = self.imageStack[self.currentImageIndex]
+        if self.subtractDark:
+            if not self.darkLoaded:
+                print "Warning: no dark frame loaded"
+            else:
+                zeroes = np.where(self.darkFrame>image)
+                self.image=image-self.darkFrame
+                self.image[zeroes] = 0.
+        else:
+            self.image = image
         self.plotArray(self.image,**paramsDict['plotParams'])
         print self.currentImageIndex
 
@@ -415,10 +467,10 @@ class PlotWindow(QtGui.QDialog):
         self.phaseHistControlsGroup.setVisible(False)
 
         #time controls
-        self.textbox_startTime = QtGui.QLineEdit('0')
-        self.textbox_startTime.setFixedWidth(50)
-        self.textbox_endTime = QtGui.QLineEdit(str(len(self.parent.imageStack)))
-        self.textbox_endTime.setFixedWidth(50)
+        self.textbox_startTime = QtGui.QLineEdit(str(self.parent.startTstamp))
+        self.textbox_startTime.setFixedWidth(120)
+        self.textbox_endTime = QtGui.QLineEdit(str(self.parent.endTstamp))
+        self.textbox_endTime.setFixedWidth(120)
         self.timesGroup = QtGui.QGroupBox('',parent=self)
         timesBox = layoutBox('H',['Start Time',self.textbox_startTime,'s',1.,'End Time',self.textbox_endTime,'s',10.])
         self.timesGroup.setLayout(timesBox)
@@ -528,7 +580,7 @@ class PlotWindow(QtGui.QDialog):
         for col,row in self.selectedPixels:
             selPixelId = self.parent.photonPixelIDs[np.where((self.parent.photonXs==col) & (self.parent.photonYs==row))][0]
             msTimestamps = self.parent.photonTstamps[np.where(self.parent.photonPixelIDs==selPixelId)]
-            timestamps = 1.0E-3*(msTimestamps-msTimestamps[0])+startTime
+            timestamps = 1.0E-3*(msTimestamps-msTimestamps[0])+self.parent.startTstamp
             hist,_ = np.histogram(timestamps,bins=histBinEdges)
             hists.append(hist)
 
@@ -640,7 +692,7 @@ class PlotWindow(QtGui.QDialog):
         for col,row in self.selectedPixels:
             selPixelId = self.parent.photonPixelIDs[np.where((self.parent.photonXs==col) & (self.parent.photonYs==row))][0]
             msTimestamps = self.parent.photonTstamps[np.where(self.parent.photonPixelIDs==selPixelId)]
-            timestamps = 1.0E-3*(msTimestamps-msTimestamps[0])+startTime
+            timestamps = 1.0E-3*(msTimestamps-msTimestamps[0])+self.parent.startTstamp
             hist,_ = np.histogram(timestamps,bins=histBinEdges)
             hists.append(hist)
 
@@ -692,6 +744,7 @@ class ImageParamsWindow(ModelessWindow):
         if cmapStr != 'gray':
             cmap.set_bad('0.15')
         plotParamsDict['cmap']=cmap
+        #plotParamsDict['vmax']=200
         outDict = {}
         outDict['plotParams'] = plotParamsDict
         return outDict
