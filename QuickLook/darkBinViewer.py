@@ -37,10 +37,13 @@ class DarkQuick(QtGui.QMainWindow):
         self.currentImageIndex = 0
         
         self.darkLoaded = False
-        self.subtractDark = True
+        self.subtractDark = False
         #temporary kludge to select dark frame time range
-        self.darkStart = 1469342778
-        self.darkEnd = 1469342798
+        #self.darkStart = 1469342778
+        #self.darkEnd = 1469342798
+        
+        self.darkStart = 0
+        self.darkEnd = 0
         
         self.app = QtGui.QApplication([])
         self.app.setStyle('plastique')
@@ -84,6 +87,12 @@ class DarkQuick(QtGui.QMainWindow):
         self.label_endTstamp = QtGui.QLabel(str(self.endTstamp))
         self.lineEdit_currentTstamp = QtGui.QLineEdit(str(self.startTstamp+self.currentImageIndex))
         
+        self.checkbox_applyDark = QtGui.QCheckBox('Subtract Dark')
+        self.button_generateDark = QtGui.QPushButton('Generate Dark')
+        self.checkbox_applyDark.setChecked(False)
+        self.lineEdit_darkStart = QtGui.QLineEdit(str(self.darkStart))
+        self.lineEdit_darkEnd = QtGui.QLineEdit(str(self.darkEnd))
+        
         self.arrayImageWidget = ArrayImageWidget(parent=self,hoverCall=self.hoverCanvas)
         self.button_jumpToBeginning = QtGui.QPushButton('|<')
         self.button_jumpToEnd = QtGui.QPushButton('>|')
@@ -105,9 +114,11 @@ class DarkQuick(QtGui.QMainWindow):
         incrementControlsBox = layoutBox('H',[1,self.label_startTstamp,self.button_jumpToBeginning,
                 self.button_incrementBack,self.lineEdit_currentTstamp,
                 self.button_incrementForward,self.button_jumpToEnd,self.label_endTstamp,1])
+        darkControlsBox = layoutBox('H',[1, self.checkbox_applyDark, 'Timestamps ', self.lineEdit_darkStart,
+                ' to ',self.lineEdit_darkEnd,self.button_generateDark,1])
 
 
-        mainBox = layoutBox('V',[canvasBox,incrementControlsBox])
+        mainBox = layoutBox('V',[canvasBox,incrementControlsBox,darkControlsBox])
 
         self.mainFrame.setLayout(mainBox)
         self.setCentralWidget(self.mainFrame)
@@ -141,11 +152,23 @@ class DarkQuick(QtGui.QMainWindow):
         self.connect(self.button_incrementForward,QtCore.SIGNAL('clicked()'), self.incrementForward)
         self.connect(self.button_incrementBack,QtCore.SIGNAL('clicked()'), self.incrementBack)
         self.connect(self.lineEdit_currentTstamp,QtCore.SIGNAL('editingFinished()'),self.jumpToTstamp)
+        self.connect(self.checkbox_applyDark,QtCore.SIGNAL('stateChanged(int)'),self.applyDark)
+        self.connect(self.button_generateDark,QtCore.SIGNAL('clicked()'), self.generateDarkFrame)
 
     def addClickFunc(self,clickFunc):
         self.arrayImageWidget.addClickFunc(clickFunc)
 
+    def applyDark(self):
+        if not self.checkbox_applyDark.isChecked():
+            self.subtractDark = False
+        else:
+            if self.darkLoaded==False:
+                self.generateDarkFrame()
+            self.subtractDark = True
+
     def generateDarkFrame(self):
+        self.darkStart = int(self.lineEdit_darkStart.text())
+        self.darkEnd = int(self.lineEdit_darkEnd.text())
         self.darkTimes = np.arange(self.darkStart, self.darkEnd+1)
         darkFrames = []
         for iTs,ts in enumerate(self.darkTimes):
@@ -174,7 +197,7 @@ class DarkQuick(QtGui.QMainWindow):
                     image = newImage
 
             except (IOError, ValueError):
-                image = np.zeros((imageShape['nRows'], imageShape['nCols']),dtype=uint16)  
+                image = np.zeros((imageShape['nRows'], imageShape['nCols']),dtype=np.uint16)  
             darkFrames.append(image)
             
         self.darkStack = np.array(darkFrames)
@@ -235,7 +258,7 @@ class DarkQuick(QtGui.QMainWindow):
                 
                 
             except (IOError, ValueError):
-                image = np.zeros((imageShape['nRows'], imageShape['nCols']),dtype=uint16)  
+                image = np.zeros((imageShape['nRows'], imageShape['nCols']),dtype=np.uint16)  
                 
             self.photonTstamps = np.append(self.photonTstamps,photonTimes)
             self.photonPhases = np.append(self.photonPhases,phasesDeg)
