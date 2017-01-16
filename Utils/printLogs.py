@@ -32,7 +32,7 @@ targetName = sys.argv[1]
 try:
     logPath=sys.argv[2]
 except IndexError:
-    logPath = '/mnt/data0/ScienceData/'
+    logPath = '/mnt/data0/ScienceData/20161122/'
 
 if targetName in ['all','All','ALL']:
     fileName = '*.log'

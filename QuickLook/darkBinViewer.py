@@ -24,7 +24,7 @@ from parsePacketDump2 import parsePacketData
 
 
 
-dataPath = '/mnt/data0/ScienceData/'
+dataPath = '/mnt/data0/ScienceData/20161122/'
 imageShape = {'nRows':125,'nCols':80}
 
 

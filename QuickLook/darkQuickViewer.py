@@ -16,7 +16,7 @@ from functools import partial
 
 
 
-dataPath = '/mnt/data0/ScienceDataIMGs/'
+dataPath = '/mnt/data0/ScienceDataIMGs/20161122/'
 imageShape = {'nRows':125,'nCols':80}
 
 
