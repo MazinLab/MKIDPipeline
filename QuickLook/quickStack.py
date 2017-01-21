@@ -13,6 +13,11 @@ Pipe unocculted centroids into occulted version
 
 import sys, os, time, struct
 import numpy as np
+####################################
+import tables
+from tables import *
+import h5py
+#####################################
 from scipy import ndimage
 from scipy import signal
 import astropy
@@ -33,8 +38,16 @@ import hotpix.hotPixels as hp
 import headers.TimeMask as tm
 from utilsM82 import *
 from readFITStest import readFITS
-import imRegFFT
+#import imRegFFT
 import image_registration as ir
+
+#################################################           
+h5file = h5py.File('StackedImg_Masks_Centroids.h5', "w",)
+MaskGroup=h5file.create_group('MaskTables')
+StackGroup=h5file.create_group('UnstackedImages')
+CentroidGroup=h5file.create_group('Centroid Positions')
+CalGroup=h5file.create_group('Cal Files')
+#################################################
 
 def aperture(startpx,startpy,radius, nRows, nCols):
         r = radius
@@ -137,6 +150,10 @@ print flatSpan
 print "Loading dark frame"
 darkStack = loadStack(dataDir, darkSpan[0], darkSpan[1],useImg = useImg, nCols=numCols, nRows=numRows)
 dark = medianStack(darkStack)
+darkMedset=CalGroup.create_dataset('MedianDarkFile',(1,numRows,numCols,),'f')
+print('this is dark')
+print(dark[20,20])
+darkMedset[0,0:numRows,0:numCols]=dark
 #plotArray(dark,title='Dark',origin='upper')
 
 #dark = signal.medfilt(dark,3)
@@ -146,6 +163,8 @@ dark = medianStack(darkStack)
 print "Loading flat frame"
 flatStack = loadStack(dataDir, flatSpan[0], flatSpan[1],useImg = useImg, nCols=numCols, nRows=numRows)
 flat = medianStack(flatStack)
+flatMedset=CalGroup.create_dataset('MedianFlatFile',(1,numRows,numCols,),'d')
+flatMedset[0,0:numRows,0:numCols]=flat
 #plotArray(flat,title='Flat',origin='upper')
 flatSub = flat-dark
 
@@ -159,11 +178,21 @@ hpDict=None
 intTime = min(stopTimes-startTimes)
 print "Shortest Integration time = ", intTime
 
+
 #load dithered science frames
 ditherFrames = []
+#################################################  
+hotset=MaskGroup.create_dataset('HotPixMask',(nPos*6,numRows,numCols),'i')
+coldset=MaskGroup.create_dataset('ColdPixMask',(nPos*6,numRows,numCols),'i')
+deadset=MaskGroup.create_dataset('BadPixMask',(nPos*6,numRows,numCols),'i')
+stacksetFinal=StackGroup.create_dataset('UnstackedFinalImage',(nPos*6,numRows,numCols),'i')
+Rough2shiftsetx=CentroidGroup.create_dataset('Rough2ShiftsX',(nPos*6,),'i')
+Rough2shiftsety=CentroidGroup.create_dataset('Rough2ShiftsY',(nPos*6,),'i')
+#################################################  
 for i in range(nPos):
     stack = loadStack(dataDir, startTimes[i], startTimes[i]+intTime,useImg = useImg, nCols=numCols, nRows=numRows)
-    
+    print('this is what we want')
+    print(range(len(stack)))
     #flatNorm = darkSub/flatSub
     for f in range(len(stack)):
         hpPklFile = os.path.join(hpPath,"%s.pkl"%(startTimes[i]+f))
@@ -185,13 +214,31 @@ for i in range(nPos):
                 pklDict = pickle.load(open(hpPklFile,"rb"))
                 hpMask = np.empty((numRows, numCols),dtype=int)
                 hpMask.fill(tm.timeMaskReason['none'])
+		print('hot')
+		print(tm.timeMaskReason['hot pixel'])
+		print('cold')
+		print(tm.timeMaskReason['cold pixel'])
+		print('dead')
+		print(tm.timeMaskReason['dead pixel'])
                 hpMask[pklDict["hotMask"]] = tm.timeMaskReason['hot pixel']
                 hpMask[pklDict["coldMask"]] = tm.timeMaskReason['cold pixel']
                 hpMask[pklDict["deadMask"]] = tm.timeMaskReason['dead pixel']
+		print(i)
+		print(f)
+		print(i+f)
+		hotset[i+f*25,0:numRows,0:numCols,]=hpMask[0:numRows,0:numCols,]
+		coldset[i+f*25,0:numRows,0:numCols,]=pklDict["coldMask"][0:numRows,0:numCols,]
+		deadset[i+f*25,0:numRows,0:numCols,][pklDict["deadMask"]]=hpMask[pklDict["deadMask"]]
+		Rough2shiftsetx[i+f*25]=dXs[f]
+		Rough2shiftsety[i+f*25]=dXs[f]
+		print(stack[f])
+		stacksetFinal[i+f*25,0:numRows,0:numCols]=stack[f]
         else:
             print "No hot pixel masking specified in config file"
             hpMask = np.zeros((numRows, numCols),dtype=int)
+	    print(hpMask)
 
+	
         #apply hp mask to image
         darkSub[np.where(hpMask==12)]=np.nan
         
@@ -199,6 +246,7 @@ for i in range(nPos):
             plotArray(darkSub,title='Dither Pos %i HP Masked'%i,origin='upper',vmin=0)
 
         paddedFrame = embedInLargerArray(darkSub,frameSize=0.40)
+
 
         print "Shifting dither %i, frame %i by x=%i, y=%i"%(i,f, dXs[i], dYs[i])
         shiftedFrame = rotateShiftImage(paddedFrame,0,dXs[i],dYs[i])
@@ -219,7 +267,8 @@ for i in range(nPos):
     print "Loaded dither position %i"%i
 
 shiftedFrames = np.array(ditherFrames)
-
+Fineshiftsetx=CentroidGroup.create_dataset('FineShiftsX',(len(shiftedFrames),),'i')
+Fineshiftsety=CentroidGroup.create_dataset('FineShiftsY',(len(shiftedFrames),),'i')
 #if fitPos==True, do second round of shifting using mpfit correlation
 #using x and y pos from earlier as guess
 if fitPos==True:
@@ -292,13 +341,16 @@ if fitPos==True:
 
         newShiftedFrame = rotateShiftImage(im,mp[0],mp[1],mp[2])
         reshiftedFrames.append(newShiftedFrame)
-        cnt+=1
+        Fineshiftsetx[cnt]=mp[1]
+	Fineshiftsety[cnt]=mp[2]
+	cnt+=1
+	
+	
 
     shiftedFrames = np.array(reshiftedFrames)
 
 #take median stack of all shifted frames
 finalImage = medianStack(shiftedFrames)# / 3.162277 #adjust for OD 0.5 difference between occulted/unocculted files
-
 plotArray(finalImage,title='final',origin='upper')
 
 nanMask = np.zeros(np.shape(finalImage))
@@ -307,4 +359,7 @@ nanMask[np.where(np.isnan(finalImage))]=1
 
 writeFits(finalImage, outputDir+'%s_%sDithers_%sxSamp_%sHPM_%s.fits'%(target,nPos,upSample,hpm,date))
 print "Wrote to FITS: ", outputDir+'%s_%sDithers_%sxSamp_%sHPM_%s.fits'%(target,nPos,upSample,hpm,date)
-
+############################################
+h5file.flush()
+h5file.close()
+############################################
