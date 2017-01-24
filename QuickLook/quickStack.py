@@ -47,6 +47,16 @@ MaskGroup=h5file.create_group('MaskTables')
 StackGroup=h5file.create_group('UnstackedImages')
 CentroidGroup=h5file.create_group('Centroid Positions')
 CalGroup=h5file.create_group('Cal Files')
+
+#class CalInfo(IsDescription):
+ColdPixMask=[]
+HotPixMask=[]
+DeadPixMask=[]
+RawImgs=[]
+RoughShiftsx=[]
+RoughShiftsy=[]
+FineShiftsx=[]
+FineShiftsy=[]
 #################################################
 
 def aperture(startpx,startpy,radius, nRows, nCols):
@@ -181,14 +191,6 @@ print "Shortest Integration time = ", intTime
 
 #load dithered science frames
 ditherFrames = []
-#################################################  
-hotset=MaskGroup.create_dataset('HotPixMask',(nPos*6,numRows,numCols),'i')
-coldset=MaskGroup.create_dataset('ColdPixMask',(nPos*6,numRows,numCols),'i')
-deadset=MaskGroup.create_dataset('BadPixMask',(nPos*6,numRows,numCols),'i')
-stacksetFinal=StackGroup.create_dataset('UnstackedFinalImage',(nPos*6,numRows,numCols),'i')
-Rough2shiftsetx=CentroidGroup.create_dataset('Rough2ShiftsX',(nPos*6,),'i')
-Rough2shiftsety=CentroidGroup.create_dataset('Rough2ShiftsY',(nPos*6,),'i')
-#################################################  
 for i in range(nPos):
     stack = loadStack(dataDir, startTimes[i], startTimes[i]+intTime,useImg = useImg, nCols=numCols, nRows=numRows)
     print('this is what we want')
@@ -226,13 +228,19 @@ for i in range(nPos):
 		print(i)
 		print(f)
 		print(i+f)
-		hotset[i+f*25,0:numRows,0:numCols,]=hpMask[0:numRows,0:numCols,]
-		coldset[i+f*25,0:numRows,0:numCols,]=pklDict["coldMask"][0:numRows,0:numCols,]
-		deadset[i+f*25,0:numRows,0:numCols,][pklDict["deadMask"]]=hpMask[pklDict["deadMask"]]
-		Rough2shiftsetx[i+f*25]=dXs[f]
-		Rough2shiftsety[i+f*25]=dXs[f]
-		print(stack[f])
-		stacksetFinal[i+f*25,0:numRows,0:numCols]=stack[f]
+		HotPix=pklDict["hotMask"]
+		HotPix[pklDict["hotMask"]] = tm.timeMaskReason['hot pixel']
+		ColdPix=pklDict["coldMask"]
+		DeadPix=pklDict["deadMask"]
+		HotPixMask.append(HotPix)
+		ColdPixMask.append(ColdPix)
+		DeadPixMask.append(DeadPix)
+		RoughShiftx=dXs[f]
+		RoughShifty=dYs[f]
+		dataraw=stack[f]
+		RawImgs.append(dataraw)
+		RoughShiftsx.append(RoughShiftx)
+		RoughShiftsy.append(RoughShifty)
         else:
             print "No hot pixel masking specified in config file"
             hpMask = np.zeros((numRows, numCols),dtype=int)
@@ -267,8 +275,6 @@ for i in range(nPos):
     print "Loaded dither position %i"%i
 
 shiftedFrames = np.array(ditherFrames)
-Fineshiftsetx=CentroidGroup.create_dataset('FineShiftsX',(len(shiftedFrames),),'i')
-Fineshiftsety=CentroidGroup.create_dataset('FineShiftsY',(len(shiftedFrames),),'i')
 #if fitPos==True, do second round of shifting using mpfit correlation
 #using x and y pos from earlier as guess
 if fitPos==True:
@@ -341,13 +347,18 @@ if fitPos==True:
 
         newShiftedFrame = rotateShiftImage(im,mp[0],mp[1],mp[2])
         reshiftedFrames.append(newShiftedFrame)
-        Fineshiftsetx[cnt]=mp[1]
-	Fineshiftsety[cnt]=mp[2]
+	FineShiftx=mp[1]
+	FineShifty=mp[2]
+	FineShiftsx.append(FineShiftx)
+	FineShiftsy.append(FineShifty)
 	cnt+=1
 	
 	
 
     shiftedFrames = np.array(reshiftedFrames)
+
+datafile = tables.openFile('Masks_RawImgs_Centroids.h5',mode='w')
+calgroup = datafile.createGroup(datafile.root,'stackcal','Table of Hot/Bad/Cold Pixel Masks and Raw Images')
 
 #take median stack of all shifted frames
 finalImage = medianStack(shiftedFrames)# / 3.162277 #adjust for OD 0.5 difference between occulted/unocculted files
@@ -356,10 +367,20 @@ plotArray(finalImage,title='final',origin='upper')
 nanMask = np.zeros(np.shape(finalImage))
 nanMask[np.where(np.isnan(finalImage))]=1
 #plotArray(nanMask,title='good=0, nan=1', origin='upper')
+arr=[1,2,3]
+Rawarray = tables.Array(calgroup,'Raw Images',RawImgs,title='Raw Images')
+Hotarray = tables.Array(calgroup,'Hot Pixel Mask',HotPixMask,title='Hot Pixel Mask')
+Coldarray = tables.Array(calgroup,'Cold Pixel Mask',ColdPixMask,title='Cold Pixel Mask')
+Deadarray = tables.Array(calgroup,'Dead Pixel Mask',DeadPixMask,title='Dead Pixel Mask')
+Roughxarray=tables.Array(calgroup,'Rough X Array',RoughShiftsx,title='Rough X Array')
+Roughyarray=tables.Array(calgroup,'Rough Y Array',RoughShiftsy,title='Rough Y Array')
+Finexarray=tables.Array(calgroup,'Fine X Array',FineShiftsx,title='Fine X Array')
+Fineyarray=tables.Array(calgroup,'Fine Y Array',FineShiftsy,title='Fine Y Array')
+############################################
+datafile.flush()
+datafile.close()
+############################################
+
 
 writeFits(finalImage, outputDir+'%s_%sDithers_%sxSamp_%sHPM_%s.fits'%(target,nPos,upSample,hpm,date))
 print "Wrote to FITS: ", outputDir+'%s_%sDithers_%sxSamp_%sHPM_%s.fits'%(target,nPos,upSample,hpm,date)
-############################################
-h5file.flush()
-h5file.close()
-############################################
