@@ -25,9 +25,8 @@ from matplotlib.figure import Figure
 from functools import partial
 import mpfit
 
-#import parsePacketDump2
-#from parsePacketDump2 import parsePacketData
-from parsePacketDumpC import parsePacketData
+#from binFile import *
+from binFileC import *
 
 from arrayPopup import plotArray
 from readDict import readDict
@@ -59,53 +58,6 @@ def binLightCurve(start, stop, times, intTime=0.01):
 def plotHist(ax,histBinEdges,hist,**kwargs):
     ax.plot(histBinEdges,np.append(hist,hist[-1]),drawstyle='steps-post',**kwargs)
 
-def loadPhotons(dataPath,startTstamp,endTstamp):
-    timestampList = np.arange(startTstamp,endTstamp+1)
-
-    photonTstamps = np.array([])
-    photonPhases = np.array([])
-    photonBases = np.array([])
-    photonXs = np.array([])
-    photonYs = np.array([])
-    photonPixelIDs = np.array([])
-        
-    for iTs,ts in enumerate(timestampList):
-        print ts
-        try:
-            imagePath = os.path.join(dataPath,str(ts)+'.bin')
-            print imagePath
-            with open(imagePath,'rb') as dumpFile:
-                data = dumpFile.read()
-
-            nBytes = len(data)
-            nWords = nBytes/8 #64 bit words
-                
-            #break into 64 bit words
-            words = np.array(struct.unpack('>{:d}Q'.format(nWords), data),dtype=object)
-
-            parseDict = parsePacketData(words,verbose=False)
-
-            photonTimes = np.array(parseDict['photonTimestamps'])
-            phasesDeg = np.array(parseDict['phasesDeg'])
-            basesDeg = np.array(parseDict['basesDeg'])
-            xCoords = np.array(parseDict['xCoords'])
-            yCoords = np.array(parseDict['yCoords'])
-            pixelIds = np.array(parseDict['pixelIds'])
-            #image = parseDict['image']
-                
-        except (IOError, ValueError):
-            print "something went wrong retrieving ts: %i"%ts
-            image = np.zeros((imageShape['nRows'], imageShape['nCols']),dtype=np.uint16)  
-
-        photonTstamps = np.append(photonTstamps,photonTimes)
-        photonPhases = np.append(photonPhases,phasesDeg)
-        photonBases = np.append(photonBases,basesDeg)
-        photonXs = np.append(photonXs,xCoords)
-        photonYs = np.append(photonYs,yCoords)
-        photonPixelIDs = np.append(photonPixelIDs, pixelIds)
-
-    return photonTstamps,photonPhases,photonBases,photonXs,photonYs,photonPixelIDs
-
 
 configFileName = 'speckleStats_Propus_a.cfg'
 configData = readDict()
@@ -133,9 +85,10 @@ print "Loading data from .bin files"
 #plotArray(dark,title='Dark',origin='upper')
 
 print "Loading photons from times: %i to %i..."%(timeSpan[0],timeSpan[1])
+timestampList = np.arange(timeSpan[0],timeSpan[1]+1)
 
 sTime = time.time()
-photonTstamps,photonPhases,photonBases,photonXs,photonYs,photonPixelIDs = loadPhotons(dataDir,timeSpan[0],timeSpan[1])
+photonTstamps,photonPhases,photonBases,photonXs,photonYs,photonPixelIDs = parseBinFiles(dataDir,timestampList)
 eTime = time.time()
 print "Loaded %i photons"%len(photonTstamps)
 print "Took %f minutes"%((eTime-sTime)/60.)
