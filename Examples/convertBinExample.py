@@ -1,54 +1,42 @@
 '''
-Author: Seth Meeker        Date: August 5, 2016
-Based mostly on darkQuickViewer.py
-
-TODO:
-        Right now images are loaded and diplayed properly from the parsed dictionary
-        Need to implement appending of phases and other parsed data into full photon lists
-        Speed up parsing of data packets. VERY SLOW NOW!
-        Implement plotting of phase histograms
-        Implement user-specified time resolution of lightcurves, and histograms of intensities
+Author: Matt Strader        Date: July 20, 2016
+Same as darkQuickViewer.py, only this one writes your input slice range to a fits file.  Name of the fits file is in the format -starttime- to -endtime-.fits
 '''
 
-import sys, os, time, struct
+import pyfits
+import sys, os
 import numpy as np
 from PyQt4 import QtCore
 from PyQt4 import QtGui
 import matplotlib
-matplotlib.rcParams['backend.qt4']='PyQt4'
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
-#from matplotlib.backends.backend_qt4agg import NavigationToolbar2QTAgg as NavigationToolbar
 from matplotlib.figure import Figure
+import matplotlib
 from functools import partial
-from parsePacketDump2 import parsePacketData
-import parsePacketDump2
 
 
-dataPath = '/mnt/data0/ScienceData/20161122/'
+
+dataPath = '/mnt/data0/ScienceDataIMGs/'
 imageShape = {'nRows':125,'nCols':80}
+
+outpath = '/mnt/data0/ProcessedData/FITS/'
+outfile = 'junk.FITS'
 
 
 class DarkQuick(QtGui.QMainWindow):
     def __init__(self, startTstamp, endTstamp):
+        start=startTstamp
+        end=endTstamp
         
         self.startTstamp = startTstamp
         self.endTstamp = endTstamp
         self.imageStack = []
         self.currentImageIndex = 0
         
-        self.darkLoaded = False
-        self.subtractDark = False
-        #temporary kludge to select dark frame time range
-        #self.darkStart = 1469342778
-        #self.darkEnd = 1469342798
-        
-        self.darkStart = 0
-        self.darkEnd = 0
-        
         self.app = QtGui.QApplication([])
         self.app.setStyle('plastique')
         super(DarkQuick,self).__init__()
-        self.setWindowTitle('Darkness Binary Viewer')
+        self.setWindowTitle('Darkness Image Viewer')
         self.createWidgets()
         self.initWindows()
         self.createMenu()
@@ -59,10 +47,10 @@ class DarkQuick(QtGui.QMainWindow):
 
         self.beammap=None
         #self.applyBeammap()
-        if self.subtractDark:
-            self.generateDarkFrame()        
         self.loadImageStack()
         self.getObsImage()
+        
+        
 
     def show(self):
         super(DarkQuick,self).show()
@@ -87,12 +75,6 @@ class DarkQuick(QtGui.QMainWindow):
         self.label_endTstamp = QtGui.QLabel(str(self.endTstamp))
         self.lineEdit_currentTstamp = QtGui.QLineEdit(str(self.startTstamp+self.currentImageIndex))
         
-        self.checkbox_applyDark = QtGui.QCheckBox('Subtract Dark')
-        self.button_generateDark = QtGui.QPushButton('Generate Dark')
-        self.checkbox_applyDark.setChecked(False)
-        self.lineEdit_darkStart = QtGui.QLineEdit(str(self.darkStart))
-        self.lineEdit_darkEnd = QtGui.QLineEdit(str(self.darkEnd))
-        
         self.arrayImageWidget = ArrayImageWidget(parent=self,hoverCall=self.hoverCanvas)
         self.button_jumpToBeginning = QtGui.QPushButton('|<')
         self.button_jumpToEnd = QtGui.QPushButton('>|')
@@ -114,11 +96,9 @@ class DarkQuick(QtGui.QMainWindow):
         incrementControlsBox = layoutBox('H',[1,self.label_startTstamp,self.button_jumpToBeginning,
                 self.button_incrementBack,self.lineEdit_currentTstamp,
                 self.button_incrementForward,self.button_jumpToEnd,self.label_endTstamp,1])
-        darkControlsBox = layoutBox('H',[1, self.checkbox_applyDark, 'Timestamps ', self.lineEdit_darkStart,
-                ' to ',self.lineEdit_darkEnd,self.button_generateDark,1])
 
 
-        mainBox = layoutBox('V',[canvasBox,incrementControlsBox,darkControlsBox])
+        mainBox = layoutBox('V',[canvasBox,incrementControlsBox])
 
         self.mainFrame.setLayout(mainBox)
         self.setCentralWidget(self.mainFrame)
@@ -152,96 +132,18 @@ class DarkQuick(QtGui.QMainWindow):
         self.connect(self.button_incrementForward,QtCore.SIGNAL('clicked()'), self.incrementForward)
         self.connect(self.button_incrementBack,QtCore.SIGNAL('clicked()'), self.incrementBack)
         self.connect(self.lineEdit_currentTstamp,QtCore.SIGNAL('editingFinished()'),self.jumpToTstamp)
-        self.connect(self.checkbox_applyDark,QtCore.SIGNAL('stateChanged(int)'),self.applyDark)
-        self.connect(self.button_generateDark,QtCore.SIGNAL('clicked()'), self.generateDarkFrame)
 
     def addClickFunc(self,clickFunc):
         self.arrayImageWidget.addClickFunc(clickFunc)
 
-    def applyDark(self):
-        if not self.checkbox_applyDark.isChecked():
-            self.subtractDark = False
-        else:
-            if self.darkLoaded==False:
-                self.generateDarkFrame()
-            self.subtractDark = True
-
-    def generateDarkFrame(self):
-        self.darkStart = int(self.lineEdit_darkStart.text())
-        self.darkEnd = int(self.lineEdit_darkEnd.text())
-        self.darkTimes = np.arange(self.darkStart, self.darkEnd+1)
-        darkFrames = []
-        for iTs,ts in enumerate(self.darkTimes):
-            try:
-                imagePath = os.path.join(dataPath,str(ts)+'.bin')
-                print imagePath
-                with open(imagePath,'rb') as dumpFile:
-                    data = dumpFile.read()
-
-                nBytes = len(data)
-                nWords = nBytes/8 #64 bit words
-                
-                #break into 64 bit words
-                words = np.array(struct.unpack('>{:d}Q'.format(nWords), data),dtype=object)
-                parseDict = parsePacketData(words,verbose=False)
-                image = parseDict['image']
-                
-                if self.beammap is not None:
-                    newImage = np.zeros(image.shape)
-                    for y in range(len(newImage)):
-                        for x in range(len(newImage[0])):
-                            newX=int(self.beammap[y,x][0])
-                            newY=int(self.beammap[y,x][1])
-                            if newX >0 and newY>0: 
-                                newImage[newY,newX] = image[y,x]
-                    image = newImage
-
-            except (IOError, ValueError):
-                image = np.zeros((imageShape['nRows'], imageShape['nCols']),dtype=np.uint16)  
-            darkFrames.append(image)
-            
-        self.darkStack = np.array(darkFrames)
-        self.darkFrame = np.median(self.darkStack, axis=0)
-        print "Generated median dark frame from timestamps %i to %i"%(self.darkStart, self.darkEnd)
-        self.darkLoaded = True
-
     def loadImageStack(self):
-    
         self.timestampList = np.arange(self.startTstamp,self.endTstamp+1)
-        
         images = []
-        self.photonTstamps = np.array([])
-        self.photonPhases = np.array([])
-        self.photonBases = np.array([])
-        self.photonXs = np.array([])
-        self.photonYs = np.array([])
-        self.photonPixelIDs = np.array([])
-        
-        
         for iTs,ts in enumerate(self.timestampList):
             try:
-                imagePath = os.path.join(dataPath,str(ts)+'.bin')
-                print imagePath
-                with open(imagePath,'rb') as dumpFile:
-                    data = dumpFile.read()
-
-                nBytes = len(data)
-                nWords = nBytes/8 #64 bit words
-                
-                #break into 64 bit words
-                words = np.array(struct.unpack('>{:d}Q'.format(nWords), data),dtype=object)
-
-                parseDict = parsePacketData(words,verbose=False)
-
-                photonTimes = np.array(parseDict['photonTimestamps'])
-                phasesDeg = np.array(parseDict['phasesDeg'])
-                basesDeg = np.array(parseDict['basesDeg'])
-                xCoords = np.array(parseDict['xCoords'])
-                yCoords = np.array(parseDict['yCoords'])
-                pixelIds = np.array(parseDict['pixelIds'])
-                image = parseDict['image']
-
-           
+                imagePath = os.path.join(dataPath,str(ts)+'.img')
+                image = np.fromfile(open(imagePath, mode='rb'),dtype=np.uint16)
+                image = np.transpose(np.reshape(image, (imageShape['nCols'], imageShape['nRows'])))
                 if self.beammap is not None:
                     newImage = np.zeros(image.shape)
                     for y in range(len(newImage)):
@@ -255,20 +157,14 @@ class DarkQuick(QtGui.QMainWindow):
                             #    print '('+str(x)+', '+str(y)+') --> 0'
                             #    newImage[y,x]=0
                     image = newImage
-                
-                
-            except (IOError, ValueError):
-                image = np.zeros((imageShape['nRows'], imageShape['nCols']),dtype=np.uint16)  
-                
-            self.photonTstamps = np.append(self.photonTstamps,photonTimes)
-            self.photonPhases = np.append(self.photonPhases,phasesDeg)
-            self.photonBases = np.append(self.photonBases,basesDeg)
-            self.photonXs = np.append(self.photonXs,xCoords)
-            self.photonYs = np.append(self.photonYs,yCoords)
-            self.photonPixelIDs = np.append(self.photonPixelIDs, pixelIds)
+            except IOError:
+                image = np.zeros((imageShape['nRows'], imageShape['nCols']))  
             images.append(image)
-            
         self.imageStack = np.array(images)
+        hdu = pyfits.PrimaryHDU(self.imageStack)
+        hdulist = pyfits.HDUList([hdu])
+        #hdulist.writeto('/mnt/data0/ProcessedData/FITS/new.fits')
+        hdulist.writeto(outpath+str(self.startTstamp)+'_to_'+str(self.endTstamp)+'.fits')
 
     def applyBeammap(self):
         #from addPixID import getPixelIdentificationInfo
@@ -297,16 +193,7 @@ class DarkQuick(QtGui.QMainWindow):
     def getObsImage(self):
         self.lineEdit_currentTstamp.setText(str(self.startTstamp+self.currentImageIndex))
         paramsDict = self.imageParamsWindow.getParams()
-        image = self.imageStack[self.currentImageIndex]
-        if self.subtractDark:
-            if not self.darkLoaded:
-                print "Warning: no dark frame loaded"
-            else:
-                zeroes = np.where(self.darkFrame>image)
-                self.image=image-self.darkFrame
-                self.image[zeroes] = 0.
-        else:
-            self.image = image
+        self.image = self.imageStack[self.currentImageIndex]
         self.plotArray(self.image,**paramsDict['plotParams'])
         print self.currentImageIndex
 
@@ -399,12 +286,12 @@ class PlotWindow(QtGui.QDialog):
 
     def initUI(self):
         #first gui controls that apply to all modes
-        self.checkbox_trackSelection = QtGui.QCheckBox('Plot selected pixel(s)',self)
-        self.checkbox_trackSelection.setChecked(True)
+#        self.checkbox_trackSelection = QtGui.QCheckBox('Plot selected pixel(s)',self)
+#        self.checkbox_trackSelection.setChecked(True)
 
-        self.checkbox_trackTimes = QtGui.QCheckBox('Use main window times',self)
-        self.checkbox_trackTimes.setChecked(True)
-        self.connect(self.checkbox_trackTimes,QtCore.SIGNAL('stateChanged(int)'),self.changeTrackTimes)
+#        self.checkbox_trackTimes = QtGui.QCheckBox('Use main window times',self)
+#        self.checkbox_trackTimes.setChecked(True)
+#        self.connect(self.checkbox_trackTimes,QtCore.SIGNAL('stateChanged(int)'),self.changeTrackTimes)
 
         self.checkbox_clearPlot = QtGui.QCheckBox('Clear axes before plotting',self)
         self.checkbox_clearPlot.setChecked(True)
@@ -428,82 +315,36 @@ class PlotWindow(QtGui.QDialog):
         self.selecting = False
         self.lastPlotType = None
 
-        self.combobox_plotType = QtGui.QComboBox(self)
-        self.plotTypeStrs = ['Light Curve', 'Phase Histogram', 'Intensity Histogram']
-        self.combobox_plotType.addItems(self.plotTypeStrs)
-        self.connect(self.combobox_plotType,QtCore.SIGNAL('activated(QString)'), self.changePlotType)
+        #self.combobox_plotType = QtGui.QComboBox(self)
+        self.plotTypeStrs = ['Light Curve']
+        #self.combobox_plotType.addItems(self.plotTypeStrs)
+        #self.connect(self.combobox_plotType,QtCore.SIGNAL('activated(QString)'), self.changePlotType)
 
 
         #light curve controls
-        self.textbox_intTime = QtGui.QLineEdit('1')
-        self.textbox_intTime.setFixedWidth(50)
+#        self.textbox_intTime = QtGui.QLineEdit('1')
+#        self.textbox_intTime.setFixedWidth(50)
+#
+#        lightCurveControlsBox = layoutBox('H',['Int Time',self.textbox_intTime,'s',1.])
+#        self.lightCurveControlsGroup = QtGui.QGroupBox('Light Curve Controls',parent=self)
+#        self.lightCurveControlsGroup.setLayout(lightCurveControlsBox)
 
-        lightCurveControlsBox = layoutBox('H',['Int Time',self.textbox_intTime,'s',1.])
-        self.lightCurveControlsGroup = QtGui.QGroupBox('Light Curve Controls',parent=self)
-        self.lightCurveControlsGroup.setLayout(lightCurveControlsBox)
-
-        #intensity hist controls
-        self.textbox_exposureTime = QtGui.QLineEdit('1')
-        self.textbox_exposureTime.setFixedWidth(50)
-        
-        self.checkbox_restrictIntensityRange = QtGui.QCheckBox('Restrict intensity range')
-        self.connect(self.checkbox_restrictIntensityRange,QtCore.SIGNAL('stateChanged(int)'),self.changeRestrictIntensityRange)
-        self.checkbox_restrictIntensityRange.setChecked(False)
-
-        self.textbox_intensityHistStart = QtGui.QLineEdit('')
-        self.textbox_intensityHistEnd = QtGui.QLineEdit('')
-        self.changeRestrictIntensityRange()
-
-        self.textbox_intensityHistNBins = QtGui.QLineEdit('1')
-
-        intensityHistControlsBoxRow0 = layoutBox('H',[self.checkbox_restrictIntensityRange,5.,'Start intensity',self.textbox_intensityHistStart,1.,'End intensity',self.textbox_intensityHistEnd,10.])
-        intensityHistControlsBoxRow1 = layoutBox('H',['Intensity bin resolution', self.textbox_intensityHistNBins,5.,'Short Exposure Time',self.textbox_exposureTime,'s', 10.])
-        intensityHistControlsBox = layoutBox('V',[intensityHistControlsBoxRow0,intensityHistControlsBoxRow1])
-
-        self.intensityHistControlsGroup = QtGui.QGroupBox('Intensity Histogram Controls',parent=self)
-        self.intensityHistControlsGroup.setLayout(intensityHistControlsBox)
-        self.intensityHistControlsGroup.setVisible(False)
-
-        #phase hist controls
-        self.checkbox_restrictPhaseRange = QtGui.QCheckBox('Restrict phase range')
-        self.connect(self.checkbox_restrictPhaseRange,QtCore.SIGNAL('stateChanged(int)'),self.changeRestrictPhaseRange)
-        self.checkbox_restrictPhaseRange.setChecked(False)
-
-        self.checkbox_keepRawPhase = QtGui.QCheckBox('Raw units')
-
-        self.textbox_phaseHistStart = QtGui.QLineEdit('')
-        self.textbox_phaseHistEnd = QtGui.QLineEdit('')
-        self.changeRestrictPhaseRange()
-
-        self.textbox_phaseHistNBins = QtGui.QLineEdit('1')
-        self.combobox_phaseHistType = QtGui.QComboBox(self)
-        self.phaseHistTypeStrs = ['Peaks','Baselines','Peaks - Baselines']
-        self.combobox_phaseHistType.addItems(self.phaseHistTypeStrs)
-        self.combobox_phaseHistType.setCurrentIndex(2)
-
-        phaseHistControlsBoxRow0 = layoutBox('H',[self.combobox_phaseHistType,1.,self.checkbox_keepRawPhase,1.,self.checkbox_restrictPhaseRange,10.])
-        phaseHistControlsBoxRow1 = layoutBox('H',['Start phase',self.textbox_phaseHistStart,1.,'End phase',self.textbox_phaseHistEnd,1.,'Number of ADC units per bin',self.textbox_phaseHistNBins,10.])
-        phaseHistControlsBox = layoutBox('V',[phaseHistControlsBoxRow0,phaseHistControlsBoxRow1])
-
-        self.phaseHistControlsGroup = QtGui.QGroupBox('Phase Histogram Controls',parent=self)
-        self.phaseHistControlsGroup.setLayout(phaseHistControlsBox)
-        self.phaseHistControlsGroup.setVisible(False)
 
         #time controls
-        self.textbox_startTime = QtGui.QLineEdit(str(self.parent.startTstamp))
-        self.textbox_startTime.setFixedWidth(120)
-        self.textbox_endTime = QtGui.QLineEdit(str(self.parent.endTstamp))
-        self.textbox_endTime.setFixedWidth(120)
-        self.timesGroup = QtGui.QGroupBox('',parent=self)
-        timesBox = layoutBox('H',['Start Time',self.textbox_startTime,'s',1.,'End Time',self.textbox_endTime,'s',10.])
-        self.timesGroup.setLayout(timesBox)
-        self.timesGroup.setVisible(False)
-        timesChoiceBox = layoutBox('H',[self.checkbox_trackTimes,self.timesGroup])
+#        self.textbox_startTime = QtGui.QLineEdit('0')
+#        self.textbox_startTime.setFixedWidth(50)
+#        self.textbox_endTime = QtGui.QLineEdit(str(len(self.parent.imageStack)))
+#        self.textbox_endTime.setFixedWidth(50)
+#        self.timesGroup = QtGui.QGroupBox('',parent=self)
+#        timesBox = layoutBox('H',['Start Time',self.textbox_startTime,'s',1.,'End Time',self.textbox_endTime,'s',10.])
+#        self.timesGroup.setLayout(timesBox)
+#        self.timesGroup.setVisible(False)
+#        timesChoiceBox = layoutBox('H',[self.checkbox_trackTimes,self.timesGroup])
 
-        checkboxBox = layoutBox('H',[self.checkbox_trackSelection,self.combobox_plotType,2.,self.button_drawPlot])
-        controlsBox = layoutBox('H',[self.lightCurveControlsGroup,self.phaseHistControlsGroup, self.intensityHistControlsGroup])
+        checkboxBox = layoutBox('H',[self.button_drawPlot])
+        #controlsBox = layoutBox('H',[self.lightCurveControlsGroup])
 
-        mainBox = layoutBox('V',[checkboxBox,timesChoiceBox,self.checkbox_clearPlot,controlsBox,self.canvas])
+        mainBox = layoutBox('V',[checkboxBox,self.checkbox_clearPlot,self.canvas])
         self.setLayout(mainBox)
 
     def buttonPressCanvas(self,event):
@@ -532,94 +373,21 @@ class PlotWindow(QtGui.QDialog):
             self.draw()
         pass
 
-    def changePlotType(self,plotType):
-        if plotType == 'Light Curve':
-            self.lightCurveControlsGroup.setVisible(True)
-            self.phaseHistControlsGroup.setVisible(False)
-            self.intensityHistControlsGroup.setVisible(False)
-        elif plotType == 'Phase Histogram':
-            self.lightCurveControlsGroup.setVisible(False)
-            self.phaseHistControlsGroup.setVisible(True)
-            self.intensityHistControlsGroup.setVisible(False)
-        elif plotType == 'Intensity Histogram':
-            self.lightCurveControlsGroup.setVisible(False)
-            self.phaseHistControlsGroup.setVisible(False)
-            self.intensityHistControlsGroup.setVisible(True)
+
 
     def newPixelSelection(self,selectedPixels):
         self.selectedPixels = selectedPixels
         self.updatePlot()
 
     def updatePlot(self):
-        plotType = self.combobox_plotType.currentText()
-        if self.checkbox_clearPlot.isChecked() or plotType != self.lastPlotType:
+        if self.checkbox_clearPlot.isChecked():
             self.axes.cla()
-        if plotType == 'Light Curve':
-            self.plotLightCurve()
-        elif plotType == 'Phase Histogram':
-            self.plotPhaseHist()
-        elif plotType == 'Intensity Histogram':
-            self.plotIntensityHist()
-        self.lastPlotType = plotType
+        self.plotLightCurve()
         self.draw()
         print 'plot updated'
-        
-    def changeTrackTimes(self):
-        if self.checkbox_trackTimes.isChecked():
-            self.timesGroup.setVisible(False)
-        else:
-            self.timesGroup.setVisible(True)
-        
-    def changeRestrictPhaseRange(self):
-        if self.checkbox_restrictPhaseRange.isChecked():
-            self.textbox_phaseHistStart.setEnabled(True)
-            self.textbox_phaseHistEnd.setEnabled(True)
-        else:
-            self.textbox_phaseHistStart.setEnabled(False)
-            self.textbox_phaseHistEnd.setEnabled(False)
-            
-    def changeRestrictIntensityRange(self):
-        if self.checkbox_restrictIntensityRange.isChecked():
-            self.textbox_intensityHistStart.setEnabled(True)
-            self.textbox_intensityHistEnd.setEnabled(True)
-        else:
-            self.textbox_intensityHistStart.setEnabled(False)
-            self.textbox_intensityHistEnd.setEnabled(False)
+
     
     def plotLightCurve(self,getRaw=False):
-        if self.checkbox_trackTimes.isChecked():
-            startTime = float(self.parent.label_startTstamp.text())
-            endTime = float(self.parent.label_endTstamp.text())
-        else:
-            startTime = float(self.textbox_startTime.text())
-            endTime = float(self.textbox_endTime.text())
-        histIntTime = float(self.textbox_intTime.text())
-        firstSec = startTime
-        duration = endTime-startTime
-        histBinEdges = np.arange(startTime,endTime,histIntTime)
-        hists = []
-        if histBinEdges[-1]+histIntTime == endTime:
-            histBinEdges = np.append(histBinEdges,endTime)
-        for col,row in self.selectedPixels:
-            selPixelId = self.parent.photonPixelIDs[np.where((self.parent.photonXs==col) & (self.parent.photonYs==row))][0]
-            msTimestamps = self.parent.photonTstamps[np.where(self.parent.photonPixelIDs==selPixelId)]
-            timestamps = 1.0E-3*(msTimestamps-msTimestamps[0])+self.parent.startTstamp
-            hist,_ = np.histogram(timestamps,bins=histBinEdges)
-            hists.append(hist)
-
-        hists = np.array(hists)
-        hist = np.sum(hists,axis=0)
-
-        binWidths = np.diff(histBinEdges)
-        self.lightCurve = 1.*hist#/binWidths
-        plotHist(self.axes,histBinEdges,self.lightCurve)
-        x_formatter = matplotlib.ticker.ScalarFormatter(useOffset=False)
-        x_formatter.set_scientific(False)
-        self.axes.xaxis.set_major_formatter(x_formatter)
-        self.axes.set_xlabel('time (s)')
-        self.axes.set_ylabel('counts')
-        
-        ''' # Old version of lightcurve plotting from IMG files
         for col,row in self.selectedPixels:
             self.lightCurve = self.parent.imageStack[:,row,col]
 
@@ -629,122 +397,7 @@ class PlotWindow(QtGui.QDialog):
         self.axes.xaxis.set_major_formatter(x_formatter)
         self.axes.set_xlabel('time (s)')
         self.axes.set_ylabel('counts per sec')
-        '''
-    
-    def plotPhaseHist(self):
-        phaseHistType = self.combobox_phaseHistType.currentText()
-        if self.checkbox_trackTimes.isChecked():
-            startTime = float(self.parent.label_startTstamp.text())
-            endTime = float(self.parent.label_endTstamp.text())
-        else:
-            startTime = float(self.textbox_startTime.text())
-            endTime = float(self.textbox_endTime.text())
-        histIntTime = float(self.textbox_intTime.text())
-        firstSec = startTime
-        duration = endTime-startTime
-        hists = []
-        nBinsPerUnit = int(self.textbox_phaseHistNBins.text())
-        histBinEdges = None
-        scaleToDegrees = 1. #180./np.pi*1./2**9
-        zeroOffset = 0 #2**11 # phase is +/-4 radians, where 0 radians is represented by bin value 2048
-        if self.checkbox_restrictPhaseRange.isChecked():
-            range = np.array([float(self.textbox_phaseHistStart.text()),float(self.textbox_phaseHistEnd.text())])
-            if not self.checkbox_keepRawPhase.isChecked():
-                range = range / scaleToDegrees
-        else:
-            range = None
-        pixCutOffPhases=[]
-        for col,row in self.selectedPixels:
-            #if not self.checkbox_keepRawPhase.isChecked():
-            #    cutOffWvl = self.parent.obs.wvlRangeTable[row, col, 0]
-            #    pixCutOffPhases.append(self.parent.obs.convertWvlToPhase(cutOffWvl,row,col))
             
-            selPixelId = self.parent.photonPixelIDs[np.where((self.parent.photonXs==col) & (self.parent.photonYs==row))][0]
-
-            timestamps = self.parent.photonTstamps[np.where(self.parent.photonPixelIDs==selPixelId)]
-            peakHeights = self.parent.photonPhases[np.where(self.parent.photonPixelIDs==selPixelId)]
-            baselines = self.parent.photonBases[np.where(self.parent.photonPixelIDs==selPixelId)]
-            if phaseHistType == 'Peaks':
-                listToHist = peakHeights+baselines
-            elif phaseHistType == 'Baselines':
-                listToHist = baselines
-            elif phaseHistType == 'Peaks - Baselines':
-                listToHist = peakHeights
-
-            if histBinEdges == None:
-                if not self.checkbox_restrictPhaseRange.isChecked():
-                    range = np.array([np.min(listToHist),np.max(listToHist)])
-                bins = (range[1]-range[0])//nBinsPerUnit
-            else:
-                bins = histBinEdges
-
-            hist,histBinEdges = np.histogram(listToHist,bins=bins,range=range)
-            hists.append(hist)
-
-        hists = np.array(hists)
-        self.hist = np.sum(hists,axis=0)
-
-        binWidths = np.diff(histBinEdges)
-            
-        if self.checkbox_keepRawPhase.isChecked():
-            xlabel = 'phase'
-        else:
-            histBinEdges = histBinEdges * scaleToDegrees
-            xlabel = 'phase (${}^\circ$)'
-            pixCutOffPhases=np.asarray(pixCutOffPhases) * scaleToDegrees
-        plotHist(self.axes,histBinEdges,self.hist)
-        for pixCutOffPhase in pixCutOffPhases:
-            self.axes.axvline(x=pixCutOffPhase,color='k')
-        self.axes.set_xlabel(xlabel)
-        self.axes.set_ylabel('counts')
-
-    def plotIntensityHist(self):
-        if self.checkbox_trackTimes.isChecked():
-            startTime = float(self.parent.label_startTstamp.text())
-            endTime = float(self.parent.label_endTstamp.text())
-        else:
-            startTime = float(self.textbox_startTime.text())
-            endTime = float(self.textbox_endTime.text())
-        histIntTime = float(self.textbox_exposureTime.text())
-
-        #generate light curve same as plotLightcurve routine
-        histBinEdges = np.arange(startTime,endTime,histIntTime)
-        hists = []
-        if histBinEdges[-1]+histIntTime == endTime:
-            histBinEdges = np.append(histBinEdges,endTime)
-        for col,row in self.selectedPixels:
-            selPixelId = self.parent.photonPixelIDs[np.where((self.parent.photonXs==col) & (self.parent.photonYs==row))][0]
-            msTimestamps = self.parent.photonTstamps[np.where(self.parent.photonPixelIDs==selPixelId)]
-            timestamps = 1.0E-3*(msTimestamps-msTimestamps[0])+self.parent.startTstamp
-            hist,_ = np.histogram(timestamps,bins=histBinEdges)
-            hists.append(hist)
-
-        hists = np.array(hists)
-        lightCurveHist = np.sum(hists,axis=0)
-        binWidths = np.diff(histBinEdges)
-        
-        #take light curve and bin into histogram of intensities
-        intHistBinEdges = None
-        nBinsPerUnitInt = int(self.textbox_intensityHistNBins.text())
-        
-        pixCutOffIntensities=[]
-        listToHist = lightCurveHist
-        
-        if self.checkbox_restrictIntensityRange.isChecked():
-            range = np.array([float(self.textbox_intensityHistStart.text()),float(self.textbox_intensityHistEnd.text())])
-        else:
-            range = np.array([np.min(listToHist),np.max(listToHist)])
-            
-        intBins = (range[1]-range[0])//nBinsPerUnitInt
-        intHist,intHistBinEdges = np.histogram(listToHist,bins=intBins,range=range)
-        self.intHist = np.array(intHist)
-
-        binWidths = np.diff(intHistBinEdges)
-            
-        xlabel = 'Counts'
-        plotHist(self.axes,intHistBinEdges,self.intHist)
-        self.axes.set_xlabel(xlabel)
-        self.axes.set_ylabel('N_frames')
 
 class ImageParamsWindow(ModelessWindow):
     def initUI(self):
@@ -759,6 +412,9 @@ class ImageParamsWindow(ModelessWindow):
         mainBox = layoutBox('V',[plotArrayGroup])
 
         self.setLayout(mainBox)
+
+
+
             
     def getParams(self):
         plotParamsDict = {}
@@ -767,7 +423,6 @@ class ImageParamsWindow(ModelessWindow):
         if cmapStr != 'gray':
             cmap.set_bad('0.15')
         plotParamsDict['cmap']=cmap
-        #plotParamsDict['vmax']=200
         outDict = {}
         outDict['plotParams'] = plotParamsDict
         return outDict

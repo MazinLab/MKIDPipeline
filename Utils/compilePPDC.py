@@ -8,7 +8,15 @@ Run in command line:
 python compilePPDC.py build_ext --inplace
 '''
 
+'''
 setup(
   name = 'Parse Packet Dump Cython',
   ext_modules = cythonize("parsePacketDumpC.pyx"),
 )
+'''
+
+setup(
+  name = 'binFile Cython',
+  ext_modules = cythonize("binFileC.pyx"),
+)
+
