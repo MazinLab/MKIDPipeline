@@ -646,7 +646,7 @@ class darkObsFile:
                               alpha=0.5,color='gray')
 
 
-    def getTimedPacketList(self, iRow, iCol, firstSec=0, integrationTime= -1, timeSpacingCut=None,expTailTimescale=None):
+    def getTimedPacketList(self, iRow, iCol, firstSec=0, integrationTime= -1, timeSpacingCut=None,expTailTimescale=None, getUnAllocPixels = False, getBaselines = False, verbose=False):
         """
         - SRM 2017-05-05
         Updated for darkness pipeline.
@@ -656,10 +656,17 @@ class darkObsFile:
         or if the requested integration time is outside the available data time span.
         Time masking has also been adjusted to ALWAYS remove times<firstSec or times>lastSec
 
+        - SRM 2017-05-07
+        A couple changes to increase speed:
+            . return dictionary returns baseline array filled with NANs unless getBaseline=True.
+              Saves a couple seconds per pixel on a ~5 min obs file.
+              May want to change this later to just not give back baseline, so it breaks any code
+              intentionally that is trying to subtract baselines from peakheights like in old
+              ARCONS data format when this was necessary.
+            . only beammapped pixels are collected unless getUnAllocPixels=True
+
         - TO DO
-        - Add flag for returning baseline, since new data has it subtracted automatically.
-          We no longer need to return it in the dictionary unless it is specifically requested.
-          This will save much time in grabbing the timed packets.
+        
 
 
         ### Previous comments for ARCONS version below
@@ -756,20 +763,41 @@ class darkObsFile:
                 if inter == self.intervalAll:
                     effectiveIntTime = 0.
 
+            elif self.beamMapFlags[iRow][iCol] !=0 and getUnAllocPixels==False:
+                timestamps = np.array([])
+                peakHeights = np.array([])
+                baselines = np.array([])
+                rawCounts = 0.
+                pixID = self.beamImage[iRow][iCol]
+                if verbose:
+                    print "darkObsFile: Pixel %i, %i (id= %i) un-beammapped. Returned 0 counts."%(iRow,iCol,pixID) 
+
             else:
                 #get resID for desired x,y location from beamImage.
                 #Tempting to search over timespan as well, but DON'T!! VERY SLOW!!!
                 #Faster to just get all timestamps and then cut out ends with time mask defined above.
                 pixID = self.beamImage[iRow][iCol]
 
+                t0 = time.time()
                 #query pytables data table for timestamps and phase information
                 timestamps = [i['Time'] for i in self.data.where("""(ResID==%i)"""%pixID)]
                 # convert timestamps from microseconds to seconds
                 timestamps = np.array(timestamps,dtype=float)*self.tickDuration
 
-                baselines = [i['Baseline'] for i in self.data.where("""(ResID==%i)"""%pixID)]
+                # only get baselines if they are specifically requested.
+                # gen2 readout automatically subtracts these from phase peaks already
+                if getBaselines == True:
+                    baselines = [i['Baseline'] for i in self.data.where("""(ResID==%i)"""%pixID)]
+                else:
+                    baselines = np.empty(len(timestamps),dtype=float)
+                    baselines.fill(np.nan)
+
                 peakHeights = [i['Wavelength'] for i in self.data.where("""(ResID==%i)"""%pixID)]
-                print "Collected %i timestamps..."%len(timestamps)
+                
+                t1=time.time()
+
+                if verbose:
+                    print "darkObsFile: Collected %i timestamps, took %i seconds..."%(len(timestamps), t1-t0)
 
                 #apply time masking
                 maskedDict = self.maskTimestamps(timestamps=timestamps,inter=inter,otherListsToFilter=[baselines,peakHeights])
