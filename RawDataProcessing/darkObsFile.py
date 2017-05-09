@@ -29,7 +29,7 @@ getPixelCount(self, iRow, iCol, firstSec=0, integrationTime= -1,weighted=False, 
 
 %x%getPixelLightCurve(self, iRow, iCol, firstSec=0, lastSec=-1, cadence=1, **kwargs)
 
-getTimedPacketList(self, iRow, iCol, firstSec=0, integrationTime=-1, getUnAllocPixels=False, getBaselines=False, getWavelengths=True, verbose=False)
+getTimedPacketList(self, iRow, iCol, firstSec=0, integrationTime=-1, getUnAllocPixels=False, verbose=False)
 
 %x%getPixelCountImage(self, firstSec=0, integrationTime= -1, weighted=False,fluxWeighted=False, getRawCount=False,scaleByEffInt=False)
 %x%getAperturePixelCountImage(self, firstSec=0, integrationTime= -1, y_values=range(46), x_values=range(44), y_sky=[], x_sky=[], apertureMask=np.ones((46,44)), skyMask=np.zeros((46,44)), weighted=False, fluxWeighted=False, getRawCount=False, scaleByEffInt=False)
@@ -528,6 +528,8 @@ class darkObsFile:
         - SRM 2017-05-08
           Updated call to getTimedPacketList to ignore wavelengths when only getting raw counts.
           Still needs call to getPixelSpectrum to be updated.
+        - SRM 2017-05-09
+          Removed need for ignoring wavelengths in getTimedPacketList.
 
         returns the number of photons received in a given pixel from firstSec to firstSec + integrationTime
         - if integrationTime is -1, all time after firstSec is used.  
@@ -553,7 +555,7 @@ class darkObsFile:
         """
         
         if getRawCount is True:
-            x = self.getTimedPacketList(iRow, iCol, firstSec=firstSec, integrationTime=integrationTime, timeSpacingCut=timeSpacingCut, verbose=verbose, getWavelengths=False)
+            x = self.getTimedPacketList(iRow, iCol, firstSec=firstSec, integrationTime=integrationTime, timeSpacingCut=timeSpacingCut, verbose=verbose)
             #x2 = self.getTimedPacketList_old(iRow, iCol, firstSec=firstSec, integrationTime=integrationTime)
             #assert np.array_equal(x['timestamps'],x2['timestamps'])
             #assert np.array_equal(x['effIntTime'],x2['effIntTime'])
@@ -628,7 +630,7 @@ class darkObsFile:
                               alpha=0.5,color='gray')
 
 
-    def getTimedPacketList(self, iRow, iCol, firstSec=0, integrationTime= -1, timeSpacingCut=None,expTailTimescale=None, getUnAllocPixels = False, getBaselines = False, getWavelengths=True, verbose=False):
+    def getTimedPacketList(self, iRow, iCol, firstSec=0, integrationTime= -1, timeSpacingCut=None,expTailTimescale=None, getUnAllocPixels = False, verbose=False):
         """
         - SRM 2017-05-05
         Updated for darkness pipeline.
@@ -650,6 +652,9 @@ class darkObsFile:
         - SRM 2017-05-08
         For calls where only raw timestamps are desired, and not wavelengths, added option to turn
         off return of wavelengths. By default, getWavelengths=True.
+
+        -SRM 2017-05-09
+        Deprecated previous query changes by combining query for time, wvl, and baseline into single one
 
         - TO DO
         
@@ -768,10 +773,16 @@ class darkObsFile:
                 t0 = time.time()
 
                 #query pytables data table for timestamps and phase information
-                timestamps = [i['Time'] for i in self.data.where("""(ResID==%i)"""%pixID)]
-                # convert timestamps from microseconds to seconds
-                timestamps = np.array(timestamps,dtype=float)*self.tickDuration
+                threePack = [[i['Time'],i['Wavelength'],i['Baseline']] for i in self.data.where("""(ResID==%i)"""%pixID)]
+                #convert threePack of information to np array for smarter handling
+                npThreePack = np.array(threePack)
+                #extract timestamps, peakheights, and baselines columns
+                timestamps = np.array(npThreePack[:,0],dtype=np.long)*self.tickDuration
+                peakHeights = npThreePack[:,1]
+                baselines = npThreePack[:,2]
 
+                '''
+                ### 2017-05-09 COMBINED ALL INTO ONE QUERY, NO NEED TO EXCLUDE THESE NOW
                 # only get baselines if they are specifically requested.
                 # gen2 readout automatically subtracts these from phase peaks already
                 if getBaselines == True:
@@ -787,7 +798,8 @@ class darkObsFile:
                 else:
                     peakHeights = np.empty(len(timestamps),dtype=float)
                     peakHeights.fill(np.nan)
-                
+                '''
+
                 t1=time.time()
 
                 if verbose:
@@ -1161,7 +1173,6 @@ class darkObsFile:
             utils.plotArray(nonAllocArray)
         return nonAllocArray
 
-s
     def getRoachNum(self,iRow,iCol):
         pixelLabel = self.beamImage[iRow][iCol]
         iRoach = int(pixelLabel.split('r')[1][0])
