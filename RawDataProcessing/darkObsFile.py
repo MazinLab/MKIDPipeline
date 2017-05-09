@@ -8,7 +8,7 @@ The class darkObsFile is an interface to h5 observation files, an intermediate d
 
 Looks for observation files in $MKID_RAW_PATH and calibration files organized in $MKID_PROC_PATH (intermediate or scratch path)
 
-Methods are listed below. Those with %x% in front have not been updated for gen 2 data yet.
+Methods (41) are listed below. Those with %x% in front have not been updated for gen 2 data yet.
 Class darkObsfile:
 __init__(self, fileName,verbose=False)
 __del__(self)
@@ -23,18 +23,25 @@ loadFile(self, fileName,verbose=False)
 %x%createEmptyPhotonListFile(self)
 %x%displaySec(self, firstSec=0, integrationTime= -1, weighted=False,fluxWeighted=False, plotTitle='', nSdevMax=2,scaleByEffInt=False)
 %x%getFromHeader(self, name)
-%x%getPixelWvlList(self,iRow,iCol,firstSec=0,integrationTime=-1,excludeBad=True,dither=True)
-%x%getPixelCount(self, iRow, iCol, firstSec=0, integrationTime= -1,weighted=False, fluxWeighted=False, getRawCount=False)
+
+getPixelWvlList(self,iRow,iCol,firstSec=0,integrationTime=-1,excludeBad=True,dither=True,verbose=False)
+getPixelCount(self, iRow, iCol, firstSec=0, integrationTime= -1,weighted=False, fluxWeighted=False, getRawCount=False,verbose=False)
+
 %x%getPixelLightCurve(self, iRow, iCol, firstSec=0, lastSec=-1, cadence=1, **kwargs)
-%x%getTimedPacketList_old(self, iRow, iCol, firstSec=0, integrationTime= -1)
-%x%getTimedPacketList(self, iRow, iCol, firstSec=0, integrationTime= -1)
+
+getTimedPacketList(self, iRow, iCol, firstSec=0, integrationTime=-1, getUnAllocPixels=False, getBaselines=False, getWavelengths=True, verbose=False)
+
 %x%getPixelCountImage(self, firstSec=0, integrationTime= -1, weighted=False,fluxWeighted=False, getRawCount=False,scaleByEffInt=False)
 %x%getAperturePixelCountImage(self, firstSec=0, integrationTime= -1, y_values=range(46), x_values=range(44), y_sky=[], x_sky=[], apertureMask=np.ones((46,44)), skyMask=np.zeros((46,44)), weighted=False, fluxWeighted=False, getRawCount=False, scaleByEffInt=False)
-%x%getSpectralCube(self,firstSec=0,integrationTime=-1,weighted=True,wvlStart=3000,wvlStop=13000,wvlBinWidth=None,energyBinWidth=None,wvlBinEdges=None)
-%x%getPixelSpectrum(self, pixelRow, pixelCol, firstSec=0, integrationTime= -1,weighted=False, fluxWeighted=False, wvlStart=3000, wvlStop=13000, wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None)
+
+getSpectralCube(self,firstSec=0,integrationTime=-1,weighted=True,wvlStart=7000, wvlStop=16000, wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None, verbose=False)
+getPixelSpectrum(self, pixelRow, pixelCol, firstSec=0, integrationTime= -1,weighted=False, fluxWeighted=False, wvlStart=7000, wvlStop=16000, wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None, verbose=False)
+
 %x%getPixelBadTimes(self, pixelRow, pixelCol)
 %x%getDeadPixels(self, showMe=False, weighted=True, getRawCount=False)
-%x%getNonAllocPixels(self, showMe=False)
+
+getNonAllocPixels(self, showMe=False)
+
 %x%getRoachNum(self,iRow,iCol)
 %x%getFrame(self, firstSec=0, integrationTime=-1)
 %x%loadCentroidListFile(self, centroidListFileName)
@@ -46,11 +53,14 @@ loadFile(self, fileName,verbose=False)
 
 loadFilter(self, filterName = 'V', wvlBinEdges = None,switchOnFilter = True)
 makeWvlBins(energyBinWidth=.1, wvlStart=7000, wvlStop=16000)
+plotPixelSpectra(self, pixelRow, pixelCol, firstSec=0, integrationTime= -1,weighted=False, fluxWeighted=False, verbose=False)
 
-%x%plotPixelSpectra(self, pixelRow, pixelCol, firstSec=0, integrationTime= -1,weighted=False, fluxWeighted=False)getApertureSpectrum(self, pixelRow, pixelCol, radius1, radius2, weighted=False, fluxWeighted=False, lowCut=3000, highCut=7000,firstSec=0,integrationTime=-1)
+%x%getApertureSpectrum(self, pixelRow, pixelCol, radius1, radius2, weighted=False, fluxWeighted=False, lowCut=3000, highCut=7000,firstSec=0,integrationTime=-1)
 %x%plotPixelLightCurve(self,iRow,iCol,firstSec=0,lastSec=-1,cadence=1,**kwargs)
 %x%plotApertureSpectrum(self, pixelRow, pixelCol, radius1, radius2, weighted=False, fluxWeighted=False, lowCut=3000, highCut=7000, firstSec=0,integrationTime=-1)
-%x%setWvlCutoffs(self, wvlLowerLimit=3000, wvlUpperLimit=8000)
+
+setWvlCutoffs(self, wvlLowerLimit=7000, wvlUpperLimit=16000)
+
 %x%switchOffHotPixTimeMask(self)
 %x%switchOnHotPixTimeMask(self, reasons=[])
 
@@ -183,6 +193,8 @@ class darkObsFile:
     def loadFile(self, fileName,verbose=False):
         """
         Opens file and loads obs file attributes and beammap
+        
+        -SRM 2017-05-04 Updated for DARKNESS pipeline
         """
         if (os.path.isabs(fileName)):
             self.fileName = os.path.basename(fileName)
@@ -269,7 +281,7 @@ class darkObsFile:
     def checkIntegrity(self,firstSec=0,integrationTime=-1):
         ##### TO DO #####
         # Will need to reformulate how corruption is identified, since 1/tick duration
-        # 
+        # is not an invalid timestamp in new DARKNESS format data
         """
         Checks the obs file for corrupted end-of-seconds
         Corruption is indicated by timestamps greater than 1/tickDuration=1e6
@@ -361,40 +373,6 @@ class darkObsFile:
         import photonlist.photlist      #Here instead of at top to avoid circular imports
         photonlist.photlist.createEmptyPhotonListFile(self,*nkwargs,**kwargs)
 
-
-#    def createEmptyPhotonListFile(self,fileName=None):
-#        """
-#        creates a photonList h5 file 
-#        using header in headers.ArconsHeaders
-#        
-#        INPUTS:
-#            fileName - string, name of file to write to. If not supplied, default is used
-#                       based on name of original obs. file and standard directories etc.
-#                       (see usil.FileName). Added 4/29/2013, JvE
-#        """
-#        
-#        if fileName is None:    
-#            fileTimestamp = self.fileName.split('_')[1].split('.')[0]
-#            fileDate = os.path.basename(os.path.dirname(self.fullFileName))
-#            run = os.path.basename(os.path.dirname(os.path.dirname(self.fullFileName)))
-#            fn = FileName(run=run, date=fileDate, tstamp=fileTimestamp)
-#            fullPhotonListFileName = fn.photonList()
-#        else:
-#            fullPhotonListFileName = fileName
-#        if (os.path.exists(fullPhotonListFileName)):
-#            if utils.confirm('Photon list file  %s exists. Overwrite?' % fullPhotonListFileName, defaultResponse=False) == False:
-#                exit(0)
-#        zlibFilter = tables.Filters(complevel=1, complib='zlib', fletcher32=False)
-#        try:
-#            plFile = tables.open_file(fullPhotonListFileName, mode='w')
-#            plGroup = plFile.createGroup('/', 'photons', 'Group containing photon list')
-#            plTable = plFile.createTable(plGroup, 'photons', ArconsHeaders.PhotonList, 'Photon List Data', 
-#                                         filters=zlibFilter, 
-#                                         expectedrows=300000)  #Temporary fudge to see if it helps!
-#        except:
-#            plFile.close()
-#            raise
-#        return plFile
         
     def displaySec(self, firstSec=0, integrationTime= -1, weighted=False,
                    fluxWeighted=False, plotTitle='', nSdevMax=2,
@@ -465,6 +443,8 @@ class darkObsFile:
 
     def setWvlDitherSeed(self,seed=None):
         """
+        -SRM 2017-05-08 Updated for DARKNESS pipeline
+
         sets the seed for the random number generator used to dither the wavelengths by an ADC value. 
         See getPixelWvlList.
         seed - if seed is not specified or None, uses the default numpy.random.RandomState seed, which according to docs,
@@ -473,7 +453,7 @@ class darkObsFile:
         self.seed = seed
         np.random.seed(seed)
 
-    def getPixelWvlList(self,iRow,iCol,firstSec=0,integrationTime=-1,excludeBad=True,dither=True,timeSpacingCut=None): #,getTimes=False):
+    def getPixelWvlList(self,iRow,iCol,firstSec=0,integrationTime=-1,excludeBad=True,dither=True,timeSpacingCut=None, verbose=False): #,getTimes=False):
         """
         returns a numpy array of photon wavelengths for a given pixel, integrated from firstSec to firstSec+integrationTime.
         if integrationTime is -1, All time after firstSec is used. 
@@ -482,29 +462,30 @@ class darkObsFile:
             timestamps
             wavelengths
             effIntTime  (effective integration time)
+
+        SRM 2017-05-08
+        Updated for DARKNESS pipeline. Mostly just removed baseline retrieval.
+
         JvE 3/5/2013
         if excludeBad is True, relevant wavelength cuts are applied to timestamps and wavelengths before returning 
-        [if getTimes is True, returns timestamps,wavelengths - OBSELETED - JvE 3/2/2013]
+        [if getTimes is True, returns timestamps,wavelengths - OBSOLETE - JvE 3/2/2013]
 
         MJS 3/28/2013
         if dither is True, uniform random values in the range (0,1) will be added to all quantized ADC values read, to remedy the effects of quantization
         """
-        
-        
-        x = self.getTimedPacketList(iRow, iCol, firstSec, integrationTime,timeSpacingCut=timeSpacingCut)
-        timestamps, parabolaPeaks, baselines, effIntTime, rawCounts = \
-            x['timestamps'], x['peakHeights'], x['baselines'], x['effIntTime'], x['rawCounts']
-        parabolaPeaks = np.array(parabolaPeaks,dtype=np.double)
-        baselines = np.array(baselines,dtype=np.double)
-        if dither==True:
-            parabolaPeaks += np.random.random_sample(len(parabolaPeaks))
-            baselines += np.random.random_sample(len(baselines))                    
-        pulseHeights = parabolaPeaks - baselines
 
-        #xOffset = self.wvlCalTable[iRow, iCol, 0]
-        #yOffset = self.wvlCalTable[iRow, iCol, 1]
-        #amplitude = self.wvlCalTable[iRow, iCol, 2]
-        #energies = amplitude * (pulseHeights - xOffset) ** 2 + yOffset
+        if not hasattr(self, 'wvlCalTable'):
+            raise ValueError("Wavelength cal not loaded. Cannot return Wvl list!")
+
+        x = self.getTimedPacketList(iRow, iCol, firstSec, integrationTime,timeSpacingCut=timeSpacingCut, verbose=verbose)
+        timestamps, parabolaPeaks, effIntTime, rawCounts = \
+            x['timestamps'], x['peakHeights'], x['effIntTime'], x['rawCounts']
+        parabolaPeaks = np.array(parabolaPeaks,dtype=np.double)
+        if dither==True:
+            parabolaPeaks += np.random.random_sample(len(parabolaPeaks))                    
+        pulseHeights = parabolaPeaks
+
+        #Convert raw pulse height to wavelength using wvlCal solution
         const = self.wvlCalTable[iRow, iCol, 0]
         lin_term = self.wvlCalTable[iRow, iCol, 1]
         quad_term = self.wvlCalTable[iRow, iCol, 2]
@@ -541,9 +522,13 @@ class darkObsFile:
                 'effIntTime':effIntTime, 'rawCounts':rawCounts}
             
     
-    def getPixelCount(self, iRow, iCol, firstSec=0, integrationTime= -1,
-                      weighted=False, fluxWeighted=False, getRawCount=False, timeSpacingCut=None):
+    def getPixelCount(self, iRow, iCol, firstSec=0, integrationTime= -1, weighted=False,
+                       fluxWeighted=False, getRawCount=False, timeSpacingCut=None, verbose=False):
         """
+        - SRM 2017-05-08
+          Updated call to getTimedPacketList to ignore wavelengths when only getting raw counts.
+          Still needs call to getPixelSpectrum to be updated.
+
         returns the number of photons received in a given pixel from firstSec to firstSec + integrationTime
         - if integrationTime is -1, all time after firstSec is used.  
         - if weighted is True, flat cal weights are applied
@@ -568,7 +553,7 @@ class darkObsFile:
         """
         
         if getRawCount is True:
-            x = self.getTimedPacketList(iRow, iCol, firstSec=firstSec, integrationTime=integrationTime, timeSpacingCut=timeSpacingCut)
+            x = self.getTimedPacketList(iRow, iCol, firstSec=firstSec, integrationTime=integrationTime, timeSpacingCut=timeSpacingCut, verbose=verbose, getWavelengths=False)
             #x2 = self.getTimedPacketList_old(iRow, iCol, firstSec=firstSec, integrationTime=integrationTime)
             #assert np.array_equal(x['timestamps'],x2['timestamps'])
             #assert np.array_equal(x['effIntTime'],x2['effIntTime'])
@@ -579,12 +564,9 @@ class darkObsFile:
             return {'counts':counts, 'effIntTime':effIntTime, 'rawCounts':rawCounts}
 
         else:
-            pspec = self.getPixelSpectrum(iRow, iCol, firstSec, integrationTime,weighted=weighted, fluxWeighted=fluxWeighted, timeSpacingCut=timeSpacingCut)
+            pspec = self.getPixelSpectrum(iRow, iCol, firstSec, integrationTime,weighted=weighted, fluxWeighted=fluxWeighted, timeSpacingCut=timeSpacingCut, verbose=verbose)
             counts = sum(pspec['spectrum'])
-            
-            ### If it's weighted then deadtime should be corrected in getPixelSpectrum(), otherwise not ###
-            
-            
+            ### If it's weighted then deadtime should be corrected in getPixelSpectrum(), otherwise not ###            
             return {'counts':counts, 'effIntTime':pspec['effIntTime'], 'rawCounts':pspec['rawCounts']}
 
 
@@ -646,7 +628,7 @@ class darkObsFile:
                               alpha=0.5,color='gray')
 
 
-    def getTimedPacketList(self, iRow, iCol, firstSec=0, integrationTime= -1, timeSpacingCut=None,expTailTimescale=None, getUnAllocPixels = False, getBaselines = False, verbose=False):
+    def getTimedPacketList(self, iRow, iCol, firstSec=0, integrationTime= -1, timeSpacingCut=None,expTailTimescale=None, getUnAllocPixels = False, getBaselines = False, getWavelengths=True, verbose=False):
         """
         - SRM 2017-05-05
         Updated for darkness pipeline.
@@ -664,6 +646,10 @@ class darkObsFile:
               intentionally that is trying to subtract baselines from peakheights like in old
               ARCONS data format when this was necessary.
             . only beammapped pixels are collected unless getUnAllocPixels=True
+
+        - SRM 2017-05-08
+        For calls where only raw timestamps are desired, and not wavelengths, added option to turn
+        off return of wavelengths. By default, getWavelengths=True.
 
         - TO DO
         
@@ -778,7 +764,9 @@ class darkObsFile:
                 #Faster to just get all timestamps and then cut out ends with time mask defined above.
                 pixID = self.beamImage[iRow][iCol]
 
+                #keep track of local clock to time how long the table query takes
                 t0 = time.time()
+
                 #query pytables data table for timestamps and phase information
                 timestamps = [i['Time'] for i in self.data.where("""(ResID==%i)"""%pixID)]
                 # convert timestamps from microseconds to seconds
@@ -792,7 +780,13 @@ class darkObsFile:
                     baselines = np.empty(len(timestamps),dtype=float)
                     baselines.fill(np.nan)
 
-                peakHeights = [i['Wavelength'] for i in self.data.where("""(ResID==%i)"""%pixID)]
+                # in some instances we don't need wavelengths, only raw timestamps.
+                # default behavior returns wavelengths, but can be turned off to save time.
+                if getWavelengths == True:
+                    peakHeights = [i['Wavelength'] for i in self.data.where("""(ResID==%i)"""%pixID)]
+                else:
+                    peakHeights = np.empty(len(timestamps),dtype=float)
+                    peakHeights.fill(np.nan)
                 
                 t1=time.time()
 
@@ -943,8 +937,11 @@ class darkObsFile:
         #else:
         #    return secImg
     
-    def getSpectralCube(self,firstSec=0,integrationTime=-1,weighted=True,fluxWeighted=True,wvlStart=3000,wvlStop=13000,wvlBinWidth=None,energyBinWidth=None,wvlBinEdges=None,timeSpacingCut=None):
+    def getSpectralCube(self,firstSec=0,integrationTime=-1,weighted=True,fluxWeighted=True,wvlStart=7000, wvlStop=16000, wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None, timeSpacingCut=None, verbose=False):
         """
+        - SRM 2017-05-08
+          Updated for DARKNESS pipeline
+
         Return a time-flattened spectral cube of the counts integrated from firstSec to firstSec+integrationTime.
         If integration time is -1, all time after firstSec is used.
         If weighted is True, flat cal weights are applied.
@@ -960,7 +957,7 @@ class darkObsFile:
                                   firstSec=firstSec,integrationTime=integrationTime,
                                   weighted=weighted,fluxWeighted=fluxWeighted,wvlStart=wvlStart,wvlStop=wvlStop,
                                   wvlBinWidth=wvlBinWidth,energyBinWidth=energyBinWidth,
-                                  wvlBinEdges=wvlBinEdges,timeSpacingCut=timeSpacingCut)
+                                  wvlBinEdges=wvlBinEdges,timeSpacingCut=timeSpacingCut, verbose=verbose)
                 cube[iRow][iCol] = x['spectrum']
                 effIntTime[iRow][iCol] = x['effIntTime']
                 rawCounts[iRow][iCol] = x['rawCounts']
@@ -970,7 +967,7 @@ class darkObsFile:
 
     def getPixelSpectrum(self, pixelRow, pixelCol, firstSec=0, integrationTime= -1,
                          weighted=False, fluxWeighted=False, wvlStart=None, wvlStop=None,
-                         wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None,timeSpacingCut=None):
+                         wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None,timeSpacingCut=None, verbose=False):
         """
         returns a spectral histogram of a given pixel integrated from firstSec to firstSec+integrationTime,
         and an array giving the cutoff wavelengths used to bin the wavelength values
@@ -982,8 +979,8 @@ class darkObsFile:
         If wvlBinWidth is specified, the wavelength bins use fixed wavelength bin widths
         If neither is specified and/or if weighted is True, the flat cal wvlBinEdges is used
         
-        wvlStart defaults to self.wvlLowerLimit or 3000
-        wvlStop defaults to self.wvlUpperLimit or 13000
+        wvlStart defaults to self.wvlLowerLimit or 7000
+        wvlStop defaults to self.wvlUpperLimit or 16000
         
         ----
         Updated to return effective integration time for the pixel
@@ -996,14 +993,18 @@ class darkObsFile:
                             the noise tail) during the effective exposure.
         JvE 3/5/2013
         ABW Oct 7, 2014. Added rawCounts to dictionary
+
+        SRM 2017-05-08 Updated to DARKNESS pipeline:
+        - Changed default wvl limits to (7000,16000)
+
         ----
         """
 
-        wvlStart=wvlStart if (wvlStart!=None and wvlStart>0.) else (self.wvlLowerLimit if (self.wvlLowerLimit!=None and self.wvlLowerLimit>0.) else 3000)
-        wvlStop=wvlStop if (wvlStop!=None and wvlStop>0.) else (self.wvlUpperLimit if (self.wvlUpperLimit!=None and self.wvlUpperLimit>0.) else 12000)
+        wvlStart=wvlStart if (wvlStart!=None and wvlStart>0.) else (self.wvlLowerLimit if (self.wvlLowerLimit!=None and self.wvlLowerLimit>0.) else 7000)
+        wvlStop=wvlStop if (wvlStop!=None and wvlStop>0.) else (self.wvlUpperLimit if (self.wvlUpperLimit!=None and self.wvlUpperLimit>0.) else 16000)
 
 
-        x = self.getPixelWvlList(pixelRow, pixelCol, firstSec, integrationTime,timeSpacingCut=timeSpacingCut)
+        x = self.getPixelWvlList(pixelRow, pixelCol, firstSec, integrationTime,timeSpacingCut=timeSpacingCut, verbose=verbose)
         wvlList, effIntTime, rawCounts = x['wavelengths'], x['effIntTime'], x['rawCounts']
 
         if (weighted == False) and (fluxWeighted == True):
@@ -1040,10 +1041,8 @@ class darkObsFile:
                 raise ValueError("Synthetic filter wvlBinEdges do not match pixel spectrum wvlBinEdges!")
             spectrum*=self.filterTrans
 
-        #if getEffInt is True:
         return {'spectrum':spectrum, 'wvlBinEdges':wvlBinEdges, 'effIntTime':effIntTime, 'rawCounts':rawCounts}
-        #else:
-        #    return spectrum,wvlBinEdges
+
     
     def getApertureSpectrum(self, pixelRow, pixelCol, radius1, radius2, weighted=False,
                             fluxWeighted=False, lowCut=3000, highCut=7000,firstSec=0,integrationTime=-1):
@@ -1145,19 +1144,24 @@ class darkObsFile:
             utils.plotArray(deadArray)
         return deadArray 
 
+
     def getNonAllocPixels(self, showMe=False):
         """
+        -SRM 2017-05-08
+         Updated for DARKNESS pipeline
+
         returns a mask indicating which pixels had no beammap locations 
-        (set to constant /r0/p250/)
+        (beammap flags !=0)
         1's for pixels with locations, 0's for pixels without locations
         if showMe is True, a plot of the mask pops up
         """
         nonAllocArray = np.ones((self.nRow, self.nCol))
-        nonAllocArray[np.core.defchararray.startswith(self.beamImage, self.nonAllocPixelName)] = 0
+        nonAllocArray[np.where(self.beamMapFlags > 0)] = 0
         if showMe == True:
             utils.plotArray(nonAllocArray)
         return nonAllocArray
 
+s
     def getRoachNum(self,iRow,iCol):
         pixelLabel = self.beamImage[iRow][iCol]
         iRoach = int(pixelLabel.split('r')[1][0])
@@ -1594,6 +1598,7 @@ class darkObsFile:
 
     def loadFilter(self, filterName = 'V', wvlBinEdges = None,switchOnFilter = True):
         '''
+        -SRM 2017-05-05 Updated for DARKNESS pipeline
         '''
         std = MKIDStd.MKIDStd()
         self.rawFilterWvls, self.rawFilterTrans = std._loadFilter(filterName)
@@ -1630,6 +1635,8 @@ class darkObsFile:
     @staticmethod
     def makeWvlBins(energyBinWidth=.1, wvlStart=7000, wvlStop=16000):
         """
+        -SRM 2017-05-05 Updated for DARKNESS pipeline
+
         returns an array of wavlength bin edges, with a fixed energy bin width
         within the limits given in wvlStart and wvlStop
         Args:
@@ -1655,6 +1662,8 @@ class darkObsFile:
 
     def maskTimestamps(self,timestamps,inter=interval(),otherListsToFilter=[]):
         """
+        -SRM 2017-05-05 Updated for DARKNESS Pipeline
+
         Masks out timestamps that fall in an given interval
         inter is an interval of time values to mask out
         otherListsToFilter is a list of parallel arrays to timestamps that should be masked in the same way
@@ -1694,27 +1703,31 @@ class darkObsFile:
 
 
     def plotPixelSpectra(self, pixelRow, pixelCol, firstSec=0, integrationTime= -1,
-                         weighted=False, fluxWeighted=False):
+                         weighted=False, fluxWeighted=False, verbose=False):
         """
+        -SRM 2017-05-08 Updated for DARKNESS pipeline
+
         plots the wavelength calibrated spectrum of a given pixel integrated over a given time
         if integrationTime is -1, All time after firstSec is used.  
         if weighted is True, flat cal weights are applied
         """
         spectrum = (self.getPixelSpectrum(pixelRow, pixelCol, firstSec, integrationTime,
-                    weighted=weighted, fluxWeighted=fluxWeighted))['spectrum']
+                    weighted=weighted, fluxWeighted=fluxWeighted, verbose=verbose))['spectrum']
         fig = plt.figure()
         ax = fig.add_subplot(111)
         ax.plot(self.flatCalWvlBins[0:-1], spectrum, label='spectrum for pixel[%d][%d]' % (pixelRow, pixelCol))
         plt.show()
 
 
-    def setWvlCutoffs(self, wvlLowerLimit=3000, wvlUpperLimit=8000):
+    def setWvlCutoffs(self, wvlLowerLimit=7000, wvlUpperLimit=16000):
         """
         Sets wavelength cutoffs so that if convertToWvl(excludeBad=True) or getPixelWvlList(excludeBad=True) is called
         wavelengths outside these limits are excluded.  To remove limits
         set wvlLowerLimit and/or wvlUpperLimit to None.  To use the wavecal limits
         for each individual pixel, set wvlLowerLimit and/or wvlUpperLimit to -1 
         NB - changed defaults for lower/upper limits to None (from 3000 and 8000). JvE 2/22/13
+
+        SRM - Updated to DARKNESS pipeline limits 2017-05-08
         """
         self.wvlLowerLimit = wvlLowerLimit
         self.wvlUpperLimit = wvlUpperLimit
@@ -2039,6 +2052,9 @@ def diagnose(message,timestamps, peakHeights, baseline, expTails):
     print "ENDED DIAGNOSE message=",message
 
 class cosmicHeaderDescription(tables.IsDescription):
+    '''
+    SRM 2017-05-08 This probably should be moved to Headers...
+    '''
     ticksPerSec = tables.Float64Col() # number of ticks per second
     beginTime = tables.Float64Col()   # begin time used to find cosmics (seconds)
     endTime = tables.Float64Col()     # end time used to find cosmics (seconds)
