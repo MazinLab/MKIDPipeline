@@ -630,6 +630,177 @@ class darkObsFile:
                               alpha=0.5,color='gray')
 
 
+    def getTimedPacketImage(self, firstSec=0, integrationTime= -1, timeSpacingCut=None, expTailTimescale=None, getUnAllocPixels = False, verbose=False):
+        """
+        - SRM 2017-05-09
+        Returns same dictionary as getTimedPacketList but each object in the dictionary is an array
+        of shape (nRows, nCols). Each element is a list of values for the given pixel.
+        For instance, returnDict['timestamps'][0][0] is all timestamps for pixel (0,0).
+
+        Designed to circumvent the need for calling getTimedPacketList for each pixel.
+        Instead loads a large chunk of data into memory, then organizes timestamps and wavelength
+        by pixel. Is much faster than building the same array with single calls to getTimedPacketList
+        at the price of an initial very slow loading of the data.
+        """
+
+        # Need to know how many seconds of data were intended to be in the file.
+        # Easiest way to do that is to check how many 1-second frames are in the "Images" group.
+        fileIntTimeSeconds = self.file.root.Images._g_getnchildren()
+
+        if integrationTime+int(np.floor(firstSec))>fileIntTimeSeconds:
+            warnings.warn("Requested integration outside bounds of data!",RuntimeWarning)
+            print "Truncating requested span automatically to end of file..."
+
+        if integrationTime == -1 or integrationTime+int(np.floor(firstSec))>fileIntTimeSeconds:
+            lastSec = fileIntTimeSeconds
+        else:
+            lastSec = firstSec + integrationTime
+
+        #Make sure we include *all* the complete seconds that overlap the requested range
+        integerIntTime = int(np.ceil(lastSec)-np.floor(firstSec))
+
+        if verbose: print "darkObsFile: Grabbing all photon data in requested time span. May take several minutes..."
+        t0 = time.time()
+
+        #query pytables data table for timestamps and phase information for all pixels
+        firstTs = firstSec/self.tickDuration
+        lastTs = lastSec/self.tickDuration
+        threePack = [[i['ResID'],i['Time'],i['Wavelength']] for i in self.data.where("""(Time>=%i)&(Time<=%i)"""%(firstTs,lastTs))]
+
+        t1 = time.time()
+        if verbose: print "darkObsFile: Took %i seconds..."%(t1-t0)
+
+        #break data array into individual columns
+        npThreePack = np.array(threePack)
+        allTimestamps = np.array(npThreePack[:,1],dtype=np.long)*self.tickDuration
+        allPeakHeights = npThreePack[:,2]
+        allResIDs = np.array(npThreePack[:,0],dtype=np.long)
+        
+        #initialize output lists
+        timestampsIm = [[None]*self.nCol for _ in xrange(self.nRow)]
+        peakHeightsIm = [[None]*self.nCol for _ in xrange(self.nRow)]
+        effIntTimeIm = np.zeros((self.nRow,self.nCol),dtype=np.float64)
+        rawCountsIm = np.zeros((self.nRow,self.nCol))
+
+        #iterate over individual pixels to generate output dictionaries as function of image coordinate
+        for iRow in xrange(self.nRow):
+            for iCol in xrange(self.nCol):
+                
+                try:
+                    if self.hotPixIsApplied:
+                        inter = self.getPixelBadTimes(iRow, iCol)
+                    else:
+                        inter = interval()
+
+                    if self.cosmicMaskIsApplied:
+                        inter = inter | self.cosmicMask
+                
+                    #if (type(firstSec) is not int) or (type(integrationTime) is not int):
+                    #Also exclude times outside firstSec to lastSec. Allows for sub-second
+                    #(floating point) values in firstSec and integrationTime in the call to parsePhotonPackets.
+                    #Union the exclusion interval with the excluded time range limits.
+                    #Seems we need to include this ALWAYS in the new files, since some photons slip
+                    # through after the last second in a file.
+                    inter = inter | interval([-np.inf, firstSec], [lastSec, np.inf])   
+
+                    #Inter now contains a single 'interval' instance, which contains a list of
+                    #times to exclude, in seconds, including all times outside the requested
+                    #integration if necessary.
+
+                    #Calculate the total effective time for the integration after removing
+                    #any 'intervals':
+                    integrationInterval = interval([firstSec, lastSec])
+                    maskedIntervals = inter & integrationInterval  #Intersection of the integration and the bad times for this pixel (for calculating eff. int. time)
+                    effectiveIntTime = (lastSec - firstSec) - utils.intervalSize(maskedIntervals)
+
+
+                    ### Come up with viable alternative to len(pixelData)==0 now that we are not grabbing
+                    # a list of data for each pixel. Either need to vet here for beamMapFlag!=0,
+                    # or possibly this is done at a higher level, before calling this function at all.
+                    if (inter == self.intervalAll):  #or len(pixelData) == 0:
+                        timestamps = np.array([])
+                        peakHeights = np.array([])
+                        baselines = np.array([])
+                        rawCounts = 0.
+                        if inter == self.intervalAll:
+                            effectiveIntTime = 0.
+
+                    elif self.beamMapFlags[iRow][iCol] !=0 and getUnAllocPixels==False:
+                        timestamps = np.array([])
+                        peakHeights = np.array([])
+                        baselines = np.array([])
+                        rawCounts = 0.
+                        pixID = self.beamImage[iRow][iCol]
+                        #if verbose:
+                            #print "darkObsFile: Pixel %i, %i (id= %i) un-beammapped. Returned 0 counts."%(iRow,iCol,pixID) 
+
+                    else:
+                        #get resID for desired x,y location from beamImage.
+                        pixID = self.beamImage[iRow][iCol]
+
+                        #keep track of local clock to time how long the table query takes
+                        t0 = time.time()
+
+                        #get timestamps and peakHeights for this pixel
+                        timestamps = allTimestamps[np.where(allResIDs == pixID)]
+                        peakHeights = allPeakHeights[np.where(allResIDs == pixID)]
+
+                        t1=time.time()
+
+                        #if verbose:
+                            #print "darkObsFile: Pixel %i, %i (id= %i) returned %i counts, took %i seconds..."%(iRow,iCol,pixID, len(timestamps), t1-t0)
+
+                        #apply time masking
+                        maskedDict = self.maskTimestamps(timestamps=timestamps,inter=inter,otherListsToFilter=[peakHeights])
+                        timestamps = maskedDict['timestamps']
+                        peakHeights = maskedDict['otherLists']
+                        #determine raw counts
+                        rawCounts = len(timestamps)
+
+                    if expTailTimescale != None and len(timestamps) > 0:
+                        #find the time between peaks
+                        timeSpacing = np.diff(timestamps)
+                        timeSpacing[timeSpacing < 0] = 1.
+                        #arbitrarily assume the first photon is 1 sec after the one before it, just to fix indexing.
+                        timeSpacing = np.append(1.,timeSpacing)
+                
+                        # assume each peak is riding on the tail of an exponential starting at the peak before it 
+                        # with e-fold time of expTailTimescale
+                        print 'dt',timeSpacing[0:10]
+                        expTails = (1.*peakHeights)*np.exp(-1.*timeSpacing/expTailTimescale)
+                        print 'expTail',expTails[0:10]
+                        print 'peak',peakHeights[0:10]
+                        print 'peak-baseline',1.*peakHeights[0:10]
+                        print 'expT',np.exp(-1.*timeSpacing[0:10]/expTailTimescale)
+                        #subtract off this exponential tail
+                        peakHeights = np.array(peakHeights-expTails,dtype=np.int)
+                        print 'peak',peakHeights[0:10]
+                    
+                
+                    if timeSpacingCut != None and len(timestamps) > 0:
+                        timeSpacing = np.diff(timestamps)
+                        #include first photon and photons after who are at least timeSpacingCut after the previous photon
+                        timeSpacingMask = np.concatenate([[True],timeSpacing >= timeSpacingCut]) 
+                        timestamps = timestamps[timeSpacingMask]
+                        peakHeights = peakHeights[timeSpacingMask]
+                        baselines = baselines[timeSpacingMask]
+
+                ### SRM 2017-05-05 need to get correct exception for this in new darkObsFile data format
+                except:  #tables.exceptions.NoSuchNodeError: #h5 file is missing a pixel, treat as dead
+                    timestamps = np.array([])
+                    peakHeights = np.array([])
+                    baselines = np.array([])
+                    effectiveIntTime = 0.
+                    rawCounts = 0.
+
+                timestampsIm[iRow][iCol]=timestamps
+                peakHeightsIm[iRow][iCol]=peakHeights
+                rawCountsIm[iRow][iCol]=rawCounts
+                effIntTimeIm[iRow][iCol]=effectiveIntTime
+
+        return {'timestamps':timestampsIm, 'peakHeights':peakHeightsIm,'effIntTime':effIntTimeIm,'rawCounts':rawCountsIm}
+
+
     def getTimedPacketList(self, iRow, iCol, firstSec=0, integrationTime= -1, timeSpacingCut=None,expTailTimescale=None, getUnAllocPixels = False, verbose=False):
         """
         - SRM 2017-05-05
