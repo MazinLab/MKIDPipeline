@@ -72,7 +72,7 @@ typedef struct photon {
     float wvl;
 } photon;
 
-int ParseConfig(int argc, char *argv[], char *Path, int *FirstFile, int *nFiles, char *BeamFile)
+int ParseConfig(int argc, char *argv[], char *Path, int *FirstFile, int *nFiles, char *BeamFile, int *mapflag)
 {
     FILE *fp;
     
@@ -80,8 +80,10 @@ int ParseConfig(int argc, char *argv[], char *Path, int *FirstFile, int *nFiles,
     fscanf(fp,"%s\n",Path);
     fscanf(fp,"%d\n",FirstFile);
     fscanf(fp,"%d\n",nFiles);
-    fscanf(fp,"%s",BeamFile);
+    fscanf(fp,"%s\n",BeamFile);
+    fscanf(fp,"%d",mapflag);
     fclose(fp);
+    
 
     return 1;
 } 
@@ -146,7 +148,7 @@ void FindStart(char *data, uint32_t BeamMap[BEAM_COLS][BEAM_ROWS])
     }
 }
 
-void AddPacket(char *packet, uint64_t l, hid_t file_id, size_t dst_size, size_t dst_offset[NFIELD], size_t dst_sizes[NFIELD], int FirstFile, uint32_t BeamMap[BEAM_COLS][BEAM_ROWS], photon *p, uint64_t *nPhot)
+void AddPacket(char *packet, uint64_t l, hid_t file_id, size_t dst_size, size_t dst_offset[NFIELD], size_t dst_sizes[NFIELD], int FirstFile, uint32_t BeamMap[BEAM_COLS][BEAM_ROWS], photon *p, uint64_t *nPhot, uint32_t BeamFlag[BEAM_COLS][BEAM_ROWS], int mapflag)
 {
     uint64_t i,swp,swp1,swp2,swp3;
     int64_t basetime;
@@ -192,8 +194,10 @@ void AddPacket(char *packet, uint64_t l, hid_t file_id, size_t dst_size, size_t 
        
        swp = *((uint64_t *) (&packet[i*8]));
        swp1 = __bswap_64(swp);
-       data = (struct datapacket *) (&swp1);       
+       data = (struct datapacket *) (&swp1);
        if( data->xcoord >= BEAM_COLS || data->ycoord >= BEAM_ROWS ) continue;
+       if( mapflag > 0 && BeamFlag[data->xcoord][data->ycoord] > 0) continue ; // if mapflag is set only record photons that were succesfully beammapped       
+
        //printf("Data: %d %d %d %d %d\n", data->xcoord, data->ycoord, data->timestamp, data->baseline, data->wvl);
        //exit(0);      
        //if( *nPhot < 200) printf("photon: %d %d\n",data->baseline,data->wvl);
@@ -231,7 +235,7 @@ void ParseBeamMapFile(char *BeamFile, uint32_t BeamMap[BEAM_COLS][BEAM_ROWS], ui
 int main(int argc, char *argv[])
 {
     char path[STR_SIZE], fName[STR_SIZE], BeamFile[STR_SIZE], outfile[STR_SIZE], imname[STR_SIZE];
-    int FirstFile, nFiles;
+    int FirstFile, nFiles,mapflag;
     long fSize, rd, j;
     struct stat st;
     FILE *fp;
@@ -284,7 +288,7 @@ int main(int argc, char *argv[])
         printf("BinToHDF error - First command line argument must be the configuration file.\n");
         exit(0);
     }
-    if (ParseConfig(argc,argv,path,&FirstFile,&nFiles,BeamFile) == 0 ) exit(1);
+    if (ParseConfig(argc,argv,path,&FirstFile,&nFiles,BeamFile,&mapflag) == 0 ) exit(1);
     
     // Set up memory structure for data
     data = (uint64_t **) malloc( nFiles * sizeof(uint64_t *) );
@@ -391,7 +395,7 @@ int main(int argc, char *argv[])
                 // parse into image                
                 ParsePacket(image,packet,j*8 - pstart,frame); 
                 // add to HDF5 file
-                AddPacket(packet,j*8-pstart,file_id,dst_size,dst_offset,dst_sizes,FirstFile,BeamMap,p,&nPhot);
+                AddPacket(packet,j*8-pstart,file_id,dst_size,dst_offset,dst_sizes,FirstFile,BeamMap,p,&nPhot,BeamFlag,mapflag);
 		        pstart = j*8;   // move start location for next packet
 		        if( pcount%1000 == 0 ) printf("."); fflush(stdout);	                      
             }
