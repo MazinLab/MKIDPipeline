@@ -49,8 +49,8 @@ getNonAllocPixels(self, showMe=False)
 %x%loadFluxCalFile(self, fluxCalFileName)
 %x%loadHotPixCalFile(self, hotPixCalFileName, switchOnMask=True)
 %x%loadTimeAdjustmentFile(self,timeAdjustFileName,verbose=False)
-%x%loadWvlCalFile(self, wvlCalFileName)
 
+loadWvlCalFile(self, wvlCalFileName)
 loadFilter(self, filterName = 'V', wvlBinEdges = None,switchOnFilter = True)
 makeWvlBins(energyBinWidth=.1, wvlStart=7000, wvlStop=16000)
 plotPixelSpectra(self, pixelRow, pixelCol, firstSec=0, integrationTime= -1,weighted=False, fluxWeighted=False, verbose=False)
@@ -268,6 +268,9 @@ class darkObsFile:
         self.beamImageRoaches = np.array([[int(s.split('r')[1].split('/')[0]) for s in row] for row in self.beamImage])
         self.beamImagePixelNums = np.array([[int(s.split('p')[1].split('/')[0]) for s in row] for row in self.beamImage])
         '''
+        #instead of beamImagePixelNums, we alternatively use beamImagePixelIDs
+        #simply the beamImage cast to integer data types from strings
+        self.beamImagePixelIDs = np.array(self.beamImage, dtype=int)
 
         #get shape of array from beamImage
         beamShape = self.beamImage.shape
@@ -304,7 +307,7 @@ class darkObsFile:
         lin_term = self.wvlCalTable[iRow, iCol, 1]
         quad_term = self.wvlCalTable[iRow, iCol, 2]
         wavelengths=np.asarray(wavelengths)
-        energies = ObsFile.h * ObsFile.c * ObsFile.angstromPerMeter / wavelengths
+        energies = darkObsFile.h * darkObsFile.c * darkObsFile.angstromPerMeter / wavelengths
         if quad_term==0:
             phases = (energies - const)/lin_term
             print phases
@@ -342,7 +345,7 @@ class darkObsFile:
 
         if excludeBad == True:
             energies = energies[energies != 0]
-        wavelengths = ObsFile.h * ObsFile.c * ObsFile.angstromPerMeter / energies
+        wavelengths = darkObsFile.h * darkObsFile.c * darkObsFile.angstromPerMeter / energies
         if excludeBad == True and self.wvlLowerLimit == -1:
             wavelengths = wavelengths[wvlCalLowerLimit < wavelengths]
         elif excludeBad == True and self.wvlLowerLimit != None:
@@ -453,7 +456,7 @@ class darkObsFile:
         self.seed = seed
         np.random.seed(seed)
 
-    def getPixelWvlList(self,iRow,iCol,firstSec=0,integrationTime=-1,excludeBad=True,dither=True,timeSpacingCut=None, verbose=False): #,getTimes=False):
+    def getPixelWvlList(self,iRow,iCol,firstSec=0,integrationTime=-1,excludeBad=True,dither=False,timeSpacingCut=None, verbose=False): #,getTimes=False):
         """
         returns a numpy array of photon wavelengths for a given pixel, integrated from firstSec to firstSec+integrationTime.
         if integrationTime is -1, All time after firstSec is used. 
@@ -462,6 +465,9 @@ class darkObsFile:
             timestamps
             wavelengths
             effIntTime  (effective integration time)
+
+        SRM 2017-05-28
+        Dither now adds value from (0,0.1) since we are not dealing with ADC units, but phase.
 
         SRM 2017-05-08
         Updated for DARKNESS pipeline. Mostly just removed baseline retrieval.
@@ -482,7 +488,7 @@ class darkObsFile:
             x['timestamps'], x['peakHeights'], x['effIntTime'], x['rawCounts']
         parabolaPeaks = np.array(parabolaPeaks,dtype=np.double)
         if dither==True:
-            parabolaPeaks += np.random.random_sample(len(parabolaPeaks))                    
+            parabolaPeaks += np.random.random_sample(len(parabolaPeaks))/10.              
         pulseHeights = parabolaPeaks
 
         #Convert raw pulse height to wavelength using wvlCal solution
@@ -496,7 +502,7 @@ class darkObsFile:
         wvlCalUpperLimit = self.wvlRangeTable[iRow, iCol, 0]
 
         with np.errstate(divide='ignore'):
-            wavelengths = ObsFile.h*ObsFile.c*ObsFile.angstromPerMeter/energies
+            wavelengths = darkObsFile.h*darkObsFile.c*darkObsFile.angstromPerMeter/energies
         if excludeBad == True:
             #check if this pixel is completely valid in the wavelength range set for this ObsFile
             #if not, cut out the photons from this pixel
@@ -1179,6 +1185,9 @@ class darkObsFile:
 
         SRM 2017-05-08 Updated to DARKNESS pipeline:
         - Changed default wvl limits to (7000,16000)
+        SRM 2017-05-28
+        - Updated to work with new wvlCalSoln files. Error in how soln file is written.
+          Need to check again what spectra look like (using plotPixelSpectra) after that is fixed.
 
         ----
         """
@@ -1206,7 +1215,7 @@ class darkObsFile:
             if wvlBinEdges is None:#We need to construct wvlBinEdges array
                 if energyBinWidth is not None:#Fixed energy binwidth specified
                     #Construct array with variable wvl binwidths
-                    wvlBinEdges = ObsFile.makeWvlBins(energyBinWidth=energyBinWidth, wvlStart=wvlStart, wvlStop=wvlStop)
+                    wvlBinEdges = darkObsFile.makeWvlBins(energyBinWidth=energyBinWidth, wvlStart=wvlStart, wvlStop=wvlStop)
                     spectrum, wvlBinEdges = np.histogram(wvlList, bins=wvlBinEdges)
                 elif wvlBinWidth is not None:#Fixed wvl binwidth specified
                     nWvlBins = int((wvlStop - wvlStart) / wvlBinWidth)
@@ -1386,7 +1395,7 @@ class darkObsFile:
         return an array of booleans, the same length as timestamps,
         with that value inter.__contains__(timestamps[i])
         """
-        return ObsFile.makeMaskV2(timestamps, inter)
+        return darkObsFile.makeMaskV2(timestamps, inter)
 
     @staticmethod
     def makeMaskV1(timestamps, inter):
@@ -1591,7 +1600,7 @@ class darkObsFile:
         self.loadCosmicMask(cosmicMaskFileName = cfn, switchOnCosmicMask=switchOnCosmicMask)
 
     def loadCosmicMask(self, cosmicMaskFileName=None, switchOnCosmicMask=True):
-        self.cosmicMask = ObsFile.readCosmicIntervalFromFile(cosmicMaskFileName)
+        self.cosmicMask = darkObsFile.readCosmicIntervalFromFile(cosmicMaskFileName)
         self.cosmicMaskFileName = os.path.abspath(cosmicMaskFileName)
         if switchOnCosmicMask: self.switchOnCosmicTimeMask()
 
@@ -1657,6 +1666,10 @@ class darkObsFile:
     def loadWvlCalFile(self, wvlCalFileName):
         """
         loads the wavelength cal coefficients from a given file
+
+        SRM 2017-05-28
+        - Updated for new darkness pipeline wvl cal table format, with resid instead of roach/pixelnum
+        - Correctly loads new darkness cal files
         """
         if os.path.exists(str(wvlCalFileName)):
             fullWvlCalFileName = str(wvlCalFileName)
@@ -1668,17 +1681,19 @@ class darkObsFile:
         try:
             # If the file has already been loaded for this ObsFile then just return
             if hasattr(self,"wvlCalFileName") and (self.wvlCalFileName == fullWvlCalFileName):
+                print "darkObsFile: wvlCal solution file already loaded..."
                 return
             self.wvlCalFile = tables.open_file(fullWvlCalFileName, mode='r')
             self.wvlCalFileName = fullWvlCalFileName
             wvlCalData = self.wvlCalFile.root.wavecal.calsoln
-            self.wvlCalTable = np.zeros([self.nRow, self.nCol, ObsFile.nCalCoeffs])
+            self.wvlCalTable = np.zeros([self.nRow, self.nCol, darkObsFile.nCalCoeffs])
             self.wvlErrorTable = np.zeros([self.nRow, self.nCol])
             self.wvlFlagTable = np.zeros([self.nRow, self.nCol])
             self.wvlRangeTable = np.zeros([self.nRow, self.nCol, 2])
             for calPixel in wvlCalData:
-                #use the current loaded beammap
-                entryRows,entryCols = np.where((calPixel['roach'] == self.beamImageRoaches) & (calPixel['pixelnum'] == self.beamImagePixelNums))
+                # use the current loaded beammap intead of
+                # pixelcol/pixelrow in calSoln file.
+                entryRows,entryCols = np.where(calPixel['resid'] == self.beamImagePixelIDs)
                 try:
                     entryRow = entryRows[0]
                     entryCol = entryCols[0]
@@ -1697,6 +1712,7 @@ class darkObsFile:
 #                if calPixel['wave_flag'] == 0:
 #                    self.wvlCalTable[calPixel['pixelrow']][calPixel['pixelcol']] = calPixel['polyfit']
 #                    self.wvlRangeTable[calPixel['pixelrow']][calPixel['pixelcol']] = calPixel['solnrange']
+            print "darkObsFile: Successfully loaded wvl cal..."
         except IOError:
             print 'wavelength cal file does not exist: ', fullWvlCalFileName
             raise
@@ -1831,13 +1847,13 @@ class darkObsFile:
 
         #Calculate upper and lower energy limits from wavelengths
         #Note that start and stop switch when going to energy
-        energyStop = ObsFile.h * ObsFile.c * ObsFile.angstromPerMeter / wvlStart
-        energyStart = ObsFile.h * ObsFile.c * ObsFile.angstromPerMeter / wvlStop
+        energyStop = darkObsFile.h * darkObsFile.c * darkObsFile.angstromPerMeter / wvlStart
+        energyStart = darkObsFile.h * darkObsFile.c * darkObsFile.angstromPerMeter / wvlStop
         nWvlBins = int((energyStop - energyStart) / energyBinWidth)
         #Construct energy bin edges
         energyBins = np.linspace(energyStart, energyStop, nWvlBins + 1)
         #Convert back to wavelength and reverse the order to get increasing wavelengths
-        wvlBinEdges = np.array(ObsFile.h * ObsFile.c * ObsFile.angstromPerMeter / energyBins)
+        wvlBinEdges = np.array(darkObsFile.h * darkObsFile.c * darkObsFile.angstromPerMeter / energyBins)
         wvlBinEdges = wvlBinEdges[::-1]
         return wvlBinEdges
 
@@ -1885,7 +1901,8 @@ class darkObsFile:
 
 
     def plotPixelSpectra(self, pixelRow, pixelCol, firstSec=0, integrationTime= -1,
-                         weighted=False, fluxWeighted=False, verbose=False):
+                         weighted=False, fluxWeighted=False, wvlStart=None, wvlStop=None,
+                         wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None,verbose=False):
         """
         -SRM 2017-05-08 Updated for DARKNESS pipeline
 
@@ -1893,11 +1910,18 @@ class darkObsFile:
         if integrationTime is -1, All time after firstSec is used.  
         if weighted is True, flat cal weights are applied
         """
-        spectrum = (self.getPixelSpectrum(pixelRow, pixelCol, firstSec, integrationTime,
-                    weighted=weighted, fluxWeighted=fluxWeighted, verbose=verbose))['spectrum']
+        sDict = self.getPixelSpectrum(pixelRow, pixelCol, firstSec, integrationTime,
+                    weighted=weighted, fluxWeighted=fluxWeighted, wvlStart=wvlStart, wvlStop=wvlStop,
+                    wvlBinWidth=wvlBinWidth, energyBinWidth=energyBinWidth, 
+                    wvlBinEdges=wvlBinEdges, verbose=verbose)
+        spectrum = sDict['spectrum']
+        wvlBinEdges = sDict['wvlBinEdges']
+
         fig = plt.figure()
         ax = fig.add_subplot(111)
-        ax.plot(self.flatCalWvlBins[0:-1], spectrum, label='spectrum for pixel[%d][%d]' % (pixelRow, pixelCol))
+        
+        ax.plot(wvlBinEdges[0:-1], spectrum, label='spectrum for pixel[%d][%d]' % (pixelRow, pixelCol))
+
         plt.show()
 
 
@@ -2248,7 +2272,7 @@ class cosmicHeaderDescription(tables.IsDescription):
 
 #Temporary test
 if __name__ == "__main__":
-    obs = ObsFile(FileName(run='PAL2012', date='20121210', tstamp='20121211-051650').obs())
+    obs = darkObsFile(FileName(run='PAL2012', date='20121210', tstamp='20121211-051650').obs())
     obs.loadWvlCalFile(FileName(run='PAL2012',date='20121210',tstamp='20121211-052230').calSoln())
     obs.loadFlatCalFile(FileName(obsFile=obs).flatSoln())
     beforeImg = obs.getPixelCountImage(weighted=False,fluxWeighted=False,scaleByEffInt=True)
