@@ -198,7 +198,8 @@ class DarkQuick(QtGui.QMainWindow):
                     image = newImage
 
             except (IOError, ValueError):
-                image = np.zeros((imageShape['nRows'], imageShape['nCols']),dtype=np.uint16)  
+                image = np.zeros((imageShape['nRows'], imageShape['nCols']),dtype=np.uint16)
+                print "Failed to load dark frame..."
             darkFrames.append(image)
             
         self.darkStack = np.array(darkFrames)

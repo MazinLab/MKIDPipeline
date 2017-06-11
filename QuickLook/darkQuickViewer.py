@@ -16,13 +16,14 @@ from functools import partial
 
 
 
-dataPath = '/mnt/data0/ScienceDataIMGs/20161122/'
+basePath = '/mnt/data0/ScienceDataIMGs/'
 imageShape = {'nRows':125,'nCols':80}
 
 
 class DarkQuick(QtGui.QMainWindow):
-    def __init__(self, startTstamp, endTstamp):
+    def __init__(self, run, date,startTstamp, endTstamp):
         
+        self.dataPath = basePath+str(run)+'/'+str(date)+'/'
         self.startTstamp = startTstamp
         self.endTstamp = endTstamp
         self.imageStack = []
@@ -136,7 +137,7 @@ class DarkQuick(QtGui.QMainWindow):
         images = []
         for iTs,ts in enumerate(self.timestampList):
             try:
-                imagePath = os.path.join(dataPath,str(ts)+'.img')
+                imagePath = os.path.join(self.dataPath,str(ts)+'.img')
                 image = np.fromfile(open(imagePath, mode='rb'),dtype=np.uint16)
                 image = np.transpose(np.reshape(image, (imageShape['nCols'], imageShape['nRows'])))
                 if self.beammap is not None:
@@ -153,7 +154,8 @@ class DarkQuick(QtGui.QMainWindow):
                             #    newImage[y,x]=0
                     image = newImage
             except IOError:
-                image = np.zeros((imageShape['nRows'], imageShape['nCols']))  
+                image = np.zeros((imageShape['nRows'], imageShape['nCols']))
+                print "Failed to load image frame %i..."%ts 
             images.append(image)
         self.imageStack = np.array(images)
 
@@ -642,12 +644,14 @@ def plotHist(ax,histBinEdges,hist,**kwargs):
 
 if __name__ == "__main__":
     kwargs = {}
-    if len(sys.argv) != 3:
-        print 'Usage: {} tstampStart tstampEnd'.format(sys.argv[0])
+    if len(sys.argv) != 5:
+        print 'Usage: {} run date tstampStart tstampEnd'.format(sys.argv[0])
         exit(0)
     else:
-        kwargs['startTstamp'] = int(sys.argv[1])
-        kwargs['endTstamp'] = int(sys.argv[2])
+        kwargs['run'] = str(sys.argv[1])
+        kwargs['date'] = int(sys.argv[2])
+        kwargs['startTstamp'] = int(sys.argv[3])
+        kwargs['endTstamp'] = int(sys.argv[4])
 
     form = DarkQuick(**kwargs)
     form.show()
