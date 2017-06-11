@@ -1365,5 +1365,6 @@ def countsToApparentMag(cps, filterName = 'V', telescope = None):
     mag = -2.5*numpy.log10(cpsPerArea/(f0[filterName]*Jansky2Counts*dLambdaOverLambda[filterName]))
     return mag
     
-
+def medianStack(stack):
+    return numpy.nanmedian(stack, axis=0)
 
