@@ -75,7 +75,7 @@ def fitGaussian(x,y,guessMu,guessSigma):
     and a guess for mu and sigma, returns fits for mu and sigma
     '''
     g_guess = [guessMu,guessSigma]
-    gf = lambda fx, mu sigma: gaussian(fx, mu, sigma)
+    gf = lambda fx, mu, sigma: gaussian(fx, mu, sigma)
     params, cov = curve_fit(gf, x, y, p0=g_guess, maxfev=2000)
     return params[0], params[1] #params = [mu, sigma]
 

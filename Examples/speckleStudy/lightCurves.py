@@ -85,6 +85,40 @@ def histogramLC(I, N=35, span=[0,35], norm=True, centers = False):
     return intHist, bins
 
 
+def plotACF(lcTime,lcInt):
+    '''
+    calculate correlation curve of lc
+    return correlation, ljunbBox statistics, and pvalue
+    '''
+    #calculate auto-corr function: Pearson correlation of lc w/itself shifted by various lags (tau)
+    corr,ljb,pvalue = acf(lcInt,unbiased=False,qstat=True,nlags=len(lcTime))
+    #plot correlation as function of lag time
+    plt.plot(lcTime,corr)
+    plt.xlabel(r"$\tau(s)$",fontsize=14)
+    plt.ylabel(r"$R(\tau)$",fontsize=14)
+    plt.title(r"Autocorrelation $R(\tau)$",fontsize=14)
+    plt.show()
+
+    return corr, ljb, pvalue
+
+
+def plotPSD(lcInt, shortExp):
+    '''
+    plot power spectral density of lc
+    return frequencies and powers from periodogram
+    '''
+    freq = 1.0/shortExp
+    f, p = periodogram(lcInt,fs = 1./shortExp)
+
+    plt.plot(f,p/np.max(p))
+    plt.xlabel(r"Frequency (Hz)",fontsize=14)
+    plt.ylabel(r"Normalized PSD",fontsize=14)
+    plt.title(r"Lightcurve Power Spectrum",fontsize=14)
+    plt.show()
+
+    return f,p
+
+
 if __name__ == '__main__':
     
     Ic = 12.
