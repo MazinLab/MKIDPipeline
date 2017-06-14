@@ -9,7 +9,7 @@ import pickle
 from util.popup import plotArray,PopUp
 import commands, warnings
 from scipy import ndimage
-import mpfit
+#import mpfit
 import tables
 secondsPerDay = 24*60*60
 
