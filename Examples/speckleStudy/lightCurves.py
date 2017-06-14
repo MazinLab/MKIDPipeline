@@ -7,18 +7,42 @@ Tools to handle lightcurves for speckle statistics studies
 
 import numpy as np
 import matplotlib.pylab as plt
+plt.rc('font',family='serif')
 import pdfs
+from scipy import stats
+from scipy.signal import periodogram
+from statsmodels.tsa.stattools import acovf,acf
 
 
-def lightCurve(times, shortExposure):
+def lightCurve(times, shortExposure=0.01, start=None, stop=None):
     '''
-    Given an array of timestamps, bins them into a lightcurve.
-    Returns time (spaced as shortExposure bins) and counts per exposure.
+    Given list of photon time stamps and desired short exposure time,
+    returns a binned version of the data as a lightcurve
     '''
+    histIntTime = float(shortExposure)
 
-    #Nothing here yet
+    if start==None or stop==None:
+        endTime = int(times[-1])
+        startTime= int(times[0])
+    else:
+        endTime=int(stop)
+        startTime=int(start)
 
-    return
+    duration = endTime-startTime
+    print histIntTime
+    print "N_bins = %f"%((endTime-startTime)/histIntTime)
+    histBinEdges = np.arange(startTime,endTime,histIntTime)
+    hists = []
+    if histBinEdges[-1]+histIntTime == endTime:
+        histBinEdges = np.append(histBinEdges,endTime)
+
+    hist,_ = np.histogram(times,bins=histBinEdges)
+
+    binWidths = np.diff(histBinEdges)
+    binCenters = histBinEdges+binWidths/2.0
+    lightCurve = 1.*hist#/binWidths
+
+    return {"time":binCenters[:-1], "intensity":lightCurve, "shortExposure":shortExposure}
 
 
 def simulatedLightcurve(pdf = None, shortExposure = 0.01, totalIntegration = 300, mean = 15, ratio = 5, sigma = 5, lowerBound=0):
@@ -33,7 +57,8 @@ def simulatedLightcurve(pdf = None, shortExposure = 0.01, totalIntegration = 300
     Poisson defined by mean (lambda)
     Gaussian defined by mean (mu) and std dev (sigma)
 
-    Returns 2-column array with time and random intensity, each with length N=totalInt/shortExp
+    Returns dictionary containing arrays of time and random intensity, each with length N=totalInt/shortExp,
+    as well as the parameters for the specified PDF from which the lightcurve was generated
     '''
 
     n = int(totalIntegration/shortExposure)
@@ -85,7 +110,15 @@ def histogramLC(I, N=35, span=[0,35], norm=True, centers = False):
     return intHist, bins
 
 
-def plotACF(lcTime,lcInt):
+def plotLC(lcTime,lcInt,**kwargs):
+    plt.plot(lcTime,lcInt,**kwargs)
+    plt.xlabel(r"Time (s)",fontsize=14)
+    plt.ylabel(r"Counts",fontsize=14)
+    plt.title(r"Lightcurve",fontsize=14)
+    plt.show()
+
+
+def plotACF(lcTime,lcInt,**kwargs):
     '''
     calculate correlation curve of lc
     return correlation, ljunbBox statistics, and pvalue
@@ -93,7 +126,7 @@ def plotACF(lcTime,lcInt):
     #calculate auto-corr function: Pearson correlation of lc w/itself shifted by various lags (tau)
     corr,ljb,pvalue = acf(lcInt,unbiased=False,qstat=True,nlags=len(lcTime))
     #plot correlation as function of lag time
-    plt.plot(lcTime,corr)
+    plt.plot(lcTime,corr,**kwargs)
     plt.xlabel(r"$\tau(s)$",fontsize=14)
     plt.ylabel(r"$R(\tau)$",fontsize=14)
     plt.title(r"Autocorrelation $R(\tau)$",fontsize=14)
@@ -102,7 +135,7 @@ def plotACF(lcTime,lcInt):
     return corr, ljb, pvalue
 
 
-def plotPSD(lcInt, shortExp):
+def plotPSD(lcInt, shortExp,**kwargs):
     '''
     plot power spectral density of lc
     return frequencies and powers from periodogram
@@ -110,7 +143,7 @@ def plotPSD(lcInt, shortExp):
     freq = 1.0/shortExp
     f, p = periodogram(lcInt,fs = 1./shortExp)
 
-    plt.plot(f,p/np.max(p))
+    plt.plot(f,p/np.max(p),**kwargs)
     plt.xlabel(r"Frequency (Hz)",fontsize=14)
     plt.ylabel(r"Normalized PSD",fontsize=14)
     plt.title(r"Lightcurve Power Spectrum",fontsize=14)
