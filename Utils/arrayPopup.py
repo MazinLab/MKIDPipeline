@@ -5,9 +5,10 @@ import numpy as np
 import sys
 from multiprocessing import Process
 from functools import partial
+import matplotlib
+matplotlib.rcParams['backend.qt4']='PyQt4'
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-import matplotlib
 
 class PopUp(QtGui.QMainWindow):
     def __init__(self, parent=None,plotFunc=None,title='', showMe=True):

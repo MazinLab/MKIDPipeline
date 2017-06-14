@@ -1,8 +1,16 @@
-"""
-File:      parsePacketDump.py
-Author:    Seth Meeker March 09, 2017 (parsePacketData mostly from parsePacketDump2 by Matt Strader)
+# encoding: utf-8
+# cython: profile=True
+# filename: binFileC.pyx
+
 
 """
+File:      binFile.py
+Author:    Seth Meeker March 09, 2017 (parsePacketData mostly from parsePacketDump2 by Matt Strader)
+
+Utility functions for extracting data from DARKNESS one-second .bin files
+
+"""
+
 
 import matplotlib, time, struct
 import matplotlib.pyplot as plt
@@ -15,10 +23,78 @@ import os
 nRows = 125
 nCols = 80
 
+
+def parseBinFiles(dataPath,ts):
+    '''
+    Given array of timestamps, extracts binary data from all bin files (ts[0].bin, ts[1].bin, etc)
+    and returns concatenated arrays of all photons timestamps, phases, etc
+    Input: dataPath (String) - location of .bin files
+           ts (Numpy int array) - list of timestamps
+    Output: photonTstamps,photonPhases,photonBases,photonXs,photonYs,photonPixelIDs
+    '''
+    
+    timestampList = ts
+    #timestampList = np.arange(startTstamp,endTstamp+1)
+
+    photonTstamps = np.array([])
+    photonPhases = np.array([])
+    photonBases = np.array([])
+    photonXs = np.array([])
+    photonYs = np.array([])
+    photonPixelIDs = np.array([])
+        
+    for iTs,ts in enumerate(timestampList):
+        print ts
+        try:
+            imagePath = os.path.join(dataPath,str(ts)+'.bin')
+            parseDict = parseSingleBinFile(imagePath)
+
+            photonTimes = np.array(parseDict['photonTimestamps'])
+            phasesDeg = np.array(parseDict['phasesDeg'])
+            basesDeg = np.array(parseDict['basesDeg'])
+            xCoords = np.array(parseDict['xCoords'])
+            yCoords = np.array(parseDict['yCoords'])
+            pixelIds = np.array(parseDict['pixelIds'])
+            #image = parseDict['image']
+                
+        except (IOError, ValueError):
+            print "something went wrong retrieving ts: %i"%ts
+            image = np.zeros((nRows, nCols),dtype=np.uint16)  
+
+        photonTstamps = np.append(photonTstamps,photonTimes)
+        photonPhases = np.append(photonPhases,phasesDeg)
+        photonBases = np.append(photonBases,basesDeg)
+        photonXs = np.append(photonXs,xCoords)
+        photonYs = np.append(photonYs,yCoords)
+        photonPixelIDs = np.append(photonPixelIDs, pixelIds)
+
+    return photonTstamps,photonPhases,photonBases,photonXs,photonYs,photonPixelIDs
+
+
+def parseSingleBinFile(imagePath):
+    ''' 
+    Opens single .bin file, extracts all photon words, runs parsePacketData on those words, returns parseDict
+    '''
+    print "Parsing file: %s"%imagePath
+    with open(imagePath,'rb') as dumpFile:
+        data = dumpFile.read()
+
+    nBytes = len(data)
+    nWords = nBytes/8 #64 bit words
+                
+    #break into 64 bit words
+    words = np.array(struct.unpack('>{:d}Q'.format(nWords), data),dtype=object)
+
+    parseDict = parsePacketData(words,verbose=False)
+    return parseDict
+    
+
 def parsePacketData(words,verbose=False):
 
-    nWords = len(words)
+    cdef int nWords
+    cdef int fakePhotonWord
 
+    nWords = len(words)
     fakePhotonWord = 2**63-1
     headerFirstByte = 0xff
 
@@ -41,6 +117,11 @@ def parsePacketData(words,verbose=False):
         print len(fakeIdx),'fake photons'
 
     #header format: 8 bits all ones, 8 bits roach num, 12 bits frame num, ufix36_1 bit timestamp
+    cdef int nBitsHdrTstamp
+    cdef int binPtHdrTstamp
+    cdef int nBitsHdrNum
+    cdef int nBitsHdrRoach
+
     nBitsHdrTstamp = 36
     binPtHdrTstamp = 1
     nBitsHdrNum = 12
@@ -123,12 +204,17 @@ def parsePacketData(words,verbose=False):
     bases = (realPhotons) & phtPhaseMask
     basesDeg = 180./np.pi * binTools.reinterpretBin(bases,nBits=nBitsPhtBase,binaryPoint=binPtPhtBase)
 
-    image = np.zeros((nRows,nCols))
-    for x,y in zip(xCoords,yCoords):
-        image[y,x] += 1
+    #image = np.zeros((nRows,nCols))
 
+    #cdef int x
+    #cdef int y
+    #for x,y in zip(xCoords,yCoords):
+    #    image[y,x] += 1
 
-    return {'basesDeg':basesDeg,'phasesDeg':phasesDeg,'photonTimestamps':photonTimestamps,'pixelIds':pixelIds,'photons':realPhotons,'headers':headers,'roachNums':roachNums,'image':image,'xCoords':xCoords,'yCoords':yCoords}
+    #return {'basesDeg':basesDeg,'phasesDeg':phasesDeg,'photonTimestamps':photonTimestamps,'pixelIds':pixelIds,'photons':realPhotons,'headers':headers,'roachNums':roachNums,'image':image,'xCoords':xCoords,'yCoords':yCoords}
+
+    return {'basesDeg':basesDeg,'phasesDeg':phasesDeg,'photonTimestamps':photonTimestamps,'pixelIds':pixelIds,'photons':realPhotons,'headers':headers,'roachNums':roachNums,'xCoords':xCoords,'yCoords':yCoords}
+
 
 if __name__=='__main__':
     if len(sys.argv) > 1:

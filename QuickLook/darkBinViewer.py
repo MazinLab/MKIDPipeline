@@ -21,16 +21,17 @@ from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from functools import partial
 from parsePacketDump2 import parsePacketData
+import parsePacketDump2
 
 
-
-dataPath = '/mnt/data0/ScienceData/20161122/'
+basePath = '/mnt/data0/ScienceData/'
 imageShape = {'nRows':125,'nCols':80}
 
 
 class DarkQuick(QtGui.QMainWindow):
-    def __init__(self, startTstamp, endTstamp):
+    def __init__(self, run, date,startTstamp, endTstamp):
         
+        self.dataPath = basePath+str(run)+'/'+str(date)+'/'
         self.startTstamp = startTstamp
         self.endTstamp = endTstamp
         self.imageStack = []
@@ -173,7 +174,7 @@ class DarkQuick(QtGui.QMainWindow):
         darkFrames = []
         for iTs,ts in enumerate(self.darkTimes):
             try:
-                imagePath = os.path.join(dataPath,str(ts)+'.bin')
+                imagePath = os.path.join(self.dataPath,str(ts)+'.bin')
                 print imagePath
                 with open(imagePath,'rb') as dumpFile:
                     data = dumpFile.read()
@@ -197,7 +198,8 @@ class DarkQuick(QtGui.QMainWindow):
                     image = newImage
 
             except (IOError, ValueError):
-                image = np.zeros((imageShape['nRows'], imageShape['nCols']),dtype=np.uint16)  
+                image = np.zeros((imageShape['nRows'], imageShape['nCols']),dtype=np.uint16)
+                print "Failed to load dark frame..."
             darkFrames.append(image)
             
         self.darkStack = np.array(darkFrames)
@@ -220,7 +222,7 @@ class DarkQuick(QtGui.QMainWindow):
         
         for iTs,ts in enumerate(self.timestampList):
             try:
-                imagePath = os.path.join(dataPath,str(ts)+'.bin')
+                imagePath = os.path.join(self.dataPath,str(ts)+'.bin')
                 print imagePath
                 with open(imagePath,'rb') as dumpFile:
                     data = dumpFile.read()
@@ -996,12 +998,14 @@ def plotHist(ax,histBinEdges,hist,**kwargs):
 
 if __name__ == "__main__":
     kwargs = {}
-    if len(sys.argv) != 3:
-        print 'Usage: {} tstampStart tstampEnd'.format(sys.argv[0])
+    if len(sys.argv) != 5:
+        print 'Usage: {} run date tstampStart tstampEnd'.format(sys.argv[0])
         exit(0)
     else:
-        kwargs['startTstamp'] = int(sys.argv[1])
-        kwargs['endTstamp'] = int(sys.argv[2])
+        kwargs['run'] = str(sys.argv[1])
+        kwargs['date'] = int(sys.argv[2])
+        kwargs['startTstamp'] = int(sys.argv[3])
+        kwargs['endTstamp'] = int(sys.argv[4])
 
     form = DarkQuick(**kwargs)
     form.show()

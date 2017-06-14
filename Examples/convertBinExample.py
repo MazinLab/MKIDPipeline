@@ -1,29 +1,33 @@
 '''
 Author: Matt Strader        Date: July 20, 2016
+Same as darkQuickViewer.py, only this one writes your input slice range to a fits file.  Name of the fits file is in the format -starttime- to -endtime-.fits
 '''
 
+import pyfits
 import sys, os
 import numpy as np
 from PyQt4 import QtCore
 from PyQt4 import QtGui
-#from matplotlib.backends.qt_compat import QtCore
-#from matplotlib.backends.qt_compat import QtGui
 import matplotlib
-matplotlib.rcParams['backend.qt4']='PyQt4'
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+import matplotlib
 from functools import partial
 
 
 
-basePath = '/mnt/data0/ScienceDataIMGs/'
+dataPath = '/mnt/data0/ScienceDataIMGs/'
 imageShape = {'nRows':125,'nCols':80}
+
+outpath = '/mnt/data0/ProcessedData/FITS/'
+outfile = 'junk.FITS'
 
 
 class DarkQuick(QtGui.QMainWindow):
-    def __init__(self, run, date,startTstamp, endTstamp):
+    def __init__(self, startTstamp, endTstamp):
+        start=startTstamp
+        end=endTstamp
         
-        self.dataPath = basePath+str(run)+'/'+str(date)+'/'
         self.startTstamp = startTstamp
         self.endTstamp = endTstamp
         self.imageStack = []
@@ -137,7 +141,7 @@ class DarkQuick(QtGui.QMainWindow):
         images = []
         for iTs,ts in enumerate(self.timestampList):
             try:
-                imagePath = os.path.join(self.dataPath,str(ts)+'.img')
+                imagePath = os.path.join(dataPath,str(ts)+'.img')
                 image = np.fromfile(open(imagePath, mode='rb'),dtype=np.uint16)
                 image = np.transpose(np.reshape(image, (imageShape['nCols'], imageShape['nRows'])))
                 if self.beammap is not None:
@@ -154,10 +158,13 @@ class DarkQuick(QtGui.QMainWindow):
                             #    newImage[y,x]=0
                     image = newImage
             except IOError:
-                image = np.zeros((imageShape['nRows'], imageShape['nCols']))
-                print "Failed to load image frame %i..."%ts 
+                image = np.zeros((imageShape['nRows'], imageShape['nCols']))  
             images.append(image)
         self.imageStack = np.array(images)
+        hdu = pyfits.PrimaryHDU(self.imageStack)
+        hdulist = pyfits.HDUList([hdu])
+        #hdulist.writeto('/mnt/data0/ProcessedData/FITS/new.fits')
+        hdulist.writeto(outpath+str(self.startTstamp)+'_to_'+str(self.endTstamp)+'.fits')
 
     def applyBeammap(self):
         #from addPixID import getPixelIdentificationInfo
@@ -620,7 +627,7 @@ def layoutBox(type,elements):
     else:
         raise TypeError('type should be one of [\'vertical\',\'horizontal\',\'V\',\'H\']')
 
-    for element in elements:      
+    for element in elements:
         try:
             box.addWidget(element)
         except:
@@ -644,14 +651,12 @@ def plotHist(ax,histBinEdges,hist,**kwargs):
 
 if __name__ == "__main__":
     kwargs = {}
-    if len(sys.argv) != 5:
-        print 'Usage: {} run date tstampStart tstampEnd'.format(sys.argv[0])
+    if len(sys.argv) != 3:
+        print 'Usage: {} tstampStart tstampEnd'.format(sys.argv[0])
         exit(0)
     else:
-        kwargs['run'] = str(sys.argv[1])
-        kwargs['date'] = int(sys.argv[2])
-        kwargs['startTstamp'] = int(sys.argv[3])
-        kwargs['endTstamp'] = int(sys.argv[4])
+        kwargs['startTstamp'] = int(sys.argv[1])
+        kwargs['endTstamp'] = int(sys.argv[2])
 
     form = DarkQuick(**kwargs)
     form.show()
