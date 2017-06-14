@@ -123,6 +123,7 @@ def StackCalSoln_Description(nPos=1):
 #configFileName = 'quickStack_coron_20161119.cfg'
 #configFileName = 'quickStack_20161122g_hp.cfg'
 #configFileName = 'quickStack_20161121b.cfg'
+<<<<<<< HEAD
 #configFileName = 'quickStack_20161122h.cfg'
 
 if len(sys.argv)<2:
@@ -133,6 +134,9 @@ else:
     
 #configFileName = 'ditherStack_1491773225.cfg'
 
+=======
+configFileName = 'quickStack_20161122h.cfg'
+>>>>>>> 094d0556e7c743154de499d73bfa5cbdc4f99f4f
 configData = readDict()
 configData.read_from_file(configFileName)
 
@@ -161,6 +165,7 @@ subtractDark = bool(configData['subtractDark'])
 divideFlat = bool(configData['divideFlat'])
 refFile = str(configData['refFile'])
 
+<<<<<<< HEAD
 apMaskRadPrim = 300
 apMaskRadSec = 300
 
@@ -168,6 +173,12 @@ if imgDir!='/mnt/ramdisk' and imgDir!='/mnt/ramdisk/':
     imgPath = os.path.join(imgDir,date)
 else:
     imgPath=imgDir
+=======
+apMaskRadPrim = 18
+apMaskRadSec = 24
+
+imgPath = os.path.join(imgDir,date)
+>>>>>>> 094d0556e7c743154de499d73bfa5cbdc4f99f4f
 binPath = os.path.join(binDir,date)
 
 calPath = "/mnt/data0/darknessCalFiles"
@@ -205,6 +216,13 @@ centroidsY=[]
 
 
 #load dark frames
+<<<<<<< HEAD
+=======
+print "Loading dark frame"
+darkStack = loadStack(dataDir, darkSpan[0], darkSpan[1],useImg = useImg, nCols=numCols, nRows=numRows)
+dark = medianStack(darkStack)
+#plotArray(dark,title='Dark',origin='upper')
+>>>>>>> 094d0556e7c743154de499d73bfa5cbdc4f99f4f
 
 if darkSpan[0]!='0':
     print "Loading dark frame"
@@ -218,6 +236,7 @@ else:
 #plotArray(dark,title='Med Filt Dark',origin='upper')
 
 #load flat frames
+<<<<<<< HEAD
 if flatSpan[0]!='0':
     print "Loading flat frame"
     flatStack = loadStack(dataDir, flatSpan[0], flatSpan[1],useImg = useImg, nCols=numCols, nRows=numRows)
@@ -232,6 +251,17 @@ if subtractDark == True:
 else:
     flatSub = flat
 
+=======
+print "Loading flat frame"
+flatStack = loadStack(dataDir, flatSpan[0], flatSpan[1],useImg = useImg, nCols=numCols, nRows=numRows)
+flat = medianStack(flatStack)
+#plotArray(flat,title='Flat',origin='upper')
+if subtractDark == True:
+    flatSub = flat-dark
+else:
+    flatSub = flat
+
+>>>>>>> 094d0556e7c743154de499d73bfa5cbdc4f99f4f
 #starting point centroid guess for first frame is where all subsequent frames will be aligned to
 refPointX = xPos[0]
 refPointY = yPos[0]
@@ -264,10 +294,16 @@ for i in range(nPos):
             darkSub = stack[f]
 
         if divideFlat == True:
+<<<<<<< HEAD
             processedIm = np.array(darkSub/flatSub,dtype=float)
         else:
             processedIm = np.array(darkSub,dtype=float)
         print darkSub
+=======
+            processedIm = darkSub/flatSub
+        else:
+            processedIm = darkSub
+>>>>>>> 094d0556e7c743154de499d73bfa5cbdc4f99f4f
             
         #plotArray(med,title='Dither Pos %i'%i,origin='upper')
         #plotArray(embedInLargerArray(processedIm),title='Dither Pos %i - dark'%i,origin='upper')
@@ -282,11 +318,15 @@ for i in range(nPos):
         centroidsY.append(refPointY-dYs[i])
 
         if i==0 and f==0:
+<<<<<<< HEAD
             #plotArray(processedIm,title='Dither Pos %i - dark'%i,origin='upper')#,vmin=0)
             print np.shape(processedIm)
             print np.shape(dark)
             print sum(processedIm)
             print np.where(processedIm==np.nan)
+=======
+            plotArray(processedIm,title='Dither Pos %i - dark'%i,origin='upper',vmin=0)
+>>>>>>> 094d0556e7c743154de499d73bfa5cbdc4f99f4f
 
         if (doHPM == 'one' and hpDict==None) or (doHPM=='all'):
             if not os.path.exists(hpPklFile):
@@ -306,6 +346,10 @@ for i in range(nPos):
                 pklDict = pickle.load(open(hpPklFile,"rb"))
                 hpMask = np.empty((numRows, numCols),dtype=int)
                 hpMask.fill(tm.timeMaskReason['none'])
+<<<<<<< HEAD
+=======
+		
+>>>>>>> 094d0556e7c743154de499d73bfa5cbdc4f99f4f
                 
                 hpMask[pklDict["hotMask"]] = tm.timeMaskReason['hot pixel']
                 hpMask[pklDict["coldMask"]] = tm.timeMaskReason['cold pixel']
@@ -318,15 +362,19 @@ for i in range(nPos):
         else:
             print "No hot pixel masking specified in config file"
             hpMask = np.zeros((numRows, numCols),dtype=int)
+<<<<<<< HEAD
             hpm = np.zeros((numRows, numCols),dtype=int)
             cpm = np.zeros((numRows, numCols),dtype=int)
             dpm = np.zeros((numRows, numCols),dtype=int)
+=======
+>>>>>>> 094d0556e7c743154de499d73bfa5cbdc4f99f4f
 	    #print(hpMask)
 
         #Append the individual masks used on each frame to arrays that will go in h5 
 	hotPixMasks.append(hpm)
 	coldPixMasks.append(cpm)
 	deadPixMasks.append(dpm)
+<<<<<<< HEAD
         
         #apply hp mask to image
         if (doHPM == 'all') or (doHPM =='one'):
@@ -338,6 +386,18 @@ for i in range(nPos):
         #plot an example of the masked image for inspection
         #if f==0 and i==0:
             #plotArray(processedIm,title='Dither Pos %i HP Masked'%i,origin='upper',vmin=0)
+=======
+
+        #apply hp mask to image
+        processedIm[np.where(hpMask==tm.timeMaskReason['hot pixel'])]=np.nan
+
+        #cut out cold/dead pixels
+        processedIm[np.where(processedIm<=coldCut)]=np.nan
+        
+        #plot an example of the masked image for inspection
+        if f==0 and i==0:
+            plotArray(processedIm,title='Dither Pos %i HP Masked'%i,origin='upper',vmin=0)
+>>>>>>> 094d0556e7c743154de499d73bfa5cbdc4f99f4f
 
         #pad frame with margin for shifting and stacking
         paddedFrame = embedInLargerArray(processedIm,frameSize=padFraction)
@@ -461,8 +521,13 @@ stackPath = os.path.join(calPath,"imageStacks")
 h5Path = os.path.join(stackPath,date)        
 h5baseName = configFileName.split('.')[0]
 h5FileName = h5Path+'/%s.h5'%h5baseName
+<<<<<<< HEAD
 h5file = tables.open_file(h5FileName,mode='w')
 stackgroup = h5file.create_group(h5file.root, 'imageStack', 'Table of images, centroids, and parameters used to create a final stacked image')
+=======
+h5file = tables.openFile(h5FileName,mode='w')
+stackgroup = h5file.createGroup(h5file.root, 'imageStack', 'Table of images, centroids, and parameters used to create a final stacked image')
+>>>>>>> 094d0556e7c743154de499d73bfa5cbdc4f99f4f
 #################################################
 timeArray = tables.Array(stackgroup,'timestamps',timeStamps,title='Timestamps')
 ditherArray = tables.Array(stackgroup,'dithers',ditherNums,title='Dither positions')
@@ -483,7 +548,11 @@ finalArray = tables.Array(stackgroup,'finalImg',finalImage,title='Final Image')
 
 #Write parameter table with all settings used from cfg file to make stack
 descriptionDict = StackCalSoln_Description(nPos)
+<<<<<<< HEAD
 paramTable = h5file.create_table(stackgroup, 'params', descriptionDict,title='Stack Parameter Table')
+=======
+paramTable = h5file.createTable(stackgroup, 'params', descriptionDict,title='Stack Parameter Table')
+>>>>>>> 094d0556e7c743154de499d73bfa5cbdc4f99f4f
 entry = paramTable.row
 entry['intTime'] = intTime
 entry['nPos'] = nPos
