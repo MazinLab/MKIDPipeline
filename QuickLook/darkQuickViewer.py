@@ -13,7 +13,7 @@ matplotlib.rcParams['backend.qt4']='PyQt4'
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from functools import partial
-
+import HotPix.darkHotPixMask as dhpm
 
 
 basePath = '/mnt/data0/ScienceDataIMGs/'
@@ -40,9 +40,10 @@ class DarkQuick(QtGui.QMainWindow):
         self.arrangeMainFrame()
         self.connectControls()
 
-
+        self.badPixMask = None
         self.beammap=None
         #self.applyBeammap()
+        self.loadBadPixMask()
         self.loadImageStack()
         self.getObsImage()
         
@@ -132,6 +133,11 @@ class DarkQuick(QtGui.QMainWindow):
     def addClickFunc(self,clickFunc):
         self.arrayImageWidget.addClickFunc(clickFunc)
 
+    def loadBadPixMask(self):
+        #hard coded for now. Should supply bad pix mask in gui menu and load it there
+        hpmPath = '/mnt/data0/CalibrationFiles/darkHotPixMasks/20170410/1491870115.npz'
+        self.badPixMask = dhpm.loadMask(hpmPath)
+
     def loadImageStack(self):
         self.timestampList = np.arange(self.startTstamp,self.endTstamp+1)
         images = []
@@ -187,6 +193,10 @@ class DarkQuick(QtGui.QMainWindow):
         self.lineEdit_currentTstamp.setText(str(self.startTstamp+self.currentImageIndex))
         paramsDict = self.imageParamsWindow.getParams()
         self.image = self.imageStack[self.currentImageIndex]
+
+        if self.badPixMask is not None:
+            self.image[np.where(self.badPixMask==1)]=0
+
         self.plotArray(self.image,**paramsDict['plotParams'])
         print self.currentImageIndex
 
@@ -477,6 +487,7 @@ class ArrayImageWidget(QtGui.QWidget):
 
     def plotArray(self,image,normNSigma=3,title='',**kwargs):
         self.image = image
+
         self.imageShape = np.shape(image)
         self.nRow = self.imageShape[0]
         self.nCol = self.imageShape[1]
