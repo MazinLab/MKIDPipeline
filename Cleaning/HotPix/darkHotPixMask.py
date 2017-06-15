@@ -43,10 +43,16 @@ nCols=80
 nRows=125
 
 
-def makeMask(run=None, date=None, startTimeStamp=None, stopTimeStamp=None, verbose=False, sigma=5, maxCut=2450):
+def makeMask(run=None, date=None, startTimeStamp=None, stopTimeStamp=None, verbose=False, sigma=3, maxCut=2450, coldCut=False, manualArray=None):
+    '''
+    MaxCut sets level for initial hot pixel cut. Everything with cps>maxCut -> np.nan
+    Sigma determines level for second cut. Everything with cps>mean+sigma*stdev -> np.nan
+    If coldCut=True, third cut where everything with cps<mean-sigma*stdev -> np.nan
+    manualArray is a way to give a list of bad pixels manually, in format [[row,col],[row,col],...]
+    '''
     dataPath = basePath+str(run)+os.path.sep+str(date)+os.path.sep
 
-    stack = loadIMGStack(dataPath, startTimeStamp, stopTimeStamp, useImg = True, nCols=nCols, nRows=nRows)
+    stack = loadIMGStack(dataPath, startTimeStamp, stopTimeStamp, nCols=nCols, nRows=nRows)
     medStack = utils.medianStack(stack)
 
     if verbose:
@@ -56,6 +62,7 @@ def makeMask(run=None, date=None, startTimeStamp=None, stopTimeStamp=None, verbo
             plt.matshow(medStack)
             plt.show()
 
+    #initial masking, take out anything with cps > maxCut
     mask = np.zeros(np.shape(medStack),dtype=int)
     mask[np.where(medStack>=maxCut)]=1
 
@@ -75,8 +82,13 @@ def makeMask(run=None, date=None, startTimeStamp=None, stopTimeStamp=None, verbo
             plt.matshow(medStack)
             plt.show()
 
+    #second round of masking, where cps > mean+sigma*std
     mask2 = np.zeros(np.shape(medStack),dtype=int)
-    mask2[np.where(medStack>=sigma*np.nanmean(medStack))]=1
+    mask2[np.where(medStack>=np.nanmean(medStack)+sigma*np.nanstd(medStack))]=1
+
+    #if coldCut is true, also mask cps < mean-sigma*std
+    if coldCut==True:
+        mask2[np.where(medStack<=np.nanmean(medStack)-sigma*np.nanstd(medStack))]=1
 
     if verbose:
         try:
@@ -94,6 +106,13 @@ def makeMask(run=None, date=None, startTimeStamp=None, stopTimeStamp=None, verbo
             plt.show()
 
     finalMask = mask+mask2
+
+    # provide an easy means to pipe in an array of manually identified pixels
+    if manualArray is not None:
+        for pix in manualArray:
+            finalMask[pix[0],pix[1]]=1
+
+
     if verbose:
         try:
             plotArray(finalMask, title='Final mask')
@@ -101,6 +120,9 @@ def makeMask(run=None, date=None, startTimeStamp=None, stopTimeStamp=None, verbo
             plt.matshow(finalMask)
             plt.show()
         print "Number masked pixels = ", len(np.array(np.where(finalMask==1)).flatten())
+
+
+        
 
     return finalMask
 
@@ -143,8 +165,9 @@ if __name__ == "__main__":
         startTS = 1491870115
         stopTS = 1491870135
         verb=True
+        coldCut=True
 
-    elif len(sys.argv) != 6:
+    elif len(sys.argv) != 7:
         print 'Usage: {} run date startTimeStamp stopTimeStamp verbose'.format(sys.argv[0])
         exit(0)
 
@@ -154,8 +177,9 @@ if __name__ == "__main__":
         startTS = str(sys.argv[3])
         stopTS = str(sys.argv[4])
         verb = sys.argv[5]
+        coldCut = sys.argv[6]
 
-    mask = makeMask(run=run, date=date, startTimeStamp=startTS, stopTimeStamp=stopTS, verbose=True)
+    mask = makeMask(run=run, date=date, startTimeStamp=startTS, stopTimeStamp=stopTS, verbose=verb, coldCut=coldCut)
     saveMask(mask, timeStamp = startTS, date=date)
 
 
