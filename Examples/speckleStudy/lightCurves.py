@@ -11,7 +11,7 @@ plt.rc('font',family='serif')
 import pdfs
 from scipy import stats
 from scipy.signal import periodogram
-from statsmodels.tsa.stattools import acovf,acf
+from statsmodels.tsa.stattools import acovf,acf,ccf
 
 
 def lightCurve(times, shortExposure=0.01, start=None, stop=None):
@@ -39,10 +39,10 @@ def lightCurve(times, shortExposure=0.01, start=None, stop=None):
     hist,_ = np.histogram(times,bins=histBinEdges)
 
     binWidths = np.diff(histBinEdges)
-    binCenters = histBinEdges+binWidths/2.0
+    binCenters = histBinEdges[:-1]+binWidths/2.0
     lightCurve = 1.*hist#/binWidths
 
-    return {"time":binCenters[:-1], "intensity":lightCurve, "shortExposure":shortExposure}
+    return {"time":binCenters, "intensity":lightCurve, "shortExposure":shortExposure}
 
 
 def simulatedLightcurve(pdf = None, shortExposure = 0.01, totalIntegration = 300, mean = 15, ratio = 5, sigma = 5, lowerBound=0):
@@ -134,6 +134,17 @@ def plotACF(lcTime,lcInt,**kwargs):
 
     return corr, ljb, pvalue
 
+def plotCCF(lcTime, lcIntA, lcIntB, **kwargs):
+    '''
+    calculate cross correlation between two lc
+    '''
+    corr = ccf(lcIntA, lcIntB)
+    plt.plot(lcTime,corr,**kwargs)
+    plt.xlabel(r"$\tau(s)$",fontsize=14)
+    plt.ylabel(r"$\rho(\tau)$",fontsize=14)
+    plt.title(r"Cross-correlation $\rho(\tau)$ of two LCs",fontsize=14)
+    plt.show()
+
 
 def plotPSD(lcInt, shortExp,**kwargs):
     '''
@@ -145,7 +156,9 @@ def plotPSD(lcInt, shortExp,**kwargs):
 
     plt.plot(f,p/np.max(p),**kwargs)
     plt.xlabel(r"Frequency (Hz)",fontsize=14)
+    plt.xscale('log')
     plt.ylabel(r"Normalized PSD",fontsize=14)
+    plt.yscale('log')
     plt.title(r"Lightcurve Power Spectrum",fontsize=14)
     plt.show()
 

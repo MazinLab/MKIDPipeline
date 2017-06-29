@@ -280,6 +280,9 @@ class darkObsFile:
         #make pointer to data table
         self.data = self.file.root.Photons.data
 
+        #easy way to check exactly how many seconds of data are supposedly recorded
+        self.totalIntegrationTime = self.file.root.Images._g_getnchildren()
+
 
     def checkIntegrity(self,firstSec=0,integrationTime=-1):
         ##### TO DO #####
@@ -456,7 +459,7 @@ class darkObsFile:
         self.seed = seed
         np.random.seed(seed)
 
-    def getPixelWvlList(self,iRow,iCol,firstSec=0,integrationTime=-1,excludeBad=True,dither=False,timeSpacingCut=None, verbose=False): #,getTimes=False):
+    def getPixelWvlList(self,iRow,iCol,firstSec=0,integrationTime=-1,excludeBad=True,dither=False,timeSpacingCut=None, verbose=False, peakHeightDict=None): #,getTimes=False):
         """
         returns a numpy array of photon wavelengths for a given pixel, integrated from firstSec to firstSec+integrationTime.
         if integrationTime is -1, All time after firstSec is used. 
@@ -472,6 +475,10 @@ class darkObsFile:
         SRM 2017-05-08
         Updated for DARKNESS pipeline. Mostly just removed baseline retrieval.
 
+        SRM 2017-06-14
+        Made a new variable such that you can give the peakHeightDict to this function if it is already loaded,
+        say, from getTimedPacketList
+
         JvE 3/5/2013
         if excludeBad is True, relevant wavelength cuts are applied to timestamps and wavelengths before returning 
         [if getTimes is True, returns timestamps,wavelengths - OBSOLETE - JvE 3/2/2013]
@@ -482,11 +489,15 @@ class darkObsFile:
 
         if not hasattr(self, 'wvlCalTable'):
             raise ValueError("Wavelength cal not loaded. Cannot return Wvl list!")
+        if peakHeightDict==None:
+            x = self.getTimedPacketList(iRow, iCol, firstSec, integrationTime,timeSpacingCut=timeSpacingCut, verbose=verbose)
+        else:
+            x = peakHeightDict        
 
-        x = self.getTimedPacketList(iRow, iCol, firstSec, integrationTime,timeSpacingCut=timeSpacingCut, verbose=verbose)
         timestamps, parabolaPeaks, effIntTime, rawCounts = \
-            x['timestamps'], x['peakHeights'], x['effIntTime'], x['rawCounts']
+            x['timestamps'], x['peakHeights'], x['effIntTime'], x['rawCounts']            
         parabolaPeaks = np.array(parabolaPeaks,dtype=np.double)
+
         if dither==True:
             parabolaPeaks += np.random.random_sample(len(parabolaPeaks))/10.              
         pulseHeights = parabolaPeaks
@@ -503,6 +514,7 @@ class darkObsFile:
 
         with np.errstate(divide='ignore'):
             wavelengths = darkObsFile.h*darkObsFile.c*darkObsFile.angstromPerMeter/energies
+
         if excludeBad == True:
             #check if this pixel is completely valid in the wavelength range set for this ObsFile
             #if not, cut out the photons from this pixel
@@ -651,7 +663,7 @@ class darkObsFile:
 
         # Need to know how many seconds of data were intended to be in the file.
         # Easiest way to do that is to check how many 1-second frames are in the "Images" group.
-        fileIntTimeSeconds = self.file.root.Images._g_getnchildren()
+        fileIntTimeSeconds = self.totalIntegrationTime
 
         if integrationTime+int(np.floor(firstSec))>fileIntTimeSeconds:
             warnings.warn("Requested integration outside bounds of data!",RuntimeWarning)
@@ -759,7 +771,7 @@ class darkObsFile:
                         #apply time masking
                         maskedDict = self.maskTimestamps(timestamps=timestamps,inter=inter,otherListsToFilter=[peakHeights])
                         timestamps = maskedDict['timestamps']
-                        peakHeights = maskedDict['otherLists']
+                        peakHeights = maskedDict['otherLists'][0]
                         #determine raw counts
                         rawCounts = len(timestamps)
 
@@ -878,7 +890,7 @@ class darkObsFile:
 
         # Need to know how many seconds of data were intended to be in the file.
         # Easiest way to do that is to check how many 1-second frames are in the "Images" group.
-        fileIntTimeSeconds = self.file.root.Images._g_getnchildren()
+        fileIntTimeSeconds = self.totalIntegrationTime
 
         if integrationTime+int(np.floor(firstSec))>fileIntTimeSeconds:
             warnings.warn("Requested integration outside bounds of data!",RuntimeWarning)
@@ -1126,27 +1138,52 @@ class darkObsFile:
         #else:
         #    return secImg
     
+
     def getSpectralCube(self,firstSec=0,integrationTime=-1,weighted=True,fluxWeighted=True,wvlStart=7000, wvlStop=16000, wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None, timeSpacingCut=None, verbose=False):
         """
         - SRM 2017-05-08
           Updated for DARKNESS pipeline
+        - SRM 2017-06-14
+          Updated to use getTimedPacketImage to speed things up even more, just load data into memory for all pix
 
         Return a time-flattened spectral cube of the counts integrated from firstSec to firstSec+integrationTime.
         If integration time is -1, all time after firstSec is used.
         If weighted is True, flat cal weights are applied.
         If fluxWeighted is True, spectral shape weights are applied.
         """
+
         cube = [[[] for iCol in range(self.nCol)] for iRow in range(self.nRow)]
         effIntTime = np.zeros((self.nRow,self.nCol))
         rawCounts = np.zeros((self.nRow,self.nCol))
 
+        #load timed packet image dictionary for full array for desired time span
+        tpiDict = self.getTimedPacketImage(firstSec=firstSec, integrationTime= integrationTime,\
+                   timeSpacingCut=None, expTailTimescale=None, getUnAllocPixels = False, verbose=False)
+ 
         for iRow in xrange(self.nRow):
             for iCol in xrange(self.nCol):
+
+                #get ts, peak heights, eff int time, and raw counts for the desired pixel from the full image dict
+                timestamps, peakHeights, pixEffIntTime, pixRawCounts = tpiDict['timestamps'][iRow][iCol], \
+                                               tpiDict['peakHeights'][iRow][iCol], tpiDict['effIntTime'][iRow][iCol],\
+                                               tpiDict['rawCounts'][iRow][iCol]
+                
+                #construct dictionary with information desired by getPixelWvlList
+                #for reference: {'timestamps':timestamps, 'peakHeights':peakHeights,
+                #                'baselines':baselines, 'effIntTime':effectiveIntTime, 'rawCounts':rawCounts}
+                phd = {'timestamps':timestamps, 'peakHeights':peakHeights,
+                       'effIntTime':pixEffIntTime, 'rawCounts':pixRawCounts}
+                wvlDict = self.getPixelWvlList(iRow,iCol,firstSec, integrationTime,timeSpacingCut=timeSpacingCut,
+                                               verbose=verbose, peakHeightDict=phd)
+
+
+                #pipe wvlDict from getPixelWvlList into getPixelSpectrum
                 x = self.getPixelSpectrum(pixelRow=iRow,pixelCol=iCol,
                                   firstSec=firstSec,integrationTime=integrationTime,
                                   weighted=weighted,fluxWeighted=fluxWeighted,wvlStart=wvlStart,wvlStop=wvlStop,
                                   wvlBinWidth=wvlBinWidth,energyBinWidth=energyBinWidth,
-                                  wvlBinEdges=wvlBinEdges,timeSpacingCut=timeSpacingCut, verbose=verbose)
+                                  wvlBinEdges=wvlBinEdges,timeSpacingCut=timeSpacingCut, verbose=verbose, wvlDict=wvlDict)
+                
                 cube[iRow][iCol] = x['spectrum']
                 effIntTime[iRow][iCol] = x['effIntTime']
                 rawCounts[iRow][iCol] = x['rawCounts']
@@ -1154,9 +1191,11 @@ class darkObsFile:
         cube = np.array(cube)
         return {'cube':cube,'wvlBinEdges':wvlBinEdges,'effIntTime':effIntTime, 'rawCounts':rawCounts}
 
+
     def getPixelSpectrum(self, pixelRow, pixelCol, firstSec=0, integrationTime= -1,
                          weighted=False, fluxWeighted=False, wvlStart=None, wvlStop=None,
-                         wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None,timeSpacingCut=None, verbose=False):
+                         wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None,timeSpacingCut=None, wvlDict=None,
+                         verbose=False):
         """
         returns a spectral histogram of a given pixel integrated from firstSec to firstSec+integrationTime,
         and an array giving the cutoff wavelengths used to bin the wavelength values
@@ -1186,8 +1225,7 @@ class darkObsFile:
         SRM 2017-05-08 Updated to DARKNESS pipeline:
         - Changed default wvl limits to (7000,16000)
         SRM 2017-05-28
-        - Updated to work with new wvlCalSoln files. Error in how soln file is written.
-          Need to check again what spectra look like (using plotPixelSpectra) after that is fixed.
+        - Updated to work with new wvlCalSoln files.
 
         ----
         """
@@ -1195,8 +1233,11 @@ class darkObsFile:
         wvlStart=wvlStart if (wvlStart!=None and wvlStart>0.) else (self.wvlLowerLimit if (self.wvlLowerLimit!=None and self.wvlLowerLimit>0.) else 7000)
         wvlStop=wvlStop if (wvlStop!=None and wvlStop>0.) else (self.wvlUpperLimit if (self.wvlUpperLimit!=None and self.wvlUpperLimit>0.) else 16000)
 
+        if wvlDict==None:
+            x = self.getPixelWvlList(pixelRow, pixelCol, firstSec, integrationTime,timeSpacingCut=timeSpacingCut, verbose=verbose)
+        else:
+            x = wvlDict
 
-        x = self.getPixelWvlList(pixelRow, pixelCol, firstSec, integrationTime,timeSpacingCut=timeSpacingCut, verbose=verbose)
         wvlList, effIntTime, rawCounts = x['wavelengths'], x['effIntTime'], x['rawCounts']
 
         if (weighted == False) and (fluxWeighted == True):

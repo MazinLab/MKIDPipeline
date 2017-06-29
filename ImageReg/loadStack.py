@@ -101,8 +101,20 @@ def loadH5Stack(h5Path, verbose=True):
     final = np.array(f.get_node('/imageStack/finalImg').read())
 
     f.close()
+    return {"stack":imageStack,"times":timeStamps,"params":stackParams,"final":final,"centX":centXArray,
+            "centY":centYArray,"dark":dark,"hpm":hotArray}
 
-    return {"stack":imageStack,"final":final,"centX":centXArray,"centY":centYArray,"dark":dark,"hpm":hotArray}
+
+def loadCubeStack(npzPath,verbose=True):
+    '''
+    Load up times, cubes, and wvlBinEdges from npz output of makeCubeTimestream
+    '''
+    npzfile = np.load(npzPath)
+    times = npzfile['times']
+    cubes = npzfile['cubes']
+    wbe = npzfile['wvlBinEdges']
+    npzfile.close()
+    return {"times":times,"cubes":cubes,"wvlBinEdges":wbe}
 
 
 
