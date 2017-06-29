@@ -162,10 +162,19 @@ if __name__ == "__main__":
         print "No arguments provided, running on test files"
         run="PAL2017a"
         date = "20170410"
-        startTS = 1491870115
-        stopTS = 1491870135
+        startTS = 1491894755
+        stopTS = 1491894805
         verb=True
         coldCut=True
+        #manual hot pix selection for 20170409 end of night (pi Her and HD91782)
+        #manHP = [[0,3],[2,27],[8,63],[5,76],[10,78],[27,15],[27,20],[22,78],[37,52],[48,4],[54,20],[54,34],[63,33],[67,39],[63,61],[58,70],[62,74],[66,71],[75,24],[76,32],[78,62],[102,24],[110,75],[116,18],[114,28],[115,59],[116,72],[122,73],[88,73],[109,4],[75,21],[64,5],[16,63],[4,23],[42,53],[42,41],[16,51],[76,34],[117,60],[51,57]]
+
+        #manual hot pix for 20170408 tauBoo data
+        #manHP = [[0,1],[9,24],[39,11],[37,15],[35,39],[38,57],[42,56],[50,15],[65,18],[71,11],[75,13],[73,72],[82,42],[83,47],[80,75],[82,72],[89,36],[110,12],[103,21],[103,31],[106,30],[107,37],[117,36],[121,47],[117,60],[113,60],[78,62],[73,19],[88,38],[87,38],[93,75]]
+
+        #manual hot pix for 20170410 HD91782 data
+        manHP = None
+
 
     elif len(sys.argv) != 7:
         print 'Usage: {} run date startTimeStamp stopTimeStamp verbose'.format(sys.argv[0])
@@ -178,8 +187,10 @@ if __name__ == "__main__":
         stopTS = str(sys.argv[4])
         verb = sys.argv[5]
         coldCut = sys.argv[6]
+        manHP=None
 
-    mask = makeMask(run=run, date=date, startTimeStamp=startTS, stopTimeStamp=stopTS, verbose=verb, coldCut=coldCut)
+    mask = makeMask(run=run, date=date, startTimeStamp=startTS, stopTimeStamp=stopTS, verbose=verb,
+                    coldCut=coldCut,manualArray=manHP)
     saveMask(mask, timeStamp = startTS, date=date)
 
 
