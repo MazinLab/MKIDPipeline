@@ -6,8 +6,6 @@ TODO:
         Right now images are loaded and diplayed properly from the parsed dictionary
         Need to implement appending of phases and other parsed data into full photon lists
         Speed up parsing of data packets. VERY SLOW NOW!
-        Implement plotting of phase histograms
-        Implement user-specified time resolution of lightcurves, and histograms of intensities
 '''
 
 import sys, os, time, struct
@@ -22,6 +20,7 @@ from matplotlib.figure import Figure
 from functools import partial
 from parsePacketDump2 import parsePacketData
 import parsePacketDump2
+import HotPix.darkHotPixMask as dhpm
 
 
 basePath = '/mnt/data0/ScienceData/'
@@ -57,8 +56,11 @@ class DarkQuick(QtGui.QMainWindow):
         self.arrangeMainFrame()
         self.connectControls()
 
-
+        self.badPixMask = None
         self.beammap=None
+        #self.applyBeammap()
+        self.loadBadPixMask()
+
         #self.applyBeammap()
         if self.subtractDark:
             self.generateDarkFrame()        
@@ -207,6 +209,22 @@ class DarkQuick(QtGui.QMainWindow):
         print "Generated median dark frame from timestamps %i to %i"%(self.darkStart, self.darkEnd)
         self.darkLoaded = True
 
+    def loadBadPixMask(self):
+        #hard coded for now. Should supply bad pix mask in gui menu and load it there
+
+        #20170410 WL data bad pixel mask
+        #hpmPath = '/mnt/data0/CalibrationFiles/darkHotPixMasks/20170410/1491870115.npz'
+
+        #20170409 pi Her data bad pixel mask
+        #hpmPath = '/mnt/data0/CalibrationFiles/darkHotPixMasks/20170409/1491826154.npz'
+
+        #20170408 tau Boo data bad pixel mask
+        #hpmPath = '/mnt/data0/CalibrationFiles/darkHotPixMasks/20170408/1491732000.npz'
+
+        #20170410 HD91782 bad pixel mask
+        hpmPath = '/mnt/data0/CalibrationFiles/darkHotPixMasks/20170410/1491894755.npz'
+        self.badPixMask = dhpm.loadMask(hpmPath)
+
     def loadImageStack(self):
     
         self.timestampList = np.arange(self.startTstamp,self.endTstamp+1)
@@ -309,6 +327,10 @@ class DarkQuick(QtGui.QMainWindow):
                 self.image[zeroes] = 0.
         else:
             self.image = image
+        
+        if self.badPixMask is not None:
+            self.image[np.where(self.badPixMask==1)]=0
+
         self.plotArray(self.image,**paramsDict['plotParams'])
         print self.currentImageIndex
 

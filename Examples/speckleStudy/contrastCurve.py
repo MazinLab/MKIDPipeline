@@ -8,19 +8,23 @@ from scipy.signal import periodogram
 from statsmodels.tsa.stattools import acovf,acf,ccf
 import vip
 from readFITStest import readFITS
+from astropy import modeling
 
 #load up pi Her psf and speckles
-psf = readFITS('/mnt/data0/ProcessedData/seth/imageStacks/PAL2017a/piHer_psf_smoothed.fits')
+#psf = readFITS('/mnt/data0/ProcessedData/seth/imageStacks/PAL2017a/piHer_psf_smoothed.fits')
+psf = readFITS('/mnt/data0/ProcessedData/seth/imageStacks/PAL2017a/HD148112_smoothed_PSF.fits')
+
 speckles = readFITS('/mnt/data0/ProcessedData/seth/imageStacks/PAL2017a/piHer_coron_smoothed.fits')
 
 #normalization to piHer unocculted psf, obtained with VIP aperture phot on center of psf manually
-norm = 743716
+#norm = 743716 #piHer
+norm = 23.12 #HD148112
 
-lod = 8 #8 pixels in these upsampled images = one lambda/d
+lod = 2 #8 pixels in these upsampled images = one lambda/d
 
-nlod = 12 #how many lambda/D do we want to calculate out to
-sep = np.arange(nlod)+1
-sepAS = sep*0.025*2
+nlod = 32 #how many lambda/D do we want to calculate out to
+sep = np.arange(nlod+1)
+sepAS = sep*0.025*2/4.0
 
 print sep
 print sepAS
@@ -29,13 +33,13 @@ print sepAS
 centerx=360
 centery=450
 
-psfMeans = []
-psfStds = []
-psfSNRs = []
+psfMeans = [norm]
+psfStds = [0]
+psfSNRs = [0]
 
-spMeans = []
-spStds = []
-spSNRs = []
+spMeans = [0]
+spStds = [0]
+spSNRs = [0]
 
 
 for i in np.arange(nlod)+1:
@@ -60,15 +64,19 @@ fig,ax1 = plt.subplots()
 #ax1.errorbar(sep,psfMeans/norm,yerr=psfStds/norm,linewidth=2,label=r'Mean Unocculted PSF Contrast')
 #ax1.errorbar(sep,spMeans/norm,yerr=spStds/norm,linestyle='-.',linewidth=2,label=r'Mean Coronagraphic Raw Contrast')
 
-ax1.errorbar(sep,psfMeans/norm+5*psfStds/norm,linewidth=2,label=r'5-$\sigma$ Unocculted PSF Contrast')
-ax1.errorbar(sep,spMeans/norm+5*spStds/norm,linestyle='-.',linewidth=2,label=r'5-$\sigma$ Coronagraphic Raw Contrast')
+#ax1.errorbar(sep,psfMeans/norm+5*psfStds/norm,linewidth=2,label=r'5-$\sigma$ Unocculted PSF Contrast')
+#ax1.errorbar(sep,spMeans/norm+5*spStds/norm,linestyle='-.',linewidth=2,label=r'5-$\sigma$ Coronagraphic Raw Contrast')
 
-ax1.axvline(x=3.3,ymin=1e-4,ymax=1,linestyle='--',color='black',linewidth=2,label = 'FPM Radius')
+ax1.errorbar(sep/4.0,psfMeans/norm,linewidth=2)#,label=r'5-$\sigma$ Unocculted PSF Contrast')
+#ax1.errorbar(sep,spMeans/norm+5*spStds/norm,linestyle='-.',linewidth=2,label=r'5-$\sigma$ Coronagraphic Raw Contrast')
+
+
+#ax1.axvline(x=3.3,ymin=1e-4,ymax=1,linestyle='--',color='black',linewidth=2,label = 'FPM Radius')
 ax1.set_xlabel(r'Separation ($\lambda$/D)',fontsize=14)
-ax1.set_ylabel(r'Contrast',fontsize=14)
+ax1.set_ylabel(r'Normalized Azimuthally Averaged Intensity',fontsize=14)
 #ax1.set_xlim(1,12)
 #ax1.set_ylim(1e-4,1)
-ax1.set_yscale('log')
+#ax1.set_yscale('log')
 
 ax2 = ax1.twiny()
 ax2.plot(sepAS,psfMeans/norm,alpha=0)

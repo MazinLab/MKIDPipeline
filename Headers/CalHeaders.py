@@ -19,7 +19,7 @@ WaveCalSoln_Description = {
             "pixelrow"  : UInt16Col(),      # physical x location - from beam map
             "pixelcol"  : UInt16Col(),      # physical y location 
             "polyfit"   : Float64Col(3),    # polynomial to convert from phase amplitude to wavelength float 64 precision
-            "sigma"     : Float64Col(),     # 1 sigma (Gaussian width) in eV, for blue peak
+            "sigma"     : Float64Col(4),     # 1 sigma (Gaussian width) in eV, for blue peak
             "solnrange" : Float32Col(2),    # start and stop wavelengths for the fit in Angstroms
             "wave_flag" : UInt16Col()}      # flag to indicate if pixel is good (0), unallocated (1), dead (2), or failed during wave cal fitting (2+) 
 

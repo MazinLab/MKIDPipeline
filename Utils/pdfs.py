@@ -49,6 +49,48 @@ def gaussian(I,mu,sig):
     gaus = np.exp(-1.0*np.power((I-mu),2)/(2.0*np.power(sig,2))) * 1/(sig*np.sqrt(2*np.pi))
     return gaus
 
+def exponential(x,lam,tau,f0):
+    expon = lam*np.exp(-x/tau)+f0
+    return expon
+
+def lorentzian(x,gamma,x0):
+    loren = (1./(np.pi * gamma))*(gamma*gamma/(np.power((x-x0),2)+gamma*gamma))
+    #loren = (1./(np.pi * gamma))*(gamma*gamma/(np.power((x),2)+gamma*gamma))
+    return loren
+
+def fitLorentzian(x,y,guessGam,guessX0):
+    '''
+    Given a histogram of intensity values (x = I bin centers, y = N(I))
+    and a guess for Gamma and x0, returns fit values for Gamma and x0.
+    '''
+    lor_guess = [guessGam,guessX0]
+    lf = lambda fx, gam, x0: lorentzian(fx, gam, x0)
+    params, cov = curve_fit(lf, x, y, p0=lor_guess, maxfev=2000)
+    return params[0], params[1] #params = [gamma, x0]
+
+#def fitLorentzian(x,y,guessGam):
+    '''
+    Given a histogram of intensity values (x = I bin centers, y = N(I))
+    and a guess for Gamma, returns fit values for Gamma.
+    '''
+#    lor_guess = [guessGam]
+#    lf = lambda fx, gam: lorentzian(fx, gam)
+#    params, cov = curve_fit(lf, x, y, p0=lor_guess, maxfev=2000)
+#    return params[0] #params = [gamma]
+
+def fitDoubleLorentzian(x,y,guessGam1,guessX1, guessGam2,guessX2):
+    dlor_guess = [guessGam1,guessX1,guessGam2,guessX2]
+    dlf = lambda fx, gam1,x1,gam2,x2: lorentzian(fx,gam1,x1)+lorentzian(fx,gam2,x2)
+    params,cov = curve_fit(dlf,x,y,p0=dlor_guess,maxfev=2000)
+    return params[0], params[1], params[2], params[3] #params = [gamma1, x1, gamma2, x2]
+
+#def fitDoubleLorentzian(x,y,guessGam1, guessGam2):
+#    dlor_guess = [guessGam1,guessGam2]
+#    dlf = lambda fx, gam1,gam2: lorentzian(fx,gam1)+lorentzian(fx,gam2)
+#    params,cov = curve_fit(dlf,x,y,p0=dlor_guess,maxfev=2000)
+#    return params[0], params[1] #params = [gamma1,gamma2]
+
+
 def fitMR(x, y, guessIc, guessIs):
     '''
     Given a histogram of intensity values (x = I bin centers, y = N(I))
@@ -79,6 +121,15 @@ def fitGaussian(x,y,guessMu,guessSigma):
     params, cov = curve_fit(gf, x, y, p0=g_guess, maxfev=2000)
     return params[0], params[1] #params = [mu, sigma]
 
+def fitExponential(x,y,guessLam,guessTau,guessf0):
+    '''
+    Given a histogram of intensity values (x = I bin centers, y = N(I))
+    and a guess for mu and sigma, returns fits for mu and sigma
+    '''
+    e_guess = [guessLam,guessTau,guessf0]
+    ef = lambda fx, lam, tau, f0: exponential(fx, lam,tau,f0)
+    params, cov = curve_fit(ef, x, y, p0=e_guess, maxfev=2000)
+    return params[0], params[1], params[2] #params = [lambda, tau, f0]
 
 class mr_gen(rv_continuous):
     '''

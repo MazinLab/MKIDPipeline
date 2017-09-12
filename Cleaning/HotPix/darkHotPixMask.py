@@ -121,10 +121,9 @@ def makeMask(run=None, date=None, startTimeStamp=None, stopTimeStamp=None, verbo
             plt.show()
         print "Number masked pixels = ", len(np.array(np.where(finalMask==1)).flatten())
 
-
-        
-
     return finalMask
+
+
 
 def saveMask(mask, timeStamp=None, date=None):
     '''
