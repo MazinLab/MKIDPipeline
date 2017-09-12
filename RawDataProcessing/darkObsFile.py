@@ -1728,7 +1728,7 @@ class darkObsFile:
             self.wvlCalFileName = fullWvlCalFileName
             wvlCalData = self.wvlCalFile.root.wavecal.calsoln
             self.wvlCalTable = np.zeros([self.nRow, self.nCol, darkObsFile.nCalCoeffs])
-            self.wvlErrorTable = np.zeros([self.nRow, self.nCol])
+            self.wvlErrorTable = np.zeros([self.nRow, self.nCol,4])
             self.wvlFlagTable = np.zeros([self.nRow, self.nCol])
             self.wvlRangeTable = np.zeros([self.nRow, self.nCol, 2])
             for calPixel in wvlCalData:

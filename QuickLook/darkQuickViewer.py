@@ -29,6 +29,16 @@ class DarkQuick(QtGui.QMainWindow):
         self.imageStack = []
         self.currentImageIndex = 0
         
+
+        self.darkLoaded = False
+        self.subtractDark = False
+        #temporary kludge to select dark frame time range
+        #self.darkStart = 1469342778
+        #self.darkEnd = 1469342798
+        
+        self.darkStart = 0
+        self.darkEnd = 0
+
         self.app = QtGui.QApplication([])
         self.app.setStyle('plastique')
         super(DarkQuick,self).__init__()
@@ -43,7 +53,11 @@ class DarkQuick(QtGui.QMainWindow):
         self.badPixMask = None
         self.beammap=None
         #self.applyBeammap()
-        self.loadBadPixMask()
+        #self.loadBadPixMask()
+
+        if self.subtractDark:
+            self.generateDarkFrame()   
+
         self.loadImageStack()
         self.getObsImage()
         
@@ -72,6 +86,13 @@ class DarkQuick(QtGui.QMainWindow):
         self.label_endTstamp = QtGui.QLabel(str(self.endTstamp))
         self.lineEdit_currentTstamp = QtGui.QLineEdit(str(self.startTstamp+self.currentImageIndex))
         
+
+        self.checkbox_applyDark = QtGui.QCheckBox('Subtract Dark')
+        self.button_generateDark = QtGui.QPushButton('Generate Dark')
+        self.checkbox_applyDark.setChecked(False)
+        self.lineEdit_darkStart = QtGui.QLineEdit(str(self.darkStart))
+        self.lineEdit_darkEnd = QtGui.QLineEdit(str(self.darkEnd))
+
         self.arrayImageWidget = ArrayImageWidget(parent=self,hoverCall=self.hoverCanvas)
         self.button_jumpToBeginning = QtGui.QPushButton('|<')
         self.button_jumpToEnd = QtGui.QPushButton('>|')
@@ -93,9 +114,11 @@ class DarkQuick(QtGui.QMainWindow):
         incrementControlsBox = layoutBox('H',[1,self.label_startTstamp,self.button_jumpToBeginning,
                 self.button_incrementBack,self.lineEdit_currentTstamp,
                 self.button_incrementForward,self.button_jumpToEnd,self.label_endTstamp,1])
+        darkControlsBox = layoutBox('H',[1, self.checkbox_applyDark, 'Timestamps ', self.lineEdit_darkStart,
+                ' to ',self.lineEdit_darkEnd,self.button_generateDark,1])
 
 
-        mainBox = layoutBox('V',[canvasBox,incrementControlsBox])
+        mainBox = layoutBox('V',[canvasBox,incrementControlsBox,darkControlsBox])
 
         self.mainFrame.setLayout(mainBox)
         self.setCentralWidget(self.mainFrame)
@@ -129,14 +152,70 @@ class DarkQuick(QtGui.QMainWindow):
         self.connect(self.button_incrementForward,QtCore.SIGNAL('clicked()'), self.incrementForward)
         self.connect(self.button_incrementBack,QtCore.SIGNAL('clicked()'), self.incrementBack)
         self.connect(self.lineEdit_currentTstamp,QtCore.SIGNAL('editingFinished()'),self.jumpToTstamp)
+        self.connect(self.checkbox_applyDark,QtCore.SIGNAL('stateChanged(int)'),self.applyDark)
+        self.connect(self.button_generateDark,QtCore.SIGNAL('clicked()'), self.generateDarkFrame)
 
     def addClickFunc(self,clickFunc):
         self.arrayImageWidget.addClickFunc(clickFunc)
 
+
     def loadBadPixMask(self):
         #hard coded for now. Should supply bad pix mask in gui menu and load it there
-        hpmPath = '/mnt/data0/CalibrationFiles/darkHotPixMasks/20170410/1491870115.npz'
+
+        #20170410 WL data bad pixel mask
+        #hpmPath = '/mnt/data0/CalibrationFiles/darkHotPixMasks/20170410/1491870115.npz'
+
+        #20170409 pi Her data bad pixel mask
+        hpmPath = '/mnt/data0/CalibrationFiles/darkHotPixMasks/20170409/1491826154.npz'
+
+        #20170408 tau Boo data bad pixel mask
+        #hpmPath = '/mnt/data0/CalibrationFiles/darkHotPixMasks/20170408/1491732000.npz'
+
+        #20170410 HD91782 bad pixel mask
+        #hpmPath = '/mnt/data0/CalibrationFiles/darkHotPixMasks/20170410/1491894755.npz'
+        
+        #20170410 HD148112 bad pixel mask
+        #hpmPath = '/mnt/data0/CalibrationFiles/darkHotPixMasks/20170410/1491904305.npz'
         self.badPixMask = dhpm.loadMask(hpmPath)
+
+    def applyDark(self):
+        if not self.checkbox_applyDark.isChecked():
+            self.subtractDark = False
+        else:
+            if self.darkLoaded==False:
+                self.generateDarkFrame()
+            self.subtractDark = True
+
+    def generateDarkFrame(self):
+        self.darkStart = int(self.lineEdit_darkStart.text())
+        self.darkEnd = int(self.lineEdit_darkEnd.text())
+        self.darkTimes = np.arange(self.darkStart, self.darkEnd+1)
+        darkFrames = []
+        for iTs,ts in enumerate(self.darkTimes):
+            try:
+                imagePath = os.path.join(self.dataPath,str(ts)+'.img')
+                image = np.fromfile(open(imagePath, mode='rb'),dtype=np.uint16)
+                image = np.transpose(np.reshape(image, (imageShape['nCols'], imageShape['nRows'])))
+                
+                if self.beammap is not None:
+                    newImage = np.zeros(image.shape)
+                    for y in range(len(newImage)):
+                        for x in range(len(newImage[0])):
+                            newX=int(self.beammap[y,x][0])
+                            newY=int(self.beammap[y,x][1])
+                            if newX >0 and newY>0: 
+                                newImage[newY,newX] = image[y,x]
+                    image = newImage
+
+            except (IOError, ValueError):
+                image = np.zeros((imageShape['nRows'], imageShape['nCols']),dtype=np.uint16)
+                print "Failed to load dark frame..."
+            darkFrames.append(image)
+            
+        self.darkStack = np.array(darkFrames)
+        self.darkFrame = np.median(self.darkStack, axis=0)
+        print "Generated median dark frame from timestamps %i to %i"%(self.darkStart, self.darkEnd)
+        self.darkLoaded = True
 
     def loadImageStack(self):
         self.timestampList = np.arange(self.startTstamp,self.endTstamp+1)
@@ -192,7 +271,17 @@ class DarkQuick(QtGui.QMainWindow):
     def getObsImage(self):
         self.lineEdit_currentTstamp.setText(str(self.startTstamp+self.currentImageIndex))
         paramsDict = self.imageParamsWindow.getParams()
-        self.image = self.imageStack[self.currentImageIndex]
+        image = self.imageStack[self.currentImageIndex]
+
+        if self.subtractDark:
+            if not self.darkLoaded:
+                print "Warning: no dark frame loaded"
+            else:
+                zeroes = np.where(self.darkFrame>image)
+                self.image=image-self.darkFrame
+                self.image[zeroes] = 0.
+        else:
+            self.image = image
 
         if self.badPixMask is not None:
             self.image[np.where(self.badPixMask==1)]=0
