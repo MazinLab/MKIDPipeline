@@ -160,7 +160,7 @@ manHP = None
 #manHP = [[13,3],[17,69],[30,52],[35,14],[35,77],[40,52],[42,53],[42,18],[54,34],[59,47],[58,70],[63,13],[65,18],[64,26],[76,32],[90,3],[85,21],[84,62],[97,49],[106,3],[110,21],[105,58],[107,69],[107,37],[109,31],[109,53],[109,72],[113,55],[113,28],[110,21],[114,21],[123,52],[124,60],[124,67],[122,74],[123,78],[4,23],[17,72],[39,41],[31,75],[39,41],[41,78],[50,15],[62,48],[73,48],[69,48],[72,51],[102,24],[117,36],[123,65],[115,79],[88,14],[61,5],[65,67],[76,23],[82,69],[116,18],[66,17],[90,19],[63,9],[64,67],[102,29],[118,28]]
 
 #kludge for 20170410 Dome flat data
-manHP = [[0,51],[3,4],[5,4],[8,28],[28,3],[32,13],[30,24],[31,78],[35,14],[36,19],[37,15],[35,19],[39,11],[42,10],[33,67],[34,67],[41,42],[42,53],[38,72],[40,78],[50,31],[50,32],[50,50],[54,20],[54,32],[53,58],[57,54],[53,77],[59,72],[61,73],[62,76],[61,0],[64,5],[65,10],[64,18],[63,61],[64,67],[65,67],[66,71],[69,73],[70,38],[69,49],[71,62],[73,65],[76,72],[78,62],[77,55],[77,50],[75,8],[75,13],[84,62],[79,10],[82,7],[85,19],[81,61],[89,9],[90,9],[92,18],[102,24],[106,3],[106,17],[105,58],[109,72],[112,18],[118,10],[118,28],[115,53],[123,78]]
+#manHP = [[0,51],[3,4],[5,4],[8,28],[28,3],[32,13],[30,24],[31,78],[35,14],[36,19],[37,15],[35,19],[39,11],[42,10],[33,67],[34,67],[41,42],[42,53],[38,72],[40,78],[50,31],[50,32],[50,50],[54,20],[54,32],[53,58],[57,54],[53,77],[59,72],[61,73],[62,76],[61,0],[64,5],[65,10],[64,18],[63,61],[64,67],[65,67],[66,71],[69,73],[70,38],[69,49],[71,62],[73,65],[76,72],[78,62],[77,55],[77,50],[75,8],[75,13],[84,62],[79,10],[82,7],[85,19],[81,61],[89,9],[90,9],[92,18],[102,24],[106,3],[106,17],[105,58],[109,72],[112,18],[118,10],[118,28],[115,53],[123,78]]
 
 
 if useImg == True:
@@ -212,24 +212,30 @@ else:
 #plotArray(dark,title='Med Filt Dark',origin='upper')
 
 #load flat frames
-if flatSpan[0]!='0':
-    print "Loading flat frame"
-    if useImg == True:
-        flatStack = loadIMGStack(dataDir, flatSpan[0], flatSpan[1], nCols=numCols, nRows=numRows)
-    else:
-        flatStack = loadBINStack(dataDir, flatSpan[0], flatSpan[1], nCols=numCols, nRows=numRows)
-    flat = irUtils.medianStack(flatStack)
-
-else:
-    print "No flat provided"
-    flat = np.ones((numRows, numCols),dtype=int)
+#if flatSpan[0]!='0':
+#    print "Loading flat frame"
+#    if useImg == True:
+#        flatStack = loadIMGStack(dataDir, flatSpan[0], flatSpan[1], nCols=numCols, nRows=numRows)
+#    else:
+#        flatStack = loadBINStack(dataDir, flatSpan[0], flatSpan[1], nCols=numCols, nRows=numRows)
+#    flat = irUtils.medianStack(flatStack)
+#
+#else:
+#    print "No flat provided"
+#    flat = np.ones((numRows, numCols),dtype=int)
 #plotArray(flat,title='Flat',origin='upper')
+#if subtractDark == True:
+#    flatSub = flat-dark
+#else:
+#    flatSub = flat
 
 
-if subtractDark == True:
-    flatSub = flat-dark
-else:
-    flatSub = flat
+##### FLAT WEIGHT KLUDGE #######
+### Kludge for testing dome flat taken in J band 20170410 ######
+
+flatData = np.load('/mnt/data0/CalibrationFiles/tempFlatCal/PAL2017a/20170410/domeFlat_J_weights.npz')
+#flatData = np.load('/mnt/data0/ProcessedData/seth/flatTests/PAL2017a/20170410/domeFlat_J_strict.npz')
+flatWeights = flatData['weights']
 
 
 #try to load up hot pixel mask. Make it if it doesn't exist yet
@@ -283,7 +289,7 @@ for i in range(nPos):
 
         if divideFlat == True:
 
-            processedIm = np.array(darkSub/flatSub,dtype=float)
+            processedIm = np.array(darkSub * flatWeights,dtype=float)
         else:
             processedIm = np.array(darkSub,dtype=float)
             
@@ -457,6 +463,11 @@ if fitPos==True:
 
 #take median stack of all shifted frames
 finalImage = irUtils.medianStack(shiftedFrames)# / 3.162277 #adjust for OD 0.5 difference between occulted/unocculted files
+
+#test median filtering on flat corrected image
+#finalImage = signal.medfilt(finalImage,2*upSample+1)
+#plotArray(dark,title='Med Filt Dark',origin='upper')
+
 plotArray(finalImage,title='final',origin='upper')
 
 nanMask = np.zeros(np.shape(finalImage))
