@@ -50,6 +50,12 @@ from loadStack import loadIMGStack, loadBINStack
 import irUtils
 
 
+# These flags determine if the HF margins and FLs 2 are ignored when making flat weights.
+# Currently set to FL 2 for Faceless (Pal 2017 a,b array)
+# These flags and selection of FLs should be made more flexible, and command line options
+cropHF = True
+cropFLs = True
+
 if len(sys.argv)<4:
     print "syntax: python makeSimpleFlatNPZ.py <run name> <sunset date> <flat stack .npz>"
     sys.exit(0)
@@ -84,9 +90,12 @@ plotArray(flatFrame,title='flat frame')
 # at fringes of the array.
 #######
 croppedFrame = np.copy(flatFrame)
-croppedFrame[:50,::] = np.nan
-croppedFrame[::,:20] = np.nan
-croppedFrame[::,59:] = np.nan
+
+if cropFLs:
+    croppedFrame[25:50,::] = np.nan
+if cropHF:
+    croppedFrame[::,:20] = np.nan
+    croppedFrame[::,59:] = np.nan
 
 plotArray(croppedFrame,title='Cropped flat frame')
 
