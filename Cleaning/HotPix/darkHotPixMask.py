@@ -50,9 +50,14 @@ def makeMask(run=None, date=None, startTimeStamp=None, stopTimeStamp=None, verbo
     If coldCut=True, third cut where everything with cps<mean-sigma*stdev -> np.nan
     manualArray is a way to give a list of bad pixels manually, in format [[row,col],[row,col],...]
     '''
-    dataPath = basePath+str(run)+os.path.sep+str(date)+os.path.sep
+    try:
+        dataPath = basePath+str(run)+os.path.sep+str(date)+os.path.sep
+        stack = loadIMGStack(dataPath, startTimeStamp, stopTimeStamp, nCols=nCols, nRows=nRows)
+    except:
+        print "Could not find dark data in ScienceData path, checking ramdisk"
+        dataPath = '/mnt/ramdisk/'
+        stack = loadIMGStack(dataPath, startTimeStamp, stopTimeStamp, nCols=nCols, nRows=nRows)
 
-    stack = loadIMGStack(dataPath, startTimeStamp, stopTimeStamp, nCols=nCols, nRows=nRows)
     medStack = utils.medianStack(stack)
 
     if verbose:
