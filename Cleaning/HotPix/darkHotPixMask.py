@@ -32,28 +32,114 @@ from matplotlib.figure import Figure
 from functools import partial
 from arrayPopup import plotArray
 import utils
+import irUtils
 from loadStack import loadIMGStack
 
 
 #ultimately want the path to be flexible: use .bin files if they exist,
 #and fall back on .img files if necessary (typically we didn't record
 #.bin files for dark data in 2017a)
-basePath = '/mnt/data0/ScienceDataIMGs/'
+#basePath = '/mnt/data0/ScienceDataIMGs/'
 nCols=80
 nRows=125
-
-
-def makeMask(run=None, date=None, startTimeStamp=None, stopTimeStamp=None, verbose=False, sigma=3, maxCut=2450, coldCut=False, manualArray=None):
+#maxCut=2450
+def makeDHPMask(stack=None, outputFileName=None, verbose=False, sigma=3, maxCut=2450, coldCut=False, manualArray=None):
     '''
     MaxCut sets level for initial hot pixel cut. Everything with cps>maxCut -> np.nan
     Sigma determines level for second cut. Everything with cps>mean+sigma*stdev -> np.nan
     If coldCut=True, third cut where everything with cps<mean-sigma*stdev -> np.nan
     manualArray is a way to give a list of bad pixels manually, in format [[row,col],[row,col],...]
+
+
     '''
-    dataPath = basePath+str(run)+os.path.sep+str(date)+os.path.sep
+    medStack = irUtils.medianStack(stack)
+
+    if verbose:
+        try:
+            plotArray(medStack,title='Median Dark Stack')
+        except:
+            plt.matshow(medStack)
+            plt.show()
+
+    #initial masking, take out anything with cps > maxCut
+    mask = np.zeros(np.shape(medStack),dtype=int)
+    mask[np.where(medStack>=maxCut)]=1
+
+    if verbose:
+        try:
+            plotArray(mask, title='cps>%i == 1'%maxCut)
+        except:
+            plt.matshow(mask)
+            plt.show()
+
+    medStack[np.where(mask==1)]=np.nan
+    medStack[np.where(medStack==0)]=np.nan
+    if verbose:
+        try:
+            plotArray(medStack, title='Median Stack with mask 1')
+        except:
+            plt.matshow(medStack)
+            plt.show()
+
+    #second round of masking, where cps > mean+sigma*std
+    mask2 = np.zeros(np.shape(medStack),dtype=int)
+    mask2[np.where(medStack>=np.nanmean(medStack)+sigma*np.nanstd(medStack))]=1
+
+    #if coldCut is true, also mask cps < mean-sigma*std
+    if coldCut==True:
+        mask2[np.where(medStack<=np.nanmean(medStack)-sigma*np.nanstd(medStack))]=1
+
+    if verbose:
+        try:
+            plotArray(mask2, title='cps>mean+%i-sigma == 1'%sigma)
+        except:
+            plt.matshow(mask2)
+            plt.show()
+
+    medStack[np.where(mask2==1)]=np.nan
+    if verbose:
+        try:
+            plotArray(medStack, title='Median Stack with mask 2')
+        except:
+            plt.matshow(medStack)
+            plt.show()
+
+    finalMask = mask+mask2
+
+    # provide an easy means to pipe in an array of manually identified pixels
+    if manualArray is not None:
+        for pix in manualArray:
+            finalMask[pix[0],pix[1]]=1
+
+
+    if verbose:
+        try:
+            plotArray(finalMask, title='Final mask')
+        except:
+            plt.matshow(finalMask)
+            plt.show()
+        print "Number masked pixels = ", len(np.array(np.where(finalMask==1)).flatten())
+
+    return finalMask
+
+
+def makeMask(run=None, date=None, basePath=None,startTimeStamp=None, stopTimeStamp=None, verbose=False, sigma=3, maxCut=2450, coldCut=False, manualArray=None):
+    '''
+    MaxCut sets level for initial hot pixel cut. Everything with cps>maxCut -> np.nan
+    Sigma determines level for second cut. Everything with cps>mean+sigma*stdev -> np.nan
+    If coldCut=True, third cut where everything with cps<mean-sigma*stdev -> np.nan
+    manualArray is a way to give a list of bad pixels manually, in format [[row,col],[row,col],...]
+
+
+    '''
+    if basePath!='/mnt/ramdisk/':
+        print(basePath)
+        dataPath = basePath+str(run)+os.path.sep+str(date)+os.path.sep
+    else:
+        dataPath=basePath
 
     stack = loadIMGStack(dataPath, startTimeStamp, stopTimeStamp, nCols=nCols, nRows=nRows)
-    medStack = utils.medianStack(stack)
+    medStack = irUtils.medianStack(stack)
 
     if verbose:
         try:
