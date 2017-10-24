@@ -132,14 +132,16 @@ def makeMask(run=None, date=None, basePath=None,startTimeStamp=None, stopTimeSta
 
 
     '''
-    if basePath!='/mnt/ramdisk/':
-        print(basePath)
-        dataPath = basePath+str(run)+os.path.sep+str(date)+os.path.sep
-    else:
-        dataPath=basePath
 
-    stack = loadIMGStack(dataPath, startTimeStamp, stopTimeStamp, nCols=nCols, nRows=nRows)
-    medStack = irUtils.medianStack(stack)
+    try:
+        dataPath = basePath+str(run)+os.path.sep+str(date)+os.path.sep
+        stack = loadIMGStack(dataPath, startTimeStamp, stopTimeStamp, nCols=nCols, nRows=nRows)
+    except:
+        print "Could not find dark data in ScienceData path, checking ramdisk"
+        dataPath = '/mnt/ramdisk/'
+        stack = loadIMGStack(dataPath, startTimeStamp, stopTimeStamp, nCols=nCols, nRows=nRows)
+
+    medStack = ir.utils.medianStack(stack)
 
     if verbose:
         try:
