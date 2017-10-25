@@ -384,17 +384,30 @@ class ObsFile:
         
     def getPixelPhotonList(self, iRow, iCol, firstSec=0, integrationTime= -1, wvlRange=None):
         """
-        Retrieves a pixel using the file's attached beammap.
-        If firstSec/integrationTime are provided, only data from the time 
-        interval 'firstSec' to firstSec+integrationTime are returned.
-        For now firstSec and integrationTime can only be integers.
-        If integrationTime is -1, all data after firstSec are returned.
+        Retrieves a photon list for a single pixel using the attached beammap.
 
-        MJS 3/28
-        Updated so if timeAdjustFile is loaded, data retrieved from roaches
-        with a delay will be offset to match other roaches.  Also, if some roaches
-        have a delay, seconds in which some roaches don't have data are no longer
-        retrieved
+        Parameters
+        ----------
+        iRow: int
+            Row index of pixel in beammap
+        iCol: int
+            Column index of pixel in beammap
+        firstSec: float
+            Photon list start time, in seconds relative to beginning of file
+        integrationTime: float
+            Photon list end time, in seconds relative to firstSec. 
+            If -1, goes to end of file
+        wvlRange: (float, float)
+            Desired wavelength range of photon list. Must satisfy wvlRange[0] < wvlRange[1].
+            If None, includes all wavelengths. If file is not wavelength calibrated, this parameter
+            specifies the range of desired phase heights.
+
+        Returns
+        -------
+        Structured Numpy Array
+            Each row is a photon. 
+            Columns have the following keys: 'Time', 'Wavelength', 'Spec Weight', 'Noise Weight'
+                        
         """
         resID = self.beamImage[iRow][iCol]
         photonTable = self.file.get_node('/Photons/' + str(resID))
@@ -417,6 +430,33 @@ class ObsFile:
         return photonList
 
     def getListOfPixelsPhotonList(self, posList, firstSec=0, integrationTime=-1, wvlRange=None):
+        """
+        Retrieves photon lists for a list of pixels.
+
+        Parameters
+        ----------
+        posList: Nx2 array of ints (or list of 2 element tuples)
+            List of (row, col) beammap indices for desired pixels
+        firstSec: float
+            Photon list start time, in seconds relative to beginning of file
+        integrationTime: float
+            Photon list end time, in seconds relative to firstSec. 
+            If -1, goes to end of file
+        wvlRange: (float, float)
+            Desired wavelength range of photon list. Must satisfy wvlRange[0] < wvlRange[1].
+            If None, includes all wavelengths. If file is not wavelength calibrated, this parameter
+            specifies the range of desired phase heights.
+        
+        Returns
+        -------
+        List of Structured Numpy Arrays
+            The ith element contains a photon list for the ith pixel specified in posList
+            Within each structured array:
+                Each row is a photon. 
+                Columns have the following keys: 'Time', 'Wavelength', 'Spec Weight', 'Noise Weight'
+
+        """
+
         photonLists = []
         nPix = np.shape(posList)[0]
         for i in range(nPix):
@@ -426,27 +466,36 @@ class ObsFile:
  
     def getPixelCount(self, iRow, iCol, firstSec=0, integrationTime= -1, wvlRange=None, applyWeight=True, applyTPFWeight=True, applyTimeMask=True):
         """
-        returns the number of photons received in a given pixel from firstSec to firstSec + integrationTime
-        - if integrationTime is -1, all time after firstSec is used.  
-        - if weighted is True, flat cal weights are applied
-        - if fluxWeighted is True, flux weights are applied.
-        - if getRawCount is True, the total raw count for all photon event detections
-          is returned irrespective of wavelength calibration, and with no wavelength
-          cutoffs (in this case, no wavecal file need have been applied, though 
-          bad pixel time-masks *will* still be applied if present and switched 'on'.) 
-          Otherwise will now always call getPixelSpectrum (which is also capable 
-          of handling hot pixel removal) -- JvE 3/1/2013.
-        *Note getRawCount overrides weighted and fluxWeighted.
+        Returns the number of photons received in a single pixel from firstSec to firstSec + integrationTime
         
-        Updated to return effective exp. times; see below. -- JvE 3/2013. 
-        Updated to return rawCounts; see below           -- ABW Oct 7, 2014
-        
-        OUTPUTS:
-        Return value is a dictionary with tags:
+        Parameters
+        ----------
+        iRow: int
+            Row index of pixel in beammap
+        iCol: int
+            Column index of pixel in beammap
+        firstSec: float
+            Photon list start time, in seconds relative to beginning of file
+        integrationTime: float
+            Photon list end time, in seconds relative to firstSec. 
+            If -1, goes to end of file
+        wvlRange: (float, float)
+            Desired wavelength range of photon list. Must satisfy wvlRange[0] < wvlRange[1].
+            If None, includes all wavelengths. If file is not wavelength calibrated, this parameter
+            specifies the range of desired phase heights.
+        applyWeight: bool
+            If True, applies the spectral/flat/linearity weight
+        applyTPFWeight: bool
+            If True, applies the true positive fraction (noise) weight
+        applyTimeMask: bool
+            If True, applies the included time mask (if it exists)
+
+        Returns
+        -------
+        Dictionary with keys:
             'counts':int, number of photon counts
             'effIntTime':float, effective integration time after time-masking is 
-                     accounted for.
-            'rawCounts': int, total number of photon triggers (including noise)
+           `          accounted for.
         """
         photonList = getPixelPhotonList(iRow, iCol, firstSec, integrationTime, wvlRange)
         weights = np.ones(len(photonList))
