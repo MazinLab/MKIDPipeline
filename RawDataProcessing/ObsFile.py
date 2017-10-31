@@ -81,37 +81,14 @@ class ObsFile:
     c = astropy.constants.c.to('m/s').value   #'2.998e8 #m/s
     angstromPerMeter = 1e10
     nCalCoeffs = 3
-    def __init__(self, fileName, verbose=False, makeMaskVersion='v2',repeatable=False):
+    def __init__(self, fileName, mode='read', verbose=False):
         """
         load the given file with fileName relative to $MKID_RAW_PATH
         """
-        self.makeMaskVersion = makeMaskVersion
-        self.loadFile(fileName,verbose=verbose)
-        self.beammapFileName = None  #Normally the beammap comes directly from the raw obs file itself, so this is only relevant if a new one is loaded with 'loadBeammapFile'.
-        self.wvlCalFile = None #initialize to None for an easy test of whether a cal file has been loaded
-        self.wvlCalFileName = None
-        self.flatCalFile = None
-        self.flatCalFileName = None
-        self.fluxCalFile = None
-        self.fluxCalFileName = None
-        self.filterIsApplied = None
-        self.filterTrans = None
-        self.timeAdjustFile = None
-        self.timeAdjustFileName = None
-        self.hotPixFile = None
-        self.hotPixFileName = None
-        self.hotPixTimeMask = None
-        self.hotPixIsApplied = False
-        self.cosmicMaskIsApplied = False
-        self.cosmicMask = None # interval of times to mask cosmic ray events
-        self.cosmicMaskFileName = None
-        self.centroidListFile = None
-        self.centroidListFileName = None
-        self.wvlLowerLimit = None
-        self.wvlUpperLimit = None
-
-        self.timeMaskExists = False
-        
+        assert mode=='read' or mode=='write', '"mode" argument must be "read" or "write"'
+        self.mode = mode
+        self.makeMaskVersion = None
+        self.loadFile(fileName,verbose=verbose)        
 
     def __del__(self):
         """
@@ -187,18 +164,32 @@ class ObsFile:
             raise Exception(msg)
         
         #open the hdf5 file
-        self.file = tables.open_file(self.fullFileName, mode='r')
+        if self.mode=='read':
+            mode = 'r'
+        if self.mode=='write':
+            mode = 'a'
+
+        self.file = tables.open_file(self.fullFileName, mode=mode)
 
         #get the header
-        #no header yet (20171020)
-        # self.header = self.file.root.header.header
-        # self.titles = self.header.colnames
-        # try:
-        #     self.info = self.header[0] #header is a table with one row
-        # except IndexError as inst:
-        #     if verbose:
-        #         print 'Can\'t read header for ',self.fullFileName
-        #     raise inst
+        self.header = self.file.root.header.header
+        self.titles = self.header.colnames
+        try:
+            self.info = self.header[0] #header is a table with one row
+        except IndexError as inst:
+            if verbose:
+                print('Can\'t read header for ',self.fullFileName)
+            raise inst
+
+        # get important cal params
+        self.isWvlCalibrated = self.getFromHeader('isWvlCalibrated')
+        self.isFlatCalibrated = self.getFromHeader('isFlatCalibrated')
+        self.isSpecCalibrated = self.getFromHeader('isSpecCalibrated')
+        self.isLinearityCorrected = self.getFromHeader('isLinearityCorrected')
+        self.isPhaseNoiseCorrected = self.getFromHeader('isPhaseNoiseCorrected')
+        self.isPhotonTailCorrected = self.getFromHeader('isPhotonTailCorrected')
+        self.timeMaskExists = self.getFromHeader('timeMaskExists')
+        
 
         # Useful information about data format set here.
         # For now, set all of these as constants.
@@ -209,22 +200,11 @@ class ObsFile:
         self.tickDuration = 1e-6 #s
         self.ticksPerSec = int(1.0 / self.tickDuration)
         self.intervalAll = interval[0.0, (1.0 / self.tickDuration) - 1]
-        self.nonAllocPixelName = '/r0/p250/'
         #  8 bits - channel
         # 12 bits - Parabola Fit Peak Height
         # 12 bits - Sampled Peak Height
         # 12 bits - Low pass filter baseline
         # 20 bits - Microsecond timestamp
-
-        self.nBitsAfterParabolaPeak = 44
-        self.nBitsAfterBaseline = 20
-        self.nBitsInPulseHeight = 12
-        self.nBitsInTimestamp = 20
-
-        #bitmask of 12 ones
-        self.pulseMask = int(self.nBitsInPulseHeight * '1', 2) 
-        #bitmask of 20 ones
-        self.timestampMask = int(self.nBitsInTimestamp * '1', 2) 
 
         #get the beam image.
         try:
@@ -382,7 +362,7 @@ class ObsFile:
             entry = 1.*unixtime/secsPerDay+unixEpochJD
         return entry
         
-    def getPixelPhotonList(self, iRow, iCol, firstSec=0, integrationTime= -1, wvlRange=None):
+    def getPixelPhotonList(self, iRow, iCol, firstSec=0, integrationTime= -1, wvlRange=None, isWvl=True):
         """
         Retrieves a photon list for a single pixel using the attached beammap.
 
@@ -398,9 +378,12 @@ class ObsFile:
             Photon list end time, in seconds relative to firstSec. 
             If -1, goes to end of file
         wvlRange: (float, float)
-            Desired wavelength range of photon list. Must satisfy wvlRange[0] < wvlRange[1].
+            Desired wavelength range of photon list. Must satisfy wvlRange[0] <= wvlRange[1].
             If None, includes all wavelengths. If file is not wavelength calibrated, this parameter
             specifies the range of desired phase heights.
+        isWvl: bool
+            If True, wvlRange specifies wavelengths. Else, wvlRange is assumed to specify uncalibrated
+            phase heights.
 
         Returns
         -------
@@ -414,17 +397,23 @@ class ObsFile:
  
         startTime = int(firstSec*self.ticksPerSec) #convert to us
         if integrationTime == -1:
-            endTime = photonTable.read(-1)[0][0]
+            try:
+                endTime = photonTable.read(-1)[0][0]+1
+            except IndexError:
+                endTime = startTime + int(integrationTime*self.ticksPerSec) #Assume table is empty, so return everything
         else:
             endTime = startTime + int(integrationTime*self.ticksPerSec)
 
         if wvlRange is None:
-            photonList = photonTable.read_where('(Time > startTime) & (Time < endTime)')
+            photonList = photonTable.read_where('(Time >= startTime) & (Time < endTime)')
         
         else:
+            if(isWvl != self.isWvlCalibrated):
+                raise Exception('isWvlCalibrated = ' + str(self.isWvlCalibrated) + '\nisWvl = ' + str(isWvl))
             startWvl = wvlRange[0]
             endWvl = wvlRange[1]
-            photonList = photonTable.read_where('(Time > startTime) & (Time < endTime) & (Wavelength > startWvl) & (Wavelength < endWvl)')
+            assert startWvl <= endWvl, 'wvlRange[0] must be <= wvlRange[1]'
+            photonList = photonTable.read_where('(Time > startTime) & (Time < endTime) & (Wavelength >= startWvl) & (Wavelength < endWvl)')
 
         #return {'pixelData':pixelData,'firstSec':firstSec,'lastSec':lastSec}
         return photonList
@@ -507,7 +496,7 @@ class ObsFile:
         if applyTimeMask:
             if self.timeMaskExists:
                 pass
-            else
+            else:
                 warnings.warn('Time mask does not exist!')
 
         return {'counts':np.sum(weights), 'effIntTime':integrationTime}
@@ -1419,80 +1408,6 @@ class ObsFile:
             print('wavelength cal file does not exist: ', fullWvlCalFileName)
             raise
             
-    def loadAllCals(self,calLookupTablePath=None,wvlCalPath=None,flatCalPath=None,
-            fluxCalPath=None,timeMaskPath=None,timeAdjustmentPath=None,cosmicMaskPath=None,
-            beammapPath=None,centroidListPath=None):
-        """
-        loads all possible cal files from parameters or a calLookupTable. To avoid loading a particular cal, set the corresponding parameter to the empty string ''
-        """
-
-        
-        _,_,obsTstamp = FileName(obsFile=self).getComponents()
-
-        if beammapPath is None:
-            beammapPath = calLookupTable.beammap(obsTstamp)
-        if beammapPath != '':
-            self.loadBeammapFile(beammapPath)
-            print('loaded beammap',beammapPath)
-        else:
-            print('did not load new beammap')
-
-        if wvlCalPath is None:
-            wvlCalPath = calLookupTable.calSoln(obsTstamp)
-        if wvlCalPath != '':
-            self.loadWvlCalFile(wvlCalPath)
-            print('loaded wavecal',self.wvlCalFileName)
-        else:
-            print('did not load wavecal')
-
-        if flatCalPath is None:
-            flatCalPath = calLookupTable.flatSoln(obsTstamp)
-        if flatCalPath != '':
-            self.loadFlatCalFile(flatCalPath)
-            print('loaded flatcal',self.flatCalFileName)
-        else:
-            print('did not load flatcal')
-
-        if fluxCalPath is None:
-            fluxCalPath = calLookupTable.fluxSoln(obsTstamp)
-        if fluxCalPath != '':
-            self.loadFluxCalFile(fluxCalPath)
-            print('loaded fluxcal',self.fluxCalFileName)
-        else:
-            print('did not load fluxcal')
-
-        if timeMaskPath is None:
-            timeMaskPath = calLookupTable.timeMask(obsTstamp)
-        if timeMaskPath != '':
-            self.loadTimeMask(timeMaskPath)
-            print('loaded time mask',timeMaskPath)
-        else:
-            print('did not load time mask')
-
-        if timeAdjustmentPath is None:
-            timeAdjustmentPath = calLookupTable.timeAdjustments(obsTstamp)
-        if timeAdjustmentPath != '':
-            self.loadTimeAdjustmentFile(timeAdjustmentPath)
-            print('loaded time adjustments',self.timeAdjustFileName)
-        else:
-            print('did not load time adjustments')
-
-        if cosmicMaskPath is None:
-            cosmicMaskPath = calLookupTable.cosmicMask(obsTstamp)
-        if cosmicMaskPath != '':
-            self.loadCosmicMask(cosmicMaskPath)
-            print('loaded cosmic mask',self.cosmicMaskFileName)
-        else:
-            print('did not load cosmic mask')
-
-
-        if centroidListPath is None:
-            centroidListPath = calLookupTable.centroidList(obsTstamp)
-        if centroidListPath != '':
-            self.loadCentroidListFile(centroidListPath)
-            print('loaded centroid list',self.centroidListFileName)
-        else:
-            print('did not load centroid list')
 
     def loadFilter(self, filterName = 'V', wvlBinEdges = None,switchOnFilter = True):
         '''
@@ -1551,61 +1466,6 @@ class ObsFile:
         wvlBinEdges = wvlBinEdges[::-1]
         return wvlBinEdges
 
-    def parsePhotonPacketLists(self, packets, doParabolaFitPeaks=True, doBaselines=True):
-        """
-        Parses an array of uint64 packets with the obs file format
-        inter is an interval of time values to mask out
-        returns a list of timestamps,parabolaFitPeaks,baselines
-        """
-        # parse all packets
-        packetsAll = [np.array(packetList, dtype='uint64') for packetList in packets] #64 bit photon packet
-        timestampsAll = [np.bitwise_and(packetList, self.timestampMask) for packetList in packetsAll]
-        outDict = {'timestamps':timestampsAll}
-
-        if doParabolaFitPeaks:
-            parabolaFitPeaksAll = [np.bitwise_and(\
-                np.right_shift(packetList, self.nBitsAfterParabolaPeak), \
-                    self.pulseMask) for packetList in packetsAll]
-            outDict['parabolaFitPeaks']=parabolaFitPeaksAll
-
-        if doBaselines:
-            baselinesAll = [np.bitwise_and(\
-                np.right_shift(packetList, self.nBitsAfterBaseline), \
-                    self.pulseMask) for packetList in packetsAll]
-            outDict['baselines'] = baselinesAll
-            
-        return outDict
-
-    def parsePhotonPackets(self, packets, doParabolaFitPeaks=True, doBaselines=True):
-        """
-        Parses an array of uint64 packets with the obs file format
-        inter is an interval of time values to mask out
-        returns a list of timestamps,parabolaFitPeaks,baselines
-        """
-        # parse all packets
-        packetsAll = np.array(packets, dtype='uint64') #64 bit photon packet
-        timestampsAll = np.bitwise_and(packets, self.timestampMask)
-
-        if doParabolaFitPeaks:
-            parabolaFitPeaksAll = np.bitwise_and(\
-                np.right_shift(packets, self.nBitsAfterParabolaPeak), \
-                    self.pulseMask)
-        else:
-            parabolaFitPeaksAll = np.arange(0)
-
-        if doBaselines:
-            baselinesAll = np.bitwise_and(\
-                np.right_shift(packets, self.nBitsAfterBaseline), \
-                    self.pulseMask)
-        else:
-            baselinesAll = np.arange(0)
-
-        timestamps = timestampsAll
-        parabolaFitPeaks = parabolaFitPeaksAll
-        baselines = baselinesAll
-        # return the values filled in above
-        return timestamps, parabolaFitPeaks, baselines
-
     def maskTimestamps(self,timestamps,inter=interval(),otherListsToFilter=[]):
         """
         Masks out timestamps that fall in an given interval
@@ -1635,53 +1495,6 @@ class ObsFile:
         # return the values filled in above
         return {'timestamps':filteredTimestamps,'otherLists':otherLists}
 
-    def parsePhotonPackets_old(self, packets, inter=interval(),
-                           doParabolaFitPeaks=True, doBaselines=True,timestampOffset=0):
-        """
-        Parses an array of uint64 packets with the obs file format
-        inter is an interval of time values to mask out
-        returns a list of timestamps,parabolaFitPeaks,baselines
-        """
-
-        # first special case:  inter masks out everything so return zero-length
-        # numpy arrays
-        if (inter == self.intervalAll):
-            timestamps = np.arange(0)
-            parabolaFitPeaks = np.arange(0)
-            baselines = np.arange(0)
-        else:
-            # parse all packets
-            packetsAll = np.array(packets, dtype='uint64') #64 bit photon packet
-            timestampsAll = np.bitwise_and(packets, self.timestampMask)
-
-            if doParabolaFitPeaks:
-                parabolaFitPeaksAll = np.bitwise_and(\
-                    np.right_shift(packets, self.nBitsAfterParabolaPeak), \
-                        self.pulseMask)
-            else:
-                parabolaFitPeaksAll = np.arange(0)
-
-            if doBaselines:
-                baselinesAll = np.bitwise_and(\
-                    np.right_shift(packets, self.nBitsAfterBaseline), \
-                        self.pulseMask)
-            else:
-                baselinesAll = np.arange(0)
-
-            if inter == interval() or len(timestampsAll) == 0:
-                # nothing excluded or nothing to exclude
-                # so return all unpacked values
-                timestamps = timestampsAll
-                parabolaFitPeaks = parabolaFitPeaksAll
-                baselines = baselinesAll
-            else:
-                # there is a non-trivial set of times to mask. 
-                slices = calculateSlices(inter, timestampsAll)
-                timestamps = repackArray(timestampsAll, slices)
-                parabolaFitPeaks = repackArray(parabolaFitPeaksAll, slices)
-                baselines = repackArray(baselinesAll, slices)
-        # return the values filled in above
-        return timestamps, parabolaFitPeaks, baselines
 
     def plotApertureSpectrum(self, pixelRow, pixelCol, radius1, radius2, weighted=False, fluxWeighted=False, lowCut=3000, highCut=7000, firstSec=0,integrationTime=-1):
         summed_array, bin_edges = self.getApertureSpectrum(pixelCol=pixelCol, pixelRow=pixelRow, radius1=radius1, radius2=radius2, weighted=weighted, fluxWeighted=fluxWeighted, lowCut=lowCut, highCut=highCut, firstSec=firstSec,integrationTime=integrationTime)
@@ -1840,6 +1653,59 @@ class ObsFile:
         """        
         import photonlist.photlist      #Here instead of at top to avoid circular imports
         photonlist.photlist.writePhotonList(self,*nkwargs,**kwargs)
+
+    def applyWvlCal(self, resID, wvlCalArr):
+        """
+        Applies a wavelength calibration for a single pixel. Overwrites "Wavelength" column w/ 
+        contents of wvlCalArr. NOT reversible unless you have a copy of the original contents.
+        ObsFile must be open in "write" mode to use.
+
+        Parameters
+        ----------
+        resID: int
+            resID of pixel to overwrite
+        wvlCalArr: array of floats
+            Array of calibrated wavelengths. Replaces "Wavelength" column of this pixel's 
+            photon list.
+        """
+        if self.mode!='write':
+            raise Exception("Must open file in write mode to do this!")
+        if self.isWvlCalibrated:
+            warnings.warn("Wavelength calibration already exists!")
+        photonTable = self.file.get_node('/Photons/' + str(resID))
+        assert len(photonTable)==len(wvlCalArr), 'Calibrated wavelength list does not match length of photon list!'
+
+        photonTable.modify_column(column=wvlCalArr, colname='Wavelength')
+        photonTable.flush()
+
+    def applySpecWeight(self, resID, weightArr):
+        """
+        Applies a weight calibration to the "Spec Weight" column. 
+        
+        This is where the flat cal, linearity cal, and spectral cal go. 
+        Weights are multiplied in and replaced; if "weights" are the contents
+        of the "Spec Weight" column, weights = weights*weightArr. NOT reversible
+        unless the original contents (or weightArr) is saved. 
+
+        Parameters
+        ----------
+        resID: int
+            resID of desired pixel
+        weightArr: array of floats
+            Array of cal weights. Multiplied into the "Spec Weight" column.
+        """     
+        if self.mode!='write':
+            raise Exception("Must open file in write mode to do this!")
+        photonTable = self.file.get_node('/Photons/' + str(resID))
+        assert len(photonTable)==len(weightArr), 'Calibrated wavelength list does not match length of photon list!'
+        
+        weightArr = np.array(weightArr)
+        curWeights = photonTable.col('Spec Weight')
+        newWeights = weightArr*curWeights
+        photonTable.modify_column(column=newWeights, colname='Spec Weight')
+        photonTable.flush()
+    
+
         
         
 #        writes out the photon list for this obs file at $MKID_PROC_PATH/photonListFileName
