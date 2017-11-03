@@ -187,6 +187,7 @@ int main(int argc, char *argv[])
     uint32_t BeamMap[BEAM_COLS][BEAM_ROWS] = {0};
     uint32_t BeamFlag[BEAM_COLS][BEAM_ROWS] = {0};
     char ResIdString[BEAM_COLS][BEAM_ROWS][20];
+    char addHeaderCmd[] = "python addH5Header.py ";
     photon p1;
     
     photon *ptable[BEAM_COLS][BEAM_ROWS];
@@ -391,7 +392,9 @@ int main(int argc, char *argv[])
     free(data);
     free(dSize);
 
-    char *cmd[100] = strcat("python addH5Header.py ", argv[1]);
-    system(cmd);
+    strcat(addHeaderCmd, argv[1]);
+    strcat(addHeaderCmd, " ");
+    strcat(addHeaderCmd, outfile);
+    system(addHeaderCmd);
 
 }
