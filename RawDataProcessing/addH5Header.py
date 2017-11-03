@@ -5,15 +5,20 @@ from Headers.ObsFileHeaders import ObsHeader
 
 if __name__=='__main__':
     if len(sys.argv)<3:
-        print('Must specify filename, exposure time')
+        print('Must specify Bin2HDF config file and h5 file path')
         exit()
 
-    filename = str(sys.argv[1])
-    expTime = int(sys.argv[2])
-    
-    basename = os.path.basename(filename)
-    firstSec = int(basename.split('.')[0])
+    cfgFn = str(sys.argv[1])
+    cfgFile = open(cfgFn, 'r')
+    cfgParamList = cfgFile.read().splitlines()
+    cfgFile.close()
 
+    dataDir = cfgParamList[0]
+    firstSec = int(cfgParamList[1])
+    expTime = int(cfgParamList[2])
+    beammapFile = cfgParamList[3]
+
+    filename = str(sys.argv[2])
     hfile = tables.open_file(filename, mode='a')
     
     hfile.create_group('/', 'header', 'Header')
@@ -34,8 +39,8 @@ if __name__=='__main__':
     headerContents['wvlBinEnd'] = 1500
     headerContents['energyBinWidth'] = 0.1
     headerContents['target'] = ''
-    headerContents['dataDir'] = ''
-    headerContents['beammapFile'] = ''
+    headerContents['dataDir'] = dataDir
+    headerContents['beammapFile'] = beammapFile
 
     headerContents.append()
     headerTable.flush()
