@@ -395,7 +395,9 @@ class ObsFile:
                         
         """
         resID = self.beamImage[iRow][iCol]
-        photonTable = self.file.get_node('/Photons/' + str(resID))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            photonTable = self.file.get_node('/Photons/' + str(resID))
  
         startTime = int(firstSec*self.ticksPerSec) #convert to us
         if integrationTime == -1:
@@ -1700,7 +1702,9 @@ class ObsFile:
             raise Exception("Must open file in write mode to do this!")
         if self.isWvlCalibrated:
             warnings.warn("Wavelength calibration already exists!")
-        photonTable = self.file.get_node('/Photons/' + str(resID))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            photonTable = self.file.get_node('/Photons/' + str(resID))
         assert len(photonTable)==len(wvlCalArr), 'Calibrated wavelength list does not match length of photon list!'
 
         photonTable.modify_column(column=wvlCalArr, colname='Wavelength')
@@ -1724,7 +1728,9 @@ class ObsFile:
         """     
         if self.mode!='write':
             raise Exception("Must open file in write mode to do this!")
-        photonTable = self.file.get_node('/Photons/' + str(resID))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            photonTable = self.file.get_node('/Photons/' + str(resID))
         assert len(photonTable)==len(weightArr), 'Calibrated wavelength list does not match length of photon list!'
         
         weightArr = np.array(weightArr)
