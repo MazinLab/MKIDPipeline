@@ -150,6 +150,61 @@ void AddPacket(char *packet, uint64_t l, hid_t file_id, size_t dst_size, size_t 
     }
 }
 
+/*
+ * Sorts all photon tables in time order. Uses insertion sort (good for mostly ordered data)
+ */
+void SortPhotonTables(photon *ptable[BEAM_COLS][BEAM_ROWS], uint32_t ptablect[BEAM_COLS][BEAM_ROWS])
+{
+    photon *photonToSortAddr; //address of element currently being sorted
+    photon *curPhotonAddr; //address of element being compared to photonToSort
+    photon *photonSwapAddr; //address of element being moved, once correct index for photonToSort has been found
+    photon photonToSort; //stores the data in photonToSortAddr
+    int x,y; //beammap indices
+
+    for(x=0; x<BEAM_COLS; x++)
+        for(y=0; y<BEAM_ROWS; y++)
+            //loop through photons in list, check if it is greater than previous elements (all previous elements are already sorted)
+            for(photonToSortAddr = ptable[x][y]+1; photonToSortAddr < ptable[x][y] + ptablect[x][y]; photonToSortAddr++)
+            {
+                //check elements before photonToSort (curPhotonAddr) until correct spot is found (curPhotonAddr->timestamp < photonToSortAddr->timestamp)
+                for(curPhotonAddr = photonToSortAddr-1; curPhotonAddr >= ptable[x][y]; curPhotonAddr--)
+                {
+                    if(photonToSortAddr->timestamp >= curPhotonAddr->timestamp)
+                    {
+                        if(curPhotonAddr == photonToSortAddr-1)//this photon is already sorted
+                            break;
+
+                        else //moves photonToSort into correct position
+                        {
+                            photonToSort = *photonToSortAddr;
+                            for(photonSwapAddr = photonToSortAddr; photonSwapAddr > curPhotonAddr+1; photonSwapAddr--)
+                                *photonSwapAddr = *(photonSwapAddr-1);
+
+                            *(curPhotonAddr+1) = photonToSort;
+                            break;
+
+                        }
+
+                    }
+
+                    else if(curPhotonAddr==ptable[x][y]) //Photon is smallest in the table
+                    {
+                        photonToSort = *photonToSortAddr;
+                        for(photonSwapAddr = photonToSortAddr; photonSwapAddr > curPhotonAddr; photonSwapAddr--)
+                            *photonSwapAddr = *(photonSwapAddr-1);
+
+                        *curPhotonAddr = photonToSort;
+                        break;
+
+                    }
+
+                }
+
+            }
+
+
+}
+
 void ParseBeamMapFile(char *BeamFile, uint32_t BeamMap[BEAM_COLS][BEAM_ROWS], uint32_t BeamFlag[BEAM_COLS][BEAM_ROWS])
 {
     // read in Beam Map file
@@ -166,6 +221,18 @@ void ParseBeamMapFile(char *BeamFile, uint32_t BeamMap[BEAM_COLS][BEAM_ROWS], ui
         BeamFlag[x][y] = flag;      
     } while ( ret == 4);    
     fclose(fp);
+}
+
+/*
+ * Initializes all values of BeamMap to value
+ */
+void InitializeBeamMap(uint32_t BeamMap[BEAM_COLS][BEAM_ROWS], uint32_t value)
+{
+    int x, y;
+    for(x=0; x<BEAM_COLS; x++)
+        for(y=0; y<BEAM_ROWS; y++)
+            BeamMap[x][y] = value;
+    
 }
 
 int main(int argc, char *argv[])
@@ -186,6 +253,7 @@ int main(int argc, char *argv[])
     uint64_t frame[NROACHES];
     uint32_t BeamMap[BEAM_COLS][BEAM_ROWS] = {0};
     uint32_t BeamFlag[BEAM_COLS][BEAM_ROWS] = {0};
+    uint32_t beamMapInitVal = (uint32_t)(-1);
     char ResIdString[BEAM_COLS][BEAM_ROWS][20];
     char addHeaderCmd[] = "python addH5Header.py ";
     photon p1;
@@ -235,6 +303,7 @@ int main(int argc, char *argv[])
     dSize = (uint64_t *) malloc( nFiles * sizeof(uint64_t *) );
         
     // Read in beam map and parse it make 2D beam map and flag arrays
+    InitializeBeamMap(BeamMap, beamMapInitVal); //initialize to out of bounds resID
     ParseBeamMapFile(BeamFile,BeamMap,BeamFlag);
     printf("Parsed beam map.\n"); fflush(stdout);
     
@@ -288,7 +357,19 @@ int main(int argc, char *argv[])
     // make photon tables for every resid
     for(i=0; i < BEAM_COLS; i++) {
 		for(j=0; j < BEAM_ROWS; j++) {
-			if( BeamMap[i][j] == 0 ) continue;
+			if( BeamMap[i][j] == 0 ) 
+            {
+                printf("ResID 0 at (%d,%d)\n", i, j);
+                //continue;
+
+            }
+            
+            if(BeamMap[i][j] == beamMapInitVal) 
+            {
+                printf("ResID N/A at (%d,%d)\n", i, j);
+                continue; 
+
+            }
 		
 			ptable[i][j] = (photon *) malloc( 2500 * sizeof(photon) );	// allocate memory for ptable 
 			sprintf(tname,"/Photons/%d",BeamMap[i][j]);			
@@ -342,6 +423,9 @@ int main(int argc, char *argv[])
 		        if( pcount%1000 == 0 ) printf("."); fflush(stdout);	                      
             }
         }
+        
+        printf("\nSorting photon tables...\n");
+        SortPhotonTables(ptable, ptablect);
         
         // save photon tables to hdf5
         for(j=0; j < BEAM_COLS; j++) {
