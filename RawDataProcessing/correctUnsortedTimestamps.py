@@ -1,3 +1,10 @@
+"""
+This script corrects a firmware timing bug present through PAL2017b. It directly modifies the 
+timestamps of the provided HDF5 file, so it only needs to be run once.
+
+usage: python correctUnsortedTimestamps.py <path to h5 file>
+"""
+
 from darkObsFile import ObsFile
 import tables
 import os, sys, struct
@@ -57,5 +64,4 @@ if __name__=='__main__':
                 continue
             timeList = photonList['Time']
             correctedTimeList = correctTimeStamps(timeList)
-            #if len(timeList)!=len(correctedTimeList):
             obsfl.applyTimestampCorrection(x, y, correctedTimeList)
