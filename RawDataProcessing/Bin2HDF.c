@@ -424,8 +424,8 @@ int main(int argc, char *argv[])
             }
         }
         
-        printf("\nSorting photon tables...\n");
-        SortPhotonTables(ptable, ptablect);
+        //printf("\nSorting photon tables...\n");
+        //SortPhotonTables(ptable, ptablect);
         
         // save photon tables to hdf5
         for(j=0; j < BEAM_COLS; j++) {
