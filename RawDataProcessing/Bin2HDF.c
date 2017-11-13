@@ -256,6 +256,7 @@ int main(int argc, char *argv[])
     uint32_t beamMapInitVal = (uint32_t)(-1);
     char ResIdString[BEAM_COLS][BEAM_ROWS][20];
     char addHeaderCmd[] = "python addH5Header.py ";
+    char correctTimestampsCmd[] = "python correctTimestamps.py "
     photon p1;
     
     photon *ptable[BEAM_COLS][BEAM_ROWS];
@@ -480,5 +481,8 @@ int main(int argc, char *argv[])
     strcat(addHeaderCmd, " ");
     strcat(addHeaderCmd, outfile);
     system(addHeaderCmd);
+    
+    strcat(correctTimestampsCmd, outfile);
+    system(correctTimestampsCmd, outfile);
 
 }
