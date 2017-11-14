@@ -218,7 +218,10 @@ void ParseBeamMapFile(char *BeamFile, uint32_t BeamMap[BEAM_COLS][BEAM_ROWS], ui
         ret = fscanf(fp,"%d %d %d %d\n", &resid, &flag, &x, &y);
         //printf("%d %d %d %d\n", resid, flag, x, y);
         BeamMap[x][y] = resid;
-        BeamFlag[x][y] = flag;      
+        if(flag>0)
+            BeamFlag[x][y] = 1;
+        else
+            BeamFlag[x][y] = 0;
     } while ( ret == 4);    
     fclose(fp);
 }
@@ -256,7 +259,7 @@ int main(int argc, char *argv[])
     uint32_t beamMapInitVal = (uint32_t)(-1);
     char ResIdString[BEAM_COLS][BEAM_ROWS][20];
     char addHeaderCmd[] = "python addH5Header.py ";
-    char correctTimestampsCmd[] = "python correctTimestamps.py "
+    char correctTimestampsCmd[] = "python correctTimestamps.py ";
     photon p1;
     
     photon *ptable[BEAM_COLS][BEAM_ROWS];
@@ -483,6 +486,6 @@ int main(int argc, char *argv[])
     system(addHeaderCmd);
     
     strcat(correctTimestampsCmd, outfile);
-    system(correctTimestampsCmd, outfile);
+    system(correctTimestampsCmd);
 
 }
