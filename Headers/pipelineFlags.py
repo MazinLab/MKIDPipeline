@@ -49,3 +49,20 @@ badPixCal = {
              'undefined':20,        #Flagged, but reason is undefined.
              'undetermined':99      #Flag status is undetermined.
              }
+
+#Beammap flags (stored in beammap file)
+beamMapFlags = {
+                'good':0            #No flagging
+                'failed':1          #Beammap failed to place pixel 
+                'yFailed':2         #Beammap succeeded in x, failed in y
+                'xFailed':3         #Beammap succeeded in y, failed in x
+                'wrongFeedline':4   #Beammap placed pixel in wrong feedline
+                }
+
+#Flags stored in HDF5 file. Works as a bitmask to allow for multiple flags
+h5FileFlags = {
+               'good':0b00000000                #No flagging
+               'beamMapFailed':0b00000001       #Bad beammap
+               'waveCalFailed':0b00000010       #No wavecal solution
+               }
+                                         
