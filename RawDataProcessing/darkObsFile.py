@@ -211,7 +211,7 @@ class ObsFile:
         #get the beam image.
         try:
             self.beamImage = self.file.get_node('/BeamMap/Map').read()
-            self.beamFlagImage = self.file.get_node('/BeamMap/Flag').read()
+            self.beamFlagImage = self.file.get_node('/BeamMap/Flag')
         except Exception as inst:
             if verbose:
                 print('Can\'t access beamimage for ',self.fullFileName)
@@ -1694,7 +1694,7 @@ class ObsFile:
         import photonlist.photlist      #Here instead of at top to avoid circular imports
         photonlist.photlist.writePhotonList(self,*nkwargs,**kwargs)
 
-    def applyWvlCal(self, resID, wvlCalArr):
+    def applyWvlCal(self, xCoord, yCoord, wvlCalArr):
         """
         Applies a wavelength calibration for a single pixel. Overwrites "Wavelength" column w/ 
         contents of wvlCalArr. NOT reversible unless you have a copy of the original contents.
@@ -1708,6 +1708,7 @@ class ObsFile:
             Array of calibrated wavelengths. Replaces "Wavelength" column of this pixel's 
             photon list.
         """
+        resID = self.beamImage[xCoord][yCoord]
         if self.mode!='write':
             raise Exception("Must open file in write mode to do this!")
         if self.isWvlCalibrated:
@@ -1776,6 +1777,47 @@ class ObsFile:
         photonTable.modify_column(column=timestampArr, colname='Time')
         photonTable.flush()
 
+    def applyFlag(self, xCoord, yCoord, flag):
+        """
+        Applies a flag to the selected pixel on the BeamFlag array. Flag is a bitmask; 
+        new flag is bitwise OR between current flag and provided flag. Flag definitions
+        can be found in Headers/pipelineFlags.py.
+
+        Parameters
+        ----------
+        xCoord: int
+            x-coordinate of pixel
+        yCoord: int
+            y-coordinate of pixel
+        flag: int
+            Flag to apply to pixel
+        """
+        if self.mode!='write':
+            raise Exception("Must open file in write mode to do this!")
+        
+        curFlag = self.beamFlagImage[xCoord, yCoord]
+        newFlag = curFlag | flag
+        self.beamFlagImage[xCoord, yCoord] = newFlag
+        self.beamFlagImage.flush()
+
+    def modifyHeaderEntry(self, headerTitle, headerValue):
+        """
+        Modifies an entry in the header. Useful for indicating whether wavelength cals,
+        flat cals, etc are applied
+
+        Parameters
+        ----------
+        headerTitle: string
+            Name of entry to be modified
+        headerValue: depends on title
+            New value of entry
+        """
+        if self.mode!='write':
+            raise Exception("Must open file in write mode to do this!")
+        self.header.modify_column(column=headerValue, colname=headerTitle) 
+        self.header.flush()
+        self.info = self.header[0]
+        
         
         
 #        writes out the photon list for this obs file at $MKID_PROC_PATH/photonListFileName
