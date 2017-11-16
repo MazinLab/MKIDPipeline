@@ -1,24 +1,48 @@
 import tables
 import sys, os, struct
 import numpy as np
+from Headers.ObsFileHeaders import ObsHeader
 
 if __name__=='__main__':
     if len(sys.argv)<3:
-        print('Must specify filename and exposure time')
+        print('Must specify Bin2HDF config file and h5 file path')
         exit()
 
-    filename = str(sys.argv[1])
-    expTime = int(sys.argv[2])
-    
-    basename = os.path.basename(filename)
-    firstSec = int(basename.split('.')[0])
+    cfgFn = str(sys.argv[1])
+    cfgFile = open(cfgFn, 'r')
+    cfgParamList = cfgFile.read().splitlines()
+    cfgFile.close()
 
+    dataDir = cfgParamList[0]
+    firstSec = int(cfgParamList[1])
+    expTime = int(cfgParamList[2])
+    beammapFile = cfgParamList[3]
+
+    filename = str(sys.argv[2])
     hfile = tables.open_file(filename, mode='a')
-    tableData = np.array([(False, False, False, False, False, False, False, firstSec, expTime)], dtype=[('isWvlCalibrated', 'b1'), ('isFlatCalibrated', 'b1'), ('isSpecCalibrated', 'b1'), 
-        ('isLinearityCorrected', 'b1'), ('isPhaseNoiseCorrected', 'b1'), ('isPhotonTailCorrected', 'b1'), ('timeMaskExists', 'b1'), ('startTime', 'u8'), ('expTime', 'i4')])
     
     hfile.create_group('/', 'header', 'Header')
-    hfile.create_table('/header', 'header', tableData, 'Header')
+    headerTable = hfile.create_table('/header', 'header', ObsHeader, 'Header')
+    
+    headerContents = headerTable.row
 
+    headerContents['isWvlCalibrated'] = False
+    headerContents['isFlatCalibrated'] = False
+    headerContents['isSpecCalibrated'] = False
+    headerContents['isLinearityCorrected'] = False
+    headerContents['isPhaseNoiseCorrected'] = False
+    headerContents['isPhotonTailCorrected'] = False
+    headerContents['timeMaskExists'] = False
+    headerContents['startTime'] = firstSec
+    headerContents['expTime'] = expTime
+    headerContents['wvlBinStart'] = 700
+    headerContents['wvlBinEnd'] = 1500
+    headerContents['energyBinWidth'] = 0.1
+    headerContents['target'] = ''
+    headerContents['dataDir'] = dataDir
+    headerContents['beammapFile'] = beammapFile
+
+    headerContents.append()
+    headerTable.flush()
     hfile.close()
 
