@@ -211,7 +211,7 @@ class ObsFile:
         #get the beam image.
         try:
             self.beamImage = self.file.get_node('/BeamMap/Map').read()
-            self.beamFlagImage = self.file.get_node('/BeamMap/Flag').read()
+            self.beamFlagImage = self.file.get_node('/BeamMap/Flag')
         except Exception as inst:
             if verbose:
                 print('Can\'t access beamimage for ',self.fullFileName)
@@ -364,16 +364,16 @@ class ObsFile:
             entry = 1.*unixtime/secsPerDay+unixEpochJD
         return entry
         
-    def getPixelPhotonList(self, iRow, iCol, firstSec=0, integrationTime= -1, wvlRange=None, isWvl=True):
+    def getPixelPhotonList(self, xCoord, yCoord, firstSec=0, integrationTime= -1, wvlRange=None, isWvl=True):
         """
         Retrieves a photon list for a single pixel using the attached beammap.
 
         Parameters
         ----------
-        iRow: int
-            Row index of pixel in beammap
-        iCol: int
-            Column index of pixel in beammap
+        xCoord: int
+            x-coordinate of pixel in beammap
+        yCoord: int
+            y-coordinate index of pixel in beammap
         firstSec: float
             Photon list start time, in seconds relative to beginning of file
         integrationTime: float
@@ -394,21 +394,28 @@ class ObsFile:
             Columns have the following keys: 'Time', 'Wavelength', 'Spec Weight', 'Noise Weight'
                         
         """
-        resID = self.beamImage[iRow][iCol]
+        resID = self.beamImage[xCoord][yCoord]
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             photonTable = self.file.get_node('/Photons/' + str(resID))
  
         startTime = int(firstSec*self.ticksPerSec) #convert to us
-        if integrationTime == -1:
-            try:
-                endTime = photonTable.read(-1)[0][0]+1
-            except IndexError:
-                endTime = startTime + int(integrationTime*self.ticksPerSec) #Assume table is empty, so return everything
-        else:
-            endTime = startTime + int(integrationTime*self.ticksPerSec)
+        endTime = startTime + int(integrationTime*self.ticksPerSec)
+        # if integrationTime == -1:
+        #     try:
+        #         endTime = startTime + int(self.getFromHeader('expTime'))*self.ticksPerSec
+        #     except ValueError:
+        #         try:
+        #             endTime = startTime + photonTable.read(-1)[0][0] 
+        #         except IndexError:
+        #             endTime = startTime + 1 #Assume table is empty
+        # else:
+        #     endTime = startTime + int(integrationTime*self.ticksPerSec)
 
-        if wvlRange is None:
+        if wvlRange is None and integrationTime==-1:
+            photonList = photonTable.read()
+
+        elif wvlRange is None:
             photonList = photonTable.read_where('(Time >= startTime) & (Time < endTime)')
         
         else:
@@ -417,7 +424,10 @@ class ObsFile:
             startWvl = wvlRange[0]
             endWvl = wvlRange[1]
             assert startWvl <= endWvl, 'wvlRange[0] must be <= wvlRange[1]'
-            photonList = photonTable.read_where('(Time > startTime) & (Time < endTime) & (Wavelength >= startWvl) & (Wavelength < endWvl)')
+            if integrationTime == -1:
+                photonList = photonTable.read_where('(Wavelength >= startWvl) & (Wavelength < endWvl)')
+            else:
+                photonList = photonTable.read_where('(Time > startTime) & (Time < endTime) & (Wavelength >= startWvl) & (Wavelength < endWvl)')
 
         #return {'pixelData':pixelData,'firstSec':firstSec,'lastSec':lastSec}
         return photonList
@@ -429,7 +439,7 @@ class ObsFile:
         Parameters
         ----------
         posList: Nx2 array of ints (or list of 2 element tuples)
-            List of (row, col) beammap indices for desired pixels
+            List of (x, y) beammap indices for desired pixels
         firstSec: float
             Photon list start time, in seconds relative to beginning of file
         integrationTime: float
@@ -457,16 +467,16 @@ class ObsFile:
 
         return photonLists
  
-    def getPixelCount(self, iRow, iCol, firstSec=0, integrationTime= -1, wvlRange=None, applyWeight=True, applyTPFWeight=True, applyTimeMask=True):
+    def getPixelCount(self, xCoord, yCoord, firstSec=0, integrationTime= -1, wvlRange=None, applyWeight=True, applyTPFWeight=True, applyTimeMask=True):
         """
         Returns the number of photons received in a single pixel from firstSec to firstSec + integrationTime
         
         Parameters
         ----------
-        iRow: int
-            Row index of pixel in beammap
-        iCol: int
-            Column index of pixel in beammap
+        xCoord: int
+            x-coordinate of pixel in beammap
+        yCoord: int
+            y-coordinate index of pixel in beammap
         firstSec: float
             Photon list start time, in seconds relative to beginning of file
         integrationTime: float
@@ -490,7 +500,7 @@ class ObsFile:
             'effIntTime':float, effective integration time after time-masking is 
            `          accounted for.
         """
-        photonList = getPixelPhotonList(iRow, iCol, firstSec, integrationTime, wvlRange)
+        photonList = getPixelPhotonList(xCoord, yCoord, firstSec, integrationTime, wvlRange)
         weights = np.ones(len(photonList))
         if applyWeight:
             weights *= photonList['Spec Weight']
@@ -686,7 +696,7 @@ class ObsFile:
         cube = np.array(cube)
         return {'cube':cube,'wvlBinEdges':wvlBinEdges,'effIntTime':effIntTime, 'rawCounts':rawCounts}
 
-    def getPixelSpectrum(self, pixelRow, pixelCol, firstSec=0, integrationTime= -1,
+    def getPixelSpectrum(self, xCoord, yCoord, firstSec=0, integrationTime= -1,
                          applySpecWeight=False, applyTPFWeight=False, wvlStart=None, wvlStop=None,
                          wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None,timeSpacingCut=None):
         """
@@ -701,10 +711,10 @@ class ObsFile:
 
         Parameters
         ----------
-        pixelRow: int
-            Row index of desired pixel.
-        pixelCol: int
-            Column index of desired pixel.
+        xCoord: int
+            x-coordinate of desired pixel.
+        yCoord: int
+            y-coordinate index of desired pixel.
         firstSec: float
             Start time of integration, in seconds relative to beginning of file
         integrationTime: float
@@ -744,7 +754,7 @@ class ObsFile:
         wvlStop=wvlStop if (wvlStop!=None and wvlStop>0.) else (self.wvlUpperLimit if (self.wvlUpperLimit!=None and self.wvlUpperLimit>0.) else 1500)
 
 
-        photonList = self.getPixelPhotonList(pixelRow, pixelCol, firstSec, integrationTime)
+        photonList = self.getPixelPhotonList(xCoord, yCoord, firstSec, integrationTime)
         wvlList = photonList['Wavelength']
         rawCounts = len(wvlList)
         if integrationTime==-1:
@@ -1684,7 +1694,7 @@ class ObsFile:
         import photonlist.photlist      #Here instead of at top to avoid circular imports
         photonlist.photlist.writePhotonList(self,*nkwargs,**kwargs)
 
-    def applyWvlCal(self, resID, wvlCalArr):
+    def applyWvlCal(self, xCoord, yCoord, wvlCalArr):
         """
         Applies a wavelength calibration for a single pixel. Overwrites "Wavelength" column w/ 
         contents of wvlCalArr. NOT reversible unless you have a copy of the original contents.
@@ -1698,6 +1708,7 @@ class ObsFile:
             Array of calibrated wavelengths. Replaces "Wavelength" column of this pixel's 
             photon list.
         """
+        resID = self.beamImage[xCoord][yCoord]
         if self.mode!='write':
             raise Exception("Must open file in write mode to do this!")
         if self.isWvlCalibrated:
@@ -1739,7 +1750,74 @@ class ObsFile:
         photonTable.modify_column(column=newWeights, colname='Spec Weight')
         photonTable.flush()
     
+    def applyTimestampCorrection(self, xCoord, yCoord, timestampArr):
+        """
+        Applies a timestamp correction for a single pixel. Overwrites "Time" column w/ 
+        contents of timestampArr. Ordering of timestamps MUST be preserved; DOES NOT SORT.
+        NOT reversible unless you have a copy of the original contents.
+        ObsFile must be open in "write" mode to use.
 
+        Parameters
+        ----------
+        xCoord: int
+            x-coordinate of pixel to overwrite
+        yCoord: int
+            y-coordinate of pixel to overwrite
+        timestampArr: array of type uint32 
+            Array of corrected timestamps. Replaces "Time" column of photon list.
+        """
+        if self.mode!='write':
+            raise Exception("Must open file in write mode to do this!")
+        resID = self.beamImage[xCoord][yCoord]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            photonTable = self.file.get_node('/Photons/' + str(resID))
+        assert len(photonTable)==len(timestampArr), 'Timestamp list does not match length of photon list!'
+
+        photonTable.modify_column(column=timestampArr, colname='Time')
+        photonTable.flush()
+
+    def applyFlag(self, xCoord, yCoord, flag):
+        """
+        Applies a flag to the selected pixel on the BeamFlag array. Flag is a bitmask; 
+        new flag is bitwise OR between current flag and provided flag. Flag definitions
+        can be found in Headers/pipelineFlags.py.
+
+        Parameters
+        ----------
+        xCoord: int
+            x-coordinate of pixel
+        yCoord: int
+            y-coordinate of pixel
+        flag: int
+            Flag to apply to pixel
+        """
+        if self.mode!='write':
+            raise Exception("Must open file in write mode to do this!")
+        
+        curFlag = self.beamFlagImage[xCoord, yCoord]
+        newFlag = curFlag | flag
+        self.beamFlagImage[xCoord, yCoord] = newFlag
+        self.beamFlagImage.flush()
+
+    def modifyHeaderEntry(self, headerTitle, headerValue):
+        """
+        Modifies an entry in the header. Useful for indicating whether wavelength cals,
+        flat cals, etc are applied
+
+        Parameters
+        ----------
+        headerTitle: string
+            Name of entry to be modified
+        headerValue: depends on title
+            New value of entry
+        """
+        if self.mode!='write':
+            raise Exception("Must open file in write mode to do this!")
+        self.header.modify_column(column=headerValue, colname=headerTitle) 
+        self.header.flush()
+        self.info = self.header[0]
+        
         
         
 #        writes out the photon list for this obs file at $MKID_PROC_PATH/photonListFileName
