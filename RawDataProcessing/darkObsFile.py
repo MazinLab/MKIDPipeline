@@ -182,13 +182,6 @@ class ObsFile:
             raise inst
 
         # get important cal params
-        self.isWvlCalibrated = self.getFromHeader('isWvlCalibrated')
-        self.isFlatCalibrated = self.getFromHeader('isFlatCalibrated')
-        self.isSpecCalibrated = self.getFromHeader('isSpecCalibrated')
-        self.isLinearityCorrected = self.getFromHeader('isLinearityCorrected')
-        self.isPhaseNoiseCorrected = self.getFromHeader('isPhaseNoiseCorrected')
-        self.isPhotonTailCorrected = self.getFromHeader('isPhotonTailCorrected')
-        self.timeMaskExists = self.getFromHeader('timeMaskExists')
 
         self.defaultWvlBins = ObsFile.makeWvlBins(self.getFromHeader('energyBinWidth'), self.getFromHeader('wvlBinStart'), self.getFromHeader('wvlBinEnd'))
         
@@ -419,8 +412,8 @@ class ObsFile:
             photonList = photonTable.read_where('(Time >= startTime) & (Time < endTime)')
         
         else:
-            if(isWvl != self.isWvlCalibrated):
-                raise Exception('isWvl does not match wavelength cal status! \nisWvlCalibrated = ' + str(self.isWvlCalibrated) + '\nisWvl = ' + str(isWvl))
+            if(isWvl != self.info.['isWvlCalibrated']):
+                raise Exception('isWvl does not match wavelength cal status! \nisWvlCalibrated = ' + str(self.info['isWvlCalibrated']) + '\nisWvl = ' + str(isWvl))
             startWvl = wvlRange[0]
             endWvl = wvlRange[1]
             assert startWvl <= endWvl, 'wvlRange[0] must be <= wvlRange[1]'
@@ -774,7 +767,7 @@ class ObsFile:
             spectrum, wvlBinEdges = np.histogram(wvlList, bins=self.defaultWvlBins, weights=weights)
 
         else: #use specified bins
-            if applySpecWeight and self.isFlatCalibrated:
+            if applySpecWeight and self.info['isFlatCalibrated']:
                 raise ValueError('Using flat cal, so flat cal bins must be used')
             if wvlBinEdges is not None:
                 assert wvlBinWidth is None and wvlEnergyWidth is None, 'Histogram bins are overspecified!'
@@ -1711,7 +1704,7 @@ class ObsFile:
         resID = self.beamImage[xCoord][yCoord]
         if self.mode!='write':
             raise Exception("Must open file in write mode to do this!")
-        if self.isWvlCalibrated:
+        if self.info['isWvlCalibrated']:
             warnings.warn("Wavelength calibration already exists!")
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -1797,6 +1790,30 @@ class ObsFile:
         
         curFlag = self.beamFlagImage[xCoord, yCoord]
         newFlag = curFlag | flag
+        self.beamFlagImage[xCoord, yCoord] = newFlag
+        self.beamFlagImage.flush()
+    
+    def undoFlag(self, xCoord, yCoord, flag):
+        """
+        Resets the specified flag in the BeamFlag array to 0. Flag is a bitmask; 
+        only the bit specified by 'flag' is reset. Flag definitions
+        can be found in Headers/pipelineFlags.py.
+
+        Parameters
+        ----------
+        xCoord: int
+            x-coordinate of pixel
+        yCoord: int
+            y-coordinate of pixel
+        flag: int
+            Flag to undo
+        """
+        if self.mode!='write':
+            raise Exception("Must open file in write mode to do this!")
+        
+        curFlag = self.beamFlagImage[xCoord, yCoord]
+        notFlag = ~flag
+        newFlag = curFlag & notFlag
         self.beamFlagImage[xCoord, yCoord] = newFlag
         self.beamFlagImage.flush()
 
