@@ -412,7 +412,7 @@ class ObsFile:
             photonList = photonTable.read_where('(Time >= startTime) & (Time < endTime)')
 
         else:
-            if(isWvl != self.info.['isWvlCalibrated']):
+            if(isWvl != self.info['isWvlCalibrated']):
                 raise Exception('isWvl does not match wavelength cal status! \nisWvlCalibrated = ' + str(self.info['isWvlCalibrated']) + '\nisWvl = ' + str(isWvl))
             startWvl = wvlRange[0]
             endWvl = wvlRange[1]
@@ -1407,16 +1407,16 @@ class ObsFile:
             "the data is already wavelength calibrated"
 
         # appy waveCal
-        calsoln = wave_cal.root.wavecal.calsoln
-        for index, resID in enumerate(calsoln['resid']):
-            if calsoln['wave_flag'] == 4 or calsoln['wave_flag'] == 5:
+        calsoln = wave_cal.root.wavecal.calsoln.read()
+        for (row, column), resID in np.ndenumerate(self.beamImage):
+            index = np.where(resID == np.array(calsoln['resid']))
+            if len(index) == 1 and (calsoln['wave_flag'][index] == 4 or
+                                    calsoln['wave_flag'][index] == 5):
                 poly = calsoln['polyfit'][index]
-                row = calsoln['pixel_row'][index]
-                column = calsoln['pixel_col'][index]
                 photon_list = self.getPixelPhotonList(row, column)
                 phases = photon_list['Wavelength']
                 energies = np.polyval(poly, phases)
-                wavelengths = h * c / energies * 1e9  # wavelengths in nm
+                wavelengths = self.h * self.c / energies * 1e9  # wavelengths in nm
                 self.updateWavelengths(row, column, wavelengths)
             else:
                 self.applyFlag(row, column, 0b00000010)  # failed waveCal
@@ -1772,10 +1772,10 @@ class ObsFile:
         newFlag = curFlag | flag
         self.beamFlagImage[xCoord, yCoord] = newFlag
         self.beamFlagImage.flush()
-    
+
     def undoFlag(self, xCoord, yCoord, flag):
         """
-        Resets the specified flag in the BeamFlag array to 0. Flag is a bitmask; 
+        Resets the specified flag in the BeamFlag array to 0. Flag is a bitmask;
         only the bit specified by 'flag' is reset. Flag definitions
         can be found in Headers/pipelineFlags.py.
 
@@ -1790,7 +1790,7 @@ class ObsFile:
         """
         if self.mode!='write':
             raise Exception("Must open file in write mode to do this!")
-        
+
         curFlag = self.beamFlagImage[xCoord, yCoord]
         notFlag = ~flag
         newFlag = curFlag & notFlag
