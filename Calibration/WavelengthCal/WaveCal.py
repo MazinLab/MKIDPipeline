@@ -1,18 +1,22 @@
 import os
 import ast
-import warnings
+import sys
 import pickle
+import warnings
 import numpy as np
+import tables as tb
 import scipy.optimize as opt
-from datetime import datetime
 from matplotlib import lines
-from matplotlib import pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
-from PyPDF2 import PdfFileMerger, PdfFileReader
-from configparser import ConfigParser
+from datetime import datetime
 from astropy.constants import h, c
+from matplotlib import pyplot as plt
+from configparser import ConfigParser
+from PyPDF2 import PdfFileMerger, PdfFileReader
+from matplotlib.backends.backend_pdf import PdfPages
 from progressbar import ProgressBar, Bar, ETA, Timer, Percentage
+from Headers import pipelineFlags
 from RawDataProcessing.darkObsFile import ObsFile
+from Headers.CalHeaders import WaveCalDescription, WaveCalHeader
 
 
 class WaveCal:
@@ -42,7 +46,6 @@ class WaveCal:
         self.plot_file_name = ast.literal_eval(self.config['Output']['plot_file_name'])
         self.verbose = ast.literal_eval(self.config['Output']['verbose'])
         self.logging = ast.literal_eval(self.config['Output']['logging'])
-        self.cal_file_name = ast.literal_eval(self.config['Output']['cal_file_name'])
 
         # check the parameter formats
         self.__configCheck(2)
@@ -53,25 +56,318 @@ class WaveCal:
         self.file_names = np.array(self.file_names)[indices]
         self.obs = []
         for file_ in self.file_names:
-            self.obs.append(ObsFile(os.path.join(self.directory, file_), mode='write'))
+            self.obs.append(ObsFile(os.path.join(self.directory, file_)))
 
         # get the array size from the beam map and check that all files are the same
         self.rows, self.columns = np.shape(self.obs[0].beamImage)
         self.__configCheck(3)
 
         # initialize output flag definitions
-        self.flag_dict = {0: "fit converged", 1: "fit did not converge",
-                          2: "fit converged to a bad solution", 3: "no data to fit",
-                          4: "energy fit to quadratic function",
-                          5: "energy fit to linear function",
-                          6: "energy not fit - not enough data points",
-                          7: "energy not fit - data not monotonic enough"}
+        self.flag_dict = pipelineFlags.waveCal
 
         # initialize logging directory if it doesn't exist
         if self.logging:
             if not os.path.isdir(os.path.join(self.out_directory, 'logs')):
                 os.mkdir(os.path.join(self.out_directory, 'logs'))
-            self.logger("WaveCal object created", new=True)
+            message = "WaveCal object created: UTC " + str(datetime.utcnow()) + \
+                " : Local " + str(datetime.now())
+            self.logger(message, new=True)
+
+    def makeCalibration(self, pixels=[]):
+        '''
+        Compute the wavelength calibration for the pixels in 'pixels' and save the data
+        in the standard format.
+        '''
+        self.getPhaseHeights(pixels=pixels)
+        self.calculateCoefficients(pixels=pixels)
+        self.exportData(pixels=pixels)
+
+    def getPhaseHeights(self, pixels=[]):
+        '''
+        Returns the phase heights at all of the specified wavelengths for a specified
+        list of pixels.
+        '''
+        # check inputs
+        pixels = self.checkPixelInputs(pixels)
+
+        # initialize plotting, logging, and verbose
+        if self.save_plots:
+            self.setupPlots()
+        if self.logging:
+            self.logger("fitting phase histograms")
+        if self.verbose:
+            print('fitting phase histograms')
+            N = len(pixels) * len(self.wavelengths)
+            self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (',
+                                             Timer(), ') ', ETA(), ' '],
+                                    maxval=N).start()
+            self.pbar_iter = 0
+
+        # initialize fit_data structure
+        fit_data = np.empty((self.rows, self.columns), dtype=object)
+        for ind, _ in np.ndenumerate(fit_data):
+            fit_data[ind] = []
+
+        # loop over pixels and fit the phase histograms
+        for row, column in pixels:
+            for wavelength_index, _ in enumerate(self.wavelengths):
+                if self.logging:
+                    start_time = datetime.now()
+
+                # pull out fits already done for this wavelength
+                fit_list = fit_data[row, column]
+
+                # load data and cut photons too close together in time
+                photon_list = self.loadPhotonData(row, column, wavelength_index)
+                photon_list = self.removeTailRidingPhotons(photon_list, self.dt)
+
+                # make the phase histogram
+                phase_hist = self.histogramPhotons(photon_list['Wavelength'],
+                                                   fit_list, wavelength_index)
+
+                # set up the fit parameters and update them with information from fit_list
+                setup = self.fitSetup(phase_hist)
+                setup = self.fitUpdate(setup, fit_list, wavelength_index)
+
+                # fit the histogram
+                fit_function = self.fitModels(self.model_name)
+                fit_result = self.fitPhaseHistogram(phase_hist, fit_function, setup)
+
+                # evaluate how the fit did and save to fit_data structure
+                flag = self.evaluateFit(phase_hist, fit_result, fit_list,
+                                        wavelength_index)
+                fit_data[row, column].append((flag, fit_result[0], fit_result[1],
+                                              phase_hist))
+
+                # plot data (will skip if save_plots is set to be true)
+                self.plotFit(phase_hist, fit_result, fit_function, flag, row, column)
+
+                # update progress bar and log
+                if self.verbose:
+                    self.pbar_iter += 1
+                    self.pbar.update(self.pbar_iter)
+                if self.logging:
+                    dt = round((datetime.now() - start_time).total_seconds(), 2)
+                    dt = str(dt) + ' s'
+                    self.logger("({0}, {1}): {2} : {3}"
+                                .format(row, column, self.flag_dict[flag], dt))
+
+        # close progress bar
+        if self.verbose:
+            self.pbar.finish()
+        # close and save last plots
+        if self.save_plots:
+            self.closePlots()
+
+        self.fit_data = fit_data
+
+    def calculateCoefficients(self, pixels=[], use_zero_point=False):
+        '''
+        Loop through the results of 'getPhaseHeights()' and fit energy vs phase height
+        to a parabola
+        '''
+        # check inputs
+        pixels = self.checkPixelInputs(pixels)
+        assert hasattr(self, 'fit_data'), "run getPhaseHeights() first"
+        assert np.shape(self.fit_data) == (self.rows, self.columns), \
+            "fit_data must be a ({0}, {1}) numpy array".format(self.rows, self.columns)
+
+        # initialize verbose and logging
+        if self.verbose:
+            print('calculating phase to energy solution')
+            self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (',
+                                             Timer(), ') ', ETA(), ' '],
+                                    maxval=len(pixels)).start()
+            self.pbar_iter = 0
+        if self.logging:
+            self.logger('calculating phase to energy solution')
+
+        # initialize wavelength_cal structure
+        wavelength_cal = np.empty((self.rows, self.columns), dtype=object)
+
+        for row, column in pixels:
+            fit_results = self.fit_data[row, column]
+
+            # count the number of good fits and save their data
+            count = 0
+            wavelengths = []
+            phases = []
+            std = []
+            errors = []
+            for index, fit_result in enumerate(fit_results):
+                if fit_result[0] == 0:
+                    count += 1
+                    wavelengths.append(self.wavelengths[index])
+                    if self.model_name == 'gaussian_and_exp':
+                        phases.append(fit_result[1][3])
+                        std.append(fit_result[1][4])
+                        errors.append(np.sqrt(fit_result[2][3, 3]))
+                    else:
+                        raise ValueError("{0} is not a valid fit model name"
+                                         .format(self.model_name))
+
+            # if there are enough points fit the wavelengths
+            if count > 2:
+                energies = h.to('eV s').value * c.to('nm/s').value / np.array(wavelengths)
+
+                if use_zero_point:
+                    fit_function = self.fitModels('parabola_zero')
+                    guess = [0, energies[0] / phases[0]]  # guess straight line
+                else:
+                    fit_function = self.fitModels('parabola')
+                    guess = [0, energies[0] / phases[0], 0]  # guess straight line
+                popt, pcov = self.fitEnergy(fit_function, phases, energies, guess, errors)
+
+                # refit if vertex is between wavelengths or slope is positive
+                if popt is False:
+                    conditions = True
+                else:
+                    ind_max = np.argmax(phases)
+                    ind_min = np.argmin(phases)
+                    max_phase = phases[ind_max] + std[ind_max]
+                    min_phase = phases[ind_min] - std[ind_min]
+                    vertex = -popt[1] / (2 * popt[0])
+                    min_slope = 2 * popt[0] * min_phase + popt[1]
+                    max_slope = 2 * popt[0] * max_phase + popt[1]
+                    conditions = vertex < max_phase and vertex > min_phase and \
+                        (min_slope > 0 or max_slope > 0)
+                if conditions:
+                    fit_function = self.fitModels('linear')
+                    guess = [energies[0] / phases[0], 0]
+                    popt, pcov = self.fitEnergy(fit_function, phases, energies,
+                                                guess, errors)
+
+                    if popt is False or popt[0] > 0:
+                        flag = 7  # linear fit unsuccessful
+                        wavelength_cal[row, column] = (flag, False, False)
+                    else:
+                        flag = 5  # linear fit successful
+                        wavelength_cal[row, column] = (flag, (0, *popt), pcov)
+                else:
+                    flag = 4  # quadratic fit successful
+                    wavelength_cal[row, column] = (flag, popt, pcov)
+            else:
+                flag = 6  # no fit done because of lack of data
+                wavelength_cal[row, column] = (flag, False, False)
+
+            # update progress bar and log
+            if self.verbose:
+                self.pbar_iter += 1
+                self.pbar.update(self.pbar_iter)
+            if self.logging:
+                self.logger("({0}, {1}): {2}"
+                            .format(row, column, self.flag_dict[flag]))
+        # close progress bar
+        if self.verbose:
+            self.pbar.finish()
+
+        self.wavelength_cal = wavelength_cal
+
+    def exportData(self, pixels=[]):
+        '''
+        Saves data in the WaveCal format to the filename
+        '''
+        # check inputs
+        pixels = self.checkPixelInputs(pixels)
+
+        # load wavecal header
+        wavecal_description = WaveCalDescription(len(self.wavelengths))
+
+        # create output file
+        cal_file_name = 'calsol_' + str(round(datetime.utcnow().timestamp())) + '.h5'
+        cal_file = os.path.join(self.out_directory, cal_file_name)
+
+        # create folders in file
+        file_ = tb.open_file(cal_file, mode='w')
+        header = file_.create_group(file_.root, 'header', 'Calibration information')
+        wavecal = file_.create_group(file_.root, 'wavecal',
+                                     'Table of calibration parameters for each pixel')
+        file_.create_group(file_.root, 'debug',
+                           'Detailed fitting information for debugging')
+
+        # populate header
+        info = file_.create_table(header, 'info', WaveCalHeader)
+        file_.create_vlarray(header, 'obsFiles', obj=self.file_names)
+        file_.create_vlarray(header, 'wavelengths', obj=self.wavelengths)
+        info.row['model_name'] = self.model_name
+        info.row.append()
+        info.flush()
+
+        # populate wavecal
+        calsoln = file_.create_table(wavecal, 'calsoln', wavecal_description,
+                                     title='Wavelength Calibration Table')
+        for row, column in pixels:
+            calsoln.row['resid'] = self.obs[0].beamImage[row][column]
+            calsoln.row['pixel_row'] = row
+            calsoln.row['pixel_col'] = column
+            if (self.wavelength_cal[row, column][0] == 4 or
+               self.wavelength_cal[row, column][0] == 5):
+                calsoln.row['polyfit'] = self.wavelength_cal[row, column][1]
+            else:
+                calsoln.row['polyfit'] = [-1, -1, -1]
+            wavelengths = []
+            sigma = []
+            R = []
+            for index, wavelength in enumerate(self.wavelengths):
+                if ((self.wavelength_cal[row, column][0] == 4 or
+                     self.wavelength_cal[row, column][0] == 5) and
+                     self.fit_data[row, column][index][0] == 0):
+                    if self.model_name == 'gaussian_and_exp':
+                        mu = self.fit_data[row, column][index][1][3]
+                        std = self.fit_data[row, column][index][1][4]
+                    else:
+                        raise ValueError("{0} is not a valid fit model name"
+                                         .format(self.model_name))
+                    poly = self.wavelength_cal[row, column][1]
+                    dE = (np.polyval(poly, mu - std) - np.polyval(poly, mu + std)) / 2
+                    E = h.to('eV s').value * c.to('nm/s').value / wavelength
+                    sigma.append(dE)
+                    R.append(E / dE)
+                    wavelengths.append(wavelength)
+                else:
+                    sigma.append(-1)
+                    R.append(-1)
+            calsoln.row['sigma'] = sigma
+            calsoln.row['R'] = R
+            if len(wavelengths) == 0:
+                calsoln.row['soln_range'] = [-1, -1]
+            else:
+                calsoln.row['soln_range'] = [min(wavelengths), max(wavelengths)]
+            calsoln.row['wave_flag'] = self.wavelength_cal[row, column][0]
+            calsoln.row.append()
+        calsoln.flush()
+
+        # populate debug
+        for row, column in pixels:
+            res_id = self.obs[0].beamImage[row][column]
+            data = file_.create_group(file_.root.debug, 'res' + str(res_id))
+            poly_cov = self.wavelength_cal[row][column][2]
+            if poly_cov is False:
+                poly_cov = []
+            file_.create_array(data, 'poly_cov', obj=poly_cov)
+            for index, wavelength in enumerate(self.wavelengths):
+                fit_list = self.fit_data[row, column][index]
+                folder = file_.create_group(data, 'wvl' + str(index))
+                phase_centers = fit_list[3]['centers']
+                phase_counts = fit_list[3]['counts']
+                hist_flag = fit_list[0]
+                hist_fit = fit_list[1]
+                hist_cov = fit_list[2]
+                if hist_fit is False:
+                    hist_fit = []
+                    hist_cov = []
+                if len(phase_centers) == 0:
+                    bin_width = 0
+                else:
+                    bin_width = np.min(np.diff(phase_centers))
+                file_.create_vlarray(folder, 'phase_centers', obj=phase_centers)
+                file_.create_vlarray(folder, 'phase_counts', obj=phase_counts)
+                file_.create_array(folder, 'hist_flag', obj=hist_flag)
+                file_.create_vlarray(folder, 'hist_fit', obj=hist_fit)
+                file_.create_array(folder, 'hist_cov', obj=hist_cov)
+                file_.create_array(folder, 'bin_width', obj=bin_width)
+
+        file_.close()
 
     def loadPhotonData(self, row, column, wavelength_index):
         '''
@@ -178,6 +474,39 @@ class WaveCal:
 
         return setup
 
+    def fitPhaseHistogram(self, phase_hist, fit_function, setup):
+        '''
+        Fit the phase histogram to the specified fit fit_function
+        '''
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            error = np.sqrt(phase_hist['counts'] + 0.25) + 0.5
+            try:
+                if len(setup) == 2:
+                    fit_result = opt.curve_fit(fit_function, phase_hist['centers'],
+                                               phase_hist['counts'], setup[0],
+                                               sigma=np.sqrt(phase_hist['counts']) + 1,
+                                               bounds=setup[1])
+                else:
+                    fit_result = opt.curve_fit(fit_function, phase_hist['centers'],
+                                               phase_hist['counts'], setup,
+                                               sigma=np.sqrt(phase_hist['counts']) + 1)
+            except (RuntimeError, opt.OptimizeWarning,
+                    RuntimeWarning, TypeError) as error:
+                # RuntimeError catches failed minimization
+                # OptimizeWarning catches if covariance can't be calculated
+                # RuntimeWarning catches overflow errors
+                # TypeError catches when no data is passed to curve_fit
+                if self.logging:
+                    self.logger(str(error))
+                fit_result = (False, False)
+            except ValueError as error:
+                if self.logging:
+                    self.logger(str(error))
+                fit_result = (False, False)
+
+        return fit_result
+
     def evaluateFit(self, phase_hist, fit_result, fit_list, wavelength_index):
         '''
         Evaluate the result of the fit and return a flag for different conditions.
@@ -221,30 +550,21 @@ class WaveCal:
 
         return flag
 
-    def fitPhaseHistogram(self, phase_hist, fit_function, setup):
+    def fitEnergy(self, fit_function, phases, energies, guess, errors):
         '''
         Fit the phase histogram to the specified fit fit_function
         '''
         with warnings.catch_warnings():
-            warnings.simplefilter("error")
-            error = np.sqrt(phase_hist['counts'] + 0.25) + 0.5
+            warnings.simplefilter("ignore")
             try:
-                if len(setup) == 2:
-                    popt, pcov = opt.curve_fit(fit_function, phase_hist['centers'],
-                                               phase_hist['counts'], setup[0],
-                                               sigma=np.sqrt(phase_hist['counts']) + 1,
-                                               bounds=setup[1])
-                else:
-                    popt, pcov = opt.curve_fit(fit_function, phase_hist['centers'],
-                                               phase_hist['counts'], setup,
-                                               sigma=np.sqrt(phase_hist['counts']) + 1)
-                fit_result = (popt, pcov)
-            except (RuntimeError, opt.OptimizeWarning,
-                    RuntimeWarning, TypeError) as error:
+                fit_result = opt.curve_fit(fit_function, phases, energies, guess, errors)
+
+            except (RuntimeError, RuntimeWarning, TypeError) as error:
                 # RuntimeError catches failed minimization
-                # OptimizeWarning catches if covariance can't be calculated
                 # RuntimeWarning catches overflow errors
                 # TypeError catches when no data is passed to curve_fit
+                # Not catching OptimizeWarning so that a parabola fit to 3 data points
+                # doesn't error
                 if self.logging:
                     self.logger(str(error))
                 fit_result = (False, False)
@@ -254,209 +574,6 @@ class WaveCal:
                 fit_result = (False, False)
 
         return fit_result
-
-    def getPhaseHeights(self, pixels=()):
-        '''
-        Returns the phase heights at all of the specified wavelengths for a specified
-        list of pixels.
-        '''
-        # check inputs
-        pixels = self.checkPixelInputs(pixels)
-
-        # initialize plotting, logging, and verbose
-        if self.save_plots:
-            self.setupPlots()
-        if self.logging:
-            self.logger("fitting phase histograms")
-        if self.verbose:
-            print('fitting phase histograms')
-            N = len(pixels) * len(self.wavelengths)
-            self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (',
-                                             Timer(), ') ', ETA(), ' '],
-                                    maxval=N).start()
-            self.pbar_iter = 0
-
-        # initialize fit_data structure
-        fit_data = np.empty((self.rows, self.columns), dtype=object)
-        for ind, _ in np.ndenumerate(fit_data):
-            fit_data[ind] = []
-
-        # loop over pixels and fit the phase histograms
-        for row, column in pixels:
-            for wavelength_index, _ in enumerate(self.wavelengths):
-                if self.logging:
-                    start_time = datetime.now()
-
-                # pull out fits already done for this wavelength
-                fit_list = fit_data[row, column]
-
-                # load data and cut photons too close together in time
-                photon_list = self.loadPhotonData(row, column, wavelength_index)
-                photon_list = self.removeTailRidingPhotons(photon_list, self.dt)
-
-                # make the phase histogram
-                phase_hist = self.histogramPhotons(photon_list['Wavelength'],
-                                                   fit_list, wavelength_index)
-
-                # set up the fit parameters and update them with information from fit_list
-                setup = self.fitSetup(phase_hist)
-                setup = self.fitUpdate(setup, fit_list, wavelength_index)
-
-                # fit the histogram
-                fit_function = self.fitModels(self.model_name)
-                fit_result = self.fitPhaseHistogram(phase_hist, fit_function, setup)
-
-                # evaluate how the fit did and save to fit_data structure
-                flag = self.evaluateFit(phase_hist, fit_result, fit_list,
-                                        wavelength_index)
-                fit_data[row, column].append((flag, fit_result[0], fit_result[1]))
-
-                # plot data (will skip if save_plots is set to be true)
-                self.plotFit(phase_hist, fit_result, fit_function, flag, row, column)
-
-                # update progress bar and log
-                if self.verbose:
-                    self.pbar_iter += 1
-                    self.pbar.update(self.pbar_iter)
-                if self.logging:
-                    dt = round((datetime.now() - start_time).total_seconds(), 2)
-                    dt = str(dt) + ' s'
-                    self.logger("({0}, {1}): {2} : {3}"
-                                .format(row, column, self.flag_dict[flag], dt))
-
-        # close progress bar
-        if self.verbose:
-            self.pbar.finish()
-        # close and save last plots
-        if self.save_plots:
-            self.closePlots()
-
-        return fit_data
-
-    def calculateCoefficients(self, fit_data, pixels=(), use_zero_point=False):
-        '''
-        Loop through the results of 'getPhaseHeights()' and fit energy vs phase height
-        to a parabola
-        '''
-        # check inputs
-        pixels = self.checkPixelInputs(pixels)
-        assert np.shape(fit_data) == (self.rows, self.columns), \
-            "fit_data must be a ({0}, {1}) numpy array".format(self.rows, self.columns)
-
-        # initialize verbose and logging
-        if self.verbose:
-            print('calculating phase to energy solution')
-            self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (',
-                                             Timer(), ') ', ETA(), ' '],
-                                    maxval=len(pixels)).start()
-            self.pbar_iter = 0
-        if self.logging:
-            self.logger('calculating phase to energy solution')
-
-        # initialize wavelength_cal structure
-        wavelength_cal = np.empty((self.rows, self.columns), dtype=object)
-
-        for row, column in pixels:
-            if self.logging:
-                start_time = datetime.now()
-            fit_results = fit_data[row, column]
-
-            # count the number of good fits and save their data
-            count = 0
-            wavelengths = []
-            phases = []
-            std = []
-            errors = []
-            for index, fit_result in enumerate(fit_results):
-                if fit_result[0] == 0:
-                    count += 1
-                    wavelengths.append(self.wavelengths[index])
-                    if self.model_name == 'gaussian_and_exp':
-                        phases.append(fit_result[1][3])
-                        std.append(fit_result[1][4])
-                        errors.append(np.sqrt(fit_result[2][3, 3]))
-                    else:
-                        raise ValueError("{0} is not a valid fit model name"
-                                         .format(self.model_name))
-
-            # if there are enough points fit the wavelengths
-            if count > 2:
-                energies = h.value * c.value / (np.array(wavelengths) * 1e-9)
-
-                if use_zero_point:
-                    fit_function = self.fitModels('parabola_zero')
-                    guess = [0, energies[0] / phases[0]]  # guess straight line
-                else:
-                    fit_function = self.fitModels('parabola')
-                    guess = [0, energies[0] / phases[0], 0]  # guess straight line
-                popt, pcov = opt.curve_fit(fit_function, phases, energies, guess, errors)
-
-                # refit if vertex is between wavelengths or slope is positive
-                vertex = -popt[1] / (2 * popt[0])
-                min_slope = 2 * popt[0] * min(phases) + popt[1]
-                max_slope = 2 * popt[0] * max(phases) + popt[1]
-                conditions = vertex < max(phases) and vertex > min(phases) and \
-                            (min_slope > 0 or max_slope > 0)
-                if conditions:
-                    fit_function = self.fitModels('linear')
-                    guess = [energies[0] / phases[0], 0]
-                    popt, pcov = opt.curve_fit(fit_function, phases, energies,
-                                               guess, errors)
-                    if popt[0] > 0:
-                        flag = 7  # linear fit unsuccessful
-                        wavelength_cal[row, column] = (flag, False, False)
-                    else:
-                        flag = 5  # linear fit successful
-                        wavelength_cal[row, column] = (flag, popt, pcov)
-                else:
-                    flag = 4  # quadratic fit successful
-                    wavelength_cal[row, column] = (flag, popt, pcov)
-            else:
-                flag = 6  # no fit done because of lack of data
-                wavelength_cal[row, column] = (flag, False, False)
-
-            # update progress bar and log
-            if self.verbose:
-                self.pbar_iter += 1
-                self.pbar.update(self.pbar_iter)
-            if self.logging:
-                dt = round((datetime.now() - start_time).total_seconds(), 2)
-                dt = str(dt) + ' s'
-                self.logger("({0}, {1}): {2} : {3}"
-                            .format(row, column, self.flag_dict[flag], dt))
-        # close progress bar
-        if self.verbose:
-            self.pbar.finish()
-
-        return wavelength_cal
-
-    def exportData(self, wavelength_cal, fit_data, phase_hist, fit_function):
-        '''
-        Saves data in the WaveCal format to the filename
-        '''
-        cal_file_name = os.path.join(self.out_directory, self.cal_file_name)
-        if os.path.isfile(cal_file_name):
-            answer = self.query("{0} already exists. Overwrite?".format(cal_file_name),
-                                yes_or_no=True)
-            if answer is False:
-                answer = self.query("Provide a new file name (type exit to quit):")
-                if answer == 'exit':
-                    print("No data was saved.")
-                    return
-                cal_file_name = os.path.join(self.out_directory, answer)
-                while os.path.isfile(cal_file_name):
-                    question = "{0} already exists. Choose a new file name " + \
-                               "(type exit to quit):"
-                    answer = self.query(question.format(cal_file_name))
-                    if answer == 'exit':
-                        print("No data was saved.")
-                        return
-                    cal_file_name = os.path.join(self.out_directory, answer)
-
-        with open(cal_file_name, "wb") as file_:
-            data = {'wavelegth_cal': wavelength_cal, 'fit_data': fit_data,
-                    'phase_hist': phase_hist, 'fit_function': fit_function}
-            pickle.dump(data, file_)
 
     def plotFit(self, phase_hist, fit_result, fit_function, flag, row, column):
         '''
@@ -679,12 +796,12 @@ class WaveCal:
 
     def checkPixelInputs(self, pixels):
         '''
-        Check inputs for getPhaseHeights and calculateCoefficients
+        Check inputs for getPhaseHeights, calculateCoefficients and exportData
         '''
         if len(pixels) == 0:
             rows = range(self.rows)
             columns = range(self.columns)
-            pixels = ((r, c) for r in rows for c in columns)
+            pixels = [(r, c) for r in rows for c in columns]
         else:
             for pixel in pixels:
                 assert type(pixel) is tuple or type(pixel) is list, \
@@ -740,8 +857,6 @@ class WaveCal:
                 param.format('verbose', 'Output')
             assert 'logging' in self.config['Output'], \
                 param.format('logging', 'Output')
-            assert 'cal_file_name' in self.config['Output'], \
-                param.format('cal_file_name', 'Output')
 
         elif index == 2:
             # type check parameters
@@ -756,8 +871,6 @@ class WaveCal:
                 "plot_file_name parameter must be a string"
             assert type(self.out_directory) is str, \
                 "out_directory parameter must be a string"
-            assert type(self.cal_file_name) is str, \
-                "cal_file_name parameter must be a string"
             assert os.path.isdir(self.out_directory), \
                 "{0} is not a valid output directory".format(self.out_directory)
 
@@ -791,3 +904,17 @@ class WaveCal:
                     "All files must have the same beam map shape."
         else:
             raise ValueError("index must be 0, 1, 2 or 3")
+
+
+if __name__ == '__main__':
+    if len(sys.argv) == 1:
+        w = WaveCal()
+    else:
+        w = WaveCal(config_file=sys.argv[1])
+
+    w.makeCalibration()
+
+    # directory = '/Users/nicholaszobrist/Documents/Research/' + \
+    #             'Darkness/WaveCalData/interesting_pixels/'
+    # pixels = pickle.load(open(directory + 'interesting_pixels.p', 'rb'))
+    # w.makeCalibration(pixels=pixels)
