@@ -11,28 +11,30 @@ import sys
 import os
 import numpy as np
 from tables import *
-from Headers import TimeMask
-from Headers import pipelineFlags as flags
 
-WaveCalSoln_Description = {
-            "resid"     : UInt16Col(),      # unique resonator id
-            "pixelrow"  : UInt16Col(),      # physical x location - from beam map
-            "pixelcol"  : UInt16Col(),      # physical y location 
-            "polyfit"   : Float64Col(3),    # polynomial to convert from phase amplitude to wavelength float 64 precision
-            "sigma"     : Float64Col(4),     # 1 sigma (Gaussian width) in eV, for blue peak
-            "solnrange" : Float32Col(2),    # start and stop wavelengths for the fit in Angstroms
-            "wave_flag" : UInt16Col()}      # flag to indicate if pixel is good (0), unallocated (1), dead (2), or failed during wave cal fitting (2+) 
+def WaveCalDescription(n_wavelengths):
+    wavecal_description = {"pixel_row": UInt16Col(pos=0),  # beam map row
+                           "pixel_col": UInt16Col(pos=1),  # beam map column
+                           "resid": UInt16Col(pos=2),  # unique resonator id
+                           "wave_flag": UInt16Col(pos=3),  # fit flag
+                           "soln_range": Float32Col(2, pos=4),  # wavelength range
+                           "polyfit": Float64Col(3, pos=5),  # fit polynomial
+                           "sigma": Float64Col(n_wavelengths, pos=6),  # 1 sigma ∆E
+                           "R": Float64Col(n_wavelengths, pos=7)}  # E/∆E
+    return wavecal_description
 
+class WaveCalHeader(IsDescription):
+    model_name = StringCol(80)
 
-def FlatCalSoln_Description(nWvlBins=13):    
+def FlatCalSoln_Description(nWvlBins=13):
     description = {
             "resid"     : UInt16Col(),      # unique resonator id
             "pixelrow"  : UInt16Col(),      # physical x location - from beam map
-            "pixelcol"  : UInt16Col(),      # physical y location 
-            "weights"   : Float64Col(nWvlBins),    # 
-            "weightUncertainties"     : Float64Col(nWvlBins),     # 
+            "pixelcol"  : UInt16Col(),      # physical y location
+            "weights"   : Float64Col(nWvlBins),    #
+            "weightUncertainties"     : Float64Col(nWvlBins),     #
             "weightFlags" : UInt16Col(nWvlBins), #
-            "flag" : UInt16Col()}      # 
+            "flag" : UInt16Col()}      #
     return description
 
 
@@ -68,5 +70,3 @@ CalLookup_Description = {
             'centroidList_date'   : StringCol(strLength),
             'centroidList_tstamp'   : StringCol(strLength),
 }
-        
-            
