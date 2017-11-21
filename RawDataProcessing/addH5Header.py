@@ -41,6 +41,7 @@ if __name__=='__main__':
     headerContents['target'] = ''
     headerContents['dataDir'] = dataDir
     headerContents['beammapFile'] = beammapFile
+    headerContents['wvlCalFile'] = ''
 
     headerContents.append()
     headerTable.flush()
