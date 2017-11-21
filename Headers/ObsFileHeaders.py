@@ -18,6 +18,7 @@ class ObsHeader(IsDescription):
     wvlBinStart = Float32Col()
     wvlBinEnd = Float32Col()
     energyBinWidth = Float32Col()
+    wvlCalFile = StringCol(80)
     
 class ObsFileCols(IsDescription):
     pass
