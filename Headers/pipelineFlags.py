@@ -31,14 +31,14 @@ fluxCal = {
            }
 
 #Wavelength calibration flags
-waveCal = {
-           'good':0,                #No flagging.
-           'belowWaveCalRange':10,  #Derived wavelength is below formal validity range of calibration
-           'aboveWaveCalRange':11,  #Derived wavelength is above formal validity range of calibration
-           'noWaveCalSolution':12,  #Due to a bad pixel... or whatever....
-           'undefined':20,          #Flagged, but reason is undefined.
-           'undetermined':99        #Flag status is undetermined.
-           }
+waveCal = {0: "histogram fit - converged and validated",
+           1: "histogram not fit - did not converge",
+           2: "histogram not fit - converged but failed validation",
+           3: "histogram not fit - no data",
+           4: "energy fit - quadratic function",
+           5: "energy fit - linear function",
+           6: "energy not fit - not enough data points",
+           7: "energy not fit - data not monotonic enough"}
 
 #Bad pixel calibration flags (including hot pixels, cold pixels, etc.)
 badPixCal = {
@@ -52,17 +52,16 @@ badPixCal = {
 
 #Beammap flags (stored in beammap file)
 beamMapFlags = {
-                'good':0            #No flagging
-                'failed':1          #Beammap failed to place pixel 
-                'yFailed':2         #Beammap succeeded in x, failed in y
-                'xFailed':3         #Beammap succeeded in y, failed in x
+                'good':0,           #No flagging
+                'failed':1,         #Beammap failed to place pixel
+                'yFailed':2,        #Beammap succeeded in x, failed in y
+                'xFailed':3,        #Beammap succeeded in y, failed in x
                 'wrongFeedline':4   #Beammap placed pixel in wrong feedline
                 }
 
 #Flags stored in HDF5 file. Works as a bitmask to allow for multiple flags
 h5FileFlags = {
-               'good':0b00000000                #No flagging
-               'beamMapFailed':0b00000001       #Bad beammap
+               'good':0b00000000,               #No flagging
+               'beamMapFailed':0b00000001,      #Bad beammap
                'waveCalFailed':0b00000010       #No wavecal solution
                }
-                                         
