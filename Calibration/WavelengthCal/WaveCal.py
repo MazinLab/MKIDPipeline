@@ -5,6 +5,7 @@ import pickle
 import warnings
 import numpy as np
 import tables as tb
+import scipy.odr as odr
 import scipy.optimize as opt
 from matplotlib import lines
 from datetime import datetime
@@ -127,7 +128,6 @@ class WaveCal:
 
                 # set up the fit parameters and update them with information from fit_list
                 setup = self.fitSetup(phase_hist)
-                setup = self.fitUpdate(setup, fit_list, wavelength_index)
 
                 # fit the histogram
                 fit_function = self.fitModels(self.model_name)
@@ -136,6 +136,16 @@ class WaveCal:
                 # evaluate how the fit did and save to fit_data structure
                 flag = self.evaluateFit(phase_hist, fit_result, fit_list,
                                         wavelength_index)
+
+                # if the fit didn't converge change the guess and try again
+                if flag != 0:
+                    setup = self.fitUpdate(setup, phase_hist, fit_list, wavelength_index)
+                    fit_result2 = self.fitPhaseHistogram(phase_hist, fit_function, setup)
+                    flag2 = self.evaluateFit(phase_hist, fit_result2, fit_list,
+                                             wavelength_index)
+                    fit_results = [fit_result, fit_result2]
+                    flags = [flag, flag2]
+                    fit_result, flag = self.findBestFit(fit_results, flags, phase_hist)
                 fit_data[row, column].append((flag, fit_result[0], fit_result[1],
                                               phase_hist))
 
@@ -206,16 +216,20 @@ class WaveCal:
                         raise ValueError("{0} is not a valid fit model name"
                                          .format(self.model_name))
 
+            if count > 0 and (np.diff(phases) < 0.02 * min(phases)).any():
+                flag = 7  # data not monotonic enough
+                wavelength_cal[row, column] = (flag, False, False)
+
             # if there are enough points fit the wavelengths
-            if count > 2:
+            elif count > 2:
                 energies = h.to('eV s').value * c.to('nm/s').value / np.array(wavelengths)
 
                 if use_zero_point:
                     fit_function = self.fitModels('parabola_zero')
-                    guess = [0, energies[0] / phases[0]]  # guess straight line
+                    guess = [0, phases[0] / energies[0]]  # guess straight line
                 else:
                     fit_function = self.fitModels('parabola')
-                    guess = [0, energies[0] / phases[0], 0]  # guess straight line
+                    guess = [0, phases[0] / energies[0], 0]  # guess straight line
                 popt, pcov = self.fitEnergy(fit_function, phases, energies, guess, errors)
 
                 # refit if vertex is between wavelengths or slope is positive
@@ -233,12 +247,12 @@ class WaveCal:
                         (min_slope > 0 or max_slope > 0)
                 if conditions:
                     fit_function = self.fitModels('linear')
-                    guess = [energies[0] / phases[0], 0]
+                    guess = [phases[0] / energies[0], 0]
                     popt, pcov = self.fitEnergy(fit_function, phases, energies,
                                                 guess, errors)
 
                     if popt is False or popt[0] > 0:
-                        flag = 7  # linear fit unsuccessful
+                        flag = 8  # linear fit unsuccessful
                         wavelength_cal[row, column] = (flag, False, False)
                     else:
                         flag = 5  # linear fit successful
@@ -413,10 +427,10 @@ class WaveCal:
         # check for most recent fit to rescale the bin width
         else:
             recent_fit, recent_index, success = self.findLastGoodFit(fit_list)
-            if success:
-                # rescale binwidth -> old width * (expected center / old center)
-                self.bin_width = (self.bin_width * self.wavelengths[recent_index] /
-                                  self.wavelengths[wavelength_index])
+            # if success:
+            #     # rescale binwidth -> old width * (expected center / old center)
+            #     self.bin_width = (self.bin_width * self.wavelengths[recent_index] /
+            #                       self.wavelengths[wavelength_index])
 
         # define bin edges being careful to start at the threshold cut
         bin_edges = np.arange(max_phase, min_phase - self.bin_width,
@@ -459,18 +473,31 @@ class WaveCal:
 
         return setup
 
-    def fitUpdate(self, setup, fit_list, wavelength_index):
+    def fitUpdate(self, setup, phase_hist, fit_list, wavelength_index):
         '''
         Update the guess (and bounds) after successfully fitting the shortest wavelength.
         '''
+        if len(phase_hist['centers']) == 0:
+            return (None, None)
         if self.model_name == 'gaussian_and_exp':
             recent_fit, recent_index, success = self.findLastGoodFit(fit_list)
+            # if there was a previous good fit try to use it to guess better parameters
             if success:
                 # update gaussian center guess
                 setup[0][3] = (recent_fit[1][3] * self.wavelengths[recent_index] /
                                self.wavelengths[wavelength_index])
                 # update standard deviation guess
                 setup[0][4] = recent_fit[1][4]
+                # update noise guess
+                setup[0][0] = recent_fit[1][0]
+                setup[0][1] = recent_fit[1][1]
+            # otherwise try another guess
+            else:
+                centers = phase_hist['centers']
+                counts = phase_hist['counts']
+                setup[0][3] = (np.min(centers) + np.max(centers)) / 2
+                setup[0][2] = (np.min(counts) + np.max(counts)) / 2
+                setup[0][0] = 0
 
         return setup
 
@@ -515,31 +542,52 @@ class WaveCal:
             flag = 3  # no data to fit
             return flag
         if self.model_name == 'gaussian_and_exp':
-            peak_upper_lim = np.min([-10, np.max(phase_hist['centers']) * 1.2])
-            peak_lower_lim = np.min(phase_hist['centers'])
+            max_phase = max(phase_hist['centers'])
+            min_phase = min(phase_hist['centers'])
+            peak_upper_lim = np.min([-10, max_phase * 1.2])
+            peak_lower_lim = min_phase
 
             # change peak_upper_lim if good fits exist for higher wavelengths
             recent_fit, recent_index, success = self.findLastGoodFit(fit_list)
             if success:
-                peak_upper_lim = (0.2 * recent_fit[1][3] * self.wavelengths[recent_index]
-                                  / self.wavelengths[wavelength_index])
+                guess = (recent_fit[1][3] * self.wavelengths[recent_index] /
+                         self.wavelengths[wavelength_index])
+                peak_upper_lim = min([0.5 * guess, 1.05 * max_phase])
 
             if fit_result[0] is False:
                 flag = 1  # fit did not converge
             else:
+                centers = phase_hist['centers']
+                counts = phase_hist['counts']
                 center = fit_result[0][3]
                 sigma = fit_result[0][4]
-                gauss = self.fitModels('gaussian')(center, *fit_result[0][2:])
-                exp = self.fitModels('exp')(center, *fit_result[0][:2])
-                center_ind = np.argmin(np.abs(phase_hist['centers'] - center))
-                counts = phase_hist['counts'][center_ind]
-                height = gauss + exp
-                bad_fit_conditions = (center > peak_upper_lim) or \
-                                     (center < peak_lower_lim) or \
-                                     (gauss < 2 * exp) or \
-                                     (gauss < 10) or \
-                                     np.abs(sigma < 2) or \
-                                     np.abs(counts - height) > 5 * np.sqrt(counts)
+                gauss = lambda x: self.fitModels('gaussian')(x, *fit_result[0][2:])
+                exp = lambda x: self.fitModels('exp')(x, *fit_result[0][:2])
+                c_ind = np.argmin(np.abs(centers - center))
+                c_p_ind = np.argmin(np.abs(centers - (center + sigma)))
+                c_n_ind = np.argmin(np.abs(centers - (center - sigma)))
+                c = counts[c_ind]
+                c_p = counts[c_p_ind]
+                c_n = counts[c_n_ind]
+                h = gauss(centers[c_ind]) + exp(centers[c_ind])
+                if max_phase < center + sigma:
+                    h_p = gauss(max_phase) + exp(max_phase)
+                else:
+                    h_p = gauss(centers[c_p_ind]) + exp(centers[c_p_ind])
+                if min_phase > center - sigma:
+                    h_n = gauss(min_phase) + exp(min_phase)
+                else:
+                    h_n = gauss(centers[c_n_ind]) + exp(centers[c_n_ind])
+
+                bad_fit_conditions = ((center > peak_upper_lim) or
+                                      (center < peak_lower_lim) or
+                                      (gauss(center) < 2 * exp(center)) or
+                                      (gauss(center) < 10) or
+                                      np.abs(sigma < 2) or
+                                      np.abs(c - h) > 4 * np.sqrt(c) or
+                                      np.abs(c_p - h_p) > 4 * np.sqrt(c_p) or
+                                      np.abs(c_n - h_n) > 4 * np.sqrt(c_n))
+
                 if bad_fit_conditions:
                     flag = 2  # fit converged to a bad solution
                 else:
@@ -550,28 +598,42 @@ class WaveCal:
 
         return flag
 
+    def findBestFit(self, fit_results, flags, phase_hist):
+        '''
+        Finds the best fit out of a list based on chi squared
+        '''
+        centers = phase_hist['centers']
+        counts = phase_hist['counts']
+        chi2 = []
+        for fit_result in fit_results:
+            if fit_result[0] is False:
+                chi2.append(np.inf)
+            else:
+                fit = self.fitModels(self.model_name)(centers, *fit_result[0])
+                errors = np.sqrt(counts + 0.25) + 0.5
+                chi2.append(np.sum(((counts - fit) / errors)**2))
+        index = np.argmin(chi2)
+
+        return fit_results[index], flags[index]
+
     def fitEnergy(self, fit_function, phases, energies, guess, errors):
         '''
         Fit the phase histogram to the specified fit fit_function
         '''
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+            warnings.simplefilter("error")
             try:
-                fit_result = opt.curve_fit(fit_function, phases, energies, guess, errors)
-
-            except (RuntimeError, RuntimeWarning, TypeError) as error:
-                # RuntimeError catches failed minimization
-                # RuntimeWarning catches overflow errors
-                # TypeError catches when no data is passed to curve_fit
-                # Not catching OptimizeWarning so that a parabola fit to 3 data points
-                # doesn't error
+                model = odr.Model(fit_function)
+                data = odr.RealData(phases, energies, sx=errors)
+                regression = odr.ODR(data, model, beta0=guess)
+                output = regression.run()
+                fit_result = (output.beta, output.cov_beta)
+            except Exception as error:
+                # shouldn't have any exceptions or warnings
                 if self.logging:
                     self.logger(str(error))
                 fit_result = (False, False)
-            except ValueError as error:
-                if self.logging:
-                    self.logger(str(error))
-                fit_result = (False, False)
+                raise error
 
         return fit_result
 
@@ -589,7 +651,7 @@ class WaveCal:
             self.fig.text(0.5, 0.01, 'Phase [degrees]', ha='center')
 
             self.axes = self.axes.flatten()
-            plt.tight_layout(rect=[0.02, 0.02, 1, 0.95])
+            plt.tight_layout(rect=[0.03, 0.03, 1, 0.95])
 
             fit_accepted = lines.Line2D([], [], color='green', label='fit accepted')
             fit_rejected = lines.Line2D([], [], color='red', label='fit rejected')
@@ -709,6 +771,135 @@ class WaveCal:
             self.mergePlots()
         plt.close('all')
 
+    def plotWaveCal(self, file_name, row, column, hist=False):
+        '''
+        Plot the waveCal computed with the file 'file_name'. When the hist flag is True,
+        The histogram fits are plotted.
+        '''
+        res_id = self.obs[0].beamImage[row][column]
+        wave_cal = tb.open_file(file_name, mode='r')
+        wavelengths = wave_cal.root.header.wavelengths.read()[0]
+        energies = h.to('eV s').value * c.to('nm/s').value / np.array(wavelengths)
+        info = wave_cal.root.header.info.read()
+        model_name = info['model_name'][0].decode('utf-8')
+
+        if hist:
+            fit_function = self.fitModels(model_name)
+            x_num = int(np.ceil(len(wavelengths) / 2))
+            y_num = 3
+
+            fig = plt.figure(figsize=(4 * x_num, 8))
+            fig.text(0.01, 0.5, 'Counts', va='center', rotation='vertical')
+            fig.text(0.5, 0.01, 'Phase [degrees]', ha='center')
+            fig.text(0.9, 0.95, '({0}, {1})'.format(row, column))
+
+            axes = []
+            for x_ind in range(x_num):
+                for y_ind in range(y_num - 1):
+                    axes.append(plt.subplot2grid((y_num, x_num), (y_ind, x_ind)))
+            axes.append(plt.subplot2grid((y_num, x_num), (y_num - 1, 0), colspan=x_num))
+
+            fit_accepted = lines.Line2D([], [], color='green', label='fit accepted')
+            fit_rejected = lines.Line2D([], [], color='red', label='fit rejected')
+            gaussian = lines.Line2D([], [], color='orange',
+                                    linestyle='--', label='gaussian')
+            noise = lines.Line2D([], [], color='purple',
+                                 linestyle='--', label='noise')
+            axes[0].legend(handles=[fit_accepted, fit_rejected, gaussian, noise],
+                           loc=3, bbox_to_anchor=(0, 1.02, 1, .102), ncol=2)
+
+            for index, wavelength in enumerate(wavelengths):
+                path = '/debug/res' + str(res_id) + '/wvl' + str(index)
+                hist_fit = wave_cal.get_node(path + '/hist_fit').read()[0]
+                centers = wave_cal.get_node(path + '/phase_centers').read()[0]
+                counts = wave_cal.get_node(path + '/phase_counts').read()[0]
+                bin_width = wave_cal.get_node(path + '/bin_width').read()
+                flag = wave_cal.get_node(path + '/hist_flag').read()
+                if flag == 0:
+                    color = 'green'
+                else:
+                    color = 'red'
+
+                axes[index].bar(centers, counts, align='center', width=bin_width)
+                if index == 0:
+                    xlim = axes[index].get_xlim()
+                if model_name == 'gaussian_and_exp':
+                    if len(hist_fit) > 0:
+                        g_func = self.fitModels('gaussian')
+                        e_func = self.fitModels('exp')
+                        phase = np.arange(np.min(centers), np.max(centers), 0.1)
+                        axes[index].plot(phase, e_func(phase, *hist_fit[:2]),
+                                         color='purple', linestyle='--')
+                        axes[index].plot(phase, g_func(phase, *hist_fit[2:]),
+                                         color='orange', linestyle='--')
+                        axes[index].plot(phase, fit_function(phase, *hist_fit),
+                                         color=color)
+                        ylim = axes[index].get_ylim()
+                        xmin = xlim[0]
+                        ymax = ylim[1]
+                        axes[index].set_xlim(xlim)
+                    else:
+                        ylim = axes[index].get_ylim()
+                        axes[index].set_xlim(xlim)
+                        xmin = xlim[0]
+                        ymax = ylim[1]
+                        axes[index].text(xmin * 0.98, ymax * 0.5, 'Fit Error',
+                                         color='red')
+                dx = xlim[1] - xlim[0]
+                dy = ylim[1] - ylim[0]
+                axes[index].text(xmin + 0.05 * dx, ymax - 0.05 * dy,
+                                 str(wavelength) + ' nm', va='top', ha='left')
+
+                axes[-1].plot(centers, counts, drawstyle='steps-mid',
+                              label=str(wavelength) + ' nm')
+            axes[-1].set_xlim(xlim)
+            axes[-1].legend()
+            plt.tight_layout(rect=[0.03, 0.03, 1, 0.95])
+            plt.show(block=False)
+        else:
+            calsoln = wave_cal.root.wavecal.calsoln.read()
+            index = np.where(res_id == np.array(calsoln['resid']))
+            poly = calsoln['polyfit'][index][0]
+            flag = calsoln['wave_flag'][index][0]
+            centers = []
+            errors = []
+            for index, _ in enumerate(wavelengths):
+                path = '/debug/res' + str(res_id) + '/wvl' + str(index)
+                hist_fit = wave_cal.get_node(path + '/hist_fit').read()[0]
+                hist_cov = wave_cal.get_node(path + '/hist_cov').read()
+                if model_name == 'gaussian_and_exp':
+                    centers.append(hist_fit[3])
+                    errors.append(np.sqrt(hist_cov[3, 3]))
+                else:
+                    raise ValueError("{0} is not a valid fit model name"
+                                     .format(model_name))
+            fig, axis = plt.subplots()
+            axis.set_xlabel('energy [eV]')
+            axis.set_ylabel('phase [deg]')
+            axis.errorbar(energies, centers, errors, linestyle='--', marker='o',
+                          markersize=5, markeredgecolor='black', markeredgewidth=0.5,
+                          ecolor='black', capsize=3, elinewidth=0.5)
+            axis.set_xlim([0.95 * min(energies), max(energies) * 1.05])
+            if poly[0] != -1:
+                xx = np.arange(1.05 * min(centers), 0.95 * max(centers), 0.1)
+                axis.plot(np.polyval(poly, xx), xx, color='orange')
+            ylim = axis.get_ylim()
+            xlim = axis.get_xlim()
+            xmax = xlim[1]
+            ymax = ylim[1]
+            dx = xlim[1] - xlim[0]
+            dy = ylim[1] - ylim[0]
+            if poly[0] == -1:
+                axis.text(xmax - 0.05 * dx, ymax - 0.1 * dy, self.flag_dict[flag],
+                          color='red', ha='right', va='top')
+            else:
+                axis.text(xmax - 0.05 * dx, ymax - 0.1 * dy, self.flag_dict[flag],
+                          ha='right', va='top')
+            axis.text(xmax - 0.05 * dx, ymax - 0.05 * dy,
+                      '({0}, {1})'.format(row, column), ha='right', va='top')
+            plt.show(block=False)
+        wave_cal.close()
+
     def logger(self, message, new=False):
         '''
         Method for writing information to a log file
@@ -732,11 +923,11 @@ class WaveCal:
         elif model_name == 'exp':
             fit_function = lambda x, a, b: a * np.exp(b * x)
         elif model_name == 'parabola':
-            fit_function = lambda x, a, b, c: a * x**2 + b * x + c
+            fit_function = lambda A, x: A[0] * x**2 + A[1] * x + A[2]
         elif model_name == 'parabola_zero':
-            fit_function = lambda x, a, b: a * x**2 + b * x
+            fit_function = lambda A, x: A[0] * x**2 + A[1] * x
         elif model_name == 'linear':
-            fit_function = lambda x, a, b: a * x + b
+            fit_function = lambda A, x: A[0] * x + A[1]
 
         return fit_function
 
@@ -912,9 +1103,9 @@ if __name__ == '__main__':
     else:
         w = WaveCal(config_file=sys.argv[1])
 
-    w.makeCalibration()
+    # w.makeCalibration()
 
-    # directory = '/Users/nicholaszobrist/Documents/Research/' + \
-    #             'Darkness/WaveCalData/interesting_pixels/'
-    # pixels = pickle.load(open(directory + 'interesting_pixels.p', 'rb'))
-    # w.makeCalibration(pixels=pixels)
+    directory = '/Users/nicholaszobrist/Documents/Research/' + \
+                'Darkness/WaveCalData/interesting_pixels/'
+    pixels = pickle.load(open(directory + 'interesting_pixels.p', 'rb'))
+    w.makeCalibration(pixels=pixels)
