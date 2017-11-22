@@ -38,7 +38,8 @@ waveCal = {0: "histogram fit - converged and validated",
            4: "energy fit - quadratic function",
            5: "energy fit - linear function",
            6: "energy not fit - not enough data points",
-           7: "energy not fit - data not monotonic enough"}
+           7: "energy not fit - data not monotonic enough",
+           8: "energy not fit - linear and quadratic fits failed"}
 
 #Bad pixel calibration flags (including hot pixels, cold pixels, etc.)
 badPixCal = {
