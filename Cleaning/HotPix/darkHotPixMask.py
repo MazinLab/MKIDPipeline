@@ -118,7 +118,7 @@ def makeDHPMask(stack=None, outputFileName=None, verbose=False, sigma=3, maxCut=
         except:
             plt.matshow(finalMask)
             plt.show()
-        print "Number masked pixels = ", len(np.array(np.where(finalMask==1)).flatten())
+        print("Number masked pixels = ", len(np.array(np.where(finalMask==1)).flatten()))
 
     return finalMask
 
@@ -137,7 +137,7 @@ def makeMask(run=None, date=None, basePath=None,startTimeStamp=None, stopTimeSta
         dataPath = basePath+str(run)+os.path.sep+str(date)+os.path.sep
         stack = loadIMGStack(dataPath, startTimeStamp, stopTimeStamp, nCols=nCols, nRows=nRows)
     except:
-        print "Could not find dark data in ScienceData path, checking ramdisk"
+        print("Could not find dark data in ScienceData path, checking ramdisk")
         dataPath = '/mnt/ramdisk/'
         stack = loadIMGStack(dataPath, startTimeStamp, stopTimeStamp, nCols=nCols, nRows=nRows)
 
@@ -207,7 +207,7 @@ def makeMask(run=None, date=None, basePath=None,startTimeStamp=None, stopTimeSta
         except:
             plt.matshow(finalMask)
             plt.show()
-        print "Number masked pixels = ", len(np.array(np.where(finalMask==1)).flatten())
+        print("Number masked pixels = ", len(np.array(np.where(finalMask==1)).flatten()))
 
     return finalMask
 
@@ -246,7 +246,7 @@ def plotMask(mask):
 
 if __name__ == "__main__":
     if len(sys.argv)<2:
-        print "No arguments provided, running on test files"
+        print("No arguments provided, running on test files")
         run="PAL2017a"
         date = "20170410"
         startTS = 1491894755
@@ -264,7 +264,7 @@ if __name__ == "__main__":
 
 
     elif len(sys.argv) != 7:
-        print 'Usage: {} run date startTimeStamp stopTimeStamp verbose'.format(sys.argv[0])
+        print('Usage: {} run date startTimeStamp stopTimeStamp verbose'.format(sys.argv[0]))
         exit(0)
 
     else:
