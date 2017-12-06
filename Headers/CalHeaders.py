@@ -19,8 +19,8 @@ def WaveCalDescription(n_wavelengths):
                            "wave_flag": UInt16Col(pos=3),  # fit flag
                            "soln_range": Float32Col(2, pos=4),  # wavelength range
                            "polyfit": Float64Col(3, pos=5),  # fit polynomial
-                           "sigma": Float64Col(n_wavelengths, pos=6),  # 1 sigma ∆E
-                           "R": Float64Col(n_wavelengths, pos=7)}  # E/∆E
+                           "sigma": Float64Col(n_wavelengths, pos=6),  # 1 sigma DelE
+                           "R": Float64Col(n_wavelengths, pos=7)}  # E/DelE
     return wavecal_description
 
 class WaveCalHeader(IsDescription):

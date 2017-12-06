@@ -1,6 +1,7 @@
 import numpy as np
 import os, struct
 import tables
+from parsePacketDump2 import parsePacketData
 
 '''
 Utilities for loading sets of image stacks from either .IMG or .bin files
