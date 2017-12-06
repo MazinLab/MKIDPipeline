@@ -165,14 +165,14 @@ def pop(*args,**kwargs):
         return proc
 
 def main():
-    print 'non-blocking PopUp A, close when done'
+    print('non-blocking PopUp A, close when done')
     plotArray(title='A',image=np.arange(12).reshape(4,3))
     plotArray(title='C',image=np.arange(12).reshape(3,4))
-    print 'blocking PopUp, close when done'
+    print('blocking PopUp, close when done')
     form = PopUp(showMe=False,title='B')
     form.plotArray(np.arange(9).reshape(3,3))
     form.show()
-    print 'done'
+    print('done')
 
 
 if __name__ == "__main__":
