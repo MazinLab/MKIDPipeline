@@ -65,6 +65,7 @@ else:
     flatFileName = str(sys.argv[3])
 
 basePath = '/mnt/data0/CalibrationFiles/tempFlatCal'
+baseFramePath = '/mnt/data0/CalibrationFiles/imageStacks'
 rPath = os.path.join(basePath,run)
 dPath = os.path.join(rPath,date)
 flatPath = os.path.join(dPath,flatFileName)

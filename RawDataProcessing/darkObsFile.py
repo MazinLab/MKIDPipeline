@@ -66,7 +66,7 @@ from numpy import ma
 from scipy import pi
 import matplotlib.pyplot as plt
 from matplotlib.dates import strpdate2num
-from interval import interval, inf
+from interval import interval,inf
 import tables
 from tables.nodes import filenode
 import astropy.constants
