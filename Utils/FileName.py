@@ -1,23 +1,4 @@
 """
-Author: Seth Meeker 2017-04-09
-Based on ARCONS-Pipeline FileName by Chris Stoughton
-Updated for DARKNESS-pipeline
-
-Build up complete file names from
-
-mkidDataDir -- root of all raw. If not specified, looks for system variable
-                MKID_RAW_PATH, otherwise '/mnt/data0/ScienceData'.
-intermDir -- root of all generated files. If not specified, looks for 
-                sys. variable MKID_PROC_PATH, otherwise '/mnt/data0/CalibrationFiles')
-run -- such as PAL2017a or PAL2016b
-date -- in format yyyymmdd -- the local year, month, and date of sunset
-flavor -- obs or cal are the only ones I know about
-tstamp -- in unix timestamp format ssssssssss (ex:1491793638 from PAL2017a)
-
-Note: default paths above are formatted for DARKNESS data on dark.
-
-------------------------------------------------------------------------
-Original ARCONS-Pipeline FileName info:
 Author:  Chris Stoughton   
 Build up complete file names from:
 
@@ -54,9 +35,9 @@ class FileName:
         '''
             
         if mkidDataDir is None:
-            mkidDataDir = os.getenv('MKID_RAW_PATH', default="/mnt/data0/ScienceData")
+            mkidDataDir = os.getenv('MKID_RAW_PATH', default="/ScienceData")
         if intermDir is None:
-            intermDir = os.getenv('MKID_PROC_PATH', default="/mnt/data0/CalibrationFiles")
+            intermDir = os.getenv('MKID_PROC_PATH', default="/Scratch")
         
 
         self.mkidDataDir = mkidDataDir
@@ -98,7 +79,7 @@ class FileName:
         return self.mkidDataDir + os.sep + \
             self.run + os.sep + \
             self.date + os.sep + \
-            "obs_" + self.tstamp + '.h5'
+            self.tstamp + '.h5'
 
     def cal(self):
         return self.mkidDataDir + os.sep + \
@@ -111,12 +92,6 @@ class FileName:
             self.run + os.sep + \
             self.date + os.sep + \
             "flat_" + self.tstamp + '.h5'
-
-    def dark(self):
-        return self.mkidDataDir + os.sep + \
-            self.run + os.sep + \
-            self.date + os.sep + \
-            "dark_" + self.tstamp + '.h5'
 
     def tcslog(self):
         return self.mkidDataDir + os.sep + \
