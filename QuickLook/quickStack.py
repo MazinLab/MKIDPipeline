@@ -488,6 +488,8 @@ centYArray = tables.Array(stackgroup,'centY',centroidsY,title='Centroid Y Locati
 darkArray = tables.Array(stackgroup,'dark',dark,title='Dark Frame')
 flatArray = tables.Array(stackgroup,'flat',flat,title='Flat Frame')
 finalArray = tables.Array(stackgroup,'finalImg',finalImage,title='Final Image')
+np.savez('FlaggedPixelArrays.npz',hotArray=hotArray, coldArray=coldArray)
+np.savez('DarkPixelArray.npz',DarkArray=hotArray)
 
 #Write parameter table with all settings used from cfg file to make stack
 descriptionDict = StackCalSoln_Description(nPos)
