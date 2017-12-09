@@ -31,7 +31,7 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from functools import partial
 from arrayPopup import plotArray
-import utils
+import P3Utils
 import irUtils
 from loadStack import loadIMGStack
 

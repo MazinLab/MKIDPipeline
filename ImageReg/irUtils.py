@@ -7,12 +7,12 @@ Handful of utilities for making padded image canvases and aligning images
 
 import matplotlib
 import numpy as np
-from Utils.FileName import FileName
-from Utils.utils import interpolateImage
+from P3Utils.FileName import FileName
+from P3Utils.utils import interpolateImage
 import matplotlib.pyplot as plt
 import pickle
 from arrayPopup import plotArray
-import commands, warnings
+import subprocess, warnings
 from scipy import ndimage
 #import mpfit
 import tables
@@ -87,7 +87,7 @@ def correlation(p,fjac=None,refImage=None,imToAlign=None, err=None,returnCorrela
     p[1]=x shift
     p[2]=y shift
     """
-    #print "pars", p
+    #print("pars", p)
     ###rotates and shifts the image
     rot=rotateShiftImage(imToAlign,p[0],p[1],p[2])
     #the figure of merit is calculated by multiplying each pixel in the two images and dividing by the maximum of the two pixels squared.
@@ -106,7 +106,7 @@ def correlation(p,fjac=None,refImage=None,imToAlign=None, err=None,returnCorrela
     nValidPixel=np.sum(corrIm>0)
     ###deviates is the quantity that mpfit will minimize. The normalized correlation is nCorr=corr/nValidPixel
     ###so deviates is 1/nCorr
-    #print "corr test", corr
+    #print("corr test", corr)
     deviatesValue=nValidPixel/corr
     if returnCorrelation:
         return([corrIm,nValidPixel,deviatesValue])
@@ -114,7 +114,7 @@ def correlation(p,fjac=None,refImage=None,imToAlign=None, err=None,returnCorrela
     deviates=np.empty(len(corrIm))
     deviates.fill(deviatesValue)
     status=0
-    #print deviates[0]
+    #print(deviates[0])
     return([status,deviates])
 
 def alignImages(refImage,imToAlign,parameterGuess,parameterLowerLimit,parameterUpperLimit,parameterMinStep=[0.05,2,2],model=correlation):
@@ -147,9 +147,9 @@ def alignImages(refImage,imToAlign,parameterGuess,parameterLowerLimit,parameterU
      #   warnings.simplefilter("ignore")
     #m = mpfit.mpfit(correlation, functkw=fa, parinfo=parinfo, maxiter=1000, xtol=10**(-20),ftol=10**(-15),gtol=10**(-30),quiet=quiet)
     m = mpfit.mpfit(correlation, functkw=fa, parinfo=parinfo, maxiter=1000, xtol=10**(-20),ftol=10**(-20),gtol=10**(-30),quiet=quiet)
-    print 'status', m.status, 'errmsg', m.errmsg
+    print('status', m.status, 'errmsg', m.errmsg)
     mpPar=m.params
-    #print 'parameters:', mpPar, "\n"
+    #print('parameters:', mpPar, "\n")
     return mpPar
 
 def calculateRotationAngle(refImage=None,imToAlign=None,intTime=None):
@@ -165,7 +165,7 @@ def calculateRotationAngle(refImage=None,imToAlign=None,intTime=None):
         imToAlignTimeStamp=imToAlign.getFromHeader('unixtime')
         timeInterval = imToAlignTimeStamp-refTimeStamp
     else: 
-        print "Specify the integration interval or two obs files"
+        print("Specify the integration interval or two obs files")
         return
     rotationAngle = 360.0*timeInterval/secondsPerDay
     return rotationAngle
