@@ -15,7 +15,7 @@ def loadIMGStack(dataDir, start, stop, nCols=80, nRows=125):
         try:
             if useImg==False:
                 imagePath = os.path.join(dataDir,str(ts)+'.bin')
-                print imagePath
+                print(imagePath)
                 with open(imagePath,'rb') as dumpFile:
                     data = dumpFile.read()
 
@@ -29,12 +29,12 @@ def loadIMGStack(dataDir, start, stop, nCols=80, nRows=125):
 
             else:
                 imagePath = os.path.join(dataDir,str(ts)+'.img')
-                print imagePath
+                print(imagePath)
                 image = np.fromfile(open(imagePath, mode='rb'),dtype=np.uint16)
                 image = np.transpose(np.reshape(image, (nCols, nRows)))
 
         except (IOError, ValueError):
-            print "Failed to load ", imagePath
+            print("Failed to load ", imagePath)
             image = np.zeros((nRows, nCols),dtype=np.uint16)  
         frames.append(image)
     stack = np.array(frames)
@@ -48,7 +48,7 @@ def loadBINStack(dataDir, start, stop, nCols=80, nRows=125):
         try:
             if useImg==False:
                 imagePath = os.path.join(dataDir,str(ts)+'.bin')
-                print imagePath
+                print(imagePath)
                 with open(imagePath,'rb') as dumpFile:
                     data = dumpFile.read()
 
@@ -62,12 +62,12 @@ def loadBINStack(dataDir, start, stop, nCols=80, nRows=125):
 
             else:
                 imagePath = os.path.join(dataDir,str(ts)+'.img')
-                print imagePath
+                print(imagePath)
                 image = np.fromfile(open(imagePath, mode='rb'),dtype=np.uint16)
                 image = np.transpose(np.reshape(image, (nCols, nRows)))
 
         except (IOError, ValueError):
-            print "Failed to load ", imagePath
+            print("Failed to load ", imagePath)
             image = np.zeros((nRows, nCols),dtype=np.uint16)  
         frames.append(image)
     stack = np.array(frames)
@@ -78,7 +78,7 @@ def loadH5Stack(h5Path, verbose=True):
     if (not os.path.exists(h5Path)):
         msg='file does not exist: %s'%h5Path
         if verbose:
-            print msg
+            print(msg)
         raise Exception(msg)
     f = tables.open_file(h5Path, mode='r')
 

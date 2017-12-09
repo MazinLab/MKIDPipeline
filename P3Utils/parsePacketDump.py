@@ -7,7 +7,7 @@ Author:    Matt Strader
 import matplotlib, time, struct
 import matplotlib.pyplot as plt
 import numpy as np
-from Utils import binTools
+from P3Utils import binTools
 import sys
 
 def parsePacketData(words,verbose=False):
@@ -16,21 +16,21 @@ def parsePacketData(words,verbose=False):
 
     firstBytes = words >> (64-8)
     if verbose:
-        print nWords,' words parsed'
+        print(nWords,' words parsed')
     headerIdx = np.where(firstBytes == headerFirstByte)[0]
     headers = words[firstBytes == headerFirstByte]
     if verbose:
-        print len(headerIdx),'headers'
+        print(len(headerIdx),'headers')
 
     if verbose:
         fig,ax = plt.subplots(1,1)
         ax.plot(np.diff(headerIdx))
         ax.set_title('frame size')
-        print np.max(np.diff(headerIdx)),'max frame size'
+        print(np.max(np.diff(headerIdx)),'max frame size')
 
     fakeIdx = np.where(words == fakePhotonWord)[0]
     if verbose:
-        print len(fakeIdx),'fake photons'
+        print(len(fakeIdx),'fake photons')
 
     #header format: 8 bits all ones, 8 bits roach num, 12 bits frame num, ufix36_1 bit timestamp
     nBitsHdrTstamp = 36
@@ -40,7 +40,7 @@ def parsePacketData(words,verbose=False):
 
     roachNumMask = binTools.bitmask(nBitsHdrRoach)
     roachNums = (headers >> (nBitsHdrNum+nBitsHdrTstamp)) & roachNumMask
-    print np.unique(roachNums)
+    print(np.unique(roachNums))
 
     frameNumMask = binTools.bitmask(nBitsHdrNum)
     frameNums = (headers >> nBitsHdrTstamp) & frameNumMask
@@ -51,14 +51,14 @@ def parsePacketData(words,verbose=False):
         fig,ax = plt.subplots(1,1)
         ax.plot(np.diff(frameNums))
         ax.set_title('frame nums')
-        print nMissedFrames,'missed frames'
+        print(nMissedFrames,'missed frames')
 
 
     realIdx = np.where(np.logical_and(firstBytes != headerFirstByte, words != fakePhotonWord))[0]
     realPhotons = words[realIdx]
     nRealPhotons = len(realPhotons)
     if verbose:
-        print nRealPhotons,'real photons parsed'
+        print(nRealPhotons,'real photons parsed')
     #photon format: 20 bits id, 9 bits ts, fix18_15 phase, fix17_14 base
     nBitsPhtId = 20
     nBitsPhtTstamp = 9
@@ -126,12 +126,12 @@ if __name__=='__main__':
     pixelIds = parseDict['pixelIds']
 
     selPixelId = 0#(1<<10)+23
-    print 'selected pixel',selPixelId
-    print np.where(pixelIds==selPixelId),'photons for selected pixel'
+    print('selected pixel',selPixelId)
+    print(np.where(pixelIds==selPixelId),'photons for selected pixel')
 
-    print 'phase',phasesDeg[0:10]
-    print 'base',basesDeg[0:10]
-    print 'IDs',pixelIds[0:10]
+    print('phase',phasesDeg[0:10])
+    print('base',basesDeg[0:10])
+    print('IDs',pixelIds[0:10])
 
     fig,ax = plt.subplots(1,1)
     ax.plot(phasesDeg[np.where(pixelIds==selPixelId)])

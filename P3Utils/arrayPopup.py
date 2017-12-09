@@ -1,5 +1,6 @@
-from PyQt4 import QtGui
-from PyQt4 import QtCore
+from PyQt5 import QtGui
+from PyQt5 import QtWidgets
+from PyQt5 import QtCore
 import matplotlib.pyplot as plt
 import numpy as np
 import sys
@@ -10,7 +11,7 @@ matplotlib.rcParams['backend.qt4']='PyQt4'
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-class PopUp(QtGui.QMainWindow):
+class PopUp(QtWidgets.QMainWindow):
     def __init__(self, parent=None,plotFunc=None,title='', showMe=True):
         self.parent = parent
         if self.parent == None:
