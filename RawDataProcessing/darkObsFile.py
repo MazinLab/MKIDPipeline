@@ -12,17 +12,17 @@ __del__(self)
 __iter__(self)
 loadFile(self, fileName,verbose=False)
 checkIntegrity(self,firstSec=0,integrationTime=-1)
-convertToWvl(self, pulseHeights, iRow, iCol, excludeBad=True)
+convertToWvl(self, pulseHeights, xCoord, yCoord, excludeBad=True)
 createEmptyPhotonListFile(self)
 displaySec(self, firstSec=0, integrationTime= -1, weighted=False,fluxWeighted=False, plotTitle='', nSdevMax=2,scaleByEffInt=False)
 getFromHeader(self, name)
-getPixel(self, iRow, iCol, firstSec=0, integrationTime= -1)
-getPixelWvlList(self,iRow,iCol,firstSec=0,integrationTime=-1,excludeBad=True,dither=True)
-getPixelCount(self, iRow, iCol, firstSec=0, integrationTime= -1,weighted=False, fluxWeighted=False, getRawCount=False)
-getPixelLightCurve(self, iRow, iCol, firstSec=0, lastSec=-1, cadence=1, **kwargs)
-getPixelPacketList(self, iRow, iCol, firstSec=0, integrationTime= -1)
-getTimedPacketList_old(self, iRow, iCol, firstSec=0, integrationTime= -1)
-getTimedPacketList(self, iRow, iCol, firstSec=0, integrationTime= -1)
+getPixel(self, xCoord, yCoord, firstSec=0, integrationTime= -1)
+getPixelWvlList(self,xCoord,yCoord,firstSec=0,integrationTime=-1,excludeBad=True,dither=True)
+getPixelCount(self, xCoord, yCoord, firstSec=0, integrationTime= -1,weighted=False, fluxWeighted=False, getRawCount=False)
+getPixelLightCurve(self, xCoord, yCoord, firstSec=0, lastSec=-1, cadence=1, **kwargs)
+getPixelPacketList(self, xCoord, yCoord, firstSec=0, integrationTime= -1)
+getTimedPacketList_old(self, xCoord, yCoord, firstSec=0, integrationTime= -1)
+getTimedPacketList(self, xCoord, yCoord, firstSec=0, integrationTime= -1)
 getPixelCountImage(self, firstSec=0, integrationTime= -1, weighted=False,fluxWeighted=False, getRawCount=False,scaleByEffInt=False)
 getAperturePixelCountImage(self, firstSec=0, integrationTime= -1, y_values=range(46), x_values=range(44), y_sky=[], x_sky=[], apertureMask=np.ones((46,44)), skyMask=np.zeros((46,44)), weighted=False, fluxWeighted=False, getRawCount=False, scaleByEffInt=False)
 getSpectralCube(self,firstSec=0,integrationTime=-1,weighted=True,wvlStart=3000,wvlStop=13000,wvlBinWidth=None,energyBinWidth=None,wvlBinEdges=None)
@@ -30,7 +30,7 @@ getPixelSpectrum(self, pixelRow, pixelCol, firstSec=0, integrationTime= -1,weigh
 getPixelBadTimes(self, pixelRow, pixelCol)
 getDeadPixels(self, showMe=False, weighted=True, getRawCount=False)
 getNonAllocPixels(self, showMe=False)
-getRoachNum(self,iRow,iCol)
+getRoachNum(self,xCoord,yCoord)
 getFrame(self, firstSec=0, integrationTime=-1)
 loadCentroidListFile(self, centroidListFileName)
 loadFlatCalFile(self, flatCalFileName)
@@ -42,7 +42,7 @@ loadFilter(self, filterName = 'V', wvlBinEdges = None,switchOnFilter = True):
 makeWvlBins(energyBinWidth=.1, wvlStart=3000, wvlStop=13000)
 parsePhotonPackets(self, packets, inter=interval(),doParabolaFitPeaks=True, doBaselines=True)
 plotPixelSpectra(self, pixelRow, pixelCol, firstSec=0, integrationTime= -1,weighted=False, fluxWeighted=False)getApertureSpectrum(self, pixelRow, pixelCol, radius1, radius2, weighted=False, fluxWeighted=False, lowCut=3000, highCut=7000,firstSec=0,integrationTime=-1)
-plotPixelLightCurve(self,iRow,iCol,firstSec=0,lastSec=-1,cadence=1,**kwargs)
+plotPixelLightCurve(self,xCoord,yCoord,firstSec=0,lastSec=-1,cadence=1,**kwargs)
 plotApertureSpectrum(self, pixelRow, pixelCol, radius1, radius2, weighted=False, fluxWeighted=False, lowCut=3000, highCut=7000, firstSec=0,integrationTime=-1)
 setWvlCutoffs(self, wvlLowerLimit=3000, wvlUpperLimit=8000)
 switchOffHotPixTimeMask(self)
@@ -90,6 +90,11 @@ class ObsFile:
         self.makeMaskVersion = None
         self.loadFile(fileName,verbose=verbose)
 
+        self.filterIsApplied = False
+        self.noResIDFlag = 2**32-1
+        self.wvlLowerLimit = None
+        self.wvlUpperLimit = None
+
     def __del__(self):
         """
         Closes the obs file and any cal files that are open
@@ -136,9 +141,9 @@ class ObsFile:
         function will not be corrected for roach delays as in getPixel().
         Use getPixel() instead.
         """
-        for iRow in range(self.nRow):
-            for iCol in range(self.nCol):
-                pixelLabel = self.beamImage[iRow][iCol]
+        for xCoord in range(self.nXPix):
+            for yCoord in range(self.nYPix):
+                pixelLabel = self.beamImage[xCoord][yCoord]
                 pixelData = self.file.get_node('/' + pixelLabel)
                 yield pixelData
 
@@ -211,8 +216,8 @@ class ObsFile:
             raise inst
 
         beamShape = self.beamImage.shape
-        self.nRow = beamShape[0]
-        self.nCol = beamShape[1]
+        self.nXPix = beamShape[0]
+        self.nYPix = beamShape[1]
 
     def checkIntegrity(self,firstSec=0,integrationTime=-1):
         """
@@ -221,13 +226,13 @@ class ObsFile:
         returns 0 if no corruption found
         """
         corruptedPixels = []
-        for iRow in range(self.nRow):
-            for iCol in range(self.nCol):
-                packetList = self.getPixelPacketList(iRow,iCol,firstSec,integrationTime)
+        for xCoord in range(self.nXPix):
+            for yCoord in range(self.nYPix):
+                packetList = self.getPixelPacketList(xCoord,yCoord,firstSec,integrationTime)
                 timestamps,parabolaPeaks,baselines = self.parsePhotonPackets(packetList)
                 if np.any(timestamps > 1./self.tickDuration):
-                    print('Corruption detected in pixel (',iRow,iCol,')')
-                    corruptedPixels.append((iRow,iCol))
+                    print('Corruption detected in pixel (',xCoord,yCoord,')')
+                    corruptedPixels.append((xCoord,yCoord))
         corruptionFound = len(corruptedPixels) != 0
         return corruptionFound
 #        exptime = self.getFromHeader('exptime')
@@ -241,7 +246,7 @@ class ObsFile:
 #                packetList = self.getPixelPacketList(pixelCoord[0],pixelCoord[1],sec,integrationTime=1)
 #                timestamps,parabolaPeaks,baselines = self.parsePhotonPackets(packetList)
 #                if np.any(timestamps > 1./self.tickDuration):
-#                    pixelLabel = self.beamImage[iRow][iCol]
+#                    pixelLabel = self.beamImage[xCoord][yCoord]
 #                    corruptedSecs.append(sec)
 #                    print 'Corruption in pixel',pixelLabel, 'at',sec
 
@@ -388,6 +393,11 @@ class ObsFile:
 
         """
         resID = self.beamImage[xCoord][yCoord]
+        if resID==self.noResIDFlag:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                photonTable = self.file.get_node('/Photons/' + '0')
+            return photonTable.read_where('(Time < 0)') #use dummy condition to get empty photon list of correct format
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             photonTable = self.file.get_node('/Photons/' + str(resID))
@@ -509,13 +519,13 @@ class ObsFile:
         return {'counts':np.sum(weights), 'effIntTime':integrationTime}
 
 
-    def getPixelLightCurve(self,iRow,iCol,firstSec=0,lastSec=-1,cadence=1,
+    def getPixelLightCurve(self,xCoord,yCoord,firstSec=0,lastSec=-1,cadence=1,
                            **kwargs):
         """
         Get a simple light curve for a pixel (basically a wrapper for getPixelCount).
 
         INPUTS:
-            iRow,iCol - Row and column of pixel
+            xCoord,yCoord - Row and column of pixel
             firstSec - start time (sec) within obsFile to begin the light curve
             lastSec - end time (sec) within obsFile for the light curve. If -1, returns light curve to end of file.
             cadence - cadence (sec) of light curve. i.e., return values integrated every 'cadence' seconds.
@@ -535,18 +545,18 @@ class ObsFile:
         """
         if lastSec==-1:lSec = self.getFromHeader('exptime')
         else: lSec = lastSec
-        return np.array([self.getPixelCount(iRow,iCol,firstSec=x,integrationTime=cadence,**kwargs)['counts']
+        return np.array([self.getPixelCount(xCoord,yCoord,firstSec=x,integrationTime=cadence,**kwargs)['counts']
                        for x in np.arange(firstSec,lSec,cadence)])
 
 
-    def plotPixelLightCurve(self,iRow,iCol,firstSec=0,lastSec=-1,cadence=1,**kwargs):
+    def plotPixelLightCurve(self,xCoord,yCoord,firstSec=0,lastSec=-1,cadence=1,**kwargs):
         """
         Plot a simple light curve for a given pixel. Just a wrapper for getPixelLightCurve.
         Also marks intervals flagged as bad with gray shaded regions if a hot pixel mask is
         loaded.
         """
 
-        lc = self.getPixelLightCurve(iRow=iRow,iCol=iCol,firstSec=firstSec,lastSec=lastSec,
+        lc = self.getPixelLightCurve(xCoord=xCoord,yCoord=yCoord,firstSec=firstSec,lastSec=lastSec,
                                      cadence=cadence,**kwargs)
         if lastSec==-1: realLastSec = self.getFromHeader('exptime')
         else: realLastSec = lastSec
@@ -557,10 +567,10 @@ class ObsFile:
         plt.plot(x,lc)
         plt.xlabel('Time since start of file (s)')
         plt.ylabel('Counts')
-        plt.title(self.fileName+' - pixel x,y = '+str(iCol)+','+str(iRow))
+        plt.title(self.fileName+' - pixel x,y = '+str(yCoord)+','+str(xCoord))
 
         #Get bad times in time range of interest (hot pixels etc.)
-        badTimes = self.getPixelBadTimes(iRow,iCol) & interval([firstSec,realLastSec])   #Returns an 'interval' instance
+        badTimes = self.getPixelBadTimes(xCoord,yCoord) & interval([firstSec,realLastSec])   #Returns an 'interval' instance
         lcRange = np.nanmax(lc)-np.nanmin(lc)
         for eachInterval in badTimes:
             plt.fill_betweenx([np.nanmin(lc)-0.5*lcRange,np.nanmax(lc)+0.5*lcRange], eachInterval[0],eachInterval[1],
@@ -589,18 +599,18 @@ class ObsFile:
                 'rawCounts' - a 2D array containing the raw number of counts
                                 for each pixel.
         """
-        secImg = np.zeros((self.nRow, self.nCol))
-        effIntTimes = np.zeros((self.nRow, self.nCol), dtype=np.float64)
+        secImg = np.zeros((self.nXPix, self.nYPix))
+        effIntTimes = np.zeros((self.nXPix, self.nYPix), dtype=np.float64)
         effIntTimes.fill(np.nan)   #Just in case an element doesn't get filled for some reason.
-        rawCounts = np.zeros((self.nRow, self.nCol), dtype=np.float64)
+        rawCounts = np.zeros((self.nXPix, self.nYPix), dtype=np.float64)
         rawCounts.fill(np.nan)   #Just in case an element doesn't get filled for some reason.
-        for iRow in range(self.nRow):
-            for iCol in range(self.nCol):
-                pcount = self.getPixelCount(iRow, iCol, firstSec, integrationTime,
+        for xCoord in range(self.nXPix):
+            for yCoord in range(self.nYPix):
+                pcount = self.getPixelCount(xCoord, yCoord, firstSec, integrationTime,
                                           weighted, fluxWeighted, getRawCount)
-                secImg[iRow, iCol] = pcount['counts']
-                effIntTimes[iRow, iCol] = pcount['effIntTime']
-                rawCounts[iRow,iCol] = pcount['rawCounts']
+                secImg[xCoord, yCoord] = pcount['counts']
+                effIntTimes[xCoord, yCoord] = pcount['effIntTime']
+                rawCounts[xCoord,yCoord] = pcount['rawCounts']
         if scaleByEffInt is True:
             if integrationTime == -1:
                 totInt = self.getFromHeader('exptime')
@@ -633,8 +643,8 @@ class ObsFile:
                 'effIntTimes' - a 2D array containing effective integration
                                 times for each pixel.
         """
-        secImg = np.zeros((self.nRow, self.nCol))
-        effIntTimes = np.zeros((self.nRow, self.nCol), dtype=np.float64)
+        secImg = np.zeros((self.nXPix, self.nYPix))
+        effIntTimes = np.zeros((self.nXPix, self.nYPix), dtype=np.float64)
         effIntTimes.fill(np.nan)   #Just in case an element doesn't get filled for some reason.
         skyValues=[]
         objValues=[]
@@ -664,27 +674,28 @@ class ObsFile:
         #else:
         #    return secImg
 
-    def getSpectralCube(self,firstSec=0,integrationTime=-1,weighted=True,fluxWeighted=True,wvlStart=3000,wvlStop=13000,wvlBinWidth=None,energyBinWidth=None,wvlBinEdges=None,timeSpacingCut=None):
+    def getSpectralCube(self, firstSec=0, integrationTime=-1, applySpecWeight=False, applyTPFWeight=False, wvlStart=700, wvlStop=1500,
+                        wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None, timeSpacingCut=None):
         """
         Return a time-flattened spectral cube of the counts integrated from firstSec to firstSec+integrationTime.
         If integration time is -1, all time after firstSec is used.
         If weighted is True, flat cal weights are applied.
         If fluxWeighted is True, spectral shape weights are applied.
         """
-        cube = [[[] for iCol in range(self.nCol)] for iRow in range(self.nRow)]
-        effIntTime = np.zeros((self.nRow,self.nCol))
-        rawCounts = np.zeros((self.nRow,self.nCol))
+        cube = [[[] for yCoord in range(self.nYPix)] for xCoord in range(self.nXPix)]
+        effIntTime = np.zeros((self.nXPix,self.nYPix))
+        rawCounts = np.zeros((self.nXPix,self.nYPix))
 
-        for iRow in range(self.nRow):
-            for iCol in range(self.nCol):
-                x = self.getPixelSpectrum(pixelRow=iRow,pixelCol=iCol,
-                                  firstSec=firstSec,integrationTime=integrationTime,
-                                  weighted=weighted,fluxWeighted=fluxWeighted,wvlStart=wvlStart,wvlStop=wvlStop,
-                                  wvlBinWidth=wvlBinWidth,energyBinWidth=energyBinWidth,
-                                  wvlBinEdges=wvlBinEdges,timeSpacingCut=timeSpacingCut)
-                cube[iRow][iCol] = x['spectrum']
-                effIntTime[iRow][iCol] = x['effIntTime']
-                rawCounts[iRow][iCol] = x['rawCounts']
+        for xCoord in range(self.nXPix):
+            for yCoord in range(self.nYPix):
+                x = self.getPixelSpectrum(xCoord=xCoord,yCoord=yCoord,
+                                  firstSec=firstSec, applySpecWeight=applySpecWeight,
+                                  applyTPFWeight=applyTPFWeight, wvlStart=wvlStart, wvlStop=wvlStop,
+                                  wvlBinWidth=wvlBinWidth, energyBinWidth=energyBinWidth,
+                                  wvlBinEdges=wvlBinEdges, timeSpacingCut=timeSpacingCut)
+                cube[xCoord][yCoord] = x['spectrum']
+                effIntTime[xCoord][yCoord] = x['effIntTime']
+                rawCounts[xCoord][yCoord] = x['rawCounts']
                 wvlBinEdges = x['wvlBinEdges']
         cube = np.array(cube)
         return {'cube':cube,'wvlBinEdges':wvlBinEdges,'effIntTime':effIntTime, 'rawCounts':rawCounts}
@@ -769,10 +780,10 @@ class ObsFile:
         else: #use specified bins
             if applySpecWeight and self.info['isFlatCalibrated']:
                 raise ValueError('Using flat cal, so flat cal bins must be used')
-            if wvlBinEdges is not None:
-                assert wvlBinWidth is None and wvlEnergyWidth is None, 'Histogram bins are overspecified!'
+            elif wvlBinEdges is not None:
+                assert wvlBinWidth is None and energyBinWidth is None, 'Histogram bins are overspecified!'
                 spectrum, wvlBinEdges = np.histogram(wvlList, bins=wvlBinEdges, weights=weights)
-            if energyBinWidth is not None:
+            elif energyBinWidth is not None:
                 assert wvlBinWidth is None, 'Cannot specify both wavelength and energy bin widths!'
                 wvlBinEdges = ObsFile.makeWvlBins(energyBinWidth=energyBinWidth, wvlStart=wvlStart, wvlStop=wvlStop)
                 spectrum, wvlBinEdges = np.histogram(wvlList, bins=wvlBinEdges, weights=weights)
@@ -806,9 +817,9 @@ class ObsFile:
         print('Creating dead pixel mask...')
         deadMask = self.getDeadPixels()
         print('Creating wavecal solution mask...')
-        bad_solution_mask = np.zeros((self.nRow, self.nCol))
-        for y in range(self.nRow):
-            for x in range(self.nCol):
+        bad_solution_mask = np.zeros((self.nXPix, self.nYPix))
+        for y in range(self.nXPix):
+            for x in range(self.nYPix):
                 if (self.wvlRangeTable[y][x][0] > lowCut or self.wvlRangeTable[y][x][1] < highCut):
                     bad_solution_mask[y][x] = 1
         print('Creating aperture mask...')
@@ -885,8 +896,8 @@ class ObsFile:
         1's for pixels with counts, 0's for pixels without counts
         if showMe is True, a plot of the mask pops up
         """
-        countArray = np.array([[(self.getPixelCount(iRow, iCol, weighted=weighted,getRawCount=getRawCount))['counts'] for iCol in range(self.nCol)] for iRow in range(self.nRow)])
-        deadArray = np.ones((self.nRow, self.nCol))
+        countArray = np.array([[(self.getPixelCount(xCoord, yCoord, weighted=weighted,getRawCount=getRawCount))['counts'] for yCoord in range(self.nYPix)] for xCoord in range(self.nXPix)])
+        deadArray = np.ones((self.nXPix, self.nYPix))
         deadArray[countArray == 0] = 0
         if showMe == True:
             utils.plotArray(deadArray)
@@ -899,14 +910,14 @@ class ObsFile:
         1's for pixels with locations, 0's for pixels without locations
         if showMe is True, a plot of the mask pops up
         """
-        nonAllocArray = np.ones((self.nRow, self.nCol))
+        nonAllocArray = np.ones((self.nXPix, self.nYPix))
         nonAllocArray[np.core.defchararray.startswith(self.beamImage, self.nonAllocPixelName)] = 0
         if showMe == True:
             utils.plotArray(nonAllocArray)
         return nonAllocArray
 
-    def getRoachNum(self,iRow,iCol):
-        pixelLabel = self.beamImage[iRow][iCol]
+    def getRoachNum(self,xCoord,yCoord):
+        pixelLabel = self.beamImage[xCoord][yCoord]
         iRoach = int(pixelLabel.split('r')[1][0])
         return iRoach
 
@@ -925,23 +936,23 @@ class ObsFile:
         np.unint32
 
         """
-        frame = np.zeros((self.nRow,self.nCol),dtype=np.uint32)
-        for iRow in range(self.nRow):
-            for iCol in range(self.nCol):
-                pl = self.getTimedPacketList(iRow,iCol,
+        frame = np.zeros((self.nXPix,self.nYPix),dtype=np.uint32)
+        for xCoord in range(self.nXPix):
+            for yCoord in range(self.nYPix):
+                pl = self.getTimedPacketList(xCoord,yCoord,
                                              firstSec,integrationTime)
                 nphoton = pl['timestamps'].size
-                frame[iRow][iCol] += nphoton
+                frame[xCoord][yCoord] += nphoton
         return frame
 
     # a different way to get, with the functionality of getTimedPacketList
-    def getPackets(self, iRow, iCol, firstSec, integrationTime,
+    def getPackets(self, xCoord, yCoord, firstSec, integrationTime,
                    fields=(),
                    expTailTimescale=None,
                    timeSpacingCut=None,
                    timeMaskLast=True):
         """
-        get and parse packets for pixel iRow,iCol starting at firstSec for integrationTime seconds.
+        get and parse packets for pixel xCoord,yCoord starting at firstSec for integrationTime seconds.
 
         fields is a list of strings to indicate what to parse in
         addition to timestamps: allowed values are 'peakHeights' and
@@ -979,7 +990,7 @@ class ObsFile:
         inter = interval()
         # mask the hot pixels if requested
         if self.hotPixIsApplied:
-            inter = self.getPixelBadTimes(iRow, iCol)
+            inter = self.getPixelBadTimes(xCoord, yCoord)
         # mask cosmics if requested
         if self.cosmicMaskIsApplied:
             inter = inter | self.cosmicMask
@@ -1000,7 +1011,7 @@ class ObsFile:
         maskedIntervals = inter & integrationInterval  #Intersection of the integration and the bad times for this pixel.
         effectiveIntTime = integrationTime - utils.intervalSize(maskedIntervals)
 
-        pixelData = self.getPixel(iRow, iCol, firstSec=firstSecInt,
+        pixelData = self.getPixel(xCoord, yCoord, firstSec=firstSecInt,
                                   integrationTime=integrationTimeInt)
         # calculate how long a np array needs to be to hold everything
         nPackets = 0
@@ -1213,8 +1224,8 @@ class ObsFile:
             print('Can\'t access beamimage for ',self.fullFileName)
 
         beamShape = self.beamImage.shape
-        self.nRow = beamShape[0]
-        self.nCol = beamShape[1]
+        self.nXPix = beamShape[0]
+        self.nYPix = beamShape[1]
 
         beammapFile.close()
 
@@ -1248,8 +1259,8 @@ class ObsFile:
 
         self.flatCalWvlBins = self.flatCalFile.root.flatcal.wavelengthBins.read()
         self.nFlatCalWvlBins = len(self.flatCalWvlBins)-1
-        self.flatWeights = np.zeros((self.nRow,self.nCol,self.nFlatCalWvlBins),dtype=np.double)
-        self.flatFlags = np.zeros((self.nRow,self.nCol,self.nFlatCalWvlBins),dtype=np.uint16)
+        self.flatWeights = np.zeros((self.nXPix,self.nYPix,self.nFlatCalWvlBins),dtype=np.double)
+        self.flatFlags = np.zeros((self.nXPix,self.nYPix,self.nFlatCalWvlBins),dtype=np.uint16)
 
         try:
             flatCalSoln = self.flatCalFile.root.flatcal.calsoln.read()
@@ -1469,13 +1480,13 @@ class ObsFile:
 
         #Calculate upper and lower energy limits from wavelengths
         #Note that start and stop switch when going to energy
-        energyStop = ObsFile.h * ObsFile.c * ObsFile.angstromPerMeter / (wvlStart*10)
-        energyStart = ObsFile.h * ObsFile.c * ObsFile.angstromPerMeter / (wvlStop*10)
+        energyStop = ObsFile.h * ObsFile.c * 1.e9 / wvlStart
+        energyStart = ObsFile.h * ObsFile.c * 1.e9 / wvlStop
         nWvlBins = int((energyStop - energyStart) / energyBinWidth)
         #Construct energy bin edges
         energyBins = np.linspace(energyStart, energyStop, nWvlBins + 1)
         #Convert back to wavelength and reverse the order to get increasing wavelengths
-        wvlBinEdges = np.array(ObsFile.h * ObsFile.c * ObsFile.angstromPerMeter / energyBins)
+        wvlBinEdges = np.array(ObsFile.h * ObsFile.c * 1.e9 / energyBins)
         wvlBinEdges = wvlBinEdges[::-1]
         return wvlBinEdges
 
@@ -1532,7 +1543,7 @@ class ObsFile:
         ax.plot(self.flatCalWvlBins[0:-1], spectrum, label='spectrum for pixel[%d][%d]' % (pixelRow, pixelCol))
         plt.show()
 
-    def setWvlCutoffs(self, wvlLowerLimit=3000, wvlUpperLimit=8000):
+    def setWvlCutoffs(self, wvlLowerLimit=700, wvlUpperLimit=1500):
         """
         Sets wavelength cutoffs so that if convertToWvl(excludeBad=True) or getPixelWvlList(excludeBad=True) is called
         wavelengths outside these limits are excluded.  To remove limits
@@ -1867,33 +1878,33 @@ class ObsFile:
 #                               self.fluxFlags,
 #                               pipelineFlags.fluxCal['aboveWaveCalRange']))
 #
-#        for iRow in xrange(self.nRow):
-#            for iCol in xrange(self.nCol):
-#                flag = self.wvlFlagTable[iRow, iCol]
+#        for xCoord in xrange(self.nXPix):
+#            for yCoord in xrange(self.nYPix):
+#                flag = self.wvlFlagTable[xCoord, yCoord]
 #                if flag == 0:#only write photons in good pixels  ***NEED TO UPDATE TO USE DICTIONARY***
-#                    energyError = self.wvlErrorTable[iRow, iCol] #Note wvlErrorTable is in eV !! Assume constant across all wavelengths. Not the best approximation, but a start....
-#                    flatWeights = self.flatWeights[iRow, iCol]
+#                    energyError = self.wvlErrorTable[xCoord, yCoord] #Note wvlErrorTable is in eV !! Assume constant across all wavelengths. Not the best approximation, but a start....
+#                    flatWeights = self.flatWeights[xCoord, yCoord]
 #                    #Extend flat weight and flag arrays at beginning and end to include out-of-wavelength-calibration-range photons.
 #                    flatWeights = np.hstack((flatWeights[0],flatWeights,flatWeights[-1]))
 #                    flatFlags = np.hstack((pipelineFlags.flatCal['belowWaveCalRange'],
-#                                           self.flatFlags[iRow, iCol],
+#                                           self.flatFlags[xCoord, yCoord],
 #                                           pipelineFlags.flatCal['aboveWaveCalRange']))
 #
 #
-#                    #wvlRange = self.wvlRangeTable[iRow, iCol]
+#                    #wvlRange = self.wvlRangeTable[xCoord, yCoord]
 #
 #                    #---------- Replace with call to getPixelWvlList -----------
 #                    #go through the list of seconds in a pixel dataset
-#                    #for iSec, secData in enumerate(self.getPixel(iRow, iCol)):
+#                    #for iSec, secData in enumerate(self.getPixel(xCoord, yCoord)):
 #
 #                    #timestamps, parabolaPeaks, baselines = self.parsePhotonPackets(secData)
 #                    #timestamps = iSec + self.tickDuration * timestamps
 #
 #                    #pulseHeights = np.array(parabolaPeaks, dtype='double') - np.array(baselines, dtype='double')
-#                    #wavelengths = self.convertToWvl(pulseHeights, iRow, iCol, excludeBad=False)
+#                    #wavelengths = self.convertToWvl(pulseHeights, xCoord, yCoord, excludeBad=False)
 #                    #------------------------------------------------------------
 #
-#                    x = self.getPixelWvlList(iRow,iCol,excludeBad=False,dither=True,firstSec=firstSec,
+#                    x = self.getPixelWvlList(xCoord,yCoord,excludeBad=False,dither=True,firstSec=firstSec,
 #                                             integrationTime=integrationTime)
 #                    timestamps, wavelengths = x['timestamps'], x['wavelengths']     #Wavelengths in Angstroms
 #
@@ -1918,8 +1929,8 @@ class ObsFile:
 #                        #if wavelengths[iPhoton] > wvlRange[0] and wavelengths[iPhoton] < wvlRange[1] and binIndices[iPhoton] >= 0 and binIndices[iPhoton] < len(flatWeights):
 #                        #create a new row for the photon list
 #                        newRow = plTable.row
-#                        newRow['Xpix'] = iCol
-#                        newRow['Ypix'] = iRow
+#                        newRow['Xpix'] = yCoord
+#                        newRow['Ypix'] = xCoord
 #                        newRow['ArrivalTime'] = timestamps[iPhoton]
 #                        newRow['Wavelength'] = wavelengths[iPhoton]
 #                        newRow['WaveError'] = wvlErrors[iPhoton]
