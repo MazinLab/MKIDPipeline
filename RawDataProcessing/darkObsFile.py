@@ -89,6 +89,7 @@ class ObsFile:
         self.mode = mode
         self.makeMaskVersion = None
         self.loadFile(fileName,verbose=verbose)
+        self.filterIsApplied = False
 
     def __del__(self):
         """
@@ -493,7 +494,7 @@ class ObsFile:
             'effIntTime':float, effective integration time after time-masking is
            `          accounted for.
         """
-        photonList = getPixelPhotonList(xCoord, yCoord, firstSec, integrationTime, wvlRange)
+        photonList = self.getPixelPhotonList(xCoord, yCoord, firstSec, integrationTime, wvlRange)
         weights = np.ones(len(photonList))
         if applyWeight:
             weights *= photonList['Spec Weight']
@@ -676,10 +677,10 @@ class ObsFile:
         rawCounts = np.zeros((self.nRow,self.nCol))
 
         for iRow in range(self.nRow):
-            for iCol in range(self.nCol):
-                x = self.getPixelSpectrum(pixelRow=iRow,pixelCol=iCol,
+             for iCol in range(self.nCol):
+                x = self.getPixelSpectrum(xCoord=iRow,yCoord=iCol,
                                   firstSec=firstSec,integrationTime=integrationTime,
-                                  weighted=weighted,fluxWeighted=fluxWeighted,wvlStart=wvlStart,wvlStop=wvlStop,
+                                  applySpecWeight=weighted,applyTPFWeight=fluxWeighted,wvlStart=wvlStart,wvlStop=wvlStop,
                                   wvlBinWidth=wvlBinWidth,energyBinWidth=energyBinWidth,
                                   wvlBinEdges=wvlBinEdges,timeSpacingCut=timeSpacingCut)
                 cube[iRow][iCol] = x['spectrum']
@@ -748,13 +749,15 @@ class ObsFile:
 
 
         photonList = self.getPixelPhotonList(xCoord, yCoord, firstSec, integrationTime)
+        print(xCoord)
+        print(yCoord)
         wvlList = photonList['Wavelength']
         rawCounts = len(wvlList)
+
         if integrationTime==-1:
             effIntTime = self.getFromHeader('expTime')
         else:
             effIntTime = integrationTime
-
         weights = np.ones(len(wvlList))
 
         if applySpecWeight:
@@ -769,16 +772,19 @@ class ObsFile:
         else: #use specified bins
             if applySpecWeight and self.info['isFlatCalibrated']:
                 raise ValueError('Using flat cal, so flat cal bins must be used')
-            if wvlBinEdges is not None:
-                assert wvlBinWidth is None and wvlEnergyWidth is None, 'Histogram bins are overspecified!'
+            elif wvlBinEdges is not None:
+                assert wvlBinWidth is None and energyBinWidth is None, 'Histogram bins are overspecified!'
                 spectrum, wvlBinEdges = np.histogram(wvlList, bins=wvlBinEdges, weights=weights)
-            if energyBinWidth is not None:
+                print('here is spectrum my dudes', spectrum)
+                print('here is wvl binedges my dudes', wvlBinEdges)
+            elif energyBinWidth is not None:
                 assert wvlBinWidth is None, 'Cannot specify both wavelength and energy bin widths!'
                 wvlBinEdges = ObsFile.makeWvlBins(energyBinWidth=energyBinWidth, wvlStart=wvlStart, wvlStop=wvlStop)
                 spectrum, wvlBinEdges = np.histogram(wvlList, bins=wvlBinEdges, weights=weights)
             elif wvlBinWidth is not None:
                 nWvlBins = int((wvlStop - wvlStart)/wvlBinWidth)
                 spectrum, wvlBinEdges = np.histogram(wvlList, bins=nWvlBins, range=(wvlStart, wvlStop), weights=weights)
+
             else:
                 raise Exception('Something is wrong with getPixelSpectrum...')
 
@@ -786,9 +792,10 @@ class ObsFile:
             if not np.array_equal(self.filterWvlBinEdges, wvlBinEdges):
                 raise ValueError("Synthetic filter wvlBinEdges do not match pixel spectrum wvlBinEdges!")
             spectrum*=self.filterTrans
-
+        print('YOOOOOO')
         #if getEffInt is True:
         return {'spectrum':spectrum, 'wvlBinEdges':wvlBinEdges, 'effIntTime':effIntTime, 'rawCounts':rawCounts}
+        print('again', spectrum)
         #else:
         #    return spectrum,wvlBinEdges
 
