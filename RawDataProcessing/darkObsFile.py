@@ -70,6 +70,8 @@ from interval import interval, inf
 import tables
 from tables.nodes import filenode
 import astropy.constants
+from regions import PixCoord, CirclePixelRegion, RectanglePixelRegion
+import numpy.lib.recfunctions as nlr
 
 from P3Utils import utils
 from P3Utils import MKIDStd
@@ -673,6 +675,80 @@ class ObsFile:
         return{'image':secImg, 'effIntTimes':effIntTimes, 'SkyCountSubtractedPerPixel':skyCountPerPixel,'lightcurve':NumObjPhotons}
         #else:
         #    return secImg
+
+    def getCircularAperturePhotonList(self, centerXCoord, centerYCoord, radius, firstSec=0, integrationTime=-1, wvlRange=None, flagToUse=0):
+        """
+        Retrieves a photon list for the specified circular aperture. 
+        For pixels that partially overlap with the region, all photons
+        are included, and the overlap fraction is multiplied into the 
+        'Noise Weight' column.
+
+        Parameters
+        ----------
+        centerXCoord: float
+            x-coordinate of aperture center (pixel units)
+        centerYCoord: float
+            y-coordinate of aperture center (pixel units)
+        radius: float
+            radius of aperture
+        firstSec: float
+            Photon list start time, in seconds relative to beginning of file
+        integrationTime: float
+            Photon list end time, in seconds relative to firstSec.
+            If -1, goes to end of file
+        wvlRange: (float, float)
+            Desired wavelength range of photon list. Must satisfy wvlRange[0] <= wvlRange[1].
+            If None, includes all wavelengths. 
+        flagToUse: int
+            Specifies (bitwise) pixel flags that are suitable to include in photon list. For
+            flag definitions see 'h5FileFlags' in Headers/pipelineFlags.py
+
+        Returns
+        -------
+        Dictionary with keys:
+            photonList: numpy structured array
+                Time ordered photon list. Adds resID column to keep track 
+                of individual pixels
+            effQE: float
+                Fraction of usable pixel area inside aperture
+            apertureMask: numpy array
+                Image of effective pixel weight inside aperture. "Pixel weight"
+                for now is just the area of overlap w/ aperture, with dead
+                pixels set to 0.
+
+        """
+
+        center = PixCoord(centerXCoord, centerYCoord)
+        apertureRegion = CirclePixelRegion(center, radius)
+        exactApertureMask = apertureRegion.to_mask('exact').data
+        boolApertureMask = exactApertureMask>0
+        apertureMaskCoords = np.transpose(np.array(np.where(boolApertureMask))) #valid coordinates within aperture mask
+        photonListCoords = apertureMaskCoords + np.array([apertureRegion.bounding_box.ixmin, apertureRegion.bounding_box.iymin]) #pixel coordinates in image
+
+        # loop through valid coordinates, grab photon lists and store in photonList
+        photonList = None
+        for i,coords in enumerate(photonListCoords):
+            if coords[0]<0 or coords[0]>=self.nXPix or coords[1]<0 or coords[1]>=self.nYPix:
+                exactApertureMask[apertureMaskCoords[i,0], apertureMaskCoords[i,1]] = 0
+                continue
+            flag = self.beamFlagImage[coords[0], coords[1]]
+            if (flag | flagToUse) != flagToUse:
+                exactApertureMask[apertureMaskCoords[i,0], apertureMaskCoords[i,1]] = 0
+                continue
+            resID = self.beamImage[coords[0], coords[1]]
+            pixPhotonList = self.getPixelPhotonList(coords[0], coords[1], firstSec, integrationTime, wvlRange)
+            pixPhotonList['Noise Weight'] *= exactApertureMask[apertureMaskCoords[i,0], apertureMaskCoords[i,1]]
+            resIDArr = resID*np.ones(len(pixPhotonList))
+            pixPhotonList = nlr.append_fields(pixPhotonList, names='resID', data=resIDArr, usemask=False)
+            if photonList is None:
+                photonList = pixPhotonList
+            else:
+                photonList = np.append(photonList, pixPhotonList)
+
+        photonList = np.sort(photonList, order='Time')
+        return {'photonList':photonList, 'effQE':np.sum(exactApertureMask)/(np.pi*radius**2), 'apertureMask':exactApertureMask}
+        
+
 
     def getSpectralCube(self, firstSec=0, integrationTime=-1, applySpecWeight=False, applyTPFWeight=False, wvlStart=700, wvlStop=1500,
                         wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None, timeSpacingCut=None):
