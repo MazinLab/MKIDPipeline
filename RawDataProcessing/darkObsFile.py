@@ -417,10 +417,10 @@ class ObsFile:
         #             endTime = startTime + 1 #Assume table is empty
         # else:
         #     endTime = startTime + int(integrationTime*self.ticksPerSec)
-
+        
         if wvlRange is None and integrationTime==-1:
             photonList = photonTable.read()
-
+        
         elif wvlRange is None:
             photonList = photonTable.read_where('(Time >= startTime) & (Time < endTime)')
 
@@ -512,8 +512,7 @@ class ObsFile:
             weights *= photonList['Spec Weight']
         if applyTPFWeight:
             weights *= photonList['Noise Weight']
-
-        if applyTimeMask:
+        if applyTimeMask: 
             if self.timeMaskExists:
                 pass
             else:
@@ -611,9 +610,10 @@ class ObsFile:
             for yCoord in range(self.nYPix):
                 pcount = self.getPixelCount(xCoord, yCoord, firstSec, integrationTime,
                                           weighted, fluxWeighted, getRawCount)
+                print(pcount)
                 secImg[xCoord, yCoord] = pcount['counts']
                 effIntTimes[xCoord, yCoord] = pcount['effIntTime']
-                rawCounts[xCoord,yCoord] = pcount['rawCounts']
+                rawCounts[xCoord,yCoord] = pcount['rawCounts']  
         if scaleByEffInt is True:
             if integrationTime == -1:
                 totInt = self.getFromHeader('exptime')
