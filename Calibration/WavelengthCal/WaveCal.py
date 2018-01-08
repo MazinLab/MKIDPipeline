@@ -3,9 +3,9 @@ import ast
 import sys
 import pickle
 import warnings
+import lmfit as lm
 import numpy as np
 import tables as tb
-import scipy.odr as odr
 import scipy.optimize as opt
 from matplotlib import lines
 from datetime import datetime
@@ -171,7 +171,7 @@ class WaveCal:
 
         self.fit_data = fit_data
 
-    def calculateCoefficients(self, pixels=[], use_zero_point=False):
+    def calculateCoefficients(self, pixels=[]):
         '''
         Loop through the results of 'getPhaseHeights()' and fit energy vs phase height
         to a parabola
@@ -215,8 +215,10 @@ class WaveCal:
                     else:
                         raise ValueError("{0} is not a valid fit model name"
                                          .format(self.model_name))
-
-            if count > 0 and (np.diff(phases) < 0.02 * min(phases)).any():
+            phases = np.array(phases)
+            std = np.array(std)
+            errors = np.array(errors)
+            if count > 0 and (np.diff(phases) < 0.0 * min(phases)).any():
                 flag = 7  # data not monotonic enough
                 wavelength_cal[row, column] = (flag, False, False)
 
@@ -224,13 +226,14 @@ class WaveCal:
             elif count > 2:
                 energies = h.to('eV s').value * c.to('nm/s').value / np.array(wavelengths)
 
-                if use_zero_point:
-                    fit_function = self.fitModels('parabola_zero')
-                    guess = [0, phases[0] / energies[0]]  # guess straight line
-                else:
-                    fit_function = self.fitModels('parabola')
-                    guess = [0, phases[0] / energies[0], 0]  # guess straight line
-                popt, pcov = self.fitEnergy(fit_function, phases, energies, guess, errors)
+                guess = [0, phases[0] / energies[0], 0]  # guess straight line
+                phase_list = [np.max(fit_results[ind][3]['centers'])
+                              for ind, _ in enumerate(fit_results)]
+                self.current_threshold = np.max(phase_list)
+                phase_list = [np.min(fit_results[ind][3]['centers'])
+                              for ind, _ in enumerate(fit_results)]
+                self.current_min = np.min(phase_list)
+                popt, pcov = self.fitEnergy('quadratic', phases, energies, guess, errors)
 
                 # refit if vertex is between wavelengths or slope is positive
                 if popt is False:
@@ -245,18 +248,17 @@ class WaveCal:
                     max_slope = 2 * popt[0] * max_phase + popt[1]
                     conditions = vertex < max_phase and vertex > min_phase and \
                         (min_slope > 0 or max_slope > 0)
+                    conditions = False
                 if conditions:
-                    fit_function = self.fitModels('linear')
                     guess = [phases[0] / energies[0], 0]
-                    popt, pcov = self.fitEnergy(fit_function, phases, energies,
-                                                guess, errors)
+                    popt, pcov = self.fitEnergy('linear', phases, energies, guess, errors)
 
                     if popt is False or popt[0] > 0:
                         flag = 8  # linear fit unsuccessful
                         wavelength_cal[row, column] = (flag, False, False)
                     else:
                         flag = 5  # linear fit successful
-                        wavelength_cal[row, column] = (flag, (0, *popt), pcov)
+                        wavelength_cal[row, column] = (flag, popt, pcov)
                 else:
                     flag = 4  # quadratic fit successful
                     wavelength_cal[row, column] = (flag, popt, pcov)
@@ -269,8 +271,7 @@ class WaveCal:
                 self.pbar_iter += 1
                 self.pbar.update(self.pbar_iter)
             if self.logging:
-                self.logger("({0}, {1}): {2}"
-                            .format(row, column, self.flag_dict[flag]))
+                self.logger("({0}, {1}): {2}".format(row, column, self.flag_dict[flag]))
         # close progress bar
         if self.verbose:
             self.pbar.finish()
@@ -356,7 +357,7 @@ class WaveCal:
             res_id = self.obs[0].beamImage[row][column]
             data = file_.create_group(file_.root.debug, 'res' + str(res_id))
             poly_cov = self.wavelength_cal[row][column][2]
-            if poly_cov is False:
+            if poly_cov is False or poly_cov is None:
                 poly_cov = []
             file_.create_array(data, 'poly_cov', obj=poly_cov)
             for index, wavelength in enumerate(self.wavelengths):
@@ -616,19 +617,57 @@ class WaveCal:
 
         return fit_results[index], flags[index]
 
-    def fitEnergy(self, fit_function, phases, energies, guess, errors):
+    def fitEnergy(self, fit_type, phases, energies, guess, errors):
         '''
         Fit the phase histogram to the specified fit fit_function
         '''
+        fit_function = self.fitModels(fit_type)
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             try:
-                model = odr.Model(fit_function)
-                data = odr.RealData(phases, energies, sx=errors)
-                regression = odr.ODR(data, model, beta0=guess)
-                output = regression.run()
-                fit_result = (output.beta, output.cov_beta)
-            except Exception as error:
+                params = lm.Parameters()
+                if fit_type == 'linear':
+                    params.add('b', value=guess[0])
+                    params.add('c', value=guess[1])
+                    output = lm.minimize(self.energyChi2, params, method='leastsq',
+                                         args=(phases, energies, errors, fit_function))
+                elif fit_type == 'quadratic':
+                    # params.add('p', value=guess[0] - guess[1] / 360, min=0)
+                    # params.add('b', value=guess[1], max=0)
+                    # params.add('a', expr='p + b/360')
+                    # params.add('c', value=guess[2], min=-20)
+                    # output = lm.minimize(self.energyChi2, params, method='leastsq',
+                    #                      args=(phases, energies, errors, fit_function))
+                    params.add('vertex', value=-180, max=-180)
+                    params.add('b', value=guess[1])
+                    params.add('c', value=guess[2])
+                    params.add('a', expr='-b/(2*vertex)')
+                    output1 = lm.minimize(self.energyChi2, params, method='leastsq',
+                                          args=(phases, energies, errors, fit_function))
+
+                    params['vertex'].set(max=np.inf)
+                    params['vertex'].set(value=180, min=1e-4)
+                    output2 = lm.minimize(self.energyChi2, params, method='leastsq',
+                                          args=(phases, energies, errors, fit_function))
+                    if output1.success and output1.chisqr < output2.chisqr:
+                        output = output1
+                    else:
+                        output = output2
+                else:
+                    raise ValueError('{0} is not a valid fit type'.format(fit_type))
+                if output.success:
+                    p = output.params.valuesdict()
+                    if fit_type == 'linear':
+                        popt = (0, p['b'], p['c'])
+                    else:
+                        popt = (p['a'], p['b'], p['c'])
+                    fit_result = (popt, output.covar)
+                else:
+                    if self.logging:
+                        self.logger(output.message)
+                        fit_result = (False, False)
+
+            except (Exception, Warning) as error:
                 # shouldn't have any exceptions or warnings
                 if self.logging:
                     self.logger(str(error))
@@ -636,6 +675,17 @@ class WaveCal:
                 raise error
 
         return fit_result
+
+    @staticmethod
+    def energyChi2(params, phases, energies, errors, fit_function):
+        p = params.valuesdict()
+        if 'a' not in p.keys():
+            dfdx = p['b']
+        else:
+            dfdx = 2 * p['a'] * phases + p['b']
+
+        chi2 = ((fit_function(p, phases) - energies) / (dfdx * errors))**2
+        return chi2
 
     def plotFit(self, phase_hist, fit_result, fit_function, flag, row, column):
         '''
@@ -779,7 +829,6 @@ class WaveCal:
         res_id = self.obs[0].beamImage[row][column]
         wave_cal = tb.open_file(file_name, mode='r')
         wavelengths = wave_cal.root.header.wavelengths.read()[0]
-        energies = h.to('eV s').value * c.to('nm/s').value / np.array(wavelengths)
         info = wave_cal.root.header.info.read()
         model_name = info['model_name'][0].decode('utf-8')
 
@@ -863,28 +912,49 @@ class WaveCal:
             flag = calsoln['wave_flag'][index][0]
             centers = []
             errors = []
-            for index, _ in enumerate(wavelengths):
+            energies = []
+            for index, wavelength in enumerate(wavelengths):
                 path = '/debug/res' + str(res_id) + '/wvl' + str(index)
                 hist_fit = wave_cal.get_node(path + '/hist_fit').read()[0]
                 hist_cov = wave_cal.get_node(path + '/hist_cov').read()
-                if model_name == 'gaussian_and_exp':
-                    centers.append(hist_fit[3])
-                    errors.append(np.sqrt(hist_cov[3, 3]))
-                else:
-                    raise ValueError("{0} is not a valid fit model name"
-                                     .format(model_name))
+                hist_flag = wave_cal.get_node(path + '/hist_flag').read()
+                if hist_flag == 0:
+                    if model_name == 'gaussian_and_exp':
+                        energies.append(h.to('eV s').value * c.to('nm/s').value /
+                                        np.array(wavelength))
+
+                        centers.append(hist_fit[3])
+                        errors.append(np.sqrt(hist_cov[3, 3]))
+                    else:
+                        raise ValueError("{0} is not a valid fit model name"
+                                         .format(model_name))
+            energies = np.array(energies)
+            centers = np.array(centers)
+            errors = np.array(errors)
+
             fig, axis = plt.subplots()
             axis.set_xlabel('energy [eV]')
             axis.set_ylabel('phase [deg]')
-            axis.errorbar(energies, centers, errors, linestyle='--', marker='o',
+            axis.errorbar(energies, centers, yerr=errors, linestyle='--', marker='o',
                           markersize=5, markeredgecolor='black', markeredgewidth=0.5,
                           ecolor='black', capsize=3, elinewidth=0.5)
-            axis.set_xlim([0.95 * min(energies), max(energies) * 1.05])
+
+            xlim = [0.95 * min(energies), max(energies) * 1.05]
+            axis.set_xlim(xlim)
+            ylim = [1.05 * min(centers - errors), 0.92 * max(centers + errors)]
+            axis.set_ylim(ylim)
+            # axis.set_xlim([1, 1.7])
+            # axis.set_ylim([-70, -46])
+            # xlim = axis.get_xlim()
+            # ylim = axis.get_ylim()
             if poly[0] != -1:
-                xx = np.arange(1.05 * min(centers), 0.95 * max(centers), 0.1)
+                xx = np.arange(-180, 0, 0.1)
                 axis.plot(np.polyval(poly, xx), xx, color='orange')
-            ylim = axis.get_ylim()
-            xlim = axis.get_xlim()
+                # poly0 = np.polyfit(centers, energies, 2)
+                # axis.plot(np.polyval(poly0, xx), xx, color='green',
+                #           label='not restricted')
+                # plt.legend(loc=3)
+
             xmax = xlim[1]
             ymax = ylim[1]
             dx = xlim[1] - xlim[0]
@@ -922,12 +992,10 @@ class WaveCal:
             fit_function = lambda x, c, d, f: c * np.exp(-1 / 2.0 * ((x - d) / f)**2)
         elif model_name == 'exp':
             fit_function = lambda x, a, b: a * np.exp(b * x)
-        elif model_name == 'parabola':
-            fit_function = lambda A, x: A[0] * x**2 + A[1] * x + A[2]
-        elif model_name == 'parabola_zero':
-            fit_function = lambda A, x: A[0] * x**2 + A[1] * x
+        elif model_name == 'quadratic':
+            fit_function = lambda p, x: p['a'] * x**2 + p['b'] * x + p['c']
         elif model_name == 'linear':
-            fit_function = lambda A, x: A[0] * x + A[1]
+            fit_function = lambda p, x: p['b'] * x + p['c']
 
         return fit_function
 
