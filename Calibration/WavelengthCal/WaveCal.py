@@ -1103,9 +1103,4 @@ if __name__ == '__main__':
     else:
         w = WaveCal(config_file=sys.argv[1])
 
-    # w.makeCalibration()
-
-    directory = '/Users/nicholaszobrist/Documents/Research/' + \
-                'Darkness/WaveCalData/interesting_pixels/'
-    pixels = pickle.load(open(directory + 'interesting_pixels.p', 'rb'))
-    w.makeCalibration(pixels=pixels)
+    w.makeCalibration()
