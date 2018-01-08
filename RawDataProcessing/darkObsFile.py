@@ -1401,10 +1401,10 @@ class ObsFile:
         wavelengths table for each pixel. ObsFile must be loaded in write mode.
         """
         # check file_name and status of obsFile
-        assert os.path.exists(file_name), "{0} does not exist".format(file_name)
-        wave_cal = tables.open_file(file_name, mode='r')
         assert not self.info['isWvlCalibrated'], \
             "the data is already wavelength calibrated"
+        assert os.path.exists(file_name), "{0} does not exist".format(file_name)
+        wave_cal = tables.open_file(file_name, mode='r')
 
         # appy waveCal
         calsoln = wave_cal.root.wavecal.calsoln.read()
