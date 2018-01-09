@@ -371,7 +371,7 @@ class WaveCal:
                 if hist_fit is False:
                     hist_fit = []
                     hist_cov = []
-                if len(phase_centers) == 0:
+                if len(phase_centers) == 0 or len(phase_centers) == 1:
                     bin_width = 0
                 else:
                     bin_width = np.min(np.diff(phase_centers))
