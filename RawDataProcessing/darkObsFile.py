@@ -1502,7 +1502,7 @@ class ObsFile:
         calsoln = wave_cal.root.wavecal.calsoln.read()
         for (row, column), resID in np.ndenumerate(self.beamImage):
             index = np.where(resID == np.array(calsoln['resid']))
-            if len(index) == 1 and (calsoln['wave_flag'][index] == 4 or
+            if len(index[0]) == 1 and (calsoln['wave_flag'][index] == 4 or
                                     calsoln['wave_flag'][index] == 5):
                 poly = calsoln['polyfit'][index]
                 photon_list = self.getPixelPhotonList(row, column)
