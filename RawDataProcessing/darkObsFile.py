@@ -1507,6 +1507,8 @@ class ObsFile:
                 poly = calsoln['polyfit'][index]
                 photon_list = self.getPixelPhotonList(row, column)
                 phases = photon_list['Wavelength']
+                poly=np.array(poly)
+                poly=poly.flatten()
                 energies = np.polyval(poly, phases)
                 wavelengths = self.h * self.c / energies * 1e9  # wavelengths in nm
                 self.updateWavelengths(row, column, wavelengths)
