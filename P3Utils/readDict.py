@@ -41,10 +41,11 @@ class readDict( dict ):
             line = s[0]
             s = line.split('\\')
             if len(s) > 1:
-                old = string.join([old, s[0]])
+                #old = string.join([old, s[0]]) string.join depricated in p3 - replace
+                old.join(s[0])
                 continue
             else:
-                line = string.join([old, s[0]])
+                #line = string.join([old, s[0]])
                 old = ''
             for i in range(len(line)):
                 if line[i]!=' ':
