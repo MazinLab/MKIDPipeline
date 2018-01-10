@@ -679,9 +679,9 @@ class ObsFile:
 
     def getCircularAperturePhotonList(self, centerXCoord, centerYCoord, radius, firstSec=0, integrationTime=-1, wvlRange=None, flagToUse=0):
         """
-        Retrieves a photon list for the specified circular aperture. 
+        Retrieves a photon list for the specified circular aperture.
         For pixels that partially overlap with the region, all photons
-        are included, and the overlap fraction is multiplied into the 
+        are included, and the overlap fraction is multiplied into the
         'Noise Weight' column.
 
         Parameters
@@ -699,7 +699,7 @@ class ObsFile:
             If -1, goes to end of file
         wvlRange: (float, float)
             Desired wavelength range of photon list. Must satisfy wvlRange[0] <= wvlRange[1].
-            If None, includes all wavelengths. 
+            If None, includes all wavelengths.
         flagToUse: int
             Specifies (bitwise) pixel flags that are suitable to include in photon list. For
             flag definitions see 'h5FileFlags' in Headers/pipelineFlags.py
@@ -708,7 +708,7 @@ class ObsFile:
         -------
         Dictionary with keys:
             photonList: numpy structured array
-                Time ordered photon list. Adds resID column to keep track 
+                Time ordered photon list. Adds resID column to keep track
                 of individual pixels
             effQE: float
                 Fraction of usable pixel area inside aperture
@@ -748,7 +748,7 @@ class ObsFile:
 
         photonList = np.sort(photonList, order='Time')
         return {'photonList':photonList, 'effQE':np.sum(exactApertureMask)/(np.pi*radius**2), 'apertureMask':exactApertureMask}
-        
+
 
 
     def getSpectralCube(self, firstSec=0, integrationTime=-1, applySpecWeight=False, applyTPFWeight=False, wvlStart=700, wvlStop=1500,
@@ -1503,7 +1503,7 @@ class ObsFile:
         for (row, column), resID in np.ndenumerate(self.beamImage):
             index = np.where(resID == np.array(calsoln['resid']))
             if len(index[0]) == 1 and (calsoln['wave_flag'][index] == 4 or
-                                    calsoln['wave_flag'][index] == 5):
+                                       calsoln['wave_flag'][index] == 5):
                 poly = calsoln['polyfit'][index]
                 photon_list = self.getPixelPhotonList(row, column)
                 phases = photon_list['Wavelength']
