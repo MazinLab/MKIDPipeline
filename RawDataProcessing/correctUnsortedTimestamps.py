@@ -56,12 +56,11 @@ if __name__=='__main__':
     
     for x in range(imShape[0]):
         for y in range(imShape[1]):
-            print('Correcting pixel', x, y)
-            try:
-                photonList = obsfl.getPixelPhotonList(x, y)
-            except tables.NoSuchNodeError:
+            #print('Correcting pixel', x, y, ', resID =', obsfl.beamImage[x,y])
+            if obsfl.beamImage[x,y] == obsfl.noResIDFlag:
                 print('Table not found for pixel', x, ',', y)
                 continue
+            photonList = obsfl.getPixelPhotonList(x, y)
             timeList = photonList['Time']
             correctedTimeList = correctTimeStamps(timeList)
             obsfl.applyTimestampCorrection(x, y, correctedTimeList)
