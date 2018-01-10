@@ -95,7 +95,7 @@ class WaveCal:
         if self.save_plots:
             self.setupPlots()
         if self.logging:
-            self.logger("fitting phase histograms")
+            self.logger("## fitting phase histograms")
         if self.verbose:
             print('fitting phase histograms')
             N = len(pixels) * len(self.wavelengths)
@@ -131,7 +131,8 @@ class WaveCal:
 
                 # fit the histogram
                 fit_function = self.fitModels(self.model_name)
-                fit_result = self.fitPhaseHistogram(phase_hist, fit_function, setup)
+                fit_result = self.fitPhaseHistogram(phase_hist, fit_function, setup,
+                                                    row, column)
 
                 # evaluate how the fit did and save to fit_data structure
                 flag = self.evaluateFit(phase_hist, fit_result, fit_list,
@@ -140,7 +141,8 @@ class WaveCal:
                 # if the fit didn't converge change the guess and try again
                 if flag != 0:
                     setup = self.fitUpdate(setup, phase_hist, fit_list, wavelength_index)
-                    fit_result2 = self.fitPhaseHistogram(phase_hist, fit_function, setup)
+                    fit_result2 = self.fitPhaseHistogram(phase_hist, fit_function, setup,
+                                                         row, column)
                     flag2 = self.evaluateFit(phase_hist, fit_result2, fit_list,
                                              wavelength_index)
                     fit_results = [fit_result, fit_result2]
@@ -190,7 +192,7 @@ class WaveCal:
                                     maxval=len(pixels)).start()
             self.pbar_iter = 0
         if self.logging:
-            self.logger('calculating phase to energy solution')
+            self.logger('## calculating phase to energy solution')
 
         # initialize wavelength_cal structure
         wavelength_cal = np.empty((self.rows, self.columns), dtype=object)
@@ -233,7 +235,8 @@ class WaveCal:
                 phase_list = [np.min(fit_results[ind][3]['centers'])
                               for ind, _ in enumerate(fit_results)]
                 self.current_min = np.min(phase_list)
-                popt, pcov = self.fitEnergy('quadratic', phases, energies, guess, errors)
+                popt, pcov = self.fitEnergy('quadratic', phases, energies, guess, errors,
+                                            row, column)
 
                 # refit if vertex is between wavelengths or slope is positive
                 if popt is False:
@@ -251,7 +254,8 @@ class WaveCal:
                     conditions = False
                 if conditions:
                     guess = [phases[0] / energies[0], 0]
-                    popt, pcov = self.fitEnergy('linear', phases, energies, guess, errors)
+                    popt, pcov = self.fitEnergy('linear', phases, energies, guess, errors,
+                                                row, column)
 
                     if popt is False or popt[0] > 0:
                         flag = 8  # linear fit unsuccessful
@@ -287,6 +291,13 @@ class WaveCal:
 
         # load wavecal header
         wavecal_description = WaveCalDescription(len(self.wavelengths))
+
+        if self.verbose:
+            print('exporting data')
+            self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (',
+                                             Timer(), ') ', ETA(), ' '],
+                                    maxval=2 * len(pixels)).start()
+            self.pbar_iter = 0
 
         # create output file
         cal_file_name = 'calsol_' + str(round(datetime.utcnow().timestamp())) + '.h5'
@@ -350,6 +361,11 @@ class WaveCal:
                 calsoln.row['soln_range'] = [min(wavelengths), max(wavelengths)]
             calsoln.row['wave_flag'] = self.wavelength_cal[row, column][0]
             calsoln.row.append()
+
+            # update progress bar
+            if self.verbose:
+                self.pbar_iter += 1
+                self.pbar.update(self.pbar_iter)
         calsoln.flush()
 
         # populate debug
@@ -382,7 +398,15 @@ class WaveCal:
                 file_.create_array(folder, 'hist_cov', obj=hist_cov)
                 file_.create_array(folder, 'bin_width', obj=bin_width)
 
+            # update progress bar
+            if self.verbose:
+                self.pbar_iter += 1
+                self.pbar.update(self.pbar_iter)
+
+        # close file and progress bar
         file_.close()
+        if self.verbose:
+            self.pbar.finish()
 
     def loadPhotonData(self, row, column, wavelength_index):
         '''
@@ -502,7 +526,7 @@ class WaveCal:
 
         return setup
 
-    def fitPhaseHistogram(self, phase_hist, fit_function, setup):
+    def fitPhaseHistogram(self, phase_hist, fit_function, setup, row, column):
         '''
         Fit the phase histogram to the specified fit fit_function
         '''
@@ -526,11 +550,11 @@ class WaveCal:
                 # RuntimeWarning catches overflow errors
                 # TypeError catches when no data is passed to curve_fit
                 if self.logging:
-                    self.logger(str(error))
+                    self.logger('({0}, {1}): '.format(row, column) + str(error))
                 fit_result = (False, False)
             except ValueError as error:
                 if self.logging:
-                    self.logger(str(error))
+                    self.logger('({0}, {1}): '.format(row, column) + str(error))
                 fit_result = (False, False)
 
         return fit_result
@@ -617,7 +641,7 @@ class WaveCal:
 
         return fit_results[index], flags[index]
 
-    def fitEnergy(self, fit_type, phases, energies, guess, errors):
+    def fitEnergy(self, fit_type, phases, energies, guess, errors, row, column):
         '''
         Fit the phase histogram to the specified fit fit_function
         '''
@@ -664,13 +688,13 @@ class WaveCal:
                     fit_result = (popt, output.covar)
                 else:
                     if self.logging:
-                        self.logger(output.message)
+                        self.logger('({0}, {1}): '.format(row, column) + output.message)
                         fit_result = (False, False)
 
             except (Exception, Warning) as error:
                 # shouldn't have any exceptions or warnings
                 if self.logging:
-                    self.logger(str(error))
+                    self.logger('({0}, {1}): '.format(row, column) + str(error))
                 fit_result = (False, False)
                 raise error
 
