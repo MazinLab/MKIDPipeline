@@ -42,11 +42,11 @@ Once you have the data, you have two choices:
 
 1.  If the data is taken with a single dither position, you can directly convert to a HDF5 (.h5) file using /RawDataProcessing/Bin2HDF.  Bin2HDF uses a config file that looks like this:
 
-/home/bmazin/HR8799/rawdata/s/s
-1507183126/s/s
-301/s/s
-/home/bmazin/HR8799/h5/finalMap_20170924.txt/s/s
-1/s/s
+*/home/bmazin/HR8799/rawdata
+*1507183126
+*301
+*/home/bmazin/HR8799/h5/finalMap_20170924.txt
+*1
 
 The first line is the path of the .bin files.
 The second line is the start time (and filename) of the data.
