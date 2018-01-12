@@ -417,7 +417,8 @@ class ObsFile:
         #             endTime = startTime + 1 #Assume table is empty
         # else:
         #     endTime = startTime + int(integrationTime*self.ticksPerSec)
-        
+
+        wvlRange = None   ##IL:  Patch because for some reason wvlRange gets set to false after the getSpectralCube step        
         if wvlRange is None and integrationTime==-1:
             photonList = photonTable.read()
         
@@ -513,7 +514,7 @@ class ObsFile:
         if applyTPFWeight:
             weights *= photonList['Noise Weight']
         if applyTimeMask: 
-            if self.timeMaskExists:
+            if self.info['timeMaskExists']:
                 pass
             else:
                 warnings.warn('Time mask does not exist!')
@@ -606,14 +607,13 @@ class ObsFile:
         effIntTimes.fill(np.nan)   #Just in case an element doesn't get filled for some reason.
         rawCounts = np.zeros((self.nXPix, self.nYPix), dtype=np.float64)
         rawCounts.fill(np.nan)   #Just in case an element doesn't get filled for some reason.
-        for xCoord in range(self.nXPix):
-            for yCoord in range(self.nYPix):
+        for xCoord in range(self.nXPix):    
+            for yCoord in range(self.nYPix):   
                 pcount = self.getPixelCount(xCoord, yCoord, firstSec, integrationTime,
                                           weighted, fluxWeighted, getRawCount)
-                print(pcount)
                 secImg[xCoord, yCoord] = pcount['counts']
                 effIntTimes[xCoord, yCoord] = pcount['effIntTime']
-                rawCounts[xCoord,yCoord] = pcount['rawCounts']  
+#                rawCounts[xCoord,yCoord] = pcount['rawCounts']    #IL Patch:  getRawCount is false so there are no rawcounts
         if scaleByEffInt is True:
             if integrationTime == -1:
                 totInt = self.getFromHeader('exptime')
@@ -759,12 +759,13 @@ class ObsFile:
         If weighted is True, flat cal weights are applied.
         If fluxWeighted is True, spectral shape weights are applied.
         """
+
         cube = [[[] for yCoord in range(self.nYPix)] for xCoord in range(self.nXPix)]
         effIntTime = np.zeros((self.nXPix,self.nYPix))
         rawCounts = np.zeros((self.nXPix,self.nYPix))
 
-        for xCoord in range(self.nXPix):
-            for yCoord in range(self.nYPix):
+        for xCoord in range(self.nXPix):  
+            for yCoord in range(self.nYPix):   
                 x = self.getPixelSpectrum(xCoord=xCoord,yCoord=yCoord,
                                   firstSec=firstSec, applySpecWeight=applySpecWeight,
                                   applyTPFWeight=applyTPFWeight, wvlStart=wvlStart, wvlStop=wvlStop,
@@ -836,8 +837,6 @@ class ObsFile:
 
 
         photonList = self.getPixelPhotonList(xCoord, yCoord, firstSec, integrationTime)
-        print(xCoord)
-        print(yCoord)
         wvlList = photonList['Wavelength']
         rawCounts = len(wvlList)
 
@@ -877,7 +876,6 @@ class ObsFile:
             if not np.array_equal(self.filterWvlBinEdges, wvlBinEdges):
                 raise ValueError("Synthetic filter wvlBinEdges do not match pixel spectrum wvlBinEdges!")
             spectrum*=self.filterTrans
-        print('YOOOOOO')
         #if getEffInt is True:
         return {'spectrum':spectrum, 'wvlBinEdges':wvlBinEdges, 'effIntTime':effIntTime, 'rawCounts':rawCounts}
         print('again', spectrum)
