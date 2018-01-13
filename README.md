@@ -23,7 +23,6 @@ Then find the line in your rc file that looks like:
  
 And make sure it is uncommented and set to PyQt4. With Canopy’s default install it will likely be PySide.
 
-
 Pipeline Quick Start Guide
 ==========================
 
@@ -42,11 +41,11 @@ Once you have the data, you have two choices:
 
 1.  If the data is taken with a single dither position, you can directly convert to a HDF5 (.h5) file using /RawDataProcessing/Bin2HDF.  Bin2HDF uses a config file that looks like this:
 
-*/home/bmazin/HR8799/rawdata
-*1507183126
-*301
-*/home/bmazin/HR8799/h5/finalMap_20170924.txt
-*1
+  /home/bmazin/HR8799/rawdata
+  1507183126
+  301
+  /home/bmazin/HR8799/h5/finalMap_20170924.txt
+  1
 
 The first line is the path of the .bin files.
 The second line is the start time (and filename) of the data.
@@ -58,12 +57,14 @@ The fifth line is flag for specifying the data is beam mapped. It should almost 
 
 Dither2HDF creates a seperate .h5 file for each dither position.
 
+Once you have .h5 files, you can look at 1 second raw images in hdfview.
 
-Wavelength Calibrating
+
+Wavelength Calibration
 ----------------------------------------------
 
 
-Flatfielding
+Flat Fielding
 ----------------------------------------------
 
 
@@ -71,6 +72,6 @@ Creating Image Cubes
 ----------------------------------------------
 
 
-
 Making Speckle Statistics Maps
 ----------------------------------------------
+
