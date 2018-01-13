@@ -111,7 +111,7 @@ class FlatCal:
 				cube[np.isnan(cube)]=0 
 
 				#find factors to correct nonlinearity
-				rawFrameDict = obs.getPixelCountImage(firstSec=firstSec,integrationTime=self.intTime,getRawCount=True)  
+				rawFrameDict = obs.getPixelCountImage(firstSec=firstSec,integrationTime=self.intTime,scaleByEffInt=True)  
 				rawFrame = np.array(rawFrameDict['image'],dtype=np.double)
 				rawFrame /= rawFrameDict['effIntTimes']
 				nonlinearFactors = 1. / (1. - rawFrame*self.deadtime)  
