@@ -9,7 +9,6 @@ The factors are written out in an h5 file
 """
 
 import sys,os
-import tables
 import ast
 import numpy as np
 import matplotlib.pyplot as plt
@@ -18,7 +17,7 @@ from functools import partial
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.backends.backend_pdf import PdfPages
 from configparser import ConfigParser
-
+import tables
 from P3Utils.arrayPopup import PopUp,plotArray,pop
 from RawDataProcessing.darkObsFile import ObsFile
 from P3Utils.readDict import readDict
@@ -52,6 +51,7 @@ class FlatCal:
 		self.wvlSunsetDate = ast.literal_eval(self.config['Data']['wvlSunsetDate'])
 		self.intTime = ast.literal_eval(self.config['Data']['intTime'])
 		self.timeSpacingCut = ast.literal_eval(self.config['Data']['timeSpacingCut'])
+		self.deadtime= ast.literal_eval(self.config['Data']['deadtime'])
 
 		# check the parameter formats
 		#self.__configCheck(2)
@@ -81,12 +81,14 @@ class FlatCal:
 
 		#get beammap from first obs
 		self.beamImage = self.obsList[0].beamImage
-		#self.wvlFlags = self.obsList[0].flagTable #Not sure if we have this or need it
+		self.wvlFlags = self.obsList[0].beamFlagImage #Not sure if we have this or need it
+		print(self.wvlFlags)
 		self.nXPix = self.obsList[0].nXPix
 		self.nYPix = self.obsList[0].nYPix
 		self.wvlBinEdges = ObsFile.makeWvlBins(self.energyBinWidth,self.wvlStart,self.wvlStop)
 		#wvlBinEdges includes both lower and upper limits, so number of bins is 1 less than number of edges
 		self.nWvlBins = len(self.wvlBinEdges)-1
+		print(self.nWvlBins)
 		print('files opened')
 
 	def __del__(self):
@@ -98,11 +100,8 @@ class FlatCal:
 		self.frames = []
 
 		for iObs,obs in enumerate(self.obsList):
-			print('obs',iObs)
 			for firstSec in range(0,obs.getFromHeader('expTime'),self.intTime):			
-				print('sec',firstSec)
-				print(self.wvlBinEdges)
-				print(self.energyBinWidth)
+				self.obsList[0].info['isWvlCalibrated']=True
 				cubeDict = obs.getSpectralCube(firstSec=firstSec,integrationTime=self.intTime,applySpecWeight=False, applyTPFWeight=False,wvlBinEdges = self.wvlBinEdges,energyBinWidth=None,timeSpacingCut = self.timeSpacingCut)
 				cube = np.array(cubeDict['cube'],dtype=np.double)
 				effIntTime = cubeDict['effIntTime']
@@ -112,10 +111,10 @@ class FlatCal:
 				cube[np.isnan(cube)]=0 
 
 				#find factors to correct nonlinearity
-				rawFrameDict = obs.getPixelCountImage(firstSec=firstSec,integrationTime=self.intTime,getRawCount=True)
+				rawFrameDict = obs.getPixelCountImage(firstSec=firstSec,integrationTime=self.intTime,scaleByEffInt=True)  
 				rawFrame = np.array(rawFrameDict['image'],dtype=np.double)
 				rawFrame /= rawFrameDict['effIntTimes']
-				nonlinearFactors = 1. / (1. - rawFrame*self.deadtime)
+				nonlinearFactors = 1. / (1. - rawFrame*self.deadtime)  
 				nonlinearFactors[np.isnan(nonlinearFactors)]=0.
 
                 
@@ -130,17 +129,25 @@ class FlatCal:
 				self.spectralCubes.append(cube)
 				self.cubeEffIntTimes.append(effIntTime3d)
 			obs.file.close()
-
+		print('frame',np.shape(self.frames))
+		a = np.ma.sum(self.frames,axis=0)
+		#plotArray(a)
 		self.spectralCubes = np.array(self.spectralCubes)
-		print(self.spectralCubes)
 		self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
 		self.countCubes = self.cubeEffIntTimes * self.spectralCubes
+		a = np.ma.sum(self.countCubes,axis=0)
+		b = np.ma.sum(a,axis=-1)
+		#plotArray(b)
 
 	def checkCountRates(self):
 		medianCountRates = np.array([np.median(frame[frame!=0]) for frame in self.frames])
+		print(np.shape(medianCountRates))
 		boolIncludeFrames = medianCountRates <= self.countRateCutoff
 		#mask out frames, or cubes from integration time chunks with count rates too high
 		self.spectralCubes = np.array([cube for cube,boolIncludeFrame in zip(self.spectralCubes,boolIncludeFrames) if boolIncludeFrame==True])
+		a = np.ma.sum(self.spectralCubes,axis=0)
+		b = np.ma.sum(a,axis=-1)
+		#plotArray(b)
 		self.frames = [frame for frame,boolIncludeFrame in zip(self.frames,boolIncludeFrames) if boolIncludeFrame==True]
 		print('few enough counts in the chunk',zip(medianCountRates,boolIncludeFrames))
 
@@ -152,11 +159,13 @@ class FlatCal:
 		self.averageSpectra = []
 		deltaWeightsList = []
 		for iCube,cube in enumerate(self.spectralCubes):
+			#print('icube', iCube, 'cube', cube)
 			effIntTime = self.cubeEffIntTimes[iCube]
 			#for each time chunk
 			wvlAverages = np.zeros(self.nWvlBins)
+			#print('wvlAverages', wvlAverages)
 			spectra2d = np.reshape(cube,[self.nXPix*self.nYPix,self.nWvlBins ])
-			for iWvl in xrange(self.nWvlBins):
+			for iWvl in range(self.nWvlBins):
 				wvlSlice = spectra2d[:,iWvl]
 				goodPixelWvlSlice = np.array(wvlSlice[wvlSlice != 0])#dead pixels need to be taken out before calculating averages
 				nGoodPixels = len(goodPixelWvlSlice)
@@ -169,17 +178,33 @@ class FlatCal:
 			deltaWeightsList.append(deltaWeights)
 			self.averageSpectra.append(wvlAverages)
 		cubeWeights = np.array(cubeWeightsList)
+
 		deltaCubeWeights = np.array(deltaWeightsList)
 		cubeWeightsMask = np.isnan(cubeWeights)
 		self.maskedCubeWeights = np.ma.array(cubeWeights,mask=cubeWeightsMask,fill_value=1.)
+		print('maskedcubeWeightsshape', np.shape(self.maskedCubeWeights))
+		a = np.ma.sum(self.maskedCubeWeights,axis=0)
+		b = np.ma.sum(a,axis=-1)
+		#plotArray(b)
 		self.maskedCubeDeltaWeights = np.ma.array(deltaCubeWeights,mask=cubeWeightsMask)
-
 		#sort maskedCubeWeights and rearange spectral cubes the same way
 		sortedIndices = np.ma.argsort(self.maskedCubeWeights,axis=0)
+		print('sortedIndicesShape', np.shape(sortedIndices))
+		a = np.ma.sum(sortedIndices,axis=0)
+		print(np.shape(a))
+		b = np.ma.sum(a,axis=-1)
+		print(np.shape(b))
+		#plotArray(b)
 		identityIndices = np.ma.indices(np.shape(self.maskedCubeWeights))
 
 		sortedWeights = self.maskedCubeWeights[sortedIndices,identityIndices[1],identityIndices[2],identityIndices[3]]
+		a = np.ma.sum(sortedWeights,axis=0)
+		b = np.ma.sum(a,axis=-1)
+		plotArray(b)
 		countCubesReordered = self.countCubes[sortedIndices,identityIndices[1],identityIndices[2],identityIndices[3]]
+		a = np.ma.sum(countCubesReordered,axis=0)
+		b = np.ma.sum(a,axis=-1)
+		plotArray(b)
 		cubeDeltaWeightsReordered = self.maskedCubeDeltaWeights[sortedIndices,identityIndices[1],identityIndices[2],identityIndices[3]]
 
 		#trim the beginning and end off the sorted weights for each wvl for each pixel, to exclude extremes from averages
@@ -201,6 +226,8 @@ class FlatCal:
 
 		#normalize weights at each wavelength bin
 		wvlWeightMedians = np.ma.median(np.reshape(self.flatWeights,(-1,self.nWvlBins)),axis=0)
+		b = np.ma.sum(self.flatWeights,axis=0)
+		#plotArray(b)
 		self.flatWeights = np.divide(self.flatWeights,wvlWeightMedians)
             
 	def plotWeightsWvlSlices(self,verbose=True):
@@ -281,7 +308,7 @@ class FlatCal:
 			ax.set_title(r'%.0f $\AA$'%wvl)
 
 			image = self.flatFlags[:,:,iWvl]
-			image += 2*self.wvlFlags
+			#image += 2*self.wvlFlags[:,:]
 			image = 3-image
 
 			cmap = matplotlib.cm.gnuplot2
@@ -311,10 +338,10 @@ class FlatCal:
 		wvls = self.wvlBinEdges[0:-1]
 		nCubes = len(self.maskedCubeWeights)
 
-		for iRow in xrange(self.nXPix):
+		for iRow in range(self.nXPix):
 			if verbose:
 				print('row',iRow)
-			for iCol in xrange(self.nYPix):
+			for iCol in range(self.nYPix):
 				weights = self.flatWeights[iRow,iCol,:]
 				deltaWeights = self.deltaFlatWeights[iRow,iCol,:]
 				if weights.mask.all() == False:
@@ -362,7 +389,71 @@ class FlatCal:
 					iPlot += 1
 		pp.close()
 
+	def writeWeights(self):
+		"""
+		Writes an h5 file to put calculated flat cal factors in
+		"""
+		if os.path.isabs(self.flatCalFileName) == True:
+			fullFlatCalFileName = self.flatCalFileName
+			print(self.flatCalFileName)
+		else:
+			scratchDir = os.getenv('MKID_PROC_PATH')
+			flatDir = os.path.join(scratchDir,'flatCalSolnFiles')
+			fullFlatCalFileName = os.path.join(flatDir,self.flatCalFileName)
 
+		try:
+			flatCalFile = tables.open_file(fullFlatCalFileName,mode='w')
+		except:
+			print('Error: Couldn\'t create flat cal file, ',fullFlatCalFileName)
+			return
+		print('wrote to',self.flatCalFileName)
+
+		calgroup = flatCalFile.create_group(flatCalFile.root,'flatcal','Table of flat calibration weights by pixel and wavelength')
+		calarray = tables.Array(calgroup,'weights',obj=self.flatWeights.data,title='Flat calibration Weights indexed by pixelRow,pixelCol,wavelengthBin')
+		flagtable = tables.Array(calgroup,'flags',obj=self.flatFlags,title='Flat cal flags indexed by pixelRow,pixelCol,wavelengthBin. 0 is Good')
+		bintable = tables.Array(calgroup,'wavelengthBins',obj=self.wvlBinEdges,title='Wavelength bin edges corresponding to third dimension of weights array')
+
+		descriptionDict = FlatCalSoln_Description(self.nWvlBins)
+		caltable = flatCalFile.create_table(calgroup, 'calsoln', descriptionDict,title='Flat Cal Table')
+        
+		for iRow in range(self.nXPix):
+			for iCol in range(self.nYPix):
+				weights = self.flatWeights[iRow,iCol,:]
+				deltaWeights = self.deltaFlatWeights[iRow,iCol,:]
+				flags = self.flatFlags[iRow,iCol,:]
+				flag = np.any(self.flatFlags[iRow,iCol,:])
+				pixelName = self.beamImage[iRow,iCol]
+				pixelName=str(pixelName)
+				#roach = int(pixelName.split('r')[1].split('/')[0])
+				#pixelNum = int(pixelName.split('p')[1].split('/')[0])
+
+				entry = caltable.row
+				#entry['roach'] = roach
+				#entry['pixelnum'] = pixelNum
+				entry['pixelrow'] = iRow
+				entry['pixelcol'] = iCol
+				entry['weights'] = weights
+				entry['weightUncertainties'] = deltaWeights
+				entry['weightFlags'] = flags
+				entry['flag'] = flag
+				entry.append()
+        
+		flatCalFile.flush()
+		flatCalFile.close()
+
+		npzFileName = os.path.splitext(fullFlatCalFileName)[0]+'.npz'
+"""
+		#calculate total spectra and medians for programs that expect old format flat cal
+		spectra = np.array(np.sum(self.spectralCubes,axis=0))
+
+		wvlAverages = np.zeros(self.nWvlBins)
+		spectra2d = np.reshape(spectra,[self.nXPix*self.nYPix,self.nWvlBins ])
+		for iWvl in range(self.nWvlBins):
+			spectrum = spectra2d[:,iWvl]
+			goodSpectrum = spectrum[spectrum != 0]#dead pixels need to be taken out before calculating medians
+			wvlAverages[iWvl] = np.median(goodSpectrum)
+			np.savez(npzFileName,median=wvlAverages,averageSpectra=np.array(self.averageSpectra),binEdges=self.wvlBinEdges,spectra=spectra,weights=np.array(self.flatWeights.data),deltaWeights=np.array(self.deltaFlatWeights.data),mask=self.flatFlags,totalFrame=self.totalFrame,totalCube=self.totalCube,spectralCubes=self.spectralCubes,countCubes=self.countCubes,cubeEffIntTimes=self.cubeEffIntTimes )
+"""
 
 if __name__ == '__main__':
 	paramFile = sys.argv[1]    
@@ -370,6 +461,7 @@ if __name__ == '__main__':
 	flatcal.loadFlatSpectra()
 	flatcal.checkCountRates()
 	flatcal.calculateWeights()
+	flatcal.writeWeights()
 	flatcal.plotWeightsByPixel()
 	flatcal.plotWeightsWvlSlices()
 	flatcal.plotMaskWvlSlices()
