@@ -12,19 +12,42 @@ import os
 import numpy as np
 from tables import *
 
-def WaveCalDescription(n_wavelengths):
+
+def WaveCalDescription(n_wvl):
     wavecal_description = {"pixel_row": UInt16Col(pos=0),  # beam map row
                            "pixel_col": UInt16Col(pos=1),  # beam map column
                            "resid": UInt16Col(pos=2),  # unique resonator id
                            "wave_flag": UInt16Col(pos=3),  # fit flag
                            "soln_range": Float32Col(2, pos=4),  # wavelength range
                            "polyfit": Float64Col(3, pos=5),  # fit polynomial
-                           "sigma": Float64Col(n_wavelengths, pos=6),  # 1 sigma DelE
-                           "R": Float64Col(n_wavelengths, pos=7)}  # E/DelE
+                           "sigma": Float64Col(n_wvl, pos=6),  # 1 sigma DelE
+                           "R": Float64Col(n_wvl, pos=7)}  # E/DelE
     return wavecal_description
+
+
+def WaveCalDebugDescription(n_wvl, n_fit, max_hist):
+    debug_desc = {"pixel_row": UInt16Col(pos=0),  # beam map row
+                  "pixel_col": UInt16Col(pos=1),  # beam map column
+                  "resid": UInt16Col(pos=2),  # unique resonator id
+                  "hist_flag": UInt16Col(n_wvl, pos=3),  # histogram fit flags
+                  "has_data": BoolCol(n_wvl, pos=4),  # bool if there is histogram data
+                  "bin_width": Float64Col(n_wvl, pos=5),  # bin widths for histograms
+                  "poly_cov": Float64Col(9, pos=6)}  # covariance for poly fit
+    for i in range(n_wvl):
+        # histogram fits
+        debug_desc['hist_fit' + str(i)] = Float64Col(n_fit, pos=7 + 4 * i)
+        # histogram covariance
+        debug_desc['hist_cov' + str(i)] = Float64Col(n_fit**2, pos=7 + 4 * i + 1)
+        # histogram bin centers
+        debug_desc['phase_centers' + str(i)] = Float64Col(max_hist, pos=7 + 4 * i + 2)
+        # histogram bin counts
+        debug_desc['phase_counts' + str(i)] = Float64Col(max_hist, pos=7 + 4 * i + 3)
+    return debug_desc
+
 
 class WaveCalHeader(IsDescription):
     model_name = StringCol(80)
+
 
 def FlatCalSoln_Description(nWvlBins=13):
     description = {
