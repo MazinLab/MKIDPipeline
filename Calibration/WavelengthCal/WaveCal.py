@@ -1,11 +1,14 @@
 import os
 import ast
 import sys
+import glob
+import time
 import pickle
 import warnings
 import lmfit as lm
 import numpy as np
 import tables as tb
+import multiprocessing as mp
 import scipy.optimize as opt
 from matplotlib import lines
 from datetime import datetime
@@ -17,17 +20,27 @@ from matplotlib.backends.backend_pdf import PdfPages
 from progressbar import ProgressBar, Bar, ETA, Timer, Percentage
 from Headers import pipelineFlags
 from RawDataProcessing.darkObsFile import ObsFile
-from Headers.CalHeaders import WaveCalDescription, WaveCalHeader
+from Headers.CalHeaders import WaveCalDescription, WaveCalHeader, WaveCalDebugDescription
 
 
 class WaveCal:
     '''
     Class for creating wavelength calibrations for ObsFile formated data.
     '''
-    def __init__(self, config_file='default.cfg'):
+    def __init__(self, config_file='default.cfg', log_file=False, lock=None):
+        # define start time for use in __logger and saving calsol file
+        if log_file is False:
+            self.log_file = str(round(datetime.utcnow().timestamp()))
+        else:
+            self.log_file = log_file
+
+        # set lock for multiprocessing (internal use only)
+        self.lock = lock
+
         # define the configuration file path
+        self.config_file = config_file
         directory = os.path.dirname(__file__)
-        self.config_directory = os.path.join(directory, 'Params', config_file)
+        self.config_directory = os.path.join(directory, 'Params', self.config_file)
 
         # check the configuration file path and read it in
         self.__configCheck(0)
@@ -42,6 +55,7 @@ class WaveCal:
         self.model_name = ast.literal_eval(self.config['Fit']['model_name'])
         self.bin_width = ast.literal_eval(self.config['Fit']['bin_width'])
         self.dt = ast.literal_eval(self.config['Fit']['dt'])
+        self.parallel = ast.literal_eval(self.config['Fit']['parallel'])
         self.out_directory = ast.literal_eval(self.config['Output']['out_directory'])
         self.save_plots = ast.literal_eval(self.config['Output']['save_plots'])
         self.plot_file_name = ast.literal_eval(self.config['Output']['plot_file_name'])
@@ -72,30 +86,109 @@ class WaveCal:
                 os.mkdir(os.path.join(self.out_directory, 'logs'))
             message = "WaveCal object created: UTC " + str(datetime.utcnow()) + \
                 " : Local " + str(datetime.now())
-            self.logger(message, new=True)
+            self.__logger(message)
+            self.__logger("## configuration file used")
+            with open(self.config_directory, "r") as file_:
+                config = file_.read()
+            self.__logger(config)
 
     def makeCalibration(self, pixels=[]):
         '''
         Compute the wavelength calibration for the pixels in 'pixels' and save the data
         in the standard format.
         '''
-        self.getPhaseHeights(pixels=pixels)
-        self.calculateCoefficients(pixels=pixels)
-        self.exportData(pixels=pixels)
+        with warnings.catch_warnings():
+            # ignore unclosed file warnings from PyPDF2
+            warnings.simplefilter("ignore", category=ResourceWarning)
+            try:
+                if self.parallel:
+                    self.__checkParallelOptions()
+                    self.cpu_count = int(np.ceil(mp.cpu_count() / 2))
+                    self.getPhaseHeightsParallel(self.cpu_count, pixels=pixels)
+                    self.__cleanLogs()
+                else:
+                    self.getPhaseHeights(pixels=pixels)
+                self.calculateCoefficients(pixels=pixels)
+                self.exportData(pixels=pixels)
+            except (KeyboardInterrupt, BrokenPipeError):
+                print(os.linesep + "Shutdown requested ... exiting")
+            except UserError as err:
+                print(err)
+
+    def getPhaseHeightsParallel(self, n_processes, pixels=[]):
+        '''
+        Computes the fitted phase height at all of the specified wavelengths for a
+        specified list of pixels. Uses more than one process to speed up the computation.
+        '''
+        # check inputs
+        pixels = self.__checkPixelInputs(pixels)
+
+        # create progress bar
+        progress_queue = mp.Queue()
+        N = len(pixels)
+        progress = ProgressWorker(progress_queue, N)
+
+        # create workers
+        in_queue = mp.Queue()
+        out_queue = mp.Queue()
+        workers = []
+        lock = mp.Lock()
+        for i in range(n_processes):
+            workers.append(Worker(in_queue, out_queue, progress_queue,
+                                  self.config_file, i, lock))
+
+        try:
+            # give workers data ending in n_processes close commands
+            for pixel in pixels:
+                in_queue.put(pixel)
+            for i in range(n_processes):
+                in_queue.put(None)
+
+            # collect all results into a single result_dict
+            result_dict = {}
+            for i in range(len(pixels)):
+                result = out_queue.get()
+                result_dict.update(result)
+
+            # wait for all worker processes to finish
+            progress.join()
+            for w in workers:
+                w.join()
+        except (KeyboardInterrupt, BrokenPipeError):
+            print(os.linesep + "PID {0} ... exiting".format(progress.pid))
+            progress.terminate()
+            progress.join()
+            for w in workers:
+                print("PID {0} ... exiting".format(w.pid))
+                w.terminate()
+                w.join()
+
+            log_file = os.path.join(self.out_directory,
+                                    'logs/worker*.log')
+            for file_ in glob.glob(log_file):
+                os.remove(file_)
+            raise KeyboardInterrupt
+
+        # populate fit_data with results from workers
+        self.fit_data = np.empty((80, 125), dtype=object)
+        for ind, _ in np.ndenumerate(self.fit_data):
+            self.fit_data[ind] = []
+        for (row, column) in result_dict.keys():
+            self.fit_data[row, column] = result_dict[(row, column)]
 
     def getPhaseHeights(self, pixels=[]):
         '''
-        Returns the phase heights at all of the specified wavelengths for a specified
-        list of pixels.
+        Computes the fitted phase height at all of the specified wavelengths for a
+        specified list of pixels.
         '''
         # check inputs
-        pixels = self.checkPixelInputs(pixels)
+        pixels = self.__checkPixelInputs(pixels)
 
         # initialize plotting, logging, and verbose
         if self.save_plots:
-            self.setupPlots()
+            self.__setupPlots()
         if self.logging:
-            self.logger("## fitting phase histograms")
+            self.__logger("## fitting phase histograms")
         if self.verbose:
             print('fitting phase histograms')
             N = len(pixels) * len(self.wavelengths)
@@ -114,45 +207,70 @@ class WaveCal:
             for wavelength_index, _ in enumerate(self.wavelengths):
                 if self.logging:
                     start_time = datetime.now()
-
                 # pull out fits already done for this wavelength
                 fit_list = fit_data[row, column]
 
-                # load data and cut photons too close together in time
+                # load data
                 photon_list = self.loadPhotonData(row, column, wavelength_index)
-                photon_list = self.removeTailRidingPhotons(photon_list, self.dt)
+
+                # if there is no data go to next loop
+                if len(photon_list['Wavelength']) == 0:
+                    fit_data[row, column].append((3, False, False,
+                                                  {'centers': np.array([]),
+                                                   'counts': np.array([])}))
+                    # update progress bar and log
+                    if self.logging:
+                        dt = round((datetime.now() - start_time).total_seconds(), 2)
+                        dt = str(dt) + ' s'
+                        self.__logger("({0}, {1}): {2} : {3}"
+                                      .format(row, column, self.flag_dict[3], dt))
+                    if self.verbose:
+                        self.pbar_iter += 1
+                        self.pbar.update(self.pbar_iter)
+                    continue
+
+                # cut photons too close together in time
+                photon_list = self.__removeTailRidingPhotons(photon_list, self.dt)
 
                 # make the phase histogram
-                phase_hist = self.histogramPhotons(photon_list['Wavelength'],
-                                                   fit_list, wavelength_index)
+                phase_hist = self.__histogramPhotons(photon_list['Wavelength'])
 
-                # set up the fit parameters and update them with information from fit_list
-                setup = self.fitSetup(phase_hist)
+                # get fit model
+                fit_function = fitModels(self.model_name)
 
-                # fit the histogram
-                fit_function = self.fitModels(self.model_name)
-                fit_result = self.fitPhaseHistogram(phase_hist, fit_function, setup,
-                                                    row, column)
+                # determine iteration range based on if there are other wavelength fits
+                _, _, success = self.__findLastGoodFit(fit_list)
+                if success and self.model_name == 'gaussian_and_exp':
+                    fit_numbers = range(6)
+                elif self.model_name == 'gaussian_and_exp':
+                    fit_numbers = range(5)
+                else:
+                    raise ValueError('invalid model_name')
 
-                # evaluate how the fit did and save to fit_data structure
-                flag = self.evaluateFit(phase_hist, fit_result, fit_list,
-                                        wavelength_index)
+                fit_results = []
+                flags = []
+                for fit_number in fit_numbers:
+                    # get guess for fit
+                    setup = self.__fitSetup(phase_hist, fit_list, wavelength_index,
+                                            fit_number)
+                    # fit data
+                    fit_results.append(self.__fitPhaseHistogram(phase_hist,
+                                                                  fit_function,
+                                                                  setup, row, column))
+                    # evaluate how the fit did
+                    flags.append(self.__evaluateFit(phase_hist, fit_results[-1], fit_list,
+                                                    wavelength_index))
+                    if flags[-1] == 0:
+                        break
+                # find best fit
+                fit_result, flag = self.__findBestFit(fit_results, flags, phase_hist)
 
-                # if the fit didn't converge change the guess and try again
-                if flag != 0:
-                    setup = self.fitUpdate(setup, phase_hist, fit_list, wavelength_index)
-                    fit_result2 = self.fitPhaseHistogram(phase_hist, fit_function, setup,
-                                                         row, column)
-                    flag2 = self.evaluateFit(phase_hist, fit_result2, fit_list,
-                                             wavelength_index)
-                    fit_results = [fit_result, fit_result2]
-                    flags = [flag, flag2]
-                    fit_result, flag = self.findBestFit(fit_results, flags, phase_hist)
+                # save data in fit_data object
                 fit_data[row, column].append((flag, fit_result[0], fit_result[1],
                                               phase_hist))
 
                 # plot data (will skip if save_plots is set to be true)
-                self.plotFit(phase_hist, fit_result, fit_function, flag, row, column)
+                self.__plotFit(phase_hist, fit_result, fit_function, flag, row, column)
 
                 # update progress bar and log
                 if self.verbose:
@@ -161,15 +279,15 @@ class WaveCal:
                 if self.logging:
                     dt = round((datetime.now() - start_time).total_seconds(), 2)
                     dt = str(dt) + ' s'
-                    self.logger("({0}, {1}): {2} : {3}"
-                                .format(row, column, self.flag_dict[flag], dt))
+                    self.__logger("({0}, {1}): {2} : {3}"
+                                  .format(row, column, self.flag_dict[flag], dt))
 
         # close progress bar
         if self.verbose:
             self.pbar.finish()
         # close and save last plots
         if self.save_plots:
-            self.closePlots()
+            self.__closePlots()
 
         self.fit_data = fit_data
 
@@ -179,7 +297,7 @@ class WaveCal:
         to a parabola
         '''
         # check inputs
-        pixels = self.checkPixelInputs(pixels)
+        pixels = self.__checkPixelInputs(pixels)
         assert hasattr(self, 'fit_data'), "run getPhaseHeights() first"
         assert np.shape(self.fit_data) == (self.rows, self.columns), \
             "fit_data must be a ({0}, {1}) numpy array".format(self.rows, self.columns)
@@ -192,7 +310,7 @@ class WaveCal:
                                     maxval=len(pixels)).start()
             self.pbar_iter = 0
         if self.logging:
-            self.logger('## calculating phase to energy solution')
+            self.__logger('## calculating phase to energy solution')
 
         # initialize wavelength_cal structure
         wavelength_cal = np.empty((self.rows, self.columns), dtype=object)
@@ -229,14 +347,18 @@ class WaveCal:
                 energies = h.to('eV s').value * c.to('nm/s').value / np.array(wavelengths)
 
                 guess = [0, phases[0] / energies[0], 0]  # guess straight line
-                phase_list = [np.max(fit_results[ind][3]['centers'])
-                              for ind, _ in enumerate(fit_results)]
+                try:
+                    phase_list = [np.max(fit_results[ind][3]['centers'])
+                                  for ind, _ in enumerate(fit_results)]
+                except Exception as error:
+                    print(" (row, column):", row, ",", column)
+                    raise error
                 self.current_threshold = np.max(phase_list)
                 phase_list = [np.min(fit_results[ind][3]['centers'])
                               for ind, _ in enumerate(fit_results)]
                 self.current_min = np.min(phase_list)
-                popt, pcov = self.fitEnergy('quadratic', phases, energies, guess, errors,
-                                            row, column)
+                popt, pcov = self.__fitEnergy('quadratic', phases, energies, guess,
+                                              errors, row, column)
 
                 # refit if vertex is between wavelengths or slope is positive
                 if popt is False:
@@ -254,8 +376,8 @@ class WaveCal:
                     conditions = False
                 if conditions:
                     guess = [phases[0] / energies[0], 0]
-                    popt, pcov = self.fitEnergy('linear', phases, energies, guess, errors,
-                                                row, column)
+                    popt, pcov = self.__fitEnergy('linear', phases, energies, guess,
+                                                  errors, row, column)
 
                     if popt is False or popt[0] > 0:
                         flag = 8  # linear fit unsuccessful
@@ -275,7 +397,7 @@ class WaveCal:
                 self.pbar_iter += 1
                 self.pbar.update(self.pbar_iter)
             if self.logging:
-                self.logger("({0}, {1}): {2}".format(row, column, self.flag_dict[flag]))
+                self.__logger("({0}, {1}): {2}".format(row, column, self.flag_dict[flag]))
         # close progress bar
         if self.verbose:
             self.pbar.finish()
@@ -287,34 +409,38 @@ class WaveCal:
         Saves data in the WaveCal format to the filename
         '''
         # check inputs
-        pixels = self.checkPixelInputs(pixels)
+        pixels = self.__checkPixelInputs(pixels)
 
         # load wavecal header
         wavecal_description = WaveCalDescription(len(self.wavelengths))
 
+        # create output file name
+        cal_file_name = 'calsol_' + self.log_file + '.h5'
+        cal_file = os.path.join(self.out_directory, cal_file_name)
+
+        # initialize verbose and logging
         if self.verbose:
             print('exporting data')
             self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (',
                                              Timer(), ') ', ETA(), ' '],
                                     maxval=2 * len(pixels)).start()
             self.pbar_iter = 0
-
-        # create output file
-        cal_file_name = 'calsol_' + str(round(datetime.utcnow().timestamp())) + '.h5'
-        cal_file = os.path.join(self.out_directory, cal_file_name)
+        if self.logging:
+            self.__logger("## exporting data to {0}".format(cal_file))
 
         # create folders in file
         file_ = tb.open_file(cal_file, mode='w')
         header = file_.create_group(file_.root, 'header', 'Calibration information')
         wavecal = file_.create_group(file_.root, 'wavecal',
                                      'Table of calibration parameters for each pixel')
-        file_.create_group(file_.root, 'debug',
-                           'Detailed fitting information for debugging')
+        debug = file_.create_group(file_.root, 'debug',
+                                   'Detailed fitting information for debugging')
 
         # populate header
         info = file_.create_table(header, 'info', WaveCalHeader)
         file_.create_vlarray(header, 'obsFiles', obj=self.file_names)
         file_.create_vlarray(header, 'wavelengths', obj=self.wavelengths)
+        file_.create_array(header, 'beamMap', obj=self.obs[0].beamImage)
         info.row['model_name'] = self.model_name
         info.row.append()
         info.flush()
@@ -361,47 +487,112 @@ class WaveCal:
                 calsoln.row['soln_range'] = [min(wavelengths), max(wavelengths)]
             calsoln.row['wave_flag'] = self.wavelength_cal[row, column][0]
             calsoln.row.append()
-
             # update progress bar
             if self.verbose:
                 self.pbar_iter += 1
                 self.pbar.update(self.pbar_iter)
         calsoln.flush()
 
-        # populate debug
+        if self.logging:
+            self.__logger("wavecal table saved")
+
+        # find max number of bins in histograms
+        lengths = []
         for row, column in pixels:
-            res_id = self.obs[0].beamImage[row][column]
-            data = file_.create_group(file_.root.debug, 'res' + str(res_id))
-            poly_cov = self.wavelength_cal[row][column][2]
-            if poly_cov is False or poly_cov is None:
-                poly_cov = []
-            file_.create_array(data, 'poly_cov', obj=poly_cov)
             for index, wavelength in enumerate(self.wavelengths):
                 fit_list = self.fit_data[row, column][index]
-                folder = file_.create_group(data, 'wvl' + str(index))
                 phase_centers = fit_list[3]['centers']
-                phase_counts = fit_list[3]['counts']
-                hist_flag = fit_list[0]
+                lengths.append(len(phase_centers))
+        max_l = np.max(lengths)
+
+        # make debug table
+        if self.model_name == 'gaussian_and_exp':
+            n_param = 5
+        else:
+            raise ValueError("{0} is not a valid fit model name"
+                             .format(self.model_name))
+        debug_description = WaveCalDebugDescription(len(self.wavelengths), n_param, max_l)
+        debug_info = file_.create_table(debug, 'debug_info', debug_description,
+                                        title='Debug Table')
+        for row, column in pixels:
+            res_id = self.obs[0].beamImage[row][column]
+            debug_info.row['resid'] = res_id
+            debug_info.row['pixel_row'] = row
+            debug_info.row['pixel_col'] = column
+            hist_flags = []
+            has_data = []
+            bin_widths = []
+            for index, wavelength in enumerate(self.wavelengths):
+                fit_list = self.fit_data[row, column][index]
+                hist_flags.append(fit_list[0])
+                if len(fit_list[3]['counts']) > 0 and np.max(fit_list[3]['counts']) > 0:
+                    has_data.append(True)
+                else:
+                    has_data.append(False)
+                phase_centers = fit_list[3]['centers']
+                if len(phase_centers) == 0 or len(phase_centers) == 1:
+                    bin_widths.append(0)
+                else:
+                    bin_widths.append(np.min(np.diff(phase_centers)))
                 hist_fit = fit_list[1]
                 hist_cov = fit_list[2]
                 if hist_fit is False:
-                    hist_fit = []
-                    hist_cov = []
-                if len(phase_centers) == 0 or len(phase_centers) == 1:
-                    bin_width = 0
-                else:
-                    bin_width = np.min(np.diff(phase_centers))
-                file_.create_vlarray(folder, 'phase_centers', obj=phase_centers)
-                file_.create_vlarray(folder, 'phase_counts', obj=phase_counts)
-                file_.create_array(folder, 'hist_flag', obj=hist_flag)
-                file_.create_vlarray(folder, 'hist_fit', obj=hist_fit)
-                file_.create_array(folder, 'hist_cov', obj=hist_cov)
-                file_.create_array(folder, 'bin_width', obj=bin_width)
-
+                    hist_fit = np.ones(n_param) * -1
+                    hist_cov = np.ones((n_param, n_param)) * -1
+                if self.model_name == 'gaussian_and_exp' and hist_cov.size == 16:
+                    hist_cov = np.insert(np.insert(hist_cov, 1, [0, 0, 0, 0], axis=1),
+                                         1, [0, 0, 0, 0, 0], axis=0)
+                debug_info.row["hist_fit" + str(index)] = hist_fit
+                debug_info.row["hist_cov" + str(index)] = hist_cov.flatten()
+                phase_centers = np.ones(max_l)
+                phase_counts = np.ones(max_l) * -1
+                phase_centers[:len(fit_list[3]['centers'])] = fit_list[3]['centers']
+                phase_counts[:len(fit_list[3]['counts'])] = fit_list[3]['counts']
+                debug_info.row["phase_centers" + str(index)] = phase_centers
+                debug_info.row["phase_counts" + str(index)] = phase_counts
+            debug_info.row['hist_flag'] = hist_flags
+            debug_info.row['has_data'] = has_data
+            debug_info.row['bin_width'] = bin_widths
+            poly_cov = self.wavelength_cal[row][column][2]
+            if poly_cov is False or poly_cov is None:
+                poly_cov = np.ones((3, 3)) * -1
+            debug_info.row['poly_cov'] = poly_cov.flatten()
+            debug_info.row.append()
             # update progress bar
             if self.verbose:
                 self.pbar_iter += 1
                 self.pbar.update(self.pbar_iter)
+        debug_info.flush()
+        # for row, column in pixels:
+        #     res_id = self.obs[0].beamImage[row][column]
+        #     # skip if already done (res_id repeats mean pixel wasn't beam maped)
+        #     if 'res' + str(res_id) in file_.root.debug:
+        #         continue
+        #     data = file_.create_group(file_.root.debug, 'res' + str(res_id))
+        #     poly_cov = self.wavelength_cal[row][column][2]
+        #     if poly_cov is False or poly_cov is None:
+        #         poly_cov = []
+        #     file_.create_array(data, 'poly_cov', obj=poly_cov)
+        #     for index, wavelength in enumerate(self.wavelengths):
+        #         fit_list = self.fit_data[row, column][index]
+        #         folder = file_.create_group(data, 'wvl' + str(index))
+        #         phase_centers = fit_list[3]['centers']
+        #         phase_counts = fit_list[3]['counts']
+        #         hist_fit = fit_list[1]
+        #         hist_cov = fit_list[2]
+        #         if hist_fit is False:
+        #             hist_fit = []
+        #             hist_cov = []
+        #         file_.create_vlarray(folder, 'phase_centers', obj=phase_centers)
+        #         file_.create_vlarray(folder, 'phase_counts', obj=phase_counts)
+        #         file_.create_array(folder, 'hist_cov', obj=hist_cov)
+        #     # update progress bar
+        #     if self.verbose:
+        #         self.pbar_iter += 1
+        #         self.pbar.update(self.pbar_iter)
+
+        if self.logging:
+            self.__logger("debug information saved")
 
         # close file and progress bar
         file_.close()
@@ -412,17 +603,62 @@ class WaveCal:
         '''
         Get a photon list for a single pixel and wavelength.
         '''
-        try:
-            photon_list = self.obs[wavelength_index].getPixelPhotonList(row, column)
-        except:
-            return np.array([], dtype=[('Time', '<u4'), ('Wavelength', '<f4'),
-                                       ('SpecWeight', '<f4'), ('NoiseWeight', '<f4')])
-            # later check for if the pixel exists in the beam map and if not raise error
-            raise ValueError("could not load pixel in ({0}, {1}) for {2} nm wavelength"
-                             .format(row, column, self.wavelengths[wavelength_index]))
-        return photon_list
+        max_tries = 10
+        for i in range(max_tries):
+            try:
+                if self.lock is None:
+                    photon_list = self.obs[wavelength_index].getPixelPhotonList(
+                        row, column)
+                else:
+                    self.lock.acquire()
+                    photon_list = self.obs[wavelength_index].getPixelPhotonList(
+                        row, column)
+                    self.lock.release()
+                return photon_list
+            except KeyboardInterrupt:
+                try:
+                    self.lock.release()
+                except:
+                    pass
+                raise KeyboardInterrupt
+            except Exception as error:
+                try:
+                    self.lock.release()
+                except:
+                    pass
+        return np.array([], dtype=[('Time', '<u4'), ('Wavelength', '<f4'),
+                                    ('SpecWeight', '<f4'), ('NoiseWeight', '<f4')])
 
-    def removeTailRidingPhotons(self, photon_list, dt):
+    def __checkParallelOptions(self):
+        '''
+        Check to make sure options that are incompatible with parallel computing are not
+        enabled
+        '''
+        assert self.save_plots is False, "Cannot save histogram plots while " + \
+            "running in parallel. save_plots must be False in the configuration file"
+
+    def __cleanLogs(self):
+        '''
+        Combine logs when running in parallel after getPhaseHeightsParallel()
+        '''
+        worker_logs = ['worker' + str(num) + '.log' for num in range(self.cpu_count)]
+        self.__logger("## fitting phase histograms")
+        # loop through worker logs
+        for log in worker_logs:
+            with open(os.path.join(self.out_directory, 'logs', log)) as file_:
+                contents = file_.readlines()
+                contents = [line.strip() for line in contents]
+                # log lines in the main log that start with pixel (row, column)
+                for line in contents:
+                    if len(line) != 0 and line[0] == '(':
+                        self.__logger(line)
+
+        # remove all worker logs
+        log_file = os.path.join(self.out_directory, 'logs/worker*.log')
+        for file_ in glob.glob(log_file):
+                os.remove(file_)
+
+    def __removeTailRidingPhotons(self, photon_list, dt):
         '''
         Remove photons that arrive too close together.
         '''
@@ -435,7 +671,7 @@ class WaveCal:
 
         return photon_list
 
-    def histogramPhotons(self, phase_list, fit_list, wavelength_index):
+    def __histogramPhotons(self, phase_list):
         '''
         Create a histogram of the phase data for a specified bin width.
         '''
@@ -446,120 +682,251 @@ class WaveCal:
         min_phase = np.min(phase_list)
         max_phase = np.max(phase_list)
 
-        # if no fits have been done, reload the bin width
-        if not fit_list:
-            self.bin_width = ast.literal_eval(self.config['Fit']['bin_width'])
-        # check for most recent fit to rescale the bin width
-        else:
-            recent_fit, recent_index, success = self.findLastGoodFit(fit_list)
-            # if success:
-            #     # rescale binwidth -> old width * (expected center / old center)
-            #     self.bin_width = (self.bin_width * self.wavelengths[recent_index] /
-            #                       self.wavelengths[wavelength_index])
+        # reload default bin_width
+        self.bin_width = ast.literal_eval(self.config['Fit']['bin_width'])
 
-        # define bin edges being careful to start at the threshold cut
-        bin_edges = np.arange(max_phase, min_phase - self.bin_width,
-                              -self.bin_width)[::-1]
+        # make histogram and try twice to make the bin width larger if needed
+        max_count = 0
+        update = 0
+        while max_count < 400 and update < 2:
+            # update bin_width
+            bin_width = self.bin_width * (2**update)
 
-        counts, x0 = np.histogram(phase_list, bins=bin_edges)
-        centers = (x0[:-1] + x0[1:]) / 2.0
+            # define bin edges being careful to start at the threshold cut
+            bin_edges = np.arange(max_phase, min_phase - bin_width,
+                                  -bin_width)[::-1]
+
+            # make histogram
+            counts, x0 = np.histogram(phase_list, bins=bin_edges)
+            centers = (x0[:-1] + x0[1:]) / 2.0
+
+            # update counters
+            if len(counts) == 0:
+                phase_hist = {'centers': np.array([]), 'counts': np.array([])}
+                return phase_hist
+            max_count = np.max(counts)
+            update += 1
+        # record final bin_width (needed for in situ plotting)
+        self.bin_width = bin_width
 
         phase_hist = {'centers': np.array(centers), 'counts': np.array(counts)}
 
         return phase_hist
 
-    def fitSetup(self, phase_hist):
+    def __fitSetup(self, phase_hist, fit_list, wavelength_index, fit_number):
         '''
         Get a good initial guess (and bounds) for the fitting model.
         '''
         if len(phase_hist['centers']) == 0:
-            return (None, None)
+            return None
+        # check for successful fits for this pixel with a different wavelength
+        recent_fit, recent_index, success = self.__findLastGoodFit(fit_list)
         if self.model_name == 'gaussian_and_exp':
-            threshold = max(phase_hist['centers'])
-            exp_amplitude = (phase_hist['counts'][phase_hist['centers'] == threshold][0] /
-                             np.exp(threshold * 0.2))
+            if fit_number == 0 and not success:
+                # box smoothed guess fit with varying b
+                params = self.__boxGuess(phase_hist)
+            elif fit_number == 1 and not success:
+                # median center guess fit with varying b
+                params = self.__medianGuess(phase_hist)
+            elif fit_number == 2 and not success:
+                # fixed number guess fit with varying b
+                params = self.__numberGuess(phase_hist, 0)
+            elif fit_number == 3 and not success:
+                # fixed number guess fit with varying b
+                params = self.__numberGuess(phase_hist, 1)
+            elif fit_number == 4 and not success:
+                # fixed number guess fit with varying b
+                params = self.__numberGuess(phase_hist, 2)
 
-            box = np.ones(10) / 10.0
-            phase_smoothed = np.convolve(phase_hist['counts'], box, mode='same')
-            gaussian_center = phase_hist['centers'][np.argmax(phase_smoothed)]
-
-            if (gaussian_center > 1.4 * threshold):  # remember both numbers are negative
-                gaussian_center = np.max([1.5 * threshold, np.min(phase_hist['centers'])])
-
-            gaussian_amplitude = 1.1 * np.max(phase_hist['counts']) / 2
-
-            limits = ([0, -1, 0, np.min(phase_hist['centers']), 0.1],
-                      [np.inf, np.inf, 1.1 * np.max(phase_hist['counts']), 0, np.inf])
-            guess = [exp_amplitude, 0.2, gaussian_amplitude, gaussian_center, 10]
-
-            setup = (guess, limits)
+            elif fit_number == 0 and success:
+                # wavelength scaled fit with fixed b
+                params = self.__wavelengthGuess(phase_hist, recent_fit, recent_index,
+                                                wavelength_index, b=recent_fit[1][1])
+            elif fit_number == 1 and success:
+                # box smoothed fit with fixed b
+                params = self.__boxGuess(phase_hist, b=recent_fit[1][1])
+            elif fit_number == 2 and success:
+                # median center guess fit with fixed b
+                params = self.__medianGuess(phase_hist, b=recent_fit[1][1])
+            elif fit_number == 3 and success:
+                # wavelength scaled fit with varying b
+                params = self.__wavelengthGuess(phase_hist, recent_fit, recent_index,
+                                                wavelength_index)
+            elif fit_number == 4 and success:
+                # box smoothed guess fit with varying b
+                params = self.__boxGuess(phase_hist)
+            elif fit_number == 5 and success:
+                # median center guess fit with varying b
+                params = self.__medianGuess(phase_hist)
+            else:
+                raise ValueError('fit_number not valid for this pixel')
+            setup = params
         else:
             raise ValueError("{0} is not a valid fit model name".format(self.model_name))
 
         return setup
 
-    def fitUpdate(self, setup, phase_hist, fit_list, wavelength_index):
+    def __boxGuess(self, phase_hist, b=None):
         '''
-        Update the guess (and bounds) after successfully fitting the shortest wavelength.
+        Returns parameter guess based on a box smoothed histogram
         '''
-        if len(phase_hist['centers']) == 0:
-            return (None, None)
-        if self.model_name == 'gaussian_and_exp':
-            recent_fit, recent_index, success = self.findLastGoodFit(fit_list)
-            # if there was a previous good fit try to use it to guess better parameters
-            if success:
-                # update gaussian center guess
-                setup[0][3] = (recent_fit[1][3] * self.wavelengths[recent_index] /
-                               self.wavelengths[wavelength_index])
-                # update standard deviation guess
-                setup[0][4] = recent_fit[1][4]
-                # update noise guess
-                setup[0][0] = recent_fit[1][0]
-                setup[0][1] = recent_fit[1][1]
-            # otherwise try another guess
-            else:
-                centers = phase_hist['centers']
-                counts = phase_hist['counts']
-                setup[0][3] = (np.min(centers) + np.max(centers)) / 2
-                setup[0][2] = (np.min(counts) + np.max(counts)) / 2
-                setup[0][0] = 0
+        if b is None:
+            vary = True
+            b = 0.2
+        else:
+            vary = False
+        threshold = max(phase_hist['centers'])
+        exp_amplitude = (phase_hist['counts'][phase_hist['centers'] == threshold][0] /
+                         np.exp(threshold * 0.2))
 
-        return setup
+        box = np.ones(10) / 10.0
+        phase_smoothed = np.convolve(phase_hist['counts'], box, mode='same')
+        gaussian_center = phase_hist['centers'][np.argmax(phase_smoothed)]
 
-    def fitPhaseHistogram(self, phase_hist, fit_function, setup, row, column):
+        if (gaussian_center > 1.4 * threshold):  # remember both numbers are negative
+            gaussian_center = np.max([1.5 * threshold, np.min(phase_hist['centers'])])
+
+        gaussian_amplitude = 1.1 * np.max(phase_hist['counts']) / 2
+        standard_deviation = 10
+
+        params = lm.Parameters()
+        params.add('a', value=exp_amplitude, min=0, max=np.inf)
+        params.add('b', value=b, min=-1, max=np.inf, vary=vary)
+        params.add('c', value=gaussian_amplitude, min=0,
+                   max=1.1 * np.max(phase_hist['counts']))
+        params.add('d', value=gaussian_center, min=np.min(phase_hist['centers']), max=0)
+        params.add('f', value=standard_deviation, min=0.1, max=np.inf)
+
+        return params
+
+    def __wavelengthGuess(self, phase_hist, recent_fit, recent_index, wavelength_index,
+                          b=None):
+        '''
+        Returns parameter guess based on previous wavelength solutions
+        '''
+        if b is None:
+            vary = True
+            b = recent_fit[1][1]
+        else:
+            vary = False
+        # values derived from last wavelength
+        exp_amplitude = recent_fit[1][0]
+        gaussian_center = (recent_fit[1][3] * self.wavelengths[recent_index] /
+                           self.wavelengths[wavelength_index])
+        standard_deviation = recent_fit[1][4]
+
+        # values derived from data (same as __boxGuess)
+        gaussian_amplitude = 1.1 * np.max(phase_hist['counts']) / 2
+
+        params = lm.Parameters()
+        params.add('a', value=exp_amplitude, min=0, max=np.inf)
+        params.add('b', value=b, min=-1, max=np.inf, vary=vary)
+        params.add('c', value=gaussian_amplitude, min=0,
+                   max=1.1 * np.max(phase_hist['counts']))
+        params.add('d', value=gaussian_center, min=np.min(phase_hist['centers']), max=0)
+        params.add('f', value=standard_deviation, min=0.1, max=np.inf)
+
+        return params
+
+    def __medianGuess(self, phase_hist, b=None):
+        '''
+        Returns parameter guess based on median histogram center
+        '''
+        if b is None:
+            vary = True
+            b = 0.2
+        else:
+            vary = False
+        # new values
+        centers = phase_hist['centers']
+        counts = phase_hist['counts']
+        gaussian_center = (np.min(centers) + np.max(centers)) / 2
+        gaussian_amplitude = (np.min(counts) + np.max(counts)) / 2
+        exp_amplitude = 0
+
+        # old values (same as __boxGuess)
+        standard_deviation = 10
+
+        params = lm.Parameters()
+        params.add('a', value=exp_amplitude, min=0, max=np.inf)
+        params.add('b', value=b, min=-1, max=np.inf, vary=vary)
+        params.add('c', value=gaussian_amplitude, min=0,
+                   max=1.1 * np.max(phase_hist['counts']))
+        params.add('d', value=gaussian_center, min=np.min(phase_hist['centers']), max=0)
+        params.add('f', value=standard_deviation, min=0.1, max=np.inf)
+
+        return params
+
+    def __numberGuess(self, phase_hist, attempt):
+        '''
+        Hard coded numbers used as guess parameters
+        '''
+        if attempt == 0:
+            a = 0
+            b = 0.2
+            c = min([1000, 1.1 * np.max(phase_hist['counts'])])
+            d = max([-80, np.min(phase_hist['centers'])])
+            f = 6
+        elif attempt == 1:
+            a = 1e7
+            b = 0.2
+            c = min([3e3, 1.1 * np.max(phase_hist['counts'])])
+            d = max([-90, np.min(phase_hist['centers'])])
+            f = 15
+        elif attempt == 2:
+            a = 4e6
+            b = 0.15
+            c = min([1000, 1.1 * np.max(phase_hist['counts'])])
+            d = max([-80, np.min(phase_hist['centers'])])
+            f = 10
+
+        params = lm.Parameters()
+        params.add('a', value=a, min=0, max=np.inf)
+        params.add('b', value=b, min=-1, max=np.inf)
+        params.add('c', value=c, min=0,
+                   max=1.1 * np.max(phase_hist['counts']))
+        params.add('d', value=d, min=np.min(phase_hist['centers']), max=0)
+        params.add('f', value=f, min=0.1, max=np.inf)
+
+        return params
+
+    def __fitPhaseHistogram(self, phase_hist, fit_function, setup, row, column):
         '''
         Fit the phase histogram to the specified fit fit_function
         '''
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             error = np.sqrt(phase_hist['counts'] + 0.25) + 0.5
+            model = lm.Model(fit_function)
             try:
-                if len(setup) == 2:
-                    fit_result = opt.curve_fit(fit_function, phase_hist['centers'],
-                                               phase_hist['counts'], setup[0],
-                                               sigma=np.sqrt(phase_hist['counts']) + 1,
-                                               bounds=setup[1])
-                else:
-                    fit_result = opt.curve_fit(fit_function, phase_hist['centers'],
-                                               phase_hist['counts'], setup,
-                                               sigma=np.sqrt(phase_hist['counts']) + 1)
-            except (RuntimeError, opt.OptimizeWarning,
-                    RuntimeWarning, TypeError) as error:
+                # fit data
+                result = model.fit(phase_hist['counts'], setup, x=phase_hist['centers'],
+                                   weights=np.sqrt(phase_hist['counts']) + 1)
+                # lm fit doesn't error if covariance wasn't calculated so check here
+                # replace with gaussian width if covariance couldn't be calculated
+                if result.covar is None:
+                    if self.model_name == 'gaussian_and_exp':
+                        result.covar = np.ones((5, 5)) * result.best_values['f'] / 2
+                # unpack results
+                fit_result = (list(result.best_values.values()), result.covar)
+
+            except (RuntimeError, RuntimeWarning, ValueError) as error:
                 # RuntimeError catches failed minimization
-                # OptimizeWarning catches if covariance can't be calculated
                 # RuntimeWarning catches overflow errors
-                # TypeError catches when no data is passed to curve_fit
+                # ValueError catches if ydata or xdata contain Nans
                 if self.logging:
-                    self.logger('({0}, {1}): '.format(row, column) + str(error))
+                    self.__logger('({0}, {1}): '.format(row, column) + str(error))
                 fit_result = (False, False)
-            except ValueError as error:
+            except TypeError as error:
+                # TypeError catches when no data is passed to params.add()
                 if self.logging:
-                    self.logger('({0}, {1}): '.format(row, column) + str(error))
+                    self.__logger('({0}, {1}): '.format(row, column) + "No data passed "
+                                  + "to the fit function")
                 fit_result = (False, False)
 
         return fit_result
 
-    def evaluateFit(self, phase_hist, fit_result, fit_list, wavelength_index):
+    def __evaluateFit(self, phase_hist, fit_result, fit_list, wavelength_index):
         '''
         Evaluate the result of the fit and return a flag for different conditions.
         '''
@@ -573,11 +940,11 @@ class WaveCal:
             peak_lower_lim = min_phase
 
             # change peak_upper_lim if good fits exist for higher wavelengths
-            recent_fit, recent_index, success = self.findLastGoodFit(fit_list)
+            recent_fit, recent_index, success = self.__findLastGoodFit(fit_list)
             if success:
                 guess = (recent_fit[1][3] * self.wavelengths[recent_index] /
                          self.wavelengths[wavelength_index])
-                peak_upper_lim = min([0.5 * guess, 1.05 * max_phase])
+                peak_upper_lim = min([0.5 * guess, 1.1 * max_phase])
 
             if fit_result[0] is False:
                 flag = 1  # fit did not converge
@@ -586,8 +953,8 @@ class WaveCal:
                 counts = phase_hist['counts']
                 center = fit_result[0][3]
                 sigma = fit_result[0][4]
-                gauss = lambda x: self.fitModels('gaussian')(x, *fit_result[0][2:])
-                exp = lambda x: self.fitModels('exp')(x, *fit_result[0][:2])
+                gauss = lambda x: fitModels('gaussian')(x, *fit_result[0][2:])
+                exp = lambda x: fitModels('exp')(x, *fit_result[0][:2])
                 c_ind = np.argmin(np.abs(centers - center))
                 c_p_ind = np.argmin(np.abs(centers - (center + sigma)))
                 c_n_ind = np.argmin(np.abs(centers - (center - sigma)))
@@ -623,7 +990,7 @@ class WaveCal:
 
         return flag
 
-    def findBestFit(self, fit_results, flags, phase_hist):
+    def __findBestFit(self, fit_results, flags, phase_hist):
         '''
         Finds the best fit out of a list based on chi squared
         '''
@@ -634,18 +1001,18 @@ class WaveCal:
             if fit_result[0] is False:
                 chi2.append(np.inf)
             else:
-                fit = self.fitModels(self.model_name)(centers, *fit_result[0])
+                fit = fitModels(self.model_name)(centers, *fit_result[0])
                 errors = np.sqrt(counts + 0.25) + 0.5
                 chi2.append(np.sum(((counts - fit) / errors)**2))
         index = np.argmin(chi2)
 
         return fit_results[index], flags[index]
 
-    def fitEnergy(self, fit_type, phases, energies, guess, errors, row, column):
+    def __fitEnergy(self, fit_type, phases, energies, guess, errors, row, column):
         '''
         Fit the phase histogram to the specified fit fit_function
         '''
-        fit_function = self.fitModels(fit_type)
+        fit_function = fitModels(fit_type)
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             try:
@@ -653,25 +1020,25 @@ class WaveCal:
                 if fit_type == 'linear':
                     params.add('b', value=guess[0])
                     params.add('c', value=guess[1])
-                    output = lm.minimize(self.energyChi2, params, method='leastsq',
+                    output = lm.minimize(self.__energyChi2, params, method='leastsq',
                                          args=(phases, energies, errors, fit_function))
                 elif fit_type == 'quadratic':
                     # params.add('p', value=guess[0] - guess[1] / 360, min=0)
                     # params.add('b', value=guess[1], max=0)
                     # params.add('a', expr='p + b/360')
                     # params.add('c', value=guess[2], min=-20)
-                    # output = lm.minimize(self.energyChi2, params, method='leastsq',
+                    # output = lm.minimize(self.__energyChi2, params, method='leastsq',
                     #                      args=(phases, energies, errors, fit_function))
                     params.add('vertex', value=-180, max=-180)
                     params.add('b', value=guess[1])
                     params.add('c', value=guess[2])
                     params.add('a', expr='-b/(2*vertex)')
-                    output1 = lm.minimize(self.energyChi2, params, method='leastsq',
+                    output1 = lm.minimize(self.__energyChi2, params, method='leastsq',
                                           args=(phases, energies, errors, fit_function))
 
                     params['vertex'].set(max=np.inf)
                     params['vertex'].set(value=180, min=1e-4)
-                    output2 = lm.minimize(self.energyChi2, params, method='leastsq',
+                    output2 = lm.minimize(self.__energyChi2, params, method='leastsq',
                                           args=(phases, energies, errors, fit_function))
                     if output1.success and output1.chisqr < output2.chisqr:
                         output = output1
@@ -688,20 +1055,20 @@ class WaveCal:
                     fit_result = (popt, output.covar)
                 else:
                     if self.logging:
-                        self.logger('({0}, {1}): '.format(row, column) + output.message)
+                        self.__logger('({0}, {1}): '.format(row, column) + output.message)
                         fit_result = (False, False)
 
             except (Exception, Warning) as error:
                 # shouldn't have any exceptions or warnings
                 if self.logging:
-                    self.logger('({0}, {1}): '.format(row, column) + str(error))
+                    self.__logger('({0}, {1}): '.format(row, column) + str(error))
                 fit_result = (False, False)
                 raise error
 
         return fit_result
 
     @staticmethod
-    def energyChi2(params, phases, energies, errors, fit_function):
+    def __energyChi2(params, phases, energies, errors, fit_function):
         p = params.valuesdict()
         if 'a' not in p.keys():
             dfdx = p['b']
@@ -711,7 +1078,7 @@ class WaveCal:
         chi2 = ((fit_function(p, phases) - energies) / (dfdx * errors))**2
         return chi2
 
-    def plotFit(self, phase_hist, fit_result, fit_function, flag, row, column):
+    def __plotFit(self, phase_hist, fit_result, fit_function, flag, row, column):
         '''
         Plots the histogram data against the model fit for comparison and saves to pdf
         '''
@@ -753,8 +1120,8 @@ class WaveCal:
                                  align='center', width=self.bin_width)
 
             if fit_result[0] is not False:
-                g_func = self.fitModels('gaussian')
-                e_func = self.fitModels('exp')
+                g_func = fitModels('gaussian')
+                e_func = fitModels('exp')
                 phase = np.arange(np.min(phase_hist['centers']),
                                   np.max(phase_hist['centers']), 0.1)
                 self.axes[index].plot(phase, e_func(phase, *fit_result[0][:2]),
@@ -782,14 +1149,14 @@ class WaveCal:
             pdf = PdfPages(os.path.join(self.out_directory, 'temp.pdf'))
             pdf.savefig(self.fig)
             pdf.close()
-            self.mergePlots()
+            self.__mergePlots()
             self.saved = True
             plt.close('all')
 
         # update plot counter
         self.plot_counter += 1
 
-    def setupPlots(self):
+    def __setupPlots(self):
         '''
         Initialize plotting variables
         '''
@@ -799,25 +1166,27 @@ class WaveCal:
         self.plots_per_page = self.plots_x * self.plots_y
         plot_file = os.path.join(self.out_directory, self.plot_file_name)
         if os.path.isfile(plot_file):
-            answer = self.query("{0} already exists. Overwrite?".format(plot_file),
-                                yes_or_no=True)
+            answer = self.__query("{0} already exists. Overwrite?".format(plot_file),
+                                  yes_or_no=True)
             if answer is False:
-                answer = self.query("Provide a new file name (type exit to quit):")
+                answer = self.__query("Provide a new file name (type exit to quit):")
                 if answer == 'exit':
-                    raise IOError("User doesn't want to overwrite the plot file")
+                    raise UserError("User doesn't want to overwrite the plot file " +
+                                    "... exiting")
                 plot_file = os.path.join(self.out_directory, answer)
                 while os.path.isfile(plot_file):
                     question = "{0} already exists. Choose a new file name " + \
                                "(type exit to quit):"
-                    answer = self.query(question.format(plot_file))
+                    answer = self.__query(question.format(plot_file))
                     if answer == 'exit':
-                        raise IOError("User doesn't want to overwrite the plot file")
+                        raise UserError("User doesn't want to overwrite the plot file " +
+                                        "... exiting")
                     plot_file = os.path.join(self.out_directory, answer)
                 self.plot_file_name = plot_file
             else:
                 os.remove(plot_file)
 
-    def mergePlots(self):
+    def __mergePlots(self):
         '''
         Merge recently created temp.pdf with the main file
         '''
@@ -833,7 +1202,7 @@ class WaveCal:
         else:
             os.rename(temp_file, plot_file)
 
-    def closePlots(self):
+    def __closePlots(self):
         '''
         Safely close plotting variables after plotting since the last page is only saved
         if it is full.
@@ -842,189 +1211,19 @@ class WaveCal:
             pdf = PdfPages(os.path.join(self.out_directory, 'temp.pdf'))
             pdf.savefig(self.fig)
             pdf.close()
-            self.mergePlots()
+            self.__mergePlots()
         plt.close('all')
 
-    def plotWaveCal(self, file_name, row, column, hist=False):
-        '''
-        Plot the waveCal computed with the file 'file_name'. When the hist flag is True,
-        The histogram fits are plotted.
-        '''
-        res_id = self.obs[0].beamImage[row][column]
-        wave_cal = tb.open_file(file_name, mode='r')
-        wavelengths = wave_cal.root.header.wavelengths.read()[0]
-        info = wave_cal.root.header.info.read()
-        model_name = info['model_name'][0].decode('utf-8')
-
-        if hist:
-            fit_function = self.fitModels(model_name)
-            x_num = int(np.ceil(len(wavelengths) / 2))
-            y_num = 3
-
-            fig = plt.figure(figsize=(4 * x_num, 8))
-            fig.text(0.01, 0.5, 'Counts', va='center', rotation='vertical')
-            fig.text(0.5, 0.01, 'Phase [degrees]', ha='center')
-            fig.text(0.9, 0.95, '({0}, {1})'.format(row, column))
-
-            axes = []
-            for x_ind in range(x_num):
-                for y_ind in range(y_num - 1):
-                    axes.append(plt.subplot2grid((y_num, x_num), (y_ind, x_ind)))
-            axes.append(plt.subplot2grid((y_num, x_num), (y_num - 1, 0), colspan=x_num))
-
-            fit_accepted = lines.Line2D([], [], color='green', label='fit accepted')
-            fit_rejected = lines.Line2D([], [], color='red', label='fit rejected')
-            gaussian = lines.Line2D([], [], color='orange',
-                                    linestyle='--', label='gaussian')
-            noise = lines.Line2D([], [], color='purple',
-                                 linestyle='--', label='noise')
-            axes[0].legend(handles=[fit_accepted, fit_rejected, gaussian, noise],
-                           loc=3, bbox_to_anchor=(0, 1.02, 1, .102), ncol=2)
-
-            for index, wavelength in enumerate(wavelengths):
-                path = '/debug/res' + str(res_id) + '/wvl' + str(index)
-                hist_fit = wave_cal.get_node(path + '/hist_fit').read()[0]
-                centers = wave_cal.get_node(path + '/phase_centers').read()[0]
-                counts = wave_cal.get_node(path + '/phase_counts').read()[0]
-                bin_width = wave_cal.get_node(path + '/bin_width').read()
-                flag = wave_cal.get_node(path + '/hist_flag').read()
-                if flag == 0:
-                    color = 'green'
-                else:
-                    color = 'red'
-
-                axes[index].bar(centers, counts, align='center', width=bin_width)
-                if index == 0:
-                    xlim = axes[index].get_xlim()
-                if model_name == 'gaussian_and_exp':
-                    if len(hist_fit) > 0:
-                        g_func = self.fitModels('gaussian')
-                        e_func = self.fitModels('exp')
-                        phase = np.arange(np.min(centers), np.max(centers), 0.1)
-                        axes[index].plot(phase, e_func(phase, *hist_fit[:2]),
-                                         color='purple', linestyle='--')
-                        axes[index].plot(phase, g_func(phase, *hist_fit[2:]),
-                                         color='orange', linestyle='--')
-                        axes[index].plot(phase, fit_function(phase, *hist_fit),
-                                         color=color)
-                        ylim = axes[index].get_ylim()
-                        xmin = xlim[0]
-                        ymax = ylim[1]
-                        axes[index].set_xlim(xlim)
-                    else:
-                        ylim = axes[index].get_ylim()
-                        axes[index].set_xlim(xlim)
-                        xmin = xlim[0]
-                        ymax = ylim[1]
-                        axes[index].text(xmin * 0.98, ymax * 0.5, 'Fit Error',
-                                         color='red')
-                dx = xlim[1] - xlim[0]
-                dy = ylim[1] - ylim[0]
-                axes[index].text(xmin + 0.05 * dx, ymax - 0.05 * dy,
-                                 str(wavelength) + ' nm', va='top', ha='left')
-
-                axes[-1].plot(centers, counts, drawstyle='steps-mid',
-                              label=str(wavelength) + ' nm')
-            axes[-1].set_xlim(xlim)
-            axes[-1].legend()
-            plt.tight_layout(rect=[0.03, 0.03, 1, 0.95])
-            plt.show(block=False)
-        else:
-            calsoln = wave_cal.root.wavecal.calsoln.read()
-            index = np.where(res_id == np.array(calsoln['resid']))
-            poly = calsoln['polyfit'][index][0]
-            flag = calsoln['wave_flag'][index][0]
-            centers = []
-            errors = []
-            energies = []
-            for index, wavelength in enumerate(wavelengths):
-                path = '/debug/res' + str(res_id) + '/wvl' + str(index)
-                hist_fit = wave_cal.get_node(path + '/hist_fit').read()[0]
-                hist_cov = wave_cal.get_node(path + '/hist_cov').read()
-                hist_flag = wave_cal.get_node(path + '/hist_flag').read()
-                if hist_flag == 0:
-                    if model_name == 'gaussian_and_exp':
-                        energies.append(h.to('eV s').value * c.to('nm/s').value /
-                                        np.array(wavelength))
-
-                        centers.append(hist_fit[3])
-                        errors.append(np.sqrt(hist_cov[3, 3]))
-                    else:
-                        raise ValueError("{0} is not a valid fit model name"
-                                         .format(model_name))
-            energies = np.array(energies)
-            centers = np.array(centers)
-            errors = np.array(errors)
-
-            fig, axis = plt.subplots()
-            axis.set_xlabel('energy [eV]')
-            axis.set_ylabel('phase [deg]')
-            axis.errorbar(energies, centers, yerr=errors, linestyle='--', marker='o',
-                          markersize=5, markeredgecolor='black', markeredgewidth=0.5,
-                          ecolor='black', capsize=3, elinewidth=0.5)
-
-            xlim = [0.95 * min(energies), max(energies) * 1.05]
-            axis.set_xlim(xlim)
-            ylim = [1.05 * min(centers - errors), 0.92 * max(centers + errors)]
-            axis.set_ylim(ylim)
-            # axis.set_xlim([1, 1.7])
-            # axis.set_ylim([-70, -46])
-            # xlim = axis.get_xlim()
-            # ylim = axis.get_ylim()
-            if poly[0] != -1:
-                xx = np.arange(-180, 0, 0.1)
-                axis.plot(np.polyval(poly, xx), xx, color='orange')
-                # poly0 = np.polyfit(centers, energies, 2)
-                # axis.plot(np.polyval(poly0, xx), xx, color='green',
-                #           label='not restricted')
-                # plt.legend(loc=3)
-
-            xmax = xlim[1]
-            ymax = ylim[1]
-            dx = xlim[1] - xlim[0]
-            dy = ylim[1] - ylim[0]
-            if poly[0] == -1:
-                axis.text(xmax - 0.05 * dx, ymax - 0.1 * dy, self.flag_dict[flag],
-                          color='red', ha='right', va='top')
-            else:
-                axis.text(xmax - 0.05 * dx, ymax - 0.1 * dy, self.flag_dict[flag],
-                          ha='right', va='top')
-            axis.text(xmax - 0.05 * dx, ymax - 0.05 * dy,
-                      '({0}, {1})'.format(row, column), ha='right', va='top')
-            plt.show(block=False)
-        wave_cal.close()
-
-    def logger(self, message, new=False):
+    def __logger(self, message):
         '''
         Method for writing information to a log file
         '''
-        if new:
-            self.log_time = datetime.now().strftime("%Y%m%d-%H%M%S")
-        file_name = os.path.join(self.out_directory, 'logs', str(self.log_time) + '.log')
+        file_name = os.path.join(self.out_directory, 'logs', self.log_file + '.log')
         with open(file_name, 'a') as log_file:
             log_file.write(message + os.linesep)
 
     @staticmethod
-    def fitModels(model_name):
-        '''
-        Returns the specified fit model from a library of possible functions
-        '''
-        if model_name == 'gaussian_and_exp':
-            fit_function = lambda x, a, b, c, d, f: \
-                a * np.exp(b * x) + c * np.exp(-1 / 2.0 * ((x - d) / f)**2)
-        elif model_name == 'gaussian':
-            fit_function = lambda x, c, d, f: c * np.exp(-1 / 2.0 * ((x - d) / f)**2)
-        elif model_name == 'exp':
-            fit_function = lambda x, a, b: a * np.exp(b * x)
-        elif model_name == 'quadratic':
-            fit_function = lambda p, x: p['a'] * x**2 + p['b'] * x + p['c']
-        elif model_name == 'linear':
-            fit_function = lambda p, x: p['b'] * x + p['c']
-
-        return fit_function
-
-    @staticmethod
-    def findLastGoodFit(fit_list):
+    def __findLastGoodFit(fit_list):
         '''
         Find the most recent fit and index from a list of fits.
         '''
@@ -1038,7 +1237,7 @@ class WaveCal:
         return None, None, False
 
     @staticmethod
-    def query(question, yes_or_no=False, default="no"):
+    def __query(question, yes_or_no=False, default="no"):
         '''Ask a question via raw_input() and return their answer.
 
         "question" is a string that is presented to the user.
@@ -1077,7 +1276,7 @@ class WaveCal:
             else:
                 print("Please respond with 'yes' or 'no' (or 'y' or 'n').")
 
-    def checkPixelInputs(self, pixels):
+    def __checkPixelInputs(self, pixels):
         '''
         Check inputs for getPhaseHeights, calculateCoefficients and exportData
         '''
@@ -1104,10 +1303,12 @@ class WaveCal:
         consistencey. Run in the '__init__()' method.
         '''
         if index == 0:
-            # check for configuration file
+            # check for configuration file, log file, and lock type
             assert os.path.isfile(self.config_directory), \
                 self.config_directory + " is not a valid configuration file"
-
+            assert type(self.log_file) is str, "log_file must be a string"
+            assert self.lock is None or type(self.lock) is mp.synchronize.Lock, \
+                "lock must be a multiprocessing Lock() or None"
         elif index == 1:
             # check if all sections and parameters exist in the configuration file
             section = "{0} must be a configuration section"
@@ -1128,6 +1329,8 @@ class WaveCal:
                 param.format('bin_width', 'Fit')
             assert 'dt' in self.config['Fit'].keys(), \
                 param.format('dt', 'Fit')
+            assert 'parallel' in self.config['Fit'].keys(), \
+                param.format('parallel', 'Fit')
 
             assert 'Output' in self.config.sections(), section.format('Output')
             assert 'out_directory' in self.config['Output'], \
@@ -1150,6 +1353,7 @@ class WaveCal:
             assert type(self.verbose) is bool, "verbose parameter bust be a boolean"
             assert type(self.directory) is str, "directory parameter must be a string"
             assert type(self.logging) is bool, "logging parameter must be a boolean"
+            assert type(self.parallel) is bool, "parallel parameter must be a boolean"
             assert type(self.plot_file_name) is str, \
                 "plot_file_name parameter must be a string"
             assert type(self.out_directory) is str, \
@@ -1187,6 +1391,93 @@ class WaveCal:
                     "All files must have the same beam map shape."
         else:
             raise ValueError("index must be 0, 1, 2 or 3")
+
+
+def fitModels(model_name):
+    '''
+    Returns the specified fit model from a library of possible functions
+    '''
+    if model_name == 'gaussian_and_exp':
+        fit_function = lambda x, a, b, c, d, f: \
+            a * np.exp(b * x) + c * np.exp(-1 / 2.0 * ((x - d) / f)**2)
+    elif model_name == 'gaussian':
+        fit_function = lambda x, c, d, f: c * np.exp(-1 / 2.0 * ((x - d) / f)**2)
+    elif model_name == 'exp':
+        fit_function = lambda x, a, b: a * np.exp(b * x)
+    elif model_name == 'quadratic':
+        fit_function = lambda p, x: p['a'] * x**2 + p['b'] * x + p['c']
+    elif model_name == 'linear':
+        fit_function = lambda p, x: p['b'] * x + p['c']
+
+    return fit_function
+
+
+class UserError(Exception):
+    '''
+    Custom error used to exit the waveCal program without traceback
+    '''
+    pass
+
+
+class Worker(mp.Process):
+    '''
+    Worker class to send pixels to and do the histogram fits. Run by
+    getPhaseHeightsParallel.
+    '''
+    def __init__(self, in_queue, out_queue, progress_queue, config_file, num, lock):
+        super(Worker, self).__init__()
+        self.in_queue = in_queue
+        self.out_queue = out_queue
+        self.progress_queue = progress_queue
+        self.config_file = config_file
+        self.num = num
+        self.lock = lock
+        self.daemon = True
+        self.start()
+
+    def run(self):
+        try:
+            w = WaveCal(config_file=self.config_file, log_file='worker' + str(self.num),
+                        lock=self.lock)
+            w.verbose = False
+            while True:
+                time = round(datetime.utcnow().timestamp())
+                pixel = self.in_queue.get()
+                if pixel is None:
+                    break
+                w.getPhaseHeights(pixels=[pixel])
+                pixel_dict = {pixel: w.fit_data[pixel[0], pixel[1]]}
+                self.progress_queue.put(True)
+
+                self.out_queue.put(pixel_dict)
+        except (KeyboardInterrupt, BrokenPipeError):
+            pass
+
+
+class ProgressWorker(mp.Process):
+    '''
+    Worker class to make progress bar when using multiprocessing. Run by
+    getPhaseHeightsParallel.
+    '''
+    def __init__(self, progress_queue, N):
+        super(ProgressWorker, self).__init__()
+        self.progress_queue = progress_queue
+        self.N = N
+        self.daemon = True
+        self.start()
+
+    def run(self):
+        try:
+            pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (', Timer(), ') ',
+                                        ETA(), ' '], maxval=self.N).start()
+            pbar_iter = 0
+            while pbar_iter < self.N:
+                if self.progress_queue.get():
+                    pbar_iter += 1
+                    pbar.update(pbar_iter)
+            pbar.finish()
+        except (KeyboardInterrupt, BrokenPipeError):
+            pass
 
 
 if __name__ == '__main__':
