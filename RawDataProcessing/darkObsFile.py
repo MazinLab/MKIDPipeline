@@ -97,6 +97,7 @@ class ObsFile:
         self.noResIDFlag = 2**32-1
         self.wvlLowerLimit = None
         self.wvlUpperLimit = None
+        self.timeMaskExists = False
 
     def __del__(self):
         """
@@ -417,7 +418,8 @@ class ObsFile:
         #             endTime = startTime + 1 #Assume table is empty
         # else:
         #     endTime = startTime + int(integrationTime*self.ticksPerSec)
-        
+
+        wvlRange = None   ##IL:  Patch because for some reason wvlRange gets set to false after the getSpectralCube step        
         if wvlRange is None and integrationTime==-1:
             photonList = photonTable.read()
         
@@ -513,7 +515,7 @@ class ObsFile:
         if applyTPFWeight:
             weights *= photonList['Noise Weight']
         if applyTimeMask: 
-            if self.timeMaskExists:
+            if self.info['timeMaskExists']:
                 pass
             else:
                 warnings.warn('Time mask does not exist!')
@@ -579,50 +581,58 @@ class ObsFile:
                               alpha=0.5,color='gray')
 
 
-    def getPixelCountImage(self, firstSec=0, integrationTime= -1, weighted=False,
-                           fluxWeighted=False, getRawCount=False,
-                           scaleByEffInt=False):
+    def getPixelCountImage(self, firstSec=0, integrationTime= -1, wvlRange=None, applyWeight=True, applyTPFWeight=True, applyTimeMask=True, scaleByEffInt=False):
         """
-        Return a time-flattened image of the counts integrated from firstSec to firstSec+integrationTime.
-        - If integration time is -1, all time after firstSec is used.
-        - If weighted is True, flat cal weights are applied. JvE 12/28/12
-        - If fluxWeighted is True, flux cal weights are applied. SM 2/7/13
-        - If getRawCount is True then the raw non-wavelength-calibrated image is
-          returned with no wavelength cutoffs applied (in which case no wavecal
-          file need be loaded). *Note getRawCount overrides weighted and fluxWeighted
-        - If scaleByEffInt is True, any pixels that have 'bad' times masked out
-          will have their counts scaled up to match the equivalent integration
-          time requested.
-        RETURNS:
-            Dictionary with keys:
-                'image' - a 2D array representing the image
-                'effIntTimes' - a 2D array containing effective integration
-                                times for each pixel.
-                'rawCounts' - a 2D array containing the raw number of counts
-                                for each pixel.
+        Returns an image of pixel counts over the entire array between firstSec and firstSec + integrationTime. Can specify calibration weights to apply as 
+        well as wavelength range.
+
+        Parameters
+        ----------
+        firstSec: float
+            Photon list start time, in seconds relative to beginning of file
+        integrationTime: float
+            Photon list end time, in seconds relative to firstSec.
+            If -1, goes to end of file
+        wvlRange: (float, float)
+            Desired wavelength range of photon list. Must satisfy wvlRange[0] < wvlRange[1].
+            If None, includes all wavelengths. If file is not wavelength calibrated, this parameter
+            specifies the range of desired phase heights.
+        applyWeight: bool
+            If True, applies the spectral/flat/linearity weight
+        applyTPFWeight: bool
+            If True, applies the true positive fraction (noise) weight
+        applyTimeMask: bool
+            If True, applies the included time mask (if it exists)
+        scaleByEffInt: bool
+            If True, scales each pixel by (total integration time)/(effective integration time)
+
+        Returns
+        -------
+        Dictionary with keys:
+            'image': 2D numpy array, image of pixel counts
+            'effIntTime':2D numpy array, image effective integration times after time-masking is
+           `          accounted for.
         """
-        secImg = np.zeros((self.nXPix, self.nYPix))
         effIntTimes = np.zeros((self.nXPix, self.nYPix), dtype=np.float64)
         effIntTimes.fill(np.nan)   #Just in case an element doesn't get filled for some reason.
-        rawCounts = np.zeros((self.nXPix, self.nYPix), dtype=np.float64)
-        rawCounts.fill(np.nan)   #Just in case an element doesn't get filled for some reason.
+        countImage = np.zeros((self.nXPix, self.nYPix), dtype=np.float64)
+        #rawCounts.fill(np.nan)   #Just in case an element doesn't get filled for some reason.
         for xCoord in range(self.nXPix):
             for yCoord in range(self.nYPix):
                 pcount = self.getPixelCount(xCoord, yCoord, firstSec, integrationTime,
-                                          weighted, fluxWeighted, getRawCount)
-                print(pcount)
-                secImg[xCoord, yCoord] = pcount['counts']
+                                          wvlRange, applyWeight, applyTPFWeight, applyTimeMask)
+                #print(pcount)
                 effIntTimes[xCoord, yCoord] = pcount['effIntTime']
-                rawCounts[xCoord,yCoord] = pcount['rawCounts']  
+                countImage[xCoord, yCoord] = pcount['counts']  
         if scaleByEffInt is True:
             if integrationTime == -1:
                 totInt = self.getFromHeader('exptime')
             else:
                 totInt = integrationTime
-            secImg *= (totInt / effIntTimes)
+            countImage *= (totInt / effIntTimes)
 
         #if getEffInt is True:
-        return{'image':secImg, 'effIntTimes':effIntTimes, 'rawCounts':rawCounts}
+        return{'image':countImage, 'effIntTimes':effIntTimes}
         #else:
         #    return secImg
 
@@ -759,12 +769,13 @@ class ObsFile:
         If weighted is True, flat cal weights are applied.
         If fluxWeighted is True, spectral shape weights are applied.
         """
+
         cube = [[[] for yCoord in range(self.nYPix)] for xCoord in range(self.nXPix)]
         effIntTime = np.zeros((self.nXPix,self.nYPix))
         rawCounts = np.zeros((self.nXPix,self.nYPix))
 
-        for xCoord in range(self.nXPix):
-            for yCoord in range(self.nYPix):
+        for xCoord in range(self.nXPix):  
+            for yCoord in range(self.nYPix):   
                 x = self.getPixelSpectrum(xCoord=xCoord,yCoord=yCoord,
                                   firstSec=firstSec, applySpecWeight=applySpecWeight,
                                   applyTPFWeight=applyTPFWeight, wvlStart=wvlStart, wvlStop=wvlStop,
@@ -836,8 +847,6 @@ class ObsFile:
 
 
         photonList = self.getPixelPhotonList(xCoord, yCoord, firstSec, integrationTime)
-        print(xCoord)
-        print(yCoord)
         wvlList = photonList['Wavelength']
         rawCounts = len(wvlList)
 
@@ -877,7 +886,6 @@ class ObsFile:
             if not np.array_equal(self.filterWvlBinEdges, wvlBinEdges):
                 raise ValueError("Synthetic filter wvlBinEdges do not match pixel spectrum wvlBinEdges!")
             spectrum*=self.filterTrans
-        print('YOOOOOO')
         #if getEffInt is True:
         return {'spectrum':spectrum, 'wvlBinEdges':wvlBinEdges, 'effIntTime':effIntTime, 'rawCounts':rawCounts}
         print('again', spectrum)
@@ -1507,6 +1515,8 @@ class ObsFile:
                 poly = calsoln['polyfit'][index]
                 photon_list = self.getPixelPhotonList(row, column)
                 phases = photon_list['Wavelength']
+                poly=np.array(poly)
+                poly=poly.flatten()
                 energies = np.polyval(poly, phases)
                 wavelengths = self.h * self.c / energies * 1e9  # wavelengths in nm
                 self.updateWavelengths(row, column, wavelengths)
