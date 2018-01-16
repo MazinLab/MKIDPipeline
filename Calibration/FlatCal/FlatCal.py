@@ -1,6 +1,6 @@
 #!/bin/python
 """
-Author: Taylor Swift        Date:Dec 4, 2017
+Author: Isabel Lipartito        Date:Dec 4, 2017
 Opens a twilight flat h5 and makes the spectrum of each pixel.
 Then takes the median of each energy over all pixels
 A factor is then calculated for each energy in each pixel of its
@@ -27,48 +27,53 @@ from Headers.CalHeaders import FlatCalSoln_Description
 from Headers import pipelineFlags
 
 class FlatCal:
-	def __init__(self,paramFile):
-        #opens flat file,sets wavelength binnning parameters, and calculates flat factors for the file
+	'''
+	Opens flat file using parameters from the param file, sets wavelength binnning parameters, and calculates flat weights for flat file.  Writes these weights to a h5 file and plots weights both by pixel and in wavelength-sliced images.
+	'''
+	def __init__(self,config_file='default.cfg'):
+		''' 
+		Reads in the param file and opens appropriate flat file.  Applies wavelength calibration if it has not already been applied.  Sets wavelength binning parameters.
+		'''
+		# define the configuration file path
+		directory = os.path.dirname(__file__)
+		print('directory', directory)
+		self.config_directory = os.path.join(directory, 'Params', config_file)
+
         	# check the configuration file path and read it in
-		#self.__configCheck(0)
+		self.__configCheck(0)
 		self.config = ConfigParser()
-		self.config.read(paramFile)
+		self.config.read(self.config_directory)
 
 		# check the configuration file format and load the parameters
-		#self.__configCheck(1)
-		self.sunsetDate = ast.literal_eval(self.config['Data']['sunsetDate'])
-		self.flatTstamp = ast.literal_eval(self.config['Data']['flatTstamp'])
-		self.obsFileName = ast.literal_eval(self.config['Data']['ObsFN'])
+		self.__configCheck(1)
 		self.run = ast.literal_eval(self.config['Data']['run'])
-		self.obsTstamp = ast.literal_eval(self.config['Data']['obsTstamp'])
-		self.wvlStart = ast.literal_eval(self.config['Data']['wvlStart'])
-		self.wvlStop = ast.literal_eval(self.config['Data']['wvlStop'])
-		self.energyBinWidth = ast.literal_eval(self.config['Data']['energyBinWidth'])
-		self.countRateCutoff = ast.literal_eval(self.config['Data']['countRateCutoff'])
-		self.fractionOfChunksToTrim = ast.literal_eval(self.config['Data']['fractionOfChunksToTrim'])
-		self.bLoadBeammap = ast.literal_eval(self.config['Data']['bLoadBeammap'])
-		self.timeMaskFileName = ast.literal_eval(self.config['Data']['timeMaskFileName'])
-		self.wvlSunsetDate = ast.literal_eval(self.config['Data']['wvlSunsetDate'])
+		self.date = ast.literal_eval(self.config['Data']['date'])
+		self.flatCalTstamp = ast.literal_eval(self.config['Data']['flatCalTstamp'])
+		self.flatObsTstamps = ast.literal_eval(self.config['Data']['flatObsTstamps'])
+		self.wvlDate = ast.literal_eval(self.config['Data']['wvlDate'])
 		self.intTime = ast.literal_eval(self.config['Data']['intTime'])
-		self.timeSpacingCut = ast.literal_eval(self.config['Data']['timeSpacingCut'])
-		self.deadtime= ast.literal_eval(self.config['Data']['deadtime'])
+		self.deadtime= ast.literal_eval(self.config['Instrument']['deadtime'])
+		self.energyBinWidth = ast.literal_eval(self.config['Instrument']['energyBinWidth'])
+		self.wvlStart = ast.literal_eval(self.config['Instrument']['wvlStart'])
+		self.wvlStop = ast.literal_eval(self.config['Instrument']['wvlStop'])
+		self.countRateCutoff = ast.literal_eval(self.config['Calibration']['countRateCutoff'])
+		self.fractionOfChunksToTrim = ast.literal_eval(self.config['Calibration']['fractionOfChunksToTrim'])
+		self.timeMaskFileName = ast.literal_eval(self.config['Calibration']['timeMaskFileName'])
+		self.timeSpacingCut = ast.literal_eval(self.config['Calibration']['timeSpacingCut'])
 
 		# check the parameter formats
-		#self.__configCheck(2)
+		self.__configCheck(2)
 
-		obsFNs = [FileName(run=self.run,date=self.sunsetDate,tstamp=self.obsTstamp)]
+		obsFNs = [FileName(run=self.run,date=self.date,tstamp=obsTstamp) for obsTstamp in self.flatObsTstamps]
 		self.obsFileNames = [fn.obs() for fn in obsFNs]
 		print(self.obsFileNames)
 		self.obsList = [ObsFile(obsFileName) for obsFileName in self.obsFileNames]
-		self.flatCalFileName = FileName(run=self.run,date=self.sunsetDate,tstamp=self.flatTstamp).flatSoln()
-		if self.wvlSunsetDate != '':
-			wvlCalFileName = FileName(run=run,date=wvlSunsetDate,tstamp=wvlTimestamp).calSoln()
+		self.flatCalFileName = FileName(run=self.run,date=self.date,tstamp=self.flatCalTstamp).flatSoln()
+		if self.wvlDate != '':
+			wvlCalFileName = FileName(run=self.run,date=wvlDate,tstamp=wvlTimestamp).calSoln()
 		for iObs,obs in enumerate(self.obsList):
-			if self.bLoadBeammap == '1':
-				print('loading beammap',os.environ['MKID_BEAMMAP_PATH'])
-				obs.loadBeammapFile(os.environ['MKID_BEAMMAP_PATH'])
-			if self.wvlSunsetDate != '':
-				obs.loadWvlCalFile(wvlCalFileName)
+			#if self.wvlDate != '':
+			#	obs.loadWvlCalFile(wvlCalFileName)
 			#else:
                 		#obs.loadBestWvlCalFile()
 			obs.setWvlCutoffs(3000,13000)
@@ -81,20 +86,22 @@ class FlatCal:
 
 		#get beammap from first obs
 		self.beamImage = self.obsList[0].beamImage
-		self.wvlFlags = self.obsList[0].beamFlagImage #Not sure if we have this or need it
-		print(self.wvlFlags)
+		self.wvlFlags = self.obsList[0].beamFlagImage 
 		self.nXPix = self.obsList[0].nXPix
 		self.nYPix = self.obsList[0].nYPix
 		self.wvlBinEdges = ObsFile.makeWvlBins(self.energyBinWidth,self.wvlStart,self.wvlStop)
+		
 		#wvlBinEdges includes both lower and upper limits, so number of bins is 1 less than number of edges
 		self.nWvlBins = len(self.wvlBinEdges)-1
-		print(self.nWvlBins)
 		print('files opened')
 
 	def __del__(self):
 		pass
 
 	def loadFlatSpectra(self):
+		'''
+		Reads the flat data into a spectral cube whose dimensions are determined by the number of x and y pixels and the number of wavelength bins.
+		'''
 		self.spectralCubes = []#each element will be the spectral cube for a time chunk
 		self.cubeEffIntTimes = []
 		self.frames = []
@@ -128,16 +135,10 @@ class FlatCal:
 				self.frames.append(frame)
 				self.spectralCubes.append(cube)
 				self.cubeEffIntTimes.append(effIntTime3d)
-			obs.file.close()
-		print('frame',np.shape(self.frames))
-		a = np.ma.sum(self.frames,axis=0)
-		#plotArray(a)
+			#obs.file.close()
 		self.spectralCubes = np.array(self.spectralCubes)
 		self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
 		self.countCubes = self.cubeEffIntTimes * self.spectralCubes
-		a = np.ma.sum(self.countCubes,axis=0)
-		b = np.ma.sum(a,axis=-1)
-		#plotArray(b)
 
 	def checkCountRates(self):
 		medianCountRates = np.array([np.median(frame[frame!=0]) for frame in self.frames])
@@ -145,25 +146,20 @@ class FlatCal:
 		boolIncludeFrames = medianCountRates <= self.countRateCutoff
 		#mask out frames, or cubes from integration time chunks with count rates too high
 		self.spectralCubes = np.array([cube for cube,boolIncludeFrame in zip(self.spectralCubes,boolIncludeFrames) if boolIncludeFrame==True])
-		a = np.ma.sum(self.spectralCubes,axis=0)
-		b = np.ma.sum(a,axis=-1)
-		#plotArray(b)
 		self.frames = [frame for frame,boolIncludeFrame in zip(self.frames,boolIncludeFrames) if boolIncludeFrame==True]
 		print('few enough counts in the chunk',zip(medianCountRates,boolIncludeFrames))
 
 	def calculateWeights(self):
 		"""
-		finds flat cal factors as medians/pixelSpectra for each pixel
+		finds flat cal factors as medians/pixelSpectra for each pixel.  Normalizes these weights at each wavelength bin.
 		"""
 		cubeWeightsList = []
 		self.averageSpectra = []
 		deltaWeightsList = []
 		for iCube,cube in enumerate(self.spectralCubes):
-			#print('icube', iCube, 'cube', cube)
 			effIntTime = self.cubeEffIntTimes[iCube]
 			#for each time chunk
 			wvlAverages = np.zeros(self.nWvlBins)
-			#print('wvlAverages', wvlAverages)
 			spectra2d = np.reshape(cube,[self.nXPix*self.nYPix,self.nWvlBins ])
 			for iWvl in range(self.nWvlBins):
 				wvlSlice = spectra2d[:,iWvl]
@@ -183,28 +179,13 @@ class FlatCal:
 		cubeWeightsMask = np.isnan(cubeWeights)
 		self.maskedCubeWeights = np.ma.array(cubeWeights,mask=cubeWeightsMask,fill_value=1.)
 		print('maskedcubeWeightsshape', np.shape(self.maskedCubeWeights))
-		a = np.ma.sum(self.maskedCubeWeights,axis=0)
-		b = np.ma.sum(a,axis=-1)
-		#plotArray(b)
 		self.maskedCubeDeltaWeights = np.ma.array(deltaCubeWeights,mask=cubeWeightsMask)
 		#sort maskedCubeWeights and rearange spectral cubes the same way
 		sortedIndices = np.ma.argsort(self.maskedCubeWeights,axis=0)
-		print('sortedIndicesShape', np.shape(sortedIndices))
-		a = np.ma.sum(sortedIndices,axis=0)
-		print(np.shape(a))
-		b = np.ma.sum(a,axis=-1)
-		print(np.shape(b))
-		#plotArray(b)
 		identityIndices = np.ma.indices(np.shape(self.maskedCubeWeights))
 
 		sortedWeights = self.maskedCubeWeights[sortedIndices,identityIndices[1],identityIndices[2],identityIndices[3]]
-		a = np.ma.sum(sortedWeights,axis=0)
-		b = np.ma.sum(a,axis=-1)
-		plotArray(b)
 		countCubesReordered = self.countCubes[sortedIndices,identityIndices[1],identityIndices[2],identityIndices[3]]
-		a = np.ma.sum(countCubesReordered,axis=0)
-		b = np.ma.sum(a,axis=-1)
-		plotArray(b)
 		cubeDeltaWeightsReordered = self.maskedCubeDeltaWeights[sortedIndices,identityIndices[1],identityIndices[2],identityIndices[3]]
 
 		#trim the beginning and end off the sorted weights for each wvl for each pixel, to exclude extremes from averages
@@ -226,11 +207,12 @@ class FlatCal:
 
 		#normalize weights at each wavelength bin
 		wvlWeightMedians = np.ma.median(np.reshape(self.flatWeights,(-1,self.nWvlBins)),axis=0)
-		b = np.ma.sum(self.flatWeights,axis=0)
-		#plotArray(b)
 		self.flatWeights = np.divide(self.flatWeights,wvlWeightMedians)
             
 	def plotWeightsWvlSlices(self,verbose=True):
+		'''
+		Plot weights in images of a single wavelength bin (wavelength-sliced images)
+		'''
 		flatCalPath,flatCalBasename = os.path.split(self.flatCalFileName)
 		pdfBasename = os.path.splitext(flatCalBasename)[0]+'_wvlSlices.pdf'
 		pdfFullPath = os.path.join(flatCalPath,pdfBasename)
@@ -284,6 +266,9 @@ class FlatCal:
 		pp.close()
 
 	def plotMaskWvlSlices(self,verbose=True):
+		'''
+		Plot mask in images of a single wavelength bin (wavelength-sliced images)
+		'''
 		flatCalPath,flatCalBasename = os.path.split(self.flatCalFileName)
 		pdfBasename = os.path.splitext(flatCalBasename)[0]+'_mask.pdf'
 		pdfFullPath = os.path.join(flatCalPath,pdfBasename)
@@ -308,7 +293,9 @@ class FlatCal:
 			ax.set_title(r'%.0f $\AA$'%wvl)
 
 			image = self.flatFlags[:,:,iWvl]
-			#image += 2*self.wvlFlags[:,:]
+			image=image*1
+			self.wvlFlags=np.array(self.wvlFlags)
+			image += 2*self.wvlFlags  
 			image = 3-image
 
 			cmap = matplotlib.cm.gnuplot2
@@ -318,11 +305,13 @@ class FlatCal:
 			if iPlot%nPlotsPerPage == nPlotsPerPage-1:
 				pp.savefig(fig)
 			iPlot += 1
-
 		pp.savefig(fig)
 		pp.close()
 
 	def plotWeightsByPixel(self,verbose=True):
+		'''
+		Plot weights of each wavelength bin for every single pixel
+		'''
 		flatCalPath,flatCalBasename = os.path.split(self.flatCalFileName)
 		pdfBasename = os.path.splitext(flatCalBasename)[0]+'.pdf'
 		pdfFullPath = os.path.join(flatCalPath,pdfBasename)
@@ -423,13 +412,9 @@ class FlatCal:
 				flags = self.flatFlags[iRow,iCol,:]
 				flag = np.any(self.flatFlags[iRow,iCol,:])
 				pixelName = self.beamImage[iRow,iCol]
-				pixelName=str(pixelName)
-				#roach = int(pixelName.split('r')[1].split('/')[0])
-				#pixelNum = int(pixelName.split('p')[1].split('/')[0])
 
 				entry = caltable.row
-				#entry['roach'] = roach
-				#entry['pixelnum'] = pixelNum
+				entry['resid'] = pixelName
 				entry['pixelrow'] = iRow
 				entry['pixelcol'] = iCol
 				entry['weights'] = weights
@@ -442,22 +427,96 @@ class FlatCal:
 		flatCalFile.close()
 
 		npzFileName = os.path.splitext(fullFlatCalFileName)[0]+'.npz'
-"""
-		#calculate total spectra and medians for programs that expect old format flat cal
-		spectra = np.array(np.sum(self.spectralCubes,axis=0))
 
-		wvlAverages = np.zeros(self.nWvlBins)
-		spectra2d = np.reshape(spectra,[self.nXPix*self.nYPix,self.nWvlBins ])
-		for iWvl in range(self.nWvlBins):
-			spectrum = spectra2d[:,iWvl]
-			goodSpectrum = spectrum[spectrum != 0]#dead pixels need to be taken out before calculating medians
-			wvlAverages[iWvl] = np.median(goodSpectrum)
-			np.savez(npzFileName,median=wvlAverages,averageSpectra=np.array(self.averageSpectra),binEdges=self.wvlBinEdges,spectra=spectra,weights=np.array(self.flatWeights.data),deltaWeights=np.array(self.deltaFlatWeights.data),mask=self.flatFlags,totalFrame=self.totalFrame,totalCube=self.totalCube,spectralCubes=self.spectralCubes,countCubes=self.countCubes,cubeEffIntTimes=self.cubeEffIntTimes )
-"""
+	def __configCheck(self, index):
+		'''
+		Checks the variables loaded in from the configuration file for type and
+		consistencey. Run in the '__init__()' method.
+		'''
+		if index == 0:
+			# check for configuration file
+			assert os.path.isfile(self.config_directory), \
+				self.config_directory + " is not a valid configuration file"
+		elif index == 1:
+			# check if all sections and parameters exist in the configuration file
+			section = "{0} must be a configuration section"
+			param = "{0} must be a parameter in the configuration file '{1}' section"
+
+			assert 'Data' in self.config.sections(), section.format('Data')
+			assert 'run' in self.config['Data'].keys(), \
+				param.format('run', 'Data')
+			assert 'date' in self.config['Data'].keys(), \
+				param.format('date', 'Data')
+			assert 'flatCalTstamp' in self.config['Data'].keys(), \
+				param.format('flatCalTstamp', 'Data')
+			assert 'flatObsTstamps' in self.config['Data'].keys(), \
+				param.format('flatObsTstamps', 'Data')
+			assert 'wvlDate' in self.config['Data'].keys(), \
+				param.format('wvlDate', 'Data')
+			assert 'intTime' in self.config['Data'].keys(), \
+				param.format('intTime', 'Data')
+
+			assert 'Instrument' in self.config.sections(), section.format('Instrument')
+			assert 'deadtime' in self.config['Instrument'].keys(), \
+				param.format('deadtime', 'Instrument')
+			assert 'energyBinWidth' in self.config['Instrument'].keys(), \
+				param.format('energyBinWidth', 'Instrument')
+			assert 'wvlStart' in self.config['Instrument'].keys(), \
+				param.format('wvlStart', 'Instrument')
+			assert 'wvlStop' in self.config['Instrument'].keys(), \
+				param.format('wvlStop', 'Instrument')
+
+			assert 'Calibration' in self.config.sections(), section.format('Calibration')
+			assert 'countRateCutoff' in self.config['Calibration'], \
+				param.format('countRateCutoff', 'Calibration')
+			assert 'fractionOfChunksToTrim' in self.config['Calibration'], \
+				param.format('fractionOfChunksToTrim', 'Calibration')
+			assert 'timeMaskFileName' in self.config['Calibration'], \
+				param.format('timeMaskFileName', 'Calibration')
+			assert 'timeSpacingCut' in self.config['Calibration'], \
+				param.format('timeSpacingCut', 'Calibration')
+		elif index == 2:
+			# type check parameters
+			assert type(self.run) is str, "Run parameter must be a string."
+			assert type(self.date) is str, "Date parameter must be a string."
+			assert type(self.flatCalTstamp) is str, "Flat Calibration Timestamp parameter must be a string."
+			assert type(self.flatObsTstamps) is list, "Flat Observation Timestamps parameter must be a list"
+			assert type(self.wvlDate) is str, "Wavelength Sunset Date parameter must be a string."
+
+			assert type(self.intTime) is int, "integration time parameter must be an integer"
+			
+			if type(self.deadtime) is int:
+				self.deadtime = float(self.deadtime)
+			assert type(self.deadtime) is float, "Dead time parameter must be an integer or float"
+			
+			if type(self.energyBinWidth) is int:
+				self.energyBinWidth = float(self.energyBinWidth)
+			assert type(self.energyBinWidth) is float, "Energy Bin Width parameter must be an integer or float"
+
+			if type(self.wvlStart) is int:
+				self.wvlStart = float(self.wvlStart)
+			assert type(self.wvlStart) is float, "Starting Wavelength must be an integer or float"
+
+			if type(self.wvlStop) is int:
+				self.wvlStop = float(self.wvlStop)
+			assert type(self.wvlStop) is float, "Stopping Wavelength must be an integer or float"
+
+			if type(self.countRateCutoff) is int:
+				self.countRateCutoff = float(self.countRateCutoff)
+			assert type(self.countRateCutoff) is float, "Count Rate Cutoff must be an integer or float"
+
+			assert type(self.fractionOfChunksToTrim) is int, "Fraction of Chunks to Trim must be an integer"
+
+			for index, flatobsfile in enumerate(self.flatObsTstamps):
+				assert type(self.flatObsTstamps[index]) is str, "elements in Flat Observation Timestamps list must be strings"
+		else:
+			raise ValueError("index must be 0, 1, or 2")
 
 if __name__ == '__main__':
-	paramFile = sys.argv[1]    
-	flatcal = FlatCal(paramFile)
+	if len(sys.argv) == 1:
+		flatcal = FlatCal()
+	else:
+		flatcal = FlatCal(config_file=sys.argv[1])
 	flatcal.loadFlatSpectra()
 	flatcal.checkCountRates()
 	flatcal.calculateWeights()
