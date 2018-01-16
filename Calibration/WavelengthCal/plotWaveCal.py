@@ -268,15 +268,63 @@ def plotRHistogram(file_name, mask=None, axis=None):
         max_counts.append(np.max(counts))
     axis.set_ylim([0, 1.2 * np.max(max_counts)])
     plt.tight_layout()
-    axis.legend(fontsize=7)
+    axis.legend(fontsize=6)
     if show:
         plt.show(block=False)
     else:
         return axis
 
 
-def plotRvsF(file_name, row, column):
-    raise NotImplementedError
+def plotRvsF(file_name, config_name, axis=None):
+    '''
+    Plot the energy resolution averaged over all wavelengths against the resonance
+    frequency.
+    '''
+    freqs = loadFrequencyFile(config_name)
+    wave_cal = tb.open_file(file_name, mode='r')
+    wavelengths = wave_cal.root.header.wavelengths.read()[0]
+    calsoln = wave_cal.root.wavecal.calsoln.read()
+    R = np.mean(calsoln['R'], axis=1)
+    res_id = calsoln['resid']
+    f = []
+    r0 = []
+    for id_ in res_id:
+        index = np.where(id_ == freqs[:, 0])
+        if len(index[0]) == 1 and R[index] > -1:
+            f.append(freqs[index, 1])
+            r0.append(R[index])
+    f = np.ndarray.flatten(np.array(f))
+    r0 = np.ndarray.flatten(np.array(r0))
+    args = np.argsort(f)
+    f = f[args]
+    r0 = r0[args]
+    window = 0.3e9  # 200 MHz
+    r = np.zeros(r0.shape)
+    for index, _ in enumerate(r0):
+        points = np.where(np.logical_and(f > f[index] - window / 2,
+                          f < f[index] + window / 2))
+        if len(points[0]) > 0:
+            r[index] = np.median(r0[points])
+        else:
+            r[index] = 0
+    # index = np.where(R < -2)
+    # beamImage = wave_cal.root.header.beamMap.read()
+    # print(np.where(beamImage == res_id[index]))
+    show = False
+    if axis is None:
+        fig, axis = plt.subplots()
+        show = True
+    axis.plot(f / 1e9, r, color='k', label='median')
+    axis.scatter(f / 1e9, r0, s=3)
+    axis.set_xlabel('resonance frequency [GHz]')
+    axis.set_ylabel(r'R [E/$\Delta$E]')
+    axis.legend(fontsize=6)
+    wave_cal.close()
+    plt.tight_layout()
+    if show:
+        plt.show(block=False)
+    else:
+        return axis
 
 
 def plotCenterHist(file_name, mask=None, axis=None):
@@ -329,14 +377,14 @@ def plotCenterHist(file_name, mask=None, axis=None):
 
     wave_cal.close()
     plt.tight_layout()
-    axis.legend(fontsize=7)
+    axis.legend(fontsize=6)
     if show:
         plt.show(block=False)
     else:
         return axis
 
 
-def plotSummary(file_name):
+def plotSummary(file_name, config_name):
     '''
     Plot one page summary pdf of the wavelength calibration solution file 'file_name'.
     '''
@@ -367,7 +415,7 @@ def plotSummary(file_name):
     text[1, 1] = round(text[1, 0] / beamImage.size * 100, 2)
     text[1, 2] = round(text[1, 0] / np.sum(res_id != 0) * 100, 2)  # fix this
     text[1, 3] = round(text[1, 0] * len(wavelengths) /
-                       np.sum(np.array(flags) == 0) * 100, 2)
+                       np.sum(np.array(has_data) == 0) * 100, 2)
 
     fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(6.95, 9))
     row_labels = ['histogram fit', 'energy solution']
@@ -385,7 +433,7 @@ def plotSummary(file_name):
     ylim = axes[0, 0].get_ylim()
     xlim = axes[0, 0].get_xlim()
     axes[0, 0].text(xlim[0] - np.mean(xlim) / 5, ylim[1] * 1.4,
-                    "Wavelength Calibration Solution Summary ({0}):", fontsize=15)
+                    "Wavelength Calibration Solution Summary:", fontsize=15)
     switch = False
     if not mpl.rcParams['text.usetex']:
         mpl.rc('text', usetex=True)
@@ -407,6 +455,7 @@ def plotSummary(file_name):
         mpl.rc('text', usetex=True)
 
     axes[1, 0] = plotCenterHist(file_name, axis=axes[1, 0])
+    axes[0, 1] = plotRvsF(file_name, config_name, axis=axes[0, 1])
 
     plt.tight_layout(rect=[0.03, 0.03, 1, 0.85])
     plt.show(block=False)
@@ -420,3 +469,13 @@ def loadFrequencyFile(config_file):
     '''
     config = ConfigParser()
     config.read(config_file)
+    freqs = []
+    for roach in config.keys():
+        if roach[0] == 'R':
+            try:
+                freq = np.loadtxt(config[roach]['freqfile'])
+                freqs.append(freq)
+            except:
+                pass
+    freqs = np.vstack(freqs)
+    return freqs
