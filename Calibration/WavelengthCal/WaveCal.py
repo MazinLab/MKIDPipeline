@@ -113,21 +113,40 @@ class WaveCal:
                     self.getPhaseHeights(pixels=pixels)
                 self.calculateCoefficients(pixels=pixels)
                 self.exportData(pixels=pixels)
-                if self.summary:
-                    try:
-                        save_name = "summary_" + self.log_file + '.pdf'
-                        plotWaveCal.plotSummary(self.cal_file, self.templar_config,
-                                                save_plots=True, save_name=save_name)
-                    except KeyboardInterrupt:
-                        print(os.linesep + "Shutdown requested ... exiting")
-                    except Exception as error:
-                        print('Summary plot generation failed. It can be remade by ' +
-                              'using plotSummary() in plotWaveCal.py')
-                        print(error)
+                self.dataSummary()
             except (KeyboardInterrupt, BrokenPipeError):
                 print(os.linesep + "Shutdown requested ... exiting")
             except UserError as err:
                 print(err)
+
+    def dataSummary(self):
+        '''
+        If the config file specifies 'summary_plot = True', the function will save a
+        summary plot of the data to the output directory.
+        '''
+        if self.summary:
+            if self.logging:
+                self.__logger("## saving summary plot")
+            if self.verbose:
+                print('saving summary plot')
+            try:
+                save_name = "summary_" + self.log_file + '.pdf'
+                plotWaveCal.plotSummary(self.cal_file, self.templar_config,
+                                        save_plots=True, save_name=save_name,
+                                        verbose=self.verbose)
+                if self.logging:
+                    self.__logger("summary plot saved as {0}".format(save_name))
+            except KeyboardInterrupt:
+                print(os.linesep + "Shutdown requested ... exiting")
+            except Exception as error:
+                if self.verbose:
+                    print('Summary plot generation failed. It can be remade by ' +
+                          'using plotSummary() in plotWaveCal.py')
+                if self.logging:
+                    self.__logger("summary plot failed")
+                if self.verbose:
+                    print("summary plot failed")
+                    print(error)
 
     def getPhaseHeightsParallel(self, n_processes, pixels=[]):
         '''
@@ -481,9 +500,8 @@ class WaveCal:
             sigma = []
             R = []
             for index, wavelength in enumerate(self.wavelengths):
-                if ((self.wavelength_cal[row, column][0] == 4 or
-                     self.wavelength_cal[row, column][0] == 5) and
-                     self.fit_data[row, column][index][0] == 0):
+                if self.wavelength_cal[row, column][0] == 4 or \
+                   self.wavelength_cal[row, column][0] == 5:
                     if self.model_name == 'gaussian_and_exp':
                         mu = self.fit_data[row, column][index][1][3]
                         std = self.fit_data[row, column][index][1][4]

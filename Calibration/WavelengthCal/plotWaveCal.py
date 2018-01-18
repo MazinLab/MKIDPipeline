@@ -275,12 +275,12 @@ def plotRHistogram(file_name, mask=None, axis=None):
         return axis
 
 
-def plotRvsF(file_name, config_name, axis=None):
+def plotRvsF(file_name, config_name, axis=None, verbose=True):
     '''
     Plot the energy resolution averaged over all wavelengths against the resonance
     frequency.
     '''
-    freqs = loadFrequencyFile(config_name)
+    freqs = loadFrequencyFile(config_name, verbose=verbose)
     wave_cal = tb.open_file(file_name, mode='r')
     wavelengths = wave_cal.root.header.wavelengths.read()[0]
     calsoln = wave_cal.root.wavecal.calsoln.read()
@@ -384,7 +384,7 @@ def plotCenterHist(file_name, mask=None, axis=None):
         return axis
 
 
-def plotSummary(file_name, config_name, save_pdf=False, save_name=None):
+def plotSummary(file_name, config_name, save_pdf=False, save_name=None, verbose=True):
     '''
     Plot one page summary pdf of the wavelength calibration solution file 'file_name'.
     '''
@@ -405,7 +405,7 @@ def plotSummary(file_name, config_name, save_pdf=False, save_name=None):
     has_data = debug['has_data']
     fit_flags = calsoln['wave_flag']
 
-    text = np.zeros((2, 4))
+    text = np.zeros((3, 4))
     text[0, 0] = round(np.sum(flags == 0) / len(wavelengths), 2)
     text[0, 1] = round(text[0, 0] / beamImage.size * 100, 2)
     text[0, 2] = round(text[0, 0] / np.sum(res_id != 2**23 - 1) * 100, 2)
@@ -462,10 +462,10 @@ def plotSummary(file_name, config_name, save_pdf=False, save_name=None):
         mpl.rc('text', usetex=True)
 
     axes[1, 0] = plotCenterHist(file_name, axis=axes[1, 0])
-    axes[0, 1] = plotRvsF(file_name, config_name, axis=axes[0, 1])
+    axes[0, 1] = plotRvsF(file_name, config_name, axis=axes[0, 1], verbose=verbose)
 
     plt.tight_layout(rect=[0.03, 0.03, 1, 0.85])
-    if save_plots:
+    if save_pdf:
         if save_name is None:
             raise ValueError('define key-value pair save_name to be a string')
         out_directory = os.path.dirname(file_name)
@@ -476,7 +476,7 @@ def plotSummary(file_name, config_name, save_pdf=False, save_name=None):
         plt.show(block=False)
 
 
-def loadFrequencyFile(config_file):
+def loadFrequencyFile(config_file, verbose=True):
     '''
     config_file is the full path to the templar configuration file.
     Returns a dictionary mapping res_id to resonance frequency.
@@ -487,9 +487,13 @@ def loadFrequencyFile(config_file):
     for roach in config.keys():
         if roach[0] == 'R':
             try:
-                freq = np.loadtxt(config[roach]['freqfile'])
+                freq_file = config[roach]['freqfile']
+                if verbose:
+                    print('loading frequency file: {0}'.format(freq_file))
+                freq = np.loadtxt(freq_file)
                 freqs.append(freq)
-            except:
-                pass
+            except Exception as error:
+                if verbose:
+                    print(error)
     freqs = np.vstack(freqs)
     return freqs
