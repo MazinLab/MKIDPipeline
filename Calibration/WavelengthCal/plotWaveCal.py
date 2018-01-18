@@ -170,7 +170,7 @@ def plotHistogramFits(file_name, res_id=None, pixel=[]):
         counts = debug['phase_counts' + str(ind)][index][0]
         counts = counts[counts >= 0]
         # counts = wave_cal.get_node(path + '/phase_counts').read()[0]
-        bin_width = debug['bin_width'][index, ind][0]
+        bin_width = debug['bin_width'][index, ind][0][0]
         flag = debug['hist_flag'][index, ind][0]
         if flag == 0:
             color = 'green'
@@ -290,7 +290,7 @@ def plotRvsF(file_name, config_name, axis=None):
     r0 = []
     for id_ in res_id:
         index = np.where(id_ == freqs[:, 0])
-        if len(index[0]) == 1 and R[index] > -1:
+        if len(index[0]) == 1 and R[index] != -1:
             f.append(freqs[index, 1])
             r0.append(R[index])
     f = np.ndarray.flatten(np.array(f))
@@ -384,7 +384,7 @@ def plotCenterHist(file_name, mask=None, axis=None):
         return axis
 
 
-def plotSummary(file_name, config_name):
+def plotSummary(file_name, config_name, save_pdf=False, save_name=None):
     '''
     Plot one page summary pdf of the wavelength calibration solution file 'file_name'.
     '''
@@ -403,31 +403,38 @@ def plotSummary(file_name, config_name):
     data = []
     flags = debug['hist_flag']
     has_data = debug['has_data']
+    fit_flags = calsoln['wave_flag']
 
     text = np.zeros((2, 4))
     text[0, 0] = round(np.sum(flags == 0) / len(wavelengths), 2)
     text[0, 1] = round(text[0, 0] / beamImage.size * 100, 2)
-    text[0, 2] = round(text[0, 0] / np.sum(res_id != 0) * 100, 2)  # fix this
+    text[0, 2] = round(text[0, 0] / np.sum(res_id != 2**23 - 1) * 100, 2)
     text[0, 3] = round(text[0, 0] * len(wavelengths) /
                        np.sum(has_data) * 100, 2)
 
     text[1, 0] = np.sum(R[:, 0] != -1)
     text[1, 1] = round(text[1, 0] / beamImage.size * 100, 2)
-    text[1, 2] = round(text[1, 0] / np.sum(res_id != 0) * 100, 2)  # fix this
+    text[1, 2] = round(text[1, 0] / np.sum(res_id != 2**23 - 1) * 100, 2)
     text[1, 3] = round(text[1, 0] * len(wavelengths) /
                        np.sum(np.array(has_data) == 0) * 100, 2)
 
+    text[2, 0] = np.sum(fit_flags == 5)
+    text[2, 1] = np.sum(fit_flags == 4)
+    wave_cal.close()
+
     fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(6.95, 9))
-    row_labels = ['histogram fit', 'energy solution']
+    row_labels = ['histogram fit', 'energy solution', '(linear, quadratic)']
     col_labels = ["total \# sucessful", "total \% sucessful", "total \% with resonances",
                   "total \% with data"]
 
     table = r'''\begin{{tabular}}{{ c | c | c | c | c}} & {0} & {1} & {2} & {3} \\''' + \
             r'''\hline {4} & {5} & {6} & {7} & {8} \\''' + \
-            r'''{9} & {10} & {11} & {12} & {13} \end{{tabular}}'''
+            r'''{9} & {10} & {11} & {12} & {13} \\''' + \
+            r'''{14} & ({15}, {16}) & - & - & - \end{{tabular}}'''
     table = table.format(col_labels[0], col_labels[1], col_labels[2], col_labels[3],
                          row_labels[0], text[0, 0], text[0, 1], text[0, 2], text[0, 3],
-                         row_labels[1], text[1, 0], text[1, 1], text[1, 2], text[1, 3])
+                         row_labels[1], text[1, 0], text[1, 1], text[1, 2], text[1, 3],
+                         row_labels[2], text[2, 0], text[2, 1])
 
     axes[0, 0] = plotRHistogram(file_name, axis=axes[0, 0])
     ylim = axes[0, 0].get_ylim()
@@ -458,8 +465,15 @@ def plotSummary(file_name, config_name):
     axes[0, 1] = plotRvsF(file_name, config_name, axis=axes[0, 1])
 
     plt.tight_layout(rect=[0.03, 0.03, 1, 0.85])
-    plt.show(block=False)
-    wave_cal.close()
+    if save_plots:
+        if save_name is None:
+            raise ValueError('define key-value pair save_name to be a string')
+        out_directory = os.path.dirname(file_name)
+        pdf = PdfPages(os.path.join(out_directory, save_name))
+        pdf.savefig(fig)
+        pdf.close()
+    else:
+        plt.show(block=False)
 
 
 def loadFrequencyFile(config_file):

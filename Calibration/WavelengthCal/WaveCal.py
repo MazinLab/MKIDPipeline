@@ -19,6 +19,7 @@ from PyPDF2 import PdfFileMerger, PdfFileReader
 from matplotlib.backends.backend_pdf import PdfPages
 from progressbar import ProgressBar, Bar, ETA, Timer, Percentage
 from Headers import pipelineFlags
+from Calibration.WavelengthCal import plotWaveCal
 from RawDataProcessing.darkObsFile import ObsFile
 from Headers.CalHeaders import WaveCalDescription, WaveCalHeader, WaveCalDebugDescription
 
@@ -61,6 +62,8 @@ class WaveCal:
         self.plot_file_name = ast.literal_eval(self.config['Output']['plot_file_name'])
         self.verbose = ast.literal_eval(self.config['Output']['verbose'])
         self.logging = ast.literal_eval(self.config['Output']['logging'])
+        self.summary = ast.literal_eval(self.config['Output']['summary_plot'])
+        self.templar_config = ast.literal_eval(self.config['Output']['templar_config'])
 
         # check the parameter formats
         self.__configCheck(2)
@@ -110,6 +113,17 @@ class WaveCal:
                     self.getPhaseHeights(pixels=pixels)
                 self.calculateCoefficients(pixels=pixels)
                 self.exportData(pixels=pixels)
+                if self.summary:
+                    try:
+                        save_name = "summary_" + self.log_file + '.pdf'
+                        plotWaveCal.plotSummary(self.cal_file, self.templar_config,
+                                                save_plots=True, save_name=save_name)
+                    except KeyboardInterrupt:
+                        print(os.linesep + "Shutdown requested ... exiting")
+                    except Exception as error:
+                        print('Summary plot generation failed. It can be remade by ' +
+                              'using plotSummary() in plotWaveCal.py')
+                        print(error)
             except (KeyboardInterrupt, BrokenPipeError):
                 print(os.linesep + "Shutdown requested ... exiting")
             except UserError as err:
@@ -351,7 +365,7 @@ class WaveCal:
                     phase_list = [np.max(fit_results[ind][3]['centers'])
                                   for ind, _ in enumerate(fit_results)]
                 except Exception as error:
-                    print(" (row, column):", row, ",", column)
+                    print(" (row, column):", row, ",", column)  # debugging rare error
                     raise error
                 self.current_threshold = np.max(phase_list)
                 phase_list = [np.min(fit_results[ind][3]['centers'])
@@ -371,15 +385,20 @@ class WaveCal:
                     vertex = -popt[1] / (2 * popt[0])
                     min_slope = 2 * popt[0] * min_phase + popt[1]
                     max_slope = 2 * popt[0] * max_phase + popt[1]
+                    vertex_val = np.polyval(popt, vertex)
+                    max_val = np.polyval(popt, max_phase)
+                    min_val = np.polyval(popt, min_phase)
                     conditions = vertex < max_phase and vertex > min_phase and \
                         (min_slope > 0 or max_slope > 0)
-                    conditions = False
+                    conditions = conditions or (vertex_val < 0 or max_val < 0 or
+                                                min_val < 0)
                 if conditions:
                     guess = [phases[0] / energies[0], 0]
                     popt, pcov = self.__fitEnergy('linear', phases, energies, guess,
                                                   errors, row, column)
 
-                    if popt is False or popt[0] > 0:
+                    if popt is False or popt[1] > 0 or (max_phase > -popt[2] / popt[1]
+                                                        and popt[1] < 0):
                         flag = 8  # linear fit unsuccessful
                         wavelength_cal[row, column] = (flag, False, False)
                     else:
@@ -417,6 +436,7 @@ class WaveCal:
         # create output file name
         cal_file_name = 'calsol_' + self.log_file + '.h5'
         cal_file = os.path.join(self.out_directory, cal_file_name)
+        self.cal_file = cal_file
 
         # initialize verbose and logging
         if self.verbose:
@@ -563,33 +583,6 @@ class WaveCal:
                 self.pbar_iter += 1
                 self.pbar.update(self.pbar_iter)
         debug_info.flush()
-        # for row, column in pixels:
-        #     res_id = self.obs[0].beamImage[row][column]
-        #     # skip if already done (res_id repeats mean pixel wasn't beam maped)
-        #     if 'res' + str(res_id) in file_.root.debug:
-        #         continue
-        #     data = file_.create_group(file_.root.debug, 'res' + str(res_id))
-        #     poly_cov = self.wavelength_cal[row][column][2]
-        #     if poly_cov is False or poly_cov is None:
-        #         poly_cov = []
-        #     file_.create_array(data, 'poly_cov', obj=poly_cov)
-        #     for index, wavelength in enumerate(self.wavelengths):
-        #         fit_list = self.fit_data[row, column][index]
-        #         folder = file_.create_group(data, 'wvl' + str(index))
-        #         phase_centers = fit_list[3]['centers']
-        #         phase_counts = fit_list[3]['counts']
-        #         hist_fit = fit_list[1]
-        #         hist_cov = fit_list[2]
-        #         if hist_fit is False:
-        #             hist_fit = []
-        #             hist_cov = []
-        #         file_.create_vlarray(folder, 'phase_centers', obj=phase_centers)
-        #         file_.create_vlarray(folder, 'phase_counts', obj=phase_counts)
-        #         file_.create_array(folder, 'hist_cov', obj=hist_cov)
-        #     # update progress bar
-        #     if self.verbose:
-        #         self.pbar_iter += 1
-        #         self.pbar.update(self.pbar_iter)
 
         if self.logging:
             self.__logger("debug information saved")
@@ -1050,9 +1043,13 @@ class WaveCal:
                     p = output.params.valuesdict()
                     if fit_type == 'linear':
                         popt = (0, p['b'], p['c'])
+                        if output.covar is not False and output.covar is not None:
+                            pcov = np.insert(np.insert(output.covar, 0, [0, 0],
+                                                       axis=1), 0, [0, 0, 0], axis=0)
                     else:
                         popt = (p['a'], p['b'], p['c'])
-                    fit_result = (popt, output.covar)
+                        pcov = output.covar
+                    fit_result = (popt, pcov)
                 else:
                     if self.logging:
                         self.__logger('({0}, {1}): '.format(row, column) + output.message)
@@ -1343,6 +1340,10 @@ class WaveCal:
                 param.format('verbose', 'Output')
             assert 'logging' in self.config['Output'], \
                 param.format('logging', 'Output')
+            assert 'summary_plot' in self.config['Output'], \
+                param.format('summary_plot', 'Output')
+            assert 'templar_config' in self.config['Output'], \
+                param.format('templar_config', 'Output')
 
         elif index == 2:
             # type check parameters
@@ -1354,8 +1355,11 @@ class WaveCal:
             assert type(self.directory) is str, "directory parameter must be a string"
             assert type(self.logging) is bool, "logging parameter must be a boolean"
             assert type(self.parallel) is bool, "parallel parameter must be a boolean"
+            assert type(self.summary) is bool, "summary_plot parameter must be a boolean"
             assert type(self.plot_file_name) is str, \
                 "plot_file_name parameter must be a string"
+            assert type(self.templar_config) is str, \
+                "templar_config parameter must be a string"
             assert type(self.out_directory) is str, \
                 "out_directory parameter must be a string"
             assert os.path.isdir(self.out_directory), \
@@ -1440,6 +1444,7 @@ class Worker(mp.Process):
             w = WaveCal(config_file=self.config_file, log_file='worker' + str(self.num),
                         lock=self.lock)
             w.verbose = False
+            w.summary = False
             while True:
                 time = round(datetime.utcnow().timestamp())
                 pixel = self.in_queue.get()
