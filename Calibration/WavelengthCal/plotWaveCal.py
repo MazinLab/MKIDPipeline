@@ -258,7 +258,10 @@ def plotRHistogram(file_name, mask=None, axis=None):
         bws = np.diff(edges)
         cents = edges[:-1] + bws[0] / 2.0
         bins = cents
-        median = np.round(np.median(r), 2)
+        if len(r) > 0:
+            median = np.round(np.median(r), 2)
+        else:
+            median = np.nan
 
         label = "{0} nm, Median R = {1}".format(wavelength, median)
         color = cmap(index / len(wavelengths))
@@ -284,7 +287,9 @@ def plotRvsF(file_name, config_name, axis=None, verbose=True):
     wave_cal = tb.open_file(file_name, mode='r')
     wavelengths = wave_cal.root.header.wavelengths.read()[0]
     calsoln = wave_cal.root.wavecal.calsoln.read()
-    R = np.mean(calsoln['R'], axis=1)
+    R0 = calsoln['R']
+    R0[R0 == -1] = np.nan
+    R = np.nanmean(R0, axis=1)
     res_id = calsoln['resid']
     f = []
     r0 = []
@@ -307,9 +312,6 @@ def plotRvsF(file_name, config_name, axis=None, verbose=True):
             r[index] = np.median(r0[points])
         else:
             r[index] = 0
-    # index = np.where(R < -2)
-    # beamImage = wave_cal.root.header.beamMap.read()
-    # print(np.where(beamImage == res_id[index]))
     show = False
     if axis is None:
         fig, axis = plt.subplots()
@@ -366,7 +368,10 @@ def plotCenterHist(file_name, mask=None, axis=None):
         bws = np.diff(edges)
         cents = edges[:-1] + bws[0] / 2.0
         bins = cents
-        median = np.round(np.median(centers), 2)
+        if len(centers) > 0:
+            median = np.round(np.median(centers), 2)
+        else:
+            median = np.nan
         label = "{0} nm, Median = {1}".format(wavelength, median)
         color = cmap(index / len(wavelengths))
         axis.step(bins, counts, color=color, linewidth=2, where="mid", label=label)
@@ -416,7 +421,7 @@ def plotSummary(file_name, config_name, save_pdf=False, save_name=None, verbose=
     text[1, 1] = round(text[1, 0] / beamImage.size * 100, 2)
     text[1, 2] = round(text[1, 0] / np.sum(res_id != 2**23 - 1) * 100, 2)
     text[1, 3] = round(text[1, 0] * len(wavelengths) /
-                       np.sum(np.array(has_data) == 0) * 100, 2)
+                       np.sum(np.array(has_data) == 1) * 100, 2)
 
     text[2, 0] = np.sum(fit_flags == 5)
     text[2, 1] = np.sum(fit_flags == 4)
