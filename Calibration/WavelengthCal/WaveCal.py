@@ -151,6 +151,9 @@ class WaveCal:
         # check inputs
         pixels = self.__checkPixelInputs(pixels)
 
+        if self.verbose:
+            print('fitting phase histograms')
+
         # create progress bar
         progress_queue = mp.Queue()
         N = len(pixels)
@@ -528,8 +531,9 @@ class WaveCal:
             sigma = []
             R = []
             for index, wavelength in enumerate(self.wavelengths):
-                if self.wavelength_cal[row, column][0] == 4 or \
-                   self.wavelength_cal[row, column][0] == 5:
+                if ((self.wavelength_cal[row, column][0] == 4 or
+                     self.wavelength_cal[row, column][0] == 5) and
+                     self.fit_data[row, column][index][0] == 0):
                     if self.model_name == 'gaussian_and_exp':
                         mu = self.fit_data[row, column][index][1][3]
                         std = self.fit_data[row, column][index][1][4]
@@ -664,7 +668,7 @@ class WaveCal:
                           'using plotSummary() in plotWaveCal.py')
                 if self.logging:
                     self.__logger("summary plot failed")
-                    self.__logger(error)
+                    self.__logger(str(error))
                 if self.verbose:
                     print("summary plot failed")
                     print(error)
@@ -1534,7 +1538,7 @@ class Worker(mp.Process):
                 if pixel is None:
                     break
                 w.getPhaseHeights(pixels=[pixel])
-                pixel_dict = {pixel: w.fit_data[pixel[0], pixel[1]]}
+                pixel_dict = {tuple(pixel): w.fit_data[pixel[0], pixel[1]]}
                 self.progress_queue.put(True)
 
                 self.out_queue.put(pixel_dict)
