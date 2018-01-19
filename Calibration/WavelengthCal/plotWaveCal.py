@@ -472,6 +472,9 @@ def plotSummary(file_name, config_name, save_pdf=False, save_name=None, verbose=
         pdf = PdfPages(os.path.join(out_directory, save_name))
         pdf.savefig(fig)
         pdf.close()
+        if verbose:
+            print("plot saved")
+        plt.close()
     else:
         plt.show(block=False)
 
@@ -495,5 +498,9 @@ def loadFrequencyFile(config_file, verbose=True):
             except Exception as error:
                 if verbose:
                     print(error)
+    if len(freqs) == 0:
+        if verbose:
+            print('Warning: no frequency files could be loaded')
+        return np.ones((1, 2)) * -1
     freqs = np.vstack(freqs)
     return freqs

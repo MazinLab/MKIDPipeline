@@ -28,20 +28,27 @@ class WaveCal:
     '''
     Class for creating wavelength calibrations for ObsFile formated data.
     '''
-    def __init__(self, config_file='default.cfg', log_file=False, lock=None):
-        # define start time for use in __logger and saving calsol file
-        if log_file is False:
-            self.log_file = str(round(datetime.utcnow().timestamp()))
-        else:
-            self.log_file = log_file
-
-        # set lock for multiprocessing (internal use only)
-        self.lock = lock
+    def __init__(self, config_file='default.cfg', master=True, data_slave=False,
+                 worker_slave=False, pid=None, request_data=None, load_data=None,
+                 rows=None, columns=None):
+        # determine info about master/slave settings for parallel computing
+        # (internal use only)
+        self.master = master
+        self.data_slave = data_slave
+        self.worker_slave = worker_slave
+        self.pid = pid
+        self.request_data = request_data
+        self.load_data = load_data
+        self.rows = rows
+        self.columns = columns
 
         # define the configuration file path
         self.config_file = config_file
-        directory = os.path.dirname(__file__)
-        self.config_directory = os.path.join(directory, 'Params', self.config_file)
+        if self.config_file == 'default.cfg':
+            directory = os.path.dirname(os.path.realpath(__file__))
+            self.config_directory = os.path.join(directory, 'Params', self.config_file)
+        else:
+            self.config_directory = self.config_file
 
         # check the configuration file path and read it in
         self.__configCheck(0)
@@ -68,17 +75,34 @@ class WaveCal:
         # check the parameter formats
         self.__configCheck(2)
 
+        # define start time for use in __logger and saving calsol file
+        if self.master:
+            self.log_file = str(round(datetime.utcnow().timestamp()))
+        elif self.worker_slave:
+            self.log_file = 'worker' + str(self.pid)
+        elif self.data_slave:
+            self.logging = False
+        else:
+            raise ValueError('WaveCal must be either a master or a slave')
+
         # arrange the files in increasing wavelength order and open all of the h5 files
         indices = np.argsort(self.wavelengths)
         self.wavelengths = np.array(self.wavelengths)[indices]
         self.file_names = np.array(self.file_names)[indices]
-        self.obs = []
-        for file_ in self.file_names:
-            self.obs.append(ObsFile(os.path.join(self.directory, file_)))
+        if self.master or self.data_slave:
+            self.obs = []
+            for file_ in self.file_names:
+                self.obs.append(ObsFile(os.path.join(self.directory, file_)))
 
-        # get the array size from the beam map and check that all files are the same
-        self.rows, self.columns = np.shape(self.obs[0].beamImage)
+            # get the array size from the beam map and check that all files are the same
+            self.rows, self.columns = np.shape(self.obs[0].beamImage)
+
         self.__configCheck(3)
+
+        # close obs files if running in parallel
+        if self.master and self.parallel:
+            for obs in self.obs:
+                obs.file.close()
 
         # initialize output flag definitions
         self.flag_dict = pipelineFlags.waveCal
@@ -119,35 +143,6 @@ class WaveCal:
             except UserError as err:
                 print(err)
 
-    def dataSummary(self):
-        '''
-        If the config file specifies 'summary_plot = True', the function will save a
-        summary plot of the data to the output directory.
-        '''
-        if self.summary:
-            if self.logging:
-                self.__logger("## saving summary plot")
-            if self.verbose:
-                print('saving summary plot')
-            try:
-                save_name = "summary_" + self.log_file + '.pdf'
-                plotWaveCal.plotSummary(self.cal_file, self.templar_config,
-                                        save_plots=True, save_name=save_name,
-                                        verbose=self.verbose)
-                if self.logging:
-                    self.__logger("summary plot saved as {0}".format(save_name))
-            except KeyboardInterrupt:
-                print(os.linesep + "Shutdown requested ... exiting")
-            except Exception as error:
-                if self.verbose:
-                    print('Summary plot generation failed. It can be remade by ' +
-                          'using plotSummary() in plotWaveCal.py')
-                if self.logging:
-                    self.__logger("summary plot failed")
-                if self.verbose:
-                    print("summary plot failed")
-                    print(error)
-
     def getPhaseHeightsParallel(self, n_processes, pixels=[]):
         '''
         Computes the fitted phase height at all of the specified wavelengths for a
@@ -161,17 +156,28 @@ class WaveCal:
         N = len(pixels)
         progress = ProgressWorker(progress_queue, N)
 
-        # create workers
+        # make request photon data queue
+        request_data = mp.Queue()
+        # make process specific load data queue and save in list
+        load_data = []
+        for i in range(n_processes):
+            load_data.append(mp.Queue())
+        # start process to handle accessing the .h5 files
+        N = len(pixels) * len(self.wavelengths)
+        gate_keeper = GateWorker(self.config_directory, N, request_data, load_data)
+
+        # make pixel in and result out queues
         in_queue = mp.Queue()
         out_queue = mp.Queue()
+        # make workers to process the data
         workers = []
-        lock = mp.Lock()
         for i in range(n_processes):
             workers.append(Worker(in_queue, out_queue, progress_queue,
-                                  self.config_file, i, lock))
+                                  self.config_directory, i, request_data, load_data[i],
+                                  self.rows, self.columns))
 
         try:
-            # give workers data ending in n_processes close commands
+            # give workers pixels to compute ending in n_processes close commands
             for pixel in pixels:
                 in_queue.put(pixel)
             for i in range(n_processes):
@@ -187,7 +193,26 @@ class WaveCal:
             progress.join()
             for w in workers:
                 w.join()
+            gate_keeper.join()
         except (KeyboardInterrupt, BrokenPipeError):
+            # close queues
+            while not in_queue.empty():
+                in_queue.get()
+            in_queue.close()
+            while not out_queue.empty():
+                out_queue.get()
+            out_queue.close()
+            while not progress_queue.empty():
+                progress_queue.get()
+            progress_queue.close()
+            while not request_data.empty():
+                request_data.get()
+            request_data.close()
+            for q in load_data:
+                while not q.empty():
+                    q.get()
+                q.close()
+            # close processes
             print(os.linesep + "PID {0} ... exiting".format(progress.pid))
             progress.terminate()
             progress.join()
@@ -195,6 +220,9 @@ class WaveCal:
                 print("PID {0} ... exiting".format(w.pid))
                 w.terminate()
                 w.join()
+            print("PID {0} ... exiting".format(gate_keeper.pid))
+            gate_keeper.terminate()
+            gate_keeper.join()
 
             log_file = os.path.join(self.out_directory,
                                     'logs/worker*.log')
@@ -610,35 +638,53 @@ class WaveCal:
         if self.verbose:
             self.pbar.finish()
 
+    def dataSummary(self):
+        '''
+        If the config file specifies 'summary_plot = True', the function will save a
+        summary plot of the data to the output directory.
+        '''
+        if self.summary:
+            if self.logging:
+                self.__logger("## saving summary plot")
+            if self.verbose:
+                print('saving summary plot')
+            try:
+                save_name = "summary_" + self.log_file + '.pdf'
+                save_dir = os.path.join(self.out_directory, save_name)
+                plotWaveCal.plotSummary(self.cal_file, self.templar_config,
+                                        save_pdf=True, save_name=save_name,
+                                        verbose=self.verbose)
+                if self.logging:
+                    self.__logger("summary plot saved as {0}".format(save_dir))
+            except KeyboardInterrupt:
+                print(os.linesep + "Shutdown requested ... exiting")
+            except Exception as error:
+                if self.verbose:
+                    print('Summary plot generation failed. It can be remade by ' +
+                          'using plotSummary() in plotWaveCal.py')
+                if self.logging:
+                    self.__logger("summary plot failed")
+                    self.__logger(error)
+                if self.verbose:
+                    print("summary plot failed")
+                    print(error)
+
     def loadPhotonData(self, row, column, wavelength_index):
         '''
         Get a photon list for a single pixel and wavelength.
         '''
-        max_tries = 10
-        for i in range(max_tries):
-            try:
-                if self.lock is None:
-                    photon_list = self.obs[wavelength_index].getPixelPhotonList(
-                        row, column)
-                else:
-                    self.lock.acquire()
-                    photon_list = self.obs[wavelength_index].getPixelPhotonList(
-                        row, column)
-                    self.lock.release()
-                return photon_list
-            except KeyboardInterrupt:
-                try:
-                    self.lock.release()
-                except:
-                    pass
-                raise KeyboardInterrupt
-            except Exception as error:
-                try:
-                    self.lock.release()
-                except:
-                    pass
-        return np.array([], dtype=[('Time', '<u4'), ('Wavelength', '<f4'),
-                                    ('SpecWeight', '<f4'), ('NoiseWeight', '<f4')])
+        try:
+            if self.worker_slave:
+                self.request_data.put([row, column, wavelength_index, self.pid])
+                photon_list = self.load_data.get()
+            else:
+                photon_list = self.obs[wavelength_index].getPixelPhotonList(row, column)
+            return photon_list
+        except KeyboardInterrupt:
+            raise KeyboardInterrupt
+        except Exception as error:
+            return np.array([], dtype=[('Time', '<u4'), ('Wavelength', '<f4'),
+                                       ('SpecWeight', '<f4'), ('NoiseWeight', '<f4')])
 
     def __checkParallelOptions(self):
         '''
@@ -1318,12 +1364,25 @@ class WaveCal:
         consistencey. Run in the '__init__()' method.
         '''
         if index == 0:
-            # check for configuration file, log file, and lock type
+            # check for configuration file, and any other keyword args
             assert os.path.isfile(self.config_directory), \
                 self.config_directory + " is not a valid configuration file"
-            assert type(self.log_file) is str, "log_file must be a string"
-            assert self.lock is None or type(self.lock) is mp.synchronize.Lock, \
-                "lock must be a multiprocessing Lock() or None"
+            assert type(self.master) is bool, "master keyword must be a boolean"
+            assert type(self.data_slave) is bool, "data_slave keyword must be a boolean"
+            assert type(self.worker_slave) is bool, \
+                "worker_slave keyword must be a boolean"
+            assert np.sum([self.master, self.data_slave, self.worker_slave]) == 1, \
+                "WaveCal can only be one of the master/slaves at a time"
+            assert self.request_data is None or \
+                type(self.request_data) is mp.queues.Queue, \
+                "request_data keyword must be None or a multiprocessing queue"
+            assert self.load_data is None or type(self.load_data) is mp.queues.Queue, \
+                "load_data keyword must be None or a multiprocessing queue"
+            assert self.rows is None or type(self.rows) is int, \
+                "rows keyword must be None or and int"
+            assert self.columns is None or type(self.columns) is int, \
+                "columns keyword must be None or and int"
+
         elif index == 1:
             # check if all sections and parameters exist in the configuration file
             section = "{0} must be a configuration section"
@@ -1408,9 +1467,10 @@ class WaveCal:
 
         elif index == 3:
             # check that all beammaps are the same
-            for obs in self.obs:
-                assert np.shape(obs.beamImage) == (self.rows, self.columns), \
-                    "All files must have the same beam map shape."
+            if (self.master and not self.parallel) or self.data_slave:
+                for obs in self.obs:
+                    assert np.shape(obs.beamImage) == (self.rows, self.columns), \
+                        "All files must have the same beam map shape."
         else:
             raise ValueError("index must be 0, 1, 2 or 3")
 
@@ -1446,25 +1506,30 @@ class Worker(mp.Process):
     Worker class to send pixels to and do the histogram fits. Run by
     getPhaseHeightsParallel.
     '''
-    def __init__(self, in_queue, out_queue, progress_queue, config_file, num, lock):
+    def __init__(self, in_queue, out_queue, progress_queue, config_file, num,
+                 request_data, load_data, rows, columns):
         super(Worker, self).__init__()
         self.in_queue = in_queue
         self.out_queue = out_queue
         self.progress_queue = progress_queue
         self.config_file = config_file
         self.num = num
-        self.lock = lock
+        self.request_data = request_data
+        self.load_data = load_data
+        self.rows = rows
+        self.columns = columns
         self.daemon = True
         self.start()
 
     def run(self):
         try:
-            w = WaveCal(config_file=self.config_file, log_file='worker' + str(self.num),
-                        lock=self.lock)
+            w = WaveCal(config_file=self.config_file, master=False, worker_slave=True,
+                        pid=self.num, request_data=self.request_data,
+                        load_data=self.load_data, rows=self.rows, columns=self.columns)
             w.verbose = False
             w.summary = False
+
             while True:
-                time = round(datetime.utcnow().timestamp())
                 pixel = self.in_queue.get()
                 if pixel is None:
                     break
@@ -1473,6 +1538,37 @@ class Worker(mp.Process):
                 self.progress_queue.put(True)
 
                 self.out_queue.put(pixel_dict)
+        except (KeyboardInterrupt, BrokenPipeError):
+            pass
+
+
+class GateWorker(mp.Process):
+    '''
+    Worker class in charge of opening and closing and reading .h5 files.
+    '''
+    def __init__(self, config_file, num, request_data, load_data):
+        super(GateWorker, self).__init__()
+        self.config_file = config_file
+        self.num = num
+        self.request_data = request_data
+        self.load_data = load_data
+        self.daemon = True
+        self.start()
+
+    def run(self):
+        try:
+            w = WaveCal(config_file=self.config_file, master=False, data_slave=True)
+            w.verbose = False
+            w.summary = False
+
+            # we know how many data sets we will be loading
+            for i in range(self.num):
+                # get a request
+                request = self.request_data.get()
+                # do request
+                photon_list = w.loadPhotonData(request[0], request[1], request[2])
+                # return data from request to the correct process
+                self.load_data[request[3]].put(photon_list)
         except (KeyboardInterrupt, BrokenPipeError):
             pass
 
