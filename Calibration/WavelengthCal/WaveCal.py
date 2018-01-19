@@ -2,7 +2,6 @@ import os
 import ast
 import sys
 import glob
-import time
 import pickle
 import warnings
 import lmfit as lm

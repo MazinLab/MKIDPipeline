@@ -1,4 +1,5 @@
 import os
+import warnings
 import numpy as np
 import tables as tb
 import matplotlib as mpl
@@ -289,13 +290,16 @@ def plotRvsF(file_name, config_name, axis=None, verbose=True):
     calsoln = wave_cal.root.wavecal.calsoln.read()
     R0 = calsoln['R']
     R0[R0 == -1] = np.nan
-    R = np.nanmean(R0, axis=1)
+    with warnings.catch_warnings():
+        # rows with all nan values will give an unnecessary RuntimeWarning
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        R = np.nanmean(R0, axis=1)
     res_id = calsoln['resid']
     f = []
     r0 = []
     for id_ in res_id:
         index = np.where(id_ == freqs[:, 0])
-        if len(index[0]) == 1 and R[index] != -1:
+        if len(index[0]) == 1 and not np.isnan(R[index]):
             f.append(freqs[index, 1])
             r0.append(R[index])
     f = np.ndarray.flatten(np.array(f))
@@ -409,7 +413,6 @@ def plotSummary(file_name, config_name, save_pdf=False, save_name=None, verbose=
     flags = debug['hist_flag']
     has_data = debug['has_data']
     fit_flags = calsoln['wave_flag']
-
     text = np.zeros((3, 4))
     text[0, 0] = round(np.sum(flags == 0) / len(wavelengths), 2)
     text[0, 1] = round(text[0, 0] / beamImage.size * 100, 2)
@@ -417,7 +420,7 @@ def plotSummary(file_name, config_name, save_pdf=False, save_name=None, verbose=
     text[0, 3] = round(text[0, 0] * len(wavelengths) /
                        np.sum(has_data) * 100, 2)
 
-    text[1, 0] = np.sum(R[:, 0] != -1)
+    text[1, 0] = np.sum(fit_flags == 4) + np.sum(fit_flags == 5)
     text[1, 1] = round(text[1, 0] / beamImage.size * 100, 2)
     text[1, 2] = round(text[1, 0] / np.sum(res_id != 2**23 - 1) * 100, 2)
     text[1, 3] = round(text[1, 0] * len(wavelengths) /
@@ -428,11 +431,15 @@ def plotSummary(file_name, config_name, save_pdf=False, save_name=None, verbose=
     wave_cal.close()
 
     fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(6.95, 9))
-    row_labels = ['histogram fit', 'energy solution', '(linear, quadratic)']
-    col_labels = ["total \# sucessful", "total \% sucessful", "total \% with resonances",
-                  "total \% with data"]
-
-    table = r'''\begin{{tabular}}{{ c | c | c | c | c}} & {0} & {1} & {2} & {3} \\''' + \
+    row_labels = ['histogram fits', 'energy solution', '(linear, quadratic)']
+    col_labels = ["total pixels sucessful", "total \% sucessful",
+                  "total \% out of read-out pixels",
+                  "total \% out of photosensitive pixels"]
+    mpl.rcParams['text.latex.preamble'] = [r'\usepackage{array}']
+    table = r'''\begin{{tabular}}{{>{{\raggedright}}p{{1.1in}} | ''' + \
+            r''' >{{\raggedright}}p{{1in}} | >{{\raggedright}}p{{1in}} | ''' + \
+            r''' >{{\raggedright}}p{{1in}} | p{{1.1in}}}}''' + \
+            r''' & {0} & {1} & {2} & {3} \\''' + \
             r'''\hline {4} & {5} & {6} & {7} & {8} \\''' + \
             r'''{9} & {10} & {11} & {12} & {13} \\''' + \
             r'''{14} & ({15}, {16}) & - & - & - \end{{tabular}}'''
@@ -462,6 +469,12 @@ def plotSummary(file_name, config_name, save_pdf=False, save_name=None, verbose=
     axes[1, 1].text(-0.1, 0.57 - (len(wavelengths) - 1) / 20, "Wavelengths [nm]:")
     for ind, wavelength in enumerate(wavelengths):
         axes[1, 1].text(-0.1, 0.57 - ind / 20 - len(wavelengths) / 20, wavelength)
+    good_hist = np.sum(flags == 0, axis=1)
+    perc = round(np.sum(fit_flags == 7) / np.sum(good_hist >= 3) * 100, 2)
+    axes[1, 1].text(-0.1, 0.37 - 2 * len(wavelengths) / 20,
+                    'Percent of pixels that failed the \ncalibration because the' +
+                    ' centers were not \nmonotonic (out of pixels with > 2 good' +
+                    ' \nhistogram fits): {0}%'.format(perc))
 
     if not switch:
         mpl.rc('text', usetex=True)
