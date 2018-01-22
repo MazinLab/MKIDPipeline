@@ -18,6 +18,13 @@ def plotEnergySolution(file_name, res_id=None, pixel=[]):
     Plot the phase to energy solution for a pixel from the wavlength calibration solution
     file 'file_name'. Provide either the pixel location pixel=(row, column) or the res_id
     for the resonator.
+
+    Args:
+        file_name: the wavecal solution file including the path (string)
+        res_id: the resonator ID for the plotted pixel. Can use pixel keyword-arg
+                instead. (integer)
+        pixel: the pixel row and column for the plotted pixel. Can use res_id keyword-args
+               instead. (length 2 list of integers)
     '''
     # load file_name
     wave_cal = tb.open_file(file_name, mode='r')
@@ -112,6 +119,13 @@ def plotHistogramFits(file_name, res_id=None, pixel=[]):
     Plot the histogram fits for a pixel from the wavlength calibration solution
     file 'file_name'. Provide either the pixel location pixel=(row, column) or the res_id
     for the resonator.
+
+    Args:
+        file_name: the wavecal solution file including the path (string)
+        res_id: the resonator ID for the plotted pixel. Can use pixel keyword-arg
+                instead. (integer)
+        pixel: the pixel row and column for the plotted pixel. Can use res_id keyword-args
+               instead. (length 2 list of integers)
     '''
     # load file_name
     wave_cal = tb.open_file(file_name, mode='r')
@@ -229,8 +243,14 @@ def plotHistogramFits(file_name, res_id=None, pixel=[]):
 def plotRHistogram(file_name, mask=None, axis=None):
     '''
     Plot a histogram of the energy resolution, R, for each wavelength in the wavlength
-    calibration solution file 'file_name'. 'mask' is a list of booleans the same length as
-    the number of wavelengths used. False entries will not be displayed in the histogram.
+    calibration solution file 'file_name'.
+
+    Args:
+        file_name: the wavecal solution file including the path (string)
+        mask: a list of booleans which masks which wavelengths to include in the plot
+              False entries are not displayed.
+        axis: matplotlib axis object on which to display the plot. If no axis is provided
+              a new figure will be made.
     '''
     # load file_name
     wave_cal = tb.open_file(file_name, mode='r')
@@ -283,6 +303,15 @@ def plotRvsF(file_name, config_name, axis=None, verbose=True):
     '''
     Plot the energy resolution averaged over all wavelengths against the resonance
     frequency.
+
+    Args:
+        file_name: the wavecal solution file including the path (string)
+        config_name: the templar configuration file, including the path, associated with
+                     the data (string)
+        axis: matplotlib axis object on which to display the plot. If no axis is provided
+              a new figure will be made.
+        verbose: determines whether information about loading the frequency files is
+                 printed to the terminal (boolean)
     '''
     freqs = loadFrequencyFile(config_name, verbose=verbose)
     wave_cal = tb.open_file(file_name, mode='r')
@@ -334,6 +363,15 @@ def plotRvsF(file_name, config_name, axis=None, verbose=True):
 
 
 def plotCenterHist(file_name, mask=None, axis=None):
+    '''
+    Plot a histogram of the fitted gaussian centers for the solution file (file_name).
+    Args:
+        file_name: the wavecal solution file including the path (string)
+        mask: a list of booleans which masks which wavelengths to include in the plot
+              False entries are not displayed.
+        axis: matplotlib axis object on which to display the plot. If no axis is provided
+              a new figure will be made.
+    '''
     # load file_name
     wave_cal = tb.open_file(file_name, mode='r')
     info = wave_cal.root.header.info.read()
@@ -393,9 +431,19 @@ def plotCenterHist(file_name, mask=None, axis=None):
         return axis
 
 
-def plotSummary(file_name, config_name, save_pdf=False, save_name=None, verbose=True):
+def plotSummary(file_name, config_name='', save_pdf=False, save_name=None, verbose=True):
     '''
     Plot one page summary pdf of the wavelength calibration solution file 'file_name'.
+
+    Args:
+        file_name: the wavecal solution file including the path (string)
+        config_name: the templar configuration file, including the path, associated with
+                     the data (string)
+        save_pdf: save a pdf of the plot to the directory of 'file_name' instead of
+                  displaying a matplotlib figure (boolean)
+        save_name: name of the pdf that's saved. Needed only when save_pdf=True.
+        verbose: determines whether information about loading the frequency files is
+                 printed to the terminal (boolean)
     '''
 
     # load file_name
@@ -499,8 +547,18 @@ def plotSummary(file_name, config_name, save_pdf=False, save_name=None, verbose=
 
 def loadFrequencyFile(config_file, verbose=True):
     '''
-    config_file is the full path to the templar configuration file.
-    Returns a dictionary mapping res_id to resonance frequency.
+    Returns a dictionary mapping res_id to resonance frequency for a particular templar
+    configuration file.
+
+    Args:
+        config_file: full path and file name of the templar configuration file. (string)
+        verbose: determines whether information about loading the frequency files is
+                 printed to the terminal (boolean)
+
+    Returns:
+        a numpy array of the frequency files that could be loaded from the templar config
+        file vertically stacked. The first column is the res_id and the second is the
+        frequency. a 1 by 2 array with -1 entries is returned if no files could be loaded.
     '''
     config = ConfigParser()
     config.read(config_file)

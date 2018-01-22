@@ -419,10 +419,10 @@ class ObsFile:
         # else:
         #     endTime = startTime + int(integrationTime*self.ticksPerSec)
 
-        wvlRange = None   ##IL:  Patch because for some reason wvlRange gets set to false after the getSpectralCube step        
+        wvlRange = None   ##IL:  Patch because for some reason wvlRange gets set to false after the getSpectralCube step
         if wvlRange is None and integrationTime==-1:
             photonList = photonTable.read()
-        
+
         elif wvlRange is None:
             photonList = photonTable.read_where('(Time >= startTime) & (Time < endTime)')
 
@@ -514,7 +514,7 @@ class ObsFile:
             weights *= photonList['Spec Weight']
         if applyTPFWeight:
             weights *= photonList['Noise Weight']
-        if applyTimeMask: 
+        if applyTimeMask:
             if self.info['timeMaskExists']:
                 pass
             else:
@@ -583,7 +583,7 @@ class ObsFile:
 
     def getPixelCountImage(self, firstSec=0, integrationTime= -1, wvlRange=None, applyWeight=True, applyTPFWeight=True, applyTimeMask=True, scaleByEffInt=False):
         """
-        Returns an image of pixel counts over the entire array between firstSec and firstSec + integrationTime. Can specify calibration weights to apply as 
+        Returns an image of pixel counts over the entire array between firstSec and firstSec + integrationTime. Can specify calibration weights to apply as
         well as wavelength range.
 
         Parameters
@@ -623,7 +623,7 @@ class ObsFile:
                                           wvlRange, applyWeight, applyTPFWeight, applyTimeMask)
                 #print(pcount)
                 effIntTimes[xCoord, yCoord] = pcount['effIntTime']
-                countImage[xCoord, yCoord] = pcount['counts']  
+                countImage[xCoord, yCoord] = pcount['counts']
         if scaleByEffInt is True:
             if integrationTime == -1:
                 totInt = self.getFromHeader('exptime')
@@ -774,8 +774,8 @@ class ObsFile:
         effIntTime = np.zeros((self.nXPix,self.nYPix))
         rawCounts = np.zeros((self.nXPix,self.nYPix))
 
-        for xCoord in range(self.nXPix):  
-            for yCoord in range(self.nYPix):   
+        for xCoord in range(self.nXPix):
+            for yCoord in range(self.nYPix):
                 x = self.getPixelSpectrum(xCoord=xCoord,yCoord=yCoord,
                                   firstSec=firstSec, applySpecWeight=applySpecWeight,
                                   applyTPFWeight=applyTPFWeight, wvlStart=wvlStart, wvlStop=wvlStop,
@@ -1515,8 +1515,8 @@ class ObsFile:
                 poly = calsoln['polyfit'][index]
                 photon_list = self.getPixelPhotonList(row, column)
                 phases = photon_list['Wavelength']
-                poly=np.array(poly)
-                poly=poly.flatten()
+                poly = np.array(poly)
+                poly = poly.flatten()
                 energies = np.polyval(poly, phases)
                 wavelengths = self.h * self.c / energies * 1e9  # wavelengths in nm
                 self.updateWavelengths(row, column, wavelengths)
