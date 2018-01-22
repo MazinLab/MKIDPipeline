@@ -25,7 +25,37 @@ from Headers.CalHeaders import WaveCalDescription, WaveCalHeader, WaveCalDebugDe
 
 class WaveCal:
     '''
-    Class for creating wavelength calibrations for ObsFile formated data.
+    Class for creating wavelength calibrations for ObsFile formated data. After the
+    WaveCal object is innitialized with the configuration file, makeCalibration() should
+    be run to compute the calibration solution .h5 file.
+
+    Args:
+        Public Options
+        config_file: full path and file name of the configuration file for the wavelength
+                     calibration (string)
+
+        Private Options
+        These are used internally for parallel processing. Use the configuration file to
+        specify parallel computations.
+        Only one of the following three arguments can be true
+        master: determines if the object is the master of a parallel computation (boolean)
+        data_slave: determines if the object in charge of accessing the .h5 files
+                    (boolean)
+        worker_slave: determines if the object is in charge of computing the histogram
+                      fits for the pixels assigned to it
+
+        If the object is a worker_slave, five more arguments are required.
+        pid: Unique number to identify the process internally (integer)
+        request_data: multiprocessing queue object used to request pixels from the
+                      data_slave.
+        load_data: multiprocessing queue used to retrieve .h5 file contents from the data
+                   slave
+        rows: number of rows in the array (needed because the .h5 files can't be opened
+              by the worker_slave)
+        columns: number of columns in the array (needed because the .h5 files can't be
+                 opened by the worker_slave)
+
+    Created by: Nicholas Zobrist, January 2018
     '''
     def __init__(self, config_file='default.cfg', master=True, data_slave=False,
                  worker_slave=False, pid=None, request_data=None, load_data=None,
@@ -121,7 +151,16 @@ class WaveCal:
     def makeCalibration(self, pixels=[]):
         '''
         Compute the wavelength calibration for the pixels in 'pixels' and save the data
-        in the standard format.
+        in the standard .h5 format.
+
+        Args:
+            pixels: a list of length 2 lists containing the (row, column) of the pixels
+                    on which to compute a phase-energy relation. If it isn't specified,
+                    all of the pixels in the array are used.
+
+        Returns:
+            Nothing is returned but a .h5 solution file is saved in the output directory
+            specified in the configuration file.
         '''
         with warnings.catch_warnings():
             # ignore unclosed file warnings from PyPDF2
@@ -144,8 +183,25 @@ class WaveCal:
 
     def getPhaseHeightsParallel(self, n_processes, pixels=[]):
         '''
-        Computes the fitted phase height at all of the specified wavelengths for a
-        specified list of pixels. Uses more than one process to speed up the computation.
+        Fits the phase height histogram to a model for a specified list of pixels. Uses
+        more than one process to speed up the computation.
+
+        Args:
+            n_processes: number of processes to generate to compute the histogram fits.
+                         Three additional processes are needed for the main file,
+                         accessing the .h5 files and printing information to the terminal
+                         (if verbose is True in the config file).
+            pixels: a list of length 2 lists containing the (row, column) of the pixels
+                    on which to compute a phase-energy relation. If it isn't specified,
+                    all of the pixels in the array are used.
+
+        Returns:
+            Nothing is returned, but a self.fit_data attribute is created. It is a numpy
+            array of shape (self.row, self.columns). Each index contains the information
+            about the fits for the pixel in (self.row, self.column). For each pixel a
+            list of the fit information for each wavelength is stored. In that list is
+            saved the fit flag, the fit result, the fit covariance, and a dictionary
+            containing the phase histogram in that order.
         '''
         # check inputs
         pixels = self.__checkPixelInputs(pixels)
@@ -154,9 +210,12 @@ class WaveCal:
             print('fitting phase histograms')
 
         # create progress bar
-        progress_queue = mp.Queue()
-        N = len(pixels)
-        progress = ProgressWorker(progress_queue, N)
+        if self.verbose:
+            progress_queue = mp.Queue()
+            N = len(pixels)
+            progress = ProgressWorker(progress_queue, N)
+        else:
+            progress_queue = None
 
         # make request photon data queue
         request_data = mp.Queue()
@@ -192,7 +251,8 @@ class WaveCal:
                 result_dict.update(result)
 
             # wait for all worker processes to finish
-            progress.join()
+            if self.verbose:
+                progress.join()
             for w in workers:
                 w.join()
             gate_keeper.join()
@@ -204,9 +264,10 @@ class WaveCal:
             while not out_queue.empty():
                 out_queue.get()
             out_queue.close()
-            while not progress_queue.empty():
-                progress_queue.get()
-            progress_queue.close()
+            if self.verbose:
+                while not progress_queue.empty():
+                    progress_queue.get()
+                progress_queue.close()
             while not request_data.empty():
                 request_data.get()
             request_data.close()
@@ -215,9 +276,10 @@ class WaveCal:
                     q.get()
                 q.close()
             # close processes
-            print(os.linesep + "PID {0} ... exiting".format(progress.pid))
-            progress.terminate()
-            progress.join()
+            if self.verbose:
+                print(os.linesep + "PID {0} ... exiting".format(progress.pid))
+                progress.terminate()
+                progress.join()
             for w in workers:
                 print("PID {0} ... exiting".format(w.pid))
                 w.terminate()
@@ -241,8 +303,20 @@ class WaveCal:
 
     def getPhaseHeights(self, pixels=[]):
         '''
-        Computes the fitted phase height at all of the specified wavelengths for a
-        specified list of pixels.
+        Fits the phase height histogram to a model for a specified list of pixels.
+
+        Args:
+            pixels: a list of length 2 lists containing the (row, column) of the pixels
+                    on which to compute a phase-energy relation. If it isn't specified,
+                    all of the pixels in the array are used.
+
+        Returns:
+            Nothing is returned, but a self.fit_data attribute is created. It is a numpy
+            array of shape (self.row, self.columns). Each index contains the information
+            about the fits for the pixel in (row, column). For each pixel a list of the
+            fit information for each wavelength is stored. In that list is saved the fit
+            flag, the fit result, the fit covariance, and a dictionary containing the
+            phase histogram in that order.
         '''
         # check inputs
         pixels = self.__checkPixelInputs(pixels)
@@ -357,7 +431,18 @@ class WaveCal:
     def calculateCoefficients(self, pixels=[]):
         '''
         Loop through the results of 'getPhaseHeights()' and fit energy vs phase height
-        to a parabola
+        to a parabola.
+
+        Args:
+            pixels: a list of length 2 lists containing the (row, column) of the pixels
+                    on which to compute a phase-energy relation. If it isn't specified,
+                    all of the pixels in the array are used.
+
+        Returns:
+            Nothing is returned, but a self.wavelength_cal attribute is created. It is a
+            numpy array of the shape (self.rows, self.columns). Each entry contains a list
+            with the fit information for the pixel in (row, column). In that list is saved
+            the fit flag, fit result, and fit covariance in that order.
         '''
         # check inputs
         pixels = self.__checkPixelInputs(pixels)
@@ -474,7 +559,19 @@ class WaveCal:
 
     def exportData(self, pixels=[]):
         '''
-        Saves data in the WaveCal format to the filename
+        Saves data in the WaveCal format to the filename.
+
+        Args:
+            pixels: a list of length 2 lists containing the (row, column) of the pixels
+                    on which to compute a phase-energy relation. If it isn't specified,
+                    all of the pixels in the array are used.
+
+        Returns:
+            Nothing is returned, but a .h5 file is created with the fit information
+            computed with calculateCoefficients() and getPhaseHeights() (or
+            getPhaseHeightsParallel()). The .h5 file is saved as calsol_timestamp.h5,
+            where the timestamp is the utc timestamp for when the WaveCal object was
+            created.
         '''
         # check inputs
         pixels = self.__checkPixelInputs(pixels)
@@ -644,7 +741,8 @@ class WaveCal:
     def dataSummary(self):
         '''
         If the config file specifies 'summary_plot = True', the function will save a
-        summary plot of the data to the output directory.
+        summary plot of the data to the output directory. Otherwise nothing will happen.
+        self.summary can be changed manually to enable this function.
         '''
         if self.summary:
             if self.logging:
@@ -1538,7 +1636,8 @@ class Worker(mp.Process):
                     break
                 w.getPhaseHeights(pixels=[pixel])
                 pixel_dict = {tuple(pixel): w.fit_data[pixel[0], pixel[1]]}
-                self.progress_queue.put(True)
+                if self.progress_queue is not None:
+                    self.progress_queue.put(True)
 
                 self.out_queue.put(pixel_dict)
         except (KeyboardInterrupt, BrokenPipeError):
