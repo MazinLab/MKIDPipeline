@@ -390,6 +390,9 @@ class FlatCal:
 			flatDir = os.path.join(scratchDir,'flatCalSolnFiles')
 			fullFlatCalFileName = os.path.join(flatDir,self.flatCalFileName)
 
+		if not os.path.exists(fullFlatCalFileName):
+			os.makedirs(fullFlatCalFileName)		
+
 		try:
 			flatCalFile = tables.open_file(fullFlatCalFileName,mode='w')
 		except:
