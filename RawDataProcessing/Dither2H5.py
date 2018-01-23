@@ -16,6 +16,8 @@ import datetime
 import subprocess
 
 #******************************** Things you must set by hand for this to work!
+XPIX = 80
+YPIX = 125
 binPath = '/home/bmazin/HR8799/rawdata'    # path to raw .bin data
 beamFile = '/home/bmazin/HR8799/h5/finalMap_20170924.txt'    # path and filename to beam map file
 mapFlag = 1
@@ -65,6 +67,7 @@ for i in range(nPos):
     
     # prepare config file for Bin2HDF
     f = open(wd+'/'+filePrefix+str(i)+'.cfg','w')
+    f.write(str(XPIX)+' '+str(YPIX)+'\n')
     f.write(binPath+'\n')
     f.write(str(int(startTimes[i])+bufferTime)+'\n')
     f.write(str(( int(stopTimes[i])-bufferTime) - (int(startTimes[i])+bufferTime) )+'\n')
