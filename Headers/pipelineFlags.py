@@ -34,7 +34,7 @@ fluxCal = {
 waveCal = {0: "histogram fit - converged and validated",
            1: "histogram not fit - did not converge",
            2: "histogram not fit - converged but failed validation",
-           3: "histogram not fit - no data",
+           3: "histogram not fit - not enough data",
            4: "energy fit - quadratic function",
            5: "energy fit - linear function",
            6: "energy not fit - not enough data points",
