@@ -1509,6 +1509,7 @@ class ObsFile:
         # appy waveCal
         calsoln = wave_cal.root.wavecal.calsoln.read()
         for (row, column), resID in np.ndenumerate(self.beamImage):
+            print(resID)
             index = np.where(resID == np.array(calsoln['resid']))
             if len(index[0]) == 1 and (calsoln['wave_flag'][index] == 4 or
                                        calsoln['wave_flag'][index] == 5):
@@ -1522,6 +1523,7 @@ class ObsFile:
                 self.updateWavelengths(row, column, wavelengths)
             else:
                 self.applyFlag(row, column, 0b00000010)  # failed waveCal
+        self.modifyHeaderEntry(headerTitle='isWvlCalibrated', headerValue=True)
         wave_cal.close()
 
     def loadFilter(self, filterName = 'V', wvlBinEdges = None,switchOnFilter = True):
