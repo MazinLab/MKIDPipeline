@@ -37,10 +37,7 @@
 #define NFIELD 4
 
 // MKID array stats
-#define NROACHES 10
 #define NPIXELS_PER_ROACH 1024
-#define BEAM_ROWS 125
-#define BEAM_COLS 80
 #define RAD2DEG 57.2957795131
 
 // useful globals
@@ -69,11 +66,12 @@ typedef struct photon {
     float wNoise;
 } photon;
 
-int ParseConfig(int argc, char *argv[], char *Path, int *FirstFile, int *nFiles, char *BeamFile, int *mapflag)
+int ParseConfig(int argc, char *argv[], char *Path, int *FirstFile, int *nFiles, char *BeamFile, int *mapflag, int *beamCols, int *beamRows)
 {
     FILE *fp;
     
     fp = fopen(argv[1],"r");
+    fscanf(fp,"%d %d\n", beamCols, beamRows);
     fscanf(fp,"%s\n",Path);
     fscanf(fp,"%d\n",FirstFile);
     fscanf(fp,"%d\n",nFiles);
@@ -84,7 +82,7 @@ int ParseConfig(int argc, char *argv[], char *Path, int *FirstFile, int *nFiles,
     return 1;
 } 
 
-void ParsePacket( uint16_t image[BEAM_COLS][BEAM_ROWS], char *packet, uint64_t l, uint64_t frame[NROACHES])
+void ParsePacket( uint16_t **image, char *packet, uint64_t l, uint64_t *frame, int beamCols, int beamRows)
 {
     uint64_t i;
     struct datapacket *data;
@@ -94,12 +92,12 @@ void ParsePacket( uint16_t image[BEAM_COLS][BEAM_ROWS], char *packet, uint64_t l
        swp = *((uint64_t *) (&packet[i*8]));
        swp1 = __bswap_64(swp);
        data = (struct datapacket *) (&swp1);
-       if( data->xcoord >= BEAM_COLS || data->ycoord >= BEAM_ROWS ) continue;
+       if( data->xcoord >= beamCols || data->ycoord >= beamRows ) continue;
        image[data->xcoord][data->ycoord]++;   
     }
 }
 
-void AddPacket(char *packet, uint64_t l, hid_t file_id, size_t dst_size, size_t dst_offset[NFIELD], size_t dst_sizes[NFIELD], int FirstFile, uint32_t BeamMap[BEAM_COLS][BEAM_ROWS], uint64_t *nPhot, uint32_t BeamFlag[BEAM_COLS][BEAM_ROWS], int mapflag, char ResIdString[BEAM_COLS][BEAM_ROWS][20], photon *ptable[BEAM_COLS][BEAM_ROWS], uint32_t ptablect[BEAM_COLS][BEAM_ROWS] )
+void AddPacket(char *packet, uint64_t l, hid_t file_id, size_t dst_size, size_t dst_offset[NFIELD], size_t dst_sizes[NFIELD], int FirstFile, uint32_t **BeamMap, uint64_t *nPhot, uint32_t **BeamFlag, int mapflag, char ***ResIdString, photon ***ptable, uint32_t **ptablect, int beamCols, int beamRows )
 {
     uint64_t i,swp,swp1,swp2,swp3;
     int64_t basetime;
@@ -134,7 +132,7 @@ void AddPacket(char *packet, uint64_t l, hid_t file_id, size_t dst_size, size_t 
 		swp = *((uint64_t *) (&packet[i*8]));
 		swp1 = __bswap_64(swp);
 		data = (struct datapacket *) (&swp1);
-		if( data->xcoord >= BEAM_COLS || data->ycoord >= BEAM_ROWS ) continue;
+		if( data->xcoord >= beamCols || data->ycoord >= beamRows ) continue;
 		if( mapflag > 0 && BeamFlag[data->xcoord][data->ycoord] > 0) continue ; // if mapflag is set only record photons that were succesfully beammapped       
 
 		// skip if we have some issue that takes us over 2500 cts/sec
@@ -153,7 +151,7 @@ void AddPacket(char *packet, uint64_t l, hid_t file_id, size_t dst_size, size_t 
 /*
  * Sorts all photon tables in time order. Uses insertion sort (good for mostly ordered data)
  */
-void SortPhotonTables(photon *ptable[BEAM_COLS][BEAM_ROWS], uint32_t ptablect[BEAM_COLS][BEAM_ROWS])
+void SortPhotonTables(photon ***ptable, uint32_t **ptablect, int beamCols, int beamRows)
 {
     photon *photonToSortAddr; //address of element currently being sorted
     photon *curPhotonAddr; //address of element being compared to photonToSort
@@ -161,8 +159,8 @@ void SortPhotonTables(photon *ptable[BEAM_COLS][BEAM_ROWS], uint32_t ptablect[BE
     photon photonToSort; //stores the data in photonToSortAddr
     int x,y; //beammap indices
 
-    for(x=0; x<BEAM_COLS; x++)
-        for(y=0; y<BEAM_ROWS; y++)
+    for(x=0; x<beamCols; x++)
+        for(y=0; y<beamRows; y++)
             //loop through photons in list, check if it is greater than previous elements (all previous elements are already sorted)
             for(photonToSortAddr = ptable[x][y]+1; photonToSortAddr < ptable[x][y] + ptablect[x][y]; photonToSortAddr++)
             {
@@ -205,7 +203,7 @@ void SortPhotonTables(photon *ptable[BEAM_COLS][BEAM_ROWS], uint32_t ptablect[BE
 
 }
 
-void ParseBeamMapFile(char *BeamFile, uint32_t BeamMap[BEAM_COLS][BEAM_ROWS], uint32_t BeamFlag[BEAM_COLS][BEAM_ROWS])
+void ParseBeamMapFile(char *BeamFile, uint32_t **BeamMap, uint32_t **BeamFlag)
 {
     // read in Beam Map file
     // format is [ResID, flag, X, Y], X is [0, 79], Y is [0, 124]
@@ -229,11 +227,11 @@ void ParseBeamMapFile(char *BeamFile, uint32_t BeamMap[BEAM_COLS][BEAM_ROWS], ui
 /*
  * Initializes all values of BeamMap to value
  */
-void InitializeBeamMap(uint32_t BeamMap[BEAM_COLS][BEAM_ROWS], uint32_t value)
+void InitializeBeamMap(uint32_t **BeamMap, uint32_t value, int beamCols, int beamRows)
 {
     int x, y;
-    for(x=0; x<BEAM_COLS; x++)
-        for(y=0; y<BEAM_ROWS; y++)
+    for(x=0; x<beamCols; x++)
+        for(y=0; y<beamRows; y++)
             BeamMap[x][y] = value;
     
 }
@@ -241,7 +239,7 @@ void InitializeBeamMap(uint32_t BeamMap[BEAM_COLS][BEAM_ROWS], uint32_t value)
 int main(int argc, char *argv[])
 {
     char path[STR_SIZE], fName[STR_SIZE], BeamFile[STR_SIZE], outfile[STR_SIZE], imname[STR_SIZE], tname[STR_SIZE];
-    int FirstFile, nFiles,mapflag;
+    int FirstFile, nFiles,mapflag, beamCols, beamRows, nRoaches;
     long fSize, rd, j, k;
     struct stat st;
     FILE *fp;
@@ -251,36 +249,45 @@ int main(int argc, char *argv[])
     struct hdrpacket *hdr;
     char packet[808*16];
     char *olddata;
-    uint16_t image[BEAM_COLS][BEAM_ROWS];
-    unsigned char smimage[BEAM_COLS*BEAM_ROWS];
-    uint64_t frame[NROACHES];
-    uint32_t BeamMap[BEAM_COLS][BEAM_ROWS] = {0};
-    uint32_t BeamFlag[BEAM_COLS][BEAM_ROWS] = {0};
+    uint16_t **image;
+    unsigned char *smimage;
+    uint64_t *frame;
+    uint32_t **BeamMap;
+    uint32_t **BeamFlag;
+    uint32_t *toWriteBeamMap;
+    uint32_t *toWriteBeamFlag;
     uint32_t beamMapInitVal = (uint32_t)(-1);
-    char ResIdString[BEAM_COLS][BEAM_ROWS][20];
+    char ***ResIdString;
     char addHeaderCmd[120] = "python addH5Header.py ";
     char correctTimestampsCmd[120] = "python correctUnsortedTimestamps.py ";
     photon p1;
     
-    photon *ptable[BEAM_COLS][BEAM_ROWS];
-    uint32_t ptablect[BEAM_COLS][BEAM_ROWS] = {0};
+    photon ***ptable;
+    uint32_t **ptablect;
+
     
     // hdf5 variables
     hid_t file_id;
-    hid_t gid_beammap, sid_beammap, did_beammap, did_flagmap, gid_photons, sid_photons, did_photons;
+    hid_t gid_beammap, sid_beammap, did_beammap, did_flagmap, gid_photons, sid_photons, did_photons, dsid_beammap, dsid_flagmap, sid_write_beammap;
     herr_t status;
     hsize_t dims[2];
+    hsize_t count[2] = {1, 0};
+    hsize_t offset[2] = {0, 0};
+    hsize_t stride[2] = {1, 1};
+    hsize_t block[2] = {1,1};
     
     size_t dst_size =  sizeof(photon);
     size_t dst_offset[NFIELD] = { HOFFSET( photon, timestamp ), HOFFSET( photon, wvl ), HOFFSET( photon, wSpec ), HOFFSET( photon, wNoise) };
     size_t dst_sizes[NFIELD] = { sizeof(p1.timestamp), sizeof(p1.wvl),sizeof(p1.wSpec), sizeof(p1.wNoise) };
+    
+    count[1] = beamRows;
 
     /* Define field information */
     const char *field_names[NFIELD]  =
     { "Time","Wavelength","Spec Weight","Noise Weight"};
     hid_t      field_type[NFIELD];
     hid_t      string_type;
-    hsize_t    chunk_size = 10;
+    hsize_t    chunk_size = 10000;
     int        *fill_data = NULL;
     int        compress  = 0;
 
@@ -297,17 +304,46 @@ int main(int argc, char *argv[])
         printf("Bin2HDF error - First command line argument must be the configuration file.\n");
         exit(0);
     }
-    if (ParseConfig(argc,argv,path,&FirstFile,&nFiles,BeamFile,&mapflag) == 0 ) {
+    if (ParseConfig(argc,argv,path,&FirstFile,&nFiles,BeamFile,&mapflag,&beamCols,&beamRows) == 0 ) {
         printf("Bin2HDF error - Config parsing error.\n");
 		exit(1);
 	}
+
+    //initialize nRoaches
+    nRoaches = beamRows*beamCols/1000;
+    frame = (uint64_t*)malloc(nRoaches*sizeof(uint64_t));
     
     // Set up memory structure for data
     data = (uint64_t **) malloc( nFiles * sizeof(uint64_t *) );
     dSize = (uint64_t *) malloc( nFiles * sizeof(uint64_t *) );
+
+    // Set up memory structure for 2D "beammap" arrays
+    BeamMap = (uint32_t**)malloc(beamCols * sizeof(uint32_t*));
+    BeamFlag = (uint32_t**)malloc(beamCols * sizeof(uint32_t*));
+    image = (uint16_t**)malloc(beamCols * sizeof(uint16_t*));
+    smimage = (char *)malloc(beamCols * beamRows * sizeof(char));
+    ptable = (photon***)malloc(beamCols * sizeof(photon**));
+    ptablect = (uint32_t**)malloc(beamCols * sizeof(uint32_t*));
+    ResIdString = (char***)malloc(beamCols * sizeof(char**));
+    toWriteBeamMap = (uint32_t*)malloc(beamCols * beamRows * sizeof(uint32_t));
+    toWriteBeamFlag = (uint32_t*)malloc(beamCols * beamRows * sizeof(uint32_t));
+
+    for(i=0; i<beamCols; i++)
+    {
+        BeamMap[i] = (uint32_t*)malloc(beamRows * sizeof(uint32_t));
+        BeamFlag[i] = (uint32_t*)malloc(beamRows * sizeof(uint32_t));
+        image[i] = (uint16_t*)malloc(beamRows * sizeof(uint16_t));
+        ptable[i] = (photon**)malloc(beamRows * sizeof(photon*));
+        ptablect[i] = (uint32_t*)malloc(beamRows * sizeof(uint32_t));
+        ResIdString[i] = (char**)malloc(beamRows * sizeof(char*));
+        for(j=0; j<beamRows; j++)
+            ResIdString[i][j] = (char*)malloc(20 * sizeof(char));
+
+    }
         
     // Read in beam map and parse it make 2D beam map and flag arrays
-    InitializeBeamMap(BeamMap, beamMapInitVal); //initialize to out of bounds resID
+    InitializeBeamMap(BeamMap, beamMapInitVal, beamCols, beamRows); //initialize to out of bounds resID
+    InitializeBeamMap(BeamFlag, 1, beamCols, beamRows); //initialize flag to one
     ParseBeamMapFile(BeamFile,BeamMap,BeamFlag);
     printf("Parsed beam map.\n"); fflush(stdout);
     
@@ -335,20 +371,28 @@ int main(int argc, char *argv[])
     file_id = H5Fcreate (outfile, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
     
     // put the beam map into the h5 file    
-    dims[0] = BEAM_COLS;
-    dims[1] = BEAM_ROWS;
+    dims[0] = beamCols;
+    dims[1] = beamRows;
     gid_beammap = H5Gcreate2(file_id, "BeamMap", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
     sid_beammap = H5Screate_simple(2, dims, NULL);
     did_beammap = H5Dcreate2(file_id, "/BeamMap/Map", H5T_NATIVE_UINT, sid_beammap, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
     did_flagmap = H5Dcreate2(file_id, "/BeamMap/Flag", H5T_NATIVE_UINT, sid_beammap, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+
+    for(i=0; i<beamCols; i++)
+        for(j=0; j<beamRows; j++)
+        {
+            toWriteBeamMap[beamRows*i + j] = BeamMap[i][j];
+            toWriteBeamFlag[beamRows*i + j] = BeamFlag[i][j];
+
+        }
     
-    H5Dwrite (did_beammap, H5T_NATIVE_UINT, H5S_ALL, H5S_ALL, H5P_DEFAULT, BeamMap);
-    H5Dwrite (did_flagmap, H5T_NATIVE_UINT, H5S_ALL, H5S_ALL, H5P_DEFAULT, BeamFlag);
-        
+    H5Dwrite (did_beammap, H5T_NATIVE_UINT, H5S_ALL, H5S_ALL, H5P_DEFAULT, toWriteBeamMap);
+    H5Dwrite (did_flagmap, H5T_NATIVE_UINT, H5S_ALL, H5S_ALL, H5P_DEFAULT, toWriteBeamFlag);
+
     H5Dclose(did_beammap);
     H5Dclose(did_flagmap);
     H5Sclose(sid_beammap);
-    H5Gclose(gid_beammap);   
+    H5Gclose(gid_beammap); 
     
     gid_beammap = H5Gcreate2(file_id, "Images", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
     
@@ -359,8 +403,8 @@ int main(int argc, char *argv[])
     gid_photons = H5Gcreate2(file_id, "Photons", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
         
     // make photon tables for every resid
-    for(i=0; i < BEAM_COLS; i++) {
-		for(j=0; j < BEAM_ROWS; j++) {
+    for(i=0; i < beamCols; i++) {
+		for(j=0; j < beamRows; j++) {
 			if( BeamMap[i][j] == 0 ) 
             {
                 printf("ResID 0 at (%d,%d)\n", i, j);
@@ -390,7 +434,8 @@ int main(int argc, char *argv[])
         pstart = 0;
         pcount = 0;
         nPhot = 0;
-        memset(ptablect,0,sizeof(uint32_t)*BEAM_COLS*BEAM_ROWS); // zero out the count table
+        for(j=0; j<beamCols; j++)
+            memset(ptablect[j],0,sizeof(uint32_t)*beamRows); // zero out the count table
         
         printf("File %ld: ",i);    
             
@@ -420,9 +465,9 @@ int main(int argc, char *argv[])
                 memmove(packet,&olddata[pstart],j*8 - pstart);
                 pcount++;
                 // parse into image                
-                ParsePacket(image,packet,j*8 - pstart,frame); 
+                ParsePacket(image, packet, j*8 - pstart, frame, beamCols, beamRows); 
                 // add to HDF5 file
-                AddPacket(packet,j*8-pstart,file_id,dst_size,dst_offset,dst_sizes,FirstFile,BeamMap,&nPhot,BeamFlag,mapflag,ResIdString,ptable,ptablect);
+                AddPacket(packet,j*8-pstart,file_id,dst_size,dst_offset,dst_sizes,FirstFile,BeamMap,&nPhot,BeamFlag,mapflag,ResIdString,ptable,ptablect,beamCols,beamRows);
 		        pstart = j*8;   // move start location for next packet
 		        if( pcount%1000 == 0 ) printf("."); fflush(stdout);	                      
             }
@@ -432,8 +477,8 @@ int main(int argc, char *argv[])
         //SortPhotonTables(ptable, ptablect);
         
         // save photon tables to hdf5
-        for(j=0; j < BEAM_COLS; j++) {
-			for(k=0; k < BEAM_ROWS; k++) {
+        for(j=0; j < beamCols; j++) {
+			for(k=0; k < beamRows; k++) {
 				if( BeamMap[j][k] == 0 ) continue;
 				if( ptablect[j][k] == 0 ) continue;    
 				//printf("%s %ld\n", ResIdString[j][k], ptablect[j][k]);
@@ -446,14 +491,15 @@ int main(int argc, char *argv[])
 		printf("|"); fflush(stdout);
         
         // save image array to hdf5
-        for( j=0; j < BEAM_COLS*BEAM_ROWS; j++ ) {
-            smimage[j] =  (unsigned char) (image[j%BEAM_COLS][j/BEAM_COLS]/10);
+        for( j=0; j < beamCols*beamRows; j++ ) {
+            smimage[j] =  (unsigned char) (image[j%beamCols][j/beamCols]/10);
             if( smimage[j] > 2499 ) smimage[j] = 0;
         }
                 
         sprintf(imname,"/Images/%ld",i+FirstFile);
-        H5IMmake_image_8bit( file_id, imname, (hsize_t)BEAM_COLS, (hsize_t)BEAM_ROWS, smimage );
-        memset(image, 0, BEAM_COLS*BEAM_ROWS*sizeof(uint16_t));
+        H5IMmake_image_8bit( file_id, imname, (hsize_t)beamCols, (hsize_t)beamRows, smimage );
+        for(j=0; j<beamCols; j++)
+            memset(image[j], 0, beamRows*sizeof(uint16_t));
         
         printf(" %ld packets, %ld photons. %ld photons/packet.\n",pcount,nPhot,nPhot/pcount);
         tPhot += nPhot;
@@ -469,8 +515,8 @@ int main(int argc, char *argv[])
     H5Fclose(file_id);
  
      // make photon tables for every resid
-    for(i=0; i < BEAM_COLS; i++) {
-		for(j=0; j < BEAM_ROWS; j++) {
+    for(i=0; i < beamCols; i++) {
+		for(j=0; j < beamRows; j++) {
 			if( BeamMap[i][j] == 0 ) continue;
 			free(ptable[i][j]);
 		}
