@@ -69,20 +69,23 @@ class FlatCal:
 		print(self.obsFileNames)
 		self.obsList = [ObsFile(obsFileName) for obsFileName in self.obsFileNames]
 		self.flatCalFileName = FileName(run=self.run,date=self.date,tstamp=self.flatCalTstamp).flatSoln()
-		if self.wvlDate != '':
-			wvlCalFileName = FileName(run=self.run,date=wvlDate,tstamp=wvlTimestamp).calSoln()
-		for iObs,obs in enumerate(self.obsList):
-			#if self.wvlDate != '':
-			#	obs.loadWvlCalFile(wvlCalFileName)
-			#else:
-                		#obs.loadBestWvlCalFile()
-			obs.setWvlCutoffs(3000,13000)
-			if self.timeMaskFileName != '':
-				if not os.path.exists(self.timeMaskFileName):
-					print('Running hotpix for ',obs)
-					hp.findHotPixels(obsFile=obs,outputFileName=timeMaskFileName,fwhm=np.inf,useLocalStdDev=True)
-					print ('Flux file pixel mask saved to %s"%(timeMaskFileName)')
-				obs.loadHotPixCalFile(timeMaskFileName)
+		if self.obsList[0].info['isWvlCalibrated']!=True:		
+			if self.wvlDate != '':
+				wvlCalFileName = FileName(run=self.run,date=wvlDate,tstamp=wvlTimestamp).calSoln()
+			for iObs,obs in enumerate(self.obsList):
+				if self.wvlDate != ''
+					self.mode='write':
+					obs.applyWaveCal(wvlCalFileName)
+				else:
+					self.mode='write':
+                			obs.loadBestWvlCalFile()
+				obs.setWvlCutoffs(3000,13000)
+				if self.timeMaskFileName != '':
+					if not os.path.exists(self.timeMaskFileName):
+						print('Running hotpix for ',obs)
+						hp.findHotPixels(obsFile=obs,outputFileName=timeMaskFileName,fwhm=np.inf,useLocalStdDev=True)
+						print ('Flux file pixel mask saved to %s"%(timeMaskFileName)')
+					obs.loadHotPixCalFile(timeMaskFileName)
 
 		#get beammap from first obs
 		self.beamImage = self.obsList[0].beamImage
@@ -108,7 +111,6 @@ class FlatCal:
 
 		for iObs,obs in enumerate(self.obsList):
 			for firstSec in range(0,obs.getFromHeader('expTime'),self.intTime):			
-				self.obsList[0].info['isWvlCalibrated']=True
 				cubeDict = obs.getSpectralCube(firstSec=firstSec,integrationTime=self.intTime,applySpecWeight=False, applyTPFWeight=False,wvlBinEdges = self.wvlBinEdges,energyBinWidth=None,timeSpacingCut = self.timeSpacingCut)
 				cube = np.array(cubeDict['cube'],dtype=np.double)
 				effIntTime = cubeDict['effIntTime']
