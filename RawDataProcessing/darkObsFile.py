@@ -1827,7 +1827,7 @@ class ObsFile:
         photonTable.modify_column(column=newWeights, colname='Spec Weight')
         photonTable.flush()
 
-def applyWaveCal(self, FlatCalFile):
+def applyFlatCal(self, FlatCalFile):
 
         assert not self.info['isSpecCalibrated'], \
                 "the data is already Flat calibrated"
