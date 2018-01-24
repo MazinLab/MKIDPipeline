@@ -10,7 +10,6 @@ from matplotlib import pyplot as plt
 from configparser import ConfigParser
 from matplotlib.backends.backend_pdf import PdfPages
 from Headers import pipelineFlags
-from Calibration.WavelengthCal.WaveCal import fitModels
 
 
 def plotEnergySolution(file_name, res_id=None, pixel=[]):
@@ -580,3 +579,22 @@ def loadFrequencyFile(config_file, verbose=True):
         return np.ones((1, 2)) * -1
     freqs = np.vstack(freqs)
     return freqs
+
+
+def fitModels(model_name):
+    '''
+    Returns the specified fit model from a library of possible functions
+    '''
+    if model_name == 'gaussian_and_exp':
+        fit_function = lambda x, a, b, c, d, f: \
+            a * np.exp(b * x) + c * np.exp(-1 / 2.0 * ((x - d) / f)**2)
+    elif model_name == 'gaussian':
+        fit_function = lambda x, c, d, f: c * np.exp(-1 / 2.0 * ((x - d) / f)**2)
+    elif model_name == 'exp':
+        fit_function = lambda x, a, b: a * np.exp(b * x)
+    elif model_name == 'quadratic':
+        fit_function = lambda p, x: p['a'] * x**2 + p['b'] * x + p['c']
+    elif model_name == 'linear':
+        fit_function = lambda p, x: p['b'] * x + p['c']
+
+    return fit_function
