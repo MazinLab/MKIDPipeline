@@ -1863,6 +1863,7 @@ def applyFlatCal(self, FlatCalFile):
                 weightArr[np.where(phases < minwavelength)]=1.0
                 weightArr[np.where(phases > maxwavelength)]=1.0
                 obs.applySpecWeight(obsfile, resID=resID, weightArr=weightArr)
+        self.modifyHeaderEntry(headerTitle='isSpecCalibrated', headerValue=True)
 
     def applyTimestampCorrection(self, xCoord, yCoord, timestampArr):
         """
