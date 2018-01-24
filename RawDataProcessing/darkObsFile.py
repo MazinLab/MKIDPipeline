@@ -1493,7 +1493,7 @@ class ObsFile:
                 print("Searched "+wvlDir+" but no appropriate wavecal solution found")
                 raise IOError
         else:
-            self.loadWvlCalFile(wvlCalFileName)
+            obs.applyWaveCal(wvlCalFileName)
 
     def applyWaveCal(self, file_name):
         """
