@@ -13,10 +13,10 @@ if __name__=='__main__':
     cfgParamList = cfgFile.read().splitlines()
     cfgFile.close()
 
-    dataDir = cfgParamList[0]
-    firstSec = int(cfgParamList[1])
-    expTime = int(cfgParamList[2])
-    beammapFile = cfgParamList[3]
+    dataDir = cfgParamList[1]
+    firstSec = int(cfgParamList[2])
+    expTime = int(cfgParamList[3])
+    beammapFile = cfgParamList[4]
 
     filename = str(sys.argv[2])
     hfile = tables.open_file(filename, mode='a')

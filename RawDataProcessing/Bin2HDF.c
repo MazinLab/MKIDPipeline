@@ -526,6 +526,26 @@ int main(int argc, char *argv[])
     free(data);
     free(dSize);
 
+    for(i=0; i<beamCols; i++)
+    {
+        free(BeamMap[i]);
+        free(BeamFlag[i]);
+        free(image[i]);
+        free(ptable[i]);
+        free(ptablect[i]);
+        free(ResIdString[i]);
+
+    }
+
+    free(BeamMap);
+    free(BeamFlag);
+    free(image);
+    free(ptable);
+    free(ptablect);
+    free(ResIdString);
+    free(toWriteBeamMap);
+    free(toWriteBeamFlag);
+
     strcat(addHeaderCmd, argv[1]);
     strcat(addHeaderCmd, " ");
     strcat(addHeaderCmd, outfile);
