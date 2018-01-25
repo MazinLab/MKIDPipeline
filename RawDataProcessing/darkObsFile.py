@@ -1493,7 +1493,7 @@ class ObsFile:
                 print("Searched "+wvlDir+" but no appropriate wavecal solution found")
                 raise IOError
         else:
-            self.loadWvlCalFile(wvlCalFileName)
+            obs.applyWaveCal(wvlCalFileName)
 
     def applyWaveCal(self, file_name):
         """
@@ -1826,6 +1826,43 @@ class ObsFile:
         newWeights = weightArr*curWeights
         photonTable.modify_column(column=newWeights, colname='Spec Weight')
         photonTable.flush()
+
+    def applyFlatCal(self, FlatCalFile):
+        assert not self.info['isSpecCalibrated'], \
+                "the data is already Flat calibrated"
+        assert os.path.exists(FlatCalFile), "{0} does not exist".format(FlatCalFile)
+        flat_cal = tables.open_file(FlatCalFile, mode='r')
+        calsoln = flat_cal.root.flatcal.calsoln.read()
+        bins=np.array(flat_cal.root.flatcal.wavelengthBins.read())
+        bins=bins.flatten()
+        minwavelength=700
+        maxwavelength=1500
+        heads=np.array([0,100,200,300,400,500,600])
+        tails=np.array([1600,1700,1800,1900,2000])
+        bins=np.append(heads,bins)
+        bins=np.append(bins,tails)
+        for (row, column), resID in np.ndenumerate(self.beamImage):
+            index = np.where(resID == np.array(calsoln['resid']))
+            if len(index[0]) == 1 and (calsoln['flag'][index] == 0):
+                print('resID', resID, 'row', row, 'column', column)
+                weights = calsoln['weights'][index]
+                photon_list = self.getPixelPhotonList(row, column)
+                phases = photon_list['Wavelength']
+                weights=np.array(weights)
+                weights=weights.flatten()
+                weightsheads=np.zeros(len(heads))+weights[0]
+                weightstails=np.zeros(len(tails)+1)+weights[len(weights)-1]
+                weights=np.append(weightsheads,weights)
+                weights=np.append(weights,weightstails)
+                weightfxncoeffs10=np.polyfit(bins,weights,10)
+                weightfxn10=np.poly1d(weightfxncoeffs10)
+                photon_list = self.getPixelPhotonList(row, column)
+                phases = photon_list['Wavelength']
+                weightArr=weightfxn10(phases)
+                weightArr[np.where(phases < minwavelength)]=1.0
+                weightArr[np.where(phases > maxwavelength)]=1.0
+                obs.applySpecWeight(obsfile, resID=resID, weightArr=weightArr)
+        self.modifyHeaderEntry(headerTitle='isSpecCalibrated', headerValue=True)
 
     def applyTimestampCorrection(self, xCoord, yCoord, timestampArr):
         """
