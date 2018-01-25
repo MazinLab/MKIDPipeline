@@ -69,6 +69,10 @@ class FlatCal:
 		print(self.obsFileNames)
 		self.obsList = [ObsFile(obsFileName) for obsFileName in self.obsFileNames]
 		self.flatCalFileName = FileName(run=self.run,date=self.date,tstamp=self.flatCalTstamp).flatSoln()
+		'''
+		If input flat file is not wavelength calibrated and a wavecal solution file is specified in the cfg file, here is where it will be applied
+		If input flat file is not wavelength calibrated and no solution file is specified, the best wavecal file will be loaded and applied if possible
+		'''
 		if self.obsList[0].info['isWvlCalibrated']!=True:		
 			if self.wvlDate != '':
 				wvlCalFileName = FileName(run=self.run,date=wvlDate,tstamp=wvlTimestamp).calSoln()
@@ -104,8 +108,10 @@ class FlatCal:
 	def loadFlatSpectra(self):
 		'''
 		Reads the flat data into a spectral cube whose dimensions are determined by the number of x and y pixels and the number of wavelength bins.
+		Each element will be the spectral cube for a time chunk
+		Find factors to correct nonlinearity due to deadtime in firmware
 		'''
-		self.spectralCubes = []#each element will be the spectral cube for a time chunk
+		self.spectralCubes = []
 		self.cubeEffIntTimes = []
 		self.frames = []
 
@@ -119,7 +125,6 @@ class FlatCal:
 				cube /= effIntTime3d
 				cube[np.isnan(cube)]=0 
 
-				#find factors to correct nonlinearity
 				rawFrameDict = obs.getPixelCountImage(firstSec=firstSec,integrationTime=self.intTime,scaleByEffInt=True)  
 				rawFrame = np.array(rawFrameDict['image'],dtype=np.double)
 				rawFrame /= rawFrameDict['effIntTimes']
@@ -128,7 +133,6 @@ class FlatCal:
 
                 
 				frame = np.sum(cube,axis=2) #in counts per sec
-				#correct nonlinearity due to deadtime in firmware
 				frame = frame * nonlinearFactors
                 
 				nonlinearFactors = np.reshape(nonlinearFactors,np.shape(nonlinearFactors)+(1,))
@@ -143,18 +147,21 @@ class FlatCal:
 		self.countCubes = self.cubeEffIntTimes * self.spectralCubes
 
 	def checkCountRates(self):
+		'''
+		mask out frames, or cubes from integration time chunks with count rates too high
+		'''
 		medianCountRates = np.array([np.median(frame[frame!=0]) for frame in self.frames])
 		print(np.shape(medianCountRates))
 		boolIncludeFrames = medianCountRates <= self.countRateCutoff
-		#mask out frames, or cubes from integration time chunks with count rates too high
 		self.spectralCubes = np.array([cube for cube,boolIncludeFrame in zip(self.spectralCubes,boolIncludeFrames) if boolIncludeFrame==True])
 		self.frames = [frame for frame,boolIncludeFrame in zip(self.frames,boolIncludeFrames) if boolIncludeFrame==True]
 		print('few enough counts in the chunk',zip(medianCountRates,boolIncludeFrames))
 
 	def calculateWeights(self):
-		"""
+		'''
 		finds flat cal factors as medians/pixelSpectra for each pixel.  Normalizes these weights at each wavelength bin.
-		"""
+		Trim the beginning and end off the sorted weights for each wvl for each pixel, to exclude extremes from averages
+		'''
 		cubeWeightsList = []
 		self.averageSpectra = []
 		deltaWeightsList = []
@@ -165,7 +172,7 @@ class FlatCal:
 			spectra2d = np.reshape(cube,[self.nXPix*self.nYPix,self.nWvlBins ])
 			for iWvl in range(self.nWvlBins):
 				wvlSlice = spectra2d[:,iWvl]
-				goodPixelWvlSlice = np.array(wvlSlice[wvlSlice != 0])#dead pixels need to be taken out before calculating averages
+				goodPixelWvlSlice = np.array(wvlSlice[wvlSlice != 0]) #dead pixels need to be taken out before calculating averages
 				nGoodPixels = len(goodPixelWvlSlice)
 				wvlAverages[iWvl] = np.median(goodPixelWvlSlice)
 			weights = np.divide(wvlAverages,cube)
@@ -190,7 +197,6 @@ class FlatCal:
 		countCubesReordered = self.countCubes[sortedIndices,identityIndices[1],identityIndices[2],identityIndices[3]]
 		cubeDeltaWeightsReordered = self.maskedCubeDeltaWeights[sortedIndices,identityIndices[1],identityIndices[2],identityIndices[3]]
 
-		#trim the beginning and end off the sorted weights for each wvl for each pixel, to exclude extremes from averages
 		nCubes = np.shape(self.maskedCubeWeights)[0]
 		trimmedWeights = sortedWeights[self.fractionOfChunksToTrim*nCubes:(1-self.fractionOfChunksToTrim)*nCubes,:,:,:]
 		trimmedCountCubesReordered = countCubesReordered[self.fractionOfChunksToTrim*nCubes:(1-self.fractionOfChunksToTrim)*nCubes,:,:,:]
@@ -202,12 +208,14 @@ class FlatCal:
     
 
 		trimmedCubeDeltaWeightsReordered = cubeDeltaWeightsReordered[self.fractionOfChunksToTrim*nCubes:(1-self.fractionOfChunksToTrim)*nCubes,:,:,:]
-
+		'''
+		Uncertainty in weighted average is sqrt(1/sum(averagingWeights))
+		Normalize weights at each wavelength bin
+		'''
 		self.flatWeights,summedAveragingWeights = np.ma.average(trimmedWeights,axis=0,weights=trimmedCubeDeltaWeightsReordered**-2.,returned=True)
-		self.deltaFlatWeights = np.sqrt(summedAveragingWeights**-1.)#Uncertainty in weighted average is sqrt(1/sum(averagingWeights))
+		self.deltaFlatWeights = np.sqrt(summedAveragingWeights**-1.)
 		self.flatFlags = self.flatWeights.mask
 
-		#normalize weights at each wavelength bin
 		wvlWeightMedians = np.ma.median(np.reshape(self.flatWeights,(-1,self.nWvlBins)),axis=0)
 		self.flatWeights = np.divide(self.flatWeights,wvlWeightMedians)
             
@@ -350,10 +358,6 @@ class FlatCal:
 					ax.set_title('p %d,%d'%(iRow,iCol))
 					ax.set_ylabel('weight')
 					ax.set_xlabel(r'$\lambda$ ($\AA$)')
-					#ax.plot(wvls,flatSpectrum,label='pixel',alpha=.5)
-
-					#ax.legend(loc='lower left')
-					#ax2.legend(loc='lower right')
 					if iPlot%nPlotsPerPage == nPlotsPerPage-1 or (iRow == self.nXPix-1 and iCol == self.nYPix-1):
 						pp.savefig(fig)
 					iPlot += 1
@@ -369,11 +373,7 @@ class FlatCal:
                 
 					ax.set_title('p %d,%d'%(iRow,iCol))
 					ax.set_xlabel(r'$\lambda$ ($\AA$)')
-					ax.set_ylabel('twilight cps')
-					#ax.plot(wvls,flatSpectrum,label='pixel',alpha=.5)
 
-					#ax.legend(loc='lower left')
-					#ax2.legend(loc='lower right')
 					if iPlot%nPlotsPerPage == nPlotsPerPage-1 or (iRow == self.nXPix-1 and iCol == self.nYPix-1):
 						pp.savefig(fig)
 						#plt.show()
