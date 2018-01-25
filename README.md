@@ -69,12 +69,17 @@ The wavelength calibration code is in the Calibration/WavelengthCal/ folder. The
     plotWaveCal.py -- plotting functions for viewing the results of the calibration
     ./Params/default.cfg -- default config file, used for reference
 #### Additional required packages
-Some non-standard python packages are needed for the wavelength calibration to work. They are lmfit, progressbar, PyPDF2, and configparser. They can be downloaded with the following commands:
+Some non-standard python packages are needed for the wavelength calibration to work. They are lmfit, progressbar, and PyPDF2. They can be downloaded with the following commands:
 
     conda install -c conda-forge lmfit  
     conda install -c conda-forge progressbar2  
-    conda install -c conda-forge pypdf2  
-    conda install -c anaconda configparser
+    conda install -c conda-forge pypdf2
+
+Additionally, Latex needs to be installed and configured to work with matplotlib. This only affects the plotting routines. The solution file will be generated even if Latex is not set up correctly. If installing Latex out-of-the-box still makes the WaveCal code error, there are a couple of things to try.
++ Look at the error. Is there a required latex package that can't be loaded? If so, download a more comprehensive latex distribution.
++ Check that dvipng is installed and up to date.
++ Check that Ghostscript is up to date.
++ If none of the above work, go to https://matplotlib.org/users/usetex.html for more detailed information.
 
 #### Configuration file
 The default.cfg file is a reference configuration file and has detailed comments in it describing each parameter. The configuration file is setup using python syntax. (i.e. if a parameter is a string, it must be surrounded by quotation marks.) The most important parameters will be described here.
@@ -161,7 +166,7 @@ The following sample script shows how to generate each plot. View the docstrings
     p.plotSummary(file_name, templar_config)
 
 #### Applying the wavelength calibration
-After the wavelength calibration .h5 solution file is made, it can be applied to an obs file by using this code snippet 
+After the wavelength calibration .h5 solution file is made, it can be applied to an obs file by using this code snippet
 
     # path to your wavecal solution file
     file_name = '/path/to/calsol_timestamp.h5'
