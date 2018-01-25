@@ -1151,7 +1151,17 @@ class WaveCal:
                     if self.model_name == 'gaussian_and_exp':
                         result.covar = np.ones((5, 5)) * result.best_values['f'] / 2
                 # unpack results
-                fit_result = (list(result.best_values.values()), result.covar)
+                if self.model_name == 'gaussian_and_exp':
+                    parameters = ['a', 'b', 'c', 'd', 'f']
+                    popt = [result.best_values[p] for p in parameters]
+                    current_order = result.var_names
+                    indices = []
+                    for p in parameters:
+                        for index, o in enumerate(current_order):
+                            if p == o:
+                                indices.append(index)
+                    pcov = result.covar[indices, :][:, indices]
+                fit_result = (popt, pcov)
 
             except (RuntimeError, RuntimeWarning, ValueError) as error:
                 # RuntimeError catches failed minimization

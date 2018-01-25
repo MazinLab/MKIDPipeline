@@ -289,7 +289,8 @@ def plotRHistogram(file_name, mask=None, axis=None):
         axis.axvline(x=median, ymin=0, ymax=1000, linestyle='--', color=color,
                      linewidth=2)
         max_counts.append(np.max(counts))
-    axis.set_ylim([0, 1.2 * np.max(max_counts)])
+    if np.max(max_counts) != 0:
+        axis.set_ylim([0, 1.2 * np.max(max_counts)])
     plt.tight_layout()
     axis.legend(fontsize=6)
     if show:
@@ -419,8 +420,8 @@ def plotCenterHist(file_name, mask=None, axis=None):
         axis.axvline(x=median, ymin=0, ymax=1000, linestyle='--', color=color,
                      linewidth=2)
         max_counts.append(np.max(counts))
-    axis.set_ylim([0, 1.2 * np.max(max_counts)])
-
+    if np.max(max_counts) != 0:
+        axis.set_ylim([0, 1.2 * np.max(max_counts)])
     wave_cal.close()
     plt.tight_layout()
     axis.legend(fontsize=6)
@@ -498,13 +499,14 @@ def plotSummary(file_name, config_name='', save_pdf=False, save_name=None, verbo
     axes[0, 0] = plotRHistogram(file_name, axis=axes[0, 0])
     ylim = axes[0, 0].get_ylim()
     xlim = axes[0, 0].get_xlim()
-    axes[0, 0].text(xlim[0] - np.mean(xlim) / 5, ylim[1] * 1.4,
+    axes[0, 0].text(xlim[0] - np.mean(xlim) / 5, ylim[1] + (ylim[1] - ylim[0]) * 0.4,
                     "Wavelength Calibration Solution Summary:", fontsize=15)
     switch = False
     if not mpl.rcParams['text.usetex']:
         mpl.rc('text', usetex=True)
         switch = True
-    axes[0, 0].text(xlim[0] - np.mean(xlim) / 5, ylim[1] * 1.1, table)
+    axes[0, 0].text(xlim[0] - np.mean(xlim) / 5,
+                    ylim[1] + (ylim[1] - ylim[0]) * 0.1, table)
     mpl.rc('text', usetex=False)
     axes[1, 1].axis('off')
     axes[1, 1].text(-0.1, 0.97, "Wavelength Calibration File Name:")
@@ -529,7 +531,7 @@ def plotSummary(file_name, config_name='', save_pdf=False, save_name=None, verbo
     axes[1, 0] = plotCenterHist(file_name, axis=axes[1, 0])
     axes[0, 1] = plotRvsF(file_name, config_name, axis=axes[0, 1], verbose=verbose)
 
-    plt.tight_layout(rect=[0.03, 0.03, 1, 0.85])
+    plt.tight_layout(rect=[0.03, 0.03, 0.95, 0.85])
     if save_pdf:
         if save_name is None:
             raise ValueError('define key-value pair save_name to be a string')
