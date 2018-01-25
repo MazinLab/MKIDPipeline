@@ -300,7 +300,7 @@ def plotRHistogram(file_name, mask=None, axis=None):
 
 def plotRvsF(file_name, config_name, axis=None, verbose=True):
     '''
-    Plot the energy resolution averaged over all wavelengths against the resonance
+    Plot the median energy resolution over all wavelengths against the resonance
     frequency.
 
     Args:
@@ -321,7 +321,7 @@ def plotRvsF(file_name, config_name, axis=None, verbose=True):
     with warnings.catch_warnings():
         # rows with all nan values will give an unnecessary RuntimeWarning
         warnings.simplefilter("ignore", category=RuntimeWarning)
-        R = np.nanmean(R0, axis=1)
+        R = np.nanmedian(R0, axis=1)
     res_id = calsoln['resid']
     f = []
     r0 = []
