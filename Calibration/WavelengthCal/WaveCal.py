@@ -518,14 +518,14 @@ class WaveCal:
 
                 guess = [0, phases[0] / energies[0], 0]  # guess straight line
 
-                phase_list = []
+                phase_list1 = []
+                phase_list2 = []
                 for ind, _ in enumerate(fit_results):
                     if len(fit_results[ind][3]['centers']) > 0:
-                        phase_list.append(np.max(fit_results[ind][3]['centers']))
-                self.current_threshold = np.max(phase_list)
-                phase_list = [np.min(fit_results[ind][3]['centers'])
-                              for ind, _ in enumerate(fit_results)]
-                self.current_min = np.min(phase_list)
+                        phase_list1.append(np.max(fit_results[ind][3]['centers']))
+                        phase_list2.append(np.min(fit_results[ind][3]['centers']))
+                self.current_threshold = np.max(phase_list1)
+                self.current_min = np.min(phase_list2)
                 popt, pcov = self.__fitEnergy('quadratic', phases, energies, guess,
                                               errors, row, column)
 
