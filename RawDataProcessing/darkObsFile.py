@@ -85,7 +85,21 @@ class ObsFile:
     nCalCoeffs = 3
     def __init__(self, fileName, mode='read', verbose=False):
         """
-        load the given file with fileName relative to $MKID_RAW_PATH
+        Create ObsFile object and load in specified HDF5 file.
+
+        Parameters
+        ----------
+            fileName: String
+                Path to HDF5 File
+            mode: String
+                'read' or 'write'. File should be opened in 'read' mode 
+                unless you are applying a calibration.
+            verbose: bool
+                Prints debug messages if True
+        Returns
+        -------
+            ObsFile instance
+                
         """
         assert mode=='read' or mode=='write', '"mode" argument must be "read" or "write"'
         self.mode = mode

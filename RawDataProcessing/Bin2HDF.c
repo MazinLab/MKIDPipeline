@@ -34,7 +34,7 @@
 //number of dimensions in the Variable Length array (VLarray).  
 //There is a 1D array of pointers to variable length arrays, so rank=1
 #define DATA_RANK 1
-#define NFIELD 4
+#define NFIELD 5
 
 // MKID array stats
 #define NPIXELS_PER_ROACH 1024
@@ -60,6 +60,7 @@ struct hdrpacket {
 }__attribute__((packed));;
 
 typedef struct photon {
+    uint32_t resID;
     uint32_t timestamp;
     float wvl;
     float wSpec;
@@ -139,6 +140,7 @@ void AddPacket(char *packet, uint64_t l, hid_t file_id, size_t dst_size, size_t 
 		if( ptablect[data->xcoord][data->ycoord] > 2498 ) continue;
 
 		// add the photon to ptable and increment the appropriate counter
+        ptable[data->xcoord][data->ycoord][ptablect[data->xcoord][data->ycoord]].resID = BeamMap[data->xcoord][data->ycoord];
 		ptable[data->xcoord][data->ycoord][ptablect[data->xcoord][data->ycoord]].timestamp = (uint32_t) (basetime*500 + data->timestamp);
 		ptable[data->xcoord][data->ycoord][ptablect[data->xcoord][data->ycoord]].wvl = ((float) data->wvl)*RAD2DEG/32768.0;
 		ptable[data->xcoord][data->ycoord][ptablect[data->xcoord][data->ycoord]].wSpec = 1.0;
@@ -277,25 +279,26 @@ int main(int argc, char *argv[])
     hsize_t block[2] = {1,1};
     
     size_t dst_size =  sizeof(photon);
-    size_t dst_offset[NFIELD] = { HOFFSET( photon, timestamp ), HOFFSET( photon, wvl ), HOFFSET( photon, wSpec ), HOFFSET( photon, wNoise) };
-    size_t dst_sizes[NFIELD] = { sizeof(p1.timestamp), sizeof(p1.wvl),sizeof(p1.wSpec), sizeof(p1.wNoise) };
+    size_t dst_offset[NFIELD] = { HOFFSET( photon, resID), HOFFSET( photon, timestamp ), HOFFSET( photon, wvl ), HOFFSET( photon, wSpec ), HOFFSET( photon, wNoise) };
+    size_t dst_sizes[NFIELD] = { sizeof(p1.resID), sizeof(p1.timestamp), sizeof(p1.wvl),sizeof(p1.wSpec), sizeof(p1.wNoise) };
     
     count[1] = beamRows;
 
     /* Define field information */
     const char *field_names[NFIELD]  =
-    { "Time","Wavelength","Spec Weight","Noise Weight"};
+    { "ResID","Time","Wavelength","SpecWeight","NoiseWeight"};
     hid_t      field_type[NFIELD];
     hid_t      string_type;
-    hsize_t    chunk_size = 10000;
+    hsize_t    chunk_size = 10;
     int        *fill_data = NULL;
     int        compress  = 0;
 
     /* Initialize field_type */
     field_type[0] = H5T_STD_U32LE;
-    field_type[1] = H5T_NATIVE_FLOAT;
+    field_type[1] = H5T_STD_U32LE;
     field_type[2] = H5T_NATIVE_FLOAT;
-    field_type[3] = H5T_NATIVE_FLOAT;      
+    field_type[3] = H5T_NATIVE_FLOAT;
+    field_type[4] = H5T_NATIVE_FLOAT;      
         
     memset(packet, 0, sizeof(packet[0]) * 808 * 16);    // zero out array
     
