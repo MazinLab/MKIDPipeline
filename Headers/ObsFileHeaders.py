@@ -21,4 +21,8 @@ class ObsHeader(IsDescription):
     wvlCalFile = StringCol(80)
     
 class ObsFileCols(IsDescription):
-    pass
+    ResID = UInt32Col()
+    Time = UInt32Col()
+    Wavelength = Float32Col()
+    SpecWeight = Float32Col()
+    NoiseWeight = Float32Col()
