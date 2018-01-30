@@ -67,7 +67,7 @@ typedef struct photon {
     float wNoise;
 } photon;
 
-int ParseConfig(int argc, char *argv[], char *Path, int *FirstFile, int *nFiles, char *BeamFile, int *mapflag, int *beamCols, int *beamRows)
+int ParseConfig(int argc, char *argv[], char *Path, int *FirstFile, int *nFiles, char *BeamFile, int *mapflag, int *beamCols, int *beamRows, char *outputDir)
 {
     FILE *fp;
     
@@ -77,7 +77,8 @@ int ParseConfig(int argc, char *argv[], char *Path, int *FirstFile, int *nFiles,
     fscanf(fp,"%d\n",FirstFile);
     fscanf(fp,"%d\n",nFiles);
     fscanf(fp,"%s\n",BeamFile);
-    fscanf(fp,"%d",mapflag);
+    fscanf(fp,"%d\n",mapflag);
+    fscanf(fp,"%s",outputDir);
     fclose(fp);
     
     return 1;
@@ -240,7 +241,7 @@ void InitializeBeamMap(uint32_t **BeamMap, uint32_t value, int beamCols, int bea
 
 int main(int argc, char *argv[])
 {
-    char path[STR_SIZE], fName[STR_SIZE], BeamFile[STR_SIZE], outfile[STR_SIZE], imname[STR_SIZE], tname[STR_SIZE];
+    char path[STR_SIZE], fName[STR_SIZE], outputDir[STR_SIZE], BeamFile[STR_SIZE], outfile[STR_SIZE], imname[STR_SIZE], tname[STR_SIZE];
     int FirstFile, nFiles,mapflag, beamCols, beamRows, nRoaches;
     long fSize, rd, j, k;
     struct stat st;
@@ -262,6 +263,7 @@ int main(int argc, char *argv[])
     char ***ResIdString;
     char addHeaderCmd[120] = "python addH5Header.py ";
     char correctTimestampsCmd[120] = "python correctUnsortedTimestamps.py ";
+    char consolidatePhotonTablesCmd[120] = "python consolidatePhotonTables.py ";
     photon p1;
     
     photon ***ptable;
@@ -307,7 +309,7 @@ int main(int argc, char *argv[])
         printf("Bin2HDF error - First command line argument must be the configuration file.\n");
         exit(0);
     }
-    if (ParseConfig(argc,argv,path,&FirstFile,&nFiles,BeamFile,&mapflag,&beamCols,&beamRows) == 0 ) {
+    if (ParseConfig(argc,argv,path,&FirstFile,&nFiles,BeamFile,&mapflag,&beamCols,&beamRows,outputDir) == 0 ) {
         printf("Bin2HDF error - Config parsing error.\n");
 		exit(1);
 	}
@@ -370,7 +372,7 @@ int main(int argc, char *argv[])
     printf("Read data to memory in %f ms.\n",(float)diff*1000.0/CLOCKS_PER_SEC);
     
     // Create H5 file and set attributes
-    sprintf(outfile,"%s/%d.h5",path,FirstFile);
+    sprintf(outfile,"%s/%d.h5",outputDir,FirstFile);
     file_id = H5Fcreate (outfile, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
     
     // put the beam map into the h5 file    
@@ -556,6 +558,9 @@ int main(int argc, char *argv[])
     
     strcat(correctTimestampsCmd, outfile);
     system(correctTimestampsCmd);
+
+    strcat(consolidatePhotonTablesCmd, outfile);
+    system(consolidatePhotonTablesCmd);
     exit(0);
 
 }
