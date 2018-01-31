@@ -51,6 +51,8 @@ class FlatCal:
 		self.flatCalTstamp = ast.literal_eval(self.config['Data']['flatCalTstamp'])
 		self.flatObsTstamps = ast.literal_eval(self.config['Data']['flatObsTstamps'])
 		self.wvlDate = ast.literal_eval(self.config['Data']['wvlDate'])
+		self.flatPath = ast.literal_eval(self.config['Data']['flatPath'])
+		self.calSolnPath=ast.literal_eval(self.config['Data']['calSolnPath'])
 		self.intTime = ast.literal_eval(self.config['Data']['intTime'])
 		self.deadtime= ast.literal_eval(self.config['Instrument']['deadtime'])
 		self.energyBinWidth = ast.literal_eval(self.config['Instrument']['energyBinWidth'])
@@ -63,12 +65,17 @@ class FlatCal:
 
 		# check the parameter formats
 		self.__configCheck(2)
-
-		obsFNs = [FileName(run=self.run,date=self.date,tstamp=obsTstamp) for obsTstamp in self.flatObsTstamps]
-		self.obsFileNames = [fn.obs() for fn in obsFNs]
-		print(self.obsFileNames)
-		self.obsList = [ObsFile(obsFileName) for obsFileName in self.obsFileNames]
-		self.flatCalFileName = FileName(run=self.run,date=self.date,tstamp=self.flatCalTstamp).flatSoln()
+		if self.flatPath == '':
+			obsFNs = [FileName(run=self.run,date=self.date,tstamp=obsTstamp) for obsTstamp in self.flatObsTstamps]
+			self.obsFileNames = [fn.obs() for fn in obsFNs]
+			print(self.obsFileNames)
+			self.obsList = [ObsFile(obsFileName) for obsFileName in self.obsFileNames]
+		else:
+			self.obsList=[ObsFile(self.flatPath)]
+		if self.calSolnPath =='':		
+			self.flatCalFileName = FileName(run=self.run,date=self.date,tstamp=self.flatCalTstamp).flatSoln()
+		else:
+			self.flatCalFileName =  self.calSolnPath
 		'''
 		If input flat file is not wavelength calibrated and a wavecal solution file is specified in the cfg file, here is where it will be applied
 		If input flat file is not wavelength calibrated and no solution file is specified, the best wavecal file will be loaded and applied if possible
@@ -77,12 +84,12 @@ class FlatCal:
 			if self.wvlDate != '':
 				wvlCalFileName = FileName(run=self.run,date=wvlDate,tstamp=wvlTimestamp).calSoln()
 			for iObs,obs in enumerate(self.obsList):
-				if self.wvlDate != ''
-					self.mode='write':
+				if self.wvlDate != '':
+					self.mode='write'
 					obs.applyWaveCal(wvlCalFileName)
 				else:
-					self.mode='write':
-                			obs.loadBestWvlCalFile()
+					self.mode='write'
+					obs.loadBestWvlCalFile()
 				obs.setWvlCutoffs(3000,13000)
 				if self.timeMaskFileName != '':
 					if not os.path.exists(self.timeMaskFileName):
@@ -392,7 +399,7 @@ class FlatCal:
 			flatDir = os.path.join(scratchDir,'flatCalSolnFiles')
 			fullFlatCalFileName = os.path.join(flatDir,self.flatCalFileName)
 
-		if not os.path.exists(fullFlatCalFileName):
+		if not os.path.exists(fullFlatCalFileName) and self.calSolnPath =='':	
 			os.makedirs(fullFlatCalFileName)		
 
 		try:
@@ -458,6 +465,10 @@ class FlatCal:
 				param.format('flatObsTstamps', 'Data')
 			assert 'wvlDate' in self.config['Data'].keys(), \
 				param.format('wvlDate', 'Data')
+			assert 'flatPath' in self.config['Data'].keys(), \
+				param.format('flatPath', 'Data')
+			assert 'calSolnPath' in self.config['Data'].keys(), \
+				param.format('calSolnPath', 'Data')
 			assert 'intTime' in self.config['Data'].keys(), \
 				param.format('intTime', 'Data')
 
@@ -485,9 +496,13 @@ class FlatCal:
 			assert type(self.run) is str, "Run parameter must be a string."
 			assert type(self.date) is str, "Date parameter must be a string."
 			assert type(self.flatCalTstamp) is str, "Flat Calibration Timestamp parameter must be a string."
-			assert type(self.flatObsTstamps) is list, "Flat Observation Timestamps parameter must be a list"
+			assert type(self.flatObsTstamps) is list, "Flat Observation Timestamps parameter must be a list even if there is only one element."
 			assert type(self.wvlDate) is str, "Wavelength Sunset Date parameter must be a string."
-
+			if self.flatPath != '':
+				assert type(self.flatPath) is str, "Flat Path parameter must be a string."
+				assert os.path.exists(self.flatPath), "Please confirm the Flat File path provided is correct"
+			if self.calSolnPath != '':
+				assert type(self.calSolnPath) is str, "Cal Solution Path parameter must be a string."
 			assert type(self.intTime) is int, "integration time parameter must be an integer"
 			
 			if type(self.deadtime) is int:

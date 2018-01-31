@@ -3,12 +3,14 @@
 CFGFILE=$1
 echo "Converting bin2HDF from batch file $1"
 
-DATAPATH=`awk 'NR==1' $CFGFILE`
-BMPATH=`awk 'NR==2' $CFGFILE`
-BMFLAG=`awk 'NR==3' $CFGFILE`
+XCOORD=`awk 'NR==1 {print $1}' $CFGFILE`
+YCOORD=`awk 'NR==1 {print $2}' $CFGFILE`
+DATAPATH=`awk 'NR==2' $CFGFILE`
+BMPATH=`awk 'NR==3' $CFGFILE`
+BMFLAG=`awk 'NR==4' $CFGFILE`
 
-TS=( `awk 'NR==4' $CFGFILE` )
-IT=( `awk 'NR==5' $CFGFILE` )
+TS=( `awk 'NR==5' $CFGFILE` )
+IT=( `awk 'NR==6' $CFGFILE` )
 
 TLEN=${#TS[@]}
 
@@ -18,6 +20,7 @@ do
   echo "Starting new file..."
   echo "Timestamp ${TS[$i]}, int time ${IT[$i]}"
   touch tmp.cfg
+  printf $XCOORD' '$YCOORD'\n' >> tmp.cfg
   printf $DATAPATH'\n' >> tmp.cfg
   printf ${TS[$i]}'\n' >> tmp.cfg
   printf ${IT[$i]}'\n' >> tmp.cfg
@@ -25,9 +28,6 @@ do
   printf $BMFLAG >> tmp.cfg
 
   ./Bin2HDF tmp.cfg
-
-  mv $DATAPATH/${TS[$i]}.h5 $DATAPATH/obs_${TS[$i]}.h5
-  python ./indexHDF.py $DATAPATH/obs_${TS[$i]}.h5
   rm tmp.cfg
   echo "Finished Timestamp ${TS[$i]}, int time ${IT[$i]}"
 done
