@@ -592,7 +592,7 @@ class ObsFile:
                               alpha=0.5,color='gray')
 
 
-    def getPixelCountImage(self, firstSec=0, integrationTime= -1, wvlRange=None, applyWeight=True, applyTPFWeight=True, applyTimeMask=True, scaleByEffInt=False, flagToUse=0):
+    def getPixelCountImage(self, firstSec=0, integrationTime= -1, wvlRange=None, applyWeight=True, applyTPFWeight=True, applyTimeMask=False, scaleByEffInt=False, flagToUse=0):
         """
         Returns an image of pixel counts over the entire array between firstSec and firstSec + integrationTime. Can specify calibration weights to apply as
         well as wavelength range.
@@ -632,13 +632,15 @@ class ObsFile:
         countImage = np.zeros((self.nXPix, self.nYPix), dtype=np.float64)
         #rawCounts.fill(np.nan)   #Just in case an element doesn't get filled for some reason.
         if integrationTime==-1:
-            integrationTime = self.getFromHeader('exptime')
+            integrationTime = self.getFromHeader('exptime')-firstSec
+        startTs = firstSec*1.e6
+        endTs = startTs + integrationTime*1.e6
         if wvlRange is None:
-            photonList = self.photonTable.read_where('((Time > startTs) & (Time < endTs))')
+            photonList = self.photonTable.read_where('((Time >= startTs) & (Time < endTs))')
         else:
             startWvl = wvlRange[0]
             endWvl = wvlRange[1]
-            photonList = self.photonTable.read_where('(Wavelength > startWvl) & (Wavelength < endWvl) & (Time > startTs) & (Time < endTs)')
+            photonList = self.photonTable.read_where('(Wavelength >= startWvl) & (Wavelength < endWvl) & (Time >= startTs) & (Time < endTs)')
 
         resIDDiffs = np.diff(photonList['ResID'])
         if(np.any(resIDDiffs<0)):
@@ -646,27 +648,37 @@ class ObsFile:
             photonList = np.sort(photonList, order='ResID', kind='mergsort') #mergesort is stable, so time order will be preserved
             resIDDiffs = np.diff(photonList['ResID'])
         
-        resIDBoundaryInds = np.where(resIDDiffs>0)[0]+1
+        resIDBoundaryInds = np.where(resIDDiffs>0)[0]+1 #indices in photonList where ResID changes; ie marks boundaries between pixel tables
         resIDBoundaryInds = np.insert(resIDBoundaryInds, 0, 0)
-        resIDBoundaryInds = np.append(resIDBoundaryInds, 0)
         resIDList = photonList['ResID'][resIDBoundaryInds]
+        resIDBoundaryInds = np.append(resIDBoundaryInds, len(photonList['ResID']))
 
         for xCoord in range(self.nXPix):
             for yCoord in range(self.nYPix):
+                flag = self.beamFlagImage[xCoord, yCoord]
                 if(self.beamImage[xCoord, yCoord]!=self.noResIDFlag and (flag|flagToUse)==flag):
                     effIntTimes[xCoord, yCoord] = integrationTime
                     resIDInd = np.where(resIDList==self.beamImage[xCoord, yCoord])[0]
                     if(np.shape(resIDInd)[0]>0):
                         resIDInd = resIDInd[0]
-                        if applySpecWeight==False and applyTPFWeight==False:
+                        if applyWeight==False and applyTPFWeight==False:
                             countImage[xCoord, yCoord] = resIDBoundaryInds[resIDInd+1] - resIDBoundaryInds[resIDInd]
                         else:
                             weights = np.ones(resIDBoundaryInds[resIDInd+1] - resIDBoundaryInds[resIDInd])
-                            if applySpecWeight:
+                            if applyWeight:
                                 weights *= photonList['SpecWeight'][resIDBoundaryInds[resIDInd]:resIDBoundaryInds[resIDInd+1]]
                             if applyTPFWeight:
                                 weights *= photonList['NoiseWeight'][resIDBoundaryInds[resIDInd]:resIDBoundaryInds[resIDInd+1]] 
                             countImage[xCoord, yCoord] = np.sum(weights)
+
+        #for i,resID in enumerate(resIDList):
+        #    coords = np.where(self.beamFlagImage==resID)
+        #    xCoord = coords[0][0]
+        #    yCoord = coords[1][0]
+        #    flag = self.beamFlagImage[coords]
+        #    if (flag|flagToUse)==flag:
+        #        if applyWeight==False and applyTPFWeight==False:
+                    
                 
         if scaleByEffInt is True:
             if integrationTime == -1:
@@ -1897,33 +1909,6 @@ class ObsFile:
                 weightArr[np.where(phases > maxwavelength)]=1.0
                 obs.applySpecWeight(obsfile, resID=resID, weightArr=weightArr)
         self.modifyHeaderEntry(headerTitle='isSpecCalibrated', headerValue=True)
-
-    def applyTimestampCorrection(self, xCoord, yCoord, timestampArr):
-        """
-        Applies a timestamp correction for a single pixel. Overwrites "Time" column w/
-        contents of timestampArr. Ordering of timestamps MUST be preserved; DOES NOT SORT.
-        NOT reversible unless you have a copy of the original contents.
-        ObsFile must be open in "write" mode to use.
-
-        Parameters
-        ----------
-        xCoord: int
-            x-coordinate of pixel to overwrite
-        yCoord: int
-            y-coordinate of pixel to overwrite
-        timestampArr: array of type uint32
-            Array of corrected timestamps. Replaces "Time" column of photon list.
-        """
-        if self.mode!='write':
-            raise Exception("Must open file in write mode to do this!")
-        resID = self.beamImage[xCoord][yCoord]
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            photonTable = self.file.get_node('/Photons/' + str(resID))
-        assert len(photonTable)==len(timestampArr), 'Timestamp list does not match length of photon list!'
-
-        photonTable.modify_column(column=timestampArr, colname='Time')
-        photonTable.flush()
 
     def applyFlag(self, xCoord, yCoord, flag):
         """

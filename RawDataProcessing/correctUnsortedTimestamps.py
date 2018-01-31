@@ -5,7 +5,6 @@ timestamps of the provided HDF5 file, so it only needs to be run once.
 usage: python correctUnsortedTimestamps.py <path to h5 file>
 """
 
-from darkObsFile import ObsFile
 import tables
 import os, sys, struct
 import matplotlib.pyplot as plt
@@ -48,19 +47,26 @@ if __name__=='__main__':
     if len(sys.argv)<2:
         print("Must specify h5 filename")
         exit(1)
-
+    noResIDFlag = 2**32-1
     filename = sys.argv[1]
-    obsfl = ObsFile(filename, mode='write')
+    hfile = tables.open_file(filename, mode='a')
+    beamMap = hfile.root.BeamMap.Map.read()
 
-    imShape = np.shape(obsfl.beamImage)
+    imShape = np.shape(beamMap)
     
     for x in range(imShape[0]):
         for y in range(imShape[1]):
             #print('Correcting pixel', x, y, ', resID =', obsfl.beamImage[x,y])
-            if obsfl.beamImage[x,y] == obsfl.noResIDFlag:
+            resID = beamMap[x,y] 
+            if resID == noResIDFlag:
                 print('Table not found for pixel', x, ',', y)
                 continue
-            photonList = obsfl.getPixelPhotonList(x, y)
+            photonTable = hfile.get_node('/Photons/' + str(resID))
+            photonList = photonTable.read()
             timeList = photonList['Time']
             correctedTimeList = correctTimeStamps(timeList)
-            obsfl.applyTimestampCorrection(x, y, correctedTimeList)
+
+            assert len(photonTable)==len(timeList), 'Timestamp list does not match length of photon list!'
+            photonTable.modify_column(column=timeList, colname='Time')
+            photonTable.flush()
+                            
