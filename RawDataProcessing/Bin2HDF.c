@@ -40,6 +40,8 @@
 #define NPIXELS_PER_ROACH 1024
 #define RAD2DEG 57.2957795131
 
+#define TSOFFS 1483228800 //difference between UTC timestamp and Jan 1 2017
+
 // useful globals
 uint32_t residarr[10000] = {0};
 uint64_t tstart = 0;
@@ -118,10 +120,6 @@ void AddPacket(char *packet, uint64_t l, hid_t file_id, size_t dst_size, size_t 
     }
     
     // if no start timestamp, store start timestamp
-    if( tstart == 0 ) {
-		tstart = (uint64_t) hdr->timestamp;
-		//printf("Start time = %ld from ROACH %d\n",tstart,hdr->roach); fflush(stdout);
-	}
     basetime = hdr->timestamp - tstart; // time since start of first file
     
     if( basetime < 0 ) { // maybe have some packets out of order early in file		
@@ -313,6 +311,8 @@ int main(int argc, char *argv[])
         printf("Bin2HDF error - Config parsing error.\n");
 		exit(1);
 	}
+
+    tstart = (uint64_t)(FirstFile-TSOFFS)*2000;
 
     //initialize nRoaches
     nRoaches = beamRows*beamCols/1000;
