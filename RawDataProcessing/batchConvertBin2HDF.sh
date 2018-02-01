@@ -23,6 +23,8 @@ OUTPATH=`awk 'NR==7' $CFGFILE`
 
 TLEN=${#TS[@]}
 
+rm tmp.cfg
+
 for ((i=0; i<${TLEN}; i++));
 do
   printf "\n-------------------------------\n"
