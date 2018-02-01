@@ -484,7 +484,7 @@ int main(int argc, char *argv[])
         // save photon tables to hdf5
         for(j=0; j < beamCols; j++) {
 			for(k=0; k < beamRows; k++) {
-				if( BeamMap[j][k] == 0 ) continue;
+				if( BeamMap[j][k] == beamMapInitVal ) continue;
 				if( ptablect[j][k] == 0 ) continue;    
 				//printf("%s %ld\n", ResIdString[j][k], ptablect[j][k]);
 				//printf("%d %d %s %ld\n", j, k, ResIdString[j][k], ptablect[j][k]); fflush(stdout);
