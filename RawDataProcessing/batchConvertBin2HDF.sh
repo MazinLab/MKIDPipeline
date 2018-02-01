@@ -1,6 +1,15 @@
 #!/bin/bash
 
 CFGFILE=$1
+
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+  DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE" # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+done
+DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+
 echo "Converting bin2HDF from batch file $1"
 
 XCOORD=`awk 'NR==1 {print $1}' $CFGFILE`
@@ -28,7 +37,7 @@ do
   printf $BMFLAG >> tmp.cfg
   printf $OUTPATH >> tmp.cfg
 
-  ./Bin2HDF tmp.cfg
+  $DIR/Bin2HDF tmp.cfg
   rm tmp.cfg
   echo "Finished Timestamp ${TS[$i]}, int time ${IT[$i]}"
 done
