@@ -508,7 +508,17 @@ class WaveCal:
             phases = np.array(phases)
             std = np.array(std)
             errors = np.array(errors)
-            if count > 0 and (np.diff(phases) < 0.0 * min(phases)).any():
+
+            # mask out data points that are within error for monotonic consideration
+            if count > 1:
+                dE = np.diff(wavelengths) / np.mean(wavelengths)**2  # proportional to
+                diff = np.diff(phases)
+                mask = np.ones(diff.shape, dtype=bool)
+                for ind, _ in enumerate(mask):
+                    if (-diff[ind] < errors[ind] or -diff[ind] < errors[ind + 1]):
+                        mask[ind] = False
+
+            if count > 1 and (diff < -2e8 * dE / np.mean(wavelengths))[mask].any():
                 flag = 7  # data not monotonic enough
                 wavelength_cal[row, column] = (flag, False, False)
 
@@ -530,13 +540,13 @@ class WaveCal:
                                               errors, row, column)
 
                 # refit if vertex is between wavelengths or slope is positive
+                ind_max = np.argmax(phases)
+                ind_min = np.argmin(phases)
+                max_phase = phases[ind_max] + std[ind_max]
+                min_phase = phases[ind_min] - std[ind_min]
                 if popt is False:
                     conditions = True
                 else:
-                    ind_max = np.argmax(phases)
-                    ind_min = np.argmin(phases)
-                    max_phase = phases[ind_max] + std[ind_max]
-                    min_phase = phases[ind_min] - std[ind_min]
                     vertex = -popt[1] / (2 * popt[0])
                     min_slope = 2 * popt[0] * min_phase + popt[1]
                     max_slope = 2 * popt[0] * max_phase + popt[1]
@@ -554,8 +564,14 @@ class WaveCal:
 
                     if popt is False or popt[1] > 0 or (max_phase > -popt[2] / popt[1]
                                                         and popt[1] < 0):
-                        flag = 8  # linear fit unsuccessful
-                        wavelength_cal[row, column] = (flag, False, False)
+                        popt, pcov = self.__fitEnergy('linear_zero', phases, energies,
+                                                      guess, errors, row, column)
+                        if popt is False or popt[1] > 0:
+                            flag = 8  # linear fit unsuccessful
+                            wavelength_cal[row, column] = (flag, False, False)
+                        else:
+                            flag = 9  # linear fit through zero successful
+                            wavelength_cal[row, column] = (flag, popt, pcov)
                     else:
                         flag = 5  # linear fit successful
                         wavelength_cal[row, column] = (flag, popt, pcov)
@@ -1323,28 +1339,16 @@ class WaveCal:
                     params.add('c', value=guess[1])
                     output = lm.minimize(self.__energyChi2, params, method='leastsq',
                                          args=(phases, energies, errors, fit_function))
+                elif fit_type == 'linear_zero':
+                    params.add('b', value=guess[0])
+                    output = lm.minimize(self.__energyChi2, params, method='leastsq',
+                                         args=(phases, energies, errors, fit_function))
                 elif fit_type == 'quadratic':
-                    # params.add('p', value=guess[0] - guess[1] / 360, min=0)
-                    # params.add('b', value=guess[1], max=0)
-                    # params.add('a', expr='p + b/360')
-                    # params.add('c', value=guess[2], min=-20)
-                    # output = lm.minimize(self.__energyChi2, params, method='leastsq',
-                    #                      args=(phases, energies, errors, fit_function))
-                    params.add('vertex', value=-180, max=-180)
+                    params.add('a', value=guess[0])
                     params.add('b', value=guess[1])
                     params.add('c', value=guess[2])
-                    params.add('a', expr='-b/(2*vertex)')
-                    output1 = lm.minimize(self.__energyChi2, params, method='leastsq',
+                    output = lm.minimize(self.__energyChi2, params, method='leastsq',
                                           args=(phases, energies, errors, fit_function))
-
-                    params['vertex'].set(max=np.inf)
-                    params['vertex'].set(value=180, min=1e-4)
-                    output2 = lm.minimize(self.__energyChi2, params, method='leastsq',
-                                          args=(phases, energies, errors, fit_function))
-                    if output1.success and output1.chisqr < output2.chisqr:
-                        output = output1
-                    else:
-                        output = output2
                 else:
                     raise ValueError('{0} is not a valid fit type'.format(fit_type))
                 if output.success:
@@ -1354,6 +1358,11 @@ class WaveCal:
                         if output.covar is not False and output.covar is not None:
                             pcov = np.insert(np.insert(output.covar, 0, [0, 0],
                                                        axis=1), 0, [0, 0, 0], axis=0)
+                    elif fit_type == 'linear_zero':
+                        popt = (0, p['b'], 0)
+                        if output.covar is not False and output.covar is not None:
+                            cov = np.ndarray.flatten(np.array(output.covar))[0]
+                            pcov = np.array([[0, 0, 0], [0, cov, 0], [0, 0, 0]])
                     else:
                         popt = (p['a'], p['b'], p['c'])
                         pcov = output.covar

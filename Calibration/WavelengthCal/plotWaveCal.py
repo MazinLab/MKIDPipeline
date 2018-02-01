@@ -175,6 +175,17 @@ def plotHistogramFits(file_name, res_id=None, pixel=[]):
     axes[0].legend(handles=[fit_accepted, fit_rejected, gaussian, noise],
                    loc=3, bbox_to_anchor=(0, 1.02, 1, .102), ncol=2)
     counter = 0
+    y_list = []
+    if x_num > 5:
+        for ind, wavelength in enumerate(wavelengths):
+            counts = debug['phase_counts' + str(ind)][index][0]
+            counts = counts[counts >= 0]
+            if len(counts) > 0:
+                y_list.append(np.max(counts))
+        if len(y_list) > 0:
+            largest_y = np.max(y_list)
+        else:
+            largest_y = 1
     for ind, wavelength in enumerate(wavelengths):
         # path = '/debug/res' + str(res_id) + '/wvl' + str(ind)
         hist_fit = debug['hist_fit' + str(ind)][index][0]
@@ -204,9 +215,16 @@ def plotHistogramFits(file_name, res_id=None, pixel=[]):
                                  color='orange', linestyle='--')
                 axes[ind].plot(phase, fit_function(phase, *hist_fit),
                                  color=color)
-                ylim = axes[ind].get_ylim()
+                if x_num > 5:
+                    axes[ind].set_ylim([0, 1.1 * largest_y])
+                    ymax = 1.1 * largest_y
+                    ylim = axes[ind].get_ylim()
+                    if ind > 1:
+                        axes[ind].get_yaxis().set_ticks([])
+                else:
+                    ylim = axes[ind].get_ylim()
+                    ymax = ylim[1]
                 xmin = xlim[0]
-                ymax = ylim[1]
                 axes[ind].set_xlim(xlim)
             else:
                 ylim = axes[ind].get_ylim()
@@ -234,7 +252,7 @@ def plotHistogramFits(file_name, res_id=None, pixel=[]):
         plt.close(fig)
         return
     axes[-1].set_xlim(xlim)
-    axes[-1].legend()
+    axes[-1].legend(ncol=int(np.floor(2 * x_num / 7)))
     plt.tight_layout(rect=[0.03, 0.03, 1, 0.95])
     plt.show(block=False)
 
@@ -270,6 +288,12 @@ def plotRHistogram(file_name, mask=None, axis=None):
     axis.set_xlabel(r'R [E/$\Delta$E]')
     axis.set_ylabel('counts')
     cmap = cm.get_cmap('viridis')
+    if len(wavelengths) > 10:
+        Z = [[0, 0], [0, 0]]
+        levels = np.arange(min(wavelengths), max(wavelengths), 1)
+        c = axis.contourf(Z, levels, cmap=cmap)
+        plt.colorbar(c, ax=axis, label='wavelength [nm]', aspect=50)
+        axis.clear()
     max_counts = []
     for index, wavelength in enumerate(wavelengths[mask]):
         r = R[:, index]
@@ -292,7 +316,8 @@ def plotRHistogram(file_name, mask=None, axis=None):
     if np.max(max_counts) != 0:
         axis.set_ylim([0, 1.2 * np.max(max_counts)])
     plt.tight_layout()
-    axis.legend(fontsize=6)
+    if len(wavelengths) < 10:
+        axis.legend(fontsize=6)
     if show:
         plt.show(block=False)
     else:
@@ -326,11 +351,11 @@ def plotRvsF(file_name, config_name, axis=None, verbose=True):
     res_id = calsoln['resid']
     f = []
     r0 = []
-    for id_ in res_id:
+    for id_index, id_ in enumerate(res_id):
         index = np.where(id_ == freqs[:, 0])
-        if len(index[0]) == 1 and not np.isnan(R[index]):
+        if len(index[0]) == 1 and not np.isnan(R[id_index]):
             f.append(freqs[index, 1])
-            r0.append(R[index])
+            r0.append(R[id_index])
     f = np.ndarray.flatten(np.array(f))
     r0 = np.ndarray.flatten(np.array(r0))
     args = np.argsort(f)
@@ -389,10 +414,17 @@ def plotCenterHist(file_name, mask=None, axis=None):
     if axis is None:
         fig, axis = plt.subplots()
         show = True
+    cmap = cm.get_cmap('viridis')
+    if len(wavelengths) > 10:
+        Z = [[0, 0], [0, 0]]
+        levels = np.arange(min(wavelengths), max(wavelengths), 1)
+        c = axis.contourf(Z, levels, cmap=cmap)
+        plt.colorbar(c, ax=axis, label='wavelength [nm]', aspect=50)
+        axis.clear()
     axis.set_xlabel('gaussian center [degrees]')
     axis.set_ylabel('counts')
-    cmap = cm.get_cmap('viridis')
     max_counts = []
+
     for index, wavelength in enumerate(wavelengths):
         if not mask[index]:
             continue
@@ -424,7 +456,8 @@ def plotCenterHist(file_name, mask=None, axis=None):
         axis.set_ylim([0, 1.2 * np.max(max_counts)])
     wave_cal.close()
     plt.tight_layout()
-    axis.legend(fontsize=6)
+    if len(wavelengths) < 10:
+        axis.legend(fontsize=6)
     if show:
         plt.show(block=False)
     else:
@@ -457,6 +490,7 @@ def plotSummary(file_name, config_name='', save_pdf=False, save_name=None, verbo
     beamImage = wave_cal.root.header.beamMap.read()
     res_id = debug['resid']
     R = calsoln['R']
+    ind = np.where(R[:, 0] > 0)
     data = []
     flags = debug['hist_flag']
     has_data = debug['has_data']
@@ -509,21 +543,78 @@ def plotSummary(file_name, config_name='', save_pdf=False, save_name=None, verbo
                     ylim[1] + (ylim[1] - ylim[0]) * 0.1, table)
     mpl.rc('text', usetex=False)
     axes[1, 1].axis('off')
-    axes[1, 1].text(-0.1, 0.97, "Wavelength Calibration File Name:")
-    axes[1, 1].text(-0.1, 0.92, file_name.split('/')[-1])
-    axes[1, 1].text(-0.1, 0.82, "Fit Model: {0}".format(model_name))
-    axes[1, 1].text(-0.1, 0.72, "ObsFile Names:")
-    for ind, obs in enumerate(obsFiles):
-        axes[1, 1].text(-0.1, 0.67 - ind / 20, obs.decode("utf-8"))
-    axes[1, 1].text(-0.1, 0.57 - (len(wavelengths) - 1) / 20, "Wavelengths [nm]:")
-    for ind, wavelength in enumerate(wavelengths):
-        axes[1, 1].text(-0.1, 0.57 - ind / 20 - len(wavelengths) / 20, wavelength)
-    good_hist = np.sum(flags == 0, axis=1)
-    perc = round(np.sum(fit_flags == 7) / np.sum(good_hist >= 3) * 100, 2)
-    axes[1, 1].text(-0.1, 0.37 - 2 * len(wavelengths) / 20,
-                    'Percent of pixels that failed the \ncalibration because the' +
-                    ' centers were not \nmonotonic (out of pixels with > 2 good' +
-                    ' \nhistogram fits): {0}%'.format(perc))
+    large_number = 10
+    if len(wavelengths) > large_number:
+        fontstyle = {'fontsize': 6.5, 'weight': 'normal'}
+        dz = 0.04
+    else:
+        fontstyle = {'fontsize': 10, 'weight': 'normal'}
+        dz = 0.05
+    axes[1, 1].text(-0.1, 0.97, "Wavelength Calibration File Name:", **fontstyle)
+    axes[1, 1].text(-0.1, 0.97 - dz, file_name.split('/')[-1], **fontstyle)
+    axes[1, 1].text(-0.1, 0.97 - 3 * dz, "Fit Model: {0}".format(model_name), **fontstyle)
+    axes[1, 1].text(-0.1, 0.97 - 5 * dz, "ObsFile Names:", **fontstyle)
+    if len(wavelengths) > large_number:
+        for ind in range(int(np.floor(len(obsFiles) / 3))):
+            axes[1, 1].text(-0.1, 0.97 - 6 * dz - ind * dz,
+                            obsFiles[3 * ind].decode("utf-8") + ', ' +
+                            obsFiles[3 * ind + 1].decode("utf-8") + ', ' +
+                            obsFiles[3 * ind + 2].decode("utf-8"), **fontstyle)
+        if 3 * ind + 2 - len(obsFiles) == 2:
+            axes[1, 1].text(-0.1, 0.97 - 6 * dz - (ind + 1) * dz,
+                            obsFiles[3 * ind + 3].decode("utf-8") + ', ' +
+                            obsFiles[3 * ind + 4].decode("utf-8"), **fontstyle)
+        else:
+            axes[1, 1].text(-0.1, 0.97 - 6 * dz - (ind + 1) * dz,
+                            obsFiles[3 * ind + 3].decode("utf-8"), **fontstyle)
+        axes[1, 1].text(-0.1, 0.97 - 8 * dz - (np.ceil(len(obsFiles) / 3) - 1) * dz,
+                        "Wavelengths [nm]:", **fontstyle)
+        for ind in range(int(np.floor(len(obsFiles) / 3))):
+            axes[1, 1].text(-0.1, 0.97 - 8 * dz - ind * dz -
+                            np.ceil(len(obsFiles) / 3) * dz,
+                            str(wavelengths[3 * ind]) + ", " +
+                            str(wavelengths[3 * ind + 1]) + ", " +
+                            str(wavelengths[3 * ind + 2]), **fontstyle)
+        if 3 * ind + 2 - len(obsFiles) == 2:
+            axes[1, 1].text(-0.1, 0.97 - 8 * dz - (ind + 1) * dz -
+                            np.ceil(len(obsFiles) / 3) * dz,
+                            str(wavelengths[3 * ind]) + ", " +
+                            str(wavelengths[3 * ind + 1]), **fontstyle)
+        else:
+            axes[1, 1].text(-0.1, 0.97 - 8 * dz - (ind + 1) * dz -
+                            np.ceil(len(obsFiles) / 3) * dz,
+                            str(wavelengths[3 * ind]), **fontstyle)
+        good_hist = np.sum(flags == 0, axis=1)
+        perc = round(np.sum(fit_flags == 7) / np.sum(good_hist >= 3) * 100, 2)
+        axes[1, 1].text(-0.1, 0.97 - 8 * dz - 2 * np.ceil(len(obsFiles) / 3) * dz,
+                        'Percent of pixels that failed the calibration because the'
+                        ' \ncenters were not monotonic (out of pixels with \n> 2 good'
+                        ' histogram fits): {0}%'.format(perc), va='top', **fontstyle)
+    else:
+        for ind in range(int(np.floor(len(obsFiles) / 2))):
+            axes[1, 1].text(-0.1, 0.97 - 6 * dz - ind * dz,
+                            obsFiles[2 * ind].decode("utf-8") + ', ' +
+                            obsFiles[2 * ind + 1].decode("utf-8"), **fontstyle)
+        if 2 * ind + 1 - len(obsFiles) == 1:
+            axes[1, 1].text(-0.1, 0.97 - 6 * dz - (ind + 1) * dz,
+                            obsFiles[3 * ind + 3].decode("utf-8"), **fontstyle)
+        axes[1, 1].text(-0.1, 0.97 - 8 * dz - (np.ceil(len(obsFiles) / 2) - 1) * dz,
+                        "Wavelengths [nm]:", **fontstyle)
+        for ind in range(int(np.ceil(len(obsFiles) / 2))):
+            axes[1, 1].text(-0.1, 0.97 - 8 * dz - ind * dz -
+                            np.ceil(len(obsFiles) / 2) * dz,
+                            str(wavelengths[2 * ind]) + ", " +
+                            str(wavelengths[2 * ind - 1]), **fontstyle)
+        if 2 * ind + 1 - len(obsFiles) == 1:
+            axes[1, 1].text(-0.1, 0.97 - 8 * dz - (ind + 1) * dz -
+                            np.ceil(len(obsFiles) / 3) * dz,
+                            str(wavelengths[3 * ind]), **fontstyle)
+        good_hist = np.sum(flags == 0, axis=1)
+        perc = round(np.sum(fit_flags == 7) / np.sum(good_hist >= 3) * 100, 2)
+        axes[1, 1].text(-0.1, 0.97 - 8 * dz - 2 * np.ceil(len(obsFiles) / 2) * dz,
+                        'Percent of pixels that failed the \ncalibration because the' +
+                        ' centers were not \nmonotonic (out of pixels with > 2 good' +
+                        ' \nhistogram fits): {0}%'.format(perc), va='top', **fontstyle)
 
     if not switch:
         mpl.rc('text', usetex=True)
@@ -598,5 +689,7 @@ def fitModels(model_name):
         fit_function = lambda p, x: p['a'] * x**2 + p['b'] * x + p['c']
     elif model_name == 'linear':
         fit_function = lambda p, x: p['b'] * x + p['c']
+    elif model_name == 'linear_zero':
+        fit_function = lambda p, x: p['b'] * x
 
     return fit_function
