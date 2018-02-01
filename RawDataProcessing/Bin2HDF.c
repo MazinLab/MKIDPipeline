@@ -34,11 +34,13 @@
 //number of dimensions in the Variable Length array (VLarray).  
 //There is a 1D array of pointers to variable length arrays, so rank=1
 #define DATA_RANK 1
-#define NFIELD 4
+#define NFIELD 5
 
 // MKID array stats
 #define NPIXELS_PER_ROACH 1024
 #define RAD2DEG 57.2957795131
+
+#define TSOFFS 1483228800 //difference between UTC timestamp and Jan 1 2017
 
 // useful globals
 uint32_t residarr[10000] = {0};
@@ -60,13 +62,14 @@ struct hdrpacket {
 }__attribute__((packed));;
 
 typedef struct photon {
+    uint32_t resID;
     uint32_t timestamp;
     float wvl;
     float wSpec;
     float wNoise;
 } photon;
 
-int ParseConfig(int argc, char *argv[], char *Path, int *FirstFile, int *nFiles, char *BeamFile, int *mapflag, int *beamCols, int *beamRows)
+int ParseConfig(int argc, char *argv[], char *Path, int *FirstFile, int *nFiles, char *BeamFile, int *mapflag, int *beamCols, int *beamRows, char *outputDir)
 {
     FILE *fp;
     
@@ -76,7 +79,8 @@ int ParseConfig(int argc, char *argv[], char *Path, int *FirstFile, int *nFiles,
     fscanf(fp,"%d\n",FirstFile);
     fscanf(fp,"%d\n",nFiles);
     fscanf(fp,"%s\n",BeamFile);
-    fscanf(fp,"%d",mapflag);
+    fscanf(fp,"%d\n",mapflag);
+    fscanf(fp,"%s",outputDir);
     fclose(fp);
     
     return 1;
@@ -116,10 +120,6 @@ void AddPacket(char *packet, uint64_t l, hid_t file_id, size_t dst_size, size_t 
     }
     
     // if no start timestamp, store start timestamp
-    if( tstart == 0 ) {
-		tstart = (uint64_t) hdr->timestamp;
-		//printf("Start time = %ld from ROACH %d\n",tstart,hdr->roach); fflush(stdout);
-	}
     basetime = hdr->timestamp - tstart; // time since start of first file
     
     if( basetime < 0 ) { // maybe have some packets out of order early in file		
@@ -139,6 +139,7 @@ void AddPacket(char *packet, uint64_t l, hid_t file_id, size_t dst_size, size_t 
 		if( ptablect[data->xcoord][data->ycoord] > 2498 ) continue;
 
 		// add the photon to ptable and increment the appropriate counter
+        ptable[data->xcoord][data->ycoord][ptablect[data->xcoord][data->ycoord]].resID = BeamMap[data->xcoord][data->ycoord];
 		ptable[data->xcoord][data->ycoord][ptablect[data->xcoord][data->ycoord]].timestamp = (uint32_t) (basetime*500 + data->timestamp);
 		ptable[data->xcoord][data->ycoord][ptablect[data->xcoord][data->ycoord]].wvl = ((float) data->wvl)*RAD2DEG/32768.0;
 		ptable[data->xcoord][data->ycoord][ptablect[data->xcoord][data->ycoord]].wSpec = 1.0;
@@ -238,7 +239,7 @@ void InitializeBeamMap(uint32_t **BeamMap, uint32_t value, int beamCols, int bea
 
 int main(int argc, char *argv[])
 {
-    char path[STR_SIZE], fName[STR_SIZE], BeamFile[STR_SIZE], outfile[STR_SIZE], imname[STR_SIZE], tname[STR_SIZE];
+    char path[STR_SIZE], fName[STR_SIZE], outputDir[STR_SIZE], BeamFile[STR_SIZE], outfile[STR_SIZE], imname[STR_SIZE], tname[STR_SIZE];
     int FirstFile, nFiles,mapflag, beamCols, beamRows, nRoaches;
     long fSize, rd, j, k;
     struct stat st;
@@ -260,6 +261,7 @@ int main(int argc, char *argv[])
     char ***ResIdString;
     char addHeaderCmd[120] = "python addH5Header.py ";
     char correctTimestampsCmd[120] = "python correctUnsortedTimestamps.py ";
+    char consolidatePhotonTablesCmd[120] = "python consolidatePhotonTables.py ";
     photon p1;
     
     photon ***ptable;
@@ -277,25 +279,26 @@ int main(int argc, char *argv[])
     hsize_t block[2] = {1,1};
     
     size_t dst_size =  sizeof(photon);
-    size_t dst_offset[NFIELD] = { HOFFSET( photon, timestamp ), HOFFSET( photon, wvl ), HOFFSET( photon, wSpec ), HOFFSET( photon, wNoise) };
-    size_t dst_sizes[NFIELD] = { sizeof(p1.timestamp), sizeof(p1.wvl),sizeof(p1.wSpec), sizeof(p1.wNoise) };
+    size_t dst_offset[NFIELD] = { HOFFSET( photon, resID), HOFFSET( photon, timestamp ), HOFFSET( photon, wvl ), HOFFSET( photon, wSpec ), HOFFSET( photon, wNoise) };
+    size_t dst_sizes[NFIELD] = { sizeof(p1.resID), sizeof(p1.timestamp), sizeof(p1.wvl),sizeof(p1.wSpec), sizeof(p1.wNoise) };
     
     count[1] = beamRows;
 
     /* Define field information */
     const char *field_names[NFIELD]  =
-    { "Time","Wavelength","Spec Weight","Noise Weight"};
+    { "ResID","Time","Wavelength","SpecWeight","NoiseWeight"};
     hid_t      field_type[NFIELD];
     hid_t      string_type;
-    hsize_t    chunk_size = 10000;
+    hsize_t    chunk_size = 10;
     int        *fill_data = NULL;
     int        compress  = 0;
 
     /* Initialize field_type */
     field_type[0] = H5T_STD_U32LE;
-    field_type[1] = H5T_NATIVE_FLOAT;
+    field_type[1] = H5T_STD_U32LE;
     field_type[2] = H5T_NATIVE_FLOAT;
-    field_type[3] = H5T_NATIVE_FLOAT;      
+    field_type[3] = H5T_NATIVE_FLOAT;
+    field_type[4] = H5T_NATIVE_FLOAT;      
         
     memset(packet, 0, sizeof(packet[0]) * 808 * 16);    // zero out array
     
@@ -304,10 +307,12 @@ int main(int argc, char *argv[])
         printf("Bin2HDF error - First command line argument must be the configuration file.\n");
         exit(0);
     }
-    if (ParseConfig(argc,argv,path,&FirstFile,&nFiles,BeamFile,&mapflag,&beamCols,&beamRows) == 0 ) {
+    if (ParseConfig(argc,argv,path,&FirstFile,&nFiles,BeamFile,&mapflag,&beamCols,&beamRows,outputDir) == 0 ) {
         printf("Bin2HDF error - Config parsing error.\n");
 		exit(1);
 	}
+
+    tstart = (uint64_t)(FirstFile-TSOFFS)*2000;
 
     //initialize nRoaches
     nRoaches = beamRows*beamCols/1000;
@@ -367,7 +372,7 @@ int main(int argc, char *argv[])
     printf("Read data to memory in %f ms.\n",(float)diff*1000.0/CLOCKS_PER_SEC);
     
     // Create H5 file and set attributes
-    sprintf(outfile,"%s/%d.h5",path,FirstFile);
+    sprintf(outfile,"%s/%d.h5",outputDir,FirstFile);
     file_id = H5Fcreate (outfile, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
     
     // put the beam map into the h5 file    
@@ -479,7 +484,7 @@ int main(int argc, char *argv[])
         // save photon tables to hdf5
         for(j=0; j < beamCols; j++) {
 			for(k=0; k < beamRows; k++) {
-				if( BeamMap[j][k] == 0 ) continue;
+				if( BeamMap[j][k] == beamMapInitVal ) continue;
 				if( ptablect[j][k] == 0 ) continue;    
 				//printf("%s %ld\n", ResIdString[j][k], ptablect[j][k]);
 				//printf("%d %d %s %ld\n", j, k, ResIdString[j][k], ptablect[j][k]); fflush(stdout);
@@ -553,6 +558,9 @@ int main(int argc, char *argv[])
     
     strcat(correctTimestampsCmd, outfile);
     system(correctTimestampsCmd);
+
+    strcat(consolidatePhotonTablesCmd, outfile);
+    system(consolidatePhotonTablesCmd);
     exit(0);
 
 }
