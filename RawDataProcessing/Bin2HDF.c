@@ -262,6 +262,7 @@ int main(int argc, char *argv[])
     char addHeaderCmd[120] = "python addH5Header.py ";
     char correctTimestampsCmd[120] = "python correctUnsortedTimestamps.py ";
     char consolidatePhotonTablesCmd[120] = "python consolidatePhotonTables.py ";
+    char indexHDFCmd[120] = "python indexHDF.py ";
     photon p1;
     
     photon ***ptable;
@@ -561,6 +562,9 @@ int main(int argc, char *argv[])
 
     strcat(consolidatePhotonTablesCmd, outfile);
     system(consolidatePhotonTablesCmd);
+    
+    strcat(indexHDFCmd, outfile);
+    system(indexHDFCmd);
     exit(0);
 
 }
