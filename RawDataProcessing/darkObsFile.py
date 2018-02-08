@@ -85,12 +85,27 @@ class ObsFile:
     nCalCoeffs = 3
     def __init__(self, fileName, mode='read', verbose=False):
         """
-        load the given file with fileName relative to $MKID_RAW_PATH
+        Create ObsFile object and load in specified HDF5 file.
+
+        Parameters
+        ----------
+            fileName: String
+                Path to HDF5 File
+            mode: String
+                'read' or 'write'. File should be opened in 'read' mode 
+                unless you are applying a calibration.
+            verbose: bool
+                Prints debug messages if True
+        Returns
+        -------
+            ObsFile instance
+                
         """
         assert mode=='read' or mode=='write', '"mode" argument must be "read" or "write"'
         self.mode = mode
         self.makeMaskVersion = None
         self.loadFile(fileName,verbose=verbose)
+        self.photonTable = self.file.get_node('/Photons/PhotonTable')
         self.filterIsApplied = False
 
         self.filterIsApplied = False
@@ -393,18 +408,14 @@ class ObsFile:
         -------
         Structured Numpy Array
             Each row is a photon.
-            Columns have the following keys: 'Time', 'Wavelength', 'Spec Weight', 'Noise Weight'
+            Columns have the following keys: 'Time', 'Wavelength', 'SpecWeight', 'NoiseWeight'
 
         """
         resID = self.beamImage[xCoord][yCoord]
         if resID==self.noResIDFlag:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                photonTable = self.file.get_node('/Photons/' + '0')
-            return photonTable.read_where('(Time < 0)') #use dummy condition to get empty photon list of correct format
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            photonTable = self.file.get_node('/Photons/' + str(resID))
+            return self.photonTable.read_where('(Time < 0)') #use dummy condition to get empty photon list of correct format
 
         startTime = int(firstSec*self.ticksPerSec) #convert to us
         endTime = startTime + int(integrationTime*self.ticksPerSec)
@@ -421,10 +432,10 @@ class ObsFile:
 
         wvlRange = None   ##IL:  Patch because for some reason wvlRange gets set to false after the getSpectralCube step
         if wvlRange is None and integrationTime==-1:
-            photonList = photonTable.read()
+            photonList = self.photonTable.read_where('ResID==resID')
 
         elif wvlRange is None:
-            photonList = photonTable.read_where('(Time >= startTime) & (Time < endTime)')
+            photonList = self.photonTable.read_where('(ResID == resID) & (Time >= startTime) & (Time < endTime)')
 
         else:
             if(isWvl != self.info['isWvlCalibrated']):
@@ -433,9 +444,9 @@ class ObsFile:
             endWvl = wvlRange[1]
             assert startWvl <= endWvl, 'wvlRange[0] must be <= wvlRange[1]'
             if integrationTime == -1:
-                photonList = photonTable.read_where('(Wavelength >= startWvl) & (Wavelength < endWvl)')
+                photonList = photonTable.read_where('(ResID == resID) & (Wavelength >= startWvl) & (Wavelength < endWvl)')
             else:
-                photonList = photonTable.read_where('(Time > startTime) & (Time < endTime) & (Wavelength >= startWvl) & (Wavelength < endWvl)')
+                photonList = photonTable.read_where('(ResID == resID) & (Time > startTime) & (Time < endTime) & (Wavelength >= startWvl) & (Wavelength < endWvl)')
 
         #return {'pixelData':pixelData,'firstSec':firstSec,'lastSec':lastSec}
         return photonList
@@ -464,7 +475,7 @@ class ObsFile:
             The ith element contains a photon list for the ith pixel specified in posList
             Within each structured array:
                 Each row is a photon.
-                Columns have the following keys: 'Time', 'Wavelength', 'Spec Weight', 'Noise Weight'
+                Columns have the following keys: 'Time', 'Wavelength', 'SpecWeight', 'NoiseWeight'
 
         """
 
@@ -511,9 +522,9 @@ class ObsFile:
         photonList = self.getPixelPhotonList(xCoord, yCoord, firstSec, integrationTime, wvlRange)
         weights = np.ones(len(photonList))
         if applyWeight:
-            weights *= photonList['Spec Weight']
+            weights *= photonList['SpecWeight']
         if applyTPFWeight:
-            weights *= photonList['Noise Weight']
+            weights *= photonList['NoiseWeight']
         if applyTimeMask:
             if self.info['timeMaskExists']:
                 pass
@@ -581,7 +592,7 @@ class ObsFile:
                               alpha=0.5,color='gray')
 
 
-    def getPixelCountImage(self, firstSec=0, integrationTime= -1, wvlRange=None, applyWeight=True, applyTPFWeight=True, applyTimeMask=True, scaleByEffInt=False):
+    def getPixelCountImage(self, firstSec=0, integrationTime= -1, wvlRange=None, applyWeight=True, applyTPFWeight=True, applyTimeMask=False, scaleByEffInt=False, flagToUse=0):
         """
         Returns an image of pixel counts over the entire array between firstSec and firstSec + integrationTime. Can specify calibration weights to apply as
         well as wavelength range.
@@ -605,6 +616,9 @@ class ObsFile:
             If True, applies the included time mask (if it exists)
         scaleByEffInt: bool
             If True, scales each pixel by (total integration time)/(effective integration time)
+        flagToUse: int
+            Specifies (bitwise) pixel flags that are suitable to include in image. For
+            flag definitions see 'h5FileFlags' in Headers/pipelineFlags.py
 
         Returns
         -------
@@ -617,13 +631,55 @@ class ObsFile:
         effIntTimes.fill(np.nan)   #Just in case an element doesn't get filled for some reason.
         countImage = np.zeros((self.nXPix, self.nYPix), dtype=np.float64)
         #rawCounts.fill(np.nan)   #Just in case an element doesn't get filled for some reason.
+        if integrationTime==-1:
+            integrationTime = self.getFromHeader('exptime')-firstSec
+        startTs = firstSec*1.e6
+        endTs = startTs + integrationTime*1.e6
+        if wvlRange is None:
+            photonList = self.photonTable.read_where('((Time >= startTs) & (Time < endTs))')
+        else:
+            startWvl = wvlRange[0]
+            endWvl = wvlRange[1]
+            photonList = self.photonTable.read_where('(Wavelength >= startWvl) & (Wavelength < endWvl) & (Time >= startTs) & (Time < endTs)')
+
+        resIDDiffs = np.diff(photonList['ResID'])
+        if(np.any(resIDDiffs<0)):
+            warnings.warn('Photon list not sorted by ResID! This could take a while...')
+            photonList = np.sort(photonList, order='ResID', kind='mergsort') #mergesort is stable, so time order will be preserved
+            resIDDiffs = np.diff(photonList['ResID'])
+        
+        resIDBoundaryInds = np.where(resIDDiffs>0)[0]+1 #indices in photonList where ResID changes; ie marks boundaries between pixel tables
+        resIDBoundaryInds = np.insert(resIDBoundaryInds, 0, 0)
+        resIDList = photonList['ResID'][resIDBoundaryInds]
+        resIDBoundaryInds = np.append(resIDBoundaryInds, len(photonList['ResID']))
+
         for xCoord in range(self.nXPix):
             for yCoord in range(self.nYPix):
-                pcount = self.getPixelCount(xCoord, yCoord, firstSec, integrationTime,
-                                          wvlRange, applyWeight, applyTPFWeight, applyTimeMask)
-                #print(pcount)
-                effIntTimes[xCoord, yCoord] = pcount['effIntTime']
-                countImage[xCoord, yCoord] = pcount['counts']
+                flag = self.beamFlagImage[xCoord, yCoord]
+                if(self.beamImage[xCoord, yCoord]!=self.noResIDFlag and (flag|flagToUse)==flag):
+                    effIntTimes[xCoord, yCoord] = integrationTime
+                    resIDInd = np.where(resIDList==self.beamImage[xCoord, yCoord])[0]
+                    if(np.shape(resIDInd)[0]>0):
+                        resIDInd = resIDInd[0]
+                        if applyWeight==False and applyTPFWeight==False:
+                            countImage[xCoord, yCoord] = resIDBoundaryInds[resIDInd+1] - resIDBoundaryInds[resIDInd]
+                        else:
+                            weights = np.ones(resIDBoundaryInds[resIDInd+1] - resIDBoundaryInds[resIDInd])
+                            if applyWeight:
+                                weights *= photonList['SpecWeight'][resIDBoundaryInds[resIDInd]:resIDBoundaryInds[resIDInd+1]]
+                            if applyTPFWeight:
+                                weights *= photonList['NoiseWeight'][resIDBoundaryInds[resIDInd]:resIDBoundaryInds[resIDInd+1]] 
+                            countImage[xCoord, yCoord] = np.sum(weights)
+
+        #for i,resID in enumerate(resIDList):
+        #    coords = np.where(self.beamFlagImage==resID)
+        #    xCoord = coords[0][0]
+        #    yCoord = coords[1][0]
+        #    flag = self.beamFlagImage[coords]
+        #    if (flag|flagToUse)==flag:
+        #        if applyWeight==False and applyTPFWeight==False:
+                    
+                
         if scaleByEffInt is True:
             if integrationTime == -1:
                 totInt = self.getFromHeader('exptime')
@@ -692,7 +748,7 @@ class ObsFile:
         Retrieves a photon list for the specified circular aperture.
         For pixels that partially overlap with the region, all photons
         are included, and the overlap fraction is multiplied into the
-        'Noise Weight' column.
+        'NoiseWeight' column.
 
         Parameters
         ----------
@@ -748,9 +804,7 @@ class ObsFile:
                 continue
             resID = self.beamImage[coords[0], coords[1]]
             pixPhotonList = self.getPixelPhotonList(coords[0], coords[1], firstSec, integrationTime, wvlRange)
-            pixPhotonList['Noise Weight'] *= exactApertureMask[apertureMaskCoords[i,0], apertureMaskCoords[i,1]]
-            resIDArr = resID*np.ones(len(pixPhotonList))
-            pixPhotonList = nlr.append_fields(pixPhotonList, names='resID', data=resIDArr, usemask=False)
+            pixPhotonList['NoiseWeight'] *= exactApertureMask[apertureMaskCoords[i,0], apertureMaskCoords[i,1]]
             if photonList is None:
                 photonList = pixPhotonList
             else:
@@ -857,10 +911,10 @@ class ObsFile:
         weights = np.ones(len(wvlList))
 
         if applySpecWeight:
-            weights *= photonList['Spec Weight']
+            weights *= photonList['SpecWeight']
 
         if applyTPFWeight:
-            weights *= photonList['Noise Weight']
+            weights *= photonList['NoiseWeight']
 
         if (wvlBinWidth is None) and (energyBinWidth is None) and (wvlBinEdges is None): #use default/flat cal supplied bins
             spectrum, wvlBinEdges = np.histogram(wvlList, bins=self.defaultWvlBins, weights=weights)
@@ -1761,14 +1815,6 @@ class ObsFile:
                     retval = retval | temp
             return retval
 
-    def writePhotonList(self,*nkwargs,**kwargs): #filename=None, firstSec=0, integrationTime=-1):
-        """
-        Write out the photon list for this obs file.
-        See photonlist/photlist.py for input parameters and outputs.
-        Shifted over to photonlist/, May 10 2013, JvE. All under construction at the moment.
-        """
-        import photonlist.photlist      #Here instead of at top to avoid circular imports
-        photonlist.photlist.writePhotonList(self,*nkwargs,**kwargs)
 
     def updateWavelengths(self, xCoord, yCoord, wvlCalArr):
         """
@@ -1799,11 +1845,11 @@ class ObsFile:
 
     def applySpecWeight(self, resID, weightArr):
         """
-        Applies a weight calibration to the "Spec Weight" column.
+        Applies a weight calibration to the "SpecWeight" column.
 
         This is where the flat cal, linearity cal, and spectral cal go.
         Weights are multiplied in and replaced; if "weights" are the contents
-        of the "Spec Weight" column, weights = weights*weightArr. NOT reversible
+        of the "SpecWeight" column, weights = weights*weightArr. NOT reversible
         unless the original contents (or weightArr) is saved.
 
         Parameters
@@ -1811,7 +1857,7 @@ class ObsFile:
         resID: int
             resID of desired pixel
         weightArr: array of floats
-            Array of cal weights. Multiplied into the "Spec Weight" column.
+            Array of cal weights. Multiplied into the "SpecWeight" column.
         """
         if self.mode!='write':
             raise Exception("Must open file in write mode to do this!")
@@ -1821,9 +1867,9 @@ class ObsFile:
         assert len(photonTable)==len(weightArr), 'Calibrated wavelength list does not match length of photon list!'
 
         weightArr = np.array(weightArr)
-        curWeights = photonTable.col('Spec Weight')
+        curWeights = photonTable.col('SpecWeight')
         newWeights = weightArr*curWeights
-        photonTable.modify_column(column=newWeights, colname='Spec Weight')
+        photonTable.modify_column(column=newWeights, colname='SpecWeight')
         photonTable.flush()
 
     def applyFlatCalLegacy(self, FlatCalFile):
@@ -1862,33 +1908,6 @@ class ObsFile:
                 weightArr[np.where(phases > maxwavelength)]=1.0
                 obs.applySpecWeight(obsfile, resID=resID, weightArr=weightArr)
         self.modifyHeaderEntry(headerTitle='isSpecCalibrated', headerValue=True)
-
-    def applyTimestampCorrection(self, xCoord, yCoord, timestampArr):
-        """
-        Applies a timestamp correction for a single pixel. Overwrites "Time" column w/
-        contents of timestampArr. Ordering of timestamps MUST be preserved; DOES NOT SORT.
-        NOT reversible unless you have a copy of the original contents.
-        ObsFile must be open in "write" mode to use.
-
-        Parameters
-        ----------
-        xCoord: int
-            x-coordinate of pixel to overwrite
-        yCoord: int
-            y-coordinate of pixel to overwrite
-        timestampArr: array of type uint32
-            Array of corrected timestamps. Replaces "Time" column of photon list.
-        """
-        if self.mode!='write':
-            raise Exception("Must open file in write mode to do this!")
-        resID = self.beamImage[xCoord][yCoord]
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            photonTable = self.file.get_node('/Photons/' + str(resID))
-        assert len(photonTable)==len(timestampArr), 'Timestamp list does not match length of photon list!'
-
-        photonTable.modify_column(column=timestampArr, colname='Time')
-        photonTable.flush()
 
     def applyFlag(self, xCoord, yCoord, flag):
         """
