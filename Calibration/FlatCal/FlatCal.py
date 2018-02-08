@@ -1,11 +1,12 @@
 #!/bin/python
 """
 Author: Isabel Lipartito        Date:Dec 4, 2017
-Opens a twilight flat h5 and makes the spectrum of each pixel.
+Opens a twilight flat h5 and breaks it into 5 second blocks.  
+For each block, this program makes the spectrum of each pixel.
 Then takes the median of each energy over all pixels
 A factor is then calculated for each energy in each pixel of its
 twilight count rate / median count rate
-The factors are written out in an h5 file
+The factors are written out in an h5 file for each block OR in a single h5 file with each block broken up into different tables (not sure yet) or both
 """
 
 import sys,os
@@ -54,6 +55,7 @@ class FlatCal:
 		self.flatPath = ast.literal_eval(self.config['Data']['flatPath'])
 		self.calSolnPath=ast.literal_eval(self.config['Data']['calSolnPath'])
 		self.intTime = ast.literal_eval(self.config['Data']['intTime'])
+		self.expTime = ast.literal_eval(self.config['Data']['expTime'])
 		self.deadtime= ast.literal_eval(self.config['Instrument']['deadtime'])
 		self.energyBinWidth = ast.literal_eval(self.config['Instrument']['energyBinWidth'])
 		self.wvlStart = ast.literal_eval(self.config['Instrument']['wvlStart'])
@@ -169,10 +171,14 @@ class FlatCal:
 		finds flat cal factors as medians/pixelSpectra for each pixel.  Normalizes these weights at each wavelength bin.
 		Trim the beginning and end off the sorted weights for each wvl for each pixel, to exclude extremes from averages
 		'''
-		cubeWeightsList = []
-		self.averageSpectra = []
-		deltaWeightsList = []
+		#cubeWeightsList = []
+		#self.averageSpectra = []
+		#deltaWeightsList = []
+		self.flatWeightsList=[]
 		for iCube,cube in enumerate(self.spectralCubes):
+			cubeWeightsList = []
+			self.averageSpectra = []
+			deltaWeightsList = []
 			effIntTime = self.cubeEffIntTimes[iCube]
 			#for each time chunk
 			wvlAverages = np.zeros(self.nWvlBins)
@@ -189,49 +195,63 @@ class FlatCal:
 			deltaWeights = weights/np.sqrt(effIntTime*cube)
 			deltaWeightsList.append(deltaWeights)
 			self.averageSpectra.append(wvlAverages)
-		cubeWeights = np.array(cubeWeightsList)
+		
+			cubeWeights = np.array(cubeWeightsList)
+			deltaCubeWeights = np.array(deltaWeightsList)
+			cubeWeightsMask = np.isnan(cubeWeights)
+			self.maskedCubeWeights = np.ma.array(cubeWeights,mask=cubeWeightsMask,fill_value=1.)
+			print('maskedcubeWeightsshape', np.shape(self.maskedCubeWeights))
+			self.maskedCubeDeltaWeights = np.ma.array(deltaCubeWeights,mask=cubeWeightsMask)
 
-		deltaCubeWeights = np.array(deltaWeightsList)
-		cubeWeightsMask = np.isnan(cubeWeights)
-		self.maskedCubeWeights = np.ma.array(cubeWeights,mask=cubeWeightsMask,fill_value=1.)
-		print('maskedcubeWeightsshape', np.shape(self.maskedCubeWeights))
-		self.maskedCubeDeltaWeights = np.ma.array(deltaCubeWeights,mask=cubeWeightsMask)
-		#sort maskedCubeWeights and rearange spectral cubes the same way
-		sortedIndices = np.ma.argsort(self.maskedCubeWeights,axis=0)
-		identityIndices = np.ma.indices(np.shape(self.maskedCubeWeights))
+			#sort maskedCubeWeights and rearange spectral cubes the same way
+			sortedIndices = np.ma.argsort(self.maskedCubeWeights,axis=0)
+			identityIndices = np.ma.indices(np.shape(self.maskedCubeWeights))
 
-		sortedWeights = self.maskedCubeWeights[sortedIndices,identityIndices[1],identityIndices[2],identityIndices[3]]
-		countCubesReordered = self.countCubes[sortedIndices,identityIndices[1],identityIndices[2],identityIndices[3]]
-		cubeDeltaWeightsReordered = self.maskedCubeDeltaWeights[sortedIndices,identityIndices[1],identityIndices[2],identityIndices[3]]
+			sortedWeights = self.maskedCubeWeights[sortedIndices,identityIndices[1],identityIndices[2],identityIndices[3]]
+			countCubesReordered = self.countCubes[sortedIndices,identityIndices[1],identityIndices[2],identityIndices[3]]
+			cubeDeltaWeightsReordered = self.maskedCubeDeltaWeights[sortedIndices,identityIndices[1],identityIndices[2],identityIndices[3]]
 
-		nCubes = np.shape(self.maskedCubeWeights)[0]
-		trimmedWeights = sortedWeights[self.fractionOfChunksToTrim*nCubes:(1-self.fractionOfChunksToTrim)*nCubes,:,:,:]
-		trimmedCountCubesReordered = countCubesReordered[self.fractionOfChunksToTrim*nCubes:(1-self.fractionOfChunksToTrim)*nCubes,:,:,:]
-		print('trimmed cubes shape',np.shape(trimmedCountCubesReordered))
+			nCubes = np.shape(self.maskedCubeWeights)[0]
+			print('nCubes',nCubes)
+			trimmedWeights = sortedWeights[self.fractionOfChunksToTrim*nCubes:(1-self.fractionOfChunksToTrim)*nCubes,:,:,:]
+			print('trimmedWeights shape',np.shape(trimmedWeights))
+			trimmedCountCubesReordered = countCubesReordered[self.fractionOfChunksToTrim*nCubes:(1-self.fractionOfChunksToTrim)*nCubes,:,:,:]
+			print('trimmedCountCubesReordered',np.shape(trimmedCountCubesReordered))
 
-		self.totalCube = np.ma.sum(trimmedCountCubesReordered,axis=0)
-		self.totalFrame = np.ma.sum(self.totalCube,axis=-1)
-		plotArray(self.totalFrame)
+			self.totalCube = np.ma.sum(trimmedCountCubesReordered,axis=0)
+			print('totalCubeShape', np.shape(self.totalCube))
+			self.totalFrame = np.ma.sum(self.totalCube,axis=-1)
+			#plotArray(self.totalFrame)
     
 
-		trimmedCubeDeltaWeightsReordered = cubeDeltaWeightsReordered[self.fractionOfChunksToTrim*nCubes:(1-self.fractionOfChunksToTrim)*nCubes,:,:,:]
-		'''
-		Uncertainty in weighted average is sqrt(1/sum(averagingWeights))
-		Normalize weights at each wavelength bin
-		'''
-		self.flatWeights,summedAveragingWeights = np.ma.average(trimmedWeights,axis=0,weights=trimmedCubeDeltaWeightsReordered**-2.,returned=True)
-		self.deltaFlatWeights = np.sqrt(summedAveragingWeights**-1.)
-		self.flatFlags = self.flatWeights.mask
+			trimmedCubeDeltaWeightsReordered = cubeDeltaWeightsReordered[self.fractionOfChunksToTrim*nCubes:(1-self.fractionOfChunksToTrim)*nCubes,:,:,:]
+			'''
+			Uncertainty in weighted average is sqrt(1/sum(averagingWeights))
+			Normalize weights at each wavelength bin
+			'''	
+			print('trimmedCubeDeltaWeighsReordered shape', np.shape(trimmedCubeDeltaWeightsReordered))
+			self.flatWeights,summedAveragingWeights = np.ma.average(trimmedWeights,axis=0,weights=trimmedCubeDeltaWeightsReordered**-2.,returned=True)
+			self.deltaFlatWeights = np.sqrt(summedAveragingWeights**-1.)
+			self.flatFlags = self.flatWeights.mask
+	
+			wvlWeightMedians = np.ma.median(np.reshape(self.flatWeights,(-1,self.nWvlBins)),axis=0)
+			self.flatWeights = np.divide(self.flatWeights,wvlWeightMedians)
+			self.flatWeightsforplot = np.ma.sum(self.flatWeights,axis=-1)
+			plotArray(self.flatWeightsforplot)
+			self.flatWeightsList.append(self.flatWeights)
+			flatcal.writeWeights(indexweights=iCube)	
+			flatcal.plotWeightsWvlSlices(indexplotWeightsWvlSlices=iCube)		
+			flatcal.plotMaskWvlSlices(indexplotMaskWvlSlices=iCube)		
+			flatcal.plotWeightsByPixel(indexplotByPixel=iCube)
+		self.alltheflatWeights=np.array(self.flatWeightsList)
 
-		wvlWeightMedians = np.ma.median(np.reshape(self.flatWeights,(-1,self.nWvlBins)),axis=0)
-		self.flatWeights = np.divide(self.flatWeights,wvlWeightMedians)
             
-	def plotWeightsWvlSlices(self,verbose=True):
+	def plotWeightsWvlSlices(self,indexplotWeightsWvlSlices,verbose=False):
 		'''
 		Plot weights in images of a single wavelength bin (wavelength-sliced images)
 		'''
 		flatCalPath,flatCalBasename = os.path.split(self.flatCalFileName)
-		pdfBasename = os.path.splitext(flatCalBasename)[0]+'_wvlSlices.pdf'
+		pdfBasename = os.path.splitext(flatCalBasename)[0]+str(indexplotWeightsWvlSlices+1)+'_wvlSlices.pdf'
 		pdfFullPath = os.path.join(flatCalPath,pdfBasename)
 		pp = PdfPages(pdfFullPath)
 		nPlotsPerRow = 2
@@ -282,12 +302,12 @@ class FlatCal:
 		pp.savefig(fig)
 		pp.close()
 
-	def plotMaskWvlSlices(self,verbose=True):
+	def plotMaskWvlSlices(self,indexplotMaskWvlSlices,verbose=False):
 		'''
 		Plot mask in images of a single wavelength bin (wavelength-sliced images)
 		'''
 		flatCalPath,flatCalBasename = os.path.split(self.flatCalFileName)
-		pdfBasename = os.path.splitext(flatCalBasename)[0]+'_mask.pdf'
+		pdfBasename = os.path.splitext(flatCalBasename)[0]+str(indexplotMaskWvlSlices+1)+'_mask.pdf'
 		pdfFullPath = os.path.join(flatCalPath,pdfBasename)
 		pp = PdfPages(pdfFullPath)
 		nPlotsPerRow = 3 
@@ -325,12 +345,12 @@ class FlatCal:
 		pp.savefig(fig)
 		pp.close()
 
-	def plotWeightsByPixel(self,verbose=True):
+	def plotWeightsByPixel(self,indexplotByPixel,verbose=False):
 		'''
 		Plot weights of each wavelength bin for every single pixel
 		'''
 		flatCalPath,flatCalBasename = os.path.split(self.flatCalFileName)
-		pdfBasename = os.path.splitext(flatCalBasename)[0]+'.pdf'
+		pdfBasename = os.path.splitext(flatCalBasename)[0]+str(indexplotByPixel+1)+'.pdf'
 		pdfFullPath = os.path.join(flatCalPath,pdfBasename)
 		pp = PdfPages(pdfFullPath)
 		nPlotsPerRow = 2
@@ -387,17 +407,20 @@ class FlatCal:
 					iPlot += 1
 		pp.close()
 
-	def writeWeights(self):
+	def writeWeights(self, indexweights):
 		"""
 		Writes an h5 file to put calculated flat cal factors in
 		"""
 		if os.path.isabs(self.flatCalFileName) == True:
-			fullFlatCalFileName = self.flatCalFileName
-			print(self.flatCalFileName)
+			fullFlatCalFileName =self.flatCalFileName
+			baseh5path=fullFlatCalFileName.split('.h5')
+			fullFlatCalFileName=baseh5path[0]+str(indexweights+1)+'.h5'
 		else:
 			scratchDir = os.getenv('MKID_PROC_PATH')
 			flatDir = os.path.join(scratchDir,'flatCalSolnFiles')
 			fullFlatCalFileName = os.path.join(flatDir,self.flatCalFileName)
+			baseh5path=fullFlatCalFileName.split('.h5')
+			fullFlatCalFileName=baseh5path[0]+str(indexweights+1)+'.h5'
 
 		if not os.path.exists(fullFlatCalFileName) and self.calSolnPath =='':	
 			os.makedirs(fullFlatCalFileName)		
@@ -407,7 +430,7 @@ class FlatCal:
 		except:
 			print('Error: Couldn\'t create flat cal file, ',fullFlatCalFileName)
 			return
-		print('wrote to',self.flatCalFileName)
+		print('wrote to',fullFlatCalFileName)
 
 		calgroup = flatCalFile.create_group(flatCalFile.root,'flatcal','Table of flat calibration weights by pixel and wavelength')
 		calarray = tables.Array(calgroup,'weights',obj=self.flatWeights.data,title='Flat calibration Weights indexed by pixelRow,pixelCol,wavelengthBin')
@@ -471,6 +494,8 @@ class FlatCal:
 				param.format('calSolnPath', 'Data')
 			assert 'intTime' in self.config['Data'].keys(), \
 				param.format('intTime', 'Data')
+			assert 'expTime' in self.config['Data'].keys(), \
+				param.format('expTime', 'Data')
 
 			assert 'Instrument' in self.config.sections(), section.format('Instrument')
 			assert 'deadtime' in self.config['Instrument'].keys(), \
@@ -504,6 +529,7 @@ class FlatCal:
 			if self.calSolnPath != '':
 				assert type(self.calSolnPath) is str, "Cal Solution Path parameter must be a string."
 			assert type(self.intTime) is int, "integration time parameter must be an integer"
+			assert type(self.expTime) is int, "Exposure time parameter must be an integer"
 			
 			if type(self.deadtime) is int:
 				self.deadtime = float(self.deadtime)
@@ -540,7 +566,3 @@ if __name__ == '__main__':
 	flatcal.loadFlatSpectra()
 	flatcal.checkCountRates()
 	flatcal.calculateWeights()
-	flatcal.writeWeights()
-	flatcal.plotWeightsByPixel()
-	flatcal.plotWeightsWvlSlices()
-	flatcal.plotMaskWvlSlices()
