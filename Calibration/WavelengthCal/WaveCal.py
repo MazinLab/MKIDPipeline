@@ -515,10 +515,12 @@ class WaveCal:
                 diff = np.diff(phases)
                 mask = np.ones(diff.shape, dtype=bool)
                 for ind, _ in enumerate(mask):
-                    if (-diff[ind] < errors[ind] or -diff[ind] < errors[ind + 1]):
+                    if diff[ind] < 0 and (-diff[ind] < errors[ind] or
+                                          -diff[ind] < errors[ind + 1]):
                         mask[ind] = False
 
-            if count > 1 and (diff < -2e8 * dE / np.mean(wavelengths))[mask].any():
+            if count > 1 and ((diff < -2e8 * dE / np.mean(wavelengths))[mask].any()
+                              or sum(mask) == 0):
                 flag = 7  # data not monotonic enough
                 wavelength_cal[row, column] = (flag, False, False)
 
@@ -526,17 +528,18 @@ class WaveCal:
             elif count > 2:
                 energies = h.to('eV s').value * c.to('nm/s').value / np.array(wavelengths)
 
-                guess = [0, phases[0] / energies[0], 0]  # guess straight line
-
                 phase_list1 = []
                 phase_list2 = []
+                bin_widths = []
                 for ind, _ in enumerate(fit_results):
-                    if len(fit_results[ind][3]['centers']) > 0:
+                    if len(fit_results[ind][3]['centers']) > 1:
                         phase_list1.append(np.max(fit_results[ind][3]['centers']))
                         phase_list2.append(np.min(fit_results[ind][3]['centers']))
-                self.current_threshold = np.max(phase_list1)
-                self.current_min = np.min(phase_list2)
-                popt, pcov = self.__fitEnergy('quadratic', phases, energies, guess,
+                        bin_widths.append(np.diff(fit_results[ind][3]['centers'])[0])
+                max_width = np.max(bin_widths)
+                self.current_threshold = np.max(phase_list1) + max_width / 2
+                self.current_min = np.min(phase_list2) - max_width / 2
+                popt, pcov = self.__fitEnergy('quadratic', phases, energies,
                                               errors, row, column)
 
                 # refit if vertex is between wavelengths or slope is positive
@@ -558,14 +561,13 @@ class WaveCal:
                     conditions = conditions or (vertex_val < 0 or max_val < 0 or
                                                 min_val < 0)
                 if conditions:
-                    guess = [phases[0] / energies[0], 0]
-                    popt, pcov = self.__fitEnergy('linear', phases, energies, guess,
+                    popt, pcov = self.__fitEnergy('linear', phases, energies,
                                                   errors, row, column)
 
                     if popt is False or popt[1] > 0 or (max_phase > -popt[2] / popt[1]
                                                         and popt[1] < 0):
                         popt, pcov = self.__fitEnergy('linear_zero', phases, energies,
-                                                      guess, errors, row, column)
+                                                      errors, row, column)
                         if popt is False or popt[1] > 0:
                             flag = 8  # linear fit unsuccessful
                             wavelength_cal[row, column] = (flag, False, False)
@@ -656,7 +658,8 @@ class WaveCal:
             calsoln.row['pixel_row'] = row
             calsoln.row['pixel_col'] = column
             if (self.wavelength_cal[row, column][0] == 4 or
-               self.wavelength_cal[row, column][0] == 5):
+               self.wavelength_cal[row, column][0] == 5 or
+               self.wavelength_cal[row, column][0] == 9):
                 calsoln.row['polyfit'] = self.wavelength_cal[row, column][1]
             else:
                 calsoln.row['polyfit'] = [-1, -1, -1]
@@ -665,7 +668,8 @@ class WaveCal:
             R = []
             for index, wavelength in enumerate(self.wavelengths):
                 if ((self.wavelength_cal[row, column][0] == 4 or
-                     self.wavelength_cal[row, column][0] == 5) and
+                     self.wavelength_cal[row, column][0] == 5 or
+                     self.wavelength_cal[row, column][0] == 9) and
                      self.fit_data[row, column][index][0] == 0):
                     if self.model_name == 'gaussian_and_exp':
                         mu = self.fit_data[row, column][index][1][3]
@@ -1160,7 +1164,7 @@ class WaveCal:
             try:
                 # fit data
                 result = model.fit(phase_hist['counts'], setup, x=phase_hist['centers'],
-                                   weights=np.sqrt(phase_hist['counts']) + 1)
+                                   weights=1 / (np.sqrt(phase_hist['counts']) + 1))
                 # lm fit doesn't error if covariance wasn't calculated so check here
                 # replace with gaussian width if covariance couldn't be calculated
                 if result.covar is None:
@@ -1206,7 +1210,6 @@ class WaveCal:
             max_phase = max(phase_hist['centers'])
             min_phase = min(phase_hist['centers'])
             peak_upper_lim = np.min([-10, max_phase * 1.2])
-            peak_lower_lim = min_phase
 
             # change peak_upper_lim if good fits exist for higher wavelengths
             recent_fit, recent_index, success = self.__findLastGoodFit(fit_list)
@@ -1240,6 +1243,7 @@ class WaveCal:
                 else:
                     h_n = gauss(centers[c_n_ind]) + exp(centers[c_n_ind])
 
+                peak_lower_lim = min_phase + sigma
                 bad_fit_conditions = ((center > peak_upper_lim) or
                                       (center < peak_lower_lim) or
                                       (gauss(center) < 2 * exp(center)) or
@@ -1247,7 +1251,8 @@ class WaveCal:
                                       np.abs(sigma < 2) or
                                       np.abs(c - h) > 4 * np.sqrt(c) or
                                       np.abs(c_p - h_p) > 4 * np.sqrt(c_p) or
-                                      np.abs(c_n - h_n) > 4 * np.sqrt(c_n))
+                                      np.abs(c_n - h_n) > 4 * np.sqrt(c_n) or
+                                      2 * sigma > peak_upper_lim - peak_lower_lim)
 
                 if bad_fit_conditions:
                     flag = 2  # fit converged to a bad solution
@@ -1325,7 +1330,7 @@ class WaveCal:
                                              self.wavelengths[wavelength_index]))
         return fit_list
 
-    def __fitEnergy(self, fit_type, phases, energies, guess, errors, row, column):
+    def __fitEnergy(self, fit_type, phases, energies, errors, row, column):
         '''
         Fit the phase histogram to the specified fit fit_function
         '''
@@ -1335,15 +1340,18 @@ class WaveCal:
             try:
                 params = lm.Parameters()
                 if fit_type == 'linear':
+                    guess = np.polyfit(phases, energies, 1)
                     params.add('b', value=guess[0])
                     params.add('c', value=guess[1])
                     output = lm.minimize(self.__energyChi2, params, method='leastsq',
                                          args=(phases, energies, errors, fit_function))
                 elif fit_type == 'linear_zero':
+                    guess = np.polyfit(phases, energies, 1)
                     params.add('b', value=guess[0])
                     output = lm.minimize(self.__energyChi2, params, method='leastsq',
                                          args=(phases, energies, errors, fit_function))
                 elif fit_type == 'quadratic':
+                    guess = np.polyfit(phases, energies, 2)
                     params.add('a', value=guess[0])
                     params.add('b', value=guess[1])
                     params.add('c', value=guess[2])
