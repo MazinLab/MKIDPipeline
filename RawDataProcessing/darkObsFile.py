@@ -1835,17 +1835,44 @@ class ObsFile:
             raise Exception("Must open file in write mode to do this!")
         if self.info['isWvlCalibrated']:
             warnings.warn("Wavelength calibration already exists!")
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            photonTable = self.file.get_node('/Photons/' + str(resID))
-        assert len(photonTable)==len(wvlCalArr), 'Calibrated wavelength list does not match length of photon list!'
+        pixelRowInds = self.photonTable.get_where_list('ResID==resID')
+        assert (len(pixelRowInds)-1)==(pixelRowInds[-1]-pixelRowInds[0]), 'Table is not sorted by Res ID!'
+        assert len(pixelRowInds)==len(wvlCalArr), 'Calibrated wavelength list does not match length of photon list!'
 
-        photonTable.modify_column(column=wvlCalArr, colname='Wavelength')
-        photonTable.flush()
+        self.photonTable.modify_column(start=pixelRowInds[0], stop=pixelRowInds[-1]+1, column=wvlCalArr, colname='Wavelength')
+        self.photonTable.flush()
+
+    def __applyColWeight(self, resID, weightArr, colName):
+        """
+        Applies a weight calibration to the column specified by colName.
+        Call using applySpecWeight or applyTPFWeight.
+
+        Parameters
+        ----------
+        resID: int
+            resID of desired pixel
+        weightArr: array of floats
+            Array of cal weights. Multiplied into the "SpecWeight" column.
+        colName: string
+            Name of weight column. Should be either 'SpecWeight' or 'NoiseWeight'
+        """
+        if self.mode!='write':
+            raise Exception("Must open file in write mode to do this!")
+        if self.info['isWvlCalibrated']:
+            warnings.warn("Wavelength calibration already exists!")
+        pixelRowInds = self.photonTable.get_where_list('ResID==resID')
+        assert (len(pixelRowInds)-1)==(pixelRowInds[-1]-pixelRowInds[0]), 'Table is not sorted by Res ID!'
+        assert len(pixelRowInds)==len(weightArr), 'Calibrated wavelength list does not match length of photon list!'
+
+        weightArr = np.array(weightArr)
+        curWeights = self.photonTable.read_where('resID==ResID')['SpecWeight']
+        newWeights = weightArr*curWeights
+        self.photonTable.modify_column(start=pixelRowInds[0], stop=pixelRowInds[-1]+1, column=newWeights, colname=colName)
+        self.photonTable.flush()
 
     def applySpecWeight(self, resID, weightArr):
         """
-        Applies a weight calibration to the "SpecWeight" column.
+        Applies a weight calibration to the "SpecWeight" column of a single pixel.
 
         This is where the flat cal, linearity cal, and spectral cal go.
         Weights are multiplied in and replaced; if "weights" are the contents
@@ -1859,18 +1886,25 @@ class ObsFile:
         weightArr: array of floats
             Array of cal weights. Multiplied into the "SpecWeight" column.
         """
-        if self.mode!='write':
-            raise Exception("Must open file in write mode to do this!")
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            photonTable = self.file.get_node('/Photons/' + str(resID))
-        assert len(photonTable)==len(weightArr), 'Calibrated wavelength list does not match length of photon list!'
+        self.__applyColWeight(resID, weightArr, 'SpecWeight')
+    
+    def applyTPFWeight(self, resID, weightArr):
+        """
+        Applies a weight calibration to the "SpecWeight" column.
 
-        weightArr = np.array(weightArr)
-        curWeights = photonTable.col('SpecWeight')
-        newWeights = weightArr*curWeights
-        photonTable.modify_column(column=newWeights, colname='SpecWeight')
-        photonTable.flush()
+        This is where the TPF (noise weight) goes.
+        Weights are multiplied in and replaced; if "weights" are the contents
+        of the "NoiseWeight" column, weights = weights*weightArr. NOT reversible
+        unless the original contents (or weightArr) is saved.
+
+        Parameters
+        ----------
+        resID: int
+            resID of desired pixel
+        weightArr: array of floats
+            Array of cal weights. Multiplied into the "NoiseWeight" column.
+        """
+        self.__applyColWeight(resID, weightArr, 'NoiseWeight')
 
     def applyFlatCalLegacy(self, FlatCalFile):
         assert not self.info['isSpecCalibrated'], \
