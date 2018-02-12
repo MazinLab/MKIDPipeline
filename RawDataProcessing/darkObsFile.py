@@ -653,31 +653,42 @@ class ObsFile:
         resIDList = photonList['ResID'][resIDBoundaryInds]
         resIDBoundaryInds = np.append(resIDBoundaryInds, len(photonList['ResID']))
 
-        for xCoord in range(self.nXPix):
-            for yCoord in range(self.nYPix):
-                flag = self.beamFlagImage[xCoord, yCoord]
-                if(self.beamImage[xCoord, yCoord]!=self.noResIDFlag and (flag|flagToUse)==flag):
-                    effIntTimes[xCoord, yCoord] = integrationTime
-                    resIDInd = np.where(resIDList==self.beamImage[xCoord, yCoord])[0]
-                    if(np.shape(resIDInd)[0]>0):
-                        resIDInd = resIDInd[0]
-                        if applyWeight==False and applyTPFWeight==False:
-                            countImage[xCoord, yCoord] = resIDBoundaryInds[resIDInd+1] - resIDBoundaryInds[resIDInd]
-                        else:
-                            weights = np.ones(resIDBoundaryInds[resIDInd+1] - resIDBoundaryInds[resIDInd])
-                            if applyWeight:
-                                weights *= photonList['SpecWeight'][resIDBoundaryInds[resIDInd]:resIDBoundaryInds[resIDInd+1]]
-                            if applyTPFWeight:
-                                weights *= photonList['NoiseWeight'][resIDBoundaryInds[resIDInd]:resIDBoundaryInds[resIDInd+1]] 
-                            countImage[xCoord, yCoord] = np.sum(weights)
+        # for xCoord in range(self.nXPix):
+        #     for yCoord in range(self.nYPix):
+        #         flag = self.beamFlagImage[xCoord, yCoord]
+        #         if(self.beamImage[xCoord, yCoord]!=self.noResIDFlag and (flag|flagToUse)==flag):
+        #             effIntTimes[xCoord, yCoord] = integrationTime
+        #             resIDInd = np.where(resIDList==self.beamImage[xCoord, yCoord])[0]
+        #             if(np.shape(resIDInd)[0]>0):
+        #                 resIDInd = resIDInd[0]
+        #                 if applyWeight==False and applyTPFWeight==False:
+        #                     countImage[xCoord, yCoord] = resIDBoundaryInds[resIDInd+1] - resIDBoundaryInds[resIDInd]
+        #                 else:
+        #                     weights = np.ones(resIDBoundaryInds[resIDInd+1] - resIDBoundaryInds[resIDInd])
+        #                     if applyWeight:
+        #                         weights *= photonList['SpecWeight'][resIDBoundaryInds[resIDInd]:resIDBoundaryInds[resIDInd+1]]
+        #                     if applyTPFWeight:
+        #                         weights *= photonList['NoiseWeight'][resIDBoundaryInds[resIDInd]:resIDBoundaryInds[resIDInd+1]] 
+        #                     countImage[xCoord, yCoord] = np.sum(weights)
 
-        #for i,resID in enumerate(resIDList):
-        #    coords = np.where(self.beamFlagImage==resID)
-        #    xCoord = coords[0][0]
-        #    yCoord = coords[1][0]
-        #    flag = self.beamFlagImage[coords]
-        #    if (flag|flagToUse)==flag:
-        #        if applyWeight==False and applyTPFWeight==False:
+        for i,resID in enumerate(resIDList):
+            coords = np.where(self.beamFlagImage==resID)
+            xCoord = coords[0][0]
+            yCoord = coords[1][0]
+            flag = self.beamFlagImage[coords]
+            if (flag|flagToUse)==flag:
+                effIntTimes[xCoord, yCoord] = integrationTime
+                if applyWeight==False and applyTPFWeight==False:
+                    countImage[xCoord, yCoord] = resIDBoundaryInds[i+1] - resIDBoundaryInds[i]
+                else:
+                    weights = np.ones(resIDBoundaryInds[i+1] - resIDBoundaryInds[i])
+                    if applyWeight:
+                        weights *= photonList['SpecWeight'][resIDBoundaryInds[i]:resIDBoundaryInds[i+1]]
+                    if applyTPFWeight:
+                        weights *= photonList['NoiseWeight'][resIDBoundaryInds[i]:resIDBoundaryInds[i+1]] 
+                    countImage[xCoord, yCoord] = np.sum(weights)
+                    
+                    
                     
                 
         if scaleByEffInt is True:
