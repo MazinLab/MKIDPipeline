@@ -19,10 +19,11 @@ import subprocess
 XPIX = 80
 YPIX = 125
 binPath = '/home/bmazin/HR8799/rawdata'    # path to raw .bin data
+outPath = '/home/bmazin/HR8799/rawdata'    # path to output data
 beamFile = '/home/bmazin/HR8799/h5/finalMap_20170924.txt'    # path and filename to beam map file
 mapFlag = 1
 filePrefix = 'a'   # output h5 file prefix
-b2hPath = '/home/bmazin/DarknessPipeline/RawDataProcessing/Bin2HDF'
+b2hPath = '/home/bmazin/DarknessPipeline/RawDataProcessing'
 
 #***********************************
 
@@ -73,13 +74,16 @@ for i in range(nPos):
     f.write(str(( int(stopTimes[i])-bufferTime) - (int(startTimes[i])+bufferTime) )+'\n')
     #f.write('5\n')   # fast execution for debugging
     f.write(beamFile+'\n')
-    f.write(str(mapFlag))
+    f.write(str(mapFlag)+'\n')
+    f.write(outPath)
     f.close()
     
     # start Bin2HDF
     #subprocess.run([b2hPath,wd+'/'+filePrefix+str(i)+'.cfg'],stdout=subprocess.PIPE)
     
-    process = subprocess.Popen([b2hPath,wd+'/'+filePrefix+str(i)+'.cfg'], stdout=subprocess.PIPE)
+    # change to RawDataProcessing directory so the python calls in Bin2HDF work OK
+    os.chdir(b2hPath)
+    process = subprocess.Popen(['./Bin2HDF',wd+'/'+filePrefix+str(i)+'.cfg'], stdout=subprocess.PIPE)
     while True:
         output = process.stdout.readline()
         output = (output.decode('UTF-8')).strip()
@@ -89,3 +93,6 @@ for i in range(nPos):
             print(str(output))
         
     rc = process.poll()
+
+    # change back to start path
+    os.chdir(wd)
