@@ -1872,7 +1872,7 @@ class ObsFile:
         photonTable.modify_column(column=newWeights, colname='SpecWeight')
         photonTable.flush()
 
-    def applyFlatCal(self, FlatCalFile):
+    def applyFlatCalLegacy(self, FlatCalFile):
         assert not self.info['isSpecCalibrated'], \
                 "the data is already Flat calibrated"
         assert os.path.exists(FlatCalFile), "{0} does not exist".format(FlatCalFile)
