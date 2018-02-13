@@ -151,6 +151,7 @@ def plotHistogramFits(file_name, res_id=None, pixel=[]):
         row = debug['pixel_row'][index][0]
         column = debug['pixel_col'][index][0]
 
+    cmap = cm.get_cmap('viridis')
     fit_function = fitModels(model_name)
     x_num = int(np.ceil(len(wavelengths) / 2))
     y_num = 3
@@ -242,7 +243,8 @@ def plotHistogramFits(file_name, res_id=None, pixel=[]):
         axes[ind].text(xmin + 0.05 * dx, ymax - 0.05 * dy,
                          str(wavelength) + ' nm', va='top', ha='left')
         if len(centers) != 0:
-            axes[-1].plot(centers, counts, drawstyle='steps-mid',
+            color = cmap(ind / len(wavelengths))
+            axes[-1].plot(centers, counts, color=color, drawstyle='steps-mid',
                           label=str(wavelength) + ' nm')
         else:
             counter += 1
@@ -435,8 +437,8 @@ def plotCenterHist(file_name, mask=None, axis=None):
                              .format(model_name))
         hist_flag = debug["hist_flag"][:, index]
         wave_flag = calsoln["wave_flag"]
-        condition = np.logical_and(hist_flag == 0,
-                                   np.logical_or(wave_flag == 4, wave_flag == 5))
+        condition = np.logical_and(hist_flag == 0, np.logical_or(wave_flag == 4,
+                                   np.logical_or(wave_flag == 5, wave_flag == 9)))
         centers = centers[condition]
         counts, edges = np.histogram(centers, bins=30, range=(-150, -20))
         bws = np.diff(edges)
@@ -502,13 +504,13 @@ def plotSummary(file_name, config_name='', save_pdf=False, save_name=None, verbo
     text[0, 3] = round(text[0, 0] * len(wavelengths) /
                        np.sum(has_data) * 100, 2)
 
-    text[1, 0] = np.sum(fit_flags == 4) + np.sum(fit_flags == 5)
+    text[1, 0] = np.sum(fit_flags == 4) + np.sum(fit_flags == 5) + np.sum(fit_flags == 9)
     text[1, 1] = round(text[1, 0] / beamImage.size * 100, 2)
     text[1, 2] = round(text[1, 0] / np.sum(res_id != 2**23 - 1) * 100, 2)
     text[1, 3] = round(text[1, 0] * len(wavelengths) /
                        np.sum(np.array(has_data) == 1) * 100, 2)
 
-    text[2, 0] = np.sum(fit_flags == 5)
+    text[2, 0] = np.sum(fit_flags == 5) + np.sum(fit_flags == 9)
     text[2, 1] = np.sum(fit_flags == 4)
     wave_cal.close()
 
@@ -560,11 +562,11 @@ def plotSummary(file_name, config_name='', save_pdf=False, save_name=None, verbo
                             obsFiles[3 * ind].decode("utf-8") + ', ' +
                             obsFiles[3 * ind + 1].decode("utf-8") + ', ' +
                             obsFiles[3 * ind + 2].decode("utf-8"), **fontstyle)
-        if 3 * ind + 2 - len(obsFiles) == 2:
+        if len(obsFiles) - (3 * ind + 2) == 3:
             axes[1, 1].text(-0.1, 0.97 - 6 * dz - (ind + 1) * dz,
                             obsFiles[3 * ind + 3].decode("utf-8") + ', ' +
                             obsFiles[3 * ind + 4].decode("utf-8"), **fontstyle)
-        else:
+        elif len(obsFiles) - (3 * ind + 2) == 2:
             axes[1, 1].text(-0.1, 0.97 - 6 * dz - (ind + 1) * dz,
                             obsFiles[3 * ind + 3].decode("utf-8"), **fontstyle)
         axes[1, 1].text(-0.1, 0.97 - 8 * dz - (np.ceil(len(obsFiles) / 3) - 1) * dz,
@@ -575,15 +577,15 @@ def plotSummary(file_name, config_name='', save_pdf=False, save_name=None, verbo
                             str(wavelengths[3 * ind]) + ", " +
                             str(wavelengths[3 * ind + 1]) + ", " +
                             str(wavelengths[3 * ind + 2]), **fontstyle)
-        if 3 * ind + 2 - len(obsFiles) == 2:
+        if len(obsFiles) - (3 * ind + 2) == 3:
             axes[1, 1].text(-0.1, 0.97 - 8 * dz - (ind + 1) * dz -
                             np.ceil(len(obsFiles) / 3) * dz,
-                            str(wavelengths[3 * ind]) + ", " +
-                            str(wavelengths[3 * ind + 1]), **fontstyle)
-        else:
+                            str(wavelengths[3 * ind + 3]) + ", " +
+                            str(wavelengths[3 * ind + 4]), **fontstyle)
+        elif len(obsFiles) - (3 * ind + 2) == 2:
             axes[1, 1].text(-0.1, 0.97 - 8 * dz - (ind + 1) * dz -
                             np.ceil(len(obsFiles) / 3) * dz,
-                            str(wavelengths[3 * ind]), **fontstyle)
+                            str(wavelengths[3 * ind + 3]), **fontstyle)
         good_hist = np.sum(flags == 0, axis=1)
         perc = round(np.sum(fit_flags == 7) / np.sum(good_hist >= 3) * 100, 2)
         axes[1, 1].text(-0.1, 0.97 - 8 * dz - 2 * np.ceil(len(obsFiles) / 3) * dz,
@@ -595,7 +597,7 @@ def plotSummary(file_name, config_name='', save_pdf=False, save_name=None, verbo
             axes[1, 1].text(-0.1, 0.97 - 6 * dz - ind * dz,
                             obsFiles[2 * ind].decode("utf-8") + ', ' +
                             obsFiles[2 * ind + 1].decode("utf-8"), **fontstyle)
-        if 2 * ind + 1 - len(obsFiles) == 1:
+        if len(obsFiles) - (2 * ind + 1) == 2:
             axes[1, 1].text(-0.1, 0.97 - 6 * dz - (ind + 1) * dz,
                             obsFiles[3 * ind + 3].decode("utf-8"), **fontstyle)
         axes[1, 1].text(-0.1, 0.97 - 8 * dz - (np.ceil(len(obsFiles) / 2) - 1) * dz,
@@ -604,11 +606,11 @@ def plotSummary(file_name, config_name='', save_pdf=False, save_name=None, verbo
             axes[1, 1].text(-0.1, 0.97 - 8 * dz - ind * dz -
                             np.ceil(len(obsFiles) / 2) * dz,
                             str(wavelengths[2 * ind]) + ", " +
-                            str(wavelengths[2 * ind - 1]), **fontstyle)
-        if 2 * ind + 1 - len(obsFiles) == 1:
+                            str(wavelengths[2 * ind + 1]), **fontstyle)
+        if len(obsFiles) - (2 * ind + 1) == 2:
             axes[1, 1].text(-0.1, 0.97 - 8 * dz - (ind + 1) * dz -
                             np.ceil(len(obsFiles) / 3) * dz,
-                            str(wavelengths[3 * ind]), **fontstyle)
+                            str(wavelengths[2 * ind + 2]), **fontstyle)
         good_hist = np.sum(flags == 0, axis=1)
         perc = round(np.sum(fit_flags == 7) / np.sum(good_hist >= 3) * 100, 2)
         axes[1, 1].text(-0.1, 0.97 - 8 * dz - 2 * np.ceil(len(obsFiles) / 2) * dz,
