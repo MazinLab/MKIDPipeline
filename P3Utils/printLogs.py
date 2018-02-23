@@ -23,18 +23,25 @@ import sys
 import os
 import glob
 
+
 if len(sys.argv) < 2:
-    print('Usage: python ',sys.argv[0],' targetName [logPath]')
-    print('To print all log files use targetName = All')
-    exit(1)
-targetName = sys.argv[1]
+    #print('Usage: python ',sys.argv[0],' targetName [logPath]')
+    #print('To print all log files use targetName = All')
+    #exit(1)
+    targetName='a'
+else:
+    targetName = sys.argv[1]
 
 try:
     logPath=sys.argv[2]
 except IndexError:
-    logPath = '/mnt/data0/ScienceData/20161122/'
+    logPath = '.'
 
-if targetName in ['all','All','ALL']:
+if targetName in ['h', 'help', 'Help', 'HELP']:
+    print('Usage: python ',sys.argv[0],' targetName [logPath]')
+    print('To print all log files use targetName = ALL')
+    exit(1)
+if targetName in ['a','all','All','ALL']:
     fileName = '*.log'
 else:
     fileName = '*_%s.log'%targetName
