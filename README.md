@@ -42,17 +42,21 @@ Once you have the data, you have two choices:
 1.  If the data is taken with a single dither position, you can directly convert to a HDF5 (.h5) file using /RawDataProcessing/Bin2HDF.  Bin2HDF uses a config file that looks like this:
 
     ```
+    80 125
     /home/bmazin/HR8799/rawdata
     1507183126
     301
     /home/bmazin/HR8799/h5/finalMap_20170924.txt
     1
+    /home/bmazin/HR8799/h5
     ```
-The first line is the path of the .bin files.
-The second line is the start time (and filename) of the data.
-The third line is the duration in seconds to put into the .h5 file. Beware, filesize can grow quickly - 300 seconds of data from the 2017b run comes in at about 2.5 GB.
-The fourth line is the location of the beam map file.
+The first line has the dimensions of the array (80 xpix by 125 ypix for DARKNESS)
+The secon line is the path of the .bin files.
+The third line is the start time (and filename) of the data.
+The fourth line is the duration in seconds to put into the .h5 file. Beware, filesize can grow quickly - 300 seconds of data from the 2017b run comes in at about 2.5 GB.
+The fifth line is the location of the beam map file.
 The fifth line is flag for specifying the data is beam mapped. It should almost always be 1. The file format is picky. If Bin2HDF fails, make sure there are no extra spaces in the configuration file, all the files exist and that you have permissions to access all of them and their directories.
+The sixth line is the output directory for the h5 file.
 
 2. If the data is a dither stack taken with python ditherScript.py, find the associated .cfg file that ditherScript outputs.  Then run pythion Dither2HDF.py in /RawDataProcessing.  For example, python Dither2H5.py ditherStack_1507183126.cfg 0.  The 0 at the end is how much time to clip from each dither.  This is usually going to be 0 as ditherScript.py already exludes the time while the image is moving.
 

@@ -14,7 +14,7 @@ matplotlib.rcParams['backend.qt4']='PyQt4'
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from functools import partial
-import HotPix.darkHotPixMask as dhpm
+# import HotPix.darkHotPixMask as dhpm
 
 
 basePath = '/mnt/data0/ScienceDataIMGs/'
@@ -23,20 +23,20 @@ imageShape = {'nRows':125,'nCols':80}
 
 class DarkQuick(QtGui.QMainWindow):
     def __init__(self, run, date,startTstamp, endTstamp):
-        
+
         self.dataPath = basePath+str(run)+'/'+str(date)+'/'
         self.startTstamp = startTstamp
         self.endTstamp = endTstamp
         self.imageStack = []
         self.currentImageIndex = 0
-        
+
 
         self.darkLoaded = False
         self.subtractDark = False
         #temporary kludge to select dark frame time range
         #self.darkStart = 1469342778
         #self.darkEnd = 1469342798
-        
+
         self.darkStart = 0
         self.darkEnd = 0
 
@@ -57,12 +57,12 @@ class DarkQuick(QtGui.QMainWindow):
         #self.loadBadPixMask()
 
         if self.subtractDark:
-            self.generateDarkFrame()   
+            self.generateDarkFrame()
 
         self.loadImageStack()
         self.getObsImage()
-        
-        
+
+
 
     def show(self):
         super(DarkQuick,self).show()
@@ -77,16 +77,16 @@ class DarkQuick(QtGui.QMainWindow):
         plotWindow = PlotWindow(parent=self,plotId=newPlotId,selectedPixels=self.arrayImageWidget.selectedPixels)
         self.plotWindows.append(plotWindow)
         self.connect(self.arrayImageWidget,QtCore.SIGNAL('newPixelSelection(PyQt_PyObject)'), plotWindow.newPixelSelection)
-        
+
         plotWindow.show()
 
     def createWidgets(self):
         self.mainFrame = QtGui.QWidget()
-        
+
         self.label_startTstamp = QtGui.QLabel(str(self.startTstamp))
         self.label_endTstamp = QtGui.QLabel(str(self.endTstamp))
         self.lineEdit_currentTstamp = QtGui.QLineEdit(str(self.startTstamp+self.currentImageIndex))
-        
+
 
         self.checkbox_applyDark = QtGui.QCheckBox('Subtract Dark')
         self.button_generateDark = QtGui.QPushButton('Generate Dark')
@@ -123,28 +123,28 @@ class DarkQuick(QtGui.QMainWindow):
 
         self.mainFrame.setLayout(mainBox)
         self.setCentralWidget(self.mainFrame)
-  
+
     def createStatusBar(self):
         self.statusText = QtGui.QLabel("Click Pixels")
         self.statusBar().addWidget(self.statusText, 1)
-        
-    def createMenu(self):        
+
+    def createMenu(self):
         self.fileMenu = self.menuBar().addMenu("&File")
-        
-        
-        quitAction = createAction(self,"&Quit", slot=self.close, 
+
+
+        quitAction = createAction(self,"&Quit", slot=self.close,
             shortcut="Ctrl+Q", tip="Close the application")
-        
+
         self.windowsMenu = self.menuBar().addMenu("&Windows")
         imgParamsAction = createAction(self,"Image Plot Parameters",slot=self.imageParamsWindow.show)
         newPlotWindowAction = createAction(self,'New Plot Window',slot=self.newPlotWindow)
 
         addActions(self.windowsMenu,(newPlotWindowAction,None,imgParamsAction))
-        
+
         self.helpMenu = self.menuBar().addMenu("&Help")
-        aboutAction = createAction(self,"&About", 
+        aboutAction = createAction(self,"&About",
             shortcut='F1', slot=self.aboutMessage)
-        
+
         addActions(self.helpMenu, (aboutAction,))
 
     def connectControls(self):
@@ -174,7 +174,7 @@ class DarkQuick(QtGui.QMainWindow):
 
         #20170410 HD91782 bad pixel mask
         #hpmPath = '/mnt/data0/CalibrationFiles/darkHotPixMasks/20170410/1491894755.npz'
-        
+
         #20170410 HD148112 bad pixel mask
         #hpmPath = '/mnt/data0/CalibrationFiles/darkHotPixMasks/20170410/1491904305.npz'
         self.badPixMask = dhpm.loadMask(hpmPath)
@@ -197,14 +197,14 @@ class DarkQuick(QtGui.QMainWindow):
                 imagePath = os.path.join(self.dataPath,str(ts)+'.img')
                 image = np.fromfile(open(imagePath, mode='rb'),dtype=np.uint16)
                 image = np.transpose(np.reshape(image, (imageShape['nCols'], imageShape['nRows'])))
-                
+
                 if self.beammap is not None:
                     newImage = np.zeros(image.shape)
                     for y in range(len(newImage)):
                         for x in range(len(newImage[0])):
                             newX=int(self.beammap[y,x][0])
                             newY=int(self.beammap[y,x][1])
-                            if newX >0 and newY>0: 
+                            if newX >0 and newY>0:
                                 newImage[newY,newX] = image[y,x]
                     image = newImage
 
@@ -212,7 +212,7 @@ class DarkQuick(QtGui.QMainWindow):
                 image = np.zeros((imageShape['nRows'], imageShape['nCols']),dtype=np.uint16)
                 print("Failed to load dark frame...")
             darkFrames.append(image)
-            
+
         self.darkStack = np.array(darkFrames)
         self.darkFrame = np.median(self.darkStack, axis=0)
         print("Generated median dark frame from timestamps %i to %i"%(self.darkStart, self.darkEnd))
@@ -232,16 +232,20 @@ class DarkQuick(QtGui.QMainWindow):
                         for x in range(len(newImage[0])):
                             newX=int(self.beammap[y,x][0])
                             newY=int(self.beammap[y,x][1])
-                            if newX >0 and newY>0: 
+                            if newX >0 and newY>0:
                                 newImage[newY,newX] = image[y,x]
                                 #print '('+str(x)+', '+str(y)+') --> ('+str(newX)+', '+str(newY)+')'
-                            #else: 
+                            #else:
                             #    print '('+str(x)+', '+str(y)+') --> 0'
                             #    newImage[y,x]=0
                     image = newImage
             except IOError:
                 image = np.zeros((imageShape['nRows'], imageShape['nCols']))
+<<<<<<< HEAD
                 print("Failed to load image frame %i..."%ts)
+=======
+                print "Failed to load image frame %i..."%ts
+>>>>>>> 794229c8e887408791411158cb67092f409417da
             images.append(image)
         self.imageStack = np.array(images)
 
@@ -265,9 +269,9 @@ class DarkQuick(QtGui.QMainWindow):
                     newX = int(beammapData[newIndx, 2])
                     newY = int(beammapData[newIndx, 3])
                     #print '('+str(x)+', '+str(y)+') --> ('+str(newX)+', '+str(newY)+')'
-                except IndexError: pass    
+                except IndexError: pass
                 self.beammap[y,x] = [newX, newY]
-                
+
 
     def getObsImage(self):
         self.lineEdit_currentTstamp.setText(str(self.startTstamp+self.currentImageIndex))
@@ -322,14 +326,14 @@ class DarkQuick(QtGui.QMainWindow):
 
     def savePlot(self):
         file_choices = "PNG (*.png)|*.png"
-        
-        path = unicode(QFileDialog.getSaveFileName(self, 
-                        'Save file', '', 
+
+        path = unicode(QFileDialog.getSaveFileName(self,
+                        'Save file', '',
                         file_choices))
         if path:
             self.canvas.print_figure(path, dpi=self.dpi)
             self.statusBar().showMessage('Saved to %s' % path, 2000)
-    
+
     def aboutMessage(self):
         msg = """ Use to open and view DARKNESS .img files
         """
@@ -344,7 +348,7 @@ class DarkQuick(QtGui.QMainWindow):
         if row < self.arrayImageWidget.nRow and col < self.arrayImageWidget.nCol:
             self.statusText.setText('(x,y,z) = ({:d},{:d},{})'.format(col,row,self.arrayImageWidget.image[row,col]))
 
-            
+
 
 class ModelessWindow(QtGui.QDialog):
     def __init__(self,parent=None):
@@ -479,7 +483,7 @@ class PlotWindow(QtGui.QDialog):
         self.draw()
         print('plot updated')
 
-    
+
     def plotLightCurve(self,getRaw=False):
         for col,row in self.selectedPixels:
             self.lightCurve = self.parent.imageStack[:,row,col]
@@ -490,7 +494,7 @@ class PlotWindow(QtGui.QDialog):
         self.axes.xaxis.set_major_formatter(x_formatter)
         self.axes.set_xlabel('time (s)')
         self.axes.set_ylabel('counts per sec')
-            
+
 
 class ImageParamsWindow(ModelessWindow):
     def initUI(self):
@@ -508,7 +512,7 @@ class ImageParamsWindow(ModelessWindow):
 
 
 
-            
+
     def getParams(self):
         plotParamsDict = {}
         cmapStr = str(self.combobox_cmap.currentText())
@@ -519,19 +523,19 @@ class ImageParamsWindow(ModelessWindow):
         outDict = {}
         outDict['plotParams'] = plotParamsDict
         return outDict
-    
+
 class ArrayImageWidget(QtGui.QWidget):
     def __init__(self,parent=None,hoverCall=None):
         super(ArrayImageWidget,self).__init__(parent=parent)
         self.parent=parent
-        # Create the mpl Figure and FigCanvas objects. 
+        # Create the mpl Figure and FigCanvas objects.
         self.hoverCall = hoverCall
         self.selectPixelsMode = 'singlePixel'
         self.selectionPatches = []
         self.selectedPixels = []
         self.overlayImage = None
         self.initUI()
-        
+
 
     def initUI(self):
         self.dpi = 100
@@ -609,7 +613,7 @@ class ArrayImageWidget(QtGui.QWidget):
         for patch in self.selectionPatches:
             patch.remove()
         self.selectionPatches = []
-        
+
         for pixelCoord in self.selectedPixels:
             lowerLeftCorner = tuple(np.subtract(pixelCoord, (0.5,0.5)))
             patch = matplotlib.patches.Rectangle(xy=lowerLeftCorner,width=1.,
@@ -696,8 +700,8 @@ def addActions(target, actions):
         else:
             target.addAction(action)
 
-def createAction(  gui, text, slot=None, shortcut=None, 
-                    icon=None, tip=None, checkable=False, 
+def createAction(  gui, text, slot=None, shortcut=None,
+                    icon=None, tip=None, checkable=False,
                     signal="triggered()"):
     action = QtGui.QAction(text, gui)
     if icon is not None:
@@ -721,7 +725,7 @@ def layoutBox(type,elements):
     else:
         raise TypeError('type should be one of [\'vertical\',\'horizontal\',\'V\',\'H\']')
 
-    for element in elements:      
+    for element in elements:
         try:
             box.addWidget(element)
         except:
@@ -756,6 +760,3 @@ if __name__ == "__main__":
 
     form = DarkQuick(**kwargs)
     form.show()
-
-
-
