@@ -146,7 +146,6 @@ class ObsFile:
             self.centroidListFile.close()
         except:
             pass
-        self.file.close()
 
 
     def __iter__(self):
@@ -1562,26 +1561,29 @@ class ObsFile:
 
         self.photonTable.autoindex = False # Don't reindex everytime we change column
 
-        # appy waveCal
-        calsoln = wave_cal.root.wavecal.calsoln.read()
-        for (row, column), resID in np.ndenumerate(self.beamImage):
-            index = np.where(resID == np.array(calsoln['resid']))
-            if len(index[0]) == 1 and (calsoln['wave_flag'][index] == 4 or
-                                       calsoln['wave_flag'][index] == 5):
-                poly = calsoln['polyfit'][index]
-                photon_list = self.getPixelPhotonList(row, column)
-                phases = photon_list['Wavelength']
-                poly = np.array(poly)
-                poly = poly.flatten()
-                energies = np.polyval(poly, phases)
-                wavelengths = self.h * self.c / energies * 1e9  # wavelengths in nm
-                self.updateWavelengths(row, column, wavelengths)
-            else:
-                self.applyFlag(row, column, 0b00000010)  # failed waveCal
-        self.modifyHeaderEntry(headerTitle='isWvlCalibrated', headerValue=True)
-        self.photonTable.reindex_dirty() # recompute "dirty" wavelength index
-        self.photonTable.autoindex = True # turn on autoindexing 
-        wave_cal.close()
+        try:
+            # appy waveCal
+            calsoln = wave_cal.root.wavecal.calsoln.read()
+            for (row, column), resID in np.ndenumerate(self.beamImage):
+                index = np.where(resID == np.array(calsoln['resid']))
+                if len(index[0]) == 1 and (calsoln['wave_flag'][index] == 4 or
+                                           calsoln['wave_flag'][index] == 5):
+                    poly = calsoln['polyfit'][index]
+                    photon_list = self.getPixelPhotonList(row, column)
+                    phases = photon_list['Wavelength']
+                    poly = np.array(poly)
+                    poly = poly.flatten()
+                    energies = np.polyval(poly, phases)
+                    wavelengths = self.h * self.c / energies * 1e9  # wavelengths in nm
+                    self.updateWavelengths(row, column, wavelengths)
+                else:
+                    self.applyFlag(row, column, 0b00000010)  # failed waveCal
+            self.modifyHeaderEntry(headerTitle='isWvlCalibrated', headerValue=True)
+            self.modifyHeaderEntty(headerTitle='wvlCalFile',headerValue=file_name)
+        finally:
+            self.photonTable.reindex_dirty() # recompute "dirty" wavelength index
+            self.photonTable.autoindex = True # turn on autoindexing 
+            wave_cal.close()
 
     def loadFilter(self, filterName = 'V', wvlBinEdges = None,switchOnFilter = True):
         '''
@@ -1840,11 +1842,12 @@ class ObsFile:
         if self.info['isWvlCalibrated']:
             warnings.warn("Wavelength calibration already exists!")
         pixelRowInds = self.photonTable.get_where_list('ResID==resID')
-        assert (len(pixelRowInds)-1)==(pixelRowInds[-1]-pixelRowInds[0]), 'Table is not sorted by Res ID!'
+        assert len(pixelRowInds) == 0 or (len(pixelRowInds)-1)==(pixelRowInds[-1]-pixelRowInds[0]), 'Table is not sorted by Res ID!'
         assert len(pixelRowInds)==len(wvlCalArr), 'Calibrated wavelength list does not match length of photon list!'
-
-        self.photonTable.modify_column(start=pixelRowInds[0], stop=pixelRowInds[-1]+1, column=wvlCalArr, colname='Wavelength')
-        self.photonTable.flush()
+        
+        if len(pixelRowInds)>0:
+            self.photonTable.modify_column(start=pixelRowInds[0], stop=pixelRowInds[-1]+1, column=wvlCalArr, colname='Wavelength')
+            self.photonTable.flush()
 
     def __applyColWeight(self, resID, weightArr, colName):
         """
