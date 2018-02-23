@@ -30,7 +30,7 @@ fluxCal = {
            'undetermined':99        #Flag status is undetermined.
            }
 
-#Wavelength calibration flags
+# Wavelength calibration flags
 waveCal = {0: "histogram fit - converged and validated",
            1: "histogram not fit - did not converge",
            2: "histogram not fit - converged but failed validation",
@@ -40,7 +40,8 @@ waveCal = {0: "histogram fit - converged and validated",
            6: "energy not fit - not enough data points",
            7: "energy not fit - data not monotonic enough",
            8: "energy not fit - linear and quadratic fits failed",
-           9: "energy fit - linear function through zero"}
+           9: "energy fit - linear function through zero",
+           10: "histogram not fit - too much data (hot pixel)"}
 
 #Bad pixel calibration flags (including hot pixels, cold pixels, etc.)
 badPixCal = {

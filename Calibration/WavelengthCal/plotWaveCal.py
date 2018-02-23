@@ -22,7 +22,7 @@ def plotEnergySolution(file_name, res_id=None, pixel=[]):
         file_name: the wavecal solution file including the path (string)
         res_id: the resonator ID for the plotted pixel. Can use pixel keyword-arg
                 instead. (integer)
-        pixel: the pixel row and column for the plotted pixel. Can use res_id keyword-args
+        pixel: the pixel row and column for the plotted pixel. Can use res_id keyword-arg
                instead. (length 2 list of integers)
     '''
     # load file_name
@@ -52,6 +52,9 @@ def plotEnergySolution(file_name, res_id=None, pixel=[]):
         column = calsoln['pixel_col'][index][0]
 
     # load data
+    if len(calsoln['polyfit'][index]) == 0:
+        print('pixel has no data')
+        return
     poly = calsoln['polyfit'][index][0]
     flag = calsoln['wave_flag'][index][0]
     centers = []
@@ -80,6 +83,13 @@ def plotEnergySolution(file_name, res_id=None, pixel=[]):
         print('pixel has no data')
         return
 
+    R0 = calsoln['R'][index]
+    R0[R0 == -1] = np.nan
+    with warnings.catch_warnings():
+        # rows with all nan values will give an unnecessary RuntimeWarning
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        R = np.nanmedian(R0)
+
     # plot data
     fig, axis = plt.subplots()
     axis.set_xlabel('phase [deg]')
@@ -102,14 +112,20 @@ def plotEnergySolution(file_name, res_id=None, pixel=[]):
     dx = xlim[1] - xlim[0]
     dy = ylim[1] - ylim[0]
     flag_dict = pipelineFlags.waveCal
+    axis.text(xmax - 0.05 * dx, ymax - 0.05 * dy,
+              '{0} : ({1}, {2})'.format(res_id, row, column), ha='right', va='top')
     if poly[0] == -1:
         axis.text(xmax - 0.05 * dx, ymax - 0.1 * dy, flag_dict[flag],
                   color='red', ha='right', va='top')
     else:
-        axis.text(xmax - 0.05 * dx, ymax - 0.1 * dy, flag_dict[flag],
-                  ha='right', va='top')
-    axis.text(xmax - 0.05 * dx, ymax - 0.05 * dy,
-              '{0} : ({1}, {2})'.format(res_id, row, column), ha='right', va='top')
+        if flag == 9:
+            axis.text(xmax - 0.05 * dx, ymax - 0.1 * dy, flag_dict[flag], color='red',
+                      ha='right', va='top')
+        else:
+            axis.text(xmax - 0.05 * dx, ymax - 0.1 * dy, flag_dict[flag],
+                      ha='right', va='top')
+    axis.text(xmax - 0.05 * dx, ymax - 0.15 * dy, "Median R = {0}".format(round(R, 2)),
+              ha='right', va='top')
     plt.show(block=False)
 
 
@@ -123,7 +139,7 @@ def plotHistogramFits(file_name, res_id=None, pixel=[]):
         file_name: the wavecal solution file including the path (string)
         res_id: the resonator ID for the plotted pixel. Can use pixel keyword-arg
                 instead. (integer)
-        pixel: the pixel row and column for the plotted pixel. Can use res_id keyword-args
+        pixel: the pixel row and column for the plotted pixel. Can use res_id keyword-arg
                instead. (length 2 list of integers)
     '''
     # load file_name
@@ -148,8 +164,15 @@ def plotHistogramFits(file_name, res_id=None, pixel=[]):
         if len(index[0]) != 1:
             wave_cal.close()
             raise ValueError("res_id must exist and be unique")
+        if len(debug['pixel_row'][index]) == 0:
+            print('pixel has no data')
+            return
         row = debug['pixel_row'][index][0]
         column = debug['pixel_col'][index][0]
+
+    if len(debug['pixel_row'][index]) == 0:
+        print('pixel has no data')
+        return
 
     cmap = cm.get_cmap('viridis')
     fit_function = fitModels(model_name)
@@ -160,7 +183,6 @@ def plotHistogramFits(file_name, res_id=None, pixel=[]):
     fig.text(0.01, 0.5, 'Counts', va='center', rotation='vertical')
     fig.text(0.5, 0.01, 'Phase [degrees]', ha='center')
     fig.text(0.85, 0.95, '{0} : ({1}, {2})'.format(res_id, row, column))
-
     axes = []
     for x_ind in range(x_num):
         for y_ind in range(y_num - 1):
@@ -188,14 +210,11 @@ def plotHistogramFits(file_name, res_id=None, pixel=[]):
         else:
             largest_y = 1
     for ind, wavelength in enumerate(wavelengths):
-        # path = '/debug/res' + str(res_id) + '/wvl' + str(ind)
         hist_fit = debug['hist_fit' + str(ind)][index][0]
         centers = debug['phase_centers' + str(ind)][index][0]
         centers = centers[centers <= 0]
-        # centers = wave_cal.get_node(path + '/phase_centers').read()[0]
         counts = debug['phase_counts' + str(ind)][index][0]
         counts = counts[counts >= 0]
-        # counts = wave_cal.get_node(path + '/phase_counts').read()[0]
         bin_width = debug['bin_width'][index, ind][0][0]
         flag = debug['hist_flag'][index, ind][0]
         if flag == 0:
@@ -205,8 +224,17 @@ def plotHistogramFits(file_name, res_id=None, pixel=[]):
         axes[ind].bar(centers, counts, align='center', width=bin_width)
         if ind == 0:
             xlim = axes[ind].get_xlim()
+        if x_num > 5:
+            axes[ind].set_ylim([0, 1.1 * largest_y])
+            ymax = 1.1 * largest_y
+            ylim = axes[ind].get_ylim()
+            if ind > 1:
+                axes[ind].get_yaxis().set_ticks([])
+        else:
+            ylim = axes[ind].get_ylim()
+            ymax = ylim[1]
         if model_name == 'gaussian_and_exp':
-            if len(hist_fit) > 0 and len(centers) != 0:
+            if len(hist_fit) > 0 and len(centers) != 0 and flag != 3 and flag != 10:
                 g_func = fitModels('gaussian')
                 e_func = fitModels('exp')
                 phase = np.arange(np.min(centers), np.max(centers), 0.1)
@@ -216,30 +244,33 @@ def plotHistogramFits(file_name, res_id=None, pixel=[]):
                                  color='orange', linestyle='--')
                 axes[ind].plot(phase, fit_function(phase, *hist_fit),
                                  color=color)
-                if x_num > 5:
-                    axes[ind].set_ylim([0, 1.1 * largest_y])
-                    ymax = 1.1 * largest_y
-                    ylim = axes[ind].get_ylim()
-                    if ind > 1:
-                        axes[ind].get_yaxis().set_ticks([])
-                else:
-                    ylim = axes[ind].get_ylim()
-                    ymax = ylim[1]
+                if x_num > 3:
+                    axes[ind].tick_params(axis='both', which='major', labelsize=8)
                 xmin = xlim[0]
                 axes[ind].set_xlim(xlim)
+                dx = xlim[1] - xlim[0]
+                dy = ylim[1] - ylim[0]
             else:
                 ylim = axes[ind].get_ylim()
                 axes[ind].set_xlim(xlim)
                 xmin = xlim[0]
                 ymax = ylim[1]
-                if len(hist_fit) <= 0:
-                    axes[ind].text(xmin * 0.98, ymax * 0.5, 'Fit Error',
-                                   color='red')
+                dx = xlim[1] - xlim[0]
+                dy = ylim[1] - ylim[0]
+                if len(hist_fit) == 0:
+                    axes[ind].text(xmin + 0.05 * dx, ymax - 0.15 * dy, 'Fit Error',
+                                   color='red', fontsize=10, va='top', ha='left')
+                elif flag == 3:
+                    axes[ind].text(xmin + 0.05 * dx, ymax - 0.15 * dy,
+                                   'Not Enough \nData', color='red', fontsize=10,
+                                   va='top', ha='left')
+                elif flag == 10:
+                    axes[ind].text(xmin + 0.05 * dx, ymax - 0.15 * dy,
+                                   'Too Much \nData (Hot)', color='red', fontsize=10,
+                                   va='top', ha='left')
                 else:
-                    axes[ind].text(xmin * 0.98, ymax * 0.5, 'No Data',
-                                   color='red')
-        dx = xlim[1] - xlim[0]
-        dy = ylim[1] - ylim[0]
+                    axes[ind].text(xmin + 0.05 * dx, ymax - 0.15 * dy, 'No Data',
+                                   color='red', fontsize=10, va='top', ha='left')
         axes[ind].text(xmin + 0.05 * dx, ymax - 0.05 * dy,
                          str(wavelength) + ' nm', va='top', ha='left')
         if len(centers) != 0:
@@ -249,13 +280,17 @@ def plotHistogramFits(file_name, res_id=None, pixel=[]):
         else:
             counter += 1
     wave_cal.close()
+    if ind < x_num * 2 + 1:
+        axes[ind + 1].get_yaxis().set_ticks([])
+        if x_num > 3:
+            axes[ind + 1].tick_params(axis='both', which='major', labelsize=8)
     if counter == len(wavelengths):
         print('pixel has no data')
         plt.close(fig)
         return
     axes[-1].set_xlim(xlim)
-    axes[-1].legend(ncol=int(np.floor(2 * x_num / 7)))
-    plt.tight_layout(rect=[0.03, 0.03, 1, 0.95])
+    axes[-1].legend(ncol=int(np.ceil(2 * x_num / 7)))
+    plt.tight_layout(rect=[0.04, 0.03, 1, 0.95])
     plt.show(block=False)
 
 
@@ -290,7 +325,7 @@ def plotRHistogram(file_name, mask=None, axis=None):
     axis.set_xlabel(r'R [E/$\Delta$E]')
     axis.set_ylabel('counts')
     cmap = cm.get_cmap('viridis')
-    if len(wavelengths) > 10:
+    if len(wavelengths) >= 10:
         Z = [[0, 0], [0, 0]]
         levels = np.arange(min(wavelengths), max(wavelengths), 1)
         c = axis.contourf(Z, levels, cmap=cmap)
@@ -310,7 +345,7 @@ def plotRHistogram(file_name, mask=None, axis=None):
             median = np.nan
 
         label = "{0} nm, Median R = {1}".format(wavelength, median)
-        color = cmap(index / len(wavelengths))
+        color = cmap(index / (len(wavelengths) - 1))
         axis.step(bins, counts, color=color, linewidth=2, label=label, where="mid")
         axis.axvline(x=median, ymin=0, ymax=1000, linestyle='--', color=color,
                      linewidth=2)
@@ -417,7 +452,7 @@ def plotCenterHist(file_name, mask=None, axis=None):
         fig, axis = plt.subplots()
         show = True
     cmap = cm.get_cmap('viridis')
-    if len(wavelengths) > 10:
+    if len(wavelengths) >= 10:
         Z = [[0, 0], [0, 0]]
         levels = np.arange(min(wavelengths), max(wavelengths), 1)
         c = axis.contourf(Z, levels, cmap=cmap)
@@ -449,7 +484,7 @@ def plotCenterHist(file_name, mask=None, axis=None):
         else:
             median = np.nan
         label = "{0} nm, Median = {1}".format(wavelength, median)
-        color = cmap(index / len(wavelengths))
+        color = cmap(index / (len(wavelengths) - 1))
         axis.step(bins, counts, color=color, linewidth=2, where="mid", label=label)
         axis.axvline(x=median, ymin=0, ymax=1000, linestyle='--', color=color,
                      linewidth=2)
@@ -466,7 +501,118 @@ def plotCenterHist(file_name, mask=None, axis=None):
         return axis
 
 
-def plotSummary(file_name, config_name='', save_pdf=False, save_name=None, verbose=True):
+def plotFitParameters(file_name):
+    '''
+    Plots histograms of the fit parameters for the solution file (file_name).
+    Args:
+        file_name: the wavecal solution file including the path (string)
+    '''
+    wave_cal = tb.open_file(file_name, mode='r')
+    wavelengths = wave_cal.root.header.wavelengths.read()[0]
+    info = wave_cal.root.header.info.read()
+    model_name = info['model_name'][0].decode('utf-8')
+    debug = wave_cal.root.debug.debug_info.read()
+    hist_flags = debug['hist_flag']
+    wave_cal.close()
+    cmap = cm.get_cmap('viridis')
+
+    if model_name == 'gaussian_and_exp':
+        fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(6.95, 9))
+        if len(wavelengths) >= 10:
+            Z = [[0, 0], [0, 0]]
+            levels = np.arange(min(wavelengths), max(wavelengths), 1)
+            c = axes[0, 1].contourf(Z, levels, cmap=cmap)
+            plt.colorbar(c, ax=axes[0, 1], label='wavelength [nm]', aspect=50)
+            axes[0, 1].clear()
+            c = axes[1, 1].contourf(Z, levels, cmap=cmap)
+            plt.colorbar(c, ax=axes[1, 1], label='wavelength [nm]', aspect=50)
+            axes[1, 1].clear()
+        for index, wavelength in enumerate(wavelengths):
+            fit = debug["hist_fit" + str(index)]
+            # first histogram
+            a = fit[:, 0]
+            a = a[np.logical_and(a != -1, hist_flags[:, index] == 0)]
+            counts, edges = np.histogram(a, bins=30, range=(-1, 1e8), density=True)
+            bws = np.diff(edges)
+            cents = edges[:-1] + bws[0] / 2.0
+            bins = cents
+            color = cmap(index / (len(wavelengths) - 1))
+            label = "{0} nm".format(wavelength)
+            axes[0, 0].step(bins, counts, color=color, linewidth=2, where="mid",
+                            label=label)
+            axes[0, 0].set_xlabel('parameter a')
+            axes[0, 0].set_ylabel('probability density')
+            if len(wavelengths) < 10:
+                axes[0, 0].legend(fontsize=6)
+
+            # second histogram
+            b = fit[:, 1]
+            b = b[np.logical_and(b != -1, hist_flags[:, index] == 0)]
+            counts, edges = np.histogram(b, bins=30, range=(-0.5, 1), density=True)
+            bws = np.diff(edges)
+            cents = edges[:-1] + bws[0] / 2.0
+            bins = cents
+            color = cmap(index / (len(wavelengths) - 1))
+            label = "{0} nm".format(wavelength)
+            axes[0, 1].step(bins, counts, color=color, linewidth=2, where="mid",
+                            label=label)
+            axes[0, 1].set_xlabel('parameter b')
+            if len(wavelengths) < 10:
+                axes[0, 1].legend(fontsize=6)
+
+            # third histogram
+            c = fit[:, 2]
+            c = c[np.logical_and(c != -1, hist_flags[:, index] == 0)]
+            counts, edges = np.histogram(c, bins=30, range=(-1, np.max(c) * 0.7),
+                                         density=True)
+            bws = np.diff(edges)
+            cents = edges[:-1] + bws[0] / 2.0
+            bins = cents
+            color = cmap(index / (len(wavelengths) - 1))
+            label = "{0} nm".format(wavelength)
+            axes[1, 0].step(bins, counts, color=color, linewidth=2, where="mid",
+                            label=label)
+            axes[1, 0].set_xlabel('parameter c')
+            axes[1, 0].set_ylabel('probability density')
+            if len(wavelengths) < 10:
+                axes[1, 0].legend(fontsize=6)
+
+            # fourth histogram
+            f = fit[:, 4]
+            f = f[np.logical_and(f != -1, hist_flags[:, index] == 0)]
+            counts, edges = np.histogram(f, bins=30, range=(-1, 35), density=True)
+            bws = np.diff(edges)
+            cents = edges[:-1] + bws[0] / 2.0
+            bins = cents
+            color = cmap(index / (len(wavelengths) - 1))
+            label = "{0} nm".format(wavelength)
+            axes[1, 1].step(bins, counts, color=color, linewidth=2, where="mid",
+                            label=label)
+            axes[1, 1].set_xlabel('parameter f')
+            if len(wavelengths) < 10:
+                axes[1, 1].legend(fontsize=6)
+
+        axes[0, 0].set_ylim(bottom=0)
+        axes[0, 1].set_ylim(bottom=0)
+        axes[1, 0].set_ylim(bottom=0)
+        axes[1, 1].set_ylim(bottom=0)
+
+        ylim = axes[0, 0].get_ylim()
+        xlim = axes[0, 0].get_xlim()
+        title = "Wavelength Calibration Histogram Fit Model: \n'{0}'".format(model_name)
+        axes[0, 0].text(xlim[0] - np.mean(xlim) / 4.5,
+                        ylim[1] + (ylim[1] - ylim[0]) * 0.45, title, fontsize=15,
+                        va='top')
+        equation = r"histogram = $a e^{-b \phi} + c e^{-\frac{(\phi - d)^2}{2 f^2}}$"
+        axes[0, 0].text(xlim[0] - np.mean(xlim) / 4.5,
+                        ylim[1] + (ylim[1] - ylim[0]) * 0.25, equation, fontsize=12,
+                        va='top')
+
+    plt.tight_layout(rect=[0.03, 0.03, 0.95, 0.85])
+    plt.show(block=False)
+
+
+def plotSummary(file_name, config_name='', save_name=None, verbose=True):
     '''
     Plot one page summary pdf of the wavelength calibration solution file 'file_name'.
 
@@ -474,9 +620,7 @@ def plotSummary(file_name, config_name='', save_pdf=False, save_name=None, verbo
         file_name: the wavecal solution file including the path (string)
         config_name: the templar configuration file, including the path, associated with
                      the data (string)
-        save_pdf: save a pdf of the plot to the directory of 'file_name' instead of
-                  displaying a matplotlib figure (boolean)
-        save_name: name of the pdf that's saved. Needed only when save_pdf=True.
+        save_name: name of the pdf that's saved. No pdf is saved if set to None.
         verbose: determines whether information about loading the frequency files is
                  printed to the terminal (boolean)
     '''
@@ -516,9 +660,9 @@ def plotSummary(file_name, config_name='', save_pdf=False, save_name=None, verbo
 
     fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(6.95, 9))
     row_labels = ['histogram fits', 'energy solution', '(linear, quadratic)']
-    col_labels = ["total pixels sucessful", "total \% sucessful",
-                  "total \% out of read-out pixels",
-                  "total \% out of photosensitive pixels"]
+    col_labels = ["total pixels sucessful", "total \\% sucessful",
+                  "total \\% out of read-out pixels",
+                  "total \\% out of photosensitive pixels"]
     mpl.rcParams['text.latex.preamble'] = [r'\usepackage{array}']
     table = r'''\begin{{tabular}}{{>{{\raggedright}}p{{1.1in}} | ''' + \
             r''' >{{\raggedright}}p{{1in}} | >{{\raggedright}}p{{1in}} | ''' + \
@@ -587,7 +731,11 @@ def plotSummary(file_name, config_name='', save_pdf=False, save_name=None, verbo
                             np.ceil(len(obsFiles) / 3) * dz,
                             str(wavelengths[3 * ind + 3]), **fontstyle)
         good_hist = np.sum(flags == 0, axis=1)
-        perc = round(np.sum(fit_flags == 7) / np.sum(good_hist >= 3) * 100, 2)
+
+        if np.sum(good_hist >= 3) > 0:
+            perc = round(np.sum(fit_flags == 7) / np.sum(good_hist >= 3) * 100, 2)
+        else:
+            perc = 'N/A'
         axes[1, 1].text(-0.1, 0.97 - 8 * dz - 2 * np.ceil(len(obsFiles) / 3) * dz,
                         'Percent of pixels that failed the calibration because the'
                         ' \ncenters were not monotonic (out of pixels with \n> 2 good'
@@ -599,20 +747,23 @@ def plotSummary(file_name, config_name='', save_pdf=False, save_name=None, verbo
                             obsFiles[2 * ind + 1].decode("utf-8"), **fontstyle)
         if len(obsFiles) - (2 * ind + 1) == 2:
             axes[1, 1].text(-0.1, 0.97 - 6 * dz - (ind + 1) * dz,
-                            obsFiles[3 * ind + 3].decode("utf-8"), **fontstyle)
+                            obsFiles[2 * ind + 2].decode("utf-8"), **fontstyle)
         axes[1, 1].text(-0.1, 0.97 - 8 * dz - (np.ceil(len(obsFiles) / 2) - 1) * dz,
                         "Wavelengths [nm]:", **fontstyle)
-        for ind in range(int(np.ceil(len(obsFiles) / 2))):
+        for ind in range(int(np.floor(len(obsFiles) / 2))):
             axes[1, 1].text(-0.1, 0.97 - 8 * dz - ind * dz -
                             np.ceil(len(obsFiles) / 2) * dz,
                             str(wavelengths[2 * ind]) + ", " +
                             str(wavelengths[2 * ind + 1]), **fontstyle)
         if len(obsFiles) - (2 * ind + 1) == 2:
             axes[1, 1].text(-0.1, 0.97 - 8 * dz - (ind + 1) * dz -
-                            np.ceil(len(obsFiles) / 3) * dz,
+                            np.ceil(len(obsFiles) / 2) * dz,
                             str(wavelengths[2 * ind + 2]), **fontstyle)
         good_hist = np.sum(flags == 0, axis=1)
-        perc = round(np.sum(fit_flags == 7) / np.sum(good_hist >= 3) * 100, 2)
+        if np.sum(good_hist >= 3) > 0:
+            perc = round(np.sum(fit_flags == 7) / np.sum(good_hist >= 3) * 100, 2)
+        else:
+            perc = 'N/A'
         axes[1, 1].text(-0.1, 0.97 - 8 * dz - 2 * np.ceil(len(obsFiles) / 2) * dz,
                         'Percent of pixels that failed the \ncalibration because the' +
                         ' centers were not \nmonotonic (out of pixels with > 2 good' +
@@ -625,9 +776,7 @@ def plotSummary(file_name, config_name='', save_pdf=False, save_name=None, verbo
     axes[0, 1] = plotRvsF(file_name, config_name, axis=axes[0, 1], verbose=verbose)
 
     plt.tight_layout(rect=[0.03, 0.03, 0.95, 0.85])
-    if save_pdf:
-        if save_name is None:
-            raise ValueError('define key-value pair save_name to be a string')
+    if save_name is not None:
         out_directory = os.path.dirname(file_name)
         pdf = PdfPages(os.path.join(out_directory, save_name))
         pdf.savefig(fig)

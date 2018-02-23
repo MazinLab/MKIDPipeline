@@ -16,7 +16,7 @@ from tables import *
 def WaveCalDescription(n_wvl):
     wavecal_description = {"pixel_row": UInt16Col(pos=0),  # beam map row
                            "pixel_col": UInt16Col(pos=1),  # beam map column
-                           "resid": UInt16Col(pos=2),  # unique resonator id
+                           "resid": UInt32Col(pos=2),  # unique resonator id
                            "wave_flag": UInt16Col(pos=3),  # fit flag
                            "soln_range": Float32Col(2, pos=4),  # wavelength range
                            "polyfit": Float64Col(3, pos=5),  # fit polynomial
@@ -28,7 +28,7 @@ def WaveCalDescription(n_wvl):
 def WaveCalDebugDescription(n_wvl, n_fit, max_hist):
     debug_desc = {"pixel_row": UInt16Col(pos=0),  # beam map row
                   "pixel_col": UInt16Col(pos=1),  # beam map column
-                  "resid": UInt16Col(pos=2),  # unique resonator id
+                  "resid": UInt32Col(pos=2),  # unique resonator id
                   "hist_flag": UInt16Col(n_wvl, pos=3),  # histogram fit flags
                   "has_data": BoolCol(n_wvl, pos=4),  # bool if there is histogram data
                   "bin_width": Float64Col(n_wvl, pos=5),  # bin widths for histograms
@@ -51,7 +51,7 @@ class WaveCalHeader(IsDescription):
 
 def FlatCalSoln_Description(nWvlBins=13):
     description = {
-            "resid"     : UInt16Col(),      # unique resonator id
+            "resid"     : UInt32Col(),      # unique resonator id
             "pixelrow"  : UInt16Col(),      # physical x location - from beam map
             "pixelcol"  : UInt16Col(),      # physical y location
             "weights"   : Float64Col(nWvlBins),    #
