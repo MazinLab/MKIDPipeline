@@ -486,7 +486,7 @@ class ObsFile:
 
         return photonLists
 
-    def getPixelCount(self, xCoord, yCoord, firstSec=0, integrationTime= -1, wvlRange=None, applyWeight=True, applyTPFWeight=True, applyTimeMask=True):
+    def getPixelCount(self, xCoord, yCoord, firstSec=0, integrationTime= -1, wvlRange=None, applyWeight=True, applyTPFWeight=True, applyTimeMask=False):
         """
         Returns the number of photons received in a single pixel from firstSec to firstSec + integrationTime
 
@@ -672,10 +672,10 @@ class ObsFile:
         #                     countImage[xCoord, yCoord] = np.sum(weights)
 
         for i,resID in enumerate(resIDList):
-            coords = np.where(self.beamFlagImage==resID)
+            coords = np.where(self.beamImage==resID)
             xCoord = coords[0][0]
             yCoord = coords[1][0]
-            flag = self.beamFlagImage[coords]
+            flag = self.beamFlagImage[xCoord, yCoord]
             if (flag|flagToUse)==flag:
                 effIntTimes[xCoord, yCoord] = integrationTime
                 if applyWeight==False and applyTPFWeight==False:
