@@ -14,14 +14,13 @@ from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5 import QtGui
 import matplotlib
-matplotlib.rcParams['backend.qt5']='PyQt5'
+matplotlib.rcParams['backend.qt4']='PyQt4'
 from PyQt5.QtCore import Qt, pyqtSignal
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 #from matplotlib.backends.backend_qt4agg import NavigationToolbar2QTAgg as NavigationToolbar
 from matplotlib.figure import Figure
 from functools import partial
 from parsePacketDump2 import parsePacketData
-import parsePacketDump2
 import HotPix.darkHotPixMask as dhpm
 from ast import literal_eval
 
@@ -911,7 +910,9 @@ class ArrayImageWidget(QtWidgets.QWidget):
         self.clickFuncs.append(clickFunc)
 
     def emitNewSelection(self):
-        self.emit(QtCore.SIGNAL('newPixelSelection(PyQt_PyObject)'),self.selectedPixels)
+        sig='newPixelSelection(PyQt_PyObject)'
+        #self.emit(QtCore.SIGNAL('newPixelSelection(PyQt_PyObject)'),self.selectedPixels)
+        self.clicked.emit(self.selectedPixels)
 
     def clickCanvas(self,event):
         if event.inaxes is self.axes:

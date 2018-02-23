@@ -1560,6 +1560,8 @@ class ObsFile:
         assert os.path.exists(file_name), "{0} does not exist".format(file_name)
         wave_cal = tables.open_file(file_name, mode='r')
 
+        self.photonTable.autoindex = False # Don't reindex everytime we change column
+
         # appy waveCal
         calsoln = wave_cal.root.wavecal.calsoln.read()
         for (row, column), resID in np.ndenumerate(self.beamImage):
@@ -1577,6 +1579,8 @@ class ObsFile:
             else:
                 self.applyFlag(row, column, 0b00000010)  # failed waveCal
         self.modifyHeaderEntry(headerTitle='isWvlCalibrated', headerValue=True)
+        self.photonTable.reindex_dirty() # recompute "dirty" wavelength index
+        self.photonTable.autoindex = True # turn on autoindexing 
         wave_cal.close()
 
     def loadFilter(self, filterName = 'V', wvlBinEdges = None,switchOnFilter = True):
