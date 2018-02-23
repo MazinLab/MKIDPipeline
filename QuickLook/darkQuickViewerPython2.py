@@ -4,9 +4,8 @@ Author: Matt Strader        Date: July 20, 2016
 
 import sys, os
 import numpy as np
-from PyQt5 import QtCore
-from PyQt5 import QtWidgets
-from PyQt5 import QtGui
+from PyQt4 import QtCore
+from PyQt4 import QtGui
 #from matplotlib.backends.qt_compat import QtCore
 #from matplotlib.backends.qt_compat import QtGui
 import matplotlib
@@ -210,12 +209,12 @@ class DarkQuick(QtGui.QMainWindow):
 
             except (IOError, ValueError):
                 image = np.zeros((imageShape['nRows'], imageShape['nCols']),dtype=np.uint16)
-                print("Failed to load dark frame...")
+                print "Failed to load dark frame..."
             darkFrames.append(image)
             
         self.darkStack = np.array(darkFrames)
         self.darkFrame = np.median(self.darkStack, axis=0)
-        print("Generated median dark frame from timestamps %i to %i"%(self.darkStart, self.darkEnd))
+        print "Generated median dark frame from timestamps %i to %i"%(self.darkStart, self.darkEnd)
         self.darkLoaded = True
 
     def loadImageStack(self):
@@ -241,7 +240,7 @@ class DarkQuick(QtGui.QMainWindow):
                     image = newImage
             except IOError:
                 image = np.zeros((imageShape['nRows'], imageShape['nCols']))
-                print("Failed to load image frame %i..."%ts)
+                print "Failed to load image frame %i..."%ts 
             images.append(image)
         self.imageStack = np.array(images)
 
@@ -276,7 +275,7 @@ class DarkQuick(QtGui.QMainWindow):
 
         if self.subtractDark:
             if not self.darkLoaded:
-                print("Warning: no dark frame loaded")
+                print "Warning: no dark frame loaded"
             else:
                 zeroes = np.where(self.darkFrame>image)
                 self.image=image-self.darkFrame
@@ -288,7 +287,7 @@ class DarkQuick(QtGui.QMainWindow):
             self.image[np.where(self.badPixMask==1)]=0
 
         self.plotArray(self.image,**paramsDict['plotParams'])
-        print(self.currentImageIndex)
+        print self.currentImageIndex
 
     def jumpToBeginning(self):
         self.currentImageIndex = 0
@@ -302,20 +301,20 @@ class DarkQuick(QtGui.QMainWindow):
         if self.currentImageIndex < len(self.imageStack)-1:
             self.currentImageIndex = self.currentImageIndex + 1
         else:
-            print('Warning: can\'t increment any more')
+            print 'Warning: can\'t increment any more'
         self.getObsImage()
 
     def incrementBack(self):
         if self.currentImageIndex > 0:
             self.currentImageIndex = self.currentImageIndex - 1
         else:
-            print('Warning: can\'t decrement any more')
+            print 'Warning: can\'t decrement any more'
         self.getObsImage()
 
     def jumpToTstamp(self):
         desiredTstamp = int(self.lineEdit_currentTstamp.text())
         if (desiredTstamp > self.endTstamp) or (desiredTstamp < self.startTstamp):
-            print('Warning: requested time stamp is outside available range')
+            print 'Warning: requested time stamp is outside available range'
         else:
             self.currentImageIndex = desiredTstamp-self.startTstamp
             self.getObsImage()
@@ -477,7 +476,7 @@ class PlotWindow(QtGui.QDialog):
             self.axes.cla()
         self.plotLightCurve()
         self.draw()
-        print('plot updated')
+        print 'plot updated'
 
     
     def plotLightCurve(self,getRaw=False):
@@ -603,7 +602,7 @@ class ArrayImageWidget(QtGui.QWidget):
             self.drawOverlayImage()
         else:
             self.draw()
-        print('image drawn')
+        print 'image drawn'
 
     def drawSelections(self):
         for patch in self.selectionPatches:
@@ -736,7 +735,7 @@ def layoutBox(type,elements):
                         box.addWidget(label)
                         #label.adjustSize()
                     except:
-                        print('could\'t add {} to layout box'.format(element))
+                        print 'could\'t add {} to layout box'.format(element)
     return box
 
 def plotHist(ax,histBinEdges,hist,**kwargs):
@@ -746,7 +745,7 @@ def plotHist(ax,histBinEdges,hist,**kwargs):
 if __name__ == "__main__":
     kwargs = {}
     if len(sys.argv) != 5:
-        print('Usage: {} run date tstampStart tstampEnd'.format(sys.argv[0]))
+        print 'Usage: {} run date tstampStart tstampEnd'.format(sys.argv[0])
         exit(0)
     else:
         kwargs['run'] = str(sys.argv[1])
