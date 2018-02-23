@@ -1916,8 +1916,8 @@ class ObsFile:
         bins=bins.flatten()
         minwavelength=700
         maxwavelength=1500
-        heads=np.array([0,100,200,300,400,500,600])
-        tails=np.array([1600,1700,1800,1900,2000])
+        heads=np.arange(0,700,100)
+        tails=np.arange(1600,2100,100)
         bins=np.append(heads,bins)
         bins=np.append(bins,tails)
         for (row, column), resID in np.ndenumerate(self.beamImage):
