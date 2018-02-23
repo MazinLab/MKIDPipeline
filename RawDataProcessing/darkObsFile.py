@@ -1,6 +1,8 @@
 #!/bin/python
 '''
 Author: Matt Strader        Date: August 19, 2012
+Modified 2017 for Darkness
+Authors: Seth Meeker, Neelay Fruitwala, Alex Walter
 
 The class ObsFile is an interface to observation files.  It provides methods for typical ways of accessing and viewing observation data.  It can also load and apply wavelength and flat calibration.  With calibrations loaded, it can write the obs file out as a photon list
 
@@ -36,7 +38,6 @@ loadCentroidListFile(self, centroidListFileName)
 loadFlatCalFile(self, flatCalFileName)
 loadFluxCalFile(self, fluxCalFileName)
 loadHotPixCalFile(self, hotPixCalFileName, switchOnMask=True)
-loadTimeAdjustmentFile(self,timeAdjustFileName,verbose=False)
 loadWvlCalFile(self, wvlCalFileName)
 loadFilter(self, filterName = 'V', wvlBinEdges = None,switchOnFilter = True):
 makeWvlBins(energyBinWidth=.1, wvlStart=3000, wvlStop=13000)
@@ -135,10 +136,6 @@ class ObsFile:
         except:
             pass
         try:
-            self.timeAdjustFile.close()
-        except:
-            pass
-        try:
             self.hotPixFile.close()
         except:
             pass
@@ -154,10 +151,6 @@ class ObsFile:
         use with 'for pixel in obsFileObject:'
         yields a single pixel h5 dataset
 
-        MJS 3/28
-        Warning: if timeAdjustFile is loaded, the data from this
-        function will not be corrected for roach delays as in getPixel().
-        Use getPixel() instead.
         """
         for xCoord in range(self.nXPix):
             for yCoord in range(self.nYPix):
@@ -360,17 +353,6 @@ class ObsFile:
         If asked for jd, the jd is calculated from the (corrected) unixtime
         """
         entry = self.info[self.titles.index(name)]
-        if name=='exptime' and self.timeAdjustFile != None:
-            #shorten the effective exptime by the number of seconds that
-            #does not have data from all roaches
-            maxDelay = np.max(self.roachDelays)
-            entry -= maxDelay
-        if name=='unixtime' and self.timeAdjustFile != None:
-            #the way getPixel retrieves data accounts for individual roach delay,
-            #but shifted everything by np.max(self.roachDelays), relabeling sec maxDelay as sec 0
-            #so, add maxDelay to the header start time, so all times will be correct relative to it
-            entry += np.max(self.roachDelays)
-            entry += self.firmwareDelay
         if name=='jd':
             #The jd stored in the raw file header is the jd when the empty file is created
             #but not when the observation starts.  The actual value can be derived from the stored unixtime
@@ -411,44 +393,32 @@ class ObsFile:
 
         """
         resID = self.beamImage[xCoord][yCoord]
-        if resID==self.noResIDFlag:
+        if resID==self.noResIDFlag or\
+           firstSec>int(self.getFromHeader('expTime')) or\
+           ((wvlRange!=None) and (wvlRange[0]>=wvlRange[1])):
+           
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
             return self.photonTable.read_where('(Time < 0)') #use dummy condition to get empty photon list of correct format
 
-        startTime = int(firstSec*self.ticksPerSec) #convert to us
-        endTime = startTime + int(integrationTime*self.ticksPerSec)
-        # if integrationTime == -1:
-        #     try:
-        #         endTime = startTime + int(self.getFromHeader('expTime'))*self.ticksPerSec
-        #     except ValueError:
-        #         try:
-        #             endTime = startTime + photonTable.read(-1)[0][0]
-        #         except IndexError:
-        #             endTime = startTime + 1 #Assume table is empty
-        # else:
-        #     endTime = startTime + int(integrationTime*self.ticksPerSec)
-
-        wvlRange = None   ##IL:  Patch because for some reason wvlRange gets set to false after the getSpectralCube step
-        if wvlRange is None and integrationTime==-1:
-            photonList = self.photonTable.read_where('ResID==resID')
-
-        elif wvlRange is None:
-            photonList = self.photonTable.read_where('(ResID == resID) & (Time >= startTime) & (Time < endTime)')
-
-        else:
-            if(isWvl != self.info['isWvlCalibrated']):
-                raise Exception('isWvl does not match wavelength cal status! \nisWvlCalibrated = ' + str(self.info['isWvlCalibrated']) + '\nisWvl = ' + str(isWvl))
-            startWvl = wvlRange[0]
-            endWvl = wvlRange[1]
-            assert startWvl <= endWvl, 'wvlRange[0] must be <= wvlRange[1]'
-            if integrationTime == -1:
-                photonList = photonTable.read_where('(ResID == resID) & (Wavelength >= startWvl) & (Wavelength < endWvl)')
-            else:
-                photonList = photonTable.read_where('(ResID == resID) & (Time > startTime) & (Time < endTime) & (Wavelength >= startWvl) & (Wavelength < endWvl)')
-
-        #return {'pixelData':pixelData,'firstSec':firstSec,'lastSec':lastSec}
-        return photonList
+        query='(ResID == resID)'
+        startTime=0
+        if firstSec>0:
+            startTime = int(firstSec*self.ticksPerSec) #convert to us
+            query+=' & (Time >= startTime)'
+        if integrationTime!=-1:
+            endTime = startTime + int(integrationTime*self.ticksPerSec)
+            query+=' & (Time < endTime)'
+        if wvlRange is not None:
+            if wvlRange[0]!=-1:
+                startWvl = wvlRange[0]
+                query+=' & (Wavelength >= startWvl)'
+            if wvlRange[1]!=-1:
+                endWvl = wvlRange[1]
+                query+=' & (Wavelength < endWvl)'
+            
+        
+        return self.photonTable.read_where(query)
 
     def getListOfPixelsPhotonList(self, posList, firstSec=0, integrationTime=-1, wvlRange=None):
         """
@@ -557,7 +527,7 @@ class ObsFile:
             If hot pixel masking is turned on, then returns 0 for any time that is masked out.
             (Maybe should update this to NaN at some point in getPixelCount?)
         """
-        if lastSec==-1:lSec = self.getFromHeader('exptime')
+        if lastSec==-1:lSec = self.getFromHeader('expTime')
         else: lSec = lastSec
         return np.array([self.getPixelCount(xCoord,yCoord,firstSec=x,integrationTime=cadence,**kwargs)['counts']
                        for x in np.arange(firstSec,lSec,cadence)])
@@ -572,7 +542,7 @@ class ObsFile:
 
         lc = self.getPixelLightCurve(xCoord=xCoord,yCoord=yCoord,firstSec=firstSec,lastSec=lastSec,
                                      cadence=cadence,**kwargs)
-        if lastSec==-1: realLastSec = self.getFromHeader('exptime')
+        if lastSec==-1: realLastSec = self.getFromHeader('expTime')
         else: realLastSec = lastSec
 
         #Plot the lightcurve
@@ -623,7 +593,7 @@ class ObsFile:
         -------
         Dictionary with keys:
             'image': 2D numpy array, image of pixel counts
-            'effIntTime':2D numpy array, image effective integration times after time-masking is
+            'effIntTimes':2D numpy array, image effective integration times after time-masking is
            `          accounted for.
         """
         effIntTimes = np.zeros((self.nXPix, self.nYPix), dtype=np.float64)
@@ -631,7 +601,7 @@ class ObsFile:
         countImage = np.zeros((self.nXPix, self.nYPix), dtype=np.float64)
         #rawCounts.fill(np.nan)   #Just in case an element doesn't get filled for some reason.
         if integrationTime==-1:
-            integrationTime = self.getFromHeader('exptime')-firstSec
+            integrationTime = self.getFromHeader('expTime')-firstSec
         startTs = firstSec*1.e6
         endTs = startTs + integrationTime*1.e6
         if wvlRange is None:
@@ -681,7 +651,7 @@ class ObsFile:
                 
         if scaleByEffInt is True:
             if integrationTime == -1:
-                totInt = self.getFromHeader('exptime')
+                totInt = self.getFromHeader('expTime')
             else:
                 totInt = integrationTime
             countImage *= (totInt / effIntTimes)
@@ -1492,27 +1462,6 @@ class ObsFile:
         self.cosmicMask = cosmicMask
         if switchOnCosmicMask: self.switchOnCosmicTimeMask()
 
-    def loadTimeAdjustmentFile(self,timeAdjustFileName,verbose=False):
-        """
-        loads obsfile specific adjustments to add to all timestamps read
-        adjustments are read from timeAdjustFileName
-        it is suggested to pass timeAdjustFileName=FileName(run=run).timeAdjustments()
-        """
-
-        self.timeAdjustFile = tables.open_file(timeAdjustFileName)
-        self.firmwareDelay = self.timeAdjustFile.root.timeAdjust.firmwareDelay.read()[0]['firmwareDelay']
-        roachDelayTable = self.timeAdjustFile.root.timeAdjust.roachDelays
-        try:
-            self.roachDelays = roachDelayTable.readWhere('obsFileName == "%s"'%self.fileName)[0]['roachDelays']
-            self.timeAdjustFileName = os.path.abspath(timeAdjustFileName)
-        except:
-            self.timeAdjustFile.close()
-            self.timeAdjustFile=None
-            self.timeAdjustFileName=None
-            del self.firmwareDelay
-            if verbose:
-                print('Unable to load time adjustment for '+self.fileName)
-            raise
 
     def loadBestWvlCalFile(self,master=True):
         """
@@ -1579,7 +1528,7 @@ class ObsFile:
                 else:
                     self.applyFlag(row, column, 0b00000010)  # failed waveCal
             self.modifyHeaderEntry(headerTitle='isWvlCalibrated', headerValue=True)
-            self.modifyHeaderEntty(headerTitle='wvlCalFile',headerValue=file_name)
+            self.modifyHeaderEntry(headerTitle='wvlCalFile',headerValue=str.encode(file_name))
         finally:
             self.photonTable.reindex_dirty() # recompute "dirty" wavelength index
             self.photonTable.autoindex = True # turn on autoindexing 
