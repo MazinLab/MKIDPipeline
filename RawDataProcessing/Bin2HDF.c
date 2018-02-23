@@ -40,8 +40,8 @@
 #define NPIXELS_PER_ROACH 1024
 #define RAD2DEG 57.2957795131
 
-#define TSOFFS2017 1483228800 //difference between UTC timestamp and Jan 1 2017
-#define TSOFFS 1514764800 //difference between UTC timestamp and Jan 1 2018
+#define TSOFFS2017 1483228800 //difference between epoch and Jan 1 2017 UTC
+#define TSOFFS 1514764800 //difference between epoch and Jan 1 2018 UTC
 
 // useful globals
 uint32_t residarr[10000] = {0};
@@ -282,6 +282,13 @@ int main(int argc, char *argv[])
     size_t dst_offset[NFIELD] = { HOFFSET( photon, resID), HOFFSET( photon, timestamp ), HOFFSET( photon, wvl ), HOFFSET( photon, wSpec ), HOFFSET( photon, wNoise) };
     size_t dst_sizes[NFIELD] = { sizeof(p1.resID), sizeof(p1.timestamp), sizeof(p1.wvl),sizeof(p1.wSpec), sizeof(p1.wNoise) };
 
+    //Timing variables
+    struct tm *startTime;
+    struct tm *yearStartTime; //Jan 1 00:00 UTC of current year
+    int year;
+    uint32_t tsOffs; //UTC timestamp for yearStartTime
+    time_t startTs;
+
     count[1] = beamRows;
 
     /* Define field information */
@@ -312,7 +319,14 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-    tstart = (uint64_t)(FirstFile-TSOFFS)*2000;
+    startTs = (time_t)FirstFile;
+    startTime = gmtime(&startTs);
+    year = startTime->tm_year;
+    yearStartTime = calloc(1, sizeof(struct tm));
+    yearStartTime->tm_year = year;
+    yearStartTime->tm_mday = 1;
+    tsOffs = timegm(yearStartTime);
+    tstart = (uint64_t)(FirstFile-tsOffs)*2000;
 
     //initialize nRoaches
     nRoaches = beamRows*beamCols/1000;
