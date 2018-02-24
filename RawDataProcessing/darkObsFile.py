@@ -486,7 +486,7 @@ class ObsFile:
 
         return photonLists
 
-    def getPixelCount(self, xCoord, yCoord, firstSec=0, integrationTime= -1, wvlRange=None, applyWeight=True, applyTPFWeight=True, applyTimeMask=True):
+    def getPixelCount(self, xCoord, yCoord, firstSec=0, integrationTime= -1, wvlRange=None, applyWeight=True, applyTPFWeight=True, applyTimeMask=False):
         """
         Returns the number of photons received in a single pixel from firstSec to firstSec + integrationTime
 
