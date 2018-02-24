@@ -294,7 +294,7 @@ class WaveCal:
             raise KeyboardInterrupt
 
         # populate fit_data with results from workers
-        self.fit_data = np.empty((80, 125), dtype=object)
+        self.fit_data = np.empty((self.rows, self.columns), dtype=object)
         for ind, _ in np.ndenumerate(self.fit_data):
             self.fit_data[ind] = []
         for (row, column) in result_dict.keys():
@@ -331,7 +331,7 @@ class WaveCal:
             print('fitting phase histograms')
             self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (',
                                              Timer(), ') ', ETA(), ' '],
-                                    maxval=len(pixels)).start()
+                                    max_value=len(pixels)).start()
             self.pbar_iter = 0
 
         # initialize fit_data structure
@@ -341,6 +341,8 @@ class WaveCal:
 
         # loop over pixels and fit the phase histograms
         for row, column in pixels:
+            # initialize rate parameter
+            rate = 2000
             for wavelength_index, wavelength in enumerate(self.wavelengths):
                 if self.logging:
                     start_time = datetime.now()
@@ -350,8 +352,13 @@ class WaveCal:
                 # load data
                 photon_list = self.loadPhotonData(row, column, wavelength_index)
 
+                # recalculate event rate [#/s] if it's been flaged as hot before
+                if rate > 1800 and len(photon_list['Wavelength']) > 1:
+                    rate = (len(photon_list['Wavelength']) /
+                            (max(photon_list['Time']) - min(photon_list['Time']))) * 1e6
+
                 # if there is no data go to next loop
-                if len(photon_list['Wavelength']) == 0:
+                if len(photon_list['Wavelength']) <= 1:
                     fit_data[row, column].append((3, False, False,
                                                   {'centers': np.array([]),
                                                    'counts': np.array([])}))
@@ -373,9 +380,15 @@ class WaveCal:
                 # make the phase histogram
                 phase_hist = self.__histogramPhotons(photon_list['Wavelength'])
 
-                # if there is not enough data go to next loop
+                # if there is not enough data or too much go to next loop
                 if len(phase_hist['centers']) == 0 or np.max(phase_hist['counts']) < 20:
-                    fit_data[row, column].append((3, False, False, phase_hist))
+                    flag = 3
+                elif rate > 1800:
+                    flag = 10
+                else:
+                    flag = 0  # for now
+                if flag == 3 or flag == 10:
+                    fit_data[row, column].append((flag, False, False, phase_hist))
                     # update progress bar and log
                     if self.logging:
                         dt = round((datetime.now() - start_time).total_seconds(), 2)
@@ -435,7 +448,15 @@ class WaveCal:
             # check to see if fits at longer wavelengths can be used to fix fits at
             # shorter wavelengths
             fit_list = fit_data[row, column]
-            fit_data[row, column] = self.__reexamineFits(fit_list, row, column)
+            fit_list = self.__reexamineFits(fit_list, row, column)
+
+            # try to fit all of the histograms at once enforcing monotonicity
+            # full_fit = self.__simultaneousFit(fit_list, row, column, vary=True)
+            # if full_fit is not None:
+            #     fit_list = full_fit
+
+            fit_data[row, column] = fit_list
+
             # update progress bar
             if self.verbose:
                 self.pbar_iter += 1
@@ -477,7 +498,7 @@ class WaveCal:
             print('calculating phase to energy solution')
             self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (',
                                              Timer(), ') ', ETA(), ' '],
-                                    maxval=len(pixels)).start()
+                                    max_value=len(pixels)).start()
             self.pbar_iter = 0
         if self.logging:
             self.__logger('## calculating phase to energy solution')
@@ -628,7 +649,7 @@ class WaveCal:
             print('exporting data')
             self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (',
                                              Timer(), ') ', ETA(), ' '],
-                                    maxval=2 * len(pixels)).start()
+                                    max_value=2 * len(pixels)).start()
             self.pbar_iter = 0
         if self.logging:
             self.__logger("## exporting data to {0}".format(cal_file))
@@ -793,7 +814,7 @@ class WaveCal:
             try:
                 save_name = "summary_" + self.log_file + '.pdf'
                 save_dir = os.path.join(self.out_directory, save_name)
-                plotSummary(self.cal_file, self.templar_config, save_pdf=True,
+                plotSummary(self.cal_file, self.templar_config,
                             save_name=save_name, verbose=self.verbose)
                 if self.logging:
                     self.__logger("summary plot saved as {0}".format(save_dir))
@@ -803,12 +824,10 @@ class WaveCal:
                 if self.verbose:
                     print('Summary plot generation failed. It can be remade by ' +
                           'using plotSummary() in plotWaveCal.py')
+                    print(error)
                 if self.logging:
                     self.__logger("summary plot failed")
                     self.__logger(str(error))
-                if self.verbose:
-                    print("summary plot failed")
-                    print(error)
 
     def loadPhotonData(self, row, column, wavelength_index):
         '''
@@ -1164,7 +1183,7 @@ class WaveCal:
             try:
                 # fit data
                 result = model.fit(phase_hist['counts'], setup, x=phase_hist['centers'],
-                                   weights=1 / (np.sqrt(phase_hist['counts']) + 1))
+                                   weights=1 / error)
                 # lm fit doesn't error if covariance wasn't calculated so check here
                 # replace with gaussian width if covariance couldn't be calculated
                 if result.covar is None:
@@ -1243,17 +1262,26 @@ class WaveCal:
                 else:
                     h_n = gauss(centers[c_n_ind]) + exp(centers[c_n_ind])
 
+                if wavelength_index == 0:
+                    snr = 4
+                else:
+                    snr = 2
                 peak_lower_lim = min_phase + sigma
+                fit_quality = np.sum([np.abs(c - h) > 5 * np.sqrt(c),
+                                      np.abs(c_p - h_p) > 5 * np.sqrt(c_p),
+                                      np.abs(c_n - h_n) > 5 * np.sqrt(c_n)])
                 bad_fit_conditions = ((center > peak_upper_lim) or
                                       (center < peak_lower_lim) or
-                                      (gauss(center) < 2 * exp(center)) or
+                                      (gauss(center) < snr * exp(center)) or
                                       (gauss(center) < 10) or
-                                      np.abs(sigma < 2) or
-                                      np.abs(c - h) > 4 * np.sqrt(c) or
-                                      np.abs(c_p - h_p) > 4 * np.sqrt(c_p) or
-                                      np.abs(c_n - h_n) > 4 * np.sqrt(c_n) or
+                                      np.abs(sigma) < 2 or
+                                      fit_quality >= 2 or
                                       2 * sigma > peak_upper_lim - peak_lower_lim)
-
+                # if wavelength_index == 0:
+                #     print(center > peak_upper_lim, center < peak_lower_lim,
+                #           gauss(center) < snr * exp(center), gauss(center) < 10,
+                #           np.abs(sigma) < 2, fit_quality >= 2,
+                #           2 * sigma > peak_upper_lim - peak_lower_lim)
                 if bad_fit_conditions:
                     flag = 2  # fit converged to a bad solution
                 else:
@@ -1289,6 +1317,8 @@ class WaveCal:
         longer wavelength fits. This step mainly catches when the first wavelength fit
         fails because there isn't enough information about the pixel sensitivity.
         '''
+        if self.logging:
+            start_time = datetime.now()
 
         # determine which fits worked
         flags = np.array([fit_list[ind][0] for ind in range(len(self.wavelengths))])
@@ -1320,15 +1350,186 @@ class WaveCal:
             # evaluate fit
             flag = self.__evaluateFit(phase_hist, fit_result, fit_list, wavelength_index)
 
-            # save data if the fit worked
-            if flag == 0:
-                fit_list[wavelength_index] = (flag, fit_result[0], fit_result[1],
-                                              phase_hist)
+            # find best fit even if the fit failed
+            fit_results = [fit_result, fit_list[wavelength_index][1:3]]
+            fit_flags = [flag, fit_list[wavelength_index][0]]
+            fit_result, flag = self.__findBestFit(fit_results, fit_flags, phase_hist)
+
+            # save data
+            fit_list[wavelength_index] = (flag, fit_result[0], fit_result[1],
+                                          phase_hist)
+            if flag == 0 and self.logging:
+                dt = round((datetime.now() - start_time).total_seconds(), 2)
+                dt = str(dt) + ' s'
                 message = "({0}, {1}) {2}nm: histogram fit recalculated " + \
-                          "- converged and validated"
+                          "- converged and validated : {3}"
                 self.__logger(message.format(row, column,
-                                             self.wavelengths[wavelength_index]))
+                                             self.wavelengths[wavelength_index], dt))
         return fit_list
+
+    def __simultaneousFit(self, fit_list, row, column, vary=False):
+        '''
+        Try to fit all of the histograms simultaneously with the condition that the energy
+        phase relation be monotonic. The previous sucessful fits will be used as guesses.
+        If the fit fails or a single histogram fit fails evaluation, None will be
+        returned.
+        '''
+        if self.logging:
+            start_time = datetime.now()
+
+        new_fit_list = fit_list
+
+        # determine which fits worked
+        flags = np.array([fit_list[ind][0] for ind in range(len(self.wavelengths))])
+        successful = (flags == 0)
+
+        # if there are less than three good fits, nothing can be done
+        if np.sum(successful) < 3:
+            return None
+
+        # determine which fits to include in composite model
+        indices = []
+        good_fits = []
+        for index, success in enumerate(successful):
+            if success:
+                indices.append(index)
+                good_fits.append(fit_list[index])
+
+        # get fit function
+        fit_function = fitModels(self.model_name)
+
+        # initialize the parameter object
+        params = lm.Parameters()
+
+        # make the noise fall off a constant over all sets
+        if vary is False:
+            # find the average noise fall off
+            b = []
+            for ind, wavelength_index in enumerate(indices):
+                if self.model_name == 'gaussian_and_exp':
+                    b.append(fit_list[wavelength_index][1][1])
+            b = np.mean(b)
+            params.add('b', value=b, min=-1, max=np.inf, vary=False)
+
+        # add the parameters
+        for ind, wavelength_index in enumerate(indices):
+            fit_result = new_fit_list[wavelength_index][1]
+            phase_hist = new_fit_list[wavelength_index][3]
+            prefix = 'm' + str(ind) + '_'
+            if self.model_name == 'gaussian_and_exp':
+                params.add(prefix + 'a', value=fit_result[0], min=0, max=np.inf)
+                if vary:
+                    params.add(prefix + 'b', value=fit_result[1], min=-1, max=np.inf)
+                params.add(prefix + 'c', value=fit_result[2], min=0,
+                           max=1.1 * np.max(phase_hist['counts']))
+                params.add(prefix + 'f', value=fit_result[4], min=0.1, max=np.inf)
+                if ind == 0:
+                    params.add(prefix + 'd', value=fit_result[3],
+                               min=np.min(phase_hist['centers']), max=0)
+                else:
+                    previous_fit = new_fit_list[indices[ind - 1]][1]
+                    delta = previous_fit[3] - fit_result[3]
+                    # move delta to 0 if not monotonic
+                    if delta > 0:
+                        if ind < len(indices) - 1:
+                            next_fit = new_fit_list[indices[ind + 1]][1]
+                            e1 = 1 / self.wavelengths[indices[ind - 1]]
+                            p1 = previous_fit[3]
+                            e2 = 1 / self.wavelengths[indices[ind + 1]]
+                            p2 = next_fit[3]
+                            e0 = 1 / self.wavelengths[wavelength_index]
+                            new_fit_list[wavelength_index][1][3] = ((p2 - p1) / (e2 - e1)
+                                                                    * (e0 - e1)) + p1
+                            delta = previous_fit[3] - new_fit_list[wavelength_index][1][3]
+                        else:
+                            new_fit_list[wavelength_index][1][3] = previous_fit[3] * 0.95
+                            delta = 0.05 * previous_fit[3]
+                    previous_prefix = 'm' + str(ind - 1) + '_'
+                    params.add(previous_prefix + 'delta', value=delta, min=fit_result[3],
+                               max=0)
+                    expression = previous_prefix + 'd -' + previous_prefix + 'delta'
+                    params.add(prefix + 'd', expr=expression)
+        # try to fit
+        try:
+            result = lm.minimize(self.__histogramChi2, params, method='leastsq',
+                                 args=(good_fits, fit_function, vary))
+
+            # exit if fit failed
+            if result.success is False:
+                return None
+
+            # loop through output fits
+            for ind, wavelength_index in enumerate(indices):
+                # repackage solution into a fit_result
+                prefix = 'm' + str(ind) + '_'
+                if self.model_name == 'gaussian_and_exp':
+                    if vary:
+                        parameters = [prefix + 'a', prefix + 'b', prefix + 'c',
+                                      prefix + 'd', prefix + 'f']
+                    else:
+                        parameters = [prefix + 'a', 'b', prefix + 'c',
+                                      prefix + 'd', prefix + 'f']
+                popt = [result.params[p].value for p in parameters]
+                pcov = np.zeros((len(parameters), len(parameters)))
+                # only fill the diagonal elements (don't care about the rest for now)
+                for ind, param in enumerate(parameters):
+                    # exit if covariance couldn't be calculated
+                    # this happens when peak centers converge on top of each other
+                    if result.params[param].stderr == 0:
+                        return None
+                    pcov[ind, ind] = result.params[param].stderr**2
+                fit_result = (popt, pcov)
+
+                # evaluate fits
+                phase_hist = new_fit_list[wavelength_index][3]
+                flag = self.__evaluateFit(phase_hist, fit_result, new_fit_list,
+                                          wavelength_index)
+                # exit if one of the fits fails any evaluation step
+                if flag != 0:
+                    return None
+                # replace old fit with simultaneous fit
+                new_fit_list[wavelength_index] = (flag, fit_result[0], fit_result[1],
+                                                  phase_hist)
+            if self.logging:
+                dt = round((datetime.now() - start_time).total_seconds(), 2)
+                dt = str(dt) + ' s'
+                if vary:
+                    message = "histograms refit to a single model enforcing monotonicity"
+                else:
+                    message = "histograms refit to a single model enforcing " + \
+                              "monotonicity with a constant exponential fall time"
+                self.__logger("({0}, {1}): {2} : {3}"
+                              .format(row, column, message, dt))
+            return new_fit_list
+
+        except Exception as error:
+            # do some error handeling
+            raise error
+            return None
+
+    def __histogramChi2(self, params, fit_list, fit_function, vary):
+        '''
+        Calculates the normalized chi squared residual for the simultaneous histogram fit
+        '''
+        p = params.valuesdict()
+
+        chi2 = np.array([])
+        for index, fit_result in enumerate(fit_list):
+            centers = fit_result[3]['centers']
+            counts = fit_result[3]['counts']
+            error = np.sqrt(counts + 0.25) + 0.5
+            if self.model_name == 'gaussian_and_exp':
+                prefix = 'm' + str(index) + '_'
+                if vary:
+                    b = p[prefix + 'b']
+                else:
+                    b = p['b']
+                fit = fit_function(centers, p[prefix + 'a'], b, p[prefix + 'c'],
+                                   p[prefix + 'd'], p[prefix + 'f'])
+
+                nu_free = np.max([len(counts) - 5, 1])
+            chi2 = np.append(chi2, ((counts - fit) / error) / np.sqrt(nu_free))
+        return chi2
 
     def __fitEnergy(self, fit_type, phases, energies, errors, row, column):
         '''
@@ -1391,6 +1592,9 @@ class WaveCal:
 
     @staticmethod
     def __energyChi2(params, phases, energies, errors, fit_function):
+        '''
+        Calculates the chi squared residual for the energy - phase fit using x-errors
+        '''
         p = params.valuesdict()
         if 'a' not in p.keys():
             dfdx = p['b']
@@ -1831,7 +2035,7 @@ class ProgressWorker(mp.Process):
     def run(self):
         try:
             pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (', Timer(), ') ',
-                                        ETA(), ' '], maxval=self.N).start()
+                                        ETA(), ' '], max_value=self.N).start()
             pbar_iter = 0
             while pbar_iter < self.N:
                 if self.progress_queue.get():
@@ -1840,6 +2044,54 @@ class ProgressWorker(mp.Process):
             pbar.finish()
         except (KeyboardInterrupt, BrokenPipeError):
             pass
+
+
+def findDifferences(solution1, solution2):
+    '''
+    Determines the pixels that were fit differently between the two solution files. This
+    function is useful for comparing solution files made with different WaveCal versions
+    and solution files made at different times during an observation.
+
+    Args:
+        solution1: the file name of the first wavelength calibration .h5 file (string)
+        solution2: the file name of the second wavelength calibration .h5 file (string)
+
+    Returns:
+        good_to_bad: list of tuples containing pixels (row, column) that were good in
+                     solution 1 but bad in solution 2
+        bad_to_good: list of tuples containing pixels (row, column) that were bad in
+                     solution 1 but good in solution 2
+    '''
+    wave_cal1 = tb.open_file(solution1, mode='r')
+    wave_cal2 = tb.open_file(solution2, mode='r')
+    calsoln1 = wave_cal1.root.wavecal.calsoln.read()
+    calsoln2 = wave_cal2.root.wavecal.calsoln.read()
+    wave_cal1.close()
+    wave_cal2.close()
+    flag1 = calsoln1['wave_flag']
+    flag2 = calsoln2['wave_flag']
+    res_id1 = calsoln1['resid']
+    res_id2 = calsoln2['resid']
+
+    good_to_bad = []
+    for index, res_id in enumerate(res_id1):
+        if flag1[index] == 4 or flag1[index] == 5:
+            index2 = np.where(res_id == res_id2)
+            if len(index2[0]) == 1 and (flag2[index2][0] != 4 and flag2[index2][0] != 5):
+                row = calsoln1['pixel_row'][index]
+                column = calsoln1['pixel_col'][index]
+                good_to_bad.append((row, column))
+
+    bad_to_good = []
+    for index, res_id in enumerate(res_id1):
+        if flag1[index] != 4 and flag1[index] != 5:
+            index2 = np.where(res_id == res_id2)
+            if len(index2[0]) == 1 and (flag2[index2][0] == 4 or flag2[index2][0] == 5):
+                row = calsoln1['pixel_row'][index]
+                column = calsoln1['pixel_col'][index]
+                bad_to_good.append((row, column))
+
+    return good_to_bad, bad_to_good
 
 
 if __name__ == '__main__':
