@@ -3,16 +3,20 @@
 Author: Matt Strader        Date: August 19, 2012
 Modified 2017 for Darkness
 Authors: Seth Meeker, Neelay Fruitwala, Alex Walter
+Last Updated: Feb 24, 2018
 
-The class ObsFile is an interface to observation files.  It provides methods for typical ways of accessing and viewing observation data.  It can also load and apply wavelength and flat calibration.  With calibrations loaded, it can write the obs file out as a photon list
+The class ObsFile is an interface to observation files.  It provides methods 
+for typical ways of accessing photon list observation data.  It can also load 
+and apply wavelength and flat calibration.  
 
-Looks for observation files in $MKID_RAW_PATH and calibration files organized in $MKID_PROC_PATH (intermediate or scratch path)
+By default it looks for observation files in $MKID_RAW_PATH and calibration 
+files organized in $MKID_PROC_PATH (intermediate or scratch path)
 
 Class Obsfile:
-__init__(self, fileName,verbose=False)
+__init__(self,fileName,mode='read',verbose=False)
 __del__(self)
 __iter__(self)
-loadFile(self, fileName,verbose=False)
+loadFile(self,fileName,verbose=False)
 checkIntegrity(self,firstSec=0,integrationTime=-1)
 convertToWvl(self, pulseHeights, xCoord, yCoord, excludeBad=True)
 createEmptyPhotonListFile(self)
@@ -84,6 +88,8 @@ class ObsFile:
     c = astropy.constants.c.to('m/s').value   #'2.998e8 #m/s
     angstromPerMeter = 1e10
     nCalCoeffs = 3
+    tickDuration = 1e-6    #each integer value is 1 microsecond
+    
     def __init__(self, fileName, mode='read', verbose=False):
         """
         Create ObsFile object and load in specified HDF5 file.
@@ -104,16 +110,17 @@ class ObsFile:
         """
         assert mode=='read' or mode=='write', '"mode" argument must be "read" or "write"'
         self.mode = mode
-        self.makeMaskVersion = None
-        self.loadFile(fileName,verbose=verbose)
-        self.photonTable = self.file.get_node('/Photons/PhotonTable')
-        self.filterIsApplied = False
-
-        self.filterIsApplied = False
+        self.verbose=verbose
+        self.tickDuration = ObsFile.tickDuration
         self.noResIDFlag = 2**32-1
         self.wvlLowerLimit = None
         self.wvlUpperLimit = None
-        self.timeMaskExists = False
+        self.filterIsApplied = False
+        #self.timeMaskExists = False
+        #self.makeMaskVersion = None
+        
+        self.loadFile(fileName)
+        self.photonTable = self.file.get_node('/Photons/PhotonTable')
 
     def __del__(self):
         """
@@ -144,7 +151,7 @@ class ObsFile:
         except:
             pass
 
-
+    '''
     def __iter__(self):
         """
         Allows easy iteration over pixels in obs file
@@ -157,8 +164,9 @@ class ObsFile:
                 pixelLabel = self.beamImage[xCoord][yCoord]
                 pixelData = self.file.get_node('/' + pixelLabel)
                 yield pixelData
+    '''
 
-    def loadFile(self, fileName,verbose=False):
+    def loadFile(self, fileName):
         """
         Opens file and loads obs file attributes and beammap
         """
@@ -173,140 +181,33 @@ class ObsFile:
             dataDir = os.getenv('MKID_RAW_PATH', '/')
             self.fullFileName = os.path.join(dataDir, self.fileName)
 
-        if (not os.path.exists(self.fullFileName)):
-            msg='file does not exist: %s'%self.fullFileName
-            if verbose:
-                print(msg)
-            raise Exception(msg)
-
         #open the hdf5 file
         if self.mode=='read':
             mode = 'r'
         if self.mode=='write':
             mode = 'a'
-
+        if self.verbose: print("Loading "+self.fullFileName)
         self.file = tables.open_file(self.fullFileName, mode=mode)
 
         #get the header
         self.header = self.file.root.header.header
         self.titles = self.header.colnames
-        try:
-            self.info = self.header[0] #header is a table with one row
-        except IndexError as inst:
-            if verbose:
-                print('Can\'t read header for ',self.fullFileName)
-            raise inst
+        self.info = self.header[0] #header is a table with one row
 
         # get important cal params
-
         self.defaultWvlBins = ObsFile.makeWvlBins(self.getFromHeader('energyBinWidth'), self.getFromHeader('wvlBinStart'), self.getFromHeader('wvlBinEnd'))
-
-
-        # Useful information about data format set here.
-        # For now, set all of these as constants.
-        # If we get data taken with different parameters, straighten
-        # that all out here.
-
-        ## These parameters are for LICK2012 and PAL2012 data
-        self.tickDuration = 1e-6 #s
         self.ticksPerSec = int(1.0 / self.tickDuration)
         self.intervalAll = interval[0.0, (1.0 / self.tickDuration) - 1]
-        #  8 bits - channel
-        # 12 bits - Parabola Fit Peak Height
-        # 12 bits - Sampled Peak Height
-        # 12 bits - Low pass filter baseline
-        # 20 bits - Microsecond timestamp
+
 
         #get the beam image.
-        try:
-            self.beamImage = self.file.get_node('/BeamMap/Map').read()
-            self.beamFlagImage = self.file.get_node('/BeamMap/Flag')
-        except Exception as inst:
-            if verbose:
-                print('Can\'t access beamimage for ',self.fullFileName)
-            raise inst
-
+        self.beamImage = self.file.get_node('/BeamMap/Map').read()
+        self.beamFlagImage = self.file.get_node('/BeamMap/Flag')
         beamShape = self.beamImage.shape
         self.nXPix = beamShape[0]
         self.nYPix = beamShape[1]
 
-    def checkIntegrity(self,firstSec=0,integrationTime=-1):
-        """
-        Checks the obs file for corrupted end-of-seconds
-        Corruption is indicated by timestamps greater than 1/tickDuration=1e6
-        returns 0 if no corruption found
-        """
-        corruptedPixels = []
-        for xCoord in range(self.nXPix):
-            for yCoord in range(self.nYPix):
-                packetList = self.getPixelPacketList(xCoord,yCoord,firstSec,integrationTime)
-                timestamps,parabolaPeaks,baselines = self.parsePhotonPackets(packetList)
-                if np.any(timestamps > 1./self.tickDuration):
-                    print('Corruption detected in pixel (',xCoord,yCoord,')')
-                    corruptedPixels.append((xCoord,yCoord))
-        corruptionFound = len(corruptedPixels) != 0
-        return corruptionFound
-#        exptime = self.getFromHeader('exptime')
-#        lastSec = firstSec + integrationTime
-#        if integrationTime == -1:
-#            lastSec = exptime-1
-#
-#        corruptedSecs = []
-#        for pixelCoord in corruptedPixels:
-#            for sec in xrange(firstSec,lastSec):
-#                packetList = self.getPixelPacketList(pixelCoord[0],pixelCoord[1],sec,integrationTime=1)
-#                timestamps,parabolaPeaks,baselines = self.parsePhotonPackets(packetList)
-#                if np.any(timestamps > 1./self.tickDuration):
-#                    pixelLabel = self.beamImage[xCoord][yCoord]
-#                    corruptedSecs.append(sec)
-#                    print 'Corruption in pixel',pixelLabel, 'at',sec
-
-
-
-    def createEmptyPhotonListFile(self,*nkwargs,**kwargs):
-        """
-        creates a photonList h5 file using header in headers.ArconsHeaders
-        Shifted functionality to photonlist/photlist.py, JvE May 10 2013.
-        See that function for input parameters and outputs.
-        """
-        import photonlist.photlist      #Here instead of at top to avoid circular imports
-        photonlist.photlist.createEmptyPhotonListFile(self,*nkwargs,**kwargs)
-
-
-#    def createEmptyPhotonListFile(self,fileName=None):
-#        """
-#        creates a photonList h5 file
-#        using header in headers.ArconsHeaders
-#
-#        INPUTS:
-#            fileName - string, name of file to write to. If not supplied, default is used
-#                       based on name of original obs. file and standard directories etc.
-#                       (see usil.FileName). Added 4/29/2013, JvE
-#        """
-#
-#        if fileName is None:
-#            fileTimestamp = self.fileName.split('_')[1].split('.')[0]
-#            fileDate = os.path.basename(os.path.dirname(self.fullFileName))
-#            run = os.path.basename(os.path.dirname(os.path.dirname(self.fullFileName)))
-#            fn = FileName(run=run, date=fileDate, tstamp=fileTimestamp)
-#            fullPhotonListFileName = fn.photonList()
-#        else:
-#            fullPhotonListFileName = fileName
-#        if (os.path.exists(fullPhotonListFileName)):
-#            if utils.confirm('Photon list file  %s exists. Overwrite?' % fullPhotonListFileName, defaultResponse=False) == False:
-#                exit(0)
-#        zlibFilter = tables.Filters(complevel=1, complib='zlib', fletcher32=False)
-#        try:
-#            plFile = tables.openFile(fullPhotonListFileName, mode='w')
-#            plGroup = plFile.createGroup('/', 'photons', 'Group containing photon list')
-#            plTable = plFile.createTable(plGroup, 'photons', ArconsHeaders.PhotonList, 'Photon List Data',
-#                                         filters=zlibFilter,
-#                                         expectedrows=300000)  #Temporary fudge to see if it helps!
-#        except:
-#            plFile.close()
-#            raise
-#        return plFile
-
+    '''
     def displaySec(self, firstSec=0, integrationTime= -1, weighted=False,
                    fluxWeighted=False, plotTitle='', nSdevMax=2,
                    scaleByEffInt=False, getRawCount=False, fignum=None, ds9=False,
@@ -341,25 +242,13 @@ class ObsFile:
         else:
             utils.plotArray(secImg, cbar=True, normMax=np.mean(secImg) + nSdevMax * np.std(secImg),
                         plotTitle=plotTitle, fignum=fignum, **kw)
-
+    '''
 
     def getFromHeader(self, name):
         """
         Returns a requested entry from the obs file header
-        If asked for exptime (exposure time) and some roaches have a timestamp offset
-        The returned exposure time will be shortened by the max offset, since ObsFile
-        will not retrieve data from seconds in which some roaches do not have data.
-        This also affects unixtime (start of observation).
-        If asked for jd, the jd is calculated from the (corrected) unixtime
         """
         entry = self.info[self.titles.index(name)]
-        if name=='jd':
-            #The jd stored in the raw file header is the jd when the empty file is created
-            #but not when the observation starts.  The actual value can be derived from the stored unixtime
-            unixEpochJD = 2440587.5
-            secsPerDay = 86400
-            unixtime = self.getFromHeader('unixtime')
-            entry = 1.*unixtime/secsPerDay+unixEpochJD
         return entry
 
     def getPixelPhotonList(self, xCoord, yCoord, firstSec=0, integrationTime= -1, wvlRange=None, isWvl=True):
@@ -396,9 +285,7 @@ class ObsFile:
         if resID==self.noResIDFlag or\
            firstSec>int(self.getFromHeader('expTime')) or\
            ((wvlRange!=None) and (wvlRange[0]>=wvlRange[1])):
-           
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
+
             return self.photonTable.read_where('(Time < 0)') #use dummy condition to get empty photon list of correct format
 
         query='(ResID == resID)'
@@ -1057,6 +944,8 @@ class ObsFile:
                 frame[xCoord][yCoord] += nphoton
         return frame
 
+
+    '''
     # a different way to get, with the functionality of getTimedPacketList
     def getPackets(self, xCoord, yCoord, firstSec, integrationTime,
                    fields=(),
@@ -1236,6 +1125,7 @@ class ObsFile:
         if parse['baselines']:
             retval['baselines'] = baselines
         return retval
+    
 
     @staticmethod
     def makeMask01(timestamps, inter):
@@ -1298,7 +1188,8 @@ class ObsFile:
                     i0 = max(i0,0)
                     retval[i0:i1] = True
         return retval
-
+    '''
+    
     def loadBeammapFile(self,beammapFileName):
         """
         Load an external beammap file in place of the obsfile's attached beamma
@@ -1556,15 +1447,16 @@ class ObsFile:
 
     def switchOffFilter(self):
         self.filterIsApplied = False
-        print("Turned off synthetic filter")
+        if self.verbose: print("Turned off synthetic filter")
 
     def switchOnFilter(self):
         if self.filterTrans != None:
             self.filterIsApplied = True
-            print("Turned on synthetic filter")
+            if self.verbose: print("Turned on synthetic filter")
         else:
-            print("No filter loaded! Use loadFilter to select a filter first")
             self.filterIsApplied = False
+            #print("No filter loaded! Use loadFilter to select a filter first")
+            warnings.warn("No filter loaded! Use loadFilter to select a filter first")
 
     @staticmethod
     def makeWvlBins(energyBinWidth=.1, wvlStart=700, wvlStop=1500):
