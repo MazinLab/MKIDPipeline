@@ -667,7 +667,7 @@ class ObsFile:
                 photonList = np.append(photonList, pixPhotonList)
 
         photonList = np.sort(photonList, order='Time')
-        return {'photonList':photonList, 'effQE':np.sum(exactApertureMask)/(np.pi*radius**2), 'apertureMask':exactApertureMask}
+        return photonList, exactApertureMask
 
 
 
