@@ -72,6 +72,8 @@ The wavelength calibration code is in the Calibration/WavelengthCal/ folder. The
     WaveCal.py -- main file that contains all of the calibration code
     plotWaveCal.py -- plotting functions for viewing the results of the calibration
     ./Params/default.cfg -- default config file, used for reference
+
+Additionally, an .h5 file must be generated from the .bin files for each wavelength in the calibration. These file names will be referenced in the configuration file. See the section "Creating HDF5 files from the .bin files" for more info.
 #### Additional required packages
 Some non-standard python packages are needed for the wavelength calibration to work. They are lmfit, progressbar, and PyPDF2. They can be downloaded with the following commands:
 

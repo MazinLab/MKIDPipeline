@@ -1853,7 +1853,7 @@ class WaveCal:
             section = "{0} must be a configuration section"
             param = "{0} must be a parameter in the configuration file '{1}' section"
 
-            assert 'Data' in self.config.sections(), section.format('Array')
+            assert 'Data' in self.config.sections(), section.format('Data')
             assert 'directory' in self.config['Data'].keys(), \
                 param.format('directory', 'Data')
             assert 'wavelengths' in self.config['Data'].keys(), \

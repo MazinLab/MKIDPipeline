@@ -1,13 +1,13 @@
 import numpy as np
 import os, struct
 import tables
-from parsePacketDump2 import parsePacketData
+from P3Utils.parsePacketDump2 import parsePacketData
 
 '''
 Utilities for loading sets of image stacks from either .IMG or .bin files
 '''
 
-def loadIMGStack(dataDir, start, stop, nCols=80, nRows=125):
+def loadIMGStack(dataDir, start, stop, nCols=80, nRows=125, verbose=True):
     useImg = True
     frameTimes = np.arange(start, stop+1)
     frames = []
@@ -21,7 +21,7 @@ def loadIMGStack(dataDir, start, stop, nCols=80, nRows=125):
 
                 nBytes = len(data)
                 nWords = nBytes/8 #64 bit words
-                
+
                 #break into 64 bit words
                 words = np.array(struct.unpack('>{:d}Q'.format(nWords), data),dtype=object)
                 parseDict = parsePacketData(words,verbose=False)
@@ -29,13 +29,14 @@ def loadIMGStack(dataDir, start, stop, nCols=80, nRows=125):
 
             else:
                 imagePath = os.path.join(dataDir,str(ts)+'.img')
-                print(imagePath)
+                if verbose:
+                    print(imagePath)
                 image = np.fromfile(open(imagePath, mode='rb'),dtype=np.uint16)
                 image = np.transpose(np.reshape(image, (nCols, nRows)))
 
         except (IOError, ValueError):
             print("Failed to load ", imagePath)
-            image = np.zeros((nRows, nCols),dtype=np.uint16)  
+            image = np.zeros((nRows, nCols),dtype=np.uint16)
         frames.append(image)
     stack = np.array(frames)
     return stack
@@ -54,7 +55,7 @@ def loadBINStack(dataDir, start, stop, nCols=80, nRows=125):
 
                 nBytes = len(data)
                 nWords = nBytes/8 #64 bit words
-                
+
                 #break into 64 bit words
                 words = np.array(struct.unpack('>{:d}Q'.format(nWords), data),dtype=object)
                 parseDict = parsePacketData(words,verbose=False)
@@ -68,7 +69,7 @@ def loadBINStack(dataDir, start, stop, nCols=80, nRows=125):
 
         except (IOError, ValueError):
             print("Failed to load ", imagePath)
-            image = np.zeros((nRows, nCols),dtype=np.uint16)  
+            image = np.zeros((nRows, nCols),dtype=np.uint16)
         frames.append(image)
     stack = np.array(frames)
     return stack
@@ -116,9 +117,3 @@ def loadCubeStack(npzPath,verbose=True):
     wbe = npzfile['wvlBinEdges']
     npzfile.close()
     return {"times":times,"cubes":cubes,"wvlBinEdges":wbe}
-
-
-
-
-
-
