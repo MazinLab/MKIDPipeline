@@ -512,7 +512,7 @@ class ObsFile:
         for xCoord in range(self.nXPix):
             for yCoord in range(self.nYPix):
                 flag = self.beamFlagImage[xCoord, yCoord]
-                if(self.beamImage[xCoord, yCoord]!=self.noResIDFlag and (flag|flagToUse)==flag):
+                if(self.beamImage[xCoord, yCoord]!=self.noResIDFlag and (flag|flagToUse)==flagToUse):
                     effIntTimes[xCoord, yCoord] = integrationTime
                     resIDInd = np.where(resIDList==self.beamImage[xCoord, yCoord])[0]
                     if(np.shape(resIDInd)[0]>0):
@@ -670,9 +670,64 @@ class ObsFile:
         return photonList, exactApertureMask
 
 
+    def _makePixelSpectrum(self, photonList, **kwargs):
+        """
+        Makes a histogram using the provided photon list
+        """
+        applySpecWeight = kwargs.pop('applySpecWeight', False)
+        applyTPFWeight = kwargs.pop('applyTPFWeight', False)
+        wvlStart = kwargs.pop('wvlStart', None)
+        wvlStop = kwargs.pop('wvlStop', None)
+        wvlBinWidth = kwargs.pop('wvlBinWidht', None)
+        energyBinWidth = kwargs.pop('energyBinWidth', None)
+        wvlBinEdges = kwargs.pop('wvlBinEdges', None)
+        timeSpacingCut = kwargs.pop('timeSpacingCut', None)
+        
+        wvlStart=wvlStart if (wvlStart!=None and wvlStart>0.) else (self.wvlLowerLimit if (self.wvlLowerLimit!=None and self.wvlLowerLimit>0.) else 700)
+        wvlStop=wvlStop if (wvlStop!=None and wvlStop>0.) else (self.wvlUpperLimit if (self.wvlUpperLimit!=None and self.wvlUpperLimit>0.) else 1500)
+
+
+        wvlList = photonList['Wavelength']
+        rawCounts = len(wvlList)
+
+        weights = np.ones(len(wvlList))
+
+        if applySpecWeight:
+            weights *= photonList['SpecWeight']
+
+        if applyTPFWeight:
+            weights *= photonList['NoiseWeight']
+
+        if (wvlBinWidth is None) and (energyBinWidth is None) and (wvlBinEdges is None): #use default/flat cal supplied bins
+            spectrum, wvlBinEdges = np.histogram(wvlList, bins=self.defaultWvlBins, weights=weights)
+
+        else: #use specified bins
+            if applySpecWeight and self.info['isFlatCalibrated']:
+                raise ValueError('Using flat cal, so flat cal bins must be used')
+            elif wvlBinEdges is not None:
+                assert wvlBinWidth is None and energyBinWidth is None, 'Histogram bins are overspecified!'
+                spectrum, wvlBinEdges = np.histogram(wvlList, bins=wvlBinEdges, weights=weights)
+            elif energyBinWidth is not None:
+                assert wvlBinWidth is None, 'Cannot specify both wavelength and energy bin widths!'
+                wvlBinEdges = ObsFile.makeWvlBins(energyBinWidth=energyBinWidth, wvlStart=wvlStart, wvlStop=wvlStop)
+                spectrum, wvlBinEdges = np.histogram(wvlList, bins=wvlBinEdges, weights=weights)
+            elif wvlBinWidth is not None:
+                nWvlBins = int((wvlStop - wvlStart)/wvlBinWidth)
+                spectrum, wvlBinEdges = np.histogram(wvlList, bins=nWvlBins, range=(wvlStart, wvlStop), weights=weights)
+
+            else:
+                raise Exception('Something is wrong with getPixelSpectrum...')
+
+        if self.filterIsApplied == True:
+            if not np.array_equal(self.filterWvlBinEdges, wvlBinEdges):
+                raise ValueError("Synthetic filter wvlBinEdges do not match pixel spectrum wvlBinEdges!")
+            spectrum*=self.filterTrans
+        #if getEffInt is True:
+        return {'spectrum':spectrum, 'wvlBinEdges':wvlBinEdges, 'rawCounts':rawCounts}
+
 
     def getSpectralCube(self, firstSec=0, integrationTime=-1, applySpecWeight=False, applyTPFWeight=False, wvlStart=700, wvlStop=1500,
-                        wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None, timeSpacingCut=None):
+                        wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None, timeSpacingCut=None, flagToUse=0):
         """
         Return a time-flattened spectral cube of the counts integrated from firstSec to firstSec+integrationTime.
         If integration time is -1, all time after firstSec is used.
@@ -683,16 +738,42 @@ class ObsFile:
         cube = [[[] for yCoord in range(self.nYPix)] for xCoord in range(self.nXPix)]
         effIntTime = np.zeros((self.nXPix,self.nYPix))
         rawCounts = np.zeros((self.nXPix,self.nYPix))
+        if integrationTime==-1:
+            integrationTime = self.getFromHeader('expTime')
+        
+        startTime = firstSec*1.e6
+        endTime = (firstSec + integrationTime)*1.e6
+
+        masterPhotonList = self.photonTable.read_where('(Time>=startTime)&(Time<endTime)')
+        emptyPhotonList = self.photonTable.read_where('Time<0')
+        
+        resIDDiffs = np.diff(masterPhotonList['ResID'])
+        if(np.any(resIDDiffs<0)):
+            warnings.warn('Photon list not sorted by ResID! This could take a while...')
+            masterPhotonList = np.sort(masterPhotonList, order='ResID', kind='mergsort') #mergesort is stable, so time order will be preserved
+            resIDDiffs = np.diff(masterPhotonList['ResID'])
+        
+        resIDBoundaryInds = np.where(resIDDiffs>0)[0]+1 #indices in masterPhotonList where ResID changes; ie marks boundaries between pixel tables
+        resIDBoundaryInds = np.insert(resIDBoundaryInds, 0, 0)
+        resIDList = masterPhotonList['ResID'][resIDBoundaryInds]
+        resIDBoundaryInds = np.append(resIDBoundaryInds, len(masterPhotonList['ResID']))
 
         for xCoord in range(self.nXPix):
             for yCoord in range(self.nYPix):
-                x = self.getPixelSpectrum(xCoord=xCoord,yCoord=yCoord,
-                                  firstSec=firstSec, applySpecWeight=applySpecWeight,
+                resID = self.beamImage[xCoord, yCoord]
+                flag = self.beamFlagImage[xCoord, yCoord]
+                resIDInd = np.where(resIDList==resID)[0]
+                if(np.shape(resIDInd)[0]>0 and (flag|flagToUse)==flagToUse):
+                    resIDInd = resIDInd[0]
+                    photonList = masterPhotonList[resIDBoundaryInds[resIDInd]:resIDBoundaryInds[resIDInd+1]]
+                else:
+                    photonList = emptyPhotonList
+                x = self._makePixelSpectrum(photonList, applySpecWeight=applySpecWeight,
                                   applyTPFWeight=applyTPFWeight, wvlStart=wvlStart, wvlStop=wvlStop,
                                   wvlBinWidth=wvlBinWidth, energyBinWidth=energyBinWidth,
                                   wvlBinEdges=wvlBinEdges, timeSpacingCut=timeSpacingCut)
                 cube[xCoord][yCoord] = x['spectrum']
-                effIntTime[xCoord][yCoord] = x['effIntTime']
+                effIntTime[xCoord][yCoord] = integrationTime
                 rawCounts[xCoord][yCoord] = x['rawCounts']
                 wvlBinEdges = x['wvlBinEdges']
         cube = np.array(cube)
@@ -752,53 +833,11 @@ class ObsFile:
                             the noise tail) during the effective exposure.
         """
 
-        wvlStart=wvlStart if (wvlStart!=None and wvlStart>0.) else (self.wvlLowerLimit if (self.wvlLowerLimit!=None and self.wvlLowerLimit>0.) else 700)
-        wvlStop=wvlStop if (wvlStop!=None and wvlStop>0.) else (self.wvlUpperLimit if (self.wvlUpperLimit!=None and self.wvlUpperLimit>0.) else 1500)
-
-
         photonList = self.getPixelPhotonList(xCoord, yCoord, firstSec, integrationTime)
-        wvlList = photonList['Wavelength']
-        rawCounts = len(wvlList)
-
-        if integrationTime==-1:
-            effIntTime = self.getFromHeader('expTime')
-        else:
-            effIntTime = integrationTime
-        weights = np.ones(len(wvlList))
-
-        if applySpecWeight:
-            weights *= photonList['SpecWeight']
-
-        if applyTPFWeight:
-            weights *= photonList['NoiseWeight']
-
-        if (wvlBinWidth is None) and (energyBinWidth is None) and (wvlBinEdges is None): #use default/flat cal supplied bins
-            spectrum, wvlBinEdges = np.histogram(wvlList, bins=self.defaultWvlBins, weights=weights)
-
-        else: #use specified bins
-            if applySpecWeight and self.info['isFlatCalibrated']:
-                raise ValueError('Using flat cal, so flat cal bins must be used')
-            elif wvlBinEdges is not None:
-                assert wvlBinWidth is None and energyBinWidth is None, 'Histogram bins are overspecified!'
-                spectrum, wvlBinEdges = np.histogram(wvlList, bins=wvlBinEdges, weights=weights)
-            elif energyBinWidth is not None:
-                assert wvlBinWidth is None, 'Cannot specify both wavelength and energy bin widths!'
-                wvlBinEdges = ObsFile.makeWvlBins(energyBinWidth=energyBinWidth, wvlStart=wvlStart, wvlStop=wvlStop)
-                spectrum, wvlBinEdges = np.histogram(wvlList, bins=wvlBinEdges, weights=weights)
-            elif wvlBinWidth is not None:
-                nWvlBins = int((wvlStop - wvlStart)/wvlBinWidth)
-                spectrum, wvlBinEdges = np.histogram(wvlList, bins=nWvlBins, range=(wvlStart, wvlStop), weights=weights)
-
-            else:
-                raise Exception('Something is wrong with getPixelSpectrum...')
-
-        if self.filterIsApplied == True:
-            if not np.array_equal(self.filterWvlBinEdges, wvlBinEdges):
-                raise ValueError("Synthetic filter wvlBinEdges do not match pixel spectrum wvlBinEdges!")
-            spectrum*=self.filterTrans
-        #if getEffInt is True:
-        return {'spectrum':spectrum, 'wvlBinEdges':wvlBinEdges, 'effIntTime':effIntTime, 'rawCounts':rawCounts}
-        print('again', spectrum)
+        return self._makePixelSpectrum(photonList, applySpecWeight=applySpecWeight,
+                                  applyTPFWeight=applyTPFWeight, wvlStart=wvlStart, wvlStop=wvlStop,
+                                  wvlBinWidth=wvlBinWidth, energyBinWidth=energyBinWidth,
+                                  wvlBinEdges=wvlBinEdges, timeSpacingCut=timeSpacingCut)
         #else:
         #    return spectrum,wvlBinEdges
 
