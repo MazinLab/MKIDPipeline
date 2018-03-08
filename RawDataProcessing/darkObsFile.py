@@ -511,6 +511,7 @@ class ObsFile:
 
         for xCoord in range(self.nXPix):
             for yCoord in range(self.nYPix):
+                print(xCoord,yCoord) 
                 flag = self.beamFlagImage[xCoord, yCoord]
                 if(self.beamImage[xCoord, yCoord]!=self.noResIDFlag and (flag|flagToUse)==flagToUse):
                     effIntTimes[xCoord, yCoord] = integrationTime
@@ -833,6 +834,13 @@ class ObsFile:
                             the noise tail) during the effective exposure.
         """
 
+<<<<<<< Updated upstream
+=======
+        wvlStart=wvlStart if (wvlStart!=None and wvlStart>0.) else (self.wvlLowerLimit if (self.wvlLowerLimit!=None and self.wvlLowerLimit>0.) else 700)
+        wvlStop=wvlStop if (wvlStop!=None and wvlStop>0.) else (self.wvlUpperLimit if (self.wvlUpperLimit!=None and self.wvlUpperLimit>0.) else 1500)
+
+        print(xCoord,yCoord) 
+>>>>>>> Stashed changes
         photonList = self.getPixelPhotonList(xCoord, yCoord, firstSec, integrationTime)
         return self._makePixelSpectrum(photonList, applySpecWeight=applySpecWeight,
                                   applyTPFWeight=applyTPFWeight, wvlStart=wvlStart, wvlStop=wvlStop,
