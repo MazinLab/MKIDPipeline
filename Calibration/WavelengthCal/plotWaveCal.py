@@ -7,12 +7,13 @@ from matplotlib import cm
 from matplotlib import lines
 from astropy.constants import h, c
 from matplotlib import pyplot as plt
+from matplotlib import image as mpimg
 from configparser import ConfigParser
 from matplotlib.backends.backend_pdf import PdfPages
 from Headers import pipelineFlags
 
 
-def plotEnergySolution(file_name, res_id=None, pixel=[]):
+def plotEnergySolution(file_name, res_id=None, pixel=[], axis=None):
     '''
     Plot the phase to energy solution for a pixel from the wavlength calibration solution
     file 'file_name'. Provide either the pixel location pixel=(row, column) or the res_id
@@ -24,6 +25,8 @@ def plotEnergySolution(file_name, res_id=None, pixel=[]):
                 instead. (integer)
         pixel: the pixel row and column for the plotted pixel. Can use res_id keyword-arg
                instead. (length 2 list of integers)
+        axis: matplotlib axis object on which to display the plot. If no axis is provided
+              a new figure will be made.
     '''
     # load file_name
     wave_cal = tb.open_file(file_name, mode='r')
@@ -91,7 +94,10 @@ def plotEnergySolution(file_name, res_id=None, pixel=[]):
         R = np.nanmedian(R0)
 
     # plot data
-    fig, axis = plt.subplots()
+    show = False
+    if axis is None:
+        fig, axis = plt.subplots()
+        show = True
     axis.set_xlabel('phase [deg]')
     axis.set_ylabel('energy [eV]')
     axis.errorbar(centers, energies, xerr=errors, linestyle='--', marker='o',
@@ -126,10 +132,13 @@ def plotEnergySolution(file_name, res_id=None, pixel=[]):
                       ha='right', va='top')
     axis.text(xmax - 0.05 * dx, ymax - 0.15 * dy, "Median R = {0}".format(round(R, 2)),
               ha='right', va='top')
-    plt.show(block=False)
+    if show:
+        plt.show(block=False)
+    else:
+        return axis
 
 
-def plotHistogramFits(file_name, res_id=None, pixel=[]):
+def plotHistogramFits(file_name, res_id=None, pixel=[], axis=None):
     '''
     Plot the histogram fits for a pixel from the wavlength calibration solution
     file 'file_name'. Provide either the pixel location pixel=(row, column) or the res_id
@@ -141,6 +150,8 @@ def plotHistogramFits(file_name, res_id=None, pixel=[]):
                 instead. (integer)
         pixel: the pixel row and column for the plotted pixel. Can use res_id keyword-arg
                instead. (length 2 list of integers)
+        axis: matplotlib axis object on which to display the plot (will be an embedded
+              png). If no axis is provided a new figure will be made.
     '''
     # load file_name
     wave_cal = tb.open_file(file_name, mode='r')
@@ -291,7 +302,18 @@ def plotHistogramFits(file_name, res_id=None, pixel=[]):
     axes[-1].set_xlim(xlim)
     axes[-1].legend(ncol=int(np.ceil(2 * x_num / 7)))
     plt.tight_layout(rect=[0.04, 0.03, 1, 0.95])
-    plt.show(block=False)
+    if axis is None:
+        plt.show(block=False)
+    else:
+        fig.savefig('temp.png', dpi=500)
+        img = mpimg.imread('temp.png')
+        axis.imshow(img, aspect='auto')
+        axis.axes.get_yaxis().set_visible(False)
+        axis.axes.get_xaxis().set_visible(False)
+        axis.set_frame_on(False)
+        os.remove('temp.png')
+        plt.close(fig)
+        return axis
 
 
 def plotRHistogram(file_name, mask=None, axis=None):
