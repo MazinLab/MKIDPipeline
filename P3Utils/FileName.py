@@ -98,7 +98,7 @@ class FileName:
         return self.mkidDataDir + os.sep + \
             self.run + os.sep + \
             self.date + os.sep + \
-            "obs_" + self.tstamp + '.h5'
+            self.tstamp + '.h5'
 
     def cal(self):
         return self.mkidDataDir + os.sep + \
