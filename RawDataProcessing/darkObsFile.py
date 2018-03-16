@@ -64,6 +64,7 @@ repackArray(array, slices)
 import sys, os
 import warnings
 import time
+import glob
 
 import numpy as np
 from numpy import vectorize
@@ -509,9 +510,8 @@ class ObsFile:
         resIDList = photonList['ResID'][resIDBoundaryInds]
         resIDBoundaryInds = np.append(resIDBoundaryInds, len(photonList['ResID']))
 
-        for xCoord in range(self.nXPix):
-            for yCoord in range(self.nYPix):
-                print(xCoord,yCoord) 
+        for xCoord in range(self.nXPix): 
+            for yCoord in range(self.nYPix): 
                 flag = self.beamFlagImage[xCoord, yCoord]
                 if(self.beamImage[xCoord, yCoord]!=self.noResIDFlag and (flag|flagToUse)==flagToUse):
                     effIntTimes[xCoord, yCoord] = integrationTime
@@ -759,8 +759,8 @@ class ObsFile:
         resIDList = masterPhotonList['ResID'][resIDBoundaryInds]
         resIDBoundaryInds = np.append(resIDBoundaryInds, len(masterPhotonList['ResID']))
 
-        for xCoord in range(self.nXPix):
-            for yCoord in range(self.nYPix):
+        for xCoord in range(self.nXPix):    
+            for yCoord in range(self.nYPix):  
                 resID = self.beamImage[xCoord, yCoord]
                 flag = self.beamFlagImage[xCoord, yCoord]
                 resIDInd = np.where(resIDList==resID)[0]
@@ -1794,41 +1794,68 @@ class ObsFile:
         """
         self.__applyColWeight(resID, weightArr, 'NoiseWeight')
 
-    def applyFlatCalLegacy(self, FlatCalFile):
+    def applyFlatCal(self, calSolnPath):
+        baseh5path=calSolnPath.split('.h5')
+        flatList=glob.glob(baseh5path[0]+'*.h5')     
+        assert os.path.exists(flatList[0]), "{0} does not exist".format(flatList[0])  
         assert not self.info['isSpecCalibrated'], \
                 "the data is already Flat calibrated"
-        assert os.path.exists(FlatCalFile), "{0} does not exist".format(FlatCalFile)
-        flat_cal = tables.open_file(FlatCalFile, mode='r')
-        calsoln = flat_cal.root.flatcal.calsoln.read()
-        bins=np.array(flat_cal.root.flatcal.wavelengthBins.read())
-        bins=bins.flatten()
-        minwavelength=700
-        maxwavelength=1500
-        heads=np.arange(0,700,100)
-        tails=np.arange(1600,2100,100)
-        bins=np.append(heads,bins)
-        bins=np.append(bins,tails)
+        print(self.info['isSpecCalibrated'])
         for (row, column), resID in np.ndenumerate(self.beamImage):
-            index = np.where(resID == np.array(calsoln['resid']))
-            if len(index[0]) == 1 and (calsoln['flag'][index] == 0):
-                print('resID', resID, 'row', row, 'column', column)
-                weights = calsoln['weights'][index]
                 photon_list = self.getPixelPhotonList(row, column)
                 phases = photon_list['Wavelength']
-                weights=np.array(weights)
-                weights=weights.flatten()
-                weightsheads=np.zeros(len(heads))+weights[0]
-                weightstails=np.zeros(len(tails)+1)+weights[len(weights)-1]
-                weights=np.append(weightsheads,weights)
-                weights=np.append(weights,weightstails)
-                weightfxncoeffs10=np.polyfit(bins,weights,10)
-                weightfxn10=np.poly1d(weightfxncoeffs10)
-                photon_list = self.getPixelPhotonList(row, column)
-                phases = photon_list['Wavelength']
-                weightArr=weightfxn10(phases)
-                weightArr[np.where(phases < minwavelength)]=1.0
-                weightArr[np.where(phases > maxwavelength)]=1.0
-                obs.applySpecWeight(obsfile, resID=resID, weightArr=weightArr)
+                calarray=np.zeros((len(phases),len(flatList)))
+                for FlatCalFile in flatList:
+                      print('resID', resID, 'row', row, 'column', column)
+                      flat_cal = tables.open_file(FlatCalFile, mode='r')
+                      calsoln = flat_cal.root.flatcal.calsoln.read()
+                      bins=np.array(flat_cal.root.flatcal.wavelengthBins.read())
+                      bins=bins.flatten()
+                      minwavelength=700
+                      maxwavelength=1500
+                      heads=np.arange(0,700,100)
+                      tails=np.arange(1600,2100,100)
+                      headsweight=np.array([0,0,0,0,0,0,0])
+                      tailsweight=np.array([0,0,0,0,0,0])
+                      bins=np.append(heads,bins)
+                      bins=np.append(bins,tails)
+                      index = np.where(resID == np.array(calsoln['resid']))
+                      if len(index[0]) == 1 and (calsoln['flag'][index] == 0):
+                           weights = calsoln['weights'][index]
+                           weightFlags=calsoln['weightFlags'][index]
+                           weightUncertainties=calsoln['weightUncertainties'][index]
+
+                           weights=np.array(weights)
+                           weights=weights.flatten()
+                           weightsheads=np.zeros(len(heads))+weights[0]
+                           weightstails=np.zeros(len(tails)+1)+weights[len(weights)-1]
+                           weights=np.append(weightsheads,weights)
+                           weights=np.append(weights,weightstails)
+
+                           weightFlags=np.array(weightFlags)
+                           weightFlags=weightFlags.flatten()
+                           weightFlags=np.append(headsweight,weightFlags)
+                           weightFlags=np.append(weightFlags,tailsweight)
+
+                           weightUncertainties=np.array(weightUncertainties)
+                           weightUncertainties=weightUncertainties.flatten()
+                           weightUncertainties=np.append(headsweight,weightUncertainties)
+                           weightUncertainties=np.append(weightUncertainties,tailsweight)
+
+                           weightfxncoeffs10=np.polyfit(bins,weights,10)
+                           weightfxn10=np.poly1d(weightfxncoeffs10)
+
+                           weightArr=weightfxn10(phases)                    
+                           weightArr[np.where(phases < minwavelength)]=0.0
+                           weightArr[np.where(phases > maxwavelength)]=0.0
+                           print('WEIGHTARR', weightArr)
+                           calarray[:,flatList.index(FlatCalFile)]= weightArr
+                           calweights = np.average(calarray,axis=1)
+                           
+                if len(index[0]) == 1 and (calsoln['flag'][index] == 0):
+                     print('CALWEIGHTS', calweights)
+                     self.applySpecWeight(resID=resID, weightArr=calweights)
+
         self.modifyHeaderEntry(headerTitle='isSpecCalibrated', headerValue=True)
 
     def applyFlag(self, xCoord, yCoord, flag):
