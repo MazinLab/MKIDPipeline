@@ -125,9 +125,11 @@ class FlatCal:
 		self.frames = []
 
 		for iObs,obs in enumerate(self.obsList):
-			for firstSec in range(0,obs.getFromHeader('expTime'),self.intTime):			
+			for firstSec in range(0,obs.getFromHeader('expTime'),self.intTime):	
+				print(firstSec)		
 				cubeDict = obs.getSpectralCube(firstSec=firstSec,integrationTime=self.intTime,applySpecWeight=False, applyTPFWeight=False,wvlBinEdges = self.wvlBinEdges,energyBinWidth=None,timeSpacingCut = self.timeSpacingCut)
 				cube = np.array(cubeDict['cube'],dtype=np.double)
+				print('finished get SpectralCube')
 				effIntTime = cubeDict['effIntTime']
 				#add third dimension for broadcasting
 				effIntTime3d = np.reshape(effIntTime,np.shape(effIntTime)+(1,))
@@ -135,6 +137,7 @@ class FlatCal:
 				cube[np.isnan(cube)]=0 
 
 				rawFrameDict = obs.getPixelCountImage(firstSec=firstSec,integrationTime=self.intTime,scaleByEffInt=True)  
+				print('finished get Pixel Count Image')
 				rawFrame = np.array(rawFrameDict['image'],dtype=np.double)
 				rawFrame /= rawFrameDict['effIntTimes']
 				nonlinearFactors = 1. / (1. - rawFrame*self.deadtime)  
@@ -143,17 +146,23 @@ class FlatCal:
                 
 				frame = np.sum(cube,axis=2) #in counts per sec
 				frame = frame * nonlinearFactors
+				print('we have frame')
                 
 				nonlinearFactors = np.reshape(nonlinearFactors,np.shape(nonlinearFactors)+(1,))
+				print('we have nonlinear factors')
 				cube = cube * nonlinearFactors
                 
 				self.frames.append(frame)
 				self.spectralCubes.append(cube)
+				print('we have appended cube')
 				self.cubeEffIntTimes.append(effIntTime3d)
-			#obs.file.close()
+				print('we have appended effIntTime3d')
+			obs.file.close()
 		self.spectralCubes = np.array(self.spectralCubes)
+		print('we have specCubes')
 		self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
 		self.countCubes = self.cubeEffIntTimes * self.spectralCubes
+		print('we have cubes')
 
 	def checkCountRates(self):
 		'''
@@ -171,9 +180,6 @@ class FlatCal:
 		finds flat cal factors as medians/pixelSpectra for each pixel.  Normalizes these weights at each wavelength bin.
 		Trim the beginning and end off the sorted weights for each wvl for each pixel, to exclude extremes from averages
 		'''
-		#cubeWeightsList = []
-		#self.averageSpectra = []
-		#deltaWeightsList = []
 		self.flatWeightsList=[]
 		for iCube,cube in enumerate(self.spectralCubes):
 			cubeWeightsList = []
@@ -221,7 +227,6 @@ class FlatCal:
 			self.totalCube = np.ma.sum(trimmedCountCubesReordered,axis=0)
 			print('totalCubeShape', np.shape(self.totalCube))
 			self.totalFrame = np.ma.sum(self.totalCube,axis=-1)
-			#plotArray(self.totalFrame)
     
 
 			trimmedCubeDeltaWeightsReordered = cubeDeltaWeightsReordered[self.fractionOfChunksToTrim*nCubes:(1-self.fractionOfChunksToTrim)*nCubes,:,:,:]
@@ -237,13 +242,11 @@ class FlatCal:
 			wvlWeightMedians = np.ma.median(np.reshape(self.flatWeights,(-1,self.nWvlBins)),axis=0)
 			self.flatWeights = np.divide(self.flatWeights,wvlWeightMedians)
 			self.flatWeightsforplot = np.ma.sum(self.flatWeights,axis=-1)
-			plotArray(self.flatWeightsforplot)
-			self.flatWeightsList.append(self.flatWeights)
-			flatcal.writeWeights(indexweights=iCube)	
-			flatcal.plotWeightsWvlSlices(indexplotWeightsWvlSlices=iCube)		
-			flatcal.plotMaskWvlSlices(indexplotMaskWvlSlices=iCube)		
-			flatcal.plotWeightsByPixel(indexplotByPixel=iCube)
-		self.alltheflatWeights=np.array(self.flatWeightsList)
+			flatcal.writeWeights(indexweights=iCube)
+			if obs.getFromHeader('expTime') <= 30:
+				#flatcal.plotWeightsWvlSlices(indexplotWeightsWvlSlices=iCube)		
+				#flatcal.plotMaskWvlSlices(indexplotMaskWvlSlices=iCube)		
+				flatcal.plotWeightsByPixel(indexplotByPixel=iCube)
 
             
 	def plotWeightsWvlSlices(self,indexplotWeightsWvlSlices,verbose=False):
@@ -332,7 +335,7 @@ class FlatCal:
 			image = self.flatFlags[:,:,iWvl]
 			image=image*1
 			self.wvlFlags=np.array(self.wvlFlags)
-			image += 2*self.wvlFlags  
+			#image += 2*self.wvlFlags  
 			image = 3-image
 
 			cmap = matplotlib.cm.gnuplot2
@@ -353,7 +356,7 @@ class FlatCal:
 		pdfBasename = os.path.splitext(flatCalBasename)[0]+str(indexplotByPixel+1)+'.pdf'
 		pdfFullPath = os.path.join(flatCalPath,pdfBasename)
 		pp = PdfPages(pdfFullPath)
-		nPlotsPerRow = 2
+		nPlotsPerRow = 3
 		nPlotsPerCol = 4
 		nPlotsPerPage = nPlotsPerRow*nPlotsPerCol
 		iPlot = 0 
