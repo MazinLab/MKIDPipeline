@@ -6,19 +6,8 @@ Created on Mon Jan 29 16:28:30 2018
 @author: clint
 
 
-DON'T RUN THIS FROM INSIDE SPYDER. GO TO THE ENCLOSING DIRECTORY AND RUN IT 
-FROM THE TERMINAL.
-
-laptop:
------------------
-cd /Users/clint/Documents/mazinlab/DarknessPipeline/P3Utils
-python clint_quickLook.py
-
-
-dark:
----------------------------
-cd /mnt/data0/clint/DarknessPipeline/P3Utils
-python clint_quickLook.py
+GO TO THE ENCLOSING DIRECTORY AND RUN IT FROM THE TERMINAL WITH THE FOLLOWING COMMAND:
+python quickLook.py
 
 """
 
@@ -191,7 +180,7 @@ class intensityHistogram(subWindow):
     
     def histogramLC(self):
         #makes a histogram of the light curve intensities
-        self.Nbins=30
+        self.Nbins=30  #maximum number of counts/self.expTime to show
         norm=True
         centers = True
         self.intHist, binEdges = np.histogram(self.lightCurveIntensityCounts,bins=self.Nbins,range=[0,self.Nbins])
@@ -239,7 +228,7 @@ class intensityHistogram(subWindow):
         self.ax.plot(np.arange(self.Nbins, step=0.1),pdfs.modifiedRician(np.arange(self.Nbins, step=0.1),IIc,IIs),'b')
         
 #        self.ax.plot(np.arange(self.Nbins),pdfs.modifiedRician(np.arange(self.Nbins),popt[0],popt[1]) - self.intHist,'r')
-        self.ax.plot(np.arange(len(convolvedMR)),convolvedMR,'k')
+#        self.ax.plot(np.arange(len(convolvedMR)),convolvedMR,'k')
 
 
         self.ax.set_xlabel('intensity, counts per {:.2f} sec'.format(self.exposureTime))
@@ -324,7 +313,6 @@ class mainWindow(QMainWindow):
         
         
     def loadDataFromH5(self,*args):
-        #self.a = darkObsFile.ObsFile('/Users/clint/Documents/mazinlab/ScienceData/PAL2017b/20171004/1507175503.h5')
         #a = darkObsFile.ObsFile('/Users/clint/Documents/mazinlab/ScienceData/PAL2017b/20171004/1507175503.h5')
         if os.path.isfile(self.filename):
             try:
@@ -359,8 +347,7 @@ class mainWindow(QMainWindow):
                 self.spinbox_integrationTime.setMinimum(0)
                 self.spinbox_integrationTime.setMaximum(self.expTime)
                 self.spinbox_integrationTime.setValue(self.expTime)
-                
-#        self.a = darkObsFile.ObsFile(os.path.join(os.environ['MKID_DATA_DIR'],'1507175503.h5'))
+
         
         
         
@@ -394,10 +381,7 @@ class mainWindow(QMainWindow):
         
         
         
-    def plotImage(self,*args):
-        
-        #self.a = darkObsFile.ObsFile(os.path.join(os.environ['MKID_DATA_DIR'],'1507175503.h5'))
-        
+    def plotImage(self,*args):        
         #check if obsfile object exists
         try:
             self.a
@@ -501,9 +485,9 @@ class mainWindow(QMainWindow):
                     self.hotPixMask[row][col] = 1
         
         #let's flag some pixels by hand
-        self.hotPixMask[51][31] = 0
-        self.hotPixMask[55][46] = 0
-        self.hotPixMask[66][77] = 0
+#        self.hotPixMask[51][31] = 0
+#        self.hotPixMask[55][46] = 0
+#        self.hotPixMask[66][77] = 0
 
         
 
@@ -530,10 +514,10 @@ class mainWindow(QMainWindow):
         button_plot.clicked.connect(self.callPlotMethod)
         
         
-        button_subwindow = QPushButton("Quick Load H5")
-        button_subwindow.setEnabled(True)
-        button_subwindow.setToolTip('Will change functionality later.')
-        button_subwindow.clicked.connect(self.quickLoadH5)
+        button_quickLoad = QPushButton("Quick Load H5")
+        button_quickLoad.setEnabled(True)
+        button_quickLoad.setToolTip('Will change functionality later.')
+        button_quickLoad.clicked.connect(self.quickLoadH5)
         
         #spinboxes for the start & stop times
         self.spinbox_startTime = QSpinBox()
@@ -588,7 +572,7 @@ class mainWindow(QMainWindow):
         #create an h box for the buttons
         hbox_buttons = QHBoxLayout()
         hbox_buttons.addWidget(button_plot)
-        hbox_buttons.addWidget(button_subwindow)
+        #hbox_buttons.addWidget(button_quickLoad)
         
         #create an h box for the time and lambda v boxes
         hbox_time_lambda = QHBoxLayout()
@@ -718,41 +702,16 @@ class mainWindow(QMainWindow):
         self.plotMenu.addAction(plotLightCurveButton)
         self.plotMenu.addAction(plotIntensityHistogramButton)
         self.plotMenu.addAction(plotSpectrumButton)
-        
-        
-        
-        
+
         
         self.menubar.setNativeMenuBar(False) #This is for MAC OS
 
-#        loadObsAction = createAction(self,"Load obs file...",slot=self.loadObsFileWindow)
-#        loadCalsAction = createAction(self,"Load cal files...",slot=self.loadCalFiles)
-#        
-#        quitAction = createAction(self,"&Quit", slot=self.close, 
-#            shortcut="Ctrl+Q", tip="Close the application")
-#        
-#        addActions(self.fileMenu, 
-#            (loadObsAction, loadCalsAction, None, quitAction))
-#
-#        self.windowsMenu = self.menuBar().addMenu("&Windows")
-#        headerAction = createAction(self,"Header Info",slot=self.headerWindow.show)
-#        imgParamsAction = createAction(self,"Image Plot Parameters",slot=self.imageParamsWindow.show)
-#        newPlotWindowAction = createAction(self,'New Plot Window',slot=self.newPlotWindow)
-#
-#        addActions(self.windowsMenu,(newPlotWindowAction,None,headerAction,imgParamsAction))
-#        
-#        self.helpMenu = self.menuBar().addMenu("&Help")
-#        aboutAction = createAction(self,"&About", 
-#            shortcut='F1', slot=self.aboutMessage)
-#        
-#        addActions(self.helpMenu, (aboutAction,))
+
         
         
     def getFileNameFromUser(self):
         # look at this website for useful examples
         # https://pythonspot.com/pyqt5-file-dialog/
-        
-        #filename, _ = QFileDialog.getOpenFileName(self, 'Select One File', '/Users/clint/Documents/mazinlab/ScienceData/PAL2017b/20171004/',filter = '*.h5')
         
         filename, _ = QFileDialog.getOpenFileName(self, 'Select One File', os.environ['MKID_DATA_DIR'],filter = '*.h5')
         
