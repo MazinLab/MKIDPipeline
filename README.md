@@ -187,5 +187,29 @@ Creating Image Cubes
 ----------------------------------------------
 
 
+QuickLook
+----------------------------------------------
+#### Using quickLook.py
+    Before you start:
+        -create HDF5 file from .bin files as described above
+        -apply wave cal to HDF5 as described above
+        -(optional) set $MKID_DATA_DIR to the path where your HDF5 is located
+    
+    -In the command line, run
+        >> python quickLook.py
+    -Go to File>Open and select your HDF5 file, click OK.
+        -The Beam Flag Image is automatically displayed, showing you what pixels are good and bad. 
+         See pipelineFlags.py for explanation of the flag values.
+    -Specify your desired start/stop times and wavelengths.
+    -To view an image, select the "Raw Counts" radio button, and click "Plot Image"
+    -To view a single pixel's timestream, intensity histogram, or spectrum
+        -click on the desired pixel. This is now your "Active Pixel", and is shown 
+         the bottom of the window.
+        -Go to "Plot" menu and click on the type you want. 
+        -Selecting a new Active Pixel will update the subplots. 
+    
+
+    
 Making Speckle Statistics Maps
 ----------------------------------------------
+
