@@ -58,7 +58,7 @@ class FlatCal:
 		self.flatCalTstamp = ast.literal_eval(self.config['Data']['flatCalTstamp'])
 		self.flatObsTstamps = ast.literal_eval(self.config['Data']['flatObsTstamps'])
 		self.wvlDate = ast.literal_eval(self.config['Data']['wvlDate'])
-		self.wvlCalFile=ast.literal_eval(self.config['Data']['wvlCalFile']
+		self.wvlCalFile=ast.literal_eval(self.config['Data']['wvlCalFile'])
 		self.flatPath = ast.literal_eval(self.config['Data']['flatPath'])
 		self.calSolnPath=ast.literal_eval(self.config['Data']['calSolnPath'])
 		self.intTime = ast.literal_eval(self.config['Data']['intTime'])
@@ -132,8 +132,7 @@ class FlatCal:
 		self.frames = []
 
 		for iObs,obs in enumerate(self.obsList):
-			for firstSec in range(0,obs.getFromHeader('expTime'),self.intTime):	
-				print(firstSec)		
+			for firstSec in range(0,obs.getFromHeader('expTime'),self.intTime):		
 				cubeDict = obs.getSpectralCube(firstSec=firstSec,integrationTime=self.intTime,applySpecWeight=False, applyTPFWeight=False,wvlBinEdges = self.wvlBinEdges,energyBinWidth=None,timeSpacingCut = self.timeSpacingCut)
 				cube = np.array(cubeDict['cube'],dtype=np.double)
 				print('finished get SpectralCube')
@@ -170,7 +169,6 @@ class FlatCal:
 		mask out frames, or cubes from integration time chunks with count rates too high
 		'''
 		medianCountRates = np.array([np.median(frame[frame!=0]) for frame in self.frames])
-		print(np.shape(medianCountRates))
 		boolIncludeFrames = medianCountRates <= self.countRateCutoff
 		self.spectralCubes = np.array([cube for cube,boolIncludeFrame in zip(self.spectralCubes,boolIncludeFrames) if boolIncludeFrame==True])
 		self.frames = [frame for frame,boolIncludeFrame in zip(self.frames,boolIncludeFrames) if boolIncludeFrame==True]
@@ -241,9 +239,9 @@ class FlatCal:
 			flatcal.plotWeightsWvlSlices(indexplotWeightsWvlSlices=iCube)		
 			flatcal.plotMaskWvlSlices(indexplotMaskWvlSlices=iCube)		
 			#flatcal.plotWeightsByPixel(indexplotByPixel=iCube,verbose=True)
-			flatcal.plotWeightsByPixelWvlCompare(verbose=True) 
+			flatcal.plotWeightsByPixelWvlCompare(indexplotByPixel=iCube,verbose=True) 
 
-	def plotWeightsByPixelWvlCompare(self,verbose=False):
+	def plotWeightsByPixelWvlCompare(self,indexplotByPixel,verbose=False):
 		'''
 		Plot weights of each wavelength bin for every single pixel
                 Makes a plot of wavelength vs weights, twilight spectrum, and wavecal solution for each pixel
@@ -252,7 +250,7 @@ class FlatCal:
 		# path to your wavecal solution file
 		file_nameWvlCal = self.wvlCalFile
 		flatCalPath,flatCalBasename = os.path.split(self.flatCalFileName)
-		pdfBasename = os.path.splitext(flatCalBasename)[0]+'WavelengthCompare.pdf'
+		pdfBasename = os.path.splitext(flatCalBasename)[0]+str(indexplotByPixel+1)+'_WavelengthCompare.pdf'
 		pdfFullPath = os.path.join(flatCalPath,pdfBasename)
 		pp = PdfPages(pdfFullPath)
 		nPlotsPerRow = 3
