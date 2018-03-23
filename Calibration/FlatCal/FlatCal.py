@@ -1,12 +1,16 @@
 #!/bin/python
 """
 Author: Isabel Lipartito        Date:Dec 4, 2017
-Opens a twilight flat h5 and breaks it into 5 second blocks.  
+Opens a twilight flat h5 and breaks it into INTTIME (5 second suggested) blocks.  
 For each block, this program makes the spectrum of each pixel.
 Then takes the median of each energy over all pixels
 A factor is then calculated for each energy in each pixel of its
 twilight count rate / median count rate
-The factors are written out in an h5 file for each block OR in a single h5 file with each block broken up into different tables (not sure yet) or both
+The factors are written out in an h5 file for each block (You'll get EXPTIME/INTTIME number of files)
+Plotting options:  
+Entire array: both wavelength slices and masked wavelength slices
+Per pixel:  plots of weights vs wavelength next to twilight spectrum OR
+            plots of weights vs wavelength, twilight spectrum, next to wavecal solution (has _WavelengthCompare_ in the name)
 """
 
 import sys,os
@@ -20,12 +24,14 @@ from matplotlib.backends.backend_pdf import PdfPages
 from configparser import ConfigParser
 import tables
 from P3Utils.arrayPopup import PopUp,plotArray,pop
-from RawDataProcessing.darkObsFile import ObsFile
+from darkObsFile import ObsFile
 from P3Utils.readDict import readDict
 from P3Utils.FileName import FileName
 import HotPix.darkHotPixMask as hp
 from Headers.CalHeaders import FlatCalSoln_Description
 from Headers import pipelineFlags
+from Calibration.WavelengthCal import plotWaveCal as p
+
 
 class FlatCal:
 	'''
@@ -52,6 +58,7 @@ class FlatCal:
 		self.flatCalTstamp = ast.literal_eval(self.config['Data']['flatCalTstamp'])
 		self.flatObsTstamps = ast.literal_eval(self.config['Data']['flatObsTstamps'])
 		self.wvlDate = ast.literal_eval(self.config['Data']['wvlDate'])
+		self.wvlCalFile=ast.literal_eval(self.config['Data']['wvlCalFile']
 		self.flatPath = ast.literal_eval(self.config['Data']['flatPath'])
 		self.calSolnPath=ast.literal_eval(self.config['Data']['calSolnPath'])
 		self.intTime = ast.literal_eval(self.config['Data']['intTime'])
@@ -115,11 +122,11 @@ class FlatCal:
 		pass
 
 	def loadFlatSpectra(self):
-		'''
+		"""
 		Reads the flat data into a spectral cube whose dimensions are determined by the number of x and y pixels and the number of wavelength bins.
 		Each element will be the spectral cube for a time chunk
 		Find factors to correct nonlinearity due to deadtime in firmware
-		'''
+		"""
 		self.spectralCubes = []
 		self.cubeEffIntTimes = []
 		self.frames = []
@@ -146,23 +153,17 @@ class FlatCal:
                 
 				frame = np.sum(cube,axis=2) #in counts per sec
 				frame = frame * nonlinearFactors
-				print('we have frame')
                 
 				nonlinearFactors = np.reshape(nonlinearFactors,np.shape(nonlinearFactors)+(1,))
-				print('we have nonlinear factors')
 				cube = cube * nonlinearFactors
                 
 				self.frames.append(frame)
 				self.spectralCubes.append(cube)
-				print('we have appended cube')
 				self.cubeEffIntTimes.append(effIntTime3d)
-				print('we have appended effIntTime3d')
 			obs.file.close()
 		self.spectralCubes = np.array(self.spectralCubes)
-		print('we have specCubes')
 		self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
 		self.countCubes = self.cubeEffIntTimes * self.spectralCubes
-		print('we have cubes')
 
 	def checkCountRates(self):
 		'''
@@ -206,7 +207,6 @@ class FlatCal:
 			deltaCubeWeights = np.array(deltaWeightsList)
 			cubeWeightsMask = np.isnan(cubeWeights)
 			self.maskedCubeWeights = np.ma.array(cubeWeights,mask=cubeWeightsMask,fill_value=1.)
-			print('maskedcubeWeightsshape', np.shape(self.maskedCubeWeights))
 			self.maskedCubeDeltaWeights = np.ma.array(deltaCubeWeights,mask=cubeWeightsMask)
 
 			#sort maskedCubeWeights and rearange spectral cubes the same way
@@ -218,14 +218,10 @@ class FlatCal:
 			cubeDeltaWeightsReordered = self.maskedCubeDeltaWeights[sortedIndices,identityIndices[1],identityIndices[2],identityIndices[3]]
 
 			nCubes = np.shape(self.maskedCubeWeights)[0]
-			print('nCubes',nCubes)
 			trimmedWeights = sortedWeights[self.fractionOfChunksToTrim*nCubes:(1-self.fractionOfChunksToTrim)*nCubes,:,:,:]
-			print('trimmedWeights shape',np.shape(trimmedWeights))
 			trimmedCountCubesReordered = countCubesReordered[self.fractionOfChunksToTrim*nCubes:(1-self.fractionOfChunksToTrim)*nCubes,:,:,:]
-			print('trimmedCountCubesReordered',np.shape(trimmedCountCubesReordered))
 
 			self.totalCube = np.ma.sum(trimmedCountCubesReordered,axis=0)
-			print('totalCubeShape', np.shape(self.totalCube))
 			self.totalFrame = np.ma.sum(self.totalCube,axis=-1)
     
 
@@ -234,7 +230,6 @@ class FlatCal:
 			Uncertainty in weighted average is sqrt(1/sum(averagingWeights))
 			Normalize weights at each wavelength bin
 			'''	
-			print('trimmedCubeDeltaWeighsReordered shape', np.shape(trimmedCubeDeltaWeightsReordered))
 			self.flatWeights,summedAveragingWeights = np.ma.average(trimmedWeights,axis=0,weights=trimmedCubeDeltaWeightsReordered**-2.,returned=True)
 			self.deltaFlatWeights = np.sqrt(summedAveragingWeights**-1.)
 			self.flatFlags = self.flatWeights.mask
@@ -243,10 +238,95 @@ class FlatCal:
 			self.flatWeights = np.divide(self.flatWeights,wvlWeightMedians)
 			self.flatWeightsforplot = np.ma.sum(self.flatWeights,axis=-1)
 			flatcal.writeWeights(indexweights=iCube)
-			if obs.getFromHeader('expTime') <= 30:
-				#flatcal.plotWeightsWvlSlices(indexplotWeightsWvlSlices=iCube)		
-				#flatcal.plotMaskWvlSlices(indexplotMaskWvlSlices=iCube)		
-				flatcal.plotWeightsByPixel(indexplotByPixel=iCube)
+			flatcal.plotWeightsWvlSlices(indexplotWeightsWvlSlices=iCube)		
+			flatcal.plotMaskWvlSlices(indexplotMaskWvlSlices=iCube)		
+			#flatcal.plotWeightsByPixel(indexplotByPixel=iCube,verbose=True)
+			flatcal.plotWeightsByPixelWvlCompare(verbose=True) 
+
+	def plotWeightsByPixelWvlCompare(self,verbose=False):
+		'''
+		Plot weights of each wavelength bin for every single pixel
+                Makes a plot of wavelength vs weights, twilight spectrum, and wavecal solution for each pixel
+                Essentially does the SAME THING as plotWeightsbyPixel, but this one does a wavecal solution as well
+		'''
+		# path to your wavecal solution file
+		file_nameWvlCal = self.wvlCalFile
+		flatCalPath,flatCalBasename = os.path.split(self.flatCalFileName)
+		pdfBasename = os.path.splitext(flatCalBasename)[0]+'WavelengthCompare.pdf'
+		pdfFullPath = os.path.join(flatCalPath,pdfBasename)
+		pp = PdfPages(pdfFullPath)
+		nPlotsPerRow = 3
+		nPlotsPerCol = 4
+		nPlotsPerPage = nPlotsPerRow*nPlotsPerCol
+		iPlot = 0 
+		if verbose:
+			print('plotting weights by pixel at ',pdfFullPath)
+
+		matplotlib.rcParams['font.size'] = 4 
+		wvls = self.wvlBinEdges[0:-1]
+		nCubes = len(self.maskedCubeWeights)
+
+		for iRow in range(self.nXPix):
+		#for iRow in range(self.nXPix-40,self.nXPix-37):
+			if verbose:
+				print('row',iRow)
+			for iCol in range(self.nYPix):
+				if verbose:
+					print('col',iCol)
+				weights = self.flatWeights[iRow,iCol,:]
+				deltaWeights = self.deltaFlatWeights[iRow,iCol,:]
+				if weights.mask.all() == False:
+					if iPlot % nPlotsPerPage == 0:
+						fig = plt.figure(figsize=(10,10),dpi=100)
+
+					ax = fig.add_subplot(nPlotsPerCol,nPlotsPerRow,iPlot%nPlotsPerPage+1)
+					ax.set_ylim(.5,2.)
+
+					for iCube in range(nCubes):
+						cubeWeights = self.maskedCubeWeights[iCube,iRow,iCol]
+						ax.plot(wvls,cubeWeights.data,label='weights %d'%iCube,alpha=.7,color=matplotlib.cm.Paired((iCube+1.)/nCubes))
+					ax.errorbar(wvls,weights.data,yerr=deltaWeights.data,label='weights',color='k')
+                
+					ax.set_title('p %d,%d'%(iRow,iCol))
+					ax.set_ylabel('weight')
+					ax.set_xlabel(r'$\lambda$ ($\AA$)')
+					if iPlot%nPlotsPerPage == nPlotsPerPage-1 or (iRow == self.nXPix-1 and iCol == self.nYPix-1):
+						pp.savefig(fig)
+					iPlot += 1
+
+					#Put a plot of twilight spectrums for this pixel
+					if iPlot % nPlotsPerPage == 0:
+						fig = plt.figure(figsize=(10,10),dpi=100)
+
+					ax = fig.add_subplot(nPlotsPerCol,nPlotsPerRow,iPlot%nPlotsPerPage+1)
+					for iCube in range(nCubes):
+						spectrum = self.spectralCubes[iCube,iRow,iCol]
+						ax.plot(wvls,spectrum,label='spectrum %d'%iCube,alpha=.7,color=matplotlib.cm.Paired((iCube+1.)/nCubes))
+                
+					ax.set_title('p %d,%d'%(iRow,iCol))
+					ax.set_xlabel(r'$\lambda$ ($\AA$)')
+
+					if iPlot%nPlotsPerPage == nPlotsPerPage-1 or (iRow == self.nXPix-1 and iCol == self.nYPix-1):
+						pp.savefig(fig)
+						#plt.show()
+					iPlot += 1
+					
+					#Plot wavecal solution
+					if iPlot % nPlotsPerPage == 0:
+						fig = plt.figure(figsize=(10,10),dpi=100)
+
+					ax = fig.add_subplot(nPlotsPerCol,nPlotsPerRow,iPlot%nPlotsPerPage+1)
+					ax.set_ylim(.5,2.)
+
+					for iCube in range(nCubes):
+						my_pixel = [iRow, iCol]
+						ax=p.plotEnergySolution(file_nameWvlCal, pixel=my_pixel,axis=ax)
+                
+					ax.set_title('p %d,%d'%(iRow,iCol))
+					if iPlot%nPlotsPerPage == nPlotsPerPage-1 or (iRow == self.nXPix-1 and iCol == self.nYPix-1):
+						pp.savefig(fig)
+					iPlot += 1  
+		pp.close()
 
             
 	def plotWeightsWvlSlices(self,indexplotWeightsWvlSlices,verbose=False):
@@ -371,6 +451,8 @@ class FlatCal:
 			if verbose:
 				print('row',iRow)
 			for iCol in range(self.nYPix):
+				if verbose:
+					print('col',iCol)
 				weights = self.flatWeights[iRow,iCol,:]
 				deltaWeights = self.deltaFlatWeights[iRow,iCol,:]
 				if weights.mask.all() == False:
@@ -494,7 +576,9 @@ class FlatCal:
 			assert 'flatPath' in self.config['Data'].keys(), \
 				param.format('flatPath', 'Data')
 			assert 'calSolnPath' in self.config['Data'].keys(), \
-				param.format('calSolnPath', 'Data')
+				param.format('calSolnPath', 'Data')                                                 
+			assert 'wvlCalFile' in self.config['Data'].keys(), \
+				param.format('wvlCalFile', 'Data')                                                 
 			assert 'intTime' in self.config['Data'].keys(), \
 				param.format('intTime', 'Data')
 			assert 'expTime' in self.config['Data'].keys(), \
@@ -531,6 +615,8 @@ class FlatCal:
 				assert os.path.exists(self.flatPath), "Please confirm the Flat File path provided is correct"
 			if self.calSolnPath != '':
 				assert type(self.calSolnPath) is str, "Cal Solution Path parameter must be a string."
+			if self.wvlCalFile != '':
+				assert type(self.wvlCalFile) is str, "WaveCal Solution Path parameter must be a string."
 			assert type(self.intTime) is int, "integration time parameter must be an integer"
 			assert type(self.expTime) is int, "Exposure time parameter must be an integer"
 			
