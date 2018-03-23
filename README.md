@@ -271,7 +271,7 @@ Plots of the results of a flatfield calibration will be done automatically in Fl
                                       '.../calSolPath+[index]__wvlSlices.pdf'     
                      
     plotMaskWvlSlices()            -- Plot mask in images of a single wavelength bin (wavelength-sliced images)
-                                      '.../calSolPath+[index].pdf'
+                                      '.../calSolPath+[index]_WavelengthCompare.pdf'
 
 #### Applying the flatfield calibration
 After the flatfield calibration .h5 solution files are made, they can be applied to an obs file by using this code
