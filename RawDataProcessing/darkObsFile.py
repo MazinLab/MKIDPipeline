@@ -71,6 +71,7 @@ from numpy import vectorize
 from numpy import ma
 from scipy import pi
 import matplotlib.pyplot as plt
+import matplotlib
 from matplotlib.dates import strpdate2num
 from interval import interval,inf
 import tables
@@ -83,6 +84,8 @@ from P3Utils import utils
 from P3Utils import MKIDStd
 from P3Utils.FileName import FileName
 from Headers import TimeMask
+
+from matplotlib.backends.backend_pdf import PdfPages
 
 class ObsFile:
     h = astropy.constants.h.to('eV s').value  #4.135668e-15 #eV s
@@ -1794,29 +1797,56 @@ class ObsFile:
         """
         self.__applyColWeight(resID, weightArr, 'NoiseWeight')
 
-    def applyFlatCal(self, calSolnPath):
+    def applyFlatCal(self, calSolnPath,verbose=False):
+        """
+        Applies a flat calibration to the "SpecWeight" column of a single pixel.
+
+        Weights are multiplied in and replaced; if "weights" are the contents
+        of the "SpecWeight" column, weights = weights*weightArr. NOT reversible
+        unless the original contents (or weightArr) is saved.
+
+        Parameters
+        ----------
+        calSolnPath: string
+            Path to the location of the FlatCal solution files
+            should contain the base filename of these solution files
+            e.g '/mnt/data0/isabel/DeltaAnd/Flats/DeltaAndFlatSoln.h5')
+            Code will grab all files titled DeltaAndFlatSoln#.h5 from that directory
+        if verbose: will print resID, row, and column of pixels which have a successful FlatCal
+                    will print averaged flat weights of pixels which have a successful FlatCal.
+        Will write plots of flatcal solution (5 second increments over a single flat exposure) 
+             with average weights overplotted to a pdf for pixels which have a successful FlatCal.
+             Written to the calSolnPath+'FlatCalSolnPlotsPerPixel.pdf'
+        """
         baseh5path=calSolnPath.split('.h5')
         flatList=glob.glob(baseh5path[0]+'*.h5')     
         assert os.path.exists(flatList[0]), "{0} does not exist".format(flatList[0])  
         assert not self.info['isSpecCalibrated'], \
-                "the data is already Flat calibrated"
-        print(self.info['isSpecCalibrated'])
+               "the data is already Flat calibrated"
+        pdfFullPath = baseh5path[0]+'FlatCalSolnPlotsPerPixel.pdf'
+        pp = PdfPages(pdfFullPath)
+        nPlotsPerRow = 2
+        nPlotsPerCol = 4
+        nPlotsPerPage = nPlotsPerRow*nPlotsPerCol
+        iPlot = 0 
+        matplotlib.rcParams['font.size'] = 4 
         for (row, column), resID in np.ndenumerate(self.beamImage):
                 photon_list = self.getPixelPhotonList(row, column)
                 phases = photon_list['Wavelength']
-                calarray=np.zeros((len(phases),len(flatList)))
+                calarray=[]
+                weightarray=[]
+                weightarrayUncertainty=[]
+                minwavelength=700
+                maxwavelength=1500
+                heads=np.arange(0,700,100)
+                tails=np.arange(1600,2100,100)
+                headsweight=np.array([0,0,0,0,0,0,0])+1
+                tailsweight=np.array([0,0,0,0,0,0])+1
                 for FlatCalFile in flatList:
-                      print('resID', resID, 'row', row, 'column', column)
                       flat_cal = tables.open_file(FlatCalFile, mode='r')
                       calsoln = flat_cal.root.flatcal.calsoln.read()
                       bins=np.array(flat_cal.root.flatcal.wavelengthBins.read())
                       bins=bins.flatten()
-                      minwavelength=700
-                      maxwavelength=1500
-                      heads=np.arange(0,700,100)
-                      tails=np.arange(1600,2100,100)
-                      headsweight=np.array([0,0,0,0,0,0,0])
-                      tailsweight=np.array([0,0,0,0,0,0])
                       bins=np.append(heads,bins)
                       bins=np.append(bins,tails)
                       index = np.where(resID == np.array(calsoln['resid']))
@@ -1827,20 +1857,17 @@ class ObsFile:
 
                            weights=np.array(weights)
                            weights=weights.flatten()
-                           weightsheads=np.zeros(len(heads))+weights[0]
-                           weightstails=np.zeros(len(tails)+1)+weights[len(weights)-1]
+                           weightsheads=np.zeros(len(heads))+1
+                           weightstails=np.zeros(len(tails)+1)+1
                            weights=np.append(weightsheads,weights)
                            weights=np.append(weights,weightstails)
-
-                           weightFlags=np.array(weightFlags)
-                           weightFlags=weightFlags.flatten()
-                           weightFlags=np.append(headsweight,weightFlags)
-                           weightFlags=np.append(weightFlags,tailsweight)
+                           weightarray.append(weights)
 
                            weightUncertainties=np.array(weightUncertainties)
                            weightUncertainties=weightUncertainties.flatten()
                            weightUncertainties=np.append(headsweight,weightUncertainties)
                            weightUncertainties=np.append(weightUncertainties,tailsweight)
+                           weightarrayUncertainty.append(weightUncertainties)
 
                            weightfxncoeffs10=np.polyfit(bins,weights,10)
                            weightfxn10=np.poly1d(weightfxncoeffs10)
@@ -1848,14 +1875,31 @@ class ObsFile:
                            weightArr=weightfxn10(phases)                    
                            weightArr[np.where(phases < minwavelength)]=0.0
                            weightArr[np.where(phases > maxwavelength)]=0.0
-                           print('WEIGHTARR', weightArr)
-                           calarray[:,flatList.index(FlatCalFile)]= weightArr
-                           calweights = np.average(calarray,axis=1)
+                           calarray.append(weightArr)       
                            
-                if len(index[0]) == 1 and (calsoln['flag'][index] == 0):
-                     print('CALWEIGHTS', calweights)
+                if calarray:
+                     calweights = np.average(calarray,axis=0)
+                     if iPlot % nPlotsPerPage == 0:
+                        fig = plt.figure(figsize=(10,10),dpi=100)
+                     ax = fig.add_subplot(nPlotsPerCol,nPlotsPerRow,iPlot%nPlotsPerPage+1)
+                     ax.set_ylim(0,5)
+                     ax.set_xlim(minwavelength,maxwavelength)
+                     for i in range(len(weightarray)):
+                         ax.plot(bins,weightarray[i],'-',label='weights')
+                         ax.errorbar(bins,weightarray[i],yerr=weightarrayUncertainty[i],label='weights')
+                     ax.plot(phases, calweights, '.', markersize=5)
+                     ax.set_title('p %d,%d'%(row,column))
+                     ax.set_ylabel('weight')
+                     #ax.set_xlabel(r'$\lambda$ ($\AA$)')
                      self.applySpecWeight(resID=resID, weightArr=calweights)
-
+                     if verbose:
+                        print('CALWEIGHTS', calweights)
+                        print('resID', resID, 'row', row, 'column', column)
+                     if iPlot%nPlotsPerPage == nPlotsPerPage-1 or (row == self.nXPix-1 and column == self.nYPix-1):
+                        pp.savefig(fig)
+                     #plt.show()
+                     iPlot += 1
+        pp.close()
         self.modifyHeaderEntry(headerTitle='isSpecCalibrated', headerValue=True)
 
     def applyFlag(self, xCoord, yCoord, flag):
