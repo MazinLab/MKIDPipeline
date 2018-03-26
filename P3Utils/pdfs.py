@@ -27,7 +27,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from functools import partial
-from .arrayPopup import plotArray
+from arrayPopup import plotArray
 
 
 def modifiedRician(I, Ic, Is):
