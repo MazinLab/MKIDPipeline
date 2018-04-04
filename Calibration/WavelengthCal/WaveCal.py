@@ -577,7 +577,7 @@ class WaveCal:
                     vertex_val = np.polyval(popt, vertex)
                     max_val = np.polyval(popt, max_phase)
                     min_val = np.polyval(popt, min_phase)
-                    conditions = vertex < max_phase and vertex > min_phase and \
+                    conditions = (vertex < max_phase and vertex > min_phase) or \
                         (min_slope > 0 or max_slope > 0)
                     conditions = conditions or (vertex_val < 0 or max_val < 0 or
                                                 min_val < 0)
