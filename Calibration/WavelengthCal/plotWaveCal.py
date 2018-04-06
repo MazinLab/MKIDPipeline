@@ -670,13 +670,13 @@ def plotSummary(file_name, config_name='', save_name=None, verbose=True):
     text[0, 3] = round(text[0, 0] * len(wavelengths) /
                        np.sum(has_data) * 100, 2)
 
-    text[1, 0] = np.sum(fit_flags == 4) + np.sum(fit_flags == 5) + np.sum(fit_flags == 9)
+    text[1, 0] = np.sum(fit_flags == 4) + np.sum(fit_flags == 5)
     text[1, 1] = round(text[1, 0] / beamImage.size * 100, 2)
     text[1, 2] = round(text[1, 0] / np.sum(res_id != 2**23 - 1) * 100, 2)
     text[1, 3] = round(text[1, 0] * len(wavelengths) /
                        np.sum(np.array(has_data) == 1) * 100, 2)
 
-    text[2, 0] = np.sum(fit_flags == 5) + np.sum(fit_flags == 9)
+    text[2, 0] = np.sum(fit_flags == 5)
     text[2, 1] = np.sum(fit_flags == 4)
     wave_cal.close()
 
