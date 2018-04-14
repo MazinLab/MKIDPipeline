@@ -100,7 +100,7 @@ class subWindow(QMainWindow):
             vbox_plot.addLayout(hbox_expTimeControl)
             
             self.spinbox_effExpTime.setMinimum(1)
-            self.spinbox_effExpTime.setMaximum(100)
+            self.spinbox_effExpTime.setMaximum(200)
             self.spinbox_effExpTime.setValue(1000*self.effExpTime)
             button_plot.clicked.connect(self.plotData)
             
@@ -140,7 +140,6 @@ class subWindow(QMainWindow):
         return #just create a dummy function that we'll redefine in the child classes
                 # this way the signal to update the plots is handled entirely 
                 # by this subWindow base class
-                
                 
     def getPhotonList(self):
         #use this function to make the call to the correct obsfile method
@@ -249,6 +248,17 @@ class intensityHistogram(subWindow):
         bins = np.arange(self.Nbins)
         
         return intensityHist, bins
+    
+    
+    
+    
+    def fitBlurredMR(self,bins,intensityHist):   #this needs some work
+        popt2,pcov2 = curve_fit(pdfs.blurredMR2,bins,intensityHist,p0=[1,1],bounds=(0,np.inf))
+        
+        Ic = popt2[0]
+        Is = popt2[1]
+        
+        return Ic,Is
             
 
     
@@ -289,26 +299,60 @@ class intensityHistogram(subWindow):
             poisson= np.exp(-mu)*np.power(mu,k)/factorial(k)
             self.ax.plot(np.arange(len(poisson)),poisson,'.-c',label = 'Poisson')
             
-            try:
-                IIc = np.sqrt(mu**2 - var + mu)
-            except:
-                pass
-            else:
-                IIs = mu - IIc
+            Ic_final,Is_final = self.fitBlurredMR(self.bins,self.intensityHist)
             
-                convolvedMR = np.convolve(pdfs.modifiedRician(np.arange(self.Nbins),popt[0],popt[1]),poisson,mode = 'same')
-                
-                
-                
-        #        print('\nIIs and IIc are {:.2f} and {:.2f}\n'.format(IIs,IIc))
-                
-                
-                if (IIc > 0 and IIs > 0):
-                    self.ax.plot(np.arange(self.Nbins, step = sstep),pdfs.modifiedRician(np.arange(self.Nbins, step=sstep),IIc,IIs),'.-b',label = 'MR from mean and variance')
-                    
-                    self.ax.plot(np.arange(len(convolvedMR)),convolvedMR,'.-k',label = 'blue convolved with Poisson')
+            self.ax.plot(np.arange(self.Nbins, step=sstep),pdfs.blurredMR2(np.arange(self.Nbins, step=sstep),Ic_final,Is_final),'.-k',label = 'blurred MR')
+#            self.ax.set_title('pixel ({},{})  Ic = {:.2f}, Is = {:.2f}, Ic/Is = {:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic_final,Is_final,Ic_final/Is_final))
+            self.ax.set_title('pixel ({},{})  Ic,Ic_f = {:.2f},{:.2f}, Is,Is_f = {:.2f},{:.2f}, Ic/Is, Ic_f/Is_f = {:.2f},{:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic,Ic_final,Is,Is_final,Ic/Is,Ic_final/Is_final))
             
-                    self.ax.set_title('pixel ({},{})  Ic,IIc = {:.2f},{:.2f}, Is,IIs = {:.2f},{:.2f}, Ic/Is, IIc/IIs = {:.2f},{:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic,IIc,Is,IIs,Ic/Is,IIc/IIs))
+            
+            
+            
+            
+#            IcGuess = np.arange(10,step=0.2)
+#            IsGuess = np.arange(10,step=0.2)
+#            finalPDF = 1.*np.zeros((self.Nbins,self.Nbins))
+#            chiSquareArray = np.zeros(self.Nbins)
+#            for ic in IcGuess:
+#                for iss in IsGuess:
+#                    mr = pdfs.modifiedRician(k,ic,iss)
+#                    for kk in range(self.Nbins):
+#                        weight = mr[kk]
+#                        finalPDF += (weight*np.exp(-k)*np.power(k,k[kk])/factorial(k[kk]))  #weight*poisson
+#                        
+#            
+##                    finalPDF /= np.sum(finalPDF)
+#                    chiSquare = (finalPDF - self.intensityHist)**2   #need to figure out the weights
+#                    chiSquareArray[ic][iss] = chiSquare
+#            
+#            ### find where the minimum chiSquare value occurs, then you have Ic and Is
+#            ind = np.unravel_index(np.argmin(chiSquareArray),(len(IcGuess),len(IsGuess)))
+            
+#            self.ax.plot(np.arange(self.Nbins, step=sstep),pdfs.modifiedRician(np.arange(self.Nbins, step=sstep),IcGuess[ind[0]],IsGuess[ind[1]]),'.-g',label = 'MR from MC')
+            
+            
+            
+            
+#            try:
+#                IIc = np.sqrt(mu**2 - var + mu)
+#            except:
+#                pass
+#            else:
+#                IIs = mu - IIc
+#            
+#                convolvedMR = np.convolve(pdfs.modifiedRician(np.arange(self.Nbins),popt[0],popt[1]),poisson,mode = 'same')
+#                
+#                
+#                
+#        #        print('\nIIs and IIc are {:.2f} and {:.2f}\n'.format(IIs,IIc))
+#                
+#                
+#                if (IIc > 0 and IIs > 0):
+#                    self.ax.plot(np.arange(self.Nbins, step = sstep),pdfs.modifiedRician(np.arange(self.Nbins, step=sstep),IIc,IIs),'.-b',label = 'MR from mean and variance')
+#                    
+#                    self.ax.plot(np.arange(len(convolvedMR)),convolvedMR,'.-k',label = 'blue convolved with Poisson')
+#            
+#                    self.ax.set_title('pixel ({},{})  Ic,IIc = {:.2f},{:.2f}, Is,IIs = {:.2f},{:.2f}, Ic/Is, IIc/IIs = {:.2f},{:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic,IIc,Is,IIs,Ic/Is,IIc/IIs))
             self.ax.legend()
         
         self.draw()
@@ -514,7 +558,19 @@ class mainWindow(QMainWindow):
         
         
     def plotIcIs(self):
-        self.ax.clear()
+        #check if obsfile object exists
+        try:
+            self.a
+        except:
+            print('\nNo obsfile object defined. Select H5 file to load.\n')
+            return
+        else:
+            self.ax.clear() #clear the axes
+            
+#            for col in range(self.nCol):
+#                for row in range(self.nRow):
+                
+            
 
 
 
@@ -658,7 +714,7 @@ class mainWindow(QMainWindow):
         #create an h box for the buttons
         hbox_buttons = QHBoxLayout()
         hbox_buttons.addWidget(button_plot)
-#        hbox_buttons.addWidget(button_quickLoad) #################################################
+        hbox_buttons.addWidget(button_quickLoad) #################################################
         
         #create an h box for the time and lambda v boxes
         hbox_time_lambda = QHBoxLayout()
