@@ -344,8 +344,6 @@ def plotRHistogram(file_name, mask=None, axis=None):
     if axis is None:
         fig, axis = plt.subplots()
         show = True
-    axis.set_xlabel(r'R [E/$\Delta$E]')
-    axis.set_ylabel('counts')
     cmap = cm.get_cmap('viridis')
     if len(wavelengths) >= 10:
         Z = [[0, 0], [0, 0]]
@@ -374,6 +372,9 @@ def plotRHistogram(file_name, mask=None, axis=None):
         max_counts.append(np.max(counts))
     if np.max(max_counts) != 0:
         axis.set_ylim([0, 1.2 * np.max(max_counts)])
+
+    axis.set_xlabel(r'R [E/$\Delta$E]')
+    axis.set_ylabel('counts')
     plt.tight_layout()
     if len(wavelengths) < 10:
         axis.legend(fontsize=6)
