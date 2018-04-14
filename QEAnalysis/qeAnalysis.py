@@ -1,5 +1,6 @@
 import os
 import ast
+import sys
 import pickle
 import warnings
 import numpy as np
@@ -42,8 +43,8 @@ class Measurement:
         self.QE_file = ast.literal_eval(self.config['Data']['QE_file'])
         self.img_directory = ast.literal_eval(self.config['Data']['img_directory'])
         self.wavelengths = ast.literal_eval(self.config['Data']['wavelengths'])
-        self.light = ast.literal_eval(self.config['Data']['light'])
-        self.dark = ast.literal_eval(self.config['Data']['dark'])
+        self.light_int = ast.literal_eval(self.config['Data']['light'])
+        self.integration_time = ast.literal_eval(self.config['Data']['integration_time'])
         self.mkid_area = ast.literal_eval(self.config['Array']['mkid_area'])
         self.rows = ast.literal_eval(self.config['Array']['rows'])
         self.columns = ast.literal_eval(self.config['Array']['columns'])
@@ -74,6 +75,22 @@ class Measurement:
                 config = file_.read()
             self.__logger(config)
 
+        # make light and dark lists
+        self.light = []
+        self.dark = []
+        for index, integer in enumerate(self.light_int):
+            self.light.append([integer, integer + self.integration_time])
+            if index != len(self.light_int) - 1:
+                nextinteger = self.light_int[index + 1]
+                offset = int((nextinteger - (integer + self.integration_time)) / 7)
+                self.dark.append([integer + self.integration_time + offset,
+                                  nextinteger - offset])
+                previousinteger = integer
+            else:
+                self.dark.append([integer + self.integration_time + offset,
+                                  integer + self.integration_time + offset + integer -
+                                  previousinteger])
+
     def runAnalysis(self, plot=True, save=True):
         '''
         Run through all the steps in the QE analysis.
@@ -89,10 +106,8 @@ class Measurement:
 
             if save:
                 self.saveData()
-            if plot and save:
-                self.plotQE(save=True)
-            elif plot:
-                self.plotQE()
+            if plot:
+                self.plotQE(save=save)
         except KeyboardInterrupt:
             print(os.linesep + "Shutdown requested ... exiting")
 
@@ -289,7 +304,7 @@ class Measurement:
                              for ind, QE in enumerate(self.QE)])
 
         ax.plot(self.wavelengths, QE_median * 100, linewidth=3, color='black',
-                label=r'Measured')
+                label=r'Measured AR')
         ax.fill_between(self.wavelengths, QE_lower * 100, QE_upper * 100,
                         where=QE_upper >= QE_lower, color='green', facecolor='green',
                         interpolate='True', alpha=0.1)
@@ -305,6 +320,7 @@ class Measurement:
         if save:
             file_name = os.path.join(self.out_directory, self.log_file + '.pdf')
             plt.savefig(file_name, format='pdf')
+            plt.close(fig)
         else:
             plt.show(block=False)
 
@@ -357,7 +373,7 @@ class Measurement:
                 param.format('wavelengths', 'Data')
             assert 'light' in self.config['Data'].keys(), \
                 param.format('light', 'Data')
-            assert 'dark' in self.config['Data'].keys(), \
+            assert 'integration_time' in self.config['Data'].keys(), \
                 param.format('dark', 'Data')
 
             assert 'Array' in self.config.sections(), section.format('Array')
@@ -404,25 +420,12 @@ class Measurement:
                 assert type(self.wavelengths[index]) is float, \
                     "elements in wavelengths parameter must be floats or integers."
 
-            assert type(self.light) is list, "light parameter must be a list"
-            for _, band in enumerate(self.light):
-                assert type(band) is list, \
-                    "elements in light parameter must be lists of integers"
-                assert len(band) == 2, \
-                    "elements in light parameter must be length two lists of integers"
-                for _, time in enumerate(band):
-                    assert type(time) is int, \
-                        "elements in light parameter must be lists of integers"
-
-            assert type(self.dark) is list, "dark parameter must be a list"
-            for _, band in enumerate(self.dark):
-                assert type(band) is list, \
-                    "elements in dark parameter must be lists of integers"
-                assert len(band) == 2, \
-                    "elements in dark parameter must be length two lists of integers"
-                for _, time in enumerate(band):
-                    assert type(time) is int, \
-                        "elements in dark parameter must be lists of integers"
+            assert type(self.light_int) is list, "light parameter must be a list"
+            for _, timestamp in enumerate(self.light_int):
+                assert type(timestamp) is int, \
+                    "elements in light parameter must be integers"
+            assert type(self.integration_time) is int, \
+                "integration_time parameter must be a int"
 
             if type(self.mkid_area) is int:
                 self.mkid_area = float(self.mkid_area)
