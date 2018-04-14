@@ -522,7 +522,10 @@ class WaveCal:
                     if self.model_name == 'gaussian_and_exp':
                         phases.append(fit_result[1][3])
                         std.append(fit_result[1][4])
-                        errors.append(np.sqrt(fit_result[2][3, 3]))
+                        if fit_result[2][3, 3] == 0:
+                            errors.append(np.sqrt(fit_result[1][4]))
+                        else:
+                            errors.append(np.sqrt(fit_result[2][3, 3]))
                     else:
                         raise ValueError("{0} is not a valid fit model name"
                                          .format(self.model_name))
@@ -1188,6 +1191,9 @@ class WaveCal:
                 # replace with gaussian width if covariance couldn't be calculated
                 if result.covar is None:
                     if self.model_name == 'gaussian_and_exp':
+                        result.covar = np.ones((5, 5)) * result.best_values['f'] / 2
+                if self.model_name == 'gaussian_and_exp':
+                    if result.covar[3, 3] == 0:
                         result.covar = np.ones((5, 5)) * result.best_values['f'] / 2
                 # unpack results
                 if self.model_name == 'gaussian_and_exp':
