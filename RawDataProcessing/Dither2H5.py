@@ -3,10 +3,12 @@
 """
 Created on Tue Jan  9 09:45:42 2018
 
-@author: bmazin
+@author: bmazin, modification by Isabel
 """
 
 import sys, os, time, struct
+import ast
+from configparser import ConfigParser
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
@@ -15,17 +17,9 @@ import argparse
 import datetime
 import subprocess
 
-#******************************** Things you must set by hand for this to work!
-XPIX = 80
-YPIX = 125
-binPath = '/home/bmazin/HR8799/rawdata'    # path to raw .bin data
-outPath = '/home/bmazin/HR8799/rawdata'    # path to output data
-beamFile = '/home/bmazin/HR8799/h5/finalMap_20170924.txt'    # path and filename to beam map file
-mapFlag = 1
-filePrefix = 'a'   # output h5 file prefix
-b2hPath = '/home/bmazin/DarknessPipeline/RawDataProcessing'
+#load the parameters from a config file
 
-#***********************************
+# define the configuration file path
 
 parser = argparse.ArgumentParser(description='Process a dither stack into hdf5 files.')
 parser.add_argument('ditherName', metavar='file', nargs=1,
@@ -39,13 +33,27 @@ try:
     bufferTime = args.bufferTime[0]
 except:
     bufferTime = 1
-    
-print('Starting conversion of '+args.ditherName[0] + ' into HDF5 files, one file per dither position. ')
+
+config_directory = sys.argv[1]
+config = ConfigParser()
+config.read(config_directory)
+XPIX = ast.literal_eval(config['Data']['XPIX'])  
+YPIX = ast.literal_eval(config['Data']['YPIX'])
+binPath = ast.literal_eval(config['Data']['binPath'])  # path to raw .bin data
+outPath = ast.literal_eval(config['Data']['outPath'])   # path to output data
+beamFile = ast.literal_eval(config['Data']['beamFile'])  # path and filename to beam map file
+mapFlag = ast.literal_eval(config['Data']['mapFlag'])
+filePrefix = ast.literal_eval(config['Data']['filePrefix'])
+b2hPath = ast.literal_eval(config['Data']['b2hPath'])
+config_file=ast.literal_eval(config['Data']['ditherStackFile'])  #path and name of ditherStack file.
+
+print('Starting conversion of '+config_file + ' into HDF5 files, one file per dither position. ')
 print('Removing ' + str(args.bufferTime[0]) + ' seconds from the beginning and end of each h5 file.' )
+
 
 # Read in config file
 configData = readDict()
-configData.read_from_file(args.ditherName[0])
+configData.read_from_file(config_file)
 
 nPos = configData['nPos']
 startTimes = configData['startTimes'] 
