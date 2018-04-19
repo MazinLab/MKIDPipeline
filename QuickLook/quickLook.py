@@ -17,7 +17,7 @@ import numpy as np
 #from functools import partial
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-#from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.widgets import Cursor
 import sys,os
 #import shutil
@@ -43,6 +43,9 @@ class subWindow(QMainWindow):
     def __init__(self,parent=None):
         super(QMainWindow, self).__init__(parent)
         self.parent=parent
+        
+        self.effExpTime = .010  #units are s
+        
         self.create_main_frame()
         self.activePixel = parent.activePixel
         self.parent.updateActivePix.connect(self.setActivePixel)
@@ -55,7 +58,6 @@ class subWindow(QMainWindow):
         self.beamFlagMask = parent.beamFlagMask
         self.apertureRadius = 2.27/2   #Taken from Seth's paper (not yet published in Jan 2018)
         self.apertureOn = False
-        self.exposureTime = 0.01
         self.lineColor = 'blue'
         
 
@@ -75,10 +77,35 @@ class subWindow(QMainWindow):
         self.canvas.setParent(self.main_frame)
         self.ax = self.fig.add_subplot(111)
         
+        #create a navigation toolbar for the plot window
+        self.toolbar = NavigationToolbar(self.canvas, self)
         
         #create a vertical box for the plot to go in.
         vbox_plot = QVBoxLayout()
         vbox_plot.addWidget(self.canvas)
+        
+        #check if we need effective exposure time controls in the window, and add them if we do. 
+        try:
+            self.spinbox_effExpTime
+        except:
+            pass
+        else:
+            label_expTime = QLabel('effective exposure time [ms]')
+            button_plot = QPushButton("Plot")
+            
+            hbox_expTimeControl = QHBoxLayout()
+            hbox_expTimeControl.addWidget(label_expTime)
+            hbox_expTimeControl.addWidget(self.spinbox_effExpTime)
+            hbox_expTimeControl.addWidget(button_plot)
+            vbox_plot.addLayout(hbox_expTimeControl)
+            
+            self.spinbox_effExpTime.setMinimum(1)
+            self.spinbox_effExpTime.setMaximum(200)
+            self.spinbox_effExpTime.setValue(1000*self.effExpTime)
+            button_plot.clicked.connect(self.plotData)
+            
+        vbox_plot.addWidget(self.toolbar)
+
         
         #combine everything into another vbox
         vbox_combined = QVBoxLayout()
@@ -114,13 +141,15 @@ class subWindow(QMainWindow):
                 # this way the signal to update the plots is handled entirely 
                 # by this subWindow base class
                 
-                
     def getPhotonList(self):
         #use this function to make the call to the correct obsfile method
         if self.apertureOn == True:
-            self.photonList,aperture = self.a.getCircularAperturePhotonList(self.activePixel[0], self.activePixel[1], radius = self.apertureRadius, firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlRange = (self.spinbox_startLambda.value(),self.spinbox_stopLambda.value()), flagToUse=0)
+            photonList,aperture = self.a.getCircularAperturePhotonList(self.activePixel[0], self.activePixel[1], radius = self.apertureRadius, firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlRange = (self.spinbox_startLambda.value(),self.spinbox_stopLambda.value()), flagToUse=0)
+        
         else:
-            self.photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlRange = (self.spinbox_startLambda.value(),self.spinbox_stopLambda.value()))
+            photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlRange = (self.spinbox_startLambda.value(),self.spinbox_stopLambda.value()))
+            
+        return photonList
             
             
             
@@ -129,11 +158,14 @@ class subWindow(QMainWindow):
         #take a time stream and bin it up into a lightcurve
         #in other words, take a list of photon time stamps and figure out the 
         #intensity during each exposureTime, which is ~.01 sec
-        self.histBinEdges = np.arange(self.spinbox_startTime.value(),self.spinbox_startTime.value()+self.spinbox_integrationTime.value(),self.exposureTime)
+        
+        self.histBinEdges = np.arange(self.spinbox_startTime.value(),self.spinbox_startTime.value()+self.spinbox_integrationTime.value(),self.effExpTime)
         self.hist,_ = np.histogram(self.photonList['Time']/10**6,bins=self.histBinEdges) #if histBinEdges has N elements, hist has N-1
-        self.lightCurveIntensityCounts = 1.*self.hist  #units are photon counts
-        self.lightCurveIntensity = 1.*self.hist/self.exposureTime  #units are counts/sec
-        self.lightCurveTimes = self.histBinEdges[:-1] + 1.0*self.exposureTime/2
+        lightCurveIntensityCounts = 1.*self.hist  #units are photon counts
+        lightCurveIntensity = 1.*self.hist/self.effExpTime  #units are counts/sec
+        lightCurveTimes = self.histBinEdges[:-1] + 1.0*self.effExpTime/2
+        
+        return lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes
         
 
 
@@ -142,6 +174,9 @@ class subWindow(QMainWindow):
 class timeStream(subWindow):
     #this class inherits from the subWindow class. 
     def __init__(self,parent):
+        
+        self.spinbox_effExpTime = QDoubleSpinBox()  #make sure that the parent class will know that we need an effExpTime control
+        
         #call the init function from the superclass 'subWindow'. 
         super(timeStream, self).__init__(parent)
         self.setWindowTitle("Light Curve")
@@ -150,15 +185,19 @@ class timeStream(subWindow):
         
 
         
+
+        
     def plotData(self): 
         self.ax.clear()
      
-        self.getPhotonList()
-        self.lightCurve()
+        self.photonList = self.getPhotonList()
+        
+        self.effExpTime = self.spinbox_effExpTime.value()/1000
+        self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = self.lightCurve()
 
         self.ax.plot(self.lightCurveTimes,self.lightCurveIntensity,color = self.lineColor)
         self.ax.set_xlabel('time [seconds]')
-        self.ax.set_ylabel('intensity [cps I think]')
+        self.ax.set_ylabel('intensity [cps]')
         self.ax.set_title('pixel ({},{})' .format(self.activePixel[0],self.activePixel[1]))
         self.draw()
         
@@ -170,6 +209,9 @@ class timeStream(subWindow):
 class intensityHistogram(subWindow):
     #this class inherits from the subWindow class. 
     def __init__(self,parent):
+        
+        self.spinbox_effExpTime = QDoubleSpinBox()  #make sure that the parent class will know that we need an effExpTime control
+        
         #call the init function from the superclass 'subWindow'. 
         super(intensityHistogram, self).__init__(parent)
         self.setWindowTitle("Intensity Histogram")
@@ -180,61 +222,139 @@ class intensityHistogram(subWindow):
     
     def histogramLC(self):
         #makes a histogram of the light curve intensities
-        self.Nbins=30  #maximum number of counts/self.expTime to show
-        norm=True
-        centers = True
-        self.intHist, binEdges = np.histogram(self.lightCurveIntensityCounts,bins=self.Nbins,range=[0,self.Nbins])
-
-        if norm==True:
-            self.intHist = self.intHist/float(len(self.lightCurveIntensityCounts))
+#        self.Nbins=30  #maximum number of counts/self.spinbox_effExpTime to show
+#        norm=True
+#        centers = True
+#        
+#        self.intensityHist, binEdges = np.histogram(self.lightCurveIntensityCounts,bins=self.Nbins,range=[0,self.Nbins])
+#
+#        if norm==True:
+#            self.intensityHist = self.intensityHist/float(len(self.lightCurveIntensityCounts))
+#            
+#        if centers==True:
+#            bws = np.diff(binEdges)
+#            cents = binEdges[:-1]+bws[0]/2.0
+#            self.bins = cents
+#        else:
+#            self.bins = binEdges
             
-        if centers==True:
-            bws = np.diff(binEdges)
-            cents = binEdges[:-1]+bws[0]/2.0
-            self.bins = cents
-        else:
-            self.bins = binEdges
+            
+        
+        self.Nbins=30  #smallest number of bins to show
+        #count the number of times each count rate occurs in the timestream
+        intensityHist, _ = np.histogram(self.lightCurveIntensityCounts,bins=self.Nbins,range=[0,self.Nbins])
+        
+        intensityHist = intensityHist/float(len(self.lightCurveIntensityCounts))      
+        bins = np.arange(self.Nbins)
+        
+        return intensityHist, bins
+    
+    
+    
+    
+    def fitBlurredMR(self,bins,intensityHist):   #this needs some work
+        popt2,pcov2 = curve_fit(pdfs.blurredMR2,bins,intensityHist,p0=[1,1],bounds=(0,np.inf))
+        
+        Ic = popt2[0]
+        Is = popt2[1]
+        
+        return Ic,Is
+            
 
     
         
         
     def plotData(self): 
+        
+        sstep = 1
+        
         self.ax.clear()
         
-        self.getPhotonList()
-        self.lightCurve()
-        self.histogramLC()
+        self.photonList = self.getPhotonList()
         
-        popt, pcov = curve_fit(pdfs.modifiedRician,range(0,self.Nbins),self.intHist,p0=[1,1])
-        Ic = popt[0]
-        Is = popt[1]
+        self.effExpTime = self.spinbox_effExpTime.value()/1000
         
-        mu = np.mean(self.lightCurveIntensityCounts)
-        var = np.var(self.lightCurveIntensityCounts)  #add fudge factor here :P
-        print('\nmu and var are {:.2f} and {:.2f}\n'.format(mu,var))
-        IIc = np.sqrt(mu**2 - var + mu)
-        IIs = mu - IIc
+        self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = self.lightCurve()
+        self.intensityHist, self.bins = self.histogramLC()
         
-        k = np.arange(10)
-        poisson= np.exp(-mu)*np.power(mu,k)/factorial(k)
-        convolvedMR = np.convolve(pdfs.modifiedRician(np.arange(self.Nbins),popt[0],popt[1]),poisson,mode = 'same')
-        
-        
-        
-#        print('\nIIs and IIc are {:.2f} and {:.2f}\n'.format(IIs,IIc))
-        
-        self.ax.bar(self.bins - .5,self.intHist)
-        self.ax.plot(np.arange(self.Nbins, step=0.1),pdfs.modifiedRician(np.arange(self.Nbins, step=0.1),popt[0],popt[1]),'r')
-        self.ax.plot(np.arange(self.Nbins, step=0.1),pdfs.modifiedRician(np.arange(self.Nbins, step=0.1),IIc,IIs),'b')
-        
-#        self.ax.plot(np.arange(self.Nbins),pdfs.modifiedRician(np.arange(self.Nbins),popt[0],popt[1]) - self.intHist,'r')
-#        self.ax.plot(np.arange(len(convolvedMR)),convolvedMR,'k')
-
-
-        self.ax.set_xlabel('intensity, counts per {:.2f} sec'.format(self.exposureTime))
+        self.ax.bar(self.bins,self.intensityHist)
+        self.ax.set_xlabel('intensity, counts per {:.3f} sec'.format(self.effExpTime))
         self.ax.set_ylabel('frequency')
-#        self.ax.set_title('pixel ({},{})  Ic = {:.1f}, Is = {:.1f}, Ic/Is = {:.1f}' .format(self.activePixel[0],self.activePixel[1],Ic,Is,Ic/Is))
-        self.ax.set_title('pixel ({},{})  Ic,IIc = {:.2f},{:.2f}, Is,IIs = {:.2f},{:.2f}, Ic/Is, IIc/IIs = {:.2f},{:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic,IIc,Is,IIs,Ic/Is,IIc/IIs))
+        self.ax.set_title('pixel ({},{})' .format(self.activePixel[0],self.activePixel[1]))
+        
+        if np.sum(self.lightCurveIntensityCounts) > 0:
+            popt, pcov = curve_fit(pdfs.modifiedRician,self.bins,self.intensityHist,p0=[1,1])
+            Ic = popt[0]
+            Is = popt[1]
+            
+            self.ax.plot(np.arange(self.Nbins, step=sstep),pdfs.modifiedRician(np.arange(self.Nbins, step=sstep),Ic,Is),'.-r',label = 'MR from numpy.curve_fit')
+            
+            self.ax.set_title('pixel ({},{})  Ic = {:.2f}, Is = {:.2f}, Ic/Is = {:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic,Is,Ic/Is))
+            
+            mu = np.mean(self.lightCurveIntensityCounts)
+            var = np.var(self.lightCurveIntensityCounts)  #add fudge factor here :P
+            #print('\nmu and var are {:.2f} and {:.2f}\n'.format(mu,var))
+            
+            k = np.arange(self.Nbins)
+            poisson= np.exp(-mu)*np.power(mu,k)/factorial(k)
+            self.ax.plot(np.arange(len(poisson)),poisson,'.-c',label = 'Poisson')
+            
+            Ic_final,Is_final = self.fitBlurredMR(self.bins,self.intensityHist)
+            
+            self.ax.plot(np.arange(self.Nbins, step=sstep),pdfs.blurredMR2(np.arange(self.Nbins, step=sstep),Ic_final,Is_final),'.-k',label = 'blurred MR')
+#            self.ax.set_title('pixel ({},{})  Ic = {:.2f}, Is = {:.2f}, Ic/Is = {:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic_final,Is_final,Ic_final/Is_final))
+            self.ax.set_title('pixel ({},{})  Ic,Ic_f = {:.2f},{:.2f}, Is,Is_f = {:.2f},{:.2f}, Ic/Is, Ic_f/Is_f = {:.2f},{:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic,Ic_final,Is,Is_final,Ic/Is,Ic_final/Is_final))
+            
+            
+            
+            
+            
+#            IcGuess = np.arange(10,step=0.2)
+#            IsGuess = np.arange(10,step=0.2)
+#            finalPDF = 1.*np.zeros((self.Nbins,self.Nbins))
+#            chiSquareArray = np.zeros(self.Nbins)
+#            for ic in IcGuess:
+#                for iss in IsGuess:
+#                    mr = pdfs.modifiedRician(k,ic,iss)
+#                    for kk in range(self.Nbins):
+#                        weight = mr[kk]
+#                        finalPDF += (weight*np.exp(-k)*np.power(k,k[kk])/factorial(k[kk]))  #weight*poisson
+#                        
+#            
+##                    finalPDF /= np.sum(finalPDF)
+#                    chiSquare = (finalPDF - self.intensityHist)**2   #need to figure out the weights
+#                    chiSquareArray[ic][iss] = chiSquare
+#            
+#            ### find where the minimum chiSquare value occurs, then you have Ic and Is
+#            ind = np.unravel_index(np.argmin(chiSquareArray),(len(IcGuess),len(IsGuess)))
+            
+#            self.ax.plot(np.arange(self.Nbins, step=sstep),pdfs.modifiedRician(np.arange(self.Nbins, step=sstep),IcGuess[ind[0]],IsGuess[ind[1]]),'.-g',label = 'MR from MC')
+            
+            
+            
+            
+#            try:
+#                IIc = np.sqrt(mu**2 - var + mu)
+#            except:
+#                pass
+#            else:
+#                IIs = mu - IIc
+#            
+#                convolvedMR = np.convolve(pdfs.modifiedRician(np.arange(self.Nbins),popt[0],popt[1]),poisson,mode = 'same')
+#                
+#                
+#                
+#        #        print('\nIIs and IIc are {:.2f} and {:.2f}\n'.format(IIs,IIc))
+#                
+#                
+#                if (IIc > 0 and IIs > 0):
+#                    self.ax.plot(np.arange(self.Nbins, step = sstep),pdfs.modifiedRician(np.arange(self.Nbins, step=sstep),IIc,IIs),'.-b',label = 'MR from mean and variance')
+#                    
+#                    self.ax.plot(np.arange(len(convolvedMR)),convolvedMR,'.-k',label = 'blue convolved with Poisson')
+#            
+#                    self.ax.set_title('pixel ({},{})  Ic,IIc = {:.2f},{:.2f}, Is,IIs = {:.2f},{:.2f}, Ic/Is, IIc/IIs = {:.2f},{:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic,IIc,Is,IIs,Ic/Is,IIc/IIs))
+            self.ax.legend()
+        
         self.draw()
 
         
@@ -272,6 +392,14 @@ class spectrum(subWindow):
         self.draw()
         
 
+        
+        
+      
+        
+        
+        
+        
+        
         
         
         
@@ -367,9 +495,11 @@ class mainWindow(QMainWindow):
             
             self.image = self.beamFlagImage
             
+            self.cbarLimits = np.array([np.amin(self.image),np.amax(self.image)])
+            
             self.ax1.imshow(self.image,interpolation='none')
-            self.cbar.set_clim(np.amin(self.image),np.amax(self.image))
-            self.cbar.draw_all()
+            self.fig.cbar.set_clim(np.amin(self.image),np.amax(self.image))
+            self.fig.cbar.draw_all()
 
             self.ax1.set_title('beam flag image')
             
@@ -402,9 +532,12 @@ class mainWindow(QMainWindow):
             self.image = self.rawCountsImage*self.beamFlagMask*self.hotPixMask
             self.image = self.image/self.spinbox_integrationTime.value()
             
-            self.ax1.imshow(self.image,interpolation='none')
-            self.cbar.set_clim(np.amin(self.image),np.amax(self.image))
-            self.cbar.draw_all()
+            self.cbarLimits = np.array([np.amin(self.image),np.amax(self.image)])
+            
+            self.ax1.imshow(self.image,interpolation='none',vmin = self.cbarLimits[0],vmax = self.cbarLimits[1])
+            
+            self.fig.cbar.set_clim(self.cbarLimits[0],self.cbarLimits[1])
+            self.fig.cbar.draw_all()
 
             self.ax1.set_title('Raw counts')
             
@@ -414,7 +547,6 @@ class mainWindow(QMainWindow):
             
             #self.ax1.plot(np.arange(10),np.arange(10)**2)
             
-            cid = self.fig.canvas.mpl_connect('motion_notify_event', self.hoverCanvas)
             
             self.draw()
             
@@ -426,7 +558,19 @@ class mainWindow(QMainWindow):
         
         
     def plotIcIs(self):
-        self.ax.clear()
+        #check if obsfile object exists
+        try:
+            self.a
+        except:
+            print('\nNo obsfile object defined. Select H5 file to load.\n')
+            return
+        else:
+            self.ax.clear() #clear the axes
+            
+#            for col in range(self.nCol):
+#                for row in range(self.nRow):
+                
+            
 
 
 
@@ -442,8 +586,9 @@ class mainWindow(QMainWindow):
         self.image = np.random.randn(self.nRow,self.nCol)
                     
         self.foo = self.ax1.imshow(self.image,interpolation='none')
-        self.cbar.set_clim(np.amin(self.image),np.amax(self.image))
-        self.cbar.draw_all()
+        self.cbarLimits = np.array([np.amin(self.image),np.amax(self.image)])
+        self.fig.cbar.set_clim(self.cbarLimits[0],self.cbarLimits[1])
+        self.fig.cbar.draw_all()
         
         self.ax1.set_title('some image to plot...')
         
@@ -453,8 +598,6 @@ class mainWindow(QMainWindow):
         
         #self.ax1.plot(np.arange(10),np.arange(10)**2)
         
-        cid = self.fig.canvas.mpl_connect('motion_notify_event', self.hoverCanvas)
-        cid2 = self.fig.canvas.mpl_connect('button_press_event', self.mousePressed)
         
         self.draw()
         
@@ -504,13 +647,12 @@ class mainWindow(QMainWindow):
         self.canvas.setParent(self.main_frame)
         self.ax1 = self.fig.add_subplot(111)
         self.foo = self.ax1.imshow(self.image,interpolation='none')
-        self.cbar = self.fig.colorbar(self.foo)
+        self.fig.cbar = self.fig.colorbar(self.foo)
         
         
         button_plot = QPushButton("Plot image")
         button_plot.setEnabled(True)
         button_plot.setToolTip('Click to update image.')
-#        button_plot.clicked.connect(self.plotImage)
         button_plot.clicked.connect(self.callPlotMethod)
         
         
@@ -572,7 +714,7 @@ class mainWindow(QMainWindow):
         #create an h box for the buttons
         hbox_buttons = QHBoxLayout()
         hbox_buttons.addWidget(button_plot)
-        #hbox_buttons.addWidget(button_quickLoad)
+        hbox_buttons.addWidget(button_quickLoad) #################################################
         
         #create an h box for the time and lambda v boxes
         hbox_time_lambda = QHBoxLayout()
@@ -617,6 +759,11 @@ class mainWindow(QMainWindow):
         #Set the overall QWidget to have the layout of the main_frame.
         self.setCentralWidget(self.main_frame)
         
+        #set up the pyqt5 events
+        cid = self.fig.canvas.mpl_connect('motion_notify_event', self.hoverCanvas)
+        cid2 = self.fig.canvas.mpl_connect('button_press_event', self.mousePressed)
+        cid3 = self.fig.canvas.mpl_connect('scroll_event', self.scroll_ColorBar)
+        
 
         
         
@@ -641,6 +788,28 @@ class mainWindow(QMainWindow):
                 self.status_text.setText('({:d},{:d}) {}'.format(col,row,self.image[row,col]))
                 
                 
+    def scroll_ColorBar(self,event):
+        if event.inaxes is self.fig.cbar.ax:
+            stepSize = 0.1  #fractional change in the colorbar scale
+            if event.button == 'up':
+                self.cbarLimits[1] *= (1 + stepSize)   #increment by step size
+                self.fig.cbar.set_clim(self.cbarLimits[0],self.cbarLimits[1])
+                self.fig.cbar.draw_all()
+                self.ax1.imshow(self.image,interpolation='none',vmin = self.cbarLimits[0],vmax = self.cbarLimits[1])
+            elif event.button == 'down':
+                self.cbarLimits[1] *= (1 - stepSize)   #increment by step size
+                self.fig.cbar.set_clim(self.cbarLimits[0],self.cbarLimits[1])
+                self.fig.cbar.draw_all()
+                self.ax1.imshow(self.image,interpolation='none',vmin = self.cbarLimits[0],vmax = self.cbarLimits[1])
+                
+            else:
+                pass
+                
+        self.draw()
+        
+        
+                
+                
     def mousePressed(self,event):
 #        print('\nclick event registered!\n')
         if event.inaxes is self.ax1:  #check if the mouse-click was within the axes. 
@@ -658,8 +827,17 @@ class mainWindow(QMainWindow):
             elif event.button == 3:
                 print('\nit was the right button that was pressed!\n')
                 
+                
+        elif event.inaxes is self.fig.cbar.ax:   #reset the scale bar       
+            if event.button == 1:
+                self.cbarLimits = np.array([np.amin(self.image),np.amax(self.image)])
+                self.fig.cbar.set_clim(self.cbarLimits[0],self.cbarLimits[1])
+                self.fig.cbar.draw_all()
+                self.ax1.imshow(self.image,interpolation='none',vmin = self.cbarLimits[0],vmax = self.cbarLimits[1])
+                self.draw()
         else:
-            return
+            pass
+        
 
                 
                 
