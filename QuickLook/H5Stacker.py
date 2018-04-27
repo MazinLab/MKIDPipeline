@@ -78,7 +78,7 @@ h5dir = str(configData['h5dir'])
 outputDir = str(configData['outputDir'])
 outfileName=str(configData['outfileName'])
 
-ObsFNList =glob.glob(h5dir+'*.h5')  
+ObsFNList =glob.glob(h5dir+'15*.h5')  
 
 rawImgs=[]
 roughShiftsX=[]
@@ -120,6 +120,8 @@ for i in range(nPos):
            img = obsfile.getPixelCountImage(firstSec =0, integrationTime=intTime,applyWeight=False,flagToUse = 0,wvlRange = None)
            print('Running getPixelCountImage on ',firstSec,'seconds to ',intTime,'seconds of data on all wavelengths')
         processedIm = np.transpose(img['image'])/intTime
+        print(np.shape(processedIm))
+        processedIm=processedIm[50:124, 0:80]
 
         roughShiftsX.append(dXs[i])
         roughShiftsY.append(dYs[i])
@@ -138,6 +140,8 @@ for i in range(nPos):
 
         #pad frame with margin for shifting and stacking
         paddedFrame = irUtils.embedInLargerArray(processedIm,frameSize=padFraction)
+        outfile=h5dir+outfileName+str(i)
+        np.save(outfile, paddedFrame)
 
         #apply rough dX and dY shift to frame
         print("Shifting dither %i, frame %i by x=%i, y=%i"%(i,0,dXs[i], dYs[i]))
@@ -160,5 +164,5 @@ shiftedFrames = np.array(ditherFrames)
 finalImage = irUtils.medianStack(shiftedFrames)
 
 plotArray(finalImage,title='final',origin='upper')
-outfile=h5dir+outfileName
+outfile=h5dir+outfileName+'Aligned'
 np.save(outfile, finalImage)
