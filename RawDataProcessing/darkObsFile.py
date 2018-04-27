@@ -1879,26 +1879,26 @@ class ObsFile:
                            
                 if calarray:
                      calweights = np.average(calarray,axis=0)
-                     if iPlot % nPlotsPerPage == 0:
-                        fig = plt.figure(figsize=(10,10),dpi=100)
-                     ax = fig.add_subplot(nPlotsPerCol,nPlotsPerRow,iPlot%nPlotsPerPage+1)
-                     ax.set_ylim(0,5)
-                     ax.set_xlim(minwavelength,maxwavelength)
-                     for i in range(len(weightarray)):
-                         ax.plot(bins,weightarray[i],'-',label='weights')
-                         ax.errorbar(bins,weightarray[i],yerr=weightarrayUncertainty[i],label='weights')
-                     ax.plot(phases, calweights, '.', markersize=5)
-                     ax.set_title('p %d,%d'%(row,column))
-                     ax.set_ylabel('weight')
-                     #ax.set_xlabel(r'$\lambda$ ($\AA$)')
                      self.applySpecWeight(resID=resID, weightArr=calweights)
                      if verbose:
                         print('CALWEIGHTS', calweights)
                         print('resID', resID, 'row', row, 'column', column)
-                     if iPlot%nPlotsPerPage == nPlotsPerPage-1 or (row == self.nXPix-1 and column == self.nYPix-1):
-                        pp.savefig(fig)
-                     #plt.show()
-                     iPlot += 1
+                        if iPlot % nPlotsPerPage == 0:
+                           fig = plt.figure(figsize=(10,10),dpi=100)
+                        ax = fig.add_subplot(nPlotsPerCol,nPlotsPerRow,iPlot%nPlotsPerPage+1)
+                        ax.set_ylim(0,5)
+                        ax.set_xlim(minwavelength,maxwavelength)
+                        for i in range(len(weightarray)):
+                            ax.plot(bins,weightarray[i],'-',label='weights')
+                            ax.errorbar(bins,weightarray[i],yerr=weightarrayUncertainty[i],label='weights')
+                        ax.plot(phases, calweights, '.', markersize=5)
+                        ax.set_title('p %d,%d'%(row,column))
+                        ax.set_ylabel('weight')
+                        #ax.set_xlabel(r'$\lambda$ ($\AA$)')
+
+                        if iPlot%nPlotsPerPage == nPlotsPerPage-1 or (row == self.nXPix-1 and column == self.nYPix-1):
+                           pp.savefig(fig)
+                        iPlot += 1
         pp.close()
         self.modifyHeaderEntry(headerTitle='isSpecCalibrated', headerValue=True)
 
