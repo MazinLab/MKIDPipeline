@@ -11,12 +11,13 @@ import numpy as np
 
 from scipy.signal import convolve
 from scipy.interpolate import griddata
-from scipy.misc import factorial
+from scipy.special import factorial
 from scipy.optimize.minpack import curve_fit
 from scipy import ndimage
 from scipy import signal
 from scipy import special
 from scipy.stats import rv_continuous
+from mpmath import mp, hyp1f1
 
 from statsmodels.tsa.stattools import acovf
 from statsmodels.stats.diagnostic import *
@@ -27,7 +28,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from functools import partial
-from .arrayPopup import plotArray
+#from .arrayPopup import plotArray
 
 
 def modifiedRician(I, Ic, Is):
@@ -131,6 +132,39 @@ def fitExponential(x,y,guessLam,guessTau,guessf0):
     params, cov = curve_fit(ef, x, y, p0=e_guess, maxfev=2000)
     return params[0], params[1], params[2] #params = [lambda, tau, f0]
 
+def blurredMR1(x,Ic,Is):
+    w = modifiedRician(x, Ic, Is)   #these are the weights
+    f = np.zeros(len(x))    #initialize empty array that we will fill with numbers later
+    
+#    plt.figure(3)
+#    for mu in range(len(x)):
+#        p = poisson(x,mu)     #poisson(I,mu)    
+#        f[mu] = np.sum(w*p)
+##        plt.figure(2)
+#        plt.plot(p*w[mu])
+#    
+##    plt.figure(1)
+#    return f
+
+    pmatrix = np.zeros((len(x),len(x)))
+#    plt.figure(2)
+    for mu in range(len(x)):
+        #make a matrix where the rows are weighted poissons
+        pmatrix[mu,:] = poisson(x,mu) * w[mu]
+#        plt.plot(pmatrix[mu,:] * w[mu])
+    f = np.sum(pmatrix,0)  #the first element of f is the sum of the elements of the first column of pmatrix
+#    plt.figure(1)
+    return f
+
+
+def blurredMR2(x,Ic,Is):
+    p = np.zeros(len(x))
+    for ii in x:
+        p[ii] = 1/(Is + 1)*(1 + 1/Is)**(-ii)*np.exp(-Ic/Is)*hyp1f1(float(x[ii]) + 1,1,Ic/(Is**2 + Is))
+    return p
+
+
+
 class mr_gen(rv_continuous):
     '''
     Modified Rician distribution for drawing random variates
@@ -144,16 +178,93 @@ class mr_gen(rv_continuous):
 
 
 if __name__ == '__main__':
-    x = np.arange(200)/100.
-    mr = modifiedRician(x,0.5,0.1)
-    p = poisson(x,1.0)
-    g = gaussian(x,1.0,0.3)
-    c = np.convolve(mr,g,'same')
-    plt.plot(x,mr,label="MR")
-    plt.plot(x,p,label="Poisson")
-    plt.plot(x,g,label="Gaussian")
-    plt.plot(x,c/np.max(c),label="MR x G")
+    x = np.arange(10)
+    Ic = 2.25
+    Is = 0.1
+    mu = Ic+Is
+    mr = modifiedRician(x,Ic,Is)
+    
+    plt.figure(1)
+#    plt.plot(x,mr,'r.-',label="MR")
+    
+    y = np.arange(20)
+    p1 = poisson(x,mu)
+#    plt.plot(x,p1,'b.-',label='poisson')
+
+#    c1 = np.convolve(p1,mr,'full')
+#    print('len(c1) = ',len(c1))
+#    plt.plot(np.arange(len(c1)),c1,'.-',label="MR * P")
+    
+#    blurredMR1 = np.zeros(len(p1))
+#    for ii in range(len(p1)):
+#        weight = mr[ii]
+#        print('weight is: ', weight)
+#        blurredMR1 += (weight*poisson(x,x[ii]))
+#    
+#    blurredMR1 /= np.sum(blurredMR1)
+#        
+#    plt.plot(x,blurredMR1,'k.-',label='blurredMR1')
+    
+    #plt.plot(x,blurredMR1(x,Ic,Is),'k.-',label='blurred MR1')  
+
+
+    Ic = 0
+    Is = 0.1
+    plt.plot(x,blurredMR2(x,Ic,Is),'r.-',label=r'I$_c$ = {:.2f}, I$_s$ = 0.1'.format(Ic)) 
+    
+    Ic = .25
+    Is = 0.1
+    plt.plot(x,blurredMR2(x,Ic,Is),'c.-',label=r'I$_c$ = {:.2f}, I$_s$ = 0.1'.format(Ic)) 
+    
+    Ic = 1
+    Is = 0.1
+    plt.plot(x,blurredMR2(x,Ic,Is),'k.-',label=r'I$_c$ = {:.2f}, I$_s$ = 0.1'.format(Ic)) 
+
+    Ic = 2.25
+    Is = 0.1
+    plt.plot(x,blurredMR2(x,Ic,Is),'b.-',label=r'I$_c$ = {:.2f}, I$_s$ = 0.1'.format(Ic)) 
+    plt.xlabel('n [number of photons]')
+    plt.ylabel('probability')
+    plt.title('blurred modified rician')
+    
+    
+#    y = np.arange(50)/25.
+#    p2 = poisson(y,1.0)
+#
+#    c2 = np.convolve(mr,p2,'same')
+#    plt.plot(x,c2/np.max(c2),'.-',label="len(poisson) = 100")
+#    
+#    z = np.arange(10)/5.
+#    p3 = poisson(z,1.0)
+#
+#    c3 = np.convolve(mr,p3,'same')
+#    plt.plot(x,c3/np.max(c3),'.-',label="len(poisson) = 10")
+    
+    #plt.plot(x,mr,label="MR")
+    #plt.plot(x,p,label="Poisson")
+    #plt.plot(x,g,label="Gaussian")
+#    plt.plot(x,c/np.max(c),label="MR x G")
     plt.legend()
     plt.show()
+    
+#    plt.figure(2)
+#    plt.plot(x,p1,'.-',label = "len(p1) = 200")
+#    plt.plot(y,p2,'.-',label = "len(p1) = 100")
+#    plt.plot(z,p3,'.-',label = "len(p1) = 10")
+#    plt.legend()
+#    plt.show()
 
 
+
+  #seth's code:
+#    x = np.arange(200)/100.
+#    mr = modifiedRician(x,0.5,0.1)
+#    p = poisson(x,1.0)
+#    g = gaussian(x,1.0,0.3)
+#    c = np.convolve(mr,g,'same')
+#    plt.plot(x,mr,label="MR")
+#    plt.plot(x,p,label="Poisson")
+#    plt.plot(x,g,label="Gaussian")
+#    plt.plot(x,c/np.max(c),label="MR x G")
+#    plt.legend()
+#    plt.show()
