@@ -29,8 +29,8 @@ def lightCurve(times, shortExposure=0.01, start=None, stop=None):
         startTime=int(start)
 
     duration = endTime-startTime
-    print histIntTime
-    print "N_bins = %f"%((endTime-startTime)/histIntTime)
+    print(histIntTime)
+    print("N_bins = %f"%((endTime-startTime)/histIntTime))
     histBinEdges = np.arange(startTime,endTime,histIntTime)
     hists = []
     if histBinEdges[-1]+histIntTime == endTime:
@@ -69,22 +69,22 @@ def simulatedLightcurve(pdf = None, shortExposure = 0.01, totalIntegration = 300
         Ic = mean - Is
         sigma = np.nan
         mr = pdfs.mr_gen(a=lowerBound) # a is lower bound of distribution that rvs allowed to come from!!!!
-        print "Drawing %i values from MR PDF..."%n   
+        print("Drawing %i values from MR PDF..."%n)   
         rvs = mr.rvs(Ic=Ic, Is=Is, size=n)
     
     elif pdf in ('poisson','Poisson','Pois','pois','psn'):
         ratio = np.nan
         sigma = np.nan
-        print "Drawing %i values from Poisson PDF..."%n
+        print("Drawing %i values from Poisson PDF..."%n)
         rvs = np.random.poisson(lam=mean,size=n)
 
     elif pdf in ('Gaussian','gaussian','gauss','Gauss','gsn'):
         ratio = np.nan
-        print "Drawing %i values from Gaussian PDF..."%n
+        print("Drawing %i values from Gaussian PDF..."%n)
         rvs = np.random.normal(loc=mean, scale=sigma, size=n)
 
     else:
-        print "Only MR, Poisson, and Gaussian PDFs currently implemented"
+        print("Only MR, Poisson, and Gaussian PDFs currently implemented")
         rvs = np.zeros(len(t))
 
     return {"time":t, "intensity":rvs, "pdf":pdf, "mean":mean, "ratio":ratio, "sigma":sigma}

@@ -64,7 +64,9 @@ beamMapFlags = {
 
 #Flags stored in HDF5 file. Works as a bitmask to allow for multiple flags
 h5FileFlags = {
-               'good':0b00000000,               #No flagging
-               'beamMapFailed':0b00000001,      #Bad beammap
-               'waveCalFailed':0b00000010       #No wavecal solution
+               'good':0b00000000,               #No flags!
+               'noDacTone':0b00000001,          #pixel not given a DAC tone in readout
+               'beamMapFailed':0b00000010,      #Bad beammap
+               'waveCalFailed':0b00000100,      #No wavecal solution
+               'flatCalFailed':0b00001000       #No flatcal solution
                }
