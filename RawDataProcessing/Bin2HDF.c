@@ -207,6 +207,7 @@ void ParseBeamMapFile(char *BeamFile, uint32_t **BeamMap, uint32_t **BeamFlag)
 {
     // read in Beam Map file
     // format is [ResID, flag, X, Y], X is [0, 79], Y is [0, 124]
+    // flags are [0,1,2+] --> [good, noDacTone, failed Beammap]
 
     FILE *fp;
     int ret, resid, flag, x, y;
@@ -216,10 +217,10 @@ void ParseBeamMapFile(char *BeamFile, uint32_t **BeamMap, uint32_t **BeamFlag)
         ret = fscanf(fp,"%d %d %d %d\n", &resid, &flag, &x, &y);
         //printf("%d %d %d %d\n", resid, flag, x, y);
         BeamMap[x][y] = resid;
-        if(flag>0)
-            BeamFlag[x][y] = 1;
+        if(flag>1)
+            BeamFlag[x][y] = 2;
         else
-            BeamFlag[x][y] = 0;
+            BeamFlag[x][y] = flag;
     } while ( ret == 4);
     fclose(fp);
 }

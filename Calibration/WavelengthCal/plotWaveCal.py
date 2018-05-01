@@ -344,8 +344,6 @@ def plotRHistogram(file_name, mask=None, axis=None):
     if axis is None:
         fig, axis = plt.subplots()
         show = True
-    axis.set_xlabel(r'R [E/$\Delta$E]')
-    axis.set_ylabel('counts')
     cmap = cm.get_cmap('viridis')
     if len(wavelengths) >= 10:
         Z = [[0, 0], [0, 0]]
@@ -374,6 +372,9 @@ def plotRHistogram(file_name, mask=None, axis=None):
         max_counts.append(np.max(counts))
     if np.max(max_counts) != 0:
         axis.set_ylim([0, 1.2 * np.max(max_counts)])
+
+    axis.set_xlabel(r'R [E/$\Delta$E]')
+    axis.set_ylabel('counts')
     plt.tight_layout()
     if len(wavelengths) < 10:
         axis.legend(fontsize=6)
@@ -401,6 +402,7 @@ def plotRvsF(file_name, config_name, axis=None, verbose=True):
     wave_cal = tb.open_file(file_name, mode='r')
     wavelengths = wave_cal.root.header.wavelengths.read()[0]
     calsoln = wave_cal.root.wavecal.calsoln.read()
+    wave_flag = calsoln["wave_flag"]
     R0 = calsoln['R']
     R0[R0 == -1] = np.nan
     with warnings.catch_warnings():
@@ -412,7 +414,8 @@ def plotRvsF(file_name, config_name, axis=None, verbose=True):
     r0 = []
     for id_index, id_ in enumerate(res_id):
         index = np.where(id_ == freqs[:, 0])
-        if len(index[0]) == 1 and not np.isnan(R[id_index]):
+        good_fit = np.logical_or(wave_flag == 4, wave_flag == 5)
+        if len(index[0]) == 1 and not np.isnan(R[id_index]) and good_fit[id_index]:
             f.append(freqs[index, 1])
             r0.append(R[id_index])
     f = np.ndarray.flatten(np.array(f))
@@ -495,7 +498,7 @@ def plotCenterHist(file_name, mask=None, axis=None):
         hist_flag = debug["hist_flag"][:, index]
         wave_flag = calsoln["wave_flag"]
         condition = np.logical_and(hist_flag == 0, np.logical_or(wave_flag == 4,
-                                   np.logical_or(wave_flag == 5, wave_flag == 9)))
+                                                                 wave_flag == 5))
         centers = centers[condition]
         counts, edges = np.histogram(centers, bins=30, range=(-150, -20))
         bws = np.diff(edges)

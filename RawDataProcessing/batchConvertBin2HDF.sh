@@ -24,7 +24,7 @@ OUTPATH=`awk 'NR==7' $CFGFILE`
 
 TLEN=${#TS[@]}
 
-rm batch.cfg >batch.log 2>&1
+rm tmp.cfg >batch.log 2>&1
 
 for ((i=0; i<${TLEN}; i++));
 do
