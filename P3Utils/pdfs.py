@@ -28,11 +28,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from functools import partial
-<<<<<<< HEAD
-#from .arrayPopup import plotArray
-=======
 from arrayPopup import plotArray
->>>>>>> 266785650943e28269f6128cf901383166a21c31
+
 
 
 def modifiedRician(I, Ic, Is):
