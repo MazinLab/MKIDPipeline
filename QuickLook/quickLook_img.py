@@ -60,17 +60,20 @@ class mainWindow(QMainWindow):
                
         self.imgPath = os.path.dirname(filename)        
         fileListRaw = []
-        timeStampList = np.zeros(len(os.listdir(self.imgPath)))
+        timeStampList = np.array([])
         ii = 0
         for file in os.listdir(self.imgPath):
             if file.endswith(".img"):
                 fileListRaw = fileListRaw + [os.path.join(self.imgPath, file)]
-                timeStampList[ii] = np.fromstring(file[:-4],dtype=int, sep=' ')[0]
+                timeStampList = np.append(timeStampList,np.fromstring(file[:-4],dtype=int, sep=' ')[0])
             else:
                 continue
             ii+=1
         self.fileListRaw = fileListRaw
         self.timeStampList = timeStampList
+        
+        print(fileListRaw[-1])
+        print(fileListRaw[-2])
 
         
 
