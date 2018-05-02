@@ -24,12 +24,7 @@ import sys,os
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import QObject, pyqtSignal
-#import darkObsFile
-#from scipy.optimize import curve_fit
 import os.path
-#import lightCurves as lc
-#import pdfs
-#from scipy.special import factorial
 import datetime
 
 
@@ -61,15 +56,9 @@ class mainWindow(QMainWindow):
         
 
     def loadFilenames(self,filename):
-        
-        
         print('\nloading img filenames')
-        
-        
-        self.imgPath = os.path.dirname(filename)
-        
-#        print(self.imgPath)
-        
+               
+        self.imgPath = os.path.dirname(filename)        
         fileListRaw = []
         timeStampList = np.zeros(len(os.listdir(self.imgPath)))
         ii = 0
@@ -87,7 +76,6 @@ class mainWindow(QMainWindow):
 
 
         #load the log filenames
-        
         print('\nloading log filenames')
         logFilenameList_all = os.listdir(os.environ['MKID_DATA_DIR'])
         logFilenameList = []
@@ -100,13 +88,10 @@ class mainWindow(QMainWindow):
                 continue
             elif logFilename.endswith(".log"):
                 logFilenameList.append(logFilename)
-#                print(logFilename)
-#                print(logFilename[:10])
                 logTimestampList.append(np.fromstring(logFilename[:10],dtype=int, sep=' ')[0])
                 
         
         self.logTimestampList = np.asarray(logTimestampList)
-        #print('\n\nself.logTimestampList is ')
         self.logFilenameList = logFilenameList
 
         
@@ -120,28 +105,16 @@ class mainWindow(QMainWindow):
         self.spinbox_darkStart.setValue(np.fromstring(os.path.basename(filename)[:-4],dtype=int, sep=' ')[0])
         
 
-
-        
-        
-        
-        
-
         
         
     def plotImage(self,filename = None):        
         
         if filename == None:
-            filename = self.fileListRaw[np.where(self.timeStampList==self.spinbox_imgTimestamp.value())[0][0]]
-        
+            filename = self.fileListRaw[np.where(self.timeStampList==self.spinbox_imgTimestamp.value())[0][0]]      
 
-        self.ax1.clear()  
+        self.ax1.clear()         
         
-        
-        self.rawImage = np.transpose(np.reshape(np.fromfile(open(filename, mode='rb'),dtype=np.uint16), (self.nCol,self.nRow)))
-#        self.cleanedImage = self.image
-#        self.cleanedImage[np.where(self.cleanedImage>self.hotPixCut)] = 0
-#        self.ax1.imshow(self.cleanedImage)
-        
+        self.rawImage = np.transpose(np.reshape(np.fromfile(open(filename, mode='rb'),dtype=np.uint16), (self.nCol,self.nRow)))        
         
         if self.checkbox_darkSubtract.isChecked():
             self.cleanedImage = self.rawImage - self.darkFrame
@@ -173,16 +146,6 @@ class mainWindow(QMainWindow):
         #get an average dark from darkStart to darkStart + darkIntTime
         darkIntTime = self.spinbox_darkIntTime.value()
         darkFrame = np.zeros(darkIntTime*self.nRow*self.nCol).reshape((darkIntTime,self.nRow,self.nCol))
-        
-        
-#        darkFrame = np.zeros(self.nRow*self.nCol).reshape((self.nRow,self.nCol))
-#        for ii in range(darkIntTime):
-#            darkFrameFilename = self.fileListRaw[np.where(self.timeStampList==(self.spinbox_darkStart.value()+ii))[0][0]]
-#            darkFrame += np.transpose(np.reshape(np.fromfile(open(darkFrameFilename, mode='rb'),dtype=np.uint16), (self.nCol,self.nRow)))
-#
-#        self.darkFrame = darkFrame/ii
-#        print(self.darkFrame)
-        
         
         for ii in range(darkIntTime):
             darkFrameFilename = self.fileListRaw[np.where(self.timeStampList==(self.spinbox_darkStart.value()+ii))[0][0]]
@@ -249,7 +212,7 @@ class mainWindow(QMainWindow):
         self.spinbox_darkStart = QSpinBox()
         self.spinbox_darkStart.valueChanged.connect(self.getDarkFrame)
         self.spinbox_darkIntTime = QSpinBox()
-                #set up the limits and initial value of the darkIntTime
+        #set up the limits and initial value of the darkIntTime
         self.spinbox_darkIntTime.setMinimum(1)
         self.spinbox_darkIntTime.setMaximum(1000)
         self.spinbox_darkIntTime.setValue(10)
@@ -326,14 +289,6 @@ class mainWindow(QMainWindow):
         vbox_darkTimes.addLayout(hbox_darkIntTime)
         vbox_darkTimes.addLayout(hbox_darkSubtract)
         vbox_darkTimes.addLayout(hbox_autoscale)
-        
-        
-        
-        #hbox_imgTimestamp.addWidget(self.checkbox_colorbar_auto)    #we can add these later
-        #hbox_imgTimestamp.addWidget(label_checkbox_colorbar_auto)
-#        hbox_imgTimestamp.addWidget(self.label_log)
-
-#        hbox_imgTimestamp.addWidget(button_quickLoad) #################################################
         
         hbox_controls = QHBoxLayout()
         hbox_controls.addLayout(vbox_imgTimestamp)
@@ -453,8 +408,6 @@ class mainWindow(QMainWindow):
         # https://pythonspot.com/pyqt5-file-dialog/
         
         filename, _ = QFileDialog.getOpenFileName(self, 'Select One File', os.environ['MKID_IMG_DIR'],filter = '*.img')
-        
-#        filename, _ = QFileDialog.getOpenFileName(self, 'Select One File', '/Users/clint/Documents/mazinlab/ScienceDataIMGs/PAL2017b/20171004',filter = '*.img')
 
         self.filename = filename
         self.loadFilenames(self.filename)
