@@ -114,37 +114,81 @@ class mainWindow(QMainWindow):
         self.spinbox_imgTimestamp.setMinimum(timeStampList[0])
         self.spinbox_imgTimestamp.setMaximum(timeStampList[-1])
         self.spinbox_imgTimestamp.setValue(np.fromstring(os.path.basename(filename)[:-4],dtype=int, sep=' ')[0])
+        
+        self.spinbox_darkStart.setMinimum(timeStampList[0])
+        self.spinbox_darkStart.setMaximum(timeStampList[-10])
+        self.spinbox_darkStart.setValue(np.fromstring(os.path.basename(filename)[:-4],dtype=int, sep=' ')[0])
+        
+
 
         
         
         
         
-        
+
         
         
     def plotImage(self,filename = None):        
         
         if filename == None:
-            filename = self.fileListRaw[np.where(self.timeStampList==self.spinbox_imgTimestamp.value())]
+            filename = self.fileListRaw[np.where(self.timeStampList==self.spinbox_imgTimestamp.value())[0][0]]
         
 
         self.ax1.clear()  
         
         
-        self.image = np.transpose(np.reshape(np.fromfile(open(filename, mode='rb'),dtype=np.uint16), (self.nCol,self.nRow)))
-        self.cleanedImage = self.image
-        self.cleanedImage[np.where(self.cleanedImage>self.hotPixCut)] = 0
-        self.ax1.imshow(self.cleanedImage)
+        self.rawImage = np.transpose(np.reshape(np.fromfile(open(filename, mode='rb'),dtype=np.uint16), (self.nCol,self.nRow)))
+#        self.cleanedImage = self.image
+#        self.cleanedImage[np.where(self.cleanedImage>self.hotPixCut)] = 0
+#        self.ax1.imshow(self.cleanedImage)
         
         
+        if self.checkbox_darkSubtract.isChecked():
+            self.cleanedImage = self.rawImage - self.darkFrame
+            self.cleanedImage[np.where(self.cleanedImage<0)] = 0
+            
+        else:
+            self.cleanedImage = self.rawImage
+        
+        #colorbar auto
         if self.checkbox_colorbar_auto.isChecked():
             self.cbarLimits = np.array([0,np.amax(self.image)])
             self.fig.cbar.set_clim(self.cbarLimits[0],self.cbarLimits[1])
             self.fig.cbar.draw_all()
-
+        else:
+            self.cbarLimits = np.array([0,self.spinbox_colorBarMax.value()])
+            self.fig.cbar.set_clim(self.cbarLimits[0],self.cbarLimits[1])
+            self.fig.cbar.draw_all()
+                  
+        self.cleanedImage[np.where(self.cleanedImage>self.hotPixCut)] = 0
+        self.image = self.cleanedImage
+        self.ax1.imshow(self.image,vmin = self.cbarLimits[0],vmax = self.cbarLimits[1])
+        
+        
         self.draw()
         
         
+
+    def getDarkFrame(self):
+        #get an average dark from darkStart to darkStart + darkIntTime
+        darkIntTime = self.spinbox_darkIntTime.value()
+        darkFrame = np.zeros(darkIntTime*self.nRow*self.nCol).reshape((darkIntTime,self.nRow,self.nCol))
+        
+        
+#        darkFrame = np.zeros(self.nRow*self.nCol).reshape((self.nRow,self.nCol))
+#        for ii in range(darkIntTime):
+#            darkFrameFilename = self.fileListRaw[np.where(self.timeStampList==(self.spinbox_darkStart.value()+ii))[0][0]]
+#            darkFrame += np.transpose(np.reshape(np.fromfile(open(darkFrameFilename, mode='rb'),dtype=np.uint16), (self.nCol,self.nRow)))
+#
+#        self.darkFrame = darkFrame/ii
+#        print(self.darkFrame)
+        
+        
+        for ii in range(darkIntTime):
+            darkFrameFilename = self.fileListRaw[np.where(self.timeStampList==(self.spinbox_darkStart.value()+ii))[0][0]]
+            darkFrame[ii] = np.transpose(np.reshape(np.fromfile(open(darkFrameFilename, mode='rb'),dtype=np.uint16), (self.nCol,self.nRow)))
+
+        self.darkFrame = np.median(darkFrame,axis=0)
 
         
         
@@ -201,16 +245,45 @@ class mainWindow(QMainWindow):
         self.spinbox_imgTimestamp = QSpinBox()
         self.spinbox_imgTimestamp.valueChanged.connect(self.spinBoxValueChange)
         
+        #spinboxes for specifying dark frames
+        self.spinbox_darkStart = QSpinBox()
+        self.spinbox_darkStart.valueChanged.connect(self.getDarkFrame)
+        self.spinbox_darkIntTime = QSpinBox()
+                #set up the limits and initial value of the darkIntTime
+        self.spinbox_darkIntTime.setMinimum(1)
+        self.spinbox_darkIntTime.setMaximum(1000)
+        self.spinbox_darkIntTime.setValue(10)
+        self.spinbox_darkIntTime.valueChanged.connect(self.getDarkFrame)
+        
+
+        
         
         #labels for the start/stop time spinboxes
         label_imgTimestamp = QLabel('IMG timestamp')
+        label_darkStart = QLabel('dark Start')
+        label_darkIntTime = QLabel('dark int time [s]')
         
         
         #make a checkbox for the colorbar autoscale
         self.checkbox_colorbar_auto = QCheckBox()
-        self.checkbox_colorbar_auto.setChecked(True)
+        self.checkbox_colorbar_auto.setChecked(False)
+        self.checkbox_colorbar_auto.stateChanged.connect(self.spinBoxValueChange)
         
         label_checkbox_colorbar_auto = QLabel('Auto colorbar')
+        
+        self.spinbox_colorBarMax = QSpinBox()
+        self.spinbox_colorBarMax.setRange(1,2500)
+        self.spinbox_colorBarMax.setValue(2000)
+        self.spinbox_colorBarMax.valueChanged.connect(self.spinBoxValueChange)
+        
+        
+        #make a checkbox for the dark subtract
+        self.checkbox_darkSubtract = QCheckBox()
+        self.checkbox_darkSubtract.setChecked(False)
+        self.checkbox_darkSubtract.stateChanged.connect(self.spinBoxValueChange)
+        
+        #make a label for the dark subtract checkbox
+        label_darkSubtract = QLabel('dark subtract')
         
         
         #make a label for the logs
@@ -221,25 +294,59 @@ class mainWindow(QMainWindow):
         vbox_plot = QVBoxLayout()
         vbox_plot.addWidget(self.canvas)
         
-        #create a v box for the spinboxes
-        hbox_imgTimestamp = QHBoxLayout()
-        hbox_imgTimestamp.addWidget(label_imgTimestamp)
-        hbox_imgTimestamp.addWidget(self.spinbox_imgTimestamp)
+        #create a v box for the timestamp spinbox
+        vbox_imgTimestamp = QVBoxLayout()
+        vbox_imgTimestamp.addWidget(label_imgTimestamp)
+        vbox_imgTimestamp.addWidget(self.spinbox_imgTimestamp)
 
-#        hbox_imgTimestamp.addStretch(1)
+        #make an hbox for the dark start
+        hbox_darkStart = QHBoxLayout()
+        hbox_darkStart.addWidget(label_darkStart)
+        hbox_darkStart.addWidget(self.spinbox_darkStart)
+        
+        #make an hbox for the dark integration time
+        hbox_darkIntTime = QHBoxLayout()
+        hbox_darkIntTime.addWidget(label_darkIntTime)
+        hbox_darkIntTime.addWidget(self.spinbox_darkIntTime)
+        
+        #make an hbox for the dark subtract checkbox
+        hbox_darkSubtract = QHBoxLayout()
+        hbox_darkSubtract.addWidget(label_darkSubtract)
+        hbox_darkSubtract.addWidget(self.checkbox_darkSubtract)
+        
+        #make a vbox for the autoscale colorbar
+        hbox_autoscale = QHBoxLayout()
+        hbox_autoscale.addWidget(label_checkbox_colorbar_auto)
+        hbox_autoscale.addWidget(self.checkbox_colorbar_auto)
+        hbox_autoscale.addWidget(self.spinbox_colorBarMax)
+        
+        #make a vbox for dark times
+        vbox_darkTimes = QVBoxLayout()
+        vbox_darkTimes.addLayout(hbox_darkStart)
+        vbox_darkTimes.addLayout(hbox_darkIntTime)
+        vbox_darkTimes.addLayout(hbox_darkSubtract)
+        vbox_darkTimes.addLayout(hbox_autoscale)
+        
+        
         
         #hbox_imgTimestamp.addWidget(self.checkbox_colorbar_auto)    #we can add these later
         #hbox_imgTimestamp.addWidget(label_checkbox_colorbar_auto)
-        hbox_imgTimestamp.addWidget(self.label_log)
+#        hbox_imgTimestamp.addWidget(self.label_log)
 
 #        hbox_imgTimestamp.addWidget(button_quickLoad) #################################################
         
+        hbox_controls = QHBoxLayout()
+        hbox_controls.addLayout(vbox_imgTimestamp)
+        hbox_controls.addLayout(vbox_darkTimes)
+        hbox_controls.addWidget(self.label_log)
+
 
         
         #Now create another vbox, and add the plot vbox and the button's hbox to the new vbox.
         vbox_combined = QVBoxLayout()
         vbox_combined.addLayout(vbox_plot)
-        vbox_combined.addLayout(hbox_imgTimestamp)
+#        vbox_combined.addLayout(hbox_imgTimestamp)
+        vbox_combined.addLayout(hbox_controls)
         
         #Set the main_frame's layout to be vbox_combined
         self.main_frame.setLayout(vbox_combined)
@@ -263,6 +370,8 @@ class mainWindow(QMainWindow):
         else:
             self.plotImage(filename)
             self.updateLogLabel()
+            
+        self.draw()
         
 
 
