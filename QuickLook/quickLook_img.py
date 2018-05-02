@@ -407,7 +407,13 @@ class mainWindow(QMainWindow):
         # look at this website for useful examples
         # https://pythonspot.com/pyqt5-file-dialog/
         
-        filename, _ = QFileDialog.getOpenFileName(self, 'Select One File', os.environ['MKID_IMG_DIR'],filter = '*.img')
+        try:
+            filename, _ = QFileDialog.getOpenFileName(self, 'Select One File', os.environ['MKID_IMG_DIR'],filter = '*.img')
+        except:
+            filename, _ = QFileDialog.getOpenFileName(self, 'Select One File', '/',filter = '*.img')
+                
+        
+        
 
         self.filename = filename
         self.loadFilenames(self.filename)
