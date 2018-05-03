@@ -148,7 +148,7 @@ class subWindow(QMainWindow):
         
         else:
             photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlRange = (self.spinbox_startLambda.value(),self.spinbox_stopLambda.value()))
-            
+        
         return photonList
             
             
@@ -287,13 +287,12 @@ class intensityHistogram(subWindow):
             Ic = popt[0]
             Is = popt[1]
             
-            self.ax.plot(np.arange(self.Nbins, step=sstep),pdfs.modifiedRician(np.arange(self.Nbins, step=sstep),Ic,Is),'.-r',label = 'MR from numpy.curve_fit')
+#            self.ax.plot(np.arange(self.Nbins, step=sstep),pdfs.modifiedRician(np.arange(self.Nbins, step=sstep),Ic,Is),'.-r',label = 'MR from numpy.curve_fit')
             
             self.ax.set_title('pixel ({},{})  Ic = {:.2f}, Is = {:.2f}, Ic/Is = {:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic,Is,Ic/Is))
             
             mu = np.mean(self.lightCurveIntensityCounts)
-            var = np.var(self.lightCurveIntensityCounts)  #add fudge factor here :P
-            #print('\nmu and var are {:.2f} and {:.2f}\n'.format(mu,var))
+            var = np.var(self.lightCurveIntensityCounts)  
             
             k = np.arange(self.Nbins)
             poisson= np.exp(-mu)*np.power(mu,k)/factorial(k)
@@ -301,9 +300,10 @@ class intensityHistogram(subWindow):
             
             Ic_final,Is_final = self.fitBlurredMR(self.bins,self.intensityHist)
             
-            self.ax.plot(np.arange(self.Nbins, step=sstep),pdfs.blurredMR2(np.arange(self.Nbins, step=sstep),Ic_final,Is_final),'.-k',label = 'blurred MR')
-#            self.ax.set_title('pixel ({},{})  Ic = {:.2f}, Is = {:.2f}, Ic/Is = {:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic_final,Is_final,Ic_final/Is_final))
-            self.ax.set_title('pixel ({},{})  Ic,Ic_f = {:.2f},{:.2f}, Is,Is_f = {:.2f},{:.2f}, Ic/Is, Ic_f/Is_f = {:.2f},{:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic,Ic_final,Is,Is_final,Ic/Is,Ic_final/Is_final))
+            self.ax.plot(np.arange(self.Nbins, step=sstep),pdfs.blurredMR2(np.arange(self.Nbins, step=sstep),Ic_final,Is_final),'.-k',label = 'blurred MR from curve_fit')
+            
+            self.ax.set_title('pixel ({},{})  Ic = {:.2f}, Is = {:.2f}, Ic/Is = {:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic_final,Is_final,Ic_final/Is_final))
+#            self.ax.set_title('pixel ({},{})  Ic,Ic_f = {:.2f},{:.2f}, Is,Is_f = {:.2f},{:.2f}, Ic/Is, Ic_f/Is_f = {:.2f},{:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic,Ic_final,Is,Is_final,Ic/Is,Ic_final/Is_final))
             
             
             
@@ -333,12 +333,13 @@ class intensityHistogram(subWindow):
             
             
             
-#            try:
-#                IIc = np.sqrt(mu**2 - var + mu)
-#            except:
-#                pass
-#            else:
-#                IIs = mu - IIc
+            try:
+                IIc = np.sqrt(mu**2 - var + mu)
+            except:
+                pass
+            else:
+                IIs = mu - IIc
+
 #            
 #                convolvedMR = np.convolve(pdfs.modifiedRician(np.arange(self.Nbins),popt[0],popt[1]),poisson,mode = 'same')
 #                
@@ -352,7 +353,9 @@ class intensityHistogram(subWindow):
 #                    
 #                    self.ax.plot(np.arange(len(convolvedMR)),convolvedMR,'.-k',label = 'blue convolved with Poisson')
 #            
-#                    self.ax.set_title('pixel ({},{})  Ic,IIc = {:.2f},{:.2f}, Is,IIs = {:.2f},{:.2f}, Ic/Is, IIc/IIs = {:.2f},{:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic,IIc,Is,IIs,Ic/Is,IIc/IIs))
+                self.ax.plot(np.arange(self.Nbins, step=sstep),pdfs.blurredMR2(np.arange(self.Nbins, step=sstep),IIc,IIs),'.-b',label = 'blurred MR from var and mean')
+                
+                self.ax.set_title('pixel ({},{})  Ic,IIc = {:.2f},{:.2f}, Is,IIs = {:.2f},{:.2f}, Ic/Is, IIc/IIs = {:.2f},{:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic_final,IIc,Is_final,IIs,Ic_final/Is_final,IIc/IIs))
             self.ax.legend()
         
         self.draw()
@@ -590,15 +593,12 @@ class mainWindow(QMainWindow):
         self.fig.cbar.set_clim(self.cbarLimits[0],self.cbarLimits[1])
         self.fig.cbar.draw_all()
         
-        self.ax1.set_title('some image to plot...')
+        self.ax1.set_title('some generated noise...')
         
         self.ax1.axis('off')
         
         self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=2)
-        
-        #self.ax1.plot(np.arange(10),np.arange(10)**2)
-        
-        
+
         self.draw()
         
         
@@ -769,7 +769,8 @@ class mainWindow(QMainWindow):
         
     def quickLoadH5(self):
         self.filename = '/Users/clint/Documents/mazinlab/ScienceData/PAL2017b/20171004/1507175503.h5'
-        self.loadDataFromH5()      
+        self.loadDataFromH5()  
+        
 
 
         
@@ -892,7 +893,6 @@ class mainWindow(QMainWindow):
         # https://pythonspot.com/pyqt5-file-dialog/
         
         filename, _ = QFileDialog.getOpenFileName(self, 'Select One File', os.environ['MKID_DATA_DIR'],filter = '*.h5')
-        
 
         self.filename = filename
         self.loadDataFromH5(self.filename)
