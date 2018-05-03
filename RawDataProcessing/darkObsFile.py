@@ -256,8 +256,8 @@ class ObsFile:
         if (self.pixelIsBad(xCoord, yCoord, not forceRawPhase)
            or firstSec>float(self.getFromHeader('expTime'))                         # Starting time is past total exposure time in file
            or ((wvlStart!=None) and (wvlStop!=None) and (wvlStop<wvlStart))):       # wavelength range invalid
-            print('BadPixel')
-            print((wvlStop<wvlStart))
+            ##print('BadPixel')
+            #print((wvlStop<wvlStart))
             return self.photonTable.read_where('(Time < 0)') #use dummy condition to get empty photon list of correct format
             
         query='(ResID == resID)'
@@ -1061,7 +1061,10 @@ class ObsFile:
                       bins=np.append(bins,tails)
                       index = np.where(resID == np.array(calsoln['resid']))
                       if len(index[0]) == 1 and (calsoln['flag'][index] == 0):
+                      if len(index[0]) == 1 and not self.pixelIsBad(row, column):
+                           print('resID', resID, 'row', row, 'column', column)
                            weights = calsoln['weights'][index]
+                           print(weights)
                            weightFlags=calsoln['weightFlags'][index]
                            weightUncertainties=calsoln['weightUncertainties'][index]
 
@@ -1087,7 +1090,8 @@ class ObsFile:
                            weightArr[np.where(phases > maxwavelength)]=0.0
                            calarray.append(weightArr)       
                            
-                if calarray:
+                if calarray and calarray[0].all: 
+                     print('hiiiiiiiiiiiiiiiiiiiiii')
                      calweights = np.average(calarray,axis=0)
                      self.applySpecWeight(resID=resID, weightArr=calweights)
                      if verbose:
