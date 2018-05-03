@@ -99,7 +99,7 @@ class FlatCal:
 				else:
 					self.mode='write'
 					obs.loadBestWvlCalFile()
-				obs.setWvlCutoffs(3000,13000)
+				obs.setWvlCutoffs(700,1500)
 				if self.timeMaskFileName != '':
 					if not os.path.exists(self.timeMaskFileName):
 						print('Running hotpix for ',obs)
@@ -130,9 +130,8 @@ class FlatCal:
 		self.spectralCubes = []
 		self.cubeEffIntTimes = []
 		self.frames = []
-
 		for iObs,obs in enumerate(self.obsList):
-			for firstSec in range(0,obs.getFromHeader('expTime'),self.intTime):		
+			for firstSec in range(0,self.expTime,self.intTime):		
 				cubeDict = obs.getSpectralCube(firstSec=firstSec,integrationTime=self.intTime,applySpecWeight=False, applyTPFWeight=False,wvlBinEdges = self.wvlBinEdges,energyBinWidth=None,timeSpacingCut = self.timeSpacingCut)
 				cube = np.array(cubeDict['cube'],dtype=np.double)
 				print('finished get SpectralCube')
@@ -236,10 +235,11 @@ class FlatCal:
 			self.flatWeights = np.divide(self.flatWeights,wvlWeightMedians)
 			self.flatWeightsforplot = np.ma.sum(self.flatWeights,axis=-1)
 			flatcal.writeWeights(indexweights=iCube)
-			flatcal.plotWeightsWvlSlices(indexplotWeightsWvlSlices=iCube)		
-			flatcal.plotMaskWvlSlices(indexplotMaskWvlSlices=iCube)		
-			#flatcal.plotWeightsByPixel(indexplotByPixel=iCube,verbose=True)
-			flatcal.plotWeightsByPixelWvlCompare(indexplotByPixel=iCube,verbose=True) 
+			if iCube==0 or iCube==int((self.expTime/self.intTime)/2) or iCube==(int(self.expTime/self.intTime)-1):
+				flatcal.plotWeightsWvlSlices(indexplotWeightsWvlSlices=iCube)	
+				flatcal.plotMaskWvlSlices(indexplotMaskWvlSlices=iCube)		
+				#flatcal.plotWeightsByPixel(indexplotByPixel=iCube,verbose=True)
+				flatcal.plotWeightsByPixelWvlCompare(indexplotByPixel=iCube,verbose=True) 
 
 	def plotWeightsByPixelWvlCompare(self,indexplotByPixel,verbose=False):
 		'''
