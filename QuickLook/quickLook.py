@@ -24,10 +24,11 @@ import sys,os
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import QObject, pyqtSignal
-import darkObsFile
+#import darkObsFile
+from DarknessPipeline.RawDataProcessing.darkObsFile import ObsFile
 from scipy.optimize import curve_fit
 import os.path
-import lightCurves as lc
+#import lightCurves as lc
 import pdfs
 from scipy.special import factorial
 
@@ -72,7 +73,7 @@ class subWindow(QMainWindow):
         
         # Figure
         self.dpi = 100
-        self.fig = Figure((3.0, 2.0), dpi=self.dpi)
+        self.fig = Figure((3.0, 2.0), dpi=self.dpi, tight_layout=True)
         self.canvas = FigureCanvas(self.fig)
         self.canvas.setParent(self.main_frame)
         self.ax = self.fig.add_subplot(111)
@@ -144,10 +145,10 @@ class subWindow(QMainWindow):
     def getPhotonList(self):
         #use this function to make the call to the correct obsfile method
         if self.apertureOn == True:
-            photonList,aperture = self.a.getCircularAperturePhotonList(self.activePixel[0], self.activePixel[1], radius = self.apertureRadius, firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlRange = (self.spinbox_startLambda.value(),self.spinbox_stopLambda.value()), flagToUse=0)
+            photonList,aperture = self.a.getCircularAperturePhotonList(self.activePixel[0], self.activePixel[1], radius = self.apertureRadius, firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart = self.spinbox_startLambda.value(), wvlStop=self.spinbox_stopLambda.value(), flagToUse=0)
         
         else:
-            photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlRange = (self.spinbox_startLambda.value(),self.spinbox_stopLambda.value()))
+            photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart=self.spinbox_startLambda.value(),wvlStop=self.spinbox_stopLambda.value())
         
         return photonList
             
@@ -240,7 +241,7 @@ class intensityHistogram(subWindow):
             
             
         
-        self.Nbins=30  #smallest number of bins to show
+        self.Nbins=100  #smallest number of bins to show
         #count the number of times each count rate occurs in the timestream
         intensityHist, _ = np.histogram(self.lightCurveIntensityCounts,bins=self.Nbins,range=[0,self.Nbins])
         
@@ -253,10 +254,13 @@ class intensityHistogram(subWindow):
     
     
     def fitBlurredMR(self,bins,intensityHist):   #this needs some work
-        popt2,pcov2 = curve_fit(pdfs.blurredMR2,bins,intensityHist,p0=[1,1],bounds=(0,np.inf))
-        
-        Ic = popt2[0]
-        Is = popt2[1]
+        try:
+            popt2,pcov2 = curve_fit(pdfs.blurredMR2,bins,intensityHist,p0=[1,1],bounds=(0,np.inf))
+            
+            Ic = popt2[0]
+            Is = popt2[1]
+        except RuntimeError:
+            Ic, Is = 1,0.1
         
         return Ic,Is
             
@@ -283,9 +287,13 @@ class intensityHistogram(subWindow):
         self.ax.set_title('pixel ({},{})' .format(self.activePixel[0],self.activePixel[1]))
         
         if np.sum(self.lightCurveIntensityCounts) > 0:
-            popt, pcov = curve_fit(pdfs.modifiedRician,self.bins,self.intensityHist,p0=[1,1])
-            Ic = popt[0]
-            Is = popt[1]
+            try:
+                popt, pcov = curve_fit(pdfs.modifiedRician,self.bins,self.intensityHist,p0=[1,1])
+            
+                Ic = popt[0]
+                Is = popt[1]
+            except RuntimeError:
+                Ic, Is, =1,0.1
             
 #            self.ax.plot(np.arange(self.Nbins, step=sstep),pdfs.modifiedRician(np.arange(self.Nbins, step=sstep),Ic,Is),'.-r',label = 'MR from numpy.curve_fit')
             
@@ -447,7 +455,7 @@ class mainWindow(QMainWindow):
         #a = darkObsFile.ObsFile('/Users/clint/Documents/mazinlab/ScienceData/PAL2017b/20171004/1507175503.h5')
         if os.path.isfile(self.filename):
             try:
-                self.a = darkObsFile.ObsFile(self.filename)
+                self.a = ObsFile(self.filename)
             except:
                 print('darkObsFile failed to load file. Check filename.\n',self.filename)
             else:
@@ -527,13 +535,14 @@ class mainWindow(QMainWindow):
             #clear the axes
             self.ax1.clear()  
             
-            temp = self.a.getPixelCountImage(firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(),applyWeight=False,flagToUse = 0,wvlRange = (self.spinbox_startLambda.value(),self.spinbox_stopLambda.value()))
+            temp = self.a.getPixelCountImage(firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(),applyWeight=False,flagToUse = 0,wvlStart=self.spinbox_startLambda.value(), wvlStop=self.spinbox_stopLambda.value())
             self.rawCountsImage = np.transpose(temp['image'])
             
-#            self.image = self.rawCountsImage
+            self.image = self.rawCountsImage
+            self.image[np.where(np.logical_not(np.isfinite(self.image)))]=0
 #            self.image = self.rawCountsImage*self.beamFlagMask
-            self.image = self.rawCountsImage*self.beamFlagMask*self.hotPixMask
-            self.image = self.image/self.spinbox_integrationTime.value()
+            #self.image = self.rawCountsImage*self.beamFlagMask*self.hotPixMask
+            self.image = 1.0*self.image/self.spinbox_integrationTime.value()
             
             self.cbarLimits = np.array([np.amin(self.image),np.amax(self.image)])
             
@@ -642,7 +651,7 @@ class mainWindow(QMainWindow):
         #Define the plot window. 
         self.main_frame = QWidget()
         self.dpi = 100
-        self.fig = Figure((1.0, 20.0), dpi=self.dpi) #define the figure, set the size and resolution
+        self.fig = Figure((1.0, 20.0), dpi=self.dpi, tight_layout=True) #define the figure, set the size and resolution
         self.canvas = FigureCanvas(self.fig)
         self.canvas.setParent(self.main_frame)
         self.ax1 = self.fig.add_subplot(111)
@@ -891,8 +900,9 @@ class mainWindow(QMainWindow):
     def getFileNameFromUser(self):
         # look at this website for useful examples
         # https://pythonspot.com/pyqt5-file-dialog/
-        
-        filename, _ = QFileDialog.getOpenFileName(self, 'Select One File', os.environ['MKID_DATA_DIR'],filter = '*.h5')
+        try:def_loc = os.environ['MKID_DATA_DIR']
+        except KeyError:def_loc='.'
+        filename, _ = QFileDialog.getOpenFileName(self, 'Select One File', def_loc,filter = '*.h5')
 
         self.filename = filename
         self.loadDataFromH5(self.filename)
