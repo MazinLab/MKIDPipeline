@@ -12,24 +12,18 @@ python quickLook.py
 """
 
 import numpy as np
-#import time, warnings, traceback
-#import ConfigParser
-#from functools import partial
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.widgets import Cursor
 import sys,os
-#import shutil
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import QObject, pyqtSignal
-#import darkObsFile
 from DarknessPipeline.RawDataProcessing.darkObsFile import ObsFile
 from scipy.optimize import curve_fit
 import os.path
-#import lightCurves as lc
-import pdfs
+from DarknessPipeline.P3Utils import pdfs
 from scipy.special import factorial
 
 
@@ -155,7 +149,7 @@ class subWindow(QMainWindow):
             
             
         
-    def lightCurve(self):
+    def getLightCurve(self):
         #take a time stream and bin it up into a lightcurve
         #in other words, take a list of photon time stamps and figure out the 
         #intensity during each exposureTime, which is ~.01 sec
@@ -167,7 +161,8 @@ class subWindow(QMainWindow):
         lightCurveTimes = self.histBinEdges[:-1] + 1.0*self.effExpTime/2
         
         return lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes
-        
+        # [lightCurveIntensityCounts] = counts
+        # [lightCurveIntensity] = counts/sec
 
 
 
@@ -194,7 +189,7 @@ class timeStream(subWindow):
         self.photonList = self.getPhotonList()
         
         self.effExpTime = self.spinbox_effExpTime.value()/1000
-        self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = self.lightCurve()
+        self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = self.getLightCurve()
 
         self.ax.plot(self.lightCurveTimes,self.lightCurveIntensity,color = self.lineColor)
         self.ax.set_xlabel('time [seconds]')
@@ -221,31 +216,13 @@ class intensityHistogram(subWindow):
         
         
     
-    def histogramLC(self):
+    def histogramLC(self,lightCurve):
         #makes a histogram of the light curve intensities
-#        self.Nbins=30  #maximum number of counts/self.spinbox_effExpTime to show
-#        norm=True
-#        centers = True
-#        
-#        self.intensityHist, binEdges = np.histogram(self.lightCurveIntensityCounts,bins=self.Nbins,range=[0,self.Nbins])
-#
-#        if norm==True:
-#            self.intensityHist = self.intensityHist/float(len(self.lightCurveIntensityCounts))
-#            
-#        if centers==True:
-#            bws = np.diff(binEdges)
-#            cents = binEdges[:-1]+bws[0]/2.0
-#            self.bins = cents
-#        else:
-#            self.bins = binEdges
-            
-            
-        
-        self.Nbins=100  #smallest number of bins to show
+        self.Nbins=30  #smallest number of bins to show
         #count the number of times each count rate occurs in the timestream
-        intensityHist, _ = np.histogram(self.lightCurveIntensityCounts,bins=self.Nbins,range=[0,self.Nbins])
+        intensityHist, _ = np.histogram(lightCurve,bins=self.Nbins,range=[0,self.Nbins])
         
-        intensityHist = intensityHist/float(len(self.lightCurveIntensityCounts))      
+        intensityHist = intensityHist/float(len(lightCurve))      
         bins = np.arange(self.Nbins)
         
         return intensityHist, bins
@@ -254,8 +231,10 @@ class intensityHistogram(subWindow):
     
     
     def fitBlurredMR(self,bins,intensityHist):   #this needs some work
+        sigma = np.sqrt(intensityHist)
+        sigma[np.where(sigma==0)] = 1
         try:
-            popt2,pcov2 = curve_fit(pdfs.blurredMR2,bins,intensityHist,p0=[1,1],bounds=(0,np.inf))
+            popt2,pcov2 = curve_fit(pdfs.blurredMR2,bins,intensityHist,p0=[1,1],sigma=sigma,bounds=(0,np.inf))
             
             Ic = popt2[0]
             Is = popt2[1]
@@ -278,8 +257,9 @@ class intensityHistogram(subWindow):
         
         self.effExpTime = self.spinbox_effExpTime.value()/1000
         
-        self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = self.lightCurve()
-        self.intensityHist, self.bins = self.histogramLC()
+        self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = self.getLightCurve()
+        self.intensityHist, self.bins = self.histogramLC(self.lightCurveIntensityCounts)
+        # [self.intensityHist] = counts
         
         self.ax.bar(self.bins,self.intensityHist)
         self.ax.set_xlabel('intensity, counts per {:.3f} sec'.format(self.effExpTime))
@@ -287,17 +267,17 @@ class intensityHistogram(subWindow):
         self.ax.set_title('pixel ({},{})' .format(self.activePixel[0],self.activePixel[1]))
         
         if np.sum(self.lightCurveIntensityCounts) > 0:
-            try:
-                popt, pcov = curve_fit(pdfs.modifiedRician,self.bins,self.intensityHist,p0=[1,1])
-            
-                Ic = popt[0]
-                Is = popt[1]
-            except RuntimeError:
-                Ic, Is, =1,0.1
+#            try:
+#                popt, pcov = curve_fit(pdfs.modifiedRician,self.bins,self.intensityHist,p0=[1,1])
+#            
+#                Ic = popt[0]
+#                Is = popt[1]
+#            except RuntimeError:
+#                Ic, Is, =1,0.1
             
 #            self.ax.plot(np.arange(self.Nbins, step=sstep),pdfs.modifiedRician(np.arange(self.Nbins, step=sstep),Ic,Is),'.-r',label = 'MR from numpy.curve_fit')
             
-            self.ax.set_title('pixel ({},{})  Ic = {:.2f}, Is = {:.2f}, Ic/Is = {:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic,Is,Ic/Is))
+#            self.ax.set_title('pixel ({},{})  Ic = {:.2f}, Is = {:.2f}, Ic/Is = {:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic,Is,Ic/Is))
             
             mu = np.mean(self.lightCurveIntensityCounts)
             var = np.var(self.lightCurveIntensityCounts)  
@@ -308,39 +288,12 @@ class intensityHistogram(subWindow):
             
             Ic_final,Is_final = self.fitBlurredMR(self.bins,self.intensityHist)
             
-            self.ax.plot(np.arange(self.Nbins, step=sstep),pdfs.blurredMR2(np.arange(self.Nbins, step=sstep),Ic_final,Is_final),'.-k',label = 'blurred MR from curve_fit')
+            self.ax.plot(np.arange(self.Nbins, step=sstep),pdfs.blurredMR2(np.arange(self.Nbins, step=sstep),Ic_final,Is_final),'.-k',label = 'blurred MR from curve_fit. Ic,Is = {:.2f}, {:.2f}'.format(Ic_final/self.effExpTime,Is_final/self.effExpTime))
             
-            self.ax.set_title('pixel ({},{})  Ic = {:.2f}, Is = {:.2f}, Ic/Is = {:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic_final,Is_final,Ic_final/Is_final))
+#            self.ax.set_title('pixel ({},{})  Ic = {:.2f}, Is = {:.2f}, Ic/Is = {:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic_final,Is_final,Ic_final/Is_final))
 #            self.ax.set_title('pixel ({},{})  Ic,Ic_f = {:.2f},{:.2f}, Is,Is_f = {:.2f},{:.2f}, Ic/Is, Ic_f/Is_f = {:.2f},{:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic,Ic_final,Is,Is_final,Ic/Is,Ic_final/Is_final))
             
-            
-            
-            
-            
-#            IcGuess = np.arange(10,step=0.2)
-#            IsGuess = np.arange(10,step=0.2)
-#            finalPDF = 1.*np.zeros((self.Nbins,self.Nbins))
-#            chiSquareArray = np.zeros(self.Nbins)
-#            for ic in IcGuess:
-#                for iss in IsGuess:
-#                    mr = pdfs.modifiedRician(k,ic,iss)
-#                    for kk in range(self.Nbins):
-#                        weight = mr[kk]
-#                        finalPDF += (weight*np.exp(-k)*np.power(k,k[kk])/factorial(k[kk]))  #weight*poisson
-#                        
-#            
-##                    finalPDF /= np.sum(finalPDF)
-#                    chiSquare = (finalPDF - self.intensityHist)**2   #need to figure out the weights
-#                    chiSquareArray[ic][iss] = chiSquare
-#            
-#            ### find where the minimum chiSquare value occurs, then you have Ic and Is
-#            ind = np.unravel_index(np.argmin(chiSquareArray),(len(IcGuess),len(IsGuess)))
-            
-#            self.ax.plot(np.arange(self.Nbins, step=sstep),pdfs.modifiedRician(np.arange(self.Nbins, step=sstep),IcGuess[ind[0]],IsGuess[ind[1]]),'.-g',label = 'MR from MC')
-            
-            
-            
-            
+
             try:
                 IIc = np.sqrt(mu**2 - var + mu)
             except:
@@ -348,22 +301,13 @@ class intensityHistogram(subWindow):
             else:
                 IIs = mu - IIc
 
-#            
-#                convolvedMR = np.convolve(pdfs.modifiedRician(np.arange(self.Nbins),popt[0],popt[1]),poisson,mode = 'same')
-#                
-#                
-#                
-#        #        print('\nIIs and IIc are {:.2f} and {:.2f}\n'.format(IIs,IIc))
-#                
-#                
-#                if (IIc > 0 and IIs > 0):
-#                    self.ax.plot(np.arange(self.Nbins, step = sstep),pdfs.modifiedRician(np.arange(self.Nbins, step=sstep),IIc,IIs),'.-b',label = 'MR from mean and variance')
-#                    
-#                    self.ax.plot(np.arange(len(convolvedMR)),convolvedMR,'.-k',label = 'blue convolved with Poisson')
-#            
-                self.ax.plot(np.arange(self.Nbins, step=sstep),pdfs.blurredMR2(np.arange(self.Nbins, step=sstep),IIc,IIs),'.-b',label = 'blurred MR from var and mean')
+        
+                self.ax.plot(np.arange(self.Nbins, step=sstep),pdfs.blurredMR2(np.arange(self.Nbins, step=sstep),IIc,IIs),'.-b',label = r'blurred MR from $\sigma$ and $\mu$. Ic,Is = {:.2f}, {:.2f}'.format(IIc/self.effExpTime,IIs/self.effExpTime))
                 
-                self.ax.set_title('pixel ({},{})  Ic,IIc = {:.2f},{:.2f}, Is,IIs = {:.2f},{:.2f}, Ic/Is, IIc/IIs = {:.2f},{:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic_final,IIc,Is_final,IIs,Ic_final/Is_final,IIc/IIs))
+#                self.ax.set_title('pixel ({},{})  Ic,IIc = {:.2f},{:.2f}, Is,IIs = {:.2f},{:.2f}, Ic/Is, IIc/IIs = {:.2f},{:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic_final,IIc,Is_final,IIs,Ic_final/Is_final,IIc/IIs))
+            
+            self.ax.set_title('pixel ({},{})' .format(self.activePixel[0],self.activePixel[1]))
+                
             self.ax.legend()
         
         self.draw()
@@ -635,11 +579,6 @@ class mainWindow(QMainWindow):
             for row in range(self.nRow):
                 if rawCountsImage[row][col] < self.hotPixCut:
                     self.hotPixMask[row][col] = 1
-        
-        #let's flag some pixels by hand
-#        self.hotPixMask[51][31] = 0
-#        self.hotPixMask[55][46] = 0
-#        self.hotPixMask[66][77] = 0
 
         
 

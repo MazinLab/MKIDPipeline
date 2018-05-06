@@ -28,7 +28,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from functools import partial
-from arrayPopup import plotArray
+from DarknessPipeline.P3Utils import arrayPopup
+#from arrayPopup import plotArray
 
 
 
