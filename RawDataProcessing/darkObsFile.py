@@ -1060,7 +1060,7 @@ class ObsFile:
                       bins=np.append(heads,bins)
                       bins=np.append(bins,tails)
                       index = np.where(resID == np.array(calsoln['resid']))
-                      if len(index[0]) == 1 and (calsoln['flag'][index] == 0):
+                      #if len(index[0]) == 1 and (calsoln['flag'][index] == 0):
                       if len(index[0]) == 1 and not self.pixelIsBad(row, column):
                            print('resID', resID, 'row', row, 'column', column)
                            weights = calsoln['weights'][index]
