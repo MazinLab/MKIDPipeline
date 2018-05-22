@@ -12,17 +12,18 @@ Accepts .np files, makes and saves a masked version of the npz file and the hot 
 Assumes .np files are in cps (i.e. those that come from H5Stacker
 '''
 
+import glob
 import sys, os, time, struct
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
-from P3Utils.arrayPopup import plotArray
-import P3Utils
+import DarknessPipeline.P3Utils
+from DarknessPipeline.P3Utils.arrayPopup import plotArray
 import warnings
-from ImageReg.loadStack import loadIMGStack
+from DarknessPipeline.ImageReg.loadStack import loadIMGStack
 import image_registration as ir
-import irUtils
+import DarknessPipeline.ImageReg.irUtils
 
 nCols=80
 nRows=125
@@ -108,14 +109,19 @@ def makeMaskedImage(imagePath=None, verbose=False, sigma=None, maxCut=2450, cold
     np.save(outfileMask, finalMask)
     np.save(outfileImage, finalImage)
 
+def makeMultipleMaskedImages(filePath=None, verbose=False, sigma=None, maxCut=2450, coldCut=False):
+    '''Grab all .npy files in a directory (assuming they are all from the same DitherStack sequence) and masks them
+       Instead of specifying the path to the image, specify the path to the directory where the .npy files will be
+       Verbose is False.
+    '''
+    ImgList = glob.glob(filePath+'*.npy')  
+    print(ImgList)
+    for i in np.arange(len(ImgList)):
+        imagePath=ImgList[i]
+        makeMaskedImage(imagePath=imagePath, verbose=False, sigma=sigma, maxCut=maxCut, coldCut=coldCut)
+
 if __name__ == "__main__":
     if len(sys.argv)<2:
         print("No arguments provided, running on test files")
-        imagePath='/mnt/data0/isabel/32Peg/AlignImageTest/32PegCoronOutDitherWavecal/32PegCoronOut5.npy'
-        verbose=True
-        sigma=10
-        maxCut=2450
-        coldCut=False
-        makeMaskedImage(imagePath=imagePath, verbose=verbose, sigma=sigma, maxCut=maxCut, coldCut=True)
 
 
