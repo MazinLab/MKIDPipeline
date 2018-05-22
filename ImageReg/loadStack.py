@@ -1,7 +1,7 @@
 import numpy as np
 import os, struct
 import tables
-from P3Utils.parsePacketDump2 import parsePacketData
+from DarknessPipeline.P3Utils.parsePacketDump2 import parsePacketData
 
 '''
 Utilities for loading sets of image stacks from either .IMG or .bin files
@@ -40,7 +40,7 @@ def loadIMGStack(dataDir, start, stop, nCols=80, nRows=125, verbose=True):
         frames.append(image)
     stack = np.array(frames)
     return stack
-
+'''
 def loadBINStack(dataDir, start, stop, nCols=80, nRows=125):
     useImg = False
     frameTimes = np.arange(start, stop+1)
@@ -71,6 +71,36 @@ def loadBINStack(dataDir, start, stop, nCols=80, nRows=125):
             print("Failed to load ", imagePath)
             image = np.zeros((nRows, nCols),dtype=np.uint16)
         frames.append(image)
+    stack = np.array(frames)
+    return stack
+'''
+def loadBINStack(dataDir, start, stop, nCols=80, nRows=125):
+    useImg = False
+    frameTimes = np.arange(start, stop+1)
+    frames = []
+    for iTs,ts in enumerate(frameTimes):
+            if useImg==False:
+                imagePath = os.path.join(dataDir,str(ts)+'.bin')
+                print(imagePath)
+                with open(imagePath,'rb') as dumpFile:
+                    data = dumpFile.read()
+
+                nBytes = len(data)
+                nWords = nBytes/8 #64 bit words
+
+                #break into 64 bit words
+                words = np.array(struct.unpack('>{:d}Q'.format(nWords), data),type=object)
+                parseDict = parsePacketData(words,verbose=False)
+                image = parseDict['image']
+
+            else:
+                imagePath = os.path.join(dataDir,str(ts)+'.img')
+                print(imagePath)
+                image = np.fromfile(open(imagePath, mode='rb'),type=np.uint16)
+                image = np.transpose(np.reshape(image, (nCols, nRows)))
+
+        
+            frames.append(image)
     stack = np.array(frames)
     return stack
 

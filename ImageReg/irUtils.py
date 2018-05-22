@@ -7,14 +7,14 @@ Handful of utilities for making padded image canvases and aligning images
 
 import matplotlib
 import numpy as np
-from P3Utils.FileName import FileName
-from P3Utils.utils import interpolateImage
+from DarknessPipeline.P3Utils.FileName import FileName
+from DarknessPipeline.P3Utils.utils import interpolateImage
 import matplotlib.pyplot as plt
 import pickle
-from arrayPopup import plotArray
+from DarknessPipeline.P3Utils.arrayPopup import plotArray
 import subprocess, warnings
 from scipy import ndimage
-#import mpfit
+import DarknessPipeline.P3Utils.mpfit
 import tables
 secondsPerDay = 24*60*60
 
@@ -95,10 +95,10 @@ def correlation(p,fjac=None,refImage=None,imToAlign=None, err=None,returnCorrela
     corrIm=refImage*rot/np.maximum(refImage,rot)**2
 
     
-    #plt.figure(0)
-    #plt.imshow(corrIm,origin="lower",interpolation='none')
-    #plt.figure(1)
-    #plt.imshow(refImage,origin="lower",interpolation='none')
+    plt.figure(0)
+    plt.imshow(corrIm,origin="lower",interpolation='none')
+    plt.figure(1)
+    plt.imshow(refImage,origin="lower",interpolation='none')
     #plt.show()
     ###calculates the sum of all the pixels that are not nan and are >0 (i.e. all the valid pixels)
     corr=np.sum(corrIm[corrIm>0])
@@ -149,7 +149,7 @@ def alignImages(refImage,imToAlign,parameterGuess,parameterLowerLimit,parameterU
     m = mpfit.mpfit(correlation, functkw=fa, parinfo=parinfo, maxiter=1000, xtol=10**(-20),ftol=10**(-20),gtol=10**(-30),quiet=quiet)
     print('status', m.status, 'errmsg', m.errmsg)
     mpPar=m.params
-    #print('parameters:', mpPar, "\n")
+    print('parameters:', mpPar, "\n")
     return mpPar
 
 def calculateRotationAngle(refImage=None,imToAlign=None,intTime=None):

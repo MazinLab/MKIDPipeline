@@ -29,10 +29,12 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
-from P3Utils.arrayPopup import plotArray
-import P3Utils
+from DarknessPipeline.P3Utils.arrayPopup import plotArray
+import DarknessPipeline.P3Utils
 import warnings
-from ImageReg.loadStack import loadIMGStack
+from DarknessPipeline.ImageReg.loadStack import loadIMGStack
+import image_registration as ir
+import DarknessPipeline.ImageReg.irUtils as irUtils
 
 
 #ultimately want the path to be flexible: use .bin files if they exist,
@@ -146,7 +148,7 @@ def makeMask(run=None, date=None, basePath=None,startTimeStamp=None, stopTimeSta
         dataPath = '/mnt/ramdisk/'
         stack = loadIMGStack(dataPath, startTimeStamp, stopTimeStamp, nCols=nCols, nRows=nRows)
 
-    medStack = ir.utils.medianStack(stack)
+    medStack = irUtils.medianStack(stack) #####
 
     if verbose:
         try:
