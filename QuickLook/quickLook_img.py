@@ -80,7 +80,7 @@ class mainWindow(QMainWindow):
 
         #load the log filenames
         print('\nloading log filenames')
-        logFilenameList_all = os.listdir(os.environ['MKID_DATA_DIR'])
+        logFilenameList_all = os.listdir(os.environ['MKID_RAW_PATH'])
         logFilenameList = []
         logTimestampList = []
         
@@ -183,8 +183,8 @@ class mainWindow(QMainWindow):
         labelFilename = self.logFilenameList[np.where(self.logTimestampList==logLabelTimestamp)[0][0]]
         
         
-        #print('labelFilename is ', os.path.join(os.environ['MKID_DATA_DIR'],labelFilename))
-        fin=open(os.path.join(os.environ['MKID_DATA_DIR'],labelFilename),'r')
+        #print('labelFilename is ', os.path.join(os.environ['MKID_RAW_PATH'],labelFilename))
+        fin=open(os.path.join(os.environ['MKID_RAW_PATH'],labelFilename),'r')
         text = datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S\n') + labelFilename[:-4] + '\n' + fin.read()
         self.label_log.setText(text)
         fin.close()
