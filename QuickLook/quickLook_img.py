@@ -69,17 +69,25 @@ class mainWindow(QMainWindow):
             else:
                 continue
             ii+=1
+
+
+        #the files may not be in chronological order, so let's enforce it
+        fileListRaw = np.asarray(fileListRaw)
+        fileListRaw = fileListRaw[np.argsort(timeStampList)]
+        timeStampList = np.sort(np.asarray(timeStampList))
+
         self.fileListRaw = fileListRaw
         self.timeStampList = timeStampList
-        
-        print(fileListRaw[-1])
-        print(fileListRaw[-2])
+
+        print('\nfound {:d} .img files\n'.format(len(self.timeStampList)))
+        print('first timestamp: ',self.timeStampList[0])
+        print('last timestamp:  ',self.timeStampList[-1],'\n')
 
         
 
 
         #load the log filenames
-        print('\nloading log filenames')
+        print('\nloading log filenames\n')
         logFilenameList_all = os.listdir(os.environ['MKID_RAW_PATH'])
         logFilenameList = []
         logTimestampList = []
@@ -87,24 +95,28 @@ class mainWindow(QMainWindow):
         for logFilename in logFilenameList_all:
             
             if logFilename.endswith("telescope.log"):
-                
                 continue
             elif logFilename.endswith(".log"):
                 logFilenameList.append(logFilename)
                 logTimestampList.append(np.fromstring(logFilename[:10],dtype=int, sep=' ')[0])
                 
-        
+
+        #the files may not be in chronological order, so let's enforce it
+        logFilenameList = np.asarray(logFilenameList)
+        logFilenameList = logFilenameList[np.argsort(logTimestampList)]
+        logTimestampList = np.sort(np.asarray(logTimestampList))
+
         self.logTimestampList = np.asarray(logTimestampList)
         self.logFilenameList = logFilenameList
 
         
         #set up the spinbox limits and start value, which will be the file you selected
-        self.spinbox_imgTimestamp.setMinimum(timeStampList[0])
-        self.spinbox_imgTimestamp.setMaximum(timeStampList[-1])
+        self.spinbox_imgTimestamp.setMinimum(self.timeStampList[0])
+        self.spinbox_imgTimestamp.setMaximum(self.timeStampList[-1])
         self.spinbox_imgTimestamp.setValue(np.fromstring(os.path.basename(filename)[:-4],dtype=int, sep=' ')[0])
         
-        self.spinbox_darkStart.setMinimum(timeStampList[0])
-        self.spinbox_darkStart.setMaximum(timeStampList[-10])
+        self.spinbox_darkStart.setMinimum(self.timeStampList[0])
+        self.spinbox_darkStart.setMaximum(self.timeStampList[-10])
         self.spinbox_darkStart.setValue(np.fromstring(os.path.basename(filename)[:-4],dtype=int, sep=' ')[0])
         
 
@@ -151,8 +163,12 @@ class mainWindow(QMainWindow):
         darkFrame = np.zeros(darkIntTime*self.nRow*self.nCol).reshape((darkIntTime,self.nRow,self.nCol))
         
         for ii in range(darkIntTime):
-            darkFrameFilename = self.fileListRaw[np.where(self.timeStampList==(self.spinbox_darkStart.value()+ii))[0][0]]
-            darkFrame[ii] = np.transpose(np.reshape(np.fromfile(open(darkFrameFilename, mode='rb'),dtype=np.uint16), (self.nCol,self.nRow)))
+            try:
+                darkFrameFilename = self.fileListRaw[np.where(self.timeStampList==(self.spinbox_darkStart.value()+ii))[0][0]]
+            except:
+                pass
+            else:
+                darkFrame[ii] = np.transpose(np.reshape(np.fromfile(open(darkFrameFilename, mode='rb'),dtype=np.uint16), (self.nCol,self.nRow)))
 
         self.darkFrame = np.median(darkFrame,axis=0)
 
@@ -173,9 +189,7 @@ class mainWindow(QMainWindow):
             text = datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S\n\n') + 'no .img file found'
             self.label_log.setText(text)
             return
-        
-        
-        
+
         diffs = timestamp - self.logTimestampList
         diffs[np.where(diffs<0)] = np.amax(diffs)
         logLabelTimestamp = self.logTimestampList[np.argmin(diffs)]
@@ -185,7 +199,7 @@ class mainWindow(QMainWindow):
         
         #print('labelFilename is ', os.path.join(os.environ['MKID_RAW_PATH'],labelFilename))
         fin=open(os.path.join(os.environ['MKID_RAW_PATH'],labelFilename),'r')
-        text = datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S\n') + labelFilename[:-4] + '\n' + fin.read()
+        text = 'img timestamp:\n' + datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S') + '\n\nLogfile time:\n' + datetime.datetime.fromtimestamp(logLabelTimestamp).strftime('%Y-%m-%d %H:%M:%S\n') + '\n' + labelFilename[:-4] + '\n' + fin.read()
         self.label_log.setText(text)
         fin.close()
 
