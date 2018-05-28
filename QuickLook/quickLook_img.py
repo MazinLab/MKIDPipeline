@@ -38,6 +38,7 @@ class mainWindow(QMainWindow):
         QMainWindow.__init__(self,parent=parent)
         self.initializeEmptyArrays()
         self.setWindowTitle('quickLook_img.py')
+        self.resize(600,850)  #(600,850 works for clint's laptop screen. Units are pixels I think.)
         self.create_main_frame()
         self.create_status_bar()
         self.createMenu()
@@ -55,7 +56,7 @@ class mainWindow(QMainWindow):
         
         
 
-    def loadFilenames(self,filename):
+    def load_IMG_filenames(self,filename):
         print('\nloading img filenames')
                
         self.imgPath = os.path.dirname(filename)        
@@ -85,7 +86,7 @@ class mainWindow(QMainWindow):
 
         
 
-
+    def load_log_filenames(self):
         #load the log filenames
         print('\nloading log filenames\n')
         logFilenameList_all = os.listdir(os.environ['MKID_RAW_PATH'])
@@ -105,11 +106,12 @@ class mainWindow(QMainWindow):
         logFilenameList = np.asarray(logFilenameList)
         logFilenameList = logFilenameList[np.argsort(logTimestampList)]
         logTimestampList = np.sort(np.asarray(logTimestampList))
-
+        
         self.logTimestampList = np.asarray(logTimestampList)
         self.logFilenameList = logFilenameList
 
-        
+
+    def initialize_spinbox_values(self,filename):
         #set up the spinbox limits and start value, which will be the file you selected
         self.spinbox_imgTimestamp.setMinimum(self.timeStampList[0])
         self.spinbox_imgTimestamp.setMaximum(self.timeStampList[-1])
@@ -213,7 +215,7 @@ class mainWindow(QMainWindow):
         #Define the plot window. 
         self.main_frame = QWidget()
         self.dpi = 100
-        self.fig = Figure(figsize = (4.0, 5.0), dpi=self.dpi) #define the figure, set the size and resolution
+        self.fig = Figure(figsize = (5.0, 10.0), dpi=self.dpi, tight_layout=True) #define the figure, set the max size (inches) and resolution. Overall window size is set with QMainWindow parameter. 
         self.canvas = FigureCanvas(self.fig)
         self.canvas.setParent(self.main_frame)
         self.ax1 = self.fig.add_subplot(111)
@@ -268,6 +270,25 @@ class mainWindow(QMainWindow):
         
         #make a label for the logs
         self.label_log = QLabel('')
+        
+        
+        #make a label to display the IMG path and the MKID_RAW_PATH
+        try:
+            os.environ['MKID_IMG_DIR']
+        except:
+            labelText = 'MKID_IMG_DIR:      could not find MKID_IMG_DIR\n'
+        else:
+            labelText = 'MKID_IMG_DIR:      ' + os.environ['MKID_IMG_DIR'] + '\n'
+            
+        try:
+            os.environ['MKID_RAW_PATH']
+        except:
+            labelText = labelText + 'MKID_RAW_PATH:  could not find MKID_RAW_PATH'
+        else:
+            labelText = labelText + 'MKID_RAW_PATH:  ' + os.environ['MKID_RAW_PATH']
+        
+        label_paths = QLabel(labelText)
+
 
     
         #create a vertical box for the plot to go in.
@@ -319,6 +340,7 @@ class mainWindow(QMainWindow):
         vbox_combined.addLayout(vbox_plot)
 #        vbox_combined.addLayout(hbox_imgTimestamp)
         vbox_combined.addLayout(hbox_controls)
+        vbox_combined.addWidget(label_paths)
         
         #Set the main_frame's layout to be vbox_combined
         self.main_frame.setLayout(vbox_combined)
@@ -430,11 +452,16 @@ class mainWindow(QMainWindow):
             filename, _ = QFileDialog.getOpenFileName(self, 'Select One File', '/',filter = '*.img')
                 
         
-        
+        if filename=='':
+            print('\nno file selected\n')
+            return
 
         self.filename = filename
-        self.loadFilenames(self.filename)
+        self.load_IMG_filenames(self.filename)
+        self.load_log_filenames()
+        self.initialize_spinbox_values(self.filename)
         
+        #140 x 145 for MEC
         
         
         
