@@ -45,14 +45,34 @@ class mainWindow(QMainWindow):
         
         
     def initializeEmptyArrays(self,nCol = 80,nRow = 125):
-        self.nCol = nCol
-        self.nRow = nRow
-
-        self.rawCountsImage = np.zeros(self.nRow*self.nCol).reshape((self.nRow,self.nCol))
-        self.hotPixMask = np.zeros(self.nRow*self.nCol).reshape((self.nRow,self.nCol))
+        self.rawCountsImage = np.zeros(nRow*nCol).reshape((nRow,nCol))
+        self.hotPixMask = np.zeros(nRow*nCol).reshape((nRow,nCol))
         self.hotPixCut = 2400
-        self.image = np.zeros(self.nRow*self.nCol).reshape((self.nRow,self.nCol))
+        self.image = np.zeros(nRow*nCol).reshape((nRow,nCol))
 
+        
+        
+    def get_nPixels(self,filename):
+        #140 x 145 for MEC
+        #80 x 125 for darkness
+        
+        npixels = len(np.fromfile(open(filename, mode='rb'),dtype=np.uint16))
+        print('npixels = ', npixels, '\n')
+        
+        if npixels == 10000: #darkness
+            nCol = 80
+            nRow = 125
+            print('\n\ncamera is DARKNESS/PICTURE-C\n\n')
+        elif npixels == 20300:  #mec
+            nCol = 140
+            nRow = 145
+            print('\n\ncamera is MEC\n\n')
+        else:
+            raise ValueError('img does not have 10000 or 20300 pixels')
+            
+        return nCol, nRow
+            
+        
         
         
 
@@ -459,9 +479,11 @@ class mainWindow(QMainWindow):
         self.filename = filename
         self.load_IMG_filenames(self.filename)
         self.load_log_filenames()
+        self.nCol, self.nRow = self.get_nPixels(self.filename) 
+        self.initializeEmptyArrays(self.nCol,self.nRow)
         self.initialize_spinbox_values(self.filename)
         
-        #140 x 145 for MEC
+
         
         
         
