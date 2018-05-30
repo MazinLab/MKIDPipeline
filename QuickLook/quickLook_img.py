@@ -26,6 +26,7 @@ from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import QObject, pyqtSignal
 import os.path
 import datetime
+import matplotlib.pyplot as plt
 
 
 
@@ -42,37 +43,19 @@ class mainWindow(QMainWindow):
         self.create_main_frame()
         self.create_status_bar()
         self.createMenu()
+        self.load_beam_map()
         
         
     def initializeEmptyArrays(self,nCol = 80,nRow = 125):
-        self.rawCountsImage = np.zeros(nRow*nCol).reshape((nRow,nCol))
-        self.hotPixMask = np.zeros(nRow*nCol).reshape((nRow,nCol))
-        self.hotPixCut = 2400
-        self.image = np.zeros(nRow*nCol).reshape((nRow,nCol))
+        self.nCol = nCol
+        self.nRow = nRow
 
-        
-        
-    def get_nPixels(self,filename):
-        #140 x 145 for MEC
-        #80 x 125 for darkness
-        
-        npixels = len(np.fromfile(open(filename, mode='rb'),dtype=np.uint16))
-        print('npixels = ', npixels, '\n')
-        
-        if npixels == 10000: #darkness
-            nCol = 80
-            nRow = 125
-            print('\n\ncamera is DARKNESS/PICTURE-C\n\n')
-        elif npixels == 20300:  #mec
-            nCol = 140
-            nRow = 145
-            print('\n\ncamera is MEC\n\n')
-        else:
-            raise ValueError('img does not have 10000 or 20300 pixels')
-            
-        return nCol, nRow
-            
-        
+        self.rawCountsImage = np.zeros(self.nRow*self.nCol).reshape((self.nRow,self.nCol))
+        self.hotPixMask = np.zeros(self.nRow*self.nCol).reshape((self.nRow,self.nCol))
+        self.hotPixCut = 2400
+        self.image = np.zeros(self.nRow*self.nCol).reshape((self.nRow,self.nCol))
+        self.beamFlagMask = np.zeros(self.nRow*self.nCol).reshape((self.nRow,self.nCol))
+
         
         
 
@@ -107,13 +90,24 @@ class mainWindow(QMainWindow):
         
 
     def load_log_filenames(self):
+        #check if directory exists
+        if not os.path.exists(self.logPath):
+            text = 'log file path not found.\n Check log file path.'
+            self.label_log.setText(text)
+
+            self.logTimestampList = np.asarray([])
+            self.logFilenameList = np.asarray([])
+
+            return
+
+
+
         #load the log filenames
         print('\nloading log filenames\n')
-        logFilenameList_all = os.listdir(os.environ['MKID_RAW_PATH'])
         logFilenameList = []
         logTimestampList = []
         
-        for logFilename in logFilenameList_all:
+        for logFilename in os.listdir(self.logPath):
             
             if logFilename.endswith("telescope.log"):
                 continue
@@ -129,6 +123,19 @@ class mainWindow(QMainWindow):
         
         self.logTimestampList = np.asarray(logTimestampList)
         self.logFilenameList = logFilenameList
+
+
+    def load_beam_map(self):
+        filename, _ = QFileDialog.getOpenFileName(self, 'Select One File', '/mnt/data0/Darkness/20180522/Beammap/',filter = '*.txt')
+        resID, flag, xPos, yPos = np.loadtxt(filename, unpack=True,dtype = int)
+
+        #resID, flag, xPos, yPos = np.loadtxt('/mnt/data0/Darkness/20180522/Beammap/finalMap_20180524.txt', unpack=True,dtype = int)
+
+        temp = np.nonzero(flag) #get the indices of the nonzero elements. 
+
+        self.beamFlagMask[yPos[temp]][xPos[temp]]=1 #beamFlagMask is 1 when the pixel is not beam mapped
+        #self.beamFlagMask = beamFlagMask
+
 
 
     def initialize_spinbox_values(self,filename):
@@ -171,8 +178,10 @@ class mainWindow(QMainWindow):
             self.fig.cbar.draw_all()
                   
         self.cleanedImage[np.where(self.cleanedImage>self.hotPixCut)] = 0
+        self.cleanedImage = self.cleanedImage*np.logical_not(self.beamFlagMask)
         self.image = self.cleanedImage
         self.ax1.imshow(self.image,vmin = self.cbarLimits[0],vmax = self.cbarLimits[1])
+        self.ax1.axis('off')
         
         
         self.draw()
@@ -202,25 +211,40 @@ class mainWindow(QMainWindow):
         
         
         
-    def updateLogLabel(self,fileExist = True):
-        
+    def updateLogLabel(self,IMG_fileExists = True):
+
         timestamp = self.spinbox_imgTimestamp.value()
+
+        #check if self.logTimestampList has more than zero entries. If not, return.
+        if len(self.logTimestampList)==0:
+            text = datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S\n\n') + 'no log file found.\n Check log file path.'
+            self.label_log.setText(text)
+            return
+
         
         #check if the img exists, if not then return
-        if fileExist==False:
+        if IMG_fileExists==False:
             text = datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S\n\n') + 'no .img file found'
             self.label_log.setText(text)
             return
 
+        #check if a nearby log file exists, then pick the closest one
         diffs = timestamp - self.logTimestampList
+        if np.sum(np.abs(diffs)<3600)==0: #nearby means within 1 hour. 
+            text = datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S\n\n') + 'nearest log is ' + str(np.amin(diffs)) + '\nseconds away from img'
+            self.label_log.setText(text)
+            return
+
         diffs[np.where(diffs<0)] = np.amax(diffs)
+
         logLabelTimestamp = self.logTimestampList[np.argmin(diffs)]
 
         labelFilename = self.logFilenameList[np.where(self.logTimestampList==logLabelTimestamp)[0][0]]
         
         
         #print('labelFilename is ', os.path.join(os.environ['MKID_RAW_PATH'],labelFilename))
-        fin=open(os.path.join(os.environ['MKID_RAW_PATH'],labelFilename),'r')
+        #fin=open(os.path.join(os.environ['MKID_RAW_PATH'],labelFilename),'r')
+        fin=open(os.path.join(self.logPath,labelFilename),'r')
         text = 'img timestamp:\n' + datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S') + '\n\nLogfile time:\n' + datetime.datetime.fromtimestamp(logLabelTimestamp).strftime('%Y-%m-%d %H:%M:%S\n') + '\n' + labelFilename[:-4] + '\n' + fin.read()
         self.label_log.setText(text)
         fin.close()
@@ -239,6 +263,7 @@ class mainWindow(QMainWindow):
         self.canvas = FigureCanvas(self.fig)
         self.canvas.setParent(self.main_frame)
         self.ax1 = self.fig.add_subplot(111)
+        self.ax1.axis('off')
         self.foo = self.ax1.imshow(self.image,interpolation='none')
         self.fig.cbar = self.fig.colorbar(self.foo)
         
@@ -292,22 +317,31 @@ class mainWindow(QMainWindow):
         self.label_log = QLabel('')
         
         
-        #make a label to display the IMG path and the MKID_RAW_PATH
+        #make a label to display the IMG path and the MKID_RAW_PATH. Also set up log path variable
         try:
             os.environ['MKID_IMG_DIR']
         except:
-            labelText = 'MKID_IMG_DIR:      could not find MKID_IMG_DIR\n'
+            labelText = 'MKID_IMG_DIR:      could not find MKID_IMG_DIR'
+            self.imgPath = '/'
         else:
-            labelText = 'MKID_IMG_DIR:      ' + os.environ['MKID_IMG_DIR'] + '\n'
-            
+            labelText = 'MKID_IMG_DIR:      ' + os.environ['MKID_IMG_DIR']
+            self.imgPath = os.environ['MKID_IMG_DIR']
+        
+        self.label_IMG_path = QLabel(labelText)
+        self.label_IMG_path.setToolTip('Look for img files in this directory. To change, go to File>Open img file')  
+
         try:
             os.environ['MKID_RAW_PATH']
         except:
-            labelText = labelText + 'MKID_RAW_PATH:  could not find MKID_RAW_PATH'
+            labelText = 'MKID_RAW_PATH:  could not find MKID_RAW_PATH'
+            self.logPath = '/'
         else:
-            labelText = labelText + 'MKID_RAW_PATH:  ' + os.environ['MKID_RAW_PATH']
-        
-        label_paths = QLabel(labelText)
+            labelText = 'MKID_RAW_PATH:  ' + os.environ['MKID_RAW_PATH']
+            self.logPath = os.environ['MKID_RAW_PATH']
+
+        self.label_log_path = QLabel(labelText)
+        self.label_log_path.setToolTip('Look for log files in this directory. To change, go to File>Change log path.') 
+
 
 
     
@@ -360,7 +394,8 @@ class mainWindow(QMainWindow):
         vbox_combined.addLayout(vbox_plot)
 #        vbox_combined.addLayout(hbox_imgTimestamp)
         vbox_combined.addLayout(hbox_controls)
-        vbox_combined.addWidget(label_paths)
+        vbox_combined.addWidget(self.label_IMG_path)
+        vbox_combined.addWidget(self.label_log_path)
         
         #Set the main_frame's layout to be vbox_combined
         self.main_frame.setLayout(vbox_combined)
@@ -380,12 +415,11 @@ class mainWindow(QMainWindow):
             filename = self.fileListRaw[np.where(self.timeStampList==self.spinbox_imgTimestamp.value())[0][0]]
         except:
             self.plotBlank()
-            self.updateLogLabel(fileExist = False)
+            self.updateLogLabel(IMG_fileExists = False)
         else:
             self.plotImage(filename)
             self.updateLogLabel()
             
-        self.draw()
         
 
 
@@ -442,15 +476,24 @@ class mainWindow(QMainWindow):
         #ARCONS-pipeline/util/quicklook.py
         self.menubar = self.menuBar()
         self.fileMenu = self.menubar.addMenu("&File")
-        
-        openFileButton = QAction(QIcon('exit24.png'), 'Open img File', self)
+
+        openFileButton = QAction('Open img File', self)
         openFileButton.setShortcut('Ctrl+O')
         openFileButton.setStatusTip('Open an img File')
-        openFileButton.triggered.connect(self.getFileNameFromUser)
+        openFileButton.triggered.connect(lambda x: self.getFileNameFromUser(fileType = 'img'))
         self.fileMenu.addAction(openFileButton)
+
+
+        changeLogDirectory_Button = QAction('Change log directory', self)
+        changeLogDirectory_Button.setShortcut('Ctrl+l')
+        changeLogDirectory_Button.setStatusTip('Opens a dialog box so user can select log file manually.')
+        changeLogDirectory_Button.triggered.connect(lambda x: self.getFileNameFromUser(fileType = 'log'))
+        self.fileMenu.addAction(changeLogDirectory_Button)
+
+        self.fileMenu.addSeparator()
         
         
-        exitButton = QAction(QIcon('exit24.png'), 'Exit', self)
+        exitButton = QAction('Exit', self)
         exitButton.setShortcut('Ctrl+Q')
         exitButton.setStatusTip('Exit application')
         exitButton.triggered.connect(self.close)
@@ -462,28 +505,48 @@ class mainWindow(QMainWindow):
 
         
         
-    def getFileNameFromUser(self):
+    def getFileNameFromUser(self,fileType):
         # look at this website for useful examples
         # https://pythonspot.com/pyqt5-file-dialog/
-        
-        try:
-            filename, _ = QFileDialog.getOpenFileName(self, 'Select One File', os.environ['MKID_IMG_DIR'],filter = '*.img')
-        except:
-            filename, _ = QFileDialog.getOpenFileName(self, 'Select One File', '/',filter = '*.img')
-                
-        
-        if filename=='':
-            print('\nno file selected\n')
+        if fileType == 'img':
+            try:
+                filename, _ = QFileDialog.getOpenFileName(self, 'Select One File', self.imgPath,filter = '*.img')
+            except:
+                filename, _ = QFileDialog.getOpenFileName(self, 'Select One File', '/',filter = '*.img')
+                    
+            
+            if filename=='':
+                print('\nno file selected\n')
+                return
+
+            self.imgPath = os.path.dirname(filename)
+            self.label_IMG_path.setText('img path:  ' + self.imgPath)
+
+            self.filename = filename
+            self.load_IMG_filenames(self.filename)
+            self.load_log_filenames()
+            self.initialize_spinbox_values(self.filename)
+
+        elif fileType == 'log':
+            try:
+                filename, _ = QFileDialog.getOpenFileName(self, 'Select One File', self.logPath,filter = '*.log')
+            except:
+                filename, _ = QFileDialog.getOpenFileName(self, 'Select One File', '/',filter = '*.log')
+                    
+            
+            if filename=='':
+                print('\nno file selected\n')
+                return
+            
+            self.logPath = os.path.dirname(filename)
+            self.label_log_path.setText('log path:  ' + self.logPath)
+            self.load_log_filenames()
+            self.updateLogLabel()
+
+        else:
             return
-
-        self.filename = filename
-        self.load_IMG_filenames(self.filename)
-        self.load_log_filenames()
-        self.nCol, self.nRow = self.get_nPixels(self.filename) 
-        self.initializeEmptyArrays(self.nCol,self.nRow)
-        self.initialize_spinbox_values(self.filename)
         
-
+        #140 x 145 for MEC
         
         
         
