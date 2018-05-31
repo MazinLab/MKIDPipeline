@@ -5,13 +5,11 @@ Created on Mon Jan 29 16:28:30 2018
 
 @author: clint
 
-
-1507175503
-
 GO TO THE ENCLOSING DIRECTORY AND RUN IT FROM THE TERMINAL WITH THE FOLLOWING COMMAND:
 python quickLook_img.py
 
 set the system variable $MKID_IMG_DIR to the place where you want to look for img files
+set the system variable $MKID_RAW_PATH to the place where you want to look for log files
 
 """
 
@@ -43,7 +41,7 @@ class mainWindow(QMainWindow):
         self.create_main_frame()
         self.create_status_bar()
         self.createMenu()
-        self.load_beam_map()
+        #self.load_beam_map()
         
         
     def initializeEmptyArrays(self,nCol = 80,nRow = 125):
