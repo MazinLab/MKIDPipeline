@@ -1,7 +1,7 @@
 import tables
 import numpy as np
 import os, sys
-from Headers.ObsFileHeaders import ObsFileCols
+from DarknessPipeline.Headers.ObsFileHeaders import ObsFileCols
 
 if(len(sys.argv)<2):
     print("Usage: python consolidatePhotonTables.py <filename>")

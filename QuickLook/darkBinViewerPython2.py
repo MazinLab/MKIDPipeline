@@ -17,9 +17,9 @@ from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 #from matplotlib.backends.backend_qt4agg import NavigationToolbar2QTAgg as NavigationToolbar
 from matplotlib.figure import Figure
 from functools import partial
-from parsePacketDump2 import parsePacketData
-import parsePacketDump2
-import HotPix.darkHotPixMask as dhpm
+from DarknessPipeline.P3Utils.parsePacketDump2Python2 import parsePacketData
+import DarknessPipeline.P3Utils.parsePacketDump2Python2
+import DarknessPipeline.Cleaning.HotPix.darkHotPixMaskPython2 as dhpm
 
 
 basePath = '/mnt/data0/ScienceData/'
