@@ -10,7 +10,7 @@ from matplotlib import pyplot as plt
 from matplotlib import image as mpimg
 from configparser import ConfigParser
 from matplotlib.backends.backend_pdf import PdfPages
-from Headers import pipelineFlags
+from DarknessPipeline.Headers import pipelineFlags
 
 
 def plotEnergySolution(file_name, res_id=None, pixel=[], axis=None):

@@ -17,10 +17,10 @@ from configparser import ConfigParser
 from PyPDF2 import PdfFileMerger, PdfFileReader
 from matplotlib.backends.backend_pdf import PdfPages
 from progressbar import ProgressBar, Bar, ETA, Timer, Percentage
-from Headers import pipelineFlags
-from Calibration.WavelengthCal.plotWaveCal import plotSummary, fitModels
-from RawDataProcessing.darkObsFile import ObsFile
-from Headers.CalHeaders import WaveCalDescription, WaveCalHeader, WaveCalDebugDescription
+from DarknessPipeline.Headers import pipelineFlags
+from DarknessPipeline.Calibration.WavelengthCal.plotWaveCal import plotSummary, fitModels
+from DarknessPipeline.RawDataProcessing.darkObsFile import ObsFile
+from DarknessPipeline.Headers.CalHeaders import WaveCalDescription, WaveCalHeader, WaveCalDebugDescription
 
 
 class WaveCal:
