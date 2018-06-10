@@ -499,6 +499,7 @@ class ObsFile:
                 flag = self.beamFlagImage[xCoord, yCoord]
                 if(self.beamImage[xCoord, yCoord]!=self.noResIDFlag and (flag|flagToUse)==flagToUse):
                     effIntTimes[xCoord, yCoord] = totInt
+                    countImage[xCoord, yCoord] = 0
                     resIDInd = np.where(resIDList==self.beamImage[xCoord, yCoord])[0]
                     if(np.shape(resIDInd)[0]>0):
                         resIDInd = resIDInd[0]
