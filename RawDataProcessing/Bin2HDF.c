@@ -124,6 +124,8 @@ void AddPacket(char *packet, uint64_t l, hid_t file_id, size_t dst_size, size_t 
     if( basetime < 0 ) { // maybe have some packets out of order early in file
 	    printf("Early Start!\n");
 		basetime = 0;
+        return;
+
 	}
 
     for(i=1;i<l/8;i++) {
@@ -566,15 +568,21 @@ int main(int argc, char *argv[])
     free(toWriteBeamMap);
     free(toWriteBeamFlag);
 
+    free(yearStartTime);
+
     printf("adding header\n"); fflush(stdout);
     strcat(addHeaderCmd, argv[1]);
     strcat(addHeaderCmd, " ");
     strcat(addHeaderCmd, outfile);
     system(addHeaderCmd);
 
-    printf("correcting timestamps\n"); fflush(stdout);
-    strcat(correctTimestampsCmd, outfile);
-    system(correctTimestampsCmd);
+    if(FirstFile < 1518222559) //before firmware upgrade
+    {
+        printf("correcting timestamps\n"); fflush(stdout);
+        strcat(correctTimestampsCmd, outfile);
+        system(correctTimestampsCmd);
+
+    }
 
     printf("consolidating photon tables\n"); fflush(stdout);
     strcat(consolidatePhotonTablesCmd, outfile);
