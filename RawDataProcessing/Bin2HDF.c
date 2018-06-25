@@ -1,9 +1,9 @@
-/************************************************************************************************
+/***********************************************************************************************
  * Bin2HDF.c - A program to convert a sequence of .bin files from the Gen2 readout into a
  *  h5 file.
  *
  * compiled with this command
- /usr/local/hdf5/bin/h5cc -shlib -pthread -o Bin2HDF Bin2HDF.c
+ /usr/local/hdf5/bin/h5cc -shlib -pthread -g -o Bin2HDF Bin2HDF.c
  *************************************************************************************************/
 
 #include <stdio.h>
@@ -85,6 +85,34 @@ int ParseConfig(int argc, char *argv[], char *Path, int *FirstFile, int *nFiles,
     return 1;
 }
 
+void FixOverflowTimestamps(struct hdrpacket* hdr, int nWraps)
+{
+    //int roachList[10] = {112, 115};
+    //int tsOffsetList[10] = {12354, 15674};
+    //int i, roachInd;
+    //roachInd = -1;
+    //
+    //for(i=0; i<sizeof(roachList)/sizeof(int); i++)
+    //{
+    //    if(roachList[i]==hdr->roach)
+    //    {
+    //        roachInd = i;
+    //        break;
+
+    //    }
+
+    //}
+
+    //if(roachInd==-1)
+    //    printf("ROACH not found!\n");
+
+    //else
+    //    hdr->timestamp += tsOffsetList[roachInd];
+
+    hdr->timestamp += 2000*nWraps*1048576;
+
+}
+
 void ParsePacket( uint16_t **image, char *packet, uint64_t l, uint64_t *frame, int beamCols, int beamRows)
 {
     uint64_t i;
@@ -119,11 +147,13 @@ void AddPacket(char *packet, uint64_t l, hid_t file_id, size_t dst_size, size_t 
     }
 
     // if no start timestamp, store start timestamp
-    basetime = hdr->timestamp - tstart; // time since start of first file
+    FixOverflowTimestamps(hdr, 1); //TEMPORARY FOR 20180625 MEC - REMOVE LATER
+    basetime = hdr->timestamp - tstart; // time since start of first file, in half ms
+    //printf("Roach: %d; Offset: %d\n", hdr->roach, FirstFile - TSOFFS - hdr->timestamp/2000); 
 
     if( basetime < 0 ) { // maybe have some packets out of order early in file
 	    printf("Early Start!\n");
-		basetime = 0;
+		//basetime = 0;
         return;
 
 	}
@@ -149,6 +179,7 @@ void AddPacket(char *packet, uint64_t l, hid_t file_id, size_t dst_size, size_t 
 
     }
 }
+
 
 /*
  * Sorts all photon tables in time order. Uses insertion sort (good for mostly ordered data)
@@ -248,7 +279,7 @@ int main(int argc, char *argv[])
     FILE *fp;
     uint64_t **data, *dSize;
     clock_t start, diff, olddiff;
-    uint64_t swp,swp1,i,pstart,pcount,tStart,firstHeader, nPhot, tPhot=0;
+    uint64_t swp,swp1,i,pstart,pcount,firstHeader, nPhot, tPhot=0;
     struct hdrpacket *hdr;
     char packet[808*16];
     char *olddata;
