@@ -14,14 +14,16 @@ from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5 import QtGui
 import matplotlib
-matplotlib.rcParams['backend.qt4']='PyQt4'
+#matplotlib.rcParams['backend.qt4']='PyQt4'
+#matplotlib.rcParams['backend.qt5']='PyQt5'
+matplotlib.use('Qt5agg')
 from PyQt5.QtCore import Qt, pyqtSignal
-from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 #from matplotlib.backends.backend_qt4agg import NavigationToolbar2QTAgg as NavigationToolbar
 from matplotlib.figure import Figure
 from functools import partial
-from parsePacketDump2 import parsePacketData
-import HotPix.darkHotPixMask as dhpm
+from DarknessPipeline.P3Utils.parsePacketDump2 import parsePacketData
+from DarknessPipeline.Cleaning.HotPix import darkHotPixMask as dhpm
 from ast import literal_eval
 
 
