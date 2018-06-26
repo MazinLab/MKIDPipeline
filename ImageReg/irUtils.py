@@ -14,7 +14,7 @@ import pickle
 from DarknessPipeline.P3Utils.arrayPopup import plotArray
 import subprocess, warnings
 from scipy import ndimage
-import DarknessPipeline.P3Utils.mpfit
+#import DarknessPipeline.P3Utils.mpfit
 import tables
 secondsPerDay = 24*60*60
 
