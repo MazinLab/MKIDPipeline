@@ -7,12 +7,20 @@ import cmd
 class RunWaveCal:
     '''
     Created by: Isabel Lipartito, May 2018
+    A simple wrapper to make a wavecal solution file from a single wavecal
+    Inputs:  Wavelengths of lasers used in this wavecal, each laser's start time and exposure time.
+    See defaultRunWaveCal.cfg for a complete list of input parameters (you also need to input the fit/output parameters 
+    received by WaveCal.py
+    Replaces the indivdual processes of:
+              1.  making individual H5 cfg files for each laser
+              2.  Running Bin2HDF for each laser
+              3.  Making a wavecal cfg file
+              4.  Running WaveCal.py on the wavecal cfg file
     '''
     def __init__(self, config_file='default.cfg'):
 
         # define the configuration file path
         self.config = config_file
-        print(self.config)
         if self.config == 'defaultRunWaveCal.cfg':
             directory = os.path.dirname(os.path.realpath(__file__))
             self.config_directory = os.path.join(directory, 'Params', self.config)
@@ -30,7 +38,7 @@ class RunWaveCal:
         self.__configCheck(1)
         self.wavelengths = ast.literal_eval(self.config['Data']['wavelengths'])
         self.startTimes = ast.literal_eval(self.config['Data']['startTimes'])
-        self.intTimes = ast.literal_eval(self.config['Data']['intTimes'])
+        self.expTimes = ast.literal_eval(self.config['Data']['expTimes'])
         self.dataDir= ast.literal_eval(self.config['Data']['dataDir'])
         self.beamDir= ast.literal_eval(self.config['Data']['beamDir'])
         self.model_name = ast.literal_eval(self.config['Fit']['model_name'])
@@ -58,10 +66,10 @@ class RunWaveCal:
             wavepath=self.outH5Dir+str(self.wavelengths[i])+'nm.txt'
             cwd = os.getcwd()
             file=open(wavepath,'w')
-            file.write('80 125')
+            file.write('140 145')
             file.write('\n'+self.dataDir)
             file.write('\n'+'%d' %self.startTimes[i])
-            file.write('\n'+'%d' %self.intTimes[i])
+            file.write('\n'+'%d' %self.expTimes[i])
             file.write('\n'+self.beamDir)
             file.write('\n'+str(1))
             file.write('\n'+self.outH5Dir)
@@ -102,6 +110,7 @@ class RunWaveCal:
         file.write('\n'+'templar_config = '+'"'+self.templar_config+'"')
         file.write('\n'+'verbose = '+str(self.verbose))
         file.write('\n'+'logging = '+str(self.logging))
+        file.close()
         
     def runWaveCal(self):
         w = W.WaveCal(config_file=self.cfgpath)
@@ -127,8 +136,8 @@ class RunWaveCal:
                 param.format('wavelengths', 'Data')
             assert 'startTimes' in self.config['Data'].keys(), \
                 param.format('startTimes', 'Data')
-            assert 'intTimes' in self.config['Data'].keys(), \
-                param.format('intTimes', 'Data')
+            assert 'expTimes' in self.config['Data'].keys(), \
+                param.format('expTimes', 'Data')
             assert 'dataDir' in self.config['Data'].keys(), \
                 param.format('dataDir', 'Data')
             assert 'beamDir' in self.config['Data'].keys(), \
@@ -166,7 +175,7 @@ class RunWaveCal:
             # type check parameters
             assert type(self.wavelengths) is list, "wavelengths parameter must be a list."
             assert type(self.startTimes) is list, "startTimes parameter must be a list."
-            assert type(self.intTimes) is list, "intTimes parameter must be a list."
+            assert type(self.expTimes) is list, "expTimes parameter must be a list."
             assert type(self.model_name) is str, "model_name parameter must be a string."
             assert type(self.save_plots) is bool, "save_plots parameter must be a boolean"
             assert type(self.verbose) is bool, "verbose parameter bust be a boolean"
@@ -190,7 +199,6 @@ class RunWaveCal:
             assert os.path.isdir(self.outH5Dir), \
                 "{0} is not a valid output directory".format(self.outH5Dir)
 
-
             assert len(self.wavelengths) == len(self.startTimes), \
                 "wavelengths and file_names parameters must be the same length."
             if type(self.bin_width) is int:
@@ -207,9 +215,9 @@ if __name__ == '__main__':
        runwavecal = RunWaveCal()
    else:
        runwavecal = RunWaveCal(config_file=sys.argv[1])
-       runwavecal.makeH5CfgFiles()
-       runwavecal.makeWaveCalCfgFile()
-       runwavecal.runWaveCal()
+   runwavecal.makeH5CfgFiles()
+   runwavecal.makeWaveCalCfgFile()
+   runwavecal.runWaveCal()
         
 
 
