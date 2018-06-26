@@ -212,6 +212,7 @@ class FlatCal:
 			Normalize weights at each wavelength bin
 			'''	
 			self.flatWeights,summedAveragingWeights = np.ma.average(trimmedWeights,axis=0,weights=trimmedCubeDeltaWeightsReordered**-2.,returned=True)
+			self.countCubesToSave=np.ma.average(trimmedCountCubesReordered,axis=0)
 			self.deltaFlatWeights = np.sqrt(summedAveragingWeights**-1.)
 			self.flatFlags = self.flatWeights.mask
 	
@@ -524,6 +525,7 @@ class FlatCal:
 		beamImage = tables.Array(header, 'beamMap', obj=self.beamImage) 
 		calgroup = flatCalFile.create_group(flatCalFile.root,'flatcal','Table of flat calibration weights by pixel and wavelength')
 		calarray = tables.Array(calgroup,'weights',obj=self.flatWeights.data,title='Flat calibration Weights indexed by pixelRow,pixelCol,wavelengthBin')
+		specarray = tables.Array(calgroup,'spectrum',obj=self.countCubesToSave.data,title='Twilight spectrum indexed by pixelRow,pixelCol,wavelengthBin')
 		flagtable = tables.Array(calgroup,'flags',obj=self.flatFlags,title='Flat cal flags indexed by pixelRow,pixelCol,wavelengthBin. 0 is Good')
 		bintable = tables.Array(calgroup,'wavelengthBins',obj=self.wvlBinEdges,title='Wavelength bin edges corresponding to third dimension of weights array')
 
@@ -533,6 +535,7 @@ class FlatCal:
 		for iRow in range(self.nXPix):
 			for iCol in range(self.nYPix):
 				weights = self.flatWeights[iRow,iCol,:]
+				spectrum=self.countCubesToSave[iRow,iCol,:]
 				deltaWeights = self.deltaFlatWeights[iRow,iCol,:]
 				flags = self.flatFlags[iRow,iCol,:]
 				flag = np.any(self.flatFlags[iRow,iCol,:])
@@ -544,6 +547,7 @@ class FlatCal:
 				entry['pixelcol'] = iCol
 				entry['weights'] = weights
 				entry['weightUncertainties'] = deltaWeights
+				entry['spectrum'] = spectrum
 				entry['weightFlags'] = flags
 				entry['flag'] = flag
 				entry.append()

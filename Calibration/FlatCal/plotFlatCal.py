@@ -46,9 +46,13 @@ def plotSinglePixelSolution(calsolnName, file_nameWvlCal, res_id=None, pixel=[],
 	weights = calsoln['weights'][index]
 	weightFlags=calsoln['weightFlags'][index]
 	weightUncertainties=calsoln['weightUncertainties'][index]
+	spectrum=calsoln['spectrum'][index]
 
 	weights=np.array(weights)
 	weights=weights.flatten()
+
+	spectrum=np.array(spectrum)
+	spectrum=spectrum.flatten()
 
 	weightUncertainties=np.array(weightUncertainties)
 	weightUncertainties=weightUncertainties.flatten()
@@ -67,9 +71,14 @@ def plotSinglePixelSolution(calsolnName, file_nameWvlCal, res_id=None, pixel=[],
 	ax.set_ylim(.5,2.)
 	my_pixel = [row, column]
 	ax=p.plotEnergySolution(file_nameWvlCal, pixel=my_pixel,axis=ax)
+
+	ax = fig.add_subplot(3,1,3)
+	ax.set_ylim(.5,100.)
+	ax.plot(wavelengths[0:len(wavelengths)-1],spectrum,label='Twilight Spectrum %d'%index,alpha=.7,color=matplotlib.cm.Paired((1+1.)/1))
+
 	plt.show()
 
 if __name__ == '__main__':
 	calsolnName='flatcalsoln1.h5'
 	file_nameWvlCal = '/mnt/data0/isabel/FlatConfiguration/wavecal/calsol_1528870743.h5' 
-	plotSinglePixelSolution(calsolnName, file_nameWvlCal, res_id=None, pixel=[55,55], axis=None)
+	plotSinglePixelSolution(calsolnName, file_nameWvlCal, res_id=None, pixel=[9,50], axis=None)
