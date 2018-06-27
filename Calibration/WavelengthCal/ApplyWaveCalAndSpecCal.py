@@ -51,8 +51,8 @@ class ApplyWaveCalAndSpecCal:
 
         self.dataDir= ast.literal_eval(self.config['DataObs']['dataDir'])
         self.beamDir= ast.literal_eval(self.config['DataObs']['beamDir'])
-        self.xpix= ast.literal_eval(self.config['DataObs']['XPIX'])
-        self.ypix= ast.literal_eval(self.config['DataObs']['YPIX'])
+        self.XPIX= ast.literal_eval(self.config['DataObs']['XPIX'])
+        self.YPIX= ast.literal_eval(self.config['DataObs']['YPIX'])
         self.ditherBool= ast.literal_eval(self.config['DataObs']['ditherBool'])
         self.flatBool= ast.literal_eval(self.config['DataObs']['flatBool'])
         self.mapFlag= ast.literal_eval(self.config['DataObs']['mapFlag'])
@@ -89,25 +89,34 @@ class ApplyWaveCalAndSpecCal:
         self.__configCheck(2)
 
         self.path=self.b2hPath
-        self.wavepath=self.outH5Dir+'/wavecal/'
-        self.flatpath=self.outH5Dir+'/flatcal/'
-        self.obspath=self.outH5Dir+'/ScienceObs/'
+
+        self.wavepath=self.outH5Dir+'wavecal/'
+        if not os.path.isdir(self.wavepath):
+            self.wavepath=os.mkdir(self.wavepath)
+
+        self.flatpath=self.outH5Dir+'flatcal/'
+        if not os.path.isdir(self.flatpath):
+            self.flatpath=os.mkdir(self.flatpath)
+
+        self.obspath=self.outH5Dir+'ScienceObs/'
+        if not os.path.isdir(self.obspath):
+            self.obspath=os.mkdir(self.obspath)
 
     def makeWaveCalH5CfgFiles(self):
-        scriptpath=self.wavepath+'makeh5files.sh'
+        scriptpath=str(self.wavepath)+'makeh5files.sh'
         scriptfile=open(scriptpath, 'w')       
         scriptfile.write('#!/bin/bash') 
         for i in np.arange(len(self.wavelengths)):
-            wavelengthpath=self.wavepath+'nm.txt'
+            wavelengthpath=str(self.wavepath)+str(self.wavelengths[i])+'nm.txt'
             cwd = os.getcwd()
             file=open(wavelengthpath,'w')
-            file.write('80 125')
+            file.write(str(self.XPIX)+str(' ')+ str(self.YPIX))
             file.write('\n'+self.dataDir)
             file.write('\n'+'%d' %self.startTimesWave[i])
             file.write('\n'+'%d' %self.expTimesWave[i])
             file.write('\n'+self.beamDir)
             file.write('\n'+str(1))
-            file.write('\n'+self.wavepath)
+            file.write('\n'+str(self.wavepath))
             file.close()
             os.chdir(self.path)
             os.system('./Bin2HDF '+wavelengthpath)
@@ -120,7 +129,7 @@ class ApplyWaveCalAndSpecCal:
         for i in np.arange(len(self.startTimesWave)):
             filename='%d' %self.startTimesWave[i]+'.h5'
             self.wvcalfilenames.append(filename)
-        self.wvcfgpath=self.wavepath+'WvCalCfg.cfg'
+        self.wvcfgpath=str(self.wavepath)+'WvCalCfg.cfg'
         file=open(self.wvcfgpath, 'w')
         file.write('[Data]')
         file.write('\n')
@@ -149,12 +158,12 @@ class ApplyWaveCalAndSpecCal:
     def runWaveCal(self):
         w = W.WaveCal(config_file=self.wvcfgpath)
         w.makeCalibration()
-        self.waveCalSolnFile = max(glob.iglob(self.wavepath+'calsoln'+'*.h5'), key=os.path.getctime)
+        self.waveCalSolnFile = max(glob.iglob(str(self.wavepath)+'calsol'+'*.h5'), key=os.path.getctime)
 
     def makeFlatCalH5CfgFile(self):
         flatfieldpath=self.flatpath+'Flat.txt'
         file=open(flatfieldpath,'w')
-        file.write('80 125')
+        file.write(str(self.XPIX)+str(' ')+ str(self.YPIX))
         file.write('\n'+self.dataDir)
         file.write('\n'+'%d' %self.startTimeFlat)
         file.write('\n'+'%d' %self.expTimeFlat)
@@ -169,7 +178,7 @@ class ApplyWaveCalAndSpecCal:
     def makeSingleObsH5CfgFile(self):
         observationpath=self.obspath+'Obs.txt'
         file=open(observationpath,'w')
-        file.write('80 125')
+        file.write(str(self.XPIX)+str(' ')+ str(self.YPIX))
         file.write('\n'+self.dataDir)
         file.write('\n'+'%d' %self.startTimeObs)
         file.write('\n'+'%d' %self.expTimeObs)
@@ -188,8 +197,8 @@ class ApplyWaveCalAndSpecCal:
         file=open(observationpath,'w')
         file.write('[Data]')
         file.write('\n')
-        file.write('\n'+'XPIX = '+str(self.xpix))
-        file.write('\n'+'YPIX = '+str(self.ypix))
+        file.write('\n'+'XPIX = '+str(self.XPIX))
+        file.write('\n'+'YPIX = '+str(self.YPIX))
         file.write('\n'+'binPath = '+'"'+self.dataDir+'"')
         file.write('\n'+'outPath = '+'"'+self.outH5Dir+'"')
         file.write('\n'+'beamFile = '+'"'+self.beamDir+'"')
@@ -233,12 +242,12 @@ class ApplyWaveCalAndSpecCal:
 
     def applyWaveCal(self):
         self.obsandFlatFiles=self.obsFiles.append(self.flatpath+str(self.startTimeFlat)+'.h5')
-        for ObsFN in self.obsandFlatFiles
+        for ObsFN in self.obsandFlatFiles:
             obsfile=obs(ObsFN, mode='write')
             obsfilecal=obs.applyWaveCal(obsfile,self.waveCalSolnFile)        
         
     def applyFlatCal(self):
-        for ObsFN in self.obsFiles
+        for ObsFN in self.obsFiles:
             obsfile=obs(ObsFN, mode='write')
             obsfilecal=obs.applyFlatCal(obsfile,self.flatCalSolnFile)
 
@@ -357,18 +366,14 @@ class ApplyWaveCalAndSpecCal:
             assert type(self.plot_file_name) is str, "plot_file_name parameter must be a string"
             assert type(self.verbose) is bool, "verbose parameter bust be a boolean"
             assert type(self.logging) is bool, "logging parameter must be a boolean"
-            assert type(self.summary_plots) is bool, "summary plot parameter must be a boolean"
+            assert type(self.summary_plot) is bool, "summary plot parameter must be a boolean"
             assert type(self.outH5Dir) is str, "Output H5 directory parameter must be a string"
             assert type(self.templar_config) is str, "templar_config parameter must be a string"
 
-            assert os.path.isdir(self.outWaveCalSolnDir), \
-                "{0} is not a valid output directory".format(self.outWaveCalSolnDir)
-            assert os.path.isdir(self.outFlatCalSolnDir), \
-                "{0} is not a valid output directory".format(self.outFlatCalSolnDir)
             assert os.path.isdir(self.outH5Dir), \
                 "{0} is not a valid output directory".format(self.outH5Dir)
 
-            assert len(self.wavelengths) == len(self.startTimes), \
+            assert len(self.wavelengths) == len(self.startTimesWave), \
                 "wavelengths and file_names parameters must be the same length."
 
 if __name__ == '__main__':
@@ -376,7 +381,7 @@ if __name__ == '__main__':
        ApplyWaveCalAndSpecCal = ApplyWaveCalAndSpecCal()
    else:
        ApplyWaveCalAndSpecCal = ApplyWaveCalAndSpecCal(config_file=sys.argv[1])
-       ApplyWaveCalAndSpecCal.makeWaveCalH5CfgFiles()
+       #ApplyWaveCalAndSpecCal.makeWaveCalH5CfgFiles()
        ApplyWaveCalAndSpecCal.makeWaveCalCfgFile()
        ApplyWaveCalAndSpecCal.runWaveCal()
         
