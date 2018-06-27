@@ -38,6 +38,8 @@ class RunWaveCal:
         self.__configCheck(1)
         self.wavelengths = ast.literal_eval(self.config['Data']['wavelengths'])
         self.startTimes = ast.literal_eval(self.config['Data']['startTimes'])
+        self.XPIX= ast.literal_eval(self.config['Data']['XPIX'])
+        self.YPIX= ast.literal_eval(self.config['Data']['YPIX'])
         self.expTimes = ast.literal_eval(self.config['Data']['expTimes'])
         self.dataDir= ast.literal_eval(self.config['Data']['dataDir'])
         self.beamDir= ast.literal_eval(self.config['Data']['beamDir'])
@@ -66,7 +68,7 @@ class RunWaveCal:
             wavepath=self.outH5Dir+str(self.wavelengths[i])+'nm.txt'
             cwd = os.getcwd()
             file=open(wavepath,'w')
-            file.write('140 145')
+            file.write(str(self.XPIX)+str(' ')+ str(self.YPIX))
             file.write('\n'+self.dataDir)
             file.write('\n'+'%d' %self.startTimes[i])
             file.write('\n'+'%d' %self.expTimes[i])
@@ -142,6 +144,10 @@ class RunWaveCal:
                 param.format('dataDir', 'Data')
             assert 'beamDir' in self.config['Data'].keys(), \
                 param.format('beamDir', 'Data')
+            assert 'XPIX' in self.config['Data'].keys(), \
+                param.format('XPIX', 'Data')
+            assert 'YPIX' in self.config['Data'].keys(), \
+                param.format('YPIX', 'Data')
 
             assert 'Fit' in self.config.sections(), section.format('Fit')
             assert 'model_name' in self.config['Fit'].keys(), \
@@ -175,6 +181,8 @@ class RunWaveCal:
             # type check parameters
             assert type(self.wavelengths) is list, "wavelengths parameter must be a list."
             assert type(self.startTimes) is list, "startTimes parameter must be a list."
+            assert type(self.XPIX) is int, "Number of X Pix parameter must be an integer"
+            assert type(self.YPIX) is int, "Number of Y Pix parameter must be an integer"
             assert type(self.expTimes) is list, "expTimes parameter must be a list."
             assert type(self.model_name) is str, "model_name parameter must be a string."
             assert type(self.save_plots) is bool, "save_plots parameter must be a boolean"
