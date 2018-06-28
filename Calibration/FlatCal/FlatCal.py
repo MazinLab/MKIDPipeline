@@ -229,6 +229,7 @@ class FlatCal:
 				if iCube==0 or iCube==int((self.expTime/self.intTime)/2) or iCube==(int(self.expTime/self.intTime)-1):
 					flatcal.plotWeightsWvlSlices()		
 					flatcal.plotWeightsByPixelWvlCompare() 
+					flatcal.summaryPlot()
 
 
 	def plotWeightsByPixelWvlCompare(self):
@@ -496,6 +497,42 @@ class FlatCal:
 		self.__closePlots()
 		if self.verbose:
 			self.pbar.finish()
+
+	def summaryPlot(self):
+		"""
+		Writes a summary plot of the Flat Fielding
+		"""
+		if not self.save_plots:
+			return
+		if self.save_plots:
+			self.plotName='summaryPlot_'
+			self.__setupPlots()
+		pixels=self.nXPix*self.nYPix
+		if self.verbose:
+			print('Generating summary plot at ',self.pdfFullPath)
+			self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (',Timer(), ') ', ETA(), ' '], max_value=pixels).start()
+			self.pbar_iter = 0
+
+		matplotlib.rcParams['font.size'] = 4 
+		wvls = self.wvlBinEdges[0:-1]
+		nCubes = len(self.maskedCubeWeights)
+
+		meanWeightList=np.zeros((self.nXPix, self.nYPix))
+		self.fig = plt.figure(figsize=(10,10),dpi=100)
+		ax = self.fig.add_subplot(1,1,1)
+
+		for iRow in range(self.nXPix):
+			for iCol in range(self.nYPix):
+				weights = self.flatWeights[iRow,iCol,:]
+				meanWeight=np.nanmean(weights)
+				meanWeightList[iRow, iCol]=meanWeight
+		plt.imshow(meanWeightList)
+
+
+
+				
+
+		
 
 	def writeWeights(self):
 		"""
