@@ -16,6 +16,7 @@ Per pixel:  plots of weights vs wavelength next to twilight spectrum OR
 import sys,os
 import ast
 import numpy as np
+np.seterr(divide='ignore', invalid='ignore')
 import matplotlib.pyplot as plt
 import matplotlib
 from functools import partial
@@ -23,14 +24,16 @@ from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.backends.backend_pdf import PdfPages
 from configparser import ConfigParser
 import tables
-from P3Utils.arrayPopup import PopUp,plotArray,pop
-from darkObsFile import ObsFile
-from P3Utils.readDict import readDict
-from P3Utils.FileName import FileName
-import HotPix.darkHotPixMask as hp
-from Headers.CalHeaders import FlatCalSoln_Description
-from Headers import pipelineFlags
-from Calibration.WavelengthCal import plotWaveCal as p
+from DarknessPipeline.P3Utils.arrayPopup import PopUp,plotArray,pop
+from DarknessPipeline.RawDataProcessing.darkObsFile import ObsFile
+from DarknessPipeline.P3Utils.readDict import readDict
+from DarknessPipeline.P3Utils.FileName import FileName
+import DarknessPipeline.Cleaning.HotPix.darkHotPixMask as hp
+from DarknessPipeline.Headers.CalHeaders import FlatCalSoln_Description
+from DarknessPipeline.Headers import pipelineFlags
+from DarknessPipeline.Calibration.WavelengthCal import plotWaveCal as p
+from progressbar import ProgressBar, Bar, ETA, Timer, Percentage
+from PyPDF2 import PdfFileMerger, PdfFileReader
 
 
 class FlatCal:
@@ -39,28 +42,20 @@ class FlatCal:
 	'''
 	def __init__(self,config_file='default.cfg'):
 		''' 
-		Reads in the param file and opens appropriate flat file.  Applies wavelength calibration if it has not already been applied.  Sets wavelength binning parameters.
+		Reads in the param file and opens appropriate flat file.  Sets wavelength binning parameters.
 		'''
 		# define the configuration file path
-		directory = os.path.dirname(__file__)
-		print('directory', directory)
-		self.config_directory = os.path.join(directory, 'Params', config_file)
+		self.config_file = config_file
 
         	# check the configuration file path and read it in
 		self.__configCheck(0)
 		self.config = ConfigParser()
-		self.config.read(self.config_directory)
+		self.config.read(self.config_file)
 
 		# check the configuration file format and load the parameters
 		self.__configCheck(1)
-		self.run = ast.literal_eval(self.config['Data']['run'])
-		self.date = ast.literal_eval(self.config['Data']['date'])
-		self.flatCalTstamp = ast.literal_eval(self.config['Data']['flatCalTstamp'])
-		self.flatObsTstamps = ast.literal_eval(self.config['Data']['flatObsTstamps'])
-		self.wvlDate = ast.literal_eval(self.config['Data']['wvlDate'])
 		self.wvlCalFile=ast.literal_eval(self.config['Data']['wvlCalFile'])
 		self.flatPath = ast.literal_eval(self.config['Data']['flatPath'])
-		self.calSolnPath=ast.literal_eval(self.config['Data']['calSolnPath'])
 		self.intTime = ast.literal_eval(self.config['Data']['intTime'])
 		self.expTime = ast.literal_eval(self.config['Data']['expTime'])
 		self.deadtime= ast.literal_eval(self.config['Instrument']['deadtime'])
@@ -69,43 +64,22 @@ class FlatCal:
 		self.wvlStop = ast.literal_eval(self.config['Instrument']['wvlStop'])
 		self.countRateCutoff = ast.literal_eval(self.config['Calibration']['countRateCutoff'])
 		self.fractionOfChunksToTrim = ast.literal_eval(self.config['Calibration']['fractionOfChunksToTrim'])
-		self.timeMaskFileName = ast.literal_eval(self.config['Calibration']['timeMaskFileName'])
-		self.timeSpacingCut = ast.literal_eval(self.config['Calibration']['timeSpacingCut'])
+		self.verbose = ast.literal_eval(self.config['Output']['verbose'])
+		self.calSolnPath=ast.literal_eval(self.config['Output']['calSolnPath'])
+		self.save_plots=ast.literal_eval(self.config['Output']['save_plots'])
+		if self.save_plots:
+			answer = self.__query("Save Plots flag set to 'yes', this will add ~30 min to the code.  Are you sure you want to save plots?", yes_or_no=True)
+			if answer is False:
+				self.save_plots=False
+				print('Setting save_plots parameter to FALSE')
+		self.timeSpacingCut=None
 
 		# check the parameter formats
 		self.__configCheck(2)
-		if self.flatPath == '':
-			obsFNs = [FileName(run=self.run,date=self.date,tstamp=obsTstamp) for obsTstamp in self.flatObsTstamps]
-			self.obsFileNames = [fn.obs() for fn in obsFNs]
-			print(self.obsFileNames)
-			self.obsList = [ObsFile(obsFileName) for obsFileName in self.obsFileNames]
-		else:
-			self.obsList=[ObsFile(self.flatPath)]
-		if self.calSolnPath =='':		
-			self.flatCalFileName = FileName(run=self.run,date=self.date,tstamp=self.flatCalTstamp).flatSoln()
-		else:
-			self.flatCalFileName =  self.calSolnPath
-		'''
-		If input flat file is not wavelength calibrated and a wavecal solution file is specified in the cfg file, here is where it will be applied
-		If input flat file is not wavelength calibrated and no solution file is specified, the best wavecal file will be loaded and applied if possible
-		'''
-		if self.obsList[0].info['isWvlCalibrated']!=True:		
-			if self.wvlDate != '':
-				wvlCalFileName = FileName(run=self.run,date=wvlDate,tstamp=wvlTimestamp).calSoln()
-			for iObs,obs in enumerate(self.obsList):
-				if self.wvlDate != '':
-					self.mode='write'
-					obs.applyWaveCal(wvlCalFileName)
-				else:
-					self.mode='write'
-					obs.loadBestWvlCalFile()
-				obs.setWvlCutoffs(700,1500)
-				if self.timeMaskFileName != '':
-					if not os.path.exists(self.timeMaskFileName):
-						print('Running hotpix for ',obs)
-						hp.findHotPixels(obsFile=obs,outputFileName=timeMaskFileName,fwhm=np.inf,useLocalStdDev=True)
-						print ('Flux file pixel mask saved to %s"%(timeMaskFileName)')
-					obs.loadHotPixCalFile(timeMaskFileName)
+		
+		self.obsList=[ObsFile(self.flatPath)]
+		self.flatCalFileName =  self.calSolnPath+'flatcalsoln.h5'
+		self.out_directory = self.calSolnPath 
 
 		#get beammap from first obs
 		self.beamImage = self.obsList[0].beamImage
@@ -116,7 +90,10 @@ class FlatCal:
 		
 		#wvlBinEdges includes both lower and upper limits, so number of bins is 1 less than number of edges
 		self.nWvlBins = len(self.wvlBinEdges)-1
-		print('files opened')
+		if self.verbose:
+			print('Computing Factors for FlatCal')
+			self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (',Timer(), ') ', ETA(), ' '], max_value=4*len(range(0,self.expTime,self.intTime))).start()
+			self.pbar_iter = 0
 
 	def __del__(self):
 		pass
@@ -134,7 +111,10 @@ class FlatCal:
 			for firstSec in range(0,self.expTime,self.intTime):		
 				cubeDict = obs.getSpectralCube(firstSec=firstSec,integrationTime=self.intTime,applySpecWeight=False, applyTPFWeight=False,wvlBinEdges = self.wvlBinEdges,energyBinWidth=None,timeSpacingCut = self.timeSpacingCut)
 				cube = np.array(cubeDict['cube'],dtype=np.double)
-				print('finished get SpectralCube')
+				if self.verbose:
+					self.pbar_iter += 1
+					self.pbar.update(self.pbar_iter)
+
 				effIntTime = cubeDict['effIntTime']
 				#add third dimension for broadcasting
 				effIntTime3d = np.reshape(effIntTime,np.shape(effIntTime)+(1,))
@@ -142,7 +122,9 @@ class FlatCal:
 				cube[np.isnan(cube)]=0 
 
 				rawFrameDict = obs.getPixelCountImage(firstSec=firstSec,integrationTime=self.intTime,scaleByEffInt=True)  
-				print('finished get Pixel Count Image')
+				if self.verbose:
+					self.pbar_iter += 1
+					self.pbar.update(self.pbar_iter)
 				rawFrame = np.array(rawFrameDict['image'],dtype=np.double)
 				rawFrame /= rawFrameDict['effIntTimes']
 				nonlinearFactors = 1. / (1. - rawFrame*self.deadtime)  
@@ -171,7 +153,9 @@ class FlatCal:
 		boolIncludeFrames = medianCountRates <= self.countRateCutoff
 		self.spectralCubes = np.array([cube for cube,boolIncludeFrame in zip(self.spectralCubes,boolIncludeFrames) if boolIncludeFrame==True])
 		self.frames = [frame for frame,boolIncludeFrame in zip(self.frames,boolIncludeFrames) if boolIncludeFrame==True]
-		print('few enough counts in the chunk',zip(medianCountRates,boolIncludeFrames))
+		if self.verbose:
+			self.pbar_iter += 1
+			self.pbar.update(self.pbar_iter)
 
 	def calculateWeights(self):
 		'''
@@ -228,75 +212,76 @@ class FlatCal:
 			Normalize weights at each wavelength bin
 			'''	
 			self.flatWeights,summedAveragingWeights = np.ma.average(trimmedWeights,axis=0,weights=trimmedCubeDeltaWeightsReordered**-2.,returned=True)
+			self.countCubesToSave=np.ma.average(trimmedCountCubesReordered,axis=0)
 			self.deltaFlatWeights = np.sqrt(summedAveragingWeights**-1.)
 			self.flatFlags = self.flatWeights.mask
 	
 			wvlWeightMedians = np.ma.median(np.reshape(self.flatWeights,(-1,self.nWvlBins)),axis=0)
 			self.flatWeights = np.divide(self.flatWeights,wvlWeightMedians)
 			self.flatWeightsforplot = np.ma.sum(self.flatWeights,axis=-1)
-			flatcal.writeWeights(indexweights=iCube)
-			if iCube==0 or iCube==int((self.expTime/self.intTime)/2) or iCube==(int(self.expTime/self.intTime)-1):
-				flatcal.plotWeightsWvlSlices(indexplotWeightsWvlSlices=iCube)	
-				flatcal.plotMaskWvlSlices(indexplotMaskWvlSlices=iCube)		
-				#flatcal.plotWeightsByPixel(indexplotByPixel=iCube,verbose=True)
-				flatcal.plotWeightsByPixelWvlCompare(indexplotByPixel=iCube,verbose=True) 
+			self.indexweights=iCube
+			flatcal.writeWeights()
+			if self.verbose:
+				self.pbar_iter += 1
+				self.pbar.update(self.pbar_iter)
+			if self.save_plots:
+				self.indexplot=iCube
+				if iCube==0 or iCube==int((self.expTime/self.intTime)/2) or iCube==(int(self.expTime/self.intTime)-1):
+					flatcal.plotWeightsWvlSlices()		
+					flatcal.plotWeightsByPixelWvlCompare() 
+					flatcal.summaryPlot()
 
-	def plotWeightsByPixelWvlCompare(self,indexplotByPixel,verbose=False):
+
+	def plotWeightsByPixelWvlCompare(self):
 		'''
 		Plot weights of each wavelength bin for every single pixel
                 Makes a plot of wavelength vs weights, twilight spectrum, and wavecal solution for each pixel
                 Essentially does the SAME THING as plotWeightsbyPixel, but this one does a wavecal solution as well
 		'''
+		if not self.save_plots:
+			return
+		if self.save_plots:
+			self.plotName='WavelengthCompare_'
+			self.__setupPlots()
 		# path to your wavecal solution file
 		file_nameWvlCal = self.wvlCalFile
-		flatCalPath,flatCalBasename = os.path.split(self.flatCalFileName)
-		pdfBasename = os.path.splitext(flatCalBasename)[0]+str(indexplotByPixel+1)+'_WavelengthCompare.pdf'
-		pdfFullPath = os.path.join(flatCalPath,pdfBasename)
-		pp = PdfPages(pdfFullPath)
-		nPlotsPerRow = 3
-		nPlotsPerCol = 4
-		nPlotsPerPage = nPlotsPerRow*nPlotsPerCol
-		iPlot = 0 
-		if verbose:
-			print('plotting weights by pixel at ',pdfFullPath)
+		if self.verbose:
+			print('plotting weights by pixel at ',self.pdfFullPath)
+			self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (',Timer(), ') ', ETA(), ' '], max_value=self.nXPix).start()
+			self.pbar_iter = 0
 
 		matplotlib.rcParams['font.size'] = 4 
 		wvls = self.wvlBinEdges[0:-1]
 		nCubes = len(self.maskedCubeWeights)
 
 		for iRow in range(self.nXPix):
-		#for iRow in range(self.nXPix-40,self.nXPix-37):
-			if verbose:
-				print('row',iRow)
 			for iCol in range(self.nYPix):
-				if verbose:
-					print('col',iCol)
 				weights = self.flatWeights[iRow,iCol,:]
 				deltaWeights = self.deltaFlatWeights[iRow,iCol,:]
 				if weights.mask.all() == False:
-					if iPlot % nPlotsPerPage == 0:
-						fig = plt.figure(figsize=(10,10),dpi=100)
+					if self.iPlot % self.nPlotsPerPage == 0:
+						self.fig = plt.figure(figsize=(10,10),dpi=100)
 
-					ax = fig.add_subplot(nPlotsPerCol,nPlotsPerRow,iPlot%nPlotsPerPage+1)
+					ax = self.fig.add_subplot(self.nPlotsPerCol,self.nPlotsPerRow,self.iPlot%self.nPlotsPerPage+1)
 					ax.set_ylim(.5,2.)
 
 					for iCube in range(nCubes):
 						cubeWeights = self.maskedCubeWeights[iCube,iRow,iCol]
 						ax.plot(wvls,cubeWeights.data,label='weights %d'%iCube,alpha=.7,color=matplotlib.cm.Paired((iCube+1.)/nCubes))
-					ax.errorbar(wvls,weights.data,yerr=deltaWeights.data,label='weights',color='k')
+						ax.errorbar(wvls,weights.data,yerr=deltaWeights.data,label='weights',color='k')
                 
 					ax.set_title('p %d,%d'%(iRow,iCol))
 					ax.set_ylabel('weight')
 					ax.set_xlabel(r'$\lambda$ ($\AA$)')
-					if iPlot%nPlotsPerPage == nPlotsPerPage-1 or (iRow == self.nXPix-1 and iCol == self.nYPix-1):
-						pp.savefig(fig)
-					iPlot += 1
+					if self.iPlot%self.nPlotsPerPage == self.nPlotsPerPage-1 or (iRow == self.nXPix-1 and iCol == self.nYPix-1):
+						pp.savefig(self.fig)
+					self.iPlot += 1
 
 					#Put a plot of twilight spectrums for this pixel
-					if iPlot % nPlotsPerPage == 0:
-						fig = plt.figure(figsize=(10,10),dpi=100)
+					if self.iPlot % self.nPlotsPerPage == 0:
+						self.fig = plt.figure(figsize=(10,10),dpi=100)
 
-					ax = fig.add_subplot(nPlotsPerCol,nPlotsPerRow,iPlot%nPlotsPerPage+1)
+					ax = self.fig.add_subplot(self.nPlotsPerCol,self.nPlotsPerRow,self.iPlot%self.nPlotsPerPage+1)
 					for iCube in range(nCubes):
 						spectrum = self.spectralCubes[iCube,iRow,iCol]
 						ax.plot(wvls,spectrum,label='spectrum %d'%iCube,alpha=.7,color=matplotlib.cm.Paired((iCube+1.)/nCubes))
@@ -304,16 +289,15 @@ class FlatCal:
 					ax.set_title('p %d,%d'%(iRow,iCol))
 					ax.set_xlabel(r'$\lambda$ ($\AA$)')
 
-					if iPlot%nPlotsPerPage == nPlotsPerPage-1 or (iRow == self.nXPix-1 and iCol == self.nYPix-1):
-						pp.savefig(fig)
-						#plt.show()
-					iPlot += 1
+					if self.iPlot%self.nPlotsPerPage == self.nPlotsPerPage-1 or (iRow == self.nXPix-1 and iCol == self.nYPix-1):
+						pp.savefig(self.fig)
+					self.iPlot += 1
 					
 					#Plot wavecal solution
-					if iPlot % nPlotsPerPage == 0:
-						fig = plt.figure(figsize=(10,10),dpi=100)
+					if self.iPlot % self.nPlotsPerPage == 0:
+						self.fig = plt.figure(figsize=(10,10),dpi=100)
 
-					ax = fig.add_subplot(nPlotsPerCol,nPlotsPerRow,iPlot%nPlotsPerPage+1)
+					ax = self.fig.add_subplot(self.nPlotsPerCol,self.nPlotsPerRow,self.iPlot%self.nPlotsPerPage+1)
 					ax.set_ylim(.5,2.)
 
 					for iCube in range(nCubes):
@@ -321,37 +305,41 @@ class FlatCal:
 						ax=p.plotEnergySolution(file_nameWvlCal, pixel=my_pixel,axis=ax)
                 
 					ax.set_title('p %d,%d'%(iRow,iCol))
-					if iPlot%nPlotsPerPage == nPlotsPerPage-1 or (iRow == self.nXPix-1 and iCol == self.nYPix-1):
-						pp.savefig(fig)
-					iPlot += 1  
-		pp.close()
+					if self.iPlot%self.nPlotsPerPage == self.nPlotsPerPage-1 or (iRow == self.nXPix-1 and iCol == self.nYPix-1):
+						pdf = PdfPages(os.path.join(self.out_directory, 'temp.pdf'))
+						pdf.savefig(self.fig)
+						pdf.close()
+						self.__mergePlots()
+						self.saved = True
+						plt.close('all')
+					self.iPlot += 1
+			if self.verbose:
+				self.pbar_iter += 1
+				self.pbar.update(self.pbar_iter)
+
+		self.__closePlots()
+		if self.verbose:
+			self.pbar.finish()
 
             
-	def plotWeightsWvlSlices(self,indexplotWeightsWvlSlices,verbose=False):
+	def plotWeightsWvlSlices(self):
 		'''
 		Plot weights in images of a single wavelength bin (wavelength-sliced images)
 		'''
-		flatCalPath,flatCalBasename = os.path.split(self.flatCalFileName)
-		pdfBasename = os.path.splitext(flatCalBasename)[0]+str(indexplotWeightsWvlSlices+1)+'_wvlSlices.pdf'
-		pdfFullPath = os.path.join(flatCalPath,pdfBasename)
-		pp = PdfPages(pdfFullPath)
-		nPlotsPerRow = 2
-		nPlotsPerCol = 4 
-		nPlotsPerPage = nPlotsPerRow*nPlotsPerCol
-		iPlot = 0 
-		if verbose:
-			print('plotting weights in wavelength sliced images')
-
+		self.plotName='WvlSlices_'
+		self.__setupPlots()
 		matplotlib.rcParams['font.size'] = 4 
 		wvls = self.wvlBinEdges[0:-1]
+		if self.verbose:
+			print('plotting weights in wavelength sliced images')
+			self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (',Timer(), ') ', ETA(), ' '], max_value=len(wvls)).start()
+			self.pbar_iter = 0
 
 		for iWvl,wvl in enumerate(wvls):
-			if verbose:
-				print('wvl ',iWvl)
-			if iPlot % nPlotsPerPage == 0:
-				fig = plt.figure(figsize=(10,10),dpi=100)
+			if self.iPlot % self.nPlotsPerPage == 0:
+				self.fig = plt.figure(figsize=(10,10),dpi=100)
 
-			ax = fig.add_subplot(nPlotsPerCol,nPlotsPerRow,iPlot%nPlotsPerPage+1)
+			ax = self.fig.add_subplot(self.nPlotsPerCol,self.nPlotsPerRow,self.iPlot%self.nPlotsPerPage+1)
 			ax.set_title(r'Weights %.0f $\AA$'%wvl)
 
 			image = self.flatWeights[:,:,iWvl]
@@ -359,13 +347,13 @@ class FlatCal:
 			cmap = matplotlib.cm.hot
 			cmap.set_bad('#222222')
 			handleMatshow = ax.matshow(image,cmap=cmap,origin='lower',vmax=2.,vmin=.5)
-			cbar = fig.colorbar(handleMatshow)
+			cbar = self.fig.colorbar(handleMatshow)
         
-			if iPlot%nPlotsPerPage == nPlotsPerPage-1:
-				pp.savefig(fig)
-			iPlot += 1
+			if self.iPlot%self.nPlotsPerPage == self.nPlotsPerPage-1:
+				pp.savefig(self.fig)
+			self.iPlot += 1
 
-			ax = fig.add_subplot(nPlotsPerCol,nPlotsPerRow,iPlot%nPlotsPerPage+1)
+			ax = self.fig.add_subplot(self.nPlotsPerCol,self.nPlotsPerRow,self.iPlot%self.nPlotsPerPage+1)
 			ax.set_title(r'Twilight Image %.0f $\AA$'%wvl)
 
 			image = self.totalCube[:,:,iWvl]
@@ -374,40 +362,47 @@ class FlatCal:
 			goodImage = image[np.isfinite(image)]
 			vmax = np.mean(goodImage)+nSdev*np.std(goodImage)
 			handleMatshow = ax.matshow(image,cmap=cmap,origin='lower',vmax=vmax)
-			cbar = fig.colorbar(handleMatshow)
+			cbar = self.fig.colorbar(handleMatshow)
 
-			if iPlot%nPlotsPerPage == nPlotsPerPage-1:
-				pp.savefig(fig)
-			iPlot += 1
+			if self.iPlot%self.nPlotsPerPage == self.nPlotsPerPage-1:
+				pdf = PdfPages(os.path.join(self.out_directory, 'temp.pdf'))
+				pdf.savefig(self.fig)
+				pdf.close()
+				self.__mergePlots()
+				self.saved = True
+				plt.close('all')
+			self.iPlot += 1
+			if self.verbose:
+				self.pbar_iter += 1
+				self.pbar.update(self.pbar_iter)
 
-		pp.savefig(fig)
-		pp.close()
+		self.__closePlots()
+		if self.verbose:
+			self.pbar.finish()
 
-	def plotMaskWvlSlices(self,indexplotMaskWvlSlices,verbose=False):
+	def plotMaskWvlSlices(self):
 		'''
 		Plot mask in images of a single wavelength bin (wavelength-sliced images)
 		'''
-		flatCalPath,flatCalBasename = os.path.split(self.flatCalFileName)
-		pdfBasename = os.path.splitext(flatCalBasename)[0]+str(indexplotMaskWvlSlices+1)+'_mask.pdf'
-		pdfFullPath = os.path.join(flatCalPath,pdfBasename)
-		pp = PdfPages(pdfFullPath)
-		nPlotsPerRow = 3 
-		nPlotsPerCol = 4 
-		nPlotsPerPage = nPlotsPerRow*nPlotsPerCol
-		iPlot = 0 
-		if verbose:
-			print('plotting mask in wavelength sliced images')
-
+		if not self.save_plots:
+			return
+		if self.save_plots:
+			self.plotName='MaskWvlSlices_'
+			self.__setupPlots()
 		matplotlib.rcParams['font.size'] = 4 
 		wvls = self.wvlBinEdges[0:-1]
+		if self.verbose:
+			print(self.pdfFullPath)
+			print('plotting mask in wavelength sliced images')
+			self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (',Timer(), ') ', ETA(), ' '], max_value=len(wvls)).start()
+			self.pbar_iter = 0
+
 
 		for iWvl,wvl in enumerate(wvls):
-			if verbose:
-				print('wvl ',iWvl)
-			if iPlot % nPlotsPerPage == 0:
-				fig = plt.figure(figsize=(10,10),dpi=100)
+			if self.iPlot % self.nPlotsPerPage == 0:
+				self.fig = plt.figure(figsize=(10,10),dpi=100)
 
-			ax = fig.add_subplot(nPlotsPerCol,nPlotsPerRow,iPlot%nPlotsPerPage+1)
+			ax = self.fig.add_subplot(self.nPlotsPerCol,self.nPlotsPerRow,self.iPlot%self.nPlotsPerPage+1)
 			ax.set_title(r'%.0f $\AA$'%wvl)
 
 			image = self.flatFlags[:,:,iWvl]
@@ -418,65 +413,68 @@ class FlatCal:
 
 			cmap = matplotlib.cm.gnuplot2
 			handleMatshow = ax.matshow(image,cmap=cmap,origin='lower',vmax=2.,vmin=.5)
-			cbar = fig.colorbar(handleMatshow)
+			cbar = self.fig.colorbar(handleMatshow)
         
-			if iPlot%nPlotsPerPage == nPlotsPerPage-1:
-				pp.savefig(fig)
-			iPlot += 1
-		pp.savefig(fig)
-		pp.close()
+			if self.iPlot%self.nPlotsPerPage == self.nPlotsPerPage-1: 
+				pdf = PdfPages(os.path.join(self.out_directory, 'temp.pdf'))
+				pdf.savefig(self.fig)
+				pdf.close()
+				self.__mergePlots()
+				self.saved = True
+				plt.close('all')
+			self.iPlot += 1
 
-	def plotWeightsByPixel(self,indexplotByPixel,verbose=False):
+		self.__closePlots()
+		if self.verbose:
+			self.pbar.finish()
+
+	def plotWeightsByPixel(self):
 		'''
 		Plot weights of each wavelength bin for every single pixel
 		'''
-		flatCalPath,flatCalBasename = os.path.split(self.flatCalFileName)
-		pdfBasename = os.path.splitext(flatCalBasename)[0]+str(indexplotByPixel+1)+'.pdf'
-		pdfFullPath = os.path.join(flatCalPath,pdfBasename)
-		pp = PdfPages(pdfFullPath)
-		nPlotsPerRow = 3
-		nPlotsPerCol = 4
-		nPlotsPerPage = nPlotsPerRow*nPlotsPerCol
-		iPlot = 0 
-		if verbose:
-			print('plotting weights by pixel at ',pdfFullPath)
+		if not self.save_plots:
+			return
+		if self.save_plots:
+			self.plotName='PlotWeightsByPixel_'
+			self.__setupPlots()
+		pixels=self.nXPix*self.nYPix
+		if self.verbose:
+			print('plotting weights by pixel at ',self.pdfFullPath)
+			self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (',Timer(), ') ', ETA(), ' '], max_value=pixels).start()
+			self.pbar_iter = 0
 
 		matplotlib.rcParams['font.size'] = 4 
 		wvls = self.wvlBinEdges[0:-1]
 		nCubes = len(self.maskedCubeWeights)
 
 		for iRow in range(self.nXPix):
-			if verbose:
-				print('row',iRow)
 			for iCol in range(self.nYPix):
-				if verbose:
-					print('col',iCol)
 				weights = self.flatWeights[iRow,iCol,:]
 				deltaWeights = self.deltaFlatWeights[iRow,iCol,:]
 				if weights.mask.all() == False:
-					if iPlot % nPlotsPerPage == 0:
-						fig = plt.figure(figsize=(10,10),dpi=100)
+					if self.iPlot % self.nPlotsPerPage == 0:
+						self.fig = plt.figure(figsize=(10,10),dpi=100)
 
-					ax = fig.add_subplot(nPlotsPerCol,nPlotsPerRow,iPlot%nPlotsPerPage+1)
+					ax = self.fig.add_subplot(self.nPlotsPerCol,self.nPlotsPerRow,self.iPlot%self.nPlotsPerPage+1)
 					ax.set_ylim(.5,2.)
 
 					for iCube in range(nCubes):
 						cubeWeights = self.maskedCubeWeights[iCube,iRow,iCol]
 						ax.plot(wvls,cubeWeights.data,label='weights %d'%iCube,alpha=.7,color=matplotlib.cm.Paired((iCube+1.)/nCubes))
-					ax.errorbar(wvls,weights.data,yerr=deltaWeights.data,label='weights',color='k')
+						ax.errorbar(wvls,weights.data,yerr=deltaWeights.data,label='weights',color='k')
                 
 					ax.set_title('p %d,%d'%(iRow,iCol))
 					ax.set_ylabel('weight')
 					ax.set_xlabel(r'$\lambda$ ($\AA$)')
-					if iPlot%nPlotsPerPage == nPlotsPerPage-1 or (iRow == self.nXPix-1 and iCol == self.nYPix-1):
-						pp.savefig(fig)
-					iPlot += 1
+					if self.iPlot%self.nPlotsPerPage == self.nPlotsPerPage-1 or (iRow == self.nXPix-1 and iCol == self.nYPix-1):
+						pp.savefig(self.fig)
+					self.iPlot += 1
 
 					#Put a plot of twilight spectrums for this pixel
-					if iPlot % nPlotsPerPage == 0:
-						fig = plt.figure(figsize=(10,10),dpi=100)
+					if self.iPlot % self.nPlotsPerPage == 0:
+						self.fig = plt.figure(figsize=(10,10),dpi=100)
 
-					ax = fig.add_subplot(nPlotsPerCol,nPlotsPerRow,iPlot%nPlotsPerPage+1)
+					ax = self.fig.add_subplot(self.nPlotsPerCol,self.nPlotsPerRow,self.iPlot%self.nPlotsPerPage+1)
 					for iCube in range(nCubes):
 						spectrum = self.spectralCubes[iCube,iRow,iCol]
 						ax.plot(wvls,spectrum,label='spectrum %d'%iCube,alpha=.7,color=matplotlib.cm.Paired((iCube+1.)/nCubes))
@@ -484,26 +482,72 @@ class FlatCal:
 					ax.set_title('p %d,%d'%(iRow,iCol))
 					ax.set_xlabel(r'$\lambda$ ($\AA$)')
 
-					if iPlot%nPlotsPerPage == nPlotsPerPage-1 or (iRow == self.nXPix-1 and iCol == self.nYPix-1):
-						pp.savefig(fig)
-						#plt.show()
-					iPlot += 1
-		pp.close()
+					if self.iPlot%self.nPlotsPerPage == self.nPlotsPerPage-1 or (iRow == self.nXPix-1 and iCol == self.nYPix-1):
+						pdf = PdfPages(os.path.join(self.out_directory, 'temp.pdf'))
+						pdf.savefig(self.fig)
+						pdf.close()
+						self.__mergePlots()
+						self.saved = True
+						plt.close('all')
+					self.iPlot += 1
+					if self.verbose:
+						self.pbar_iter += 1
+						self.pbar.update(self.pbar_iter)
 
-	def writeWeights(self, indexweights):
+		self.__closePlots()
+		if self.verbose:
+			self.pbar.finish()
+
+	def summaryPlot(self):
+		"""
+		Writes a summary plot of the Flat Fielding
+		"""
+		if not self.save_plots:
+			return
+		if self.save_plots:
+			self.plotName='summaryPlot_'
+			self.__setupPlots()
+		pixels=self.nXPix*self.nYPix
+		if self.verbose:
+			print('Generating summary plot at ',self.pdfFullPath)
+			self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (',Timer(), ') ', ETA(), ' '], max_value=pixels).start()
+			self.pbar_iter = 0
+
+		matplotlib.rcParams['font.size'] = 4 
+		wvls = self.wvlBinEdges[0:-1]
+		nCubes = len(self.maskedCubeWeights)
+
+		meanWeightList=np.zeros((self.nXPix, self.nYPix))
+		self.fig = plt.figure(figsize=(10,10),dpi=100)
+		ax = self.fig.add_subplot(1,1,1)
+
+		for iRow in range(self.nXPix):
+			for iCol in range(self.nYPix):
+				weights = self.flatWeights[iRow,iCol,:]
+				meanWeight=np.nanmean(weights)
+				meanWeightList[iRow, iCol]=meanWeight
+		plt.imshow(meanWeightList)
+
+
+
+				
+
+		
+
+	def writeWeights(self):
 		"""
 		Writes an h5 file to put calculated flat cal factors in
 		"""
 		if os.path.isabs(self.flatCalFileName) == True:
 			fullFlatCalFileName =self.flatCalFileName
 			baseh5path=fullFlatCalFileName.split('.h5')
-			fullFlatCalFileName=baseh5path[0]+str(indexweights+1)+'.h5'
+			fullFlatCalFileName=baseh5path[0]+str(self.indexweights+1)+'.h5'
 		else:
 			scratchDir = os.getenv('MKID_PROC_PATH')
 			flatDir = os.path.join(scratchDir,'flatCalSolnFiles')
 			fullFlatCalFileName = os.path.join(flatDir,self.flatCalFileName)
 			baseh5path=fullFlatCalFileName.split('.h5')
-			fullFlatCalFileName=baseh5path[0]+str(indexweights+1)+'.h5'
+			fullFlatCalFileName=baseh5path[0]+str(self.indexweights+1)+'.h5'
 
 		if not os.path.exists(fullFlatCalFileName) and self.calSolnPath =='':	
 			os.makedirs(fullFlatCalFileName)		
@@ -513,10 +557,12 @@ class FlatCal:
 		except:
 			print('Error: Couldn\'t create flat cal file, ',fullFlatCalFileName)
 			return
-		print('wrote to',fullFlatCalFileName)
 
+		header = flatCalFile.create_group(flatCalFile.root, 'header', 'Calibration information')
+		beamImage = tables.Array(header, 'beamMap', obj=self.beamImage) 
 		calgroup = flatCalFile.create_group(flatCalFile.root,'flatcal','Table of flat calibration weights by pixel and wavelength')
 		calarray = tables.Array(calgroup,'weights',obj=self.flatWeights.data,title='Flat calibration Weights indexed by pixelRow,pixelCol,wavelengthBin')
+		specarray = tables.Array(calgroup,'spectrum',obj=self.countCubesToSave.data,title='Twilight spectrum indexed by pixelRow,pixelCol,wavelengthBin')
 		flagtable = tables.Array(calgroup,'flags',obj=self.flatFlags,title='Flat cal flags indexed by pixelRow,pixelCol,wavelengthBin. 0 is Good')
 		bintable = tables.Array(calgroup,'wavelengthBins',obj=self.wvlBinEdges,title='Wavelength bin edges corresponding to third dimension of weights array')
 
@@ -526,6 +572,7 @@ class FlatCal:
 		for iRow in range(self.nXPix):
 			for iCol in range(self.nYPix):
 				weights = self.flatWeights[iRow,iCol,:]
+				spectrum=self.countCubesToSave[iRow,iCol,:]
 				deltaWeights = self.deltaFlatWeights[iRow,iCol,:]
 				flags = self.flatFlags[iRow,iCol,:]
 				flag = np.any(self.flatFlags[iRow,iCol,:])
@@ -537,6 +584,7 @@ class FlatCal:
 				entry['pixelcol'] = iCol
 				entry['weights'] = weights
 				entry['weightUncertainties'] = deltaWeights
+				entry['spectrum'] = spectrum
 				entry['weightFlags'] = flags
 				entry['flag'] = flag
 				entry.append()
@@ -544,7 +592,60 @@ class FlatCal:
 		flatCalFile.flush()
 		flatCalFile.close()
 
-		npzFileName = os.path.splitext(fullFlatCalFileName)[0]+'.npz'
+		# close progress bar
+		if self.verbose:
+			self.pbar.finish()
+		if self.verbose:
+			print('wrote to',fullFlatCalFileName)
+
+	def __setupPlots(self):
+		'''
+		Initialize plotting variables
+		'''
+		flatCalPath,flatCalBasename = os.path.split(self.flatCalFileName)
+		self.nPlotsPerRow = 3
+		self.nPlotsPerCol = 4
+		self.nPlotsPerPage = self.nPlotsPerRow*self.nPlotsPerCol
+		self.iPlot = 0 
+		self.pdfFullPath = self.calSolnPath+self.plotName+str(self.indexplot+1)+'.pdf'
+
+		if os.path.isfile(self.pdfFullPath):
+			answer = self.__query("{0} already exists. Overwrite?".format(self.pdfFullPath), yes_or_no=True)
+			if answer is False:
+				answer = self.__query("Provide a new file name (type exit to quit):")
+				if answer == 'exit':
+   					raise UserError("User doesn't want to overwrite the plot file " + "... exiting")
+				self.pdfFullPath = self.calSolnPath+str(answer)+str(self.indexplot+1)+'.pdf'
+				print(self.pdfFullPath)
+			else:
+				os.remove(self.pdfFullPath)
+				print(self.pdfFullPath)
+
+	def __mergePlots(self):
+		'''
+		Merge recently created temp.pdf with the main file
+		'''
+		temp_file = os.path.join(self.calSolnPath, 'temp.pdf')
+		if os.path.isfile(self.pdfFullPath):
+			merger = PdfFileMerger()
+			merger.append(PdfFileReader(open(self.pdfFullPath, 'rb')))
+			merger.append(PdfFileReader(open(temp_file, 'rb')))
+			merger.write(self.pdfFullPath)
+			merger.close()
+			os.remove(temp_file)
+		else:
+ 			os.rename(temp_file, self.pdfFullPath)
+
+	def __closePlots(self):
+		'''
+		Safely close plotting variables after plotting since the last page is only saved if it is full.
+		'''
+		if not self.saved:
+			pdf = PdfPages(os.path.join(self.out_directory, 'temp.pdf'))
+			pdf.savefig(self.fig)
+			pdf.close()
+			self.__mergePlots()
+		plt.close('all')
 
 	def __configCheck(self, index):
 		'''
@@ -553,28 +654,16 @@ class FlatCal:
 		'''
 		if index == 0:
 			# check for configuration file
-			assert os.path.isfile(self.config_directory), \
-				self.config_directory + " is not a valid configuration file"
+			assert os.path.isfile(self.config_file), \
+				self.config_file + " is not a valid configuration file"
 		elif index == 1:
 			# check if all sections and parameters exist in the configuration file
 			section = "{0} must be a configuration section"
 			param = "{0} must be a parameter in the configuration file '{1}' section"
 
 			assert 'Data' in self.config.sections(), section.format('Data')
-			assert 'run' in self.config['Data'].keys(), \
-				param.format('run', 'Data')
-			assert 'date' in self.config['Data'].keys(), \
-				param.format('date', 'Data')
-			assert 'flatCalTstamp' in self.config['Data'].keys(), \
-				param.format('flatCalTstamp', 'Data')
-			assert 'flatObsTstamps' in self.config['Data'].keys(), \
-				param.format('flatObsTstamps', 'Data')
-			assert 'wvlDate' in self.config['Data'].keys(), \
-				param.format('wvlDate', 'Data')
 			assert 'flatPath' in self.config['Data'].keys(), \
-				param.format('flatPath', 'Data')
-			assert 'calSolnPath' in self.config['Data'].keys(), \
-				param.format('calSolnPath', 'Data')                                                 
+				param.format('flatPath', 'Data')                                                
 			assert 'wvlCalFile' in self.config['Data'].keys(), \
 				param.format('wvlCalFile', 'Data')                                                 
 			assert 'intTime' in self.config['Data'].keys(), \
@@ -597,17 +686,16 @@ class FlatCal:
 				param.format('countRateCutoff', 'Calibration')
 			assert 'fractionOfChunksToTrim' in self.config['Calibration'], \
 				param.format('fractionOfChunksToTrim', 'Calibration')
-			assert 'timeMaskFileName' in self.config['Calibration'], \
-				param.format('timeMaskFileName', 'Calibration')
-			assert 'timeSpacingCut' in self.config['Calibration'], \
-				param.format('timeSpacingCut', 'Calibration')
+
+			assert 'calSolnPath' in self.config['Output'].keys(), \
+				param.format('calSolnPath', 'Output') 
+			assert 'verbose' in self.config['Output'].keys(), \
+				param.format('verbose', 'Output') 
+			assert 'save_plots' in self.config['Output'].keys(), \
+				param.format('save_plots', 'Output') 
+
 		elif index == 2:
 			# type check parameters
-			assert type(self.run) is str, "Run parameter must be a string."
-			assert type(self.date) is str, "Date parameter must be a string."
-			assert type(self.flatCalTstamp) is str, "Flat Calibration Timestamp parameter must be a string."
-			assert type(self.flatObsTstamps) is list, "Flat Observation Timestamps parameter must be a list even if there is only one element."
-			assert type(self.wvlDate) is str, "Wavelength Sunset Date parameter must be a string."
 			if self.flatPath != '':
 				assert type(self.flatPath) is str, "Flat Path parameter must be a string."
 				assert os.path.exists(self.flatPath), "Please confirm the Flat File path provided is correct"
@@ -639,11 +727,52 @@ class FlatCal:
 			assert type(self.countRateCutoff) is float, "Count Rate Cutoff must be an integer or float"
 
 			assert type(self.fractionOfChunksToTrim) is int, "Fraction of Chunks to Trim must be an integer"
+			assert type(self.verbose) is bool, "Verbose indicator must be a bool"
+			assert type(self.save_plots) is bool, "Save Plots indicator must be a bool"
 
-			for index, flatobsfile in enumerate(self.flatObsTstamps):
-				assert type(self.flatObsTstamps[index]) is str, "elements in Flat Observation Timestamps list must be strings"
+
 		else:
 			raise ValueError("index must be 0, 1, or 2")
+
+	@staticmethod
+	def __query(question, yes_or_no=False, default="no"):
+		'''
+		Ask a question via raw_input() and return their answer.
+		"question" is a string that is presented to the user.
+		"yes_or_no" specifies if it is a yes or no question
+		"default" is the presumed answer if the user just hits <Enter>.
+		It must be "yes" (the default), "no" or None (meaning an answer is required of
+		the user). Only used if yes_or_no=True.
+
+		The "answer" return value is the user input for a general question. For a yes or
+		no question it is True for "yes" and False for "no".
+		'''
+		if yes_or_no:
+			valid = {"yes": True, "y": True, "ye": True, "no": False, "n": False}
+		if not yes_or_no:
+			prompt = ""
+			default = None
+		elif default is None:
+			prompt = " [y/n] "
+		elif default == "yes":
+			prompt = " [Y/n] "
+		elif default == "no":
+			prompt = " [y/N] "
+		else:
+			raise ValueError("invalid default answer: '%s'" % default)
+
+		while True:
+			print(question + prompt)
+			choice = input().lower()
+			if not yes_or_no:
+				return choice
+			elif default is not None and choice == '':
+				return valid[default]
+			elif choice in valid:
+				return valid[choice]
+			else:
+				print("Please respond with 'yes' or 'no' (or 'y' or 'n').")
+
 
 if __name__ == '__main__':
 	if len(sys.argv) == 1:

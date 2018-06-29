@@ -55,6 +55,7 @@ def FlatCalSoln_Description(nWvlBins=13):
             "pixelrow"  : UInt16Col(),      # physical x location - from beam map
             "pixelcol"  : UInt16Col(),      # physical y location
             "weights"   : Float64Col(nWvlBins),    #
+            "spectrum"   : Float64Col(nWvlBins),    #
             "weightUncertainties"     : Float64Col(nWvlBins),     #
             "weightFlags" : UInt16Col(nWvlBins), #
             "flag" : UInt16Col()}      #

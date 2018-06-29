@@ -90,6 +90,8 @@ class Measurement:
                 self.dark.append([integer + self.integration_time + offset,
                                   integer + self.integration_time + offset + integer -
                                   previousinteger])
+        # make wavelengths into numpy array
+        self.wavelengths = np.array(self.wavelengths)
 
     def runAnalysis(self, plot=True, save=True):
         '''
@@ -152,7 +154,7 @@ class Measurement:
             median_dark = medianStack(dark_stack)
 
             # mask data
-            self.QE_masks.append(self.makeMask(dark_stack, median_dark, wavelength))
+            self.QE_masks.append(self.makeMask(dark_stack, light_stack, wavelength))
             median_light[self.QE_masks[-1]] = np.nan
             median_dark[self.QE_masks[-1]] = np.nan
 
@@ -175,20 +177,23 @@ class Measurement:
 
             self.QE.append(QE)
 
-    def makeMask(self, stack, median_stack, wavelength):
+    def makeMask(self, dark_stack, light_stack, wavelength):
         '''
         Make a mask for the stack to remove unwanted pixels
         '''
         masks = []
         if 'hot_and_cold' in self.masks:
-            masks.append(dhpm.makeDHPMask(stack=stack, maxCut=2400, coldCut=True))
-        elif 'hot' in self.masks:
-            masks.append(dhpm.makeDHPMask(stack=stack, maxCut=2400, coldCut=False))
+            masks.append(dhpm.makeDHPMask(stack=dark_stack, maxCut=2400, coldCut=False))
+            masks.append(dhpm.makeDHPMask(stack=light_stack, maxCut=2400, coldCut=True))
+
+        if 'hot' in self.masks:
+            masks.append(dhpm.makeDHPMask(stack=dark_stack, maxCut=2400, coldCut=False))
+            masks.append(dhpm.makeDHPMask(stack=light_stack, maxCut=2400, coldCut=False))
 
         if 'dark_threshold' in self.masks:
-            dark_mask = np.zeros(median_stack.shape, dtype=int)
-            for (row, column), _ in np.ndenumerate(median_stack):
-                if max(stack[:, row, column]) > 100:
+            dark_mask = np.zeros(dark_stack[0].shape, dtype=int)
+            for (row, column), _ in np.ndenumerate(dark_stack[0]):
+                if max(dark_stack[:, row, column]) > 100:
                     dark_mask[row, column] = 1
             masks.append(dark_mask)
 
@@ -201,8 +206,8 @@ class Measurement:
             wave_cal.close()
 
             wavelength_index = np.argmin(np.abs(wavelengths - wavelength))
-            waveCal_mask = np.zeros(median_stack.shape, dtype=int)
-            for (row, column), _ in np.ndenumerate(median_stack):
+            waveCal_mask = np.zeros(dark_stack[0].shape, dtype=int)
+            for (row, column), _ in np.ndenumerate(dark_stack[0]):
                 res_id = beamImage[column][row]  # beam map is transposed from stack
                 index = np.where(res_id == np.array(calsoln['resid']))
                 wave_flag = calsoln['wave_flag'][index][0]
@@ -217,13 +222,12 @@ class Measurement:
             masks.append(waveCal_mask)
 
         if len(masks) == 0:
-            mask = np.ones(median_stack.shape, dtype=int)
+            mask = np.ones(dark_stack[0].shape, dtype=int)
             return mask
         else:
             mask = masks[0]
             for current_mask in masks:
                 mask = np.logical_or(current_mask, mask)
-
             return mask
 
     def plotMask(self, wavelength_index):
@@ -304,7 +308,7 @@ class Measurement:
                              for ind, QE in enumerate(self.QE)])
 
         ax.plot(self.wavelengths, QE_median * 100, linewidth=3, color='black',
-                label=r'Measured AR')
+                label=r'Measured')
         ax.fill_between(self.wavelengths, QE_lower * 100, QE_upper * 100,
                         where=QE_upper >= QE_lower, color='green', facecolor='green',
                         interpolate='True', alpha=0.1)
