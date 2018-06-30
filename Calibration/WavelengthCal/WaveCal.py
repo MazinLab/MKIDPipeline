@@ -1,7 +1,6 @@
-import os
-import ast
-import sys
-import glob
+#!/bin/env python3
+import os, ast, sys, glob, argparse
+import subprocess as sp
 import pickle
 import warnings
 import lmfit as lm
@@ -22,6 +21,255 @@ from DarknessPipeline.Calibration.WavelengthCal.plotWaveCal import plotSummary, 
 from DarknessPipeline.RawDataProcessing.darkObsFile import ObsFile
 from DarknessPipeline.Headers.CalHeaders import (WaveCalDescription, WaveCalHeader,
                                                  WaveCalDebugDescription)
+
+
+BIN2HDFPATH = '/mnt/data0/DarknessPipeline/RawDataProcessing'
+
+
+def makeHDFscripts(wavecfg):
+    scriptpath = wavecfg.h5directory + 'makeh5files_{}.sh'
+
+    scripts = []
+    for wave, startt, intt  in zip(wavecfg.wavelengths, wavecfg.startTimes, wavecfg.expTimes):
+        wavepath = '{}{}nm.txt'.format(wavecfg.h5directory, wave)
+
+        BIN2HDFConfig(wavepath, datadir=wavecfg.dataDir, beamdir=wavecfg.beamDir,
+                      outdir=wavecfg.h5directory, starttime=startt, inttime=intt).write()
+
+        # TODO bin2hdf should with a path and require runing in the directory with its python scripts
+        scripts.append(scriptpath.format(wave))
+        with open(scripts[-1], 'w') as script:
+            script.write('#!/bin/bash\n'
+                         'cd {}\n'.format(BIN2HDFPATH)+
+                         '{} {}\n'.format('./Bin2HDF ', wavepath)+
+                         'cd -')
+    return scripts
+
+
+class BIN2HDFConfig(object):
+    template = ('{x} {y}\n'
+                '{datadir}\n'
+                '{starttime}\n'
+                '{inttime}\n'
+                '{beamdir}\n'
+                '1\n'
+                '{outdir}')
+
+    def __init__(self, file, datadir='./', beamdir = './', starttime = None, inttime = None,
+                 outdir = './', x=140, y=145):
+        self.file = file
+        self.datadir = datadir
+        self.starttime = starttime
+        self.inttime = inttime
+        self.beamdir = beamdir
+        self.outdir = outdir
+        self.x = x
+        self.y = y
+
+    def write(self, file=None):
+        with open(file if isinstance(file, str) else self.file, 'w') as wavefile:
+            wavefile.write(BIN2HDFConfig.template.format(datadir=self.datadir, starttime=self.starttime,
+                                                  inttime=self.inttime, beamdir=self.beamdir,
+                                                  outdir=self.outdir,x=self.x,y=self.y))
+
+    def load(self):
+        raise NotImplementedError
+
+
+class WaveCalConfig:
+    def __init__(self, file='default.cfg', **kwags):
+
+        # define the configuration file path
+        if file == 'default.cfg':
+            directory = os.path.dirname(os.path.realpath(__file__))
+            self.file = os.path.join(directory, 'Params', file)
+        else:
+            self.file = file
+        assert os.path.isfile(self.file), \
+            self.file + " is not a valid configuration file"
+
+        self.config = ConfigParser()
+        self.config.read(self.file)
+
+        # check the configuration file format and load the parameters
+        self.checksections()
+
+        #From runwavecal
+        self.startTimes = ast.literal_eval(self.config['Data']['startTimes'])
+        self.xpix= ast.literal_eval(self.config['Data']['xpix'])
+        self.ypix= ast.literal_eval(self.config['Data']['ypix'])
+        self.expTimes = ast.literal_eval(self.config['Data']['expTimes'])
+        self.dataDir = ast.literal_eval(self.config['Data']['dataDir'])
+        self.beamDir = ast.literal_eval(self.config['Data']['beamDir'])
+
+        self.wavelengths = ast.literal_eval(self.config['Data']['wavelengths'])
+        self.file_names = ast.literal_eval(self.config['Data']['file_names'])
+        self.h5directory = ast.literal_eval(self.config['Data']['h5directory'])
+        self.model_name = ast.literal_eval(self.config['Fit']['model_name'])
+        self.bin_width = ast.literal_eval(self.config['Fit']['bin_width'])
+        self.dt = ast.literal_eval(self.config['Fit']['dt'])
+        self.parallel = ast.literal_eval(self.config['Fit']['parallel'])
+        self.out_directory = ast.literal_eval(self.config['Output']['out_directory'])
+        self.save_plots = ast.literal_eval(self.config['Output']['save_plots'])
+        self.plot_file_name = ast.literal_eval(self.config['Output']['plot_file_name'])
+        self.verbose = ast.literal_eval(self.config['Output']['verbose'])
+        self.logging = ast.literal_eval(self.config['Output']['logging'])
+        self.summary = ast.literal_eval(self.config['Output']['summary_plot'])
+        self.templar_config = ast.literal_eval(self.config['Output']['templar_config'])
+
+        # check the parameter formats
+        self.checktypes()
+
+    def checksections(self):
+        # check if all sections and parameters exist in the configuration file
+        section = "{0} must be a configuration section"
+        param = "{0} must be a parameter in the configuration file '{1}' section"
+
+        assert 'Data' in self.config.sections(), section.format('Data')
+        assert 'h5directory' in self.config['Data'].keys(), \
+            param.format('h5directory', 'Data')
+        assert 'wavelengths' in self.config['Data'].keys(), \
+            param.format('wavelengths', 'Data')
+        assert 'file_names' in self.config['Data'].keys(), \
+            param.format('file_names', 'Data')
+        assert 'startTimes' in self.config['Data'].keys(), \
+            param.format('startTimes', 'Data')
+        assert 'expTimes' in self.config['Data'].keys(), \
+            param.format('expTimes', 'Data')
+        assert 'dataDir' in self.config['Data'].keys(), \
+            param.format('dataDir', 'Data')
+        assert 'beamDir' in self.config['Data'].keys(), \
+            param.format('beamDir', 'Data')
+        assert 'xpix' in self.config['Data'].keys(), \
+            param.format('xpix', 'Data')
+        assert 'ypix' in self.config['Data'].keys(), \
+            param.format('ypix', 'Data')
+
+        assert 'Fit' in self.config.sections(), section.format('Fit')
+        assert 'model_name' in self.config['Fit'].keys(), \
+            param.format('model_name', 'Fit')
+        assert 'bin_width' in self.config['Fit'].keys(), \
+            param.format('bin_width', 'Fit')
+        assert 'dt' in self.config['Fit'].keys(), \
+            param.format('dt', 'Fit')
+        assert 'parallel' in self.config['Fit'].keys(), \
+            param.format('parallel', 'Fit')
+
+        assert 'Output' in self.config.sections(), section.format('Output')
+        assert 'out_directory' in self.config['Output'], \
+            param.format('out_directory', 'Output')
+        assert 'save_plots' in self.config['Output'], \
+            param.format('save_plots', 'Output')
+        assert 'plot_file_name' in self.config['Output'], \
+            param.format('plot_file_name', 'Output')
+        assert 'verbose' in self.config['Output'], \
+            param.format('verbose', 'Output')
+        assert 'logging' in self.config['Output'], \
+            param.format('logging', 'Output')
+        assert 'summary_plot' in self.config['Output'], \
+            param.format('summary_plot', 'Output')
+        assert 'templar_config' in self.config['Output'], \
+            param.format('templar_config', 'Output')
+
+    def checktypes(self):
+        # type check parameters
+        assert type(self.startTimes) is list, "startTimes parameter must be a list."
+        assert type(self.expTimes) is list, "expTimes parameter must be a list."
+
+        assert type(self.dataDir) is str, "Data directory parameter must be a string"
+        assert type(self.beamDir) is str, "Beam directory parameter must be a string"
+        assert type(self.h5directory) is str, "H5 directory parameter must be a string"
+        assert os.path.isdir(self.h5directory), \
+            "{0} is not a valid output directory".format(self.h5directory)
+        assert type(self.xpix) is int, "Number of X Pix parameter must be an integer"
+        assert type(self.ypix) is int, "Number of Y Pix parameter must be an integer"
+
+        assert type(self.wavelengths) is list, "wavelengths parameter must be a list."
+        assert type(self.file_names) is list, "file_names parameter must be a list."
+        assert type(self.model_name) is str, "model_name parameter must be a string."
+        assert type(self.save_plots) is bool, "save_plots parameter must be a boolean"
+        assert type(self.verbose) is bool, "verbose parameter bust be a boolean"
+        assert type(self.logging) is bool, "logging parameter must be a boolean"
+        assert type(self.parallel) is bool, "parallel parameter must be a boolean"
+        assert type(self.summary) is bool, "summary_plot parameter must be a boolean"
+        assert type(self.plot_file_name) is str, \
+            "plot_file_name parameter must be a string"
+        assert type(self.templar_config) is str, \
+            "templar_config parameter must be a string"
+        assert type(self.out_directory) is str, \
+            "out_directory parameter must be a string"
+        assert os.path.isdir(self.out_directory), \
+            "{0} is not a valid output directory".format(self.out_directory)
+
+        assert len(self.wavelengths) == len(self.file_names), \
+            "wavelengths and file_names parameters must be the same length."
+        if type(self.bin_width) is int:
+            self.bin_width = float(self.bin_width)
+        assert type(self.bin_width) is float, \
+            "bin_width parameter must be an integer or float"
+
+        if type(self.dt) is int:
+            self.dt = float(self.dt)
+        assert type(self.dt) is float, "dt parameter must be an integer or float"
+
+        assert len(self.wavelengths) == len(self.startTimes), \
+            "wavelengths and startTimes parameters must be the same length."
+
+        assert len(self.wavelengths) == len(self.expTimes), \
+            "wavelengths and expTimes parameters must be the same length."
+
+        try:
+            self.wavelengths = map(float,self.wavelengths)
+        except:
+            raise AssertionError("elements in wavelengths parameter must be floats or integers.")
+
+        for file_ in self.file_names:
+            assert type(file_) is str, "elements in filenames " + \
+                                       "parameter must be strings."
+
+    def hdfexist(self):
+        fqps = [os.path.join(self.h5directory, file_) for file_ in self.file_names]
+        return all(map(os.path.isfile,fqps))
+
+    def _computeHDFnames(self):
+        self.file_names = ['%d' % st + '.h5' for st in self.startTimes]
+
+    def enforceselfconsistency(self):
+        self._computeHDFnames()
+
+    def write(self, file, forceconsistency=True):
+        if forceconsistency:
+            self.enforceselfconsistency() #Force self consistency
+        with open(file,'w') as f:
+            file.write('[Data]\n'
+                       '\n'
+                       'h5directory = "{}"\n'.format(self.h5directory) +
+                       'wavelengths = {}\n'.format(str(self.wavelengths))+
+                       'file_names = {}\n'.format(str(self.file_names))+
+                       'startTimes = {}\n'.format(self.startTimes) +
+                       'expTimes = {}\n'.format(self.expTimes) +
+                       'dataDir = {}\n'.format(self.dataDir) +
+                       'beamDir = {}\n'.format(self.beamDir) +
+                       'xpix = {}\n'.format(self.xpix) +
+                       'ypix = {}\n'.format(self.ypix) +
+                       '\n'
+                       '[Fit]\n'
+                       '\n'
+                       'model_name = "{}"\n'.format(self.model_name)+
+                       'bin_width = {}\n'.format(self.bin_width)+
+                       'dt = {}\n'.format(self.dt)+
+                       'parallel = {}\n'.format(self.parallel)+
+                       '\n'
+                       '[Output]\n'
+                       '\n'
+                       'out_directory = "{}"\n'.format(self.out_directory)+
+                       'save_plots = {}\n'.format(self.save_plots) +
+                       'plot_file_name = "{}"\n'.format(self.plot_file_name) +
+                       'summary_plot = {}\n'.format(self.summary_plot) +
+                       'templar_config = "{}"\n'.format(self.templar_config) +
+                       'verbose = {}\n'.format(self.verbose) +
+                       'logging = {}'.format(self.logging))
+            file.close()
 
 
 class WaveCal:
