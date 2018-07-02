@@ -935,6 +935,7 @@ def loadFrequencyFile(config_file, verbose=True):
         file vertically stacked. The first column is the res_id and the second is the
         frequency. a 1 by 2 array with -1 entries is returned if no files could be loaded.
     '''
+    #TODO Move this elsewhere if it is general and make part of a templar config file class
     config = ConfigParser()
     config.read(config_file)
     freqs = []
