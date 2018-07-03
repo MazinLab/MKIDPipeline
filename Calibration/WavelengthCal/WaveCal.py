@@ -38,7 +38,7 @@ def makeHDFscripts(wavecfg):
         BIN2HDFConfig(wavepath, datadir=wavecfg.dataDir, beamdir=wavecfg.beamDir,
                       outdir=wavecfg.h5directory, starttime=startt, inttime=intt).write()
 
-        # TODO bin2hdf should with a path and require runing in the directory with its python scripts
+        # TODO bin2hdf should with a path and require running in the directory with its python scripts
         scripts.append(scriptpath.format(wave))
         with open(scripts[-1], 'w') as script:
             script.write('#!/bin/bash\n'
@@ -97,6 +97,7 @@ def findDifferences(solution1, solution2):
 
 
 class BIN2HDFConfig(object):
+    #TODO this should not be part of wavecal
     template = ('{x} {y}\n'
                 '{datadir}\n'
                 '{starttime}\n'
@@ -2251,6 +2252,8 @@ if __name__ == '__main__':
                         help='Force HDF creation')
     parser.add_argument('-nc', type=int, dest='ncpu', default=0,
                         help='Number of CPUs to use, default is number of wavelengths')
+    parser.add_argument('-s', type=str, dest='summary',
+                        help='Generate a summary of the specified solution')
     args = parser.parse_args()
 
     atexit.register(lambda x:print('Execution took {:.0f}s'.format(time.time()-x)), time.time())
@@ -2261,6 +2264,21 @@ if __name__ == '__main__':
         args.ncpu = len(config.wavelengths)
 
     if args.vetonly:
+        exit()
+
+    if args.summary:
+        try:
+            save_name = "summary_{}.pdf".format(args.summary)
+            save_dir = os.path.join(config.out_directory, save_name)
+            plotSummary(os.path.join(config.out_directory, args.summary),
+                        config.templar_config, save_name=save_name,
+                        verbose=config.verbose)
+            print("summary plot saved as {}".format(save_dir))
+        except KeyboardInterrupt:
+            print(os.linesep + "Shutdown requested ... exiting")
+        except Exception as error:
+            print('Summary plot generation failed.')
+            print(error)
         exit()
 
     if (args.forcehdf or not config.hdfexist()) or args.scriptsonly or args.h5only:
