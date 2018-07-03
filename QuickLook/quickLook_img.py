@@ -57,6 +57,27 @@ class mainWindow(QMainWindow):
         
         
 
+    def get_nPixels(self,filename):	
+        #140 x 145 for MEC	
+        #80 x 125 for darkness	
+        	
+        npixels = len(np.fromfile(open(filename, mode='rb'),dtype=np.uint16))	
+        print('npixels = ', npixels, '\n')	
+        	
+        if npixels == 10000: #darkness	
+            nCol = 80	
+            nRow = 125	
+            print('\n\ncamera is DARKNESS/PICTURE-C\n\n')	
+        elif npixels == 20300:  #mec	
+            nCol = 140	
+            nRow = 145	
+            print('\n\ncamera is MEC\n\n')	
+        else:	
+            raise ValueError('img does not have 10000 or 20300 pixels')	
+           	
+        return nCol, nRow
+
+
     def load_IMG_filenames(self,filename):
         print('\nloading img filenames')
                
@@ -157,6 +178,10 @@ class mainWindow(QMainWindow):
         self.ax1.clear()         
         
         self.rawImage = np.transpose(np.reshape(np.fromfile(open(filename, mode='rb'),dtype=np.uint16), (self.nCol,self.nRow)))        
+        
+        
+#        image=np.fromfile(open(fn, mode='rb'),dtype=np.uint16)
+#        image = np.transpose(np.reshape(image, (self.nCols, self.nRows)))
         
         if self.checkbox_darkSubtract.isChecked():
             self.cleanedImage = self.rawImage - self.darkFrame
@@ -523,6 +548,8 @@ class mainWindow(QMainWindow):
             self.filename = filename
             self.load_IMG_filenames(self.filename)
             self.load_log_filenames()
+            self.nCol, self.nRow = self.get_nPixels(self.filename)
+            self.initializeEmptyArrays(self.nCol,self.nRow)
             self.initialize_spinbox_values(self.filename)
 
         elif fileType == 'log':
