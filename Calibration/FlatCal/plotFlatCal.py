@@ -17,9 +17,23 @@ import DarknessPipeline.Cleaning.HotPix.darkHotPixMask as hp
 from DarknessPipeline.Headers.CalHeaders import FlatCalSoln_Description
 from DarknessPipeline.Headers import pipelineFlags
 from DarknessPipeline.Calibration.WavelengthCal import plotWaveCal as p
+from matplotlib.backends.backend_pdf import PdfPages
 
 
-def plotSinglePixelSolution(calsolnName, file_nameWvlCal, res_id=None, pixel=[], axis=None):  
+def plotSinglePixelSolution(calsolnName, file_nameWvlCal, res_id=None, pixel=[], save_plot=False):  
+
+	'''
+	Plots the weights and twilight spectrum of a single pixel (can be specified through the RES ID or pixel coordinates)
+	Plots may be saved to a pdf if save_plot=True.  
+	Also plots the energy solution for the pixel from Wavecal
+
+	calsolnName= File path and name of wavecal solution
+	res_id= RES ID of pixel (if known)
+	pixel= Coordinates of pixel (if known)
+	Note:  Either RES ID or pixel coordinates must be specified
+	save_plot:  Should a plot be saved?  If FALSE, the plot will be displayed.  If TRUE, the plot will be saved to a pdf in the current working directory
+	'''
+	
 
 	assert os.path.exists(calsolnName), "{0} does not exist".format(calsolnName)  
 	flat_cal = tables.open_file(calsolnName, mode='r')
@@ -59,26 +73,30 @@ def plotSinglePixelSolution(calsolnName, file_nameWvlCal, res_id=None, pixel=[],
 
 	fig = plt.figure(figsize=(10,15),dpi=100)
 	ax = fig.add_subplot(3,1,1)
-	ax.set_ylim(.5,2.)
+	ax.set_ylim(.5,max(weights))
 	ax.plot(wavelengths[0:len(wavelengths)-1],weights,label='weights %d'%index,alpha=.7,color=matplotlib.cm.Paired((1+1.)/1))
 	ax.errorbar(wavelengths[0:len(wavelengths)-1],weights,yerr=weightUncertainties,label='weights',color='k')
                 
-	ax.set_title('p %d,%d'%(row,column))
-	ax.set_ylabel('weight')
+	ax.set_title('Pixel %d,%d'%(row,column))
+	ax.set_ylabel('Weight')
 	ax.set_xlabel(r'$\lambda$ ($\AA$)')
 
 	ax = fig.add_subplot(3,1,2)
+	ax.set_ylim(.5,max(spectrum))
+	ax.plot(wavelengths[0:len(wavelengths)-1],spectrum,label='Twilight Spectrum %d'%index,alpha=.7,color=matplotlib.cm.Paired((1+1.)/1))
+
+	ax.set_ylabel('Twilight Spectrum')
+	ax.set_xlabel(r'$\lambda$ ($\AA$)')
+
+	ax = fig.add_subplot(3,1,3)
 	ax.set_ylim(.5,2.)
 	my_pixel = [row, column]
 	ax=p.plotEnergySolution(file_nameWvlCal, pixel=my_pixel,axis=ax)
 
-	ax = fig.add_subplot(3,1,3)
-	ax.set_ylim(.5,100.)
-	ax.plot(wavelengths[0:len(wavelengths)-1],spectrum,label='Twilight Spectrum %d'%index,alpha=.7,color=matplotlib.cm.Paired((1+1.)/1))
+	if not save_plot:
+		plt.show()
+	else:
+		pdf = PdfPages(os.path.join(os.getcwd(), str(res_id)+'.pdf'))
+		pdf.savefig(fig)
+		pdf.close()
 
-	plt.show()
-
-if __name__ == '__main__':
-	calsolnName='flatcalsoln1.h5'
-	file_nameWvlCal = '/mnt/data0/isabel/FlatConfiguration/wavecal/calsol_1528870743.h5' 
-	plotSinglePixelSolution(calsolnName, file_nameWvlCal, res_id=None, pixel=[9,50], axis=None)

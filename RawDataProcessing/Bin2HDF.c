@@ -85,30 +85,11 @@ int ParseConfig(int argc, char *argv[], char *Path, int *FirstFile, int *nFiles,
     return 1;
 }
 
-void FixOverflowTimestamps(struct hdrpacket* hdr, int nWraps)
+void FixOverflowTimestamps(struct hdrpacket* hdr, int fileNameTime, int tsOffs)
 {
-    //int roachList[10] = {112, 115};
-    //int tsOffsetList[10] = {12354, 15674};
-    //int i, roachInd;
-    //roachInd = -1;
-    //
-    //for(i=0; i<sizeof(roachList)/sizeof(int); i++)
-    //{
-    //    if(roachList[i]==hdr->roach)
-    //    {
-    //        roachInd = i;
-    //        break;
-
-    //    }
-
-    //}
-
-    //if(roachInd==-1)
-    //    printf("ROACH not found!\n");
-
-    //else
-    //    hdr->timestamp += tsOffsetList[roachInd];
-
+    int fudgeFactor = 3; //account for early starts - misalign between FirstFile and real header timestamp
+    int nWraps = (fileNameTime - tsOffs - (int)(hdr->timestamp/2000) + fudgeFactor)/1048576;
+    //printf("nWraps: %d\n", nWraps);
     hdr->timestamp += 2000*nWraps*1048576;
 
 }
@@ -128,7 +109,7 @@ void ParsePacket( uint16_t **image, char *packet, uint64_t l, uint64_t *frame, i
     }
 }
 
-void AddPacket(char *packet, uint64_t l, hid_t file_id, size_t dst_size, size_t dst_offset[NFIELD], size_t dst_sizes[NFIELD], int FirstFile, uint32_t **BeamMap, uint64_t *nPhot, uint32_t **BeamFlag, int mapflag, char ***ResIdString, photon ***ptable, uint32_t **ptablect, int beamCols, int beamRows )
+void AddPacket(char *packet, uint64_t l, hid_t file_id, size_t dst_size, size_t dst_offset[NFIELD], size_t dst_sizes[NFIELD], int tsOffs, int FirstFile, int iFile, uint32_t **BeamMap, uint64_t *nPhot, uint32_t **BeamFlag, int mapflag, char ***ResIdString, photon ***ptable, uint32_t **ptablect, int beamCols, int beamRows )
 {
     uint64_t i,swp,swp1,swp2,swp3;
     int64_t basetime;
@@ -147,9 +128,9 @@ void AddPacket(char *packet, uint64_t l, hid_t file_id, size_t dst_size, size_t 
     }
 
     // if no start timestamp, store start timestamp
-    FixOverflowTimestamps(hdr, 1); //TEMPORARY FOR 20180625 MEC - REMOVE LATER
+    FixOverflowTimestamps(hdr, FirstFile + iFile, tsOffs); //TEMPORARY FOR 20180625 MEC - REMOVE LATER
     basetime = hdr->timestamp - tstart; // time since start of first file, in half ms
-    //printf("Roach: %d; Offset: %d\n", hdr->roach, FirstFile - TSOFFS - hdr->timestamp/2000); 
+    //printf("Roach: %d; Offset: %d\n", hdr->roach, FirstFile - tsOffs - hdr->timestamp/2000); 
 
     if( basetime < 0 ) { // maybe have some packets out of order early in file
 	    printf("Early Start!\n");
@@ -279,6 +260,7 @@ int main(int argc, char *argv[])
     FILE *fp;
     uint64_t **data, *dSize;
     clock_t start, diff, olddiff;
+    time_t fnStartTime, fnEndTime;
     uint64_t swp,swp1,i,pstart,pcount,firstHeader, nPhot, tPhot=0;
     struct hdrpacket *hdr;
     char packet[808*16];
@@ -520,7 +502,7 @@ int main(int argc, char *argv[])
                 // parse into image
                 ParsePacket(image, packet, j*8 - pstart, frame, beamCols, beamRows);
                 // add to HDF5 file
-                AddPacket(packet,j*8-pstart,file_id,dst_size,dst_offset,dst_sizes,FirstFile,BeamMap,&nPhot,BeamFlag,mapflag,ResIdString,ptable,ptablect,beamCols,beamRows);
+                AddPacket(packet,j*8-pstart,file_id,dst_size,dst_offset,dst_sizes,tsOffs,FirstFile,i,BeamMap,&nPhot,BeamFlag,mapflag,ResIdString,ptable,ptablect,beamCols,beamRows);
 		        pstart = j*8;   // move start location for next packet
 		        if( pcount%1000 == 0 ) printf("."); fflush(stdout);
             }
@@ -615,13 +597,19 @@ int main(int argc, char *argv[])
 
     }
 
-    printf("consolidating photon tables\n"); fflush(stdout);
+    fnStartTime = time(NULL);
+    printf("Consolidating photon tables...\n"); fflush(stdout);
     strcat(consolidatePhotonTablesCmd, outfile);
     system(consolidatePhotonTablesCmd);
+    fnEndTime = time(NULL) - fnStartTime;
+    printf("Done consolidating photon tables in %d seconds\n", (int)fnEndTime);
 
+    fnStartTime = time(NULL);
     printf("indexing HDF file\n"); fflush(stdout);
     strcat(indexHDFCmd, outfile);
     system(indexHDFCmd);
+    fnEndTime = time(NULL) - fnStartTime;
+    printf("Done indexing HDF file in %d seconds\n", (int)fnEndTime);
     exit(0);
 
 }

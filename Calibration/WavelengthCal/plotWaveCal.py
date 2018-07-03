@@ -9,7 +9,9 @@ from astropy.constants import h, c
 from matplotlib import pyplot as plt
 from matplotlib import image as mpimg
 from configparser import ConfigParser
+from matplotlib.widgets import Button, Slider
 from matplotlib.backends.backend_pdf import PdfPages
+from mpl_toolkits.axes_grid1 import make_axes_locatable, axes_size
 from DarknessPipeline.Headers import pipelineFlags
 
 
@@ -538,8 +540,12 @@ def plotFitParameters(file_name):
     model_name = info['model_name'][0].decode('utf-8')
     debug = wave_cal.root.debug.debug_info.read()
     hist_flags = debug['hist_flag']
+    calsoln = wave_cal.root.wavecal.calsoln.read()
+    wave_flag = calsoln["wave_flag"]
     wave_cal.close()
     cmap = cm.get_cmap('viridis')
+
+    calibrated_pixels = np.logical_or(wave_flag == 4, wave_flag == 5)
 
     if model_name == 'gaussian_and_exp':
         fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(6.95, 9))
@@ -556,7 +562,8 @@ def plotFitParameters(file_name):
             fit = debug["hist_fit" + str(index)]
             # first histogram
             a = fit[:, 0]
-            a = a[np.logical_and(a != -1, hist_flags[:, index] == 0)]
+            logic = np.logical_and(hist_flags[:, index] == 0, calibrated_pixels)
+            a = a[logic]
             counts, edges = np.histogram(a, bins=30, range=(-1, 1e8), density=True)
             bws = np.diff(edges)
             cents = edges[:-1] + bws[0] / 2.0
@@ -572,7 +579,7 @@ def plotFitParameters(file_name):
 
             # second histogram
             b = fit[:, 1]
-            b = b[np.logical_and(b != -1, hist_flags[:, index] == 0)]
+            b = b[logic]
             counts, edges = np.histogram(b, bins=30, range=(-0.5, 1), density=True)
             bws = np.diff(edges)
             cents = edges[:-1] + bws[0] / 2.0
@@ -587,7 +594,7 @@ def plotFitParameters(file_name):
 
             # third histogram
             c = fit[:, 2]
-            c = c[np.logical_and(c != -1, hist_flags[:, index] == 0)]
+            c = c[logic]
             counts, edges = np.histogram(c, bins=30, range=(-1, np.max(c) * 0.7),
                                          density=True)
             bws = np.diff(edges)
@@ -604,7 +611,7 @@ def plotFitParameters(file_name):
 
             # fourth histogram
             f = fit[:, 4]
-            f = f[np.logical_and(f != -1, hist_flags[:, index] == 0)]
+            f = f[logic]
             counts, edges = np.histogram(f, bins=30, range=(-1, 35), density=True)
             bws = np.diff(edges)
             cents = edges[:-1] + bws[0] / 2.0
@@ -635,6 +642,106 @@ def plotFitParameters(file_name):
 
     plt.tight_layout(rect=[0.03, 0.03, 0.95, 0.85])
     plt.show(block=False)
+
+
+def plotResolutionImage(file_name):
+    '''
+    Plots an image of the array with the energy resolution as a color for the solution
+    file (file_name).
+    Args:
+        file_name: the wavecal solution file including the path (string)
+    '''
+    wave_cal = tb.open_file(file_name, mode='r')
+    beamImage = wave_cal.root.header.beamMap.read()
+    wavelengths = wave_cal.root.header.wavelengths.read()[0]
+    calsoln = wave_cal.root.wavecal.calsoln.read()
+    wave_flag = calsoln["wave_flag"]
+    R0 = calsoln["R"]
+    R0[R0 == -1] = 0
+    rows = calsoln['pixel_row']
+    columns = calsoln['pixel_col']
+    wave_cal.close()
+
+    R = np.zeros((len(wavelengths) + 1, *beamImage.shape))
+    for pixel_ind, flag in enumerate(wave_flag):
+        # add good fits to the image
+        if flag == 4 or flag == 5:
+            row = rows[pixel_ind]
+            col = columns[pixel_ind]
+            for wave_ind, _ in enumerate(wavelengths):
+                R[wave_ind, row, col] = R0[pixel_ind, wave_ind]
+            R[-1, row, col] = 1
+    R = np.transpose(R, (0, 2, 1))
+
+    fig, ax = plt.subplots(figsize=(8, 8))
+    image = ax.imshow(R[0])
+    divider = make_axes_locatable(ax)
+    width = axes_size.AxesY(ax, aspect=1. / 20)
+    pad = axes_size.Fraction(0.5, width)
+    cax = divider.append_axes("right", size=width, pad=pad)
+    maximum = np.max(R)
+    cbar_ticks = np.linspace(0., maximum, num=11)
+    cbar = fig.colorbar(image, cax=cax, ticks=cbar_ticks)
+    cbar.set_clim(vmin=0, vmax=maximum)
+    cbar.draw_all()
+
+    plt.tight_layout()
+    plt.subplots_adjust(bottom=0.15)
+    position = ax.get_position()
+    middle = position.x0 + 3 * position.width / 4
+    ax_prev = plt.axes([middle - 0.18, 0.05, 0.15, 0.03])
+    ax_next = plt.axes([middle + 0.02, 0.05, 0.15, 0.03])
+    ax_slider = plt.axes([position.x0, 0.05, position.width / 2, 0.03])
+
+    class Index(object):
+        def __init__(self, ax_slider, ax_prev, ax_next):
+            self.ind = 0
+            self.num = len(wavelengths)
+            self.bnext = Button(ax_next, 'Next')
+            self.bnext.on_clicked(self.next)
+            self.bprev = Button(ax_prev, 'Previous')
+            self.bprev.on_clicked(self.prev)
+            self.slider = Slider(ax_slider,
+                                 "Energy Resolution: {:.2f} nm".format(wavelengths[0]), 0,
+                                 self.num, valinit=0, valfmt='%d')
+            self.slider.valtext.set_visible(False)
+            self.slider.label.set_horizontalalignment('center')
+            self.slider.on_changed(self.update)
+
+            position = ax_slider.get_position()
+            self.slider.label.set_position((0.5, -0.5))
+            self.slider.valtext.set_position((0.5, -0.5))
+
+        def next(self, event):
+            i = (self.ind + 1) % (self.num + 1)
+            self.slider.set_val(i)
+
+        def prev(self, event):
+            i = (self.ind - 1) % (self.num + 1)
+            self.slider.set_val(i)
+
+        def update(self, i):
+            self.ind = int(i)
+            image.set_data(R[self.ind])
+            if self.ind != len(wavelengths):
+                self.slider.label.set_text("Energy Resolution: {:.2f} nm"
+                                           .format(wavelengths[self.ind]))
+            else:
+                self.slider.label.set_text("Calibrated Pixels")
+            if self.ind != len(wavelengths):
+                number = 11
+                cbar.set_clim(vmin=0, vmax=maximum)
+                cbar_ticks = np.linspace(0., maximum, num=number, endpoint=True)
+            else:
+                number = 2
+                cbar.set_clim(vmin=0, vmax=1)
+                cbar_ticks = np.linspace(0., 1, num=number)
+            cbar.set_ticks(cbar_ticks)
+            cbar.draw_all()
+            plt.draw()
+
+    indexer = Index(ax_slider, ax_prev, ax_next)
+    plt.show(block=True)
 
 
 def plotSummary(file_name, config_name='', save_name=None, verbose=True):
