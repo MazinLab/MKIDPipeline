@@ -126,30 +126,34 @@ The solution .h5 file will be saved in the output directory as calsol_timestamp.
 #### Running from a script or a Python shell
 The calibration can also be run from a script or a python shell. This option allows the flexibility to compute the solution for a group of selected pixels. It is particularly useful for debugging and speeding up the computation time. The following lines of code demonstrate the process:
 
-    from Calibration.WavelengthCal import WaveCal as W
+    from DarknessPipeline.Calibration.WavelengthCal import WaveCal as W
     w = W.WaveCal(config_file='/path/to/my_config.cfg')
     w.makeCalibration(pixels=my_pixels)
 '/path/to/my_config.cfg' is the path and filename of your configuration file as a string. my_pixels is a list of length 2 lists containing the (row, column) of each pixel you want included in the calculation. (e.g. [[1, 2], [3, 4], [10, 50]]) If not included, the calculation will be done on all of the pixels.
 #### Plotting the results of the calibration
 Plots of the results of a wavelength calibration can be made with functions in plotWaveCal.py. Six main types of plots are available.
 
-    plotEnergySolution() -- plots of the phase to energy calibration solution for a
-                            particular pixel
-    plotHistogramFits()  -- plots of the phase height histogram fits for a particular
-                            pixel
-    plotRHistogram()     -- a histogram plot of computed energy resolutions for the array
-                            at different wavelengths
-    plotCenterHist()     -- a histogram plot of the gaussian centers for different
-                            wavelengths
-    plotRvsF()           -- a scatter plot of energy resolutions as a function of
-                            resonance frequency
-    plotSummary()        -- a summary plot of the wavelength calibration solution. Usually
-                            generated automatically after running the calibration code. It
-                            includes plotRHistogram, plotRvsF, plotCenterHist and other
-                            summary statistics
+    plotEnergySolution()  -- plots of the phase to energy calibration solution for a
+                             particular pixel
+    plotHistogramFits()   -- plots of the phase height histogram fits for a particular
+                             pixel
+    plotRHistogram()      -- a histogram plot of computed energy resolutions for the array
+                             at different wavelengths
+    plotCenterHist()      -- a histogram plot of the gaussian centers for different
+                             wavelengths
+    plotRvsF()            -- a scatter plot of energy resolutions as a function of
+                             resonance frequency
+    plotFitParameters()   -- a summary plot of the distributions of each fit parameter
+                             over the different wavelengths
+    plotResolutionImage() -- plots an image of the array color coded by the energy
+                             resolution
+    plotSummary()         -- a summary plot of the wavelength calibration solution.
+                             Usually generated automatically after running the
+                             calibration code. It includes plotRHistogram, plotRvsF,
+                             plotCenterHist and other summary statistics
 The following sample script shows how to generate each plot. View the docstrings for more detail on the options for each plot.
 
-    from Calibration.WavelengthCal import plotWaveCal as p
+    from DarknessPipeline.Calibration.WavelengthCal import plotWaveCal as p
 
     # path to your wavecal solution file
     file_name = '/path/to/calsol_timestamp.h5'
@@ -162,10 +166,12 @@ The following sample script shows how to generate each plot. View the docstrings
     # could use keyword res_id=my_res_id instead of pixel
 
     ### plot array overview information
-    # pick which wavelengths you want plotted in the histograms
+    # pick which wavelengths you want plotted in the histograms (optional)
     my_mask = [True, True, True, True]
     p.plotRHistogram(file_name, mask=my_mask)
     p.plotCenterHist(file_name, mask=my_mask)
+    p.plotFitParameters(file_name)
+    p.plotResolutionImage(file_name)
     # your templar configuration file
     templar_config = '/path/to/templarconf.cfg'
     p.plotRvsF(file_name, templar_config)
@@ -191,7 +197,7 @@ The FlatCal can be run on a single flat h5 file or several flat h5 files.  You w
 FlatCal will default to the reference config file.  I recommend copying it over to your working directory, renaming it, and editing it as appropriate for your specific calibration
 
 #### Before running the FlatCal:
-     Generate an .h5 file from the .bin files for the desired timespan of the flatfield. It may be named with a timestamp or descriptive name (e.g. 20171004JBandEndofNightFlat.h5) 
+     Generate an .h5 file from the .bin files for the desired timespan of the flatfield. It may be named with a timestamp or descriptive name (e.g. 20171004JBandEndofNightFlat.h5)
      See the section "Creating HDF5 files from the .bin files" for more info.
 
      Make a wavecal solution file and apply it to the flat h5 file.  See Wavelength Calibration for more details on how to do that.
@@ -204,13 +210,13 @@ NOTE that some of these parameters are conditional and some are required.  See n
 ----------------------------------------------------------------------------------------------------------------------------------------------
     Important:  Fill these four parameters out ONLY if your flat h5 files are in the dark ScienceData directory AND are named their starting timestamps.  
     If it has been copied to your personal data reduction directory, leave them as empty strings, ''
-    If these are not empty strings, the code will search in '/mnt/data0/ScienceData/Run/Date for flatObsTstamps.h5 and generate a FlatCalSoln file: 
+    If these are not empty strings, the code will search in '/mnt/data0/ScienceData/Run/Date for flatObsTstamps.h5 and generate a FlatCalSoln file:
     '/mnt/data0/ScienceData/Run/Date/flatCalTstamp_calSoln.h5'
 
     run                      -- e.g. PAL2017b, which observing run is the flatcal file from? (string)  CONDITIONAL
     date                     -- e.g. 20171005, which night is the flatcal file from (string)   CONDITIONAL
     flatCalTstamp            -- Timestamp which will be prefix of FlatCalSolution file (string)   CONDITIONAL
-    flatObsTstamps           -- List of starting timestamps for the flat calibration, one for each Flat h5 file used 
+    flatObsTstamps           -- List of starting timestamps for the flat calibration, one for each Flat h5 file used
                                 (list of strings, even if there is just one file being used) [] CONDITIONAL
 ------------------------------------------------------------------------------------------------------------------------------------------------
     wvlDate                  -- Wavelength Sunset Date (string).  Leave '' if wavecal is already applied     CONDITIONAL
@@ -219,22 +225,22 @@ NOTE that some of these parameters are conditional and some are required.  See n
     Important:  Fill these two parameters out IF your flat h5 file has been copied to your personal data reduction directory
 
     flatPath                 -- Path to your flat h5 file (string) CONDITIONAL
-    calSolnPath              -- Output Cal Soln path (string).  Include the path and a basename for what you want the Flat Cal Solution files to be titled 
+    calSolnPath              -- Output Cal Soln path (string).  Include the path and a basename for what you want the Flat Cal Solution files to be titled
                                 (e.g '/mnt/data0/isabel/DeltaAnd/Flats/DeltaAndFlatSoln.h5')
                                 You will get EXPTIME/INTTIME number of files titled DeltaAndFlatSoln#.h5     CONDITIONAL
------------------------------------------------------------------------------------------------------------------------------------------------- 
+------------------------------------------------------------------------------------------------------------------------------------------------
     intTime                  -- Integration time to break up larger h5 files into in seconds (number) (5 sec recommended)   REQUIRED
     expTime                  -- Total exposure time (number)   REQUIRED
 
     Instrument Section:  This section provides information about the specific wavelength and energy parameters for this instrument   
----------------------------------------------------------------------------------------------------------------------------------------------- 
+----------------------------------------------------------------------------------------------------------------------------------------------
     deadtime                 -- (number) REQUIRED
     energyBinWidth           -- Energy Bin width in eV (number)  REQUIRED
     wvlStart                 -- Starting wavelength in nanometers (number)  REQUIRED
     wvlStop                  -- Final wavelength in nanometers (number)  REQUIRED
 
     Calibration Section:  This section provides the parameters specific to the flat calibration function   
----------------------------------------------------------------------------------------------------------------------------------------------- 
+----------------------------------------------------------------------------------------------------------------------------------------------
     countRateCutoff          -- Count rate cutoff in seconds (number)  REQUIRED
     fractionOfChunksToTrim   -- Fraction of Chunks to trim (integer)  REQUIRED
     timeMaskFileName         -- Time mask file name (string)  CONDITIONAL
@@ -242,7 +248,7 @@ NOTE that some of these parameters are conditional and some are required.  See n
 
 
 #### Running from the command line
-Before running the Flat calibration, generate your flat h5 file and run the wavecal on it. 
+Before running the Flat calibration, generate your flat h5 file and run the wavecal on it.
 The Flat calibration can be run from the command line using the syntax:
 
     python /path/to/FlatCal.py /other/path/to/my_config.cfg
@@ -252,7 +258,7 @@ The FlatCal will output a number of calsoln h5 files (EXPTIME/INTTIME) all with 
 It will also output three plot pdfs for each h5 calsoln file: '.../calSolPath+[index]__mask.pdf', '.../calSolPath+[index]__wvlSlices.pdf', '.../calSolPath+[index].pdf'
 
 #### Running from a script or a Python shell
-The calibration can also be run from a script or a python shell. 
+The calibration can also be run from a script or a python shell.
 
     from Calibration.FlatCal import FlatCal as F
     f = F.FlatCal(config_file='/path/to/my_config.cfg')
@@ -261,7 +267,7 @@ The calibration can also be run from a script or a python shell.
     f.calculateWeights()
 
 #### Plotting the results of the calibration
-Plots of the results of a flatfield calibration will be done automatically in FlatCal.py 
+Plots of the results of a flatfield calibration will be done automatically in FlatCal.py
 
     plotWeightsByPixelWvlCompare() -- Plot weights of each wavelength bin for every single pixel
                                       Makes a plot of wavelength vs weights, twilight spectrum, and wavecal solution for each pixel
@@ -269,7 +275,7 @@ Plots of the results of a flatfield calibration will be done automatically in Fl
 
     plotWeightsWvlSlices()         -- Plot weights in images of a single wavelength bin (wavelength-sliced images)
                                       '.../calSolPath+[index]__wvlSlices.pdf'     
-                     
+
     plotMaskWvlSlices()            -- Plot mask in images of a single wavelength bin (wavelength-sliced images)
                                       '.../calSolPath+[index]_WavelengthCompare.pdf'
 
@@ -302,22 +308,21 @@ QuickLook
         -create HDF5 file from .bin files as described above
         -apply wave cal to HDF5 as described above
         -(optional) set $MKID_DATA_DIR to the path where your HDF5 is located
-    
+
     -In the command line, run
         >> python quickLook.py
     -Go to File>Open and select your HDF5 file, click OK.
-        -The Beam Flag Image is automatically displayed, showing you what pixels are good and bad. 
+        -The Beam Flag Image is automatically displayed, showing you what pixels are good and bad.
          See pipelineFlags.py for explanation of the flag values.
     -Specify your desired start/stop times and wavelengths.
     -To view an image, select the "Raw Counts" radio button, and click "Plot Image"
     -To view a single pixel's timestream, intensity histogram, or spectrum
-        -click on the desired pixel. This is now your "Active Pixel", and is shown 
+        -click on the desired pixel. This is now your "Active Pixel", and is shown
          the bottom of the window.
-        -Go to "Plot" menu and click on the type you want. 
-        -Selecting a new Active Pixel will update the subplots. 
-    
+        -Go to "Plot" menu and click on the type you want.
+        -Selecting a new Active Pixel will update the subplots.
 
-    
+
+
 Making Speckle Statistics Maps
 ----------------------------------------------
-

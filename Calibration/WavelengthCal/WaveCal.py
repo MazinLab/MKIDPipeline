@@ -20,7 +20,8 @@ from progressbar import ProgressBar, Bar, ETA, Timer, Percentage
 from DarknessPipeline.Headers import pipelineFlags
 from DarknessPipeline.Calibration.WavelengthCal.plotWaveCal import plotSummary, fitModels
 from DarknessPipeline.RawDataProcessing.darkObsFile import ObsFile
-from DarknessPipeline.Headers.CalHeaders import WaveCalDescription, WaveCalHeader, WaveCalDebugDescription
+from DarknessPipeline.Headers.CalHeaders import (WaveCalDescription, WaveCalHeader,
+                                                 WaveCalDebugDescription)
 
 
 class WaveCal:
@@ -421,8 +422,8 @@ class WaveCal:
                                             fit_number)
                     # fit data
                     fit_results.append(self.__fitPhaseHistogram(phase_hist,
-                                                                  fit_function,
-                                                                  setup, row, column))
+                                                                fit_function,
+                                                                setup, row, column))
                     # evaluate how the fit did
                     flags.append(self.__evaluateFit(phase_hist, fit_results[-1], fit_list,
                                                     wavelength_index))
