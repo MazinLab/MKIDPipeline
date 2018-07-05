@@ -1,3 +1,6 @@
+#c.f. https://docs.python.org/3.6/library/logging.html#logrecord-attributesls
+
+
 version: 1
 disable_existing_loggers: False
 

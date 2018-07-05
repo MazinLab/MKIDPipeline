@@ -382,7 +382,7 @@ class WaveCal:
         self.bin_width = self.cfg.bin_width
 
         if filelog is None:
-            self._log = pipelinelog.getLogger('devnull')
+            self._log = getLogger('devnull')
             self._log.disabled = True
         elif filelog is True:
             self._log = pipelinelog.createFileLog('WaveCal.logfile', os.path.join(os.getcwd(),
@@ -390,7 +390,7 @@ class WaveCal:
         else:
             self._log = filelog
 
-        self._clog = pipelinelog.getLogger('WaveCal')
+        self._clog = getLogger('WaveCal')
 
         if not self.master and not (self.worker_slave or self.data_slave):
             raise ValueError('WaveCal must be either a master or a slave')
@@ -422,10 +422,11 @@ class WaveCal:
         message = "WaveCal object created: UTC " + str(datetime.utcnow()) + \
             " : Local " + str(datetime.now())
         self._log.info(message)
-        self._log.info("## configuration file used")
-        with open(self.cfg.file, "r") as file_:
-            config = file_.read()
-        self._log.info(config)
+
+        if self.master:
+            with open(self.cfg.file, "r") as file_:
+                config = file_.read()
+            self._log.info("## configuration file used\n"+config)
 
     def _checkbasics(self):
         """
@@ -482,7 +483,8 @@ class WaveCal:
                     self.getPhaseHeights(pixels=pixels)
                 self.calculateCoefficients(pixels=pixels)
                 self.exportData(pixels=pixels)
-                self.dataSummary()
+                if self.cfg.summary_plot:
+                    self.dataSummary()
             except (KeyboardInterrupt, BrokenPipeError):
                 log.info(os.linesep + "Shutdown requested ... exiting")
             except UserError as err:
@@ -1088,25 +1090,24 @@ class WaveCal:
 
     def dataSummary(self):
         """
-        If the config file specifies 'summary_plot = True', the function will save a
-        summary plot of the data to the output directory. Otherwise nothing will happen.
-        self.summary_plot can be changed manually to enable this function.
+        Generates a summary plot of the data to the output directory. During calibration
+        WaveCal will use this function to generate a summary if the summary_plot
+        configuration option is set.
         """
-        if self.cfg.summary_plot:
-            self._log.debug("## saving summary plot")
-            self._clog.debug('saving summary plot')
-            try:
-                save_name = "summary_" + self.log_file + '.pdf'
-                save_dir = os.path.join(self.cfg.out_directory, save_name)
-                plotSummary(self.cal_file, self.cfg.templar_config,
-                            save_name=save_name, verbose=self.cfg.verbose)
-                self._log.info("summary plot saved as {0}".format(save_dir))
-            except KeyboardInterrupt:
-                self._clog.info(os.linesep + "Shutdown requested ... exiting")
-            except Exception as error:
-                self._clog.error('Summary plot generation failed. It can be remade by ' +
-                               'using plotSummary() in plotWaveCal.py', exc_info=True)
-                self._log.error("summary plot failed", exc_info=True)
+        self._log.debug("## saving summary plot")
+        self._clog.debug('saving summary plot')
+        try:
+            save_name = self.cfg.cal_file_name + '.summary.pdf'
+            save_dir = os.path.join(self.cfg.out_directory, save_name)
+            plotSummary(self.cal_file, self.cfg.templar_config,
+                        save_name=save_name, verbose=self.cfg.verbose)
+            self._log.info("summary plot saved as {0}".format(save_dir))
+        except KeyboardInterrupt:
+            self._clog.info(os.linesep + "Shutdown requested ... exiting")
+        except Exception as error:
+            self._clog.error('Summary plot generation failed. It can be remade by ' +
+                           'using plotSummary() in plotWaveCal.py', exc_info=True)
+            self._log.error("summary plot failed", exc_info=True)
 
     def loadPhotonData(self, row, column, wavelength_index):
         """
@@ -2219,23 +2220,13 @@ if __name__ == '__main__':
         exit()
 
     if args.summary:
-        try:
-            save_name = "summary_{}.pdf".format(args.summary)
-            save_dir = os.path.join(config.out_directory, save_name)
-            plotSummary(os.path.join(config.out_directory, args.summary),
-                        config.templar_config, save_name=save_name,
-                        verbose=config.verbose)
-            log.info("summary plot saved as {}".format(save_dir))
-        except KeyboardInterrupt:
-            log.info(os.linesep + "Shutdown requested ... exiting")
-        except Exception as error:
-            log.error('Summary plot generation failed.', exc_info=True)
+        WaveCal(config).dataSummary()
         exit()
 
     if (args.forcehdf or not config.hdfexist()) or args.scriptsonly or args.h5only:
 
-        config.write(config.file+'.bak',forceconsistency=False)
-        config.write(config.file) #Force and save
+        config.write(config.file+'.bak', forceconsistency=False)
+        config.write(config.file)  # Make sure the file is consistent and save
 
         scripts = makeHDFscripts(config)
 
@@ -2244,7 +2235,7 @@ if __name__ == '__main__':
 
         if args.ncpu > 1:
             pool = mp.Pool(processes=min(args.ncpu, mp.cpu_count()))
-            pool.map(sp.call, zip(['bash']*len(scripts),scripts))
+            pool.map(sp.call, zip(['bash']*len(scripts), scripts))
             pool.close()
         else:
             for s in scripts:
@@ -2253,6 +2244,5 @@ if __name__ == '__main__':
         if args.h5only:
             exit()
 
-    w = WaveCal(config, filelog=flog)
+    WaveCal(config, filelog=flog).makeCalibration()
 
-    w.makeCalibration()
