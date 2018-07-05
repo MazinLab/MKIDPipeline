@@ -16,8 +16,8 @@ from configparser import ConfigParser
 from PyPDF2 import PdfFileMerger, PdfFileReader
 from progressbar import ProgressBar, Bar, ETA, Timer, Percentage
 from DarknessPipeline.Headers import pipelineFlags
+import DarknessPipeline.pipelinelog as pipelinelog
 from DarknessPipeline.Calibration.WavelengthCal.plotWaveCal import plotSummary, fitModels
-#from DarknessPipeline.Calibration.WavelengthCal.WaveCal import
 from DarknessPipeline.RawDataProcessing.darkObsFile import ObsFile
 from DarknessPipeline.Headers.CalHeaders import (WaveCalDescription, WaveCalHeader,
                                                  WaveCalDebugDescription)
@@ -41,6 +41,7 @@ def makeHDFscripts(wavecfg):
         # TODO bin2hdf should with a path and require running in the directory with its python scripts
         scripts.append(scriptpath.format(wave))
         with open(scripts[-1], 'w') as script:
+            log.info('Creating {}'.format(scripts[-1]))
             script.write('#!/bin/bash\n'
                          'cd {}\n'.format(BIN2HDFPATH)+
                          '{} {}\n'.format('./Bin2HDF ', wavepath)+
@@ -128,7 +129,7 @@ class BIN2HDFConfig(object):
 
 
 class WaveCalConfig:
-    def __init__(self, file='default.cfg', **kwags):
+    def __init__(self, file='default.cfg', cal_file_name = 'calsol_default.h5'):
 
         # define the configuration file path
         self.file = DEFAULT_CONFIG_FILE if file == 'default.cfg' else file
@@ -168,6 +169,8 @@ class WaveCalConfig:
         self.logging = ast.literal_eval(self.config['Output']['logging'])
         self.summary_plot = ast.literal_eval(self.config['Output']['summary_plot'])
         self.templar_config = ast.literal_eval(self.config['Output']['templar_config'])
+
+        self.cal_file_name = cal_file_name
 
         # check the parameter formats
         self.checktypes()
@@ -359,7 +362,7 @@ class WaveCal:
     """
     def __init__(self, config='default.cfg', master=True, data_slave=False,
                  worker_slave=False, pid=None, request_data=None, load_data=None,
-                 rows=None, columns=None):
+                 rows=None, columns=None, filelog=None):
         # determine info about master/slave settings for parallel computing
         # (internal use only)
 
@@ -377,15 +380,20 @@ class WaveCal:
         self.cfg = config if isinstance(config, WaveCalConfig) else WaveCalConfig(config)
         self.bin_width = self.cfg.bin_width
 
-        # define start time for use in __logger and saving calsol file
-        if self.master:
-            self.log_file = str(round(datetime.utcnow().timestamp()))
-        elif self.worker_slave:
-            self.log_file = 'worker' + str(self.pid)
-        elif self.data_slave:
-            self.cfg.logging = False
+        if filelog is None:
+            self._log = pipelinelog.getLogger('devnull')
+            self._log.disabled = True
         else:
+            self._log = filelog
+
+        self._clog = pipelinelog.getLogger('WaveCal')
+
+        if not self.master and not (self.worker_slave or self.data_slave):
             raise ValueError('WaveCal must be either a master or a slave')
+
+        # create output file name
+        self.cal_file = os.path.join(self.cfg.out_directory,
+                                     self.cfg.cal_file_name)
 
         # arrange the files in increasing wavelength order and open all of the h5 files
         indices = np.argsort(self.cfg.wavelengths)
@@ -407,18 +415,13 @@ class WaveCal:
         # initialize output flag definitions
         self.flag_dict = pipelineFlags.waveCal
 
-
-        # initialize logging directory if it doesn't exist
-        if self.cfg.logging:
-            if not os.path.isdir(os.path.join(self.cfg.out_directory, 'logs')):
-                os.mkdir(os.path.join(self.cfg.out_directory, 'logs'))
-            message = "WaveCal object created: UTC " + str(datetime.utcnow()) + \
-                " : Local " + str(datetime.now())
-            self._logger(message)
-            self._logger("## configuration file used")
-            with open(self.cfg.file, "r") as file_:
-                config = file_.read()
-            self._logger(config)
+        message = "WaveCal object created: UTC " + str(datetime.utcnow()) + \
+            " : Local " + str(datetime.now())
+        self._log.info(message)
+        self._log.info("## configuration file used")
+        with open(self.cfg.file, "r") as file_:
+            config = file_.read()
+        self._log.info(config)
 
     def _checkbasics(self):
         """
@@ -477,9 +480,9 @@ class WaveCal:
                 self.exportData(pixels=pixels)
                 self.dataSummary()
             except (KeyboardInterrupt, BrokenPipeError):
-                print(os.linesep + "Shutdown requested ... exiting")
+                log.info(os.linesep + "Shutdown requested ... exiting")
             except UserError as err:
-                print(err)
+                log.error(err)
 
     def getPhaseHeightsParallel(self, n_processes, pixels=[]):
         """
@@ -507,7 +510,7 @@ class WaveCal:
         pixels = self._checkPixelInputs(pixels)
 
         if self.cfg.verbose:
-            print('fitting phase histograms')
+            log.info('fitting phase histograms')
 
         # create progress bar
         if self.cfg.verbose:
@@ -535,7 +538,7 @@ class WaveCal:
         for i in range(n_processes):
             workers.append(Worker(in_queue, out_queue, progress_queue,
                                   self.cfg.file, i, request_data, load_data[i],
-                                  self.rows, self.columns))
+                                  self.rows, self.columns, self._log))
 
         try:
             # give workers pixels to compute ending in n_processes close commands
@@ -577,21 +580,17 @@ class WaveCal:
                 q.close()
             # close processes
             if self.cfg.verbose:
-                print(os.linesep + "PID {0} ... exiting".format(progress.pid))
+                log.info(os.linesep + "PID {0} ... exiting".format(progress.pid))
                 progress.terminate()
                 progress.join()
             for w in workers:
-                print("PID {0} ... exiting".format(w.pid))
+                log.info("PID {0} ... exiting".format(w.pid))
                 w.terminate()
                 w.join()
-            print("PID {0} ... exiting".format(gate_keeper.pid))
+            log.info("PID {0} ... exiting".format(gate_keeper.pid))
             gate_keeper.terminate()
             gate_keeper.join()
 
-            log_file = os.path.join(self.cfg.out_directory,
-                                    'logs/worker*.log')
-            for file_ in glob.glob(log_file):
-                os.remove(file_)
             raise KeyboardInterrupt
 
         # populate fit_data with results from workers
@@ -600,8 +599,6 @@ class WaveCal:
             self.fit_data[ind] = []
         for (row, column) in result_dict.keys():
             self.fit_data[row, column] = result_dict[(row, column)]
-        # clean up log files by merging individual worker logs
-        self._cleanLogs()
 
     def getPhaseHeights(self, pixels=[]):
         """
@@ -626,10 +623,9 @@ class WaveCal:
         # initialize plotting, logging, and verbose
         if self.cfg.save_plots:
             self._setupPlots()
-        if self.cfg.logging:
-            self._logger("## fitting phase histograms")
+        self._log.info("## fitting phase histograms")
         if self.cfg.verbose:
-            print('fitting phase histograms')
+            log.info('fitting phase histograms')
             self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (',
                                              Timer(), ') ', ETA(), ' '],
                                     max_value=len(pixels)).start()
@@ -645,8 +641,8 @@ class WaveCal:
             # initialize rate parameter
             rate = 2000
             for wavelength_index, wavelength in enumerate(self.wavelengths):
-                if self.cfg.logging:
-                    start_time = datetime.now()
+
+                start_time = datetime.now()
                 # pull out fits already done for this wavelength
                 fit_list = fit_data[row, column]
 
@@ -664,12 +660,9 @@ class WaveCal:
                                                   {'centers': np.array([]),
                                                    'counts': np.array([])}))
                     # update progress bar and log
-                    if self.cfg.logging:
-                        dt = round((datetime.now() - start_time).total_seconds(), 2)
-                        dt = str(dt) + ' s'
-                        self._logger("({0}, {1}) {2}nm: {3} : {4}"
-                                      .format(row, column, wavelength,
-                                              self.flag_dict[3], dt))
+                    dt = str(round((datetime.now() - start_time).total_seconds(), 2)) + ' s'
+                    self._log.info("({0}, {1}) {2}nm: {3} : {4}".format(row, column, wavelength,
+                                    self.flag_dict[3], dt))
                     if self.cfg.verbose and wavelength_index == len(self.wavelengths) - 1:
                         self.pbar_iter += 1
                         self.pbar.update(self.pbar_iter)
@@ -691,12 +684,9 @@ class WaveCal:
                 if flag == 3 or flag == 10:
                     fit_data[row, column].append((flag, False, False, phase_hist))
                     # update progress bar and log
-                    if self.cfg.logging:
-                        dt = round((datetime.now() - start_time).total_seconds(), 2)
-                        dt = str(dt) + ' s'
-                        self._logger("({0}, {1}) {2}nm: {3} : {4}"
-                                      .format(row, column, wavelength,
-                                              self.flag_dict[3], dt))
+                    dt = str(round((datetime.now() - start_time).total_seconds(), 2)) + ' s'
+                    self._log.info("({0}, {1}) {2}nm: {3} : {4}".format(row, column, wavelength,
+                                    self.flag_dict[3], dt))
                     if self.cfg.verbose and wavelength_index == len(self.wavelengths) - 1:
                         self.pbar_iter += 1
                         self.pbar.update(self.pbar_iter)
@@ -740,12 +730,9 @@ class WaveCal:
                 self._plotFit(phase_hist, fit_result, fit_function, flag, row, column)
 
                 # update log
-                if self.cfg.logging:
-                    dt = round((datetime.now() - start_time).total_seconds(), 2)
-                    dt = str(dt) + ' s'
-                    self._logger("({0}, {1}) {2}nm: {3} : {4}"
-                                  .format(row, column, wavelength,
-                                          self.flag_dict[flag], dt))
+                dt = str(round((datetime.now() - start_time).total_seconds(), 2)) + ' s'
+                self._log.info("({0}, {1}) {2}nm: {3} : {4}".format(row, column, wavelength,
+                                self.flag_dict[flag], dt))
             # check to see if fits at longer wavelengths can be used to fix fits at
             # shorter wavelengths
             fit_list = fit_data[row, column]
@@ -795,14 +782,13 @@ class WaveCal:
             "fit_data must be a ({0}, {1}) numpy array".format(self.rows, self.columns)
 
         # initialize verbose and logging
+        self._log.info('## calculating phase to energy solution')
         if self.cfg.verbose:
-            print('calculating phase to energy solution')
+            log.info('calculating phase to energy solution')
             self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (',
                                              Timer(), ') ', ETA(), ' '],
                                     max_value=len(pixels)).start()
             self.pbar_iter = 0
-        if self.cfg.logging:
-            self._logger('## calculating phase to energy solution')
 
         # initialize wavelength_cal structure
         wavelength_cal = np.empty((self.rows, self.columns), dtype=object)
@@ -913,8 +899,7 @@ class WaveCal:
             if self.cfg.verbose:
                 self.pbar_iter += 1
                 self.pbar.update(self.pbar_iter)
-            if self.cfg.logging:
-                self._logger("({0}, {1}): {2}".format(row, column, self.flag_dict[flag]))
+            self._log.info("({0}, {1}): {2}".format(row, column, self.flag_dict[flag]))
         # close progress bar
         if self.cfg.verbose:
             self.pbar.finish()
@@ -943,23 +928,18 @@ class WaveCal:
         # load wavecal header
         wavecal_description = WaveCalDescription(len(self.wavelengths))
 
-        # create output file name
-        cal_file_name = 'calsol_' + self.log_file + '.h5'
-        cal_file = os.path.join(self.cfg.out_directory, cal_file_name)
-        self.cal_file = cal_file
-
         # initialize verbose and logging
         if self.cfg.verbose:
-            print('exporting data')
+            log.info('exporting data')
             self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (',
                                              Timer(), ') ', ETA(), ' '],
                                     max_value=2 * len(pixels)).start()
             self.pbar_iter = 0
-        if self.cfg.logging:
-            self._logger("## exporting data to {0}".format(cal_file))
+
+        self._log.info("## exporting data to {0}".format(self.cal_file))
 
         # create folders in file
-        file_ = tb.open_file(cal_file, mode='w')
+        file_ = tb.open_file(self.cal_file, mode='w')
         header = file_.create_group(file_.root, 'header', 'Calibration information')
         wavecal = file_.create_group(file_.root, 'wavecal',
                                      'Table of calibration parameters for each pixel')
@@ -1025,8 +1005,7 @@ class WaveCal:
                 self.pbar.update(self.pbar_iter)
         calsoln.flush()
 
-        if self.cfg.logging:
-            self._logger("wavecal table saved")
+        self._log.info("wavecal table saved")
 
         # find max number of bins in histograms
         lengths = []
@@ -1096,8 +1075,7 @@ class WaveCal:
                 self.pbar.update(self.pbar_iter)
         debug_info.flush()
 
-        if self.cfg.logging:
-            self._logger("debug information saved")
+        self._log.info("debug information saved")
 
         # close file and progress bar
         file_.close()
@@ -1111,27 +1089,20 @@ class WaveCal:
         self.summary_plot can be changed manually to enable this function.
         """
         if self.cfg.summary_plot:
-            if self.cfg.logging:
-                self._logger("## saving summary plot")
-            if self.cfg.verbose:
-                print('saving summary plot')
+            self._log.debug("## saving summary plot")
+            self._clog.debug('saving summary plot')
             try:
                 save_name = "summary_" + self.log_file + '.pdf'
                 save_dir = os.path.join(self.cfg.out_directory, save_name)
                 plotSummary(self.cal_file, self.cfg.templar_config,
                             save_name=save_name, verbose=self.cfg.verbose)
-                if self.cfg.logging:
-                    self._logger("summary plot saved as {0}".format(save_dir))
+                self._log.info("summary plot saved as {0}".format(save_dir))
             except KeyboardInterrupt:
-                print(os.linesep + "Shutdown requested ... exiting")
+                self._clog.info(os.linesep + "Shutdown requested ... exiting")
             except Exception as error:
-                if self.cfg.verbose:
-                    print('Summary plot generation failed. It can be remade by ' +
-                          'using plotSummary() in plotWaveCal.py')
-                    print(error)
-                if self.cfg.logging:
-                    self._logger("summary plot failed")
-                    self._logger(str(error))
+                self._clog.error('Summary plot generation failed. It can be remade by ' +
+                               'using plotSummary() in plotWaveCal.py', exc_info=True)
+                self._log.error("summary plot failed", exc_info=True)
 
     def loadPhotonData(self, row, column, wavelength_index):
         """
@@ -1155,29 +1126,10 @@ class WaveCal:
         Check to make sure options that are incompatible with parallel computing are not
         enabled
         """
+        #TODO instead of this (or in addition) I would put the guard on the actions that are incompatible
+        #e.g. the internal plotting function should just return
         assert self.cfg.save_plots is False, "Cannot save histogram plots while " + \
             "running in parallel. save_plots must be False in the configuration file"
-
-    def _cleanLogs(self):
-        """
-        Combine logs when running in parallel after getPhaseHeightsParallel()
-        """
-        worker_logs = ['worker' + str(num) + '.log' for num in range(self.cpu_count)]
-        self._logger("## fitting phase histograms")
-        # loop through worker logs
-        for log in worker_logs:
-            with open(os.path.join(self.cfg.out_directory, 'logs', log)) as file_:
-                contents = file_.readlines()
-                contents = [line.strip() for line in contents]
-                # log lines in the main log that start with pixel (row, column)
-                for line in contents:
-                    if len(line) != 0 and line[0] == '(':
-                        self._logger(line)
-
-        # remove all worker logs
-        log_file = os.path.join(self.cfg.out_directory, 'logs/worker*.log')
-        for file_ in glob.glob(log_file):
-                os.remove(file_)
 
     def _removeTailRidingPhotons(self, photon_list, dt):
         """
@@ -1513,14 +1465,12 @@ class WaveCal:
                 # RuntimeError catches failed minimization
                 # RuntimeWarning catches overflow errors
                 # ValueError catches if ydata or xdata contain Nans
-                if self.cfg.logging:
-                    self._logger('({0}, {1}): '.format(row, column) + str(error))
+                self._log.error('({0}, {1}): '.format(row, column), exc_info=True)
                 fit_result = (False, False)
             except TypeError:
                 # TypeError catches when not enough data is passed to params.add()
-                if self.cfg.logging:
-                    self._logger('({0}, {1}): '.format(row, column) + "Not enough data "
-                                  + "passed to the fit function")
+                self._log.error('({0}, {1}): '.format(row, column) + "Not enough data "
+                                + "passed to the fit function")
                 fit_result = (False, False)
 
         return fit_result
@@ -1585,7 +1535,7 @@ class WaveCal:
                                       fit_quality >= 2 or
                                       2 * sigma > peak_upper_lim - peak_lower_lim)
                 # if wavelength_index == 0:
-                #     print(center > peak_upper_lim, center < peak_lower_lim,
+                #     log.info(center > peak_upper_lim, center < peak_lower_lim,
                 #           gauss(center) < snr * exp(center), gauss(center) < 10,
                 #           np.abs(sigma) < 2, fit_quality >= 2,
                 #           2 * sigma > peak_upper_lim - peak_lower_lim)
@@ -1624,8 +1574,7 @@ class WaveCal:
         longer wavelength fits. This step mainly catches when the first wavelength fit
         fails because there isn't enough information about the pixel sensitivity.
         """
-        if self.cfg.logging:
-            start_time = datetime.now()
+        start_time = datetime.now()
 
         # determine which fits worked
         flags = np.array([fit_list[ind][0] for ind in range(len(self.wavelengths))])
@@ -1665,12 +1614,12 @@ class WaveCal:
             # save data
             fit_list[wavelength_index] = (flag, fit_result[0], fit_result[1],
                                           phase_hist)
-            if flag == 0 and self.cfg.logging:
+            if flag == 0:
                 dt = round((datetime.now() - start_time).total_seconds(), 2)
                 dt = str(dt) + ' s'
                 message = "({0}, {1}) {2}nm: histogram fit recalculated " + \
                           "- converged and validated : {3}"
-                self._logger(message.format(row, column,
+                self._log.info(message.format(row, column,
                                              self.wavelengths[wavelength_index], dt))
         return fit_list
 
@@ -1681,8 +1630,7 @@ class WaveCal:
         If the fit fails or a single histogram fit fails evaluation, None will be
         returned.
         """
-        if self.cfg.logging:
-            start_time = datetime.now()
+        start_time = datetime.now()
 
         new_fit_list = fit_list
 
@@ -1797,16 +1745,14 @@ class WaveCal:
                 # replace old fit with simultaneous fit
                 new_fit_list[wavelength_index] = (flag, fit_result[0], fit_result[1],
                                                   phase_hist)
-            if self.cfg.logging:
-                dt = round((datetime.now() - start_time).total_seconds(), 2)
-                dt = str(dt) + ' s'
-                if vary:
-                    message = "histograms refit to a single model enforcing monotonicity"
-                else:
-                    message = "histograms refit to a single model enforcing " + \
-                              "monotonicity with a constant exponential fall time"
-                self._logger("({0}, {1}): {2} : {3}"
-                              .format(row, column, message, dt))
+
+            dt = str(round((datetime.now() - start_time).total_seconds(), 2))+' s'
+            if vary:
+                message = "histograms refit to a single model enforcing monotonicity"
+            else:
+                message = "histograms refit to a single model enforcing " + \
+                          "monotonicity with a constant exponential fall time"
+            self._log.info("({0}, {1}): {2} : {3}".format(row, column, message, dt))
             return new_fit_list
 
         except Exception as error:
@@ -1885,13 +1831,12 @@ class WaveCal:
                     fit_result = (popt, pcov)
                 else:
                     if self.cfg.logging:
-                        self._logger('({0}, {1}): '.format(row, column) + output.message)
-                        fit_result = (False, False)
+                        self._log.info('({0}, {1}): '.format(row, column) + output.message)
+                        fit_result = (False, False) #TODO is this an indendation error
 
             except (Exception, Warning) as error:
                 # shouldn't have any exceptions or warnings
-                if self.cfg.logging:
-                    self._logger('({0}, {1}): '.format(row, column) + str(error))
+                self._log.error('({0}, {1}): '.format(row, column), exc_info=True)
                 fit_result = (False, False)
                 raise error
 
@@ -2047,14 +1992,6 @@ class WaveCal:
             self._mergePlots()
         plt.close('all')
 
-    def _logger(self, message):
-        """
-        Method for writing information to a log file
-        """
-        file_name = os.path.join(self.cfg.out_directory, 'logs', self.log_file + '.log')
-        with open(file_name, 'a') as log_file:
-            log_file.write(message + os.linesep)
-
     @staticmethod
     def _findLastGoodFit(fit_list):
         """
@@ -2144,7 +2081,7 @@ class Worker(mp.Process):
     getPhaseHeightsParallel.
     """
     def __init__(self, in_queue, out_queue, progress_queue, config_file, num,
-                 request_data, load_data, rows, columns):
+                 request_data, load_data, rows, columns, log):
         super(Worker, self).__init__()
         self.in_queue = in_queue
         self.out_queue = out_queue
@@ -2156,13 +2093,15 @@ class Worker(mp.Process):
         self.rows = rows
         self.columns = columns
         self.daemon = True
+        self._log = log
         self.start()
 
     def run(self):
         try:
             w = WaveCal(config=self.config_file, master=False, worker_slave=True,
                         pid=self.num, request_data=self.request_data,
-                        load_data=self.load_data, rows=self.rows, columns=self.columns)
+                        load_data=self.load_data, rows=self.rows, columns=self.columns,
+                        filelog=self._log)
             w.cfg.verbose = False
             w.cfg.summary_plot = False
 
@@ -2197,7 +2136,7 @@ class GateWorker(mp.Process):
         try:
             w = WaveCal(config=self.config_file, master=False, data_slave=True)
             w.cfg.verbose = False
-            w.cfg.summary_plot = False
+            w.cfg.summary_plot = False  #TODO i don't think this is needed
 
             # we know how many data sets we will be loading
             for i in range(self.num):
@@ -2240,6 +2179,15 @@ class ProgressWorker(mp.Process):
 
 if __name__ == '__main__':
 
+    pipelinelog.setup_logging()
+
+    log = pipelinelog.getLogger('WaveCal')
+
+    timestamp = datetime.utcnow().timestamp()
+    flog = pipelinelog.createFileLog('WaveCal.logfile',
+                           os.path.join(os.getcwd(),
+                                        '{:.0f}.log'.format(timestamp)))
+
     parser = argparse.ArgumentParser(description='MKID Wavelength Calibration Utility')
     parser.add_argument('cfgfile', type=str, help='The config file')
     parser.add_argument('--vet', action='store_true', dest='vetonly', default=False,
@@ -2258,7 +2206,7 @@ if __name__ == '__main__':
 
     atexit.register(lambda x:print('Execution took {:.0f}s'.format(time.time()-x)), time.time())
 
-    config = WaveCalConfig(args.cfgfile)
+    config = WaveCalConfig(args.cfgfile, cal_file_name='calsol_{}.h5'.format(timestamp))
 
     if args.ncpu == 0:
         args.ncpu = len(config.wavelengths)
@@ -2273,12 +2221,11 @@ if __name__ == '__main__':
             plotSummary(os.path.join(config.out_directory, args.summary),
                         config.templar_config, save_name=save_name,
                         verbose=config.verbose)
-            print("summary plot saved as {}".format(save_dir))
+            log.info("summary plot saved as {}".format(save_dir))
         except KeyboardInterrupt:
-            print(os.linesep + "Shutdown requested ... exiting")
+            log.info(os.linesep + "Shutdown requested ... exiting")
         except Exception as error:
-            print('Summary plot generation failed.')
-            print(error)
+            log.error('Summary plot generation failed.', exc_info=True)
         exit()
 
     if (args.forcehdf or not config.hdfexist()) or args.scriptsonly or args.h5only:
@@ -2302,6 +2249,6 @@ if __name__ == '__main__':
         if args.h5only:
             exit()
 
-    w = WaveCal(config)
+    w = WaveCal(config, filelog=flog)
 
     w.makeCalibration()
