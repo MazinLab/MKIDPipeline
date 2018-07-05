@@ -1,10 +1,10 @@
 import os, yaml, errno
 import logging, logging.config
 from multiprocessing_logging import install_mp_handler
-import progressbar
 
+# import progressbar
 # progressbar.streams.wrap_stderr()
-print(__name__)
+
 getLogger = logging.getLogger
 
 def mkdir_p(path):
