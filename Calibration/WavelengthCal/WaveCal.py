@@ -17,6 +17,7 @@ from PyPDF2 import PdfFileMerger, PdfFileReader
 from progressbar import ProgressBar, Bar, ETA, Timer, Percentage
 from DarknessPipeline.Headers import pipelineFlags
 import DarknessPipeline.pipelinelog as pipelinelog
+from DarknessPipeline.pipelinelog import getLogger
 from DarknessPipeline.Calibration.WavelengthCal.plotWaveCal import plotSummary, fitModels
 from DarknessPipeline.RawDataProcessing.darkObsFile import ObsFile
 from DarknessPipeline.Headers.CalHeaders import (WaveCalDescription, WaveCalHeader,
@@ -41,7 +42,7 @@ def makeHDFscripts(wavecfg):
         # TODO bin2hdf should with a path and require running in the directory with its python scripts
         scripts.append(scriptpath.format(wave))
         with open(scripts[-1], 'w') as script:
-            log.info('Creating {}'.format(scripts[-1]))
+            getLogger('WaveCal').info('Creating {}'.format(scripts[-1]))
             script.write('#!/bin/bash\n'
                          'cd {}\n'.format(BIN2HDFPATH)+
                          '{} {}\n'.format('./Bin2HDF ', wavepath)+
@@ -383,6 +384,9 @@ class WaveCal:
         if filelog is None:
             self._log = pipelinelog.getLogger('devnull')
             self._log.disabled = True
+        elif filelog is True:
+            self._log = pipelinelog.createFileLog('WaveCal.logfile', os.path.join(os.getcwd(),
+                                                  'WaveCal{:.0f}.log'.format(datetime.utcnow().timestamp())))
         else:
             self._log = filelog
 
@@ -2181,7 +2185,7 @@ if __name__ == '__main__':
 
     pipelinelog.setup_logging()
 
-    log = pipelinelog.getLogger('WaveCal')
+    log = getLogger('WaveCal')
 
     timestamp = datetime.utcnow().timestamp()
     flog = pipelinelog.createFileLog('WaveCal.logfile',
