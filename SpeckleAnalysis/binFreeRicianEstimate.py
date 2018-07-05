@@ -170,7 +170,9 @@ def MRlogL(dt, Ic, Is):
     OUTPUTS:
         [float] the Log likelihood. 
     """
-    lnL = -1.*dt*Ic/(1.+dt*Is) + np.log(Ic + Is + dt*Is**2.) - 3.*np.log(1.+dt*Is)
+    #lnL = -1.*dt*Ic/(1.+dt*Is) + np.log(Ic + Is + dt*Is**2.) - 3.*np.log(1.+dt*Is)
+    lnL = np.log((Ic**2 + 4*Ic*(Is + Is**2*dt) + 2*(Is + Is**2*dt)**2)/((Ic+Is)*(1+Is*dt)**5)) - (Ic*dt)/(1+Is*dt)
+    
     return np.sum(lnL)
 
 def maxMRlogL(ts, Ic_guess=1., Is_guess=1., method='Powell'):
