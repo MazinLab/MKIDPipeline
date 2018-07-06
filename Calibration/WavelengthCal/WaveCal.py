@@ -381,7 +381,7 @@ class WaveCal:
         self.cfg = config if isinstance(config, WaveCalConfig) else WaveCalConfig(config)
         self.bin_width = self.cfg.bin_width
 
-        if filelog is None:
+        if filelog in (None, False):
             self._log = getLogger('devnull')
             self._log.disabled = True
         elif filelog is True:
@@ -1835,8 +1835,8 @@ class WaveCal:
                         pcov = output.covar
                     fit_result = (popt, pcov)
                 else:
+                    self._log.info('({0}, {1}): '.format(row, column) + output.message)
                     if self.cfg.logging:
-                        self._log.info('({0}, {1}): '.format(row, column) + output.message)
                         fit_result = (False, False) #TODO is this an indendation error
 
             except (Exception, Warning) as error:
@@ -2189,9 +2189,7 @@ if __name__ == '__main__':
     log = getLogger('WaveCal')
 
     timestamp = datetime.utcnow().timestamp()
-    flog = pipelinelog.createFileLog('WaveCal.logfile',
-                           os.path.join(os.getcwd(),
-                                        '{:.0f}.log'.format(timestamp)))
+
 
     parser = argparse.ArgumentParser(description='MKID Wavelength Calibration Utility')
     parser.add_argument('cfgfile', type=str, help='The config file')
@@ -2207,7 +2205,16 @@ if __name__ == '__main__':
                         help='Number of CPUs to use, default is number of wavelengths')
     parser.add_argument('-s', type=str, dest='summary',
                         help='Generate a summary of the specified solution')
+    parser.add_argument('--nolog', action='store_true', dest='nolog', default=False,
+                        help='Disable logging')
     args = parser.parse_args()
+
+    if args.nolog:
+        flog = None
+    else:
+        flog = pipelinelog.createFileLog('WaveCal.logfile',
+                                         os.path.join(os.getcwd(),
+                                                      '{:.0f}.log'.format(timestamp)))
 
     atexit.register(lambda x:print('Execution took {:.0f}s'.format(time.time()-x)), time.time())
 
@@ -2223,7 +2230,7 @@ if __name__ == '__main__':
         WaveCal(config).dataSummary()
         exit()
 
-    if (args.forcehdf or not config.hdfexist()) or args.scriptsonly or args.h5only:
+    if not config.hdfexist() or args.forcehdf or args.scriptsonly:
 
         config.write(config.file+'.bak', forceconsistency=False)
         config.write(config.file)  # Make sure the file is consistent and save
@@ -2241,8 +2248,8 @@ if __name__ == '__main__':
             for s in scripts:
                 sp.call(('bash', s))
 
-        if args.h5only:
-            exit()
+    if args.h5only:
+        exit()
 
     WaveCal(config, filelog=flog).makeCalibration()
 
