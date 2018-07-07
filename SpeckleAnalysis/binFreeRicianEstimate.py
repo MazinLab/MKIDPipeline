@@ -211,8 +211,8 @@ def maxMRlogL(ts, Ic_guess=1., Is_guess=1., method='Powell'):
     nLogL = lambda p: -1.*MRlogL(dt, p[0], p[1])
     nScore=lambda params: -1.*MRlogL_Jacobian(dt, params[0], params[1])
     nHess=lambda params: -1.*MRlogL_Hessian(dt, params[0], params[1])
-    #res = minimize(nLogL, [Ic_guess, Is_guess], method=method,jac=nScore, hess=nHess)
-    res = minimize(nLogL, [Ic_guess, Is_guess], method=method)
+    res = minimize(nLogL, [Ic_guess, Is_guess], method=method,jac=nScore, hess=nHess)
+    #res = minimize(nLogL, [Ic_guess, Is_guess], method=method)
     return res
 
 def getPixelPhotonList(filename, xCoord, yCoord,**kwargs):
@@ -276,33 +276,6 @@ def plotLogLMap(ts, Ic_list, Is_list):
 
 
 if __name__ == "__main__":
-    
-    '''
-    Ic=[]
-    Ic_err=[]
-    Is=[]
-    Is_err=[]
-    
-    x=range(100)
-    Ic_val, Is_val, Ttot, tau = [1000., 300., 5., .1]
-    for i in x:
-        ts = genphotonlist(Ic_val, Is_val, Ttot, tau)
-        dt = ts[1:] - ts[:-1]
-        dt=dt[np.where(dt<1.e6)]/10.**6
-        
-        m = MR_SpeckleModel(dt)
-        res=m.fit([1., 1.])
-        Ic.append(res.params[0])
-        Is.append(res.params[1])
-        Ic_err.append(res.bse[0])
-        Is_err.append(res.bse[1])
-    
-    
-    
-    plt.errorbar(x, Ic, yerr=Ic_err)
-    plt.errorbar(x, Is, yerr=Is_err)
-    plt.show()
-    '''
 
     
     print("Getting photon list: ")
@@ -353,6 +326,20 @@ if __name__ == "__main__":
     print('photons/s: '+str(len(ts)/Ttot))
     print('MLE Ic+Is: '+str(np.sum(res.params)))
 
+
+    I = 1./dt
+    plt.hist(I, 10000, range=(0,25000))
+    #plt.show()
+    u_I = np.average(I,weights=dt)
+    #var_I = np.var(I)
+    var_I=np.average((I-u_I)**2., weights=dt)
+    print(u_I)
+    print(var_I)
+    print(Is+Ic)
+    print(Is**2.+2.*Ic*Is+Ic+Is)
+    Ic_stat= np.sqrt(u_I**2 - var_I + u_I)
+    Is_stat = u_I - Ic_stat
+    print('Stat Ic, Is: '+str(Ic_stat)+', '+str(Is_stat))
 
     print("Mapping...")
     Ic_list=np.arange(280.,320.,1.)
