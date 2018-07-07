@@ -3,6 +3,7 @@
 import numpy as np
 from scipy import special, interpolate
 from numba import jit
+from astropy.io import fits
 
 
 def MRicdf(Ic, Is, interpmethod='cubic'):
@@ -47,7 +48,9 @@ def MRicdf(Ic, Is, interpmethod='cubic'):
     # the end since our integration scheme is off by a part in 1e-6 or
     # something.
 
-    p_I = 1./Is*np.exp(-(Ic + I)/Is)*special.iv(0, 2*np.sqrt(I*Ic)/Is)
+    #p_I = 1./Is*np.exp(-(Ic + I)/Is)*special.iv(0, 2*np.sqrt(I*Ic)/Is)
+    p_I = 1./Is*np.exp((2*np.sqrt(I*Ic) - (Ic + I))/Is)*special.ive(0, 2*np.sqrt(I*Ic)/Is)
+
     cdf = np.cumsum(p_I)*dI
     cdf /= cdf[-1]
 
@@ -102,8 +105,38 @@ def corrsequence(Ttot, tau):
     r = _recursion(r, g, f, sqrt1mf2, g.shape[0])
     
     return t, r
+
+@jit
+def removedeadtime(t, deadtime):
+
+    """
+    Remove photons within the pixel's "dead time".  We will check each
+    photon in order, and keep it if, stepping backwards, we do not
+    find another one within deadtime that was recorded as valid.  By
+    going in order, we correctly handle, e.g., the case of a photon 
+    arriving at t=0, another at t=deadtime-1, and a third at t=deadtime+1.
+
+    Inputs: 
+    t: one-dimensional array of photon arrival times
+    deadtime: int or float, the inter-photon "dead time"
+
+    Returns:
+    A 1-D array of the valid/recorded photon arrival times
+    """
     
-def genphotonlist(Ic, Is, Ttot, tau, interpmethod='cubic',
+    keep = np.ones(t.shape).astype(int)
+    for i in range(t.shape[0]):
+        for j in range(i - 1, -1, -1):
+            if t[i] - t[j] > deadtime:
+                break
+            elif keep[j]:
+                keep[i] = 0
+                break
+    print("Removed "+str(len(t)-np.sum(keep))+" photons due to deadTime")
+    return t[np.where(keep)]
+    
+
+def genphotonlist(Ic, Is, Ttot, tau, deadtime=0, interpmethod='cubic',
                   lookuptable=True):
 
     """
@@ -117,11 +150,12 @@ def genphotonlist(Ic, Is, Ttot, tau, interpmethod='cubic',
     Ttot: int, total exposure time in seconds
     tau: float, correlation time in seconds
 
-    Optional argument:
+    Optional arguments:
     interpmethod: argument 'kind' to interpolate.interp1d 
+    lookuptable: use a lookuptable to invert the modified Rician CDF?  Default True
 
     Returns:
-    1D array of photon arrival times in us. 
+    1D array of photon arrival times
 
     """
 
@@ -133,7 +167,7 @@ def genphotonlist(Ic, Is, Ttot, tau, interpmethod='cubic',
     # return a list of photons determined by the probability of each
     # unit of time giving a detected photon.
 
-    if Is > 0:
+    if Is > 1e-8*Ic:
         t, normal = corrsequence(int(Ttot*1e6), tau*1e6)
         uniform = 0.5*(special.erf(normal/np.sqrt(2)) + 1)
         f = MRicdf(Ic, Is, interpmethod=interpmethod)
@@ -146,20 +180,22 @@ def genphotonlist(Ic, Is, Ttot, tau, interpmethod='cubic',
         else:
             I = f(uniform)/1e6
 
-    elif Is == 0:
+    elif Is >= 0:
         t = np.arange(int(Ttot*1e6))
         I = Ic/1e6*np.ones(t.shape)
     else:
         raise ValueError("Cannot generate a photon list with Is<0.")
         
-    return t[np.where(np.random.rand(len(t)) < I)]
     
+    tlist = t[np.where(np.random.rand(len(t)) < I)]
+    #return tlist
+    return removedeadtime(tlist, deadtime)
+
 
 if __name__ == "__main__":
 
     # Demonstration: Ic=1000/s, Is=300/s, 5s integration,
     # decorrelation time 0.1s.  Returns list of ~6500 times.
 
-    Ic, Is, Ttot, tau = [1000, 30, 5, 0.1]
-    t = genphotonlist(Ic, Is, Ttot, tau)
-
+    Ic, Is, Ttot, tau = [1000, 300, 5, 0.1]
+    t = genphotonlist(Ic, Is, Ttot, tau, deadtime=10)
