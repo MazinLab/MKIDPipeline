@@ -12,7 +12,7 @@ from configparser import ConfigParser
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
-from readDict import readDict
+from DarknessPipeline.P3Utils.readDict import readDict
 import argparse
 import datetime
 import subprocess

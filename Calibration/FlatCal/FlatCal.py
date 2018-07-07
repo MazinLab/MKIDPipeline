@@ -17,6 +17,8 @@ Per pixel:  plots of weights vs wavelength next to twilight spectrum OR
 import sys
 import os
 import ast
+from typing import Any, Union
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
@@ -45,6 +47,7 @@ class FlatCal:
         Reads in the param file and opens appropriate flat file.  Sets wavelength binning parameters.
         """
         # define the configuration file path
+        self.frames = []
         self.config_file = config_file
 
         # check the configuration file path and read it in
@@ -100,7 +103,7 @@ class FlatCal:
     def _del_(self):
         pass
 
-    def loadFlatSpectra(self):
+    def loadFlatSpectra(self) -> object:
         """
         Reads the flat data into a spectral cube whose dimensions are determined
         by the number of x and y pixels and the number of wavelength bins.
@@ -109,7 +112,6 @@ class FlatCal:
         """
         self.spectralCubes = []
         self.cubeEffIntTimes = []
-        self.frames = []
         for iObs, obs in enumerate(self.obsList):
             for firstSec in range(0, self.expTime, self.intTime):
                 cubeDict = obs.getSpectralCube(firstSec=firstSec, integrationTime=self.intTime, applySpecWeight=False,
@@ -155,7 +157,7 @@ class FlatCal:
         mask out frames, or cubes from integration time chunks with count rates too high
         """
         medianCountRates = np.array([np.median(frame[frame != 0]) for frame in self.frames])
-        boolIncludeFrames = medianCountRates <= self.countRateCutoff
+        boolIncludeFrames: Union[bool, Any] = medianCountRates <= self.countRateCutoff
         self.spectralCubes = np.array([cube for cube, boolIncludeFrame in zip(self.spectralCubes, boolIncludeFrames)
                                        if boolIncludeFrame == True])
         self.frames = [frame for frame, boolIncludeFrame in zip(self.frames, boolIncludeFrames)
@@ -212,14 +214,14 @@ class FlatCal:
             trimmedWeights = sortedWeights[
                              self.fractionOfChunksToTrim * nCubes:(1 - self.fractionOfChunksToTrim) * nCubes, :, :, :]
             trimmedCountCubesReordered = countCubesReordered[self.fractionOfChunksToTrim * nCubes:(
-                                                                                                              1 - self.fractionOfChunksToTrim) * nCubes,
+                                                                                                          1 - self.fractionOfChunksToTrim) * nCubes,
                                          :, :, :]
 
             self.totalCube = np.ma.sum(trimmedCountCubesReordered, axis=0)
             self.totalFrame = np.ma.sum(self.totalCube, axis=-1)
 
             trimmedCubeDeltaWeightsReordered = cubeDeltaWeightsReordered[self.fractionOfChunksToTrim * nCubes:(
-                                                                                                                          1 - self.fractionOfChunksToTrim) * nCubes,
+                                                                                                                      1 - self.fractionOfChunksToTrim) * nCubes,
                                                :, :, :]
             '''
             Uncertainty in weighted average is sqrt(1/sum(averagingWeights))
@@ -273,7 +275,7 @@ class FlatCal:
             for iCol in range(self.nypix):
                 weights = self.flatWeights[iRow, iCol, :]
                 deltaWeights = self.deltaFlatWeights[iRow, iCol, :]
-                if weights.mask.all() == False:
+                if not weights.mask.all():
                     if self.iPlot % self.nPlotsPerPage == 0:
                         self.fig = plt.figure(figsize=(10, 10), dpi=100)
 
@@ -524,10 +526,9 @@ class FlatCal:
             print('wrote to', fullFlatCalFileName)
 
     def _setupPlots(self):
-        '''
+        """
         Initialize plotting variables
-        '''
-        flatCalPath, flatCalBasename = os.path.split(self.flatCalFileName)
+        """
         self.nPlotsPerRow = 3
         self.nPlotsPerCol = 4
         self.nPlotsPerPage = self.nPlotsPerRow * self.nPlotsPerCol
@@ -562,9 +563,9 @@ class FlatCal:
             os.rename(temp_file, self.pdfFullPath)
 
     def _closePlots(self):
-        '''
+        """
         Safely close plotting variables after plotting since the last page is only saved if it is full.
-        '''
+        """
         if not self.saved:
             pdf = PdfPages(os.path.join(self.out_directory, 'temp.pdf'))
             pdf.savefig(self.fig)
@@ -655,7 +656,6 @@ class FlatCal:
             assert type(self.verbose) is bool, "Verbose indicator must be a bool"
             assert type(self.save_plots) is bool, "Save Plots indicator must be a bool"
 
-
         else:
             raise ValueError("index must be 0, 1, or 2")
 
@@ -700,9 +700,9 @@ class FlatCal:
 
 
 class UserError(Exception):
-    '''
+    """
     Custom error used to exit the flatCal program without traceback
-    '''
+    """
     pass
 
 
@@ -867,7 +867,7 @@ def summaryPlot(calsolnName, save_plot=False):
     if not save_plot:
         plt.show()
     else:
-        pdf = PdfPages(os.path.join(os.getcwd(), str(SummaryPlot) + '.pdf'))
+        pdf = PdfPages(os.path.join(os.getcwd(), 'SummaryPlot.pdf'))
         pdf.savefig(fig)
         pdf.close()
 
