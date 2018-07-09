@@ -1,26 +1,26 @@
-from PyQt5 import QtGui
-from PyQt5 import QtWidgets
-from PyQt5 import QtCore
-import matplotlib.pyplot as plt
+from __future__ import print_function
 import numpy as np
-import sys
 from multiprocessing import Process
 from functools import partial
-#import matplotlib
-#matplotlib.rcParams['backend.qt4']='PyQt4'
-#from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib
-matplotlib.use('Qt5agg')
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from functools import partial
-import matplotlib.pyplot as plt
 
-class PopUp(QtWidgets.QMainWindow):
+try:
+    from PyQt5.QtWidgets import QMainWindow, QApplication, QWidget, QVBoxLayout, QLabel
+    from PyQt5 import QtCore
+    matplotlib.use('Qt5agg')
+    from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+except ImportError:
+    from PyQt4.QtGui import QMainWindow, QApplication, QWidget, QVBoxLayout, QLabel
+    from PyQt4 import QtCore
+    from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
+
+
+class PopUp(QMainWindow):
     def __init__(self, parent=None,plotFunc=None,title='', showMe=True):
         self.parent = parent
         if self.parent == None:
-            self.app = QtWidgets.QApplication([])  
+            self.app = QApplication([])
         super(PopUp,self).__init__(parent)
         self.setWindowTitle(title)
         self.plotFunc = plotFunc
@@ -36,7 +36,7 @@ class PopUp(QtWidgets.QMainWindow):
         self.fig.canvas.draw()
 
     def create_main_frame(self,title):
-        self.main_frame = QtWidgets.QWidget()
+        self.main_frame = QWidget()
       # Create the mpl Figure and FigCanvas objects. 
         self.dpi = 100
         self.fig = Figure((5, 5), dpi=self.dpi)
@@ -46,13 +46,13 @@ class PopUp(QtWidgets.QMainWindow):
         #self.axes.set_title(title)
 
         # Create the navigation toolbar, tied to the canvas
-        vbox = QtWidgets.QVBoxLayout()
+        vbox = QVBoxLayout()
         vbox.addWidget(self.canvas)
         self.main_frame.setLayout(vbox)
         self.setCentralWidget(self.main_frame)
 
     def create_status_bar(self):
-        self.status_text = QtWidgets.QLabel("")
+        self.status_text = QLabel("")
         self.statusBar().addWidget(self.status_text, 1)
 
 
@@ -97,7 +97,7 @@ class PopUp(QtWidgets.QMainWindow):
             
 
     def create_status_bar(self):
-        self.status_text = QtWidgets.QLabel("Awaiting orders.")
+        self.status_text = QLabel("Awaiting orders.")
         self.statusBar().addWidget(self.status_text, 1)
         
     def onscroll_cbar(self, event):
@@ -106,14 +106,14 @@ class PopUp(QtWidgets.QMainWindow):
             currentClim = self.fig.cbar.mappable.get_clim()
             currentRange = currentClim[1]-currentClim[0]
             if event.button == 'up':
-                if QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
+                if QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
                     newClim = (currentClim[0]+increment*currentRange,currentClim[1])
-                elif QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
+                elif QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
                     newClim = (currentClim[0],currentClim[1]+increment*currentRange)
             if event.button == 'down':
-                if QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
+                if QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
                     newClim = (currentClim[0]-increment*currentRange,currentClim[1])
-                elif QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
+                elif QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
                     newClim = (currentClim[0],currentClim[1]-increment*currentRange)
             self.fig.cbar.mappable.set_clim(newClim)
             self.fig.canvas.draw()
@@ -128,14 +128,14 @@ class PopUp(QtWidgets.QMainWindow):
             clickedValue = lower+fraction*currentRange
             extrapolatedValue = lower+event.ydata*currentRange
             if event.button == 1:
-                if QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
+                if QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
                     newClim = (clickedValue,upper)
-                elif QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
+                elif QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
                     newClim = (lower,clickedValue)
             if event.button == 3:
-                if QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
+                if QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
                     newClim = ((lower-fraction*upper)/(1.-fraction),upper)
-                elif QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
+                elif QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
                     newClim = (lower,lower+currentRange/fraction)
             self.fig.cbar.mappable.set_clim(newClim)
             self.fig.canvas.draw()
