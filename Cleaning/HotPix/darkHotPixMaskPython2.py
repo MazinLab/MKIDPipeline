@@ -29,12 +29,12 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
-from DarknessPipeline.Utils.popup import plotArray
+from DarknessPipeline.Utils.arrayPopup import plotArray
 import DarknessPipeline.Utils
 import warnings
-from DarknessPipeline.ImageReg.loadStackPython2 import loadIMGStack
+from DarknessPipeline.ImageReg.loadStack import loadIMGStack
 import image_registration as ir
-import DarknessPipeline.ImageReg.irUtilsPython2 as irUtils
+import DarknessPipeline.ImageReg.irUtils as irUtils
 
 
 #ultimately want the path to be flexible: use .bin files if they exist,
