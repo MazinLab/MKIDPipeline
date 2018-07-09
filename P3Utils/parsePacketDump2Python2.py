@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from DarknessPipeline.P3Utils import binTools
 import sys
-from DarknessPipeline.Utils.popup import plotArray
+from DarknessPipeline.P3Utils.popup import plotArray
 import os
 
 nRows = 125

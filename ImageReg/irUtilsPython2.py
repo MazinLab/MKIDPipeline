@@ -11,7 +11,7 @@ from DarknessPipeline.P3Utils.FileName import FileName
 from DarknessPipeline.P3Utils.utils import interpolateImage
 import matplotlib.pyplot as plt
 import pickle
-from DarknessPipeline.Utils.popup import plotArray
+from DarknessPipeline.PUtils.popup import plotArray
 import subprocess, warnings
 from scipy import ndimage
 #import DarknessPipeline.P3Utils.mpfit

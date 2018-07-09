@@ -29,7 +29,7 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
-from DarknessPipeline.Utils.popup import plotArray
+from DarknessPipeline.P3Utils.popup import plotArray
 import DarknessPipeline.P3Utils
 import warnings
 from DarknessPipeline.ImageReg.loadStackPython2 import loadIMGStack
