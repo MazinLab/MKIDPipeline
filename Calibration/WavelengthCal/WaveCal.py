@@ -16,8 +16,8 @@ from configparser import ConfigParser
 from PyPDF2 import PdfFileMerger, PdfFileReader
 from progressbar import ProgressBar, Bar, ETA, Timer, Percentage
 from DarknessPipeline.Headers import pipelineFlags
-import DarknessPipeline.pipelinelog as pipelinelog
-from DarknessPipeline.pipelinelog import getLogger
+import DarknessPipeline.P3Utils.pipelinelog as pipelinelog
+from DarknessPipeline.P3Utils.pipelinelog import getLogger
 from DarknessPipeline.Calibration.WavelengthCal.plotWaveCal import plotSummary, fitModels
 from DarknessPipeline.RawDataProcessing.darkObsFile import ObsFile
 from DarknessPipeline.Headers.CalHeaders import (WaveCalDescription, WaveCalHeader,
