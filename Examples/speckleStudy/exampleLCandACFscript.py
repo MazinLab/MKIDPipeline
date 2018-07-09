@@ -7,7 +7,7 @@ Tools to handle lightcurves for speckle statistics studies
 
 #import stuff
 from darkObsFile import darkObsFile
-from Utils.FileName import FileName
+from P3Utils.FileName import FileName
 from arrayPopup import plotArray
 import numpy as np
 import lightCurves as lc
