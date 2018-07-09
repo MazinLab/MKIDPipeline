@@ -5,7 +5,7 @@ import numpy
 import types
 import string
 import astropy.io.fits as pyfits #changed from pyfits 20171023
-from P3Utils import smooth
+from Utils import smooth
 import sys
 from scipy.constants import *
 import math

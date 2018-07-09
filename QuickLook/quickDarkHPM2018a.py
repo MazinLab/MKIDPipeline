@@ -14,17 +14,17 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 from functools import partial
-from DarknessPipeline.P3Utils.parsePacketDump2 import parsePacketData
-from DarknessPipeline.P3Utils.arrayPopup import plotArray
-from DarknessPipeline.P3Utils.readDict import readDict
+from DarknessPipeline.Utils.parsePacketDump2 import parsePacketData
+from DarknessPipeline.Utils.arrayPopup import plotArray
+from DarknessPipeline.Utils.readDict import readDict
 
 import DarknessPipeline.Cleaning.HotPix.darkHotPixMask2018a as dhpm
 
 import image_registration as ir
 from DarknessPipeline.ImageReg.loadStack import loadIMGStack, loadBINStack
 import DarknessPipeline.ImageReg.irUtils as irUtils
-from DarknessPipeline.P3Utils.plottingTools import DraggableColorbar
-from DarknessPipeline.P3Utils.plottingTools import MyNormalize
+from DarknessPipeline.Utils.plottingTools import DraggableColorbar
+from DarknessPipeline.Utils.plottingTools import MyNormalize
 
 darkSpanImg=[1527762695,1527762715]
 target='WL05302018d'

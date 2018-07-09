@@ -7,9 +7,9 @@ Author:    Matt Strader
 import matplotlib, time, struct
 import matplotlib.pyplot as plt
 import numpy as np
-from DarknessPipeline.P3Utils import binTools
+from DarknessPipeline.Utils import binTools
 import sys
-from DarknessPipeline.P3Utils.popup import plotArray
+from DarknessPipeline.Utils.popup import plotArray
 import os
 
 nRows = 125

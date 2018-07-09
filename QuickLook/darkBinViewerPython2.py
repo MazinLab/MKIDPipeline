@@ -17,8 +17,8 @@ from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 #from matplotlib.backends.backend_qt4agg import NavigationToolbar2QTAgg as NavigationToolbar
 from matplotlib.figure import Figure
 from functools import partial
-from DarknessPipeline.P3Utils.parsePacketDump2Python2 import parsePacketData
-import DarknessPipeline.P3Utils.parsePacketDump2Python2
+from DarknessPipeline.Utils.parsePacketDump2Python2 import parsePacketData
+import DarknessPipeline.Utils.parsePacketDump2Python2
 import DarknessPipeline.Cleaning.HotPix.darkHotPixMaskPython2 as dhpm
 
 

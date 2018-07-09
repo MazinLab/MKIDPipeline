@@ -8,7 +8,7 @@ Need to start exploring the spatial behavior of these correlations
 
 #import stuff
 from darkObsFile import darkObsFile
-from P3Utils.FileName import FileName
+from Utils.FileName import FileName
 from arrayPopup import plotArray
 import numpy as np
 import lightCurves as lc

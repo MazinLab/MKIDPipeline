@@ -13,8 +13,8 @@ import matplotlib
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
-from DarknessPipeline.P3Utils.arrayPopup import plotArray
-import DarknessPipeline.P3Utils
+from DarknessPipeline.Utils.arrayPopup import plotArray
+import DarknessPipeline.Utils
 import warnings
 from DarknessPipeline.ImageReg.loadStack import loadIMGStack
 import image_registration as ir
