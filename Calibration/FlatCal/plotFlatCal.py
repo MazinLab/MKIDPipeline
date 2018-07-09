@@ -9,10 +9,10 @@ from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.backends.backend_pdf import PdfPages
 from configparser import ConfigParser
 import tables
-from DarknessPipeline.P3Utils.arrayPopup import PopUp,plotArray,pop
+from DarknessPipeline.Utils.arrayPopup import PopUp,plotArray,pop
 from DarknessPipeline.RawDataProcessing.darkObsFile import ObsFile
-from DarknessPipeline.P3Utils.readDict import readDict
-from DarknessPipeline.P3Utils.FileName import FileName
+from DarknessPipeline.Utils.readDict import readDict
+from DarknessPipeline.Utils.FileName import FileName
 import DarknessPipeline.Cleaning.HotPix.darkHotPixMask as hp
 from DarknessPipeline.Headers.CalHeaders import FlatCalSoln_Description
 from DarknessPipeline.Headers import pipelineFlags

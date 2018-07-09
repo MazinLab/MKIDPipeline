@@ -10,8 +10,8 @@ from matplotlib import pyplot as plt
 from configparser import ConfigParser
 from scipy.interpolate import interp1d
 
-from P3Utils.utils import medianStack
-from P3Utils.arrayPopup import plotArray
+from Utils.utils import medianStack
+from Utils.arrayPopup import plotArray
 from ImageReg.loadStack import loadIMGStack
 from Cleaning.HotPix import darkHotPixMask as dhpm
 

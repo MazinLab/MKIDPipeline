@@ -29,8 +29,8 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
-from DarknessPipeline.P3Utils.arrayPopup import plotArray
-import DarknessPipeline.P3Utils
+from DarknessPipeline.Utils.arrayPopup import plotArray
+import DarknessPipeline.Utils
 import warnings
 from DarknessPipeline.ImageReg.loadStack import loadIMGStack
 import image_registration as ir

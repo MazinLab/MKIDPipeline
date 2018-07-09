@@ -90,7 +90,7 @@ import astropy.constants
 
 from Utils import utils
 from Utils import MKIDStd
-from P3Utils.FileName import FileName
+from Utils.FileName import FileName
 from Headers import TimeMask
 from Calibration.CalLookupFile import CalLookupFile
 

@@ -22,7 +22,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 #from matplotlib.backends.backend_qt4agg import NavigationToolbar2QTAgg as NavigationToolbar
 from matplotlib.figure import Figure
 from functools import partial
-from DarknessPipeline.P3Utils.parsePacketDump2 import parsePacketData
+from DarknessPipeline.Utils.parsePacketDump2 import parsePacketData
 from DarknessPipeline.Cleaning.HotPix import darkHotPixMask as dhpm
 from ast import literal_eval
 

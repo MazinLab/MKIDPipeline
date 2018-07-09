@@ -25,7 +25,7 @@ from PyQt5.QtCore import QObject, pyqtSignal
 from DarknessPipeline.RawDataProcessing.darkObsFile import ObsFile
 from scipy.optimize import curve_fit
 import os.path
-from DarknessPipeline.P3Utils import pdfs
+from DarknessPipeline.Utils import pdfs
 from scipy.special import factorial
 
 

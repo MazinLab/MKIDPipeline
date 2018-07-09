@@ -7,7 +7,7 @@ Author:    Matt Strader
 import matplotlib, time, struct
 import matplotlib.pyplot as plt
 import numpy as np
-from P3Utils import binTools
+from Utils import binTools
 import sys
 
 def parsePacketData(words,verbose=False):

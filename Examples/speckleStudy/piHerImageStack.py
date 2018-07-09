@@ -7,7 +7,7 @@ Short script to make image stack out of pi Her 5ms frames, look for TT jitter
 
 #import stuff
 from darkObsFile import darkObsFile
-from P3Utils.FileName import FileName
+from Utils.FileName import FileName
 from arrayPopup import plotArray
 import numpy as np
 import lightCurves as lc

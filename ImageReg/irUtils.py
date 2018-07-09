@@ -7,14 +7,14 @@ Handful of utilities for making padded image canvases and aligning images
 
 import matplotlib
 import numpy as np
-from DarknessPipeline.P3Utils.FileName import FileName
-from DarknessPipeline.P3Utils.utils import interpolateImage
+from DarknessPipeline.Utils.FileName import FileName
+from DarknessPipeline.Utils.utils import interpolateImage
 import matplotlib.pyplot as plt
 import pickle
-from DarknessPipeline.P3Utils.arrayPopup import plotArray
+from DarknessPipeline.Utils.arrayPopup import plotArray
 import subprocess, warnings
 from scipy import ndimage
-import DarknessPipeline.P3Utils.mpfit
+import DarknessPipeline.Utils.mpfit
 import tables
 secondsPerDay = 24*60*60
 

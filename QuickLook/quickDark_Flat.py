@@ -42,9 +42,9 @@ import matplotlib
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from functools import partial
-from DarknessPipeline.P3Utils.parsePacketDump2 import parsePacketData
-from DarknessPipeline.P3Utils.arrayPopup import plotArray
-from DarknessPipeline.P3Utils.readDict import readDict
+from DarknessPipeline.Utils.parsePacketDump2 import parsePacketData
+from DarknessPipeline.Utils.arrayPopup import plotArray
+from DarknessPipeline.Utils.readDict import readDict
 
 import DarknessPipeline.Cleaning.HotPix.darkHotPixMask as dhpm
 
