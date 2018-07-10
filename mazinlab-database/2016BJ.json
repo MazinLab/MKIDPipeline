@@ -1,0 +1,72 @@
+
+ {
+   "Target": "SAO61424",
+   "Type": "Star",
+   "J mag": "4.493",
+   "Sunset Date": "20161121",
+   "Seeing (AO)": "",
+   "Filters": "J Band, OD 0.5; J Band OD Open",
+   "Time Windows": "5:11-5:39",
+   "Nearby Laser Cals": "None",
+   "Important Notes": "Could not see anything reasonable",
+   "Number of Dithers": "2",
+   "AO Saved State": "",
+   "BIN File Range": "None"
+ },
+ {
+   "Target": "HR8799",
+   "Type": "Star + exoplanet companions",
+   "J mag": "5.383",
+   "Sunset Date": "20161122",
+   "Seeing (AO)": "<1\"",
+   "Filters": "J Band, OD 0.5; J Band OD Open",
+   "Time Windows": "17:49-21:33",
+   "Nearby Laser Cals": "None",
+   "Important Notes": "",
+   "Number of Dithers": "13",
+   "AO Saved State": "",
+   "BIN File Range": "1479865740 to 1479895090"
+ },
+ {
+   "Target": "Eps Eridani",
+   "Type": "Star",
+   "J mag": "2.23",
+   "Sunset Date": "20161122",
+   "Seeing (AO)": "",
+   "Filters": "J Band, OD 0.5; J Band OD Open",
+   "Time Windows": "00:48-1:58",
+   "Nearby Laser Cals": "None",
+   "Important Notes": "",
+   "Number of Dithers": "7",
+   "AO Saved State": "",
+   "BIN File Range": "1479896900 to 1479895090"
+
+ },
+ {
+   "Target": "SAO78135 (Propus)",
+   "Type": "Binary Star System",
+   "J mag": "-0.33",
+   "Sunset Date": "20161122",
+   "Seeing (AO)": "",
+   "Filters": "J Band, OD 1.5; J Band OD Open",
+   "Time Windows": "1:58-3:12",
+   "Nearby Laser Cals": "None",
+   "Important Notes": "",
+   "Number of Dithers": "1",
+   "AO Saved State": "",
+   "BIN File Range": "1479895095 to 1479899523"
+ },
+ {
+   "Target": "SAO42642",
+   "Type": "Binary Star System",
+   "J mag": "3.2",
+   "Sunset Date": "201611122",
+   "Seeing (AO)": "",
+   "Filters": "J Band, OD 0.5; J Band OD Open",
+   "Time Windows": "3:12-6:19",
+   "Nearby Laser Cals": "None",
+   "Important Notes": "",
+   "Number of Dithers": "4",
+   "AO Saved State": "",
+   "BIN File Range": "1479899580 to 1479910714"
+ }
