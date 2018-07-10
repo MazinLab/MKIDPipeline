@@ -17,7 +17,7 @@ handlers:
     formatter: simple
 
   file:
-    (): DarknessPipeline.pipelinelog.MakeFileHandler
+    (): DarknessPipeline.Utils.pipelinelog.MakeFileHandler
     filename: default.log
     mode: a
     level: DEBUG
