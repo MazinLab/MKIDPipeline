@@ -34,6 +34,7 @@ class MR_SpeckleModel(GenericLikelihoodModel):
         hess=lambda params: MRlogL_Hessian(dt, params[0], params[1])
         loglike=lambda params: MRlogL(dt, params[0], params[1])
         super(MR_SpeckleModel, self).__init__(endog,exog=exog, loglike=loglike, score=score, hessian=hess)
+        #super(MR_SpeckleModel, self).__init__(endog,exog=exog, loglike=loglike)
     
     def fit(self, start_params=[1.,1.], method='powell', **kwargs):
         """
@@ -63,8 +64,12 @@ def MRlogL_Jacobian(dt, Ic, Is):
     OUTPUTS:
         jacobian vector [dlnL/dIc, dlnL/dIs] at Ic, Is
     """
-    jac_Ic = -1./(1./dt+Is) + 1./(Ic+Is+dt*Is**2.)
-    jac_Is = dt**2.*Ic/(1.+dt*Is)**2. - 3.*dt/(1.+dt*Is) + (1.+2.*dt*Is)/(Ic+Is+dt*Is**2.)
+    #jac_Ic = -1./(1./dt+Is) + 1./(Ic+Is+dt*Is**2.)
+    #jac_Is = dt**2.*Ic/(1.+dt*Is)**2. - 3.*dt/(1.+dt*Is) + (1.+2.*dt*Is)/(Ic+Is+dt*Is**2.)
+    
+    jac_Ic = -1./(Ic+Is) - dt/(1.+dt*Is) + 2.*(Ic+2.*Is*(1.+dt*Is))/(Ic**2.+4.*Ic*Is*(1.+dt*Is)+2.*Is**2.*(1.+dt*Is)**2.)
+    jac_Is = -1./(Ic+Is) + dt**2.*Ic/(1.+dt*Is)**2. - 5.*dt/(1.+dt*Is) + 4.*(1.+2.*dt*Is)*(Ic+Is+dt*Is**2.)/(Ic**2.+4.*Ic*Is*(1.+dt*Is)+2.*Is**2.*(1.+dt*Is)**2.)
+    
     return np.asarray([np.sum(jac_Ic), np.sum(jac_Is)])
 
 def MRlogL_Hessian(dt, Ic, Is):
@@ -80,9 +85,15 @@ def MRlogL_Hessian(dt, Ic, Is):
     OUTPUTS:
         Hessian matrix [[d2lnL/dIc2, d2lnL/dIcdIs], [d2lnL/dIsdIc, d2lnL/dIsdIs]] at Ic, Is
     """
-    h_IcIc = np.sum(-1./(Ic+Is+dt*Is**2.)**2.)
-    h_IsIs = np.sum(-2.*dt**3.*Ic/(1.+dt*Is)**3. + 3.*dt**2./(1.+dt*Is)**2. + (4.*dt*Ic -1.)/(Ic+Is+dt*Is**2.)**2. - 2.*dt/(Ic+Is+dt*Is**2.))
-    h_IcIs = np.sum(dt**2./(1.+dt*Is)**2. - (1.+2.*dt*Is)/(Ic+Is+dt*Is**2.)**2.)
+    #h_IcIc = np.sum(-1./(Ic+Is+dt*Is**2.)**2.)
+    #h_IsIs = np.sum(-2.*dt**3.*Ic/(1.+dt*Is)**3. + 3.*dt**2./(1.+dt*Is)**2. + (4.*dt*Ic -1.)/(Ic+Is+dt*Is**2.)**2. - 2.*dt/(Ic+Is+dt*Is**2.))
+    #h_IcIs = np.sum(dt**2./(1.+dt*Is)**2. - (1.+2.*dt*Is)/(Ic+Is+dt*Is**2.)**2.)
+    
+    h_IcIc = np.sum(1./(Ic+Is)**2. - 2.*(Ic**2.+4.*Ic*Is*(1.+dt*Is)+6.*Is**2.*(1.+dt*Is)**2.)/(Ic**2.+4.*Ic*Is*(1.+dt*Is)+2.*Is**2.*(1.+dt*Is)**2.)**2.)
+    h_IsIs = np.sum(1./(Ic+Is)**2. - 2.*dt**3.*Ic/(1.+dt*Is)**3. + 5.*dt**2./(1.+dt*Is)**2. - 8.*(Ic+2.*dt*Ic*Is)**2./(Ic**2.+4.*Ic*Is*(1.+dt*Is)+2.*Is**2.*(1.+dt*Is)**2.)**2. - (4.+8.*dt*(Is-Ic+dt*Is**2.))/(Ic**2.+4.*Ic*Is*(1.+dt*Is)+2.*Is**2.*(1.+dt*Is)**2.))
+    h_IcIs = np.sum(1./(Ic+Is)**2. + dt**2./(1.+dt*Is)**2. - 8.*(1.+2.*dt*Is)*(Ic+Is+dt*Is**2.)*(Ic+2.*Is*(1.+dt*Is))/(Ic**2.+4.*Ic*Is*(1.+dt*Is)+2.*Is**2.*(1.+dt*Is)**2.)**2. + (4.+8.*dt*Is)/(Ic**2.+4.*Ic*Is*(1.+dt*Is)+2.*Is**2.*(1.+dt*Is)**2.))
+    
+    
     return np.asarray([[h_IcIc, h_IcIs],[h_IcIs, h_IsIs]])
 
 def MRlogL_opgCov(dt, Ic, Is):
@@ -170,7 +181,13 @@ def MRlogL(dt, Ic, Is):
     OUTPUTS:
         [float] the Log likelihood. 
     """
-    lnL = -1.*dt*Ic/(1.+dt*Is) + np.log(Ic + Is + dt*Is**2.) - 3.*np.log(1.+dt*Is)
+
+    #lnL = -1.*dt*Ic/(1.+dt*Is) + np.log(Ic + Is + dt*Is**2.) - 3.*np.log(1.+dt*Is) + np.log(dt)
+    #lnL = -1.*dt*Ic/(1.+dt*Is) + np.log(Ic + Is + dt*Is**2.) - 3.*np.log(1.+dt*Is)     #last term ins constant
+    
+    #lnL = -1.*dt*Ic/(1.+dt*Is) - 5.0*np.log(1.+Is*dt) + np.log(Ic**2.+4.*Ic*Is+2.*Is**2.+4.*Is**2.*(Ic+4.*Is)*dt + 2.*Is**4.*dt**2.) - np.log(Ic+Is)
+    lnL = -1.*dt*Ic/(1.+dt*Is) - 5.0*np.log(1.+Is*dt) + np.log(Ic**2.+4.*Ic*(Is+Is**2.*dt)+2.*(Is+Is**2.*dt)**2.) - np.log(Ic+Is)
+    
     return np.sum(lnL)
 
 def maxMRlogL(ts, Ic_guess=1., Is_guess=1., method='Powell'):
@@ -195,6 +212,7 @@ def maxMRlogL(ts, Ic_guess=1., Is_guess=1., method='Powell'):
     nScore=lambda params: -1.*MRlogL_Jacobian(dt, params[0], params[1])
     nHess=lambda params: -1.*MRlogL_Hessian(dt, params[0], params[1])
     res = minimize(nLogL, [Ic_guess, Is_guess], method=method,jac=nScore, hess=nHess)
+    #res = minimize(nLogL, [Ic_guess, Is_guess], method=method)
     return res
 
 def getPixelPhotonList(filename, xCoord, yCoord,**kwargs):
@@ -258,40 +276,26 @@ def plotLogLMap(ts, Ic_list, Is_list):
 
 
 if __name__ == "__main__":
-    #fn = '/home/abwalter/peg32/1507175503.h5'
-    
-    '''
-    Ic=[]
-    Ic_err=[]
-    Is=[]
-    Is_err=[]
-    
-    x=range(100)
-    Ic_val, Is_val, Ttot, tau = [1000., 300., 5., .1]
-    for i in x:
-        ts = genphotonlist(Ic_val, Is_val, Ttot, tau)
-        dt = ts[1:] - ts[:-1]
-        dt=dt[np.where(dt<1.e6)]/10.**6
-        
-        m = MR_SpeckleModel(dt)
-        res=m.fit([1., 1.])
-        Ic.append(res.params[0])
-        Is.append(res.params[1])
-        Ic_err.append(res.bse[0])
-        Is_err.append(res.bse[1])
-    
-    
-    
-    plt.errorbar(x, Ic, yerr=Ic_err)
-    plt.errorbar(x, Is, yerr=Is_err)
-    plt.show()
-    '''
 
     
-    print("Generating photon list...",end="", flush=True)
-    Ic, Is, Ttot, tau = [300., 30., 300., .1]
-    ts = genphotonlist(Ic, Is, Ttot, tau)
-    print("[Done]\n")
+    print("Getting photon list: ")
+    Ic, Is, Ttot, tau, deadTime = [300., 30., 30., .1, 10.]
+    print("[Ic, Is, Ttot, tau, deadTime]: "+str([Ic, Is, Ttot, tau, deadTime]))
+    print("\t...",end="", flush=True)
+    ts = genphotonlist(Ic, Is, Ttot, tau, deadTime)
+    print("Done.\n")
+    
+    #dt = ts[1:] - ts[:-1]
+    #dt=dt[np.where(dt<1.e6)]/10.**6     #remove negative values and convert into seconds
+    
+    
+    
+    #fn = '/home/abwalter/peg32/1507175503.h5'
+    #print("From: ",fn)
+    #print("\t...",end="", flush=True)
+    #ts=getPixelPhotonList(filename=fn, xCoord=30, yCoord=81,wvlStart=100, wvlStop=900)
+    #Ttot=3.
+    #print("Done.\n")
 
     print("=====================================")
     print("Optimizing with Scipy...")
@@ -300,6 +304,7 @@ if __name__ == "__main__":
     print("Number of Iterations: "+str(res.nit))
     print("Max LogLikelihood: "+str(-res.fun))         # We minimized negative log likelihood
     print("[Ic, Is]: "+str(res.x))
+    #raise IOError
     print("Estimating Cov Matrix...")
     dt = ts[1:] - ts[:-1]
     dt=dt[np.where(dt<1.e6)]/10.**6
@@ -319,13 +324,27 @@ if __name__ == "__main__":
     
     print("\n#photons: "+str(len(ts)))
     print('photons/s: '+str(len(ts)/Ttot))
-    print('MLE (Ic+Is): '+str(np.sum(res.params)))
+    print('MLE Ic+Is: '+str(np.sum(res.params)))
 
-    #print("Mapping...")
-    #Ic_list=np.arange(80.,140.,.5)
-    #Is_list=np.arange(4.,20.,0.5)
-    #plotLogLMap(ts, Ic_list, Is_list)
+
+    I = 1./dt
+    plt.hist(I, 10000, range=(0,25000))
     #plt.show()
+    u_I = np.average(I,weights=dt)
+    #var_I = np.var(I)
+    var_I=np.average((I-u_I)**2., weights=dt)
+    print(u_I)
+    print(var_I)
+    print(Is+Ic)
+    print(Is**2.+2.*Ic*Is+Ic+Is)
+    Ic_stat= np.sqrt(u_I**2 - var_I + u_I)
+    Is_stat = u_I - Ic_stat
+    print('Stat Ic, Is: '+str(Ic_stat)+', '+str(Is_stat))
 
+    print("Mapping...")
+    Ic_list=np.arange(280.,320.,1.)
+    Is_list=np.arange(25.,35.,1.)
+    plotLogLMap(ts, Ic_list, Is_list)
+    plt.show()
 
 
