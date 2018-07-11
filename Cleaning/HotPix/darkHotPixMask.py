@@ -30,7 +30,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from DarknessPipeline.Utils.arrayPopup import plotArray
-import DarknessPipeline.Utils
+import DarknessPipeline.Utils.utils as utils
 import warnings
 from DarknessPipeline.ImageReg.loadStack import loadIMGStack
 import image_registration as ir
@@ -53,7 +53,7 @@ def makeDHPMask(stack=None, outputFileName=None, verbose=False, sigma=3, maxCut=
 
 
     '''
-    medStack = P3Utils.utils.medianStack(stack)
+    medStack = utils.medianStack(stack)
 
     if verbose:
         try:
