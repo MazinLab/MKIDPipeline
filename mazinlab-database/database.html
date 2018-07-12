@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="shortcut icon"  href="https://png.icons8.com/ios/80/000000/planet-filled.png"/>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
-
+  <script src="database.js"></script>
 <style>
 
 .content {
@@ -128,6 +128,7 @@ body {font-family: Arial;}
   <button class="tablinks" onclick="openData(event, 'Targets')">Targets</button>
   <button class="tablinks" onclick="openData(event, 'Runs')">Runs</button>
   <button class="tablinks" onclick="openData(event, 'Dates')">Dates</button>
+   <button class="tablinks" onclick="openData(event, 'Calibrations')">Calibrations</button>
     <div class="search-container">
             <form action="/action_page.php">
               <input type="text" placeholder="Search..." name="search" size = 30px>
@@ -138,11 +139,11 @@ body {font-family: Arial;}
 <div id="Home" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
   <h3>Home</h3>
-  <p> The Mazin Lab is a University of California, Santa Barbara astrophysics laboratory that uses MKIDS technology to detect stars and exoplanets. This website is the database for all the stars, runs and dates of observation. The official lab website and more information on staff can be found <a href = "https://web.physics.ucsb.edu/~bmazin/">here</a>.
+  <p> The Mazin Lab is a University of California, Santa Barbara astrophysics laboratory that uses MKIDS technology to detect stars and exoplanets. This website is the database for all the stars, runs and dates of observation. The official lab website and more information on staff can be found <a href = "https://web.physics.ucsb.edu/~bmazin/">here</a>.</p>
+  <p>Right now, what you will find here is information for the DARKNESS runs, which happened at the Palomar Observatory. The Database is currently being developed by undergraduate student Clarissa Do O, with help from Isabel Lipartito and Jonathan Guiang.</p>
 
   
 </div>
-</p>
 <div id = "data">
 <div id="Targets" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
@@ -185,12 +186,12 @@ body {font-family: Arial;}
 <div id="Runs" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
   <h4>Runs</h4>
-
+ 
   <ul>
-	  <li><a href="2016BJ.json">2016B</a></li>
-	  <li><a href="2017AJ.json">2017A</a></li>
-	  <li><a href="2017BJ.json">2017B</a></li>
-	  <li><a href="2018AJ.json">2018A</a></li>
+	 <li id="2016B">2016B</li>
+	 <li id="2017A">2017A</li>
+   <li id="2017B">2017B</li>
+   <li id="2018A">2018A</li>
   </ul> 
 </div>
 
@@ -216,13 +217,21 @@ body {font-family: Arial;}
 	  <li>May 30th, 2018</li>
 	  
   </ul>
-  <p></p>
-	
-  </div>
+  <div id="Calibrations" class="tabcontent">
+  <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
+  <h4>Calibrations</h4>
+ <p>
+  <ul>
+   <li id="16BCals">2016B Calibrations</li>
+   <li id="17ACals">2017A Calibrations</li>
+   <li id="17BCals">2017B Calibrations</li>
+   <li id="18ACals">2018A Calibrations</li>s
+  </ul> 
+</p>
 </div>
 
 <script>
-function openData(evt, infoName) {
+  function openData(evt, infoName) {
     var i, tabcontent, tablinks;
     tabcontent = document.getElementsByClassName("tabcontent");
     for (i = 0; i < tabcontent.length; i++) {
@@ -236,9 +245,7 @@ function openData(evt, infoName) {
     evt.currentTarget.className += " active";
 }
 
-// Get the element with id="defaultOpen" and click on it
 document.getElementById("defaultOpen").click();
 </script>
-     
 </body>
 </html> 
