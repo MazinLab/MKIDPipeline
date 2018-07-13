@@ -8,6 +8,8 @@
   <script src="database.js"></script>
 <style>
 
+li { cursor: pointer; }
+
 .content {
 	  	width: 300px;
 	    border: 2px solid rgb(150, 0, 250);
@@ -140,6 +142,7 @@ body {font-family: Arial;}
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
   <h3>Home</h3>
   <p> The Mazin Lab is a University of California, Santa Barbara astrophysics laboratory that uses MKIDS technology to detect stars and exoplanets. This website is the database for all the stars, runs and dates of observation. The official lab website and more information on staff can be found <a href = "https://web.physics.ucsb.edu/~bmazin/">here</a>.</p>
+  <p>The "Targets" section allows you to search for any target from the last four Palomar DARKNESS runs. The "Runs" tab allows you to find all information on a specific run (i.e. 2017A): targets, nearby laser cal times, etc. The "Dates" tab allows you to find information on a specific date. The "Calibrations" tab allows you to find information on Calibration times, dates, targets and bands for each run. You may also search any of these on the Search Bar.</p>
   <p>Right now, what you will find here is information for the DARKNESS runs, which happened at the Palomar Observatory. The Database is currently being developed by undergraduate student Clarissa Do O, with help from Isabel Lipartito and Jonathan Guiang.</p>
 
   
@@ -186,13 +189,13 @@ body {font-family: Arial;}
 <div id="Runs" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
   <h4>Runs</h4>
- 
   <ul>
-	 <li id="2016B">2016B</li>
+	<li id="2016B">2016B</li>
 	 <li id="2017A">2017A</li>
    <li id="2017B">2017B</li>
    <li id="2018A">2018A</li>
   </ul> 
+
 </div>
 
 <div id="Dates" class="tabcontent">
