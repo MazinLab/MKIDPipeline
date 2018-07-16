@@ -1,6 +1,4 @@
 
-
-
 $(function() {
                 $("[id^=20]").click(function() {
                     console.log(1);
@@ -11,8 +9,7 @@ $(function() {
 
          $.each(data, function(key, val) {
            to_append += "<div class'container' id='"+key+"'><hr><p><h4>"+val["Target"]+
-                             "</h2><b>Target: </b>"+val["Target"]+
-                             "<br /><b>Type: </b>"+val["Type"]+
+                             "</h2> <br /><b>Type: </b>"+val["Type"]+
                              "<br /><b>J Mag: </b>"+val["J mag"]+
                              "<br /><b>Sunset Date(s): </b>"+val["Sunset Date(s)"]+
                              "<br /><b>Filters: </b>"+val["Filters"]+
@@ -21,14 +18,16 @@ $(function() {
                              "<br /><b>Important Notes: </b>"+val["Important Notes"]+
                              "<br /><b>Number of Dithers: </b>"+val["Number of Dithers"]+
                              "<br /><b>BIN File Range: </b>"+val["BIN File Range"]+"</p><hr></div>";
+
+
             });
-         div.append(to_append);
+
+        div.append(to_append);
        });
 });
             });
 
   
-    
 
     // Prevent 'enter' key from submitting forms (gives 404 error with full data set name form)
     $(window).keydown(function(event) {
