@@ -5,6 +5,7 @@
  * compiled with this command
  /usr/local/hdf5/bin/h5cc -shlib -pthread -o Bin2HDFDeep Bin2HDFDeep.c
  *************************************************************************************************/
+ // Modification to following "deeper" structure: /Photons/roachNum/resID . Didn't really work
  
 #include <stdio.h>
 #include <stdlib.h>
