@@ -26,7 +26,7 @@ from DarknessPipeline.Headers.CalHeaders import (WaveCalDescription, WaveCalHead
 
 DEFAULT_CONFIG_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)),
                                                    'Params', 'default.cfg')
-BIN2HDFPATH = '/mnt/data0/DarknessPipeline/RawDataProcessing'
+BIN2HDF_DEFAULT_PATH = '/mnt/data0/DarknessPipeline/RawDataProcessing'
 
 
 def makeHDFscripts(wavecfg):
@@ -37,14 +37,14 @@ def makeHDFscripts(wavecfg):
         wavepath = '{}{}nm.txt'.format(wavecfg.h5directory, wave)
 
         BIN2HDFConfig(wavepath, datadir=wavecfg.dataDir, beamdir=wavecfg.beamDir,
-                      outdir=wavecfg.h5directory, starttime=startt, inttime=intt).write()
+                      outdir=wavecfg.h5directory, starttime=startt, inttime=intt, x=wavecfg.xpix, y=wavecfg.ypix).write()
 
         # TODO bin2hdf should with a path and require running in the directory with its python scripts
         scripts.append(scriptpath.format(wave))
         with open(scripts[-1], 'w') as script:
             getLogger('WaveCal').info('Creating {}'.format(scripts[-1]))
             script.write('#!/bin/bash\n'
-                         'cd {}\n'.format(BIN2HDFPATH)+
+                         'cd {}\n'.format(wavecfg.bin2hdf_path)+
                          '{} {}\n'.format('./Bin2HDF ', wavepath)+
                          'cd -')
     return scripts
@@ -170,6 +170,12 @@ class WaveCalConfig:
         self.logging = ast.literal_eval(self.config['Output']['logging'])
         self.summary_plot = ast.literal_eval(self.config['Output']['summary_plot'])
         self.templar_config = ast.literal_eval(self.config['Output']['templar_config'])
+
+        if self.config.has_option('Data', 'bin2hdf_path'):
+            self.bin2hdf_path = ast.literal_eval(self.config['Data']['bin2hdf_path'])
+
+        else:
+            self.bin2hdf_path = BIN2HDF_DEFAULT_PATH
 
         self.cal_file_name = cal_file_name
 
@@ -815,7 +821,7 @@ class WaveCal:
                     if self.cfg.model_name == 'gaussian_and_exp':
                         phases.append(fit_result[1][3])
                         std.append(fit_result[1][4])
-                        if fit_result[2][3, 3] == 0:
+                        if fit_result[2][3, 3] <= 0:
                             errors.append(np.sqrt(fit_result[1][4]))
                         else:
                             errors.append(np.sqrt(fit_result[2][3, 3]))
