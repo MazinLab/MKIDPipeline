@@ -1091,8 +1091,7 @@ class ObsFile:
                            weightArr[np.where(phases > maxwavelength)]=0.0
                            calarray.append(weightArr)       
                            
-                if calarray and calarray[0].all: 
-                     print('hiiiiiiiiiiiiiiiiiiiiii')
+                if calarray and calarray[0].all:
                      calweights = np.average(calarray,axis=0)
                      self.applySpecWeight(resID=resID, weightArr=calweights)
                      if verbose:
