@@ -1,9 +1,3 @@
-import numpy as np
-import matplotlib.pyplot as plt
-import numpy.ma as ma
-
-import matplotlib.cbook as cbook
-from matplotlib.colors import Normalize
 import matplotlib.cbook as cbook
 import matplotlib.pyplot as plt
 import numpy as np

@@ -4,7 +4,7 @@ import struct
 import numpy as np
 import tables
 
-from mkidpipeline.utils.parsePacketDump2 import parsePacketData
+from mkidpipeline.utils.parsePacketDump import parsePacketData
 
 '''
 Utilities for loading sets of image stacks from either .IMG or .bin files

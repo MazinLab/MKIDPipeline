@@ -16,16 +16,14 @@ Takes same .cfg as quickStack, since it will be synced with the centroids that q
 '''
 
 import glob
-import os
 import sys
 
 import mkidpipeline.utils.irUtils as irUtils
-import numpy as np
+from mkidpipeline.hdf.darkObsFile import ObsFile as darkObsFile
 from mkidpipeline.utils.FileName import FileName
 # from matplotlib.backends.backend_qt4agg import NavigationToolbar2QTAgg as NavigationToolbar
 # import mpfit
 from mkidpipeline.utils.arrayPopup import plotArray
-from mkidpipeline.hdf.darkObsFile import ObsFile as darkObsFile
 from mkidpipeline.utils.loadStack import *
 from mkidpipeline.utils.readDict import readDict
 
