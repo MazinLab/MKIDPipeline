@@ -126,7 +126,7 @@ The solution .h5 file will be saved in the output directory as calsol_timestamp.
 #### Running from a script or a Python shell
 The calibration can also be run from a script or a python shell. This option allows the flexibility to compute the solution for a group of selected pixels. It is particularly useful for debugging and speeding up the computation time. The following lines of code demonstrate the process:
 
-    from DarknessPipeline.Calibration.WavelengthCal import WaveCal as W
+    from mkidpipeline.Calibration.WavelengthCal import WaveCal as W
     w = W.WaveCal(config_file='/path/to/my_config.cfg')
     w.makeCalibration(pixels=my_pixels)
 '/path/to/my_config.cfg' is the path and filename of your configuration file as a string. my_pixels is a list of length 2 lists containing the (row, column) of each pixel you want included in the calculation. (e.g. [[1, 2], [3, 4], [10, 50]]) If not included, the calculation will be done on all of the pixels.
@@ -153,7 +153,7 @@ Plots of the results of a wavelength calibration can be made with functions in p
                              plotCenterHist and other summary statistics
 The following sample script shows how to generate each plot. View the docstrings for more detail on the options for each plot.
 
-    from DarknessPipeline.Calibration.WavelengthCal import plotWaveCal as p
+    from mkidpipeline.Calibration.WavelengthCal import plotWaveCal as p
 
     # path to your wavecal solution file
     file_name = '/path/to/calsol_timestamp.h5'
