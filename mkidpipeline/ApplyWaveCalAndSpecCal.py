@@ -6,7 +6,7 @@ from configparser import ConfigParser
 
 import numpy as np
 
-from mkidpipeline.WavelengthCal import WaveCal as W
+from mkidpipeline.calibration import wavecal as W
 
 
 class ApplyWaveCalAndSpecCal:

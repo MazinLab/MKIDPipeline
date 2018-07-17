@@ -28,7 +28,7 @@ from PyPDF2 import PdfFileMerger, PdfFileReader
 from matplotlib.backends.backend_pdf import PdfPages
 from progressbar import Bar, ETA, Percentage, ProgressBar, Timer
 
-from mkidpipeline.WavelengthCal import plotWaveCal
+from mkidpipeline.calibration import wavecalplots
 from mkidpipeline.core.headers import FlatCalSoln_Description
 from mkidpipeline.hdf.darkObsFile import ObsFile
 
@@ -325,7 +325,7 @@ class FlatCal:
 
                     for iCube in range(nCubes):
                         my_pixel = [iRow, iCol]
-                        ax = plotWaveCal.plotEnergySolution(file_nameWvlCal, pixel=my_pixel, axis=ax)
+                        ax = wavecalplots.plotEnergySolution(file_nameWvlCal, pixel=my_pixel, axis=ax)
 
                     ax.set_title('p %d,%d' % (iRow, iCol))
                     if self.iPlot % self.nPlotsPerPage == self.nPlotsPerPage - 1 or (
@@ -778,7 +778,7 @@ def plotSinglePixelSolution(calsolnName, file_nameWvlCal, res_id=None, pixel=[],
     ax = fig.add_subplot(3, 1, 3)
     ax.set_ylim(.5, 2.)
     my_pixel = [row, column]
-    ax = plotWaveCal.plotEnergySolution(file_nameWvlCal, pixel=my_pixel, axis=ax)
+    ax = wavecalplots.plotEnergySolution(file_nameWvlCal, pixel=my_pixel, axis=ax)
 
     if not save_plot:
         plt.show()

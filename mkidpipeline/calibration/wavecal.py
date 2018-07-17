@@ -20,7 +20,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from progressbar import Bar, ETA, Percentage, ProgressBar, Timer
 
 import mkidpipeline.utils.pipelinelog as pipelinelog
-from mkidpipeline.WavelengthCal import fitModels, plotSummary
+from mkidpipeline.wavecal import fitModels, plotSummary
 from mkidpipeline.core import pixelflags
 from mkidpipeline.core.headers import (WaveCalDebugDescription, WaveCalDescription, WaveCalHeader)
 from mkidpipeline.hdf.darkObsFile import ObsFile
