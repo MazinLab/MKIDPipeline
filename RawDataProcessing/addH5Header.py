@@ -1,7 +1,7 @@
 import tables
 import sys, os, struct
 import numpy as np
-from Headers.ObsFileHeaders import ObsHeader
+from DarknessPipeline.Headers.ObsFileHeaders import ObsHeader
 
 if __name__=='__main__':
     if len(sys.argv)<3:

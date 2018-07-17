@@ -19,29 +19,27 @@ import tables
 from scipy import ndimage
 from scipy import signal
 import astropy
-import cPickle as pickle
-from PyQt4 import QtCore
-from PyQt4 import QtGui
+import _pickle as pickle
+from PyQt5 import QtGui
+from PyQt5 import QtWidgets
+from PyQt5 import QtCore
 import matplotlib
-from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
+#from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+matplotlib.use('Qt5agg')
 from matplotlib.figure import Figure
+import matplotlib.pyplot as plt
 from functools import partial
-from parsePacketDump2 import parsePacketData
-from arrayPopup import plotArray
-from readDict import readDict
+from DarknessPipeline.Utils.parsePacketDump2 import parsePacketData
+from DarknessPipeline.Utils.arrayPopup import plotArray
+from DarknessPipeline.Utils.readDict import readDict
 
-from img2fitsExample import writeFits
-from readFITStest import readFITS
-
-import HotPix.darkHotPixMask as dhpm
+import DarknessPipeline.Cleaning.HotPix.darkHotPixMask2018a as dhpm
 
 import image_registration as ir
-from loadStack import loadIMGStack, loadBINStack
-import irUtils
-
-
-
-
+from DarknessPipeline.ImageReg.loadStack import loadIMGStack, loadBINStack
+import DarknessPipeline.ImageReg.irUtils as irUtils
+from DarknessPipeline.Utils.plottingTools import DraggableColorbar
+from DarknessPipeline.Utils.plottingTools import MyNormalize
 
 def StackCalSoln_Description(nPos=1):
     strLength = 100  
@@ -67,7 +65,6 @@ def StackCalSoln_Description(nPos=1):
             "imgDir"        : tables.StringCol(strLength), # location of .IMG files
             "binDir"        : tables.StringCol(strLength), # location of .bin files
             "outputDir"     : tables.StringCol(strLength), # location where stack was originally saved
-            "fitsPath"      : tables.StringCol(strLength), # full path (dir+filename) for FITS file with stacked image
             "refFile"       : tables.StringCol(strLength), # path to reference file for image registration
             "useImg"        : tables.BoolCol(),            # boolean flag to use .IMG or .bin data files in stacking
             "doHPM"         : tables.StringCol(strLength), # string controlling manner that hot pix masks are used
@@ -81,16 +78,16 @@ def StackCalSoln_Description(nPos=1):
 
 if len(sys.argv)<2:
     #grab most recent .cfg file
-    print "No .cfg file provided, trying to grab most recent one from Params..."
+    print("No .cfg file provided, trying to grab most recent one from Params...")
     try:
         configFileName = max(glob.iglob('./Params/*.cfg'), key=os.path.getctime)
     except:
-        print "Failed to load appropriate .cfg file. Please provide path as argument"
+        print("Failed to load appropriate .cfg file. Please provide path as argument")
         sys.exit(0)
 else:
     configFileName = sys.argv[1]
 
-print "Using config", configFileName
+print("Using config", configFileName)
 
 
 configData = readDict()
@@ -134,12 +131,6 @@ if imgDir!='/mnt/ramdisk/':
 else:
     imgPath=imgDir
 
-outputDir = os.path.join(outputDir,run)
-outputDir = os.path.join(outputDir,date)
-
-if not os.path.exists(outputDir):
-    os.makedirs(outputDir)
-
 calibPath = os.path.join(calibPath,run)
 calibPath = os.path.join(calibPath,date)
 
@@ -147,10 +138,7 @@ calibPath = os.path.join(calibPath,date)
 binRunDir = os.path.join(binDir,run)
 binPath = os.path.join(binRunDir,date)
 
-calPath = os.getenv('MKID_PROC_PATH', '/')
-timeMaskPath = os.path.join(calPath,"darkHotPixMasks")
-hpPath = os.path.join(timeMaskPath,date)
-maxCut=500
+maxCut=1500
 sigma=3
 
 #manual hot pixel array
@@ -158,10 +146,10 @@ manHP = None
 
 if useImg == True:
     dataDir = imgPath
-    print "Loading data from .img files"
+    print("Loading data from .img files")
 else:
     dataDir = binPath
-    print "Loading data from .bin files"
+    print("Loading data from .bin files", dataDir)
 
 #################################################           
 # Create empty arrays to save to h5 file later
@@ -180,171 +168,127 @@ centroidsX=[]
 centroidsY=[]
 #################################################
 
-#try to load up hot pixel mask. Make it if it doesn't exist yet
-#hpFile = os.path.join(hpPath,"%s.npz"%(darkSpan[0]))
-#if doHPM and not os.path.exists(hpFile):
-if calibPath[0]!='0':
-    hpmPath=os.path.join(calibPath,"darkHPM_"+target+".npz")
-    hpmfile=np.load(hpmPath)
-    darkHPM=hpmfile['darkHPM']
-    print "Found HPM File"
+
+if doHPM:
+
+   print("Making HPM")
+   darkHPMImg = dhpm.makeMask(basePath=imgDir,startTimeStamp=darkSpanImg[0],     
+   stopTimeStamp=darkSpanImg[1], coldCut=True, maxCut=maxCut,sigma=sigma,manualArray=None)
+   hpFN='darkHPMImg_'+target+'.npz'  #Save the hot pixel mask into the output directory
+   hpPath = os.path.join(outputDir,hpFN)
+   np.savez(hpPath,darkHPMImg = darkHPMImg)
+   plotArray(darkHPMImg, title='Hot Pixel Mask Image', origin='upper')
+
+   darkHPMFlat = dhpm.makeMask(basePath=imgDir,startTimeStamp=darkSpanFlat[0],    
+   stopTimeStamp=darkSpanFlat[1], coldCut=True, maxCut=maxCut,sigma=sigma,manualArray=None)
+   hpFN='darkHPMFlat_'+target+'.npz'  #Save the hot pixel mask into the output directory
+   hpPath = os.path.join(outputDir,hpFN)
+   np.savez(hpPath,darkHPMFlat = darkHPMFlat)
+   plotArray(darkHPMFlat, title='Hot Pixel Mask Flat', origin='upper')
+
 else:
-    print "Could not find existing hot pix mask, generating one from dark..."
-    #try:
-    print 'maxCut',maxCut 
-    darkHPMImg = dhpm.makeMask(run=run, date=date, basePath=imgDir,startTimeStamp=darkSpanImg[0], stopTimeStamp=darkSpanImg[1], coldCut=True, maxCut=maxCut,sigma=sigma,manualArray=None)
-    hpFN='darkHPMImg_'+target+'.npz'  #Save the hot pixel mask into the output directory
-    hpPath = os.path.join(outputDir,hpFN)
-    np.savez(hpPath,darkHPMImg = darkHPMImg)
-    print hpPath
-    #except:
-    #      print "Failed to generate dark mask. Turning off hot pixel masking"
-        #  doHPM = False
-plotArray(darkHPMImg, title='Hot Pixel Mask Image', origin='upper')
 
+   print("No HPM made")
+   darkHPMImg = np.zeros((numRows, numCols),dtype=int)
+   darkHPMFlat = np.zeros((numRows, numCols),dtype=int)
 
-
-if calibPath[0]!='0':
-    hpmPath=os.path.join(calibPath,"darkHPM_"+target+".npz")
-    hpmfile=np.load(hpmPath)
-    darkHPM=hpmfile['darkHPM']
-    print "Found HPM File"
-else:
-    print "Could not find existing hot pix mask, generating one from dark..."
-    try:
-       darkHPMFlat = dhpm.makeMask(run=run, date=date, basePath=imgDir,startTimeStamp=darkSpanFlat[0], stopTimeStamp=darkSpanFlat[1], coldCut=True, maxCut=maxCut,sigma=sigma,manualArray=None)
-       hpFN='darkHPMFlat_'+target+'.npz'  #Save the hot pixel mask into the output directory
-       hpPath = os.path.join(outputDir,hpFN)
-       np.savez(hpPath,darkHPMFlat = darkHPMFlat)
-       print hpPath
-    except:
-          print "Failed to generate dark mask. Turning off hot pixel masking"
-    #      doHPM = False
-plotArray(darkHPMFlat, title='Hot Pixel Mask Flat', origin='upper')
-
-
-
-
-
-#elif doHPM:
-#    darkHPM = dhpm.loadMask(hpFile)
-#    print "Loaded hot pixel mask from dark data %s"%hpFile
 
 #load dark frames
-if calibPath[0]!='0':
-   darkPath=os.path.join(calibPath,"dark_"+target+".npz")
-   darkfile=np.load(darkPath)
-   dark=darkfile['dark']
-   print "Found Dark File"
+
+if subtractDark:
+
+   print("Loading dark frame to make Dark and Saving It")
+   if useImg == True:
+      darkStackImg = loadIMGStack(dataDir, darkSpanImg[0], darkSpanImg[1], nCols=numCols, nRows=numRows, verbose=False)
+   else:
+      darkStackImg = loadBINStack(dataDir, darkSpanImg[0], darkSpanImg[1], nCols=numCols, nRows=numRows,verbose=False)
+   darkImg = irUtils.medianStack(darkStackImg)
+   plotArray(darkImg,title='DarkImg',origin='upper')
+   darkImg[np.where(darkHPMImg==1)]=np.nan
+   plotArray(darkImg,title='DarkImg HP Masked',origin='upper')
+   darkFN='darkImg_'+target+'.npz'  #Save the dark into the output directory
+   darkPath = os.path.join(outputDir,darkFN)
+   np.savez(darkPath,darkImg = darkImg)
+
+   if useImg == True:
+      darkStackFlat = loadIMGStack(dataDir, darkSpanFlat[0], darkSpanFlat[1], nCols=numCols, nRows=numRows,verbose=False)
+   else:
+      darkStackFlat = loadBINStack(dataDir, darkSpanFlat[0], darkSpanFlat[1], nCols=numCols, nRows=numRows,verbose=False)
+   darkFlat = irUtils.medianStack(darkStackFlat)
+   darkFlat[np.where(darkHPMFlat==1)]=np.nan
+   darkFN='darkFlat_'+target+'.npz'  #Save the dark into the output directory
+   darkPath = os.path.join(outputDir,darkFN)
+   np.savez(darkPath,darkFlat = darkFlat)
+
+
 else:
-    print "Loading dark frame to make Dark and Saving It"
-    if useImg == True:
-        darkStackImg = loadIMGStack(dataDir, darkSpanImg[0], darkSpanImg[1], nCols=numCols, nRows=numRows)
-    else:
-        darkStackImg = loadBINStack(dataDir, darkSpanImg[0], darkSpanImg[1], nCols=numCols, nRows=numRows)
-    darkImg = irUtils.medianStack(darkStackImg)
-    darkFN='darkImg_'+target+'.npz'  #Save the dark into the output directory
-    darkPath = os.path.join(outputDir,darkFN)
-    np.savez(darkPath,darkImg = darkImg)
+
+   print("No dark made")
+   darkImg = np.zeros((numRows, numCols),dtype=int)
+   darkFlat = np.zeros((numRows, numCols),dtype=int)
 
 
+if divideFlat:
 
-if calibPath[0]!='0':
-   darkPath=os.path.join(calibPath,"dark_"+target+".npz")
-   darkfile=np.load(darkPath)
-   dark=darkfile['dark']
-   print "Found Dark File"
-else:
-    print "Loading dark frame to make Dark and Saving It"
-    if useImg == True:
-        darkStackFlat = loadIMGStack(dataDir, darkSpanFlat[0], darkSpanFlat[1], nCols=numCols, nRows=numRows)
-    else:
-        darkStackFlat = loadBINStack(dataDir, darkSpanFlat[0], darkSpanFlat[1], nCols=numCols, nRows=numRows)
-    darkFlat = irUtils.medianStack(darkStackFlat)
-    darkFN='darkFlat_'+target+'.npz'  #Save the dark into the output directory
-    darkPath = os.path.join(outputDir,darkFN)
-    np.savez(darkPath,darkFlat = darkFlat)
+   #load flat frames
+   print("Loading flat frame to make Flat and Saving it")
+   if useImg == True:
+      flatStack = loadIMGStack(dataDir, flatSpan[0], flatSpan[1], nCols=numCols, nRows=numRows,verbose=False)
+   else:
+      flatStack = loadBINStack(dataDir, flatSpan[0], flatSpan[1], nCols=numCols, nRows=numRows,verbose=False)
+   flat = irUtils.medianStack(flatStack)
+   flat[np.where(darkHPMFlat==1)]=np.nan
 
+   #dark subtract the flat
+   flatSub=flat-darkFlat
+   flatSub[np.where(flatSub <= 0.0)]=np.nan
+   flatSub[np.where(flatSub<=np.nanmean(flatSub)-sigma*np.nanstd(flatSub))]=np.nan
+   flatSub[np.where(flatSub>=np.nanmean(flatSub)+ sigma*np.nanstd(flatSub))]=np.nan
 
+   croppedFrame = np.copy(flatSub)
 
+   plotArray(flatSub, title='FLAT',origin='upper')
+   '''
+   Apply SR Meeker's feedline cropping script when we calculate the flat weights
+   This cropping assumes poor FL2 performance and
+   poor high frequency performance, a la Faceless from 2017a,b.
+   This is a good place to play around to change crappy weights
+   at fringes of the array.
+   '''
+   croppedFrame = np.copy(flatSub)
 
+   croppedFrame[25:50,::] = np.nan
+   croppedFrame[::,:20] = np.nan
+   croppedFrame[::,59:] = np.nan
+   
+   #Apply Neelay's beammap script which loads in the most recent beammap and removes out of bound pixels from the    
+   #median calculation
+   resID, flag, xCoords, yCoords = np.loadtxt(beammapFile, unpack=True)
+   badInds = np.where(flag==1)[0]
+   badXCoords = np.array(xCoords[badInds], dtype=np.int32)
+   badYCoords = np.array(yCoords[badInds], dtype=np.int32)
+   outOfBoundsMask = np.logical_or(badXCoords>=80, badYCoords>=125)
+   outOfBoundsInds = np.where(outOfBoundsMask)[0]
+   badXCoords = np.delete(badXCoords, outOfBoundsInds)
+   badYCoords = np.delete(badYCoords, outOfBoundsInds)
+   croppedFrame[badYCoords, badXCoords] = np.nan
 
-#else: 
-#print "No dark provided"
-#dark = np.zeros((numRows, numCols),dtype=int)
+   med = np.nanmean(croppedFrame.flatten())
+   print('HIIIIIIIIIIIIIIIIIIII Med', med)
+   weights = med/flatSub #calculate the weights by dividing the median by the dark-subtracted flat frame
 
-#Apply the hot pixel mask and plot the hot pixel masked dark frame
-plotArray(darkImg, title='DarkIMG NO HPM', origin='upper')
-#darkImg[np.where(darkHPMImg==1)]=np.nan
-#print darkHPMImg
-#plotArray(darkImg,title='DarkImg',origin='upper')
-
-#darkFlat[np.where(darkHPMFlat==1)]=np.nan
-plotArray(darkFlat,title='DarkFlat',origin='upper')
-
-#load flat frames
-if calibPath[0]!='0':
-   flatPath=os.path.join(calibPath,"flat_"+target+".npz")
-   flatfile=np.load(flatPath)
-   flat=flatfile['flat']
-   weights=flatfile['weights']
-   print "Found Flat File"
-else:
-    print "Loading flat frame to make Flat and Saving it"
-    if useImg == True:
-        flatStack = loadIMGStack(dataDir, flatSpan[0], flatSpan[1], nCols=numCols, nRows=numRows)
-    else:
-        flatStack = loadBINStack(dataDir, flatSpan[0], flatSpan[1], nCols=numCols, nRows=numRows)
-    flat = irUtils.medianStack(flatStack)
-    flat[np.where(darkHPMFlat==1)]=np.nan
-    #plotArray(flat,title='flat',origin='upper')
-    #dark subtract the flat
-    flatSub=flat-darkFlat
-    flatSub[np.where(flatSub < 0.0)]=np.nan
-    #plotArray(flatSub,title='flatSub',origin='upper')
-    #Apply SR Meeker's feedline cropping script when we calculate the flat weights
-    ########
-    # This cropping assumes poor FL2 performance and
-    # poor high frequency performance, a la Faceless from 2017a,b.
-    # This is a good place to play around to change crappy weights
-    # at fringes of the array.
-    #######
-    croppedFrame = np.copy(flatSub)
-
-    #Could add a flag for feedline cropping.  Right now we'll make it a given
-    #if cropFLs:
-    croppedFrame[25:50,::] = np.nan
-    #if cropHF:
-    croppedFrame[::,:20] = np.nan
-    croppedFrame[::,59:] = np.nan
-
-    #Apply Neelay's beammap script which loads in the most recent beammap and removes out of bound pixels from the median calculation
-    resID, flag, xCoords, yCoords = np.loadtxt(beammapFile, unpack=True)
-    badInds = np.where(flag==1)[0]
-    badXCoords = np.array(xCoords[badInds], dtype=np.int32)
-    badYCoords = np.array(yCoords[badInds], dtype=np.int32)
-    outOfBoundsMask = np.logical_or(badXCoords>=80, badYCoords>=125)
-    outOfBoundsInds = np.where(outOfBoundsMask)[0]
-    badXCoords = np.delete(badXCoords, outOfBoundsInds)
-    badYCoords = np.delete(badYCoords, outOfBoundsInds)
-    croppedFrame[badYCoords, badXCoords] = np.nan
-
-    #plotArray(croppedFrame,title='Cropped flat frame',origin='upper') #Plot the cropped flat frame
-
-    med = np.nanmedian(croppedFrame.flatten())
-    print med
-    weights = med/flatSub #calculate the weights by dividing the median by the dark-subtracted flat frame
-
-    #plotArray(weights,title='Weights',origin='upper') #Plot the weights
-
-    flatFN='flat_'+target+'.npz'  #Save the dark-subtracted flat file and weights into the output directory
-    flatPath =  os.path.join(outputDir,flatFN)
-    np.savez(flatPath,weights = weights,flat=flatSub)
+   med = np.nanmedian(weights.flatten())
+   print('HIIIIIIIIIIIIIIIIIIII MedWeights', med)
+   plotArray(weights,title='Weights',origin='upper') #Plot the weights
+   flatFN='flat_'+target+'.npz'  #Save the dark-subtracted flat file and weights into the output directory
+   flatPath =  os.path.join(outputDir,flatFN)
+   np.savez(flatPath,weights = weights,flat=flatSub)
 
 
-#    else: 
-#        print "No flat provided"
-#        flat = np.zeros((numRows, numCols),dtype=int)
+else: 
+   print("No flat provided")
+   flat = np.zeros((numRows, numCols),dtype=int)
+   weights = np.zeros((numRows, numCols),dtype=int)
 
 #starting point centroid guess for first frame is where all subsequent frames will be aligned to
 refPointX = xPos[0]
@@ -359,7 +303,7 @@ hpDict=None
 
 #to ensure stacking is weighting all dither positions evenly, we need to know the one with the shortest integration
 intTime = min(stopTimes-startTimes)
-print "Shortest Integration time = ", intTime
+print("Shortest Integration time = ", intTime)
 
 #load dithered science frames
 ditherFrames = []
@@ -367,12 +311,14 @@ for i in range(nPos):
     #load stack for entire data set to be saved to H5, even though only intTime number of frames will
     #be used from each position
     if useImg == True:
-        stack = loadIMGStack(dataDir, startTimes[i], stopTimes[i]-1, nCols=numCols, nRows=numRows)
+        stack = loadIMGStack(dataDir, startTimes[i], stopTimes[i]-1, nCols=numCols, nRows=numRows,verbose=False)
     else:
-        stack = loadBINStack(dataDir, startTimes[i], stopTimes[i]-1, nCols=numCols, nRows=numRows)
+        stack = loadBINStack(dataDir, startTimes[i], stopTimes[i]-1, nCols=numCols, nRows=numRows,verbose=False)
     
     for f in range(len(stack)):
         timeStamp = startTimes[i]+f
+        if f==0 and i==0:
+               plotArray(stack[f],title='Raw Image Dither Pos %i'%i,origin='upper',vmin=0)
 
         if subtractDark == True:
             darkSubImg = stack[f]-darkImg
@@ -385,47 +331,32 @@ for i in range(nPos):
         else:
             processedIm = np.array(darkSubImg,dtype=float)
             
-        #plotArray(med,title='Dither Pos %i'%i,origin='upper')
-        #plotArray(embedInLargerArray(processedIm),title='Dither Pos %i - dark'%i,origin='upper')
         #Append the raw frames and rough dx, dy shifts to arrays for h5
         ditherNums.append(i)
         timeStamps.append(timeStamp)
-	rawImgs.append(stack[f])
-	roughShiftsX.append(dXs[i])
-	roughShiftsY.append(dYs[i])
+        rawImgs.append(stack[f])
+        roughShiftsX.append(dXs[i])
+        roughShiftsY.append(dYs[i])
         centroidsX.append(refPointX-dXs[i])
         centroidsY.append(refPointY-dYs[i])
 
-        '''
-        if i==0 and f==0:
-            #plotArray(processedIm,title='Dither Pos %i - dark'%i,origin='upper')#,vmin=0)
-            print np.shape(processedIm)
-            print np.shape(dark)
-            print sum(processedIm)
-            print np.where(processedIm==np.nan)
-        '''
-
         if doHPM:
-	    hpm = darkHPMImg
+            hpm = darkHPMImg
             hpMask = hpm
-	    cpm = np.zeros((numRows, numCols),dtype=int)
+            cpm = np.zeros((numRows, numCols),dtype=int)
             dpm = np.zeros((numRows, numCols),dtype=int)
 
         else:
-            print "No hot pixel masking specified in config file"
+            print("No hot pixel masking specified in config file")
             hpMask = np.zeros((numRows, numCols),dtype=int)
             hpm = np.zeros((numRows, numCols),dtype=int)
             cpm = np.zeros((numRows, numCols),dtype=int)
             dpm = np.zeros((numRows, numCols),dtype=int)
 
         #Append the individual masks used on each frame to arrays that will go in h5 
-	hotPixMasks.append(hpm)
-	coldPixMasks.append(cpm)
-	deadPixMasks.append(dpm)
-
-       #plot an example of the UNmasked image for inspection
-        if f==0 and i==0:
-            plotArray(processedIm,title='Dither Pos %i'%i,origin='upper',vmin=0)
+        hotPixMasks.append(hpm)
+        coldPixMasks.append(cpm)
+        deadPixMasks.append(dpm)
         
         #apply hp mask to image
         if doHPM:
@@ -437,13 +368,13 @@ for i in range(nPos):
 
         #plot an example of the masked image for inspection
         if f==0 and i==0:
-            plotArray(processedIm,title='Dither Pos %i HP Masked'%i,origin='upper',vmin=0)
+            plotArray(processedIm,title='Dither Pos %i Processing Applied'%i,origin='upper',vmin=0)
 
         #pad frame with margin for shifting and stacking
         paddedFrame = irUtils.embedInLargerArray(processedIm,frameSize=padFraction)
 
         #apply rough dX and dY shift to frame
-        print "Shifting dither %i, frame %i by x=%i, y=%i"%(i,f, dXs[i], dYs[i])
+        #print("Shifting dither %i, frame %i by x=%i, y=%i"%(i,f, dXs[i], dYs[i]))
         shiftedFrame = irUtils.rotateShiftImage(paddedFrame,0,dXs[i],dYs[i])
 
         #upSample frame for sub-pixel registration with fitting code
@@ -455,7 +386,7 @@ for i in range(nPos):
         #append upsampled, padded frame to array for storage into next part of code
         ditherFrames.append(upSampledFrame)
 
-    print "Loaded dither position %i"%i
+    print("Loaded dither position %i"%i)
 
 shiftedFrames = np.array(ditherFrames)
 #if fitPos==True, do second round of shifting using mpfit correlation
@@ -465,19 +396,19 @@ if fitPos==True:
     
     if refFile!=None and os.path.exists(refFile):
         refIm = readFITS(refFile)
-        print "Loaded %s for fitting"%refFile
+        print("Loaded %s for fitting"%refFile)
         plotArray(refIm,title='loaded reference FITS',origin='upper',vmin=0)
     else:
         refIm=shiftedFrames[0]
 
     cnt=0
     for im in shiftedFrames:
-        print "\n\n------------------------------\n"
-        print "Fitting frame %i of %i"%(cnt,len(shiftedFrames))
+        print("\n\n------------------------------\n")
+        print("Fitting frame %i of %i"%(cnt,len(shiftedFrames)))
         pGuess=[0,1,1]
         pLowLimit=[-1,(dXs.min()-5)*upSample,(dYs.min()-5)*upSample]
         pUpLimit=[1,(dXs.max()+5)*upSample,(dYs.max()+5)*upSample]
-        print "guess", pGuess, "limits", pLowLimit, pUpLimit
+        print("guess", pGuess, "limits", pLowLimit, pUpLimit)
 
         maskedRefIm = np.copy(refIm)
         maskedIm = np.copy(im)
@@ -496,45 +427,44 @@ if fitPos==True:
         dx, dy, ex, ey = ir.chi2_shifts.chi2_shift(maskedRefIm, maskedIm, zeromean=True)#,upsample_factor='auto')
         mp = [0,-1*dx,-1*dy]
 
-        print "fitting output: ", mp
+        print("fitting output: ", mp)
 
         newShiftedFrame = irUtils.rotateShiftImage(im,mp[0],mp[1],mp[2])
         reshiftedFrames.append(newShiftedFrame)
-	fineShiftX=mp[1]
-	fineShiftY=mp[2]
-	fineShiftsX.append(float(fineShiftX/upSample))
-	fineShiftsY.append(float(fineShiftY/upSample))
+        fineShiftX=mp[1]
+        fineShiftY=mp[2]
+        fineShiftsX.append(float(fineShiftX/upSample))
+        fineShiftsY.append(float(fineShiftY/upSample))
         centroidsX[cnt]-=float(fineShiftX/upSample)
         centroidsY[cnt]-=float(fineShiftY/upSample)
-	cnt+=1
+        cnt+=1
 	
     shiftedFrames = np.array(reshiftedFrames)
 
 #take median stack of all shifted frames
 finalImage = irUtils.medianStack(shiftedFrames)# / 3.162277 #adjust for OD 0.5 difference between occulted/unocculted files
+print('Shape',shiftedFrames.shape)
 
 plotArray(finalImage,title='final',origin='upper')
+img=plt.imshow(finalImage,cmap=plt.cm.spectral)
+#cbar = plt.colorbar(format='%05.2f')
+#plt.clim(0,np.nanmedian(finalImage))
+#cbar.set_norm(MyNormalize(vmin=0,vmax=800,stretch='linear'))
+#cbar = DraggableColorbar(cbar,img)
+#cbar.connect()
+plt.title('Final Image')
+plt.show()
+
+outfile=outputDir+target
+np.save(outfile, finalImage)
 
 nanMask = np.zeros(np.shape(finalImage))
 nanMask[np.where(np.isnan(finalImage))]=1
 
-fitsFileName = outputDir+'%s_%sDithers_%sxSamp_%sHPM_%s.fits'%(target,nPos,upSample,doHPM,date)
-print fitsFileName
-try:
-    writeFits(finalImage, fitsFileName)
-    print "Wrote to FITS: ", fitsFileName
-except:
-    print "FITS file already present, did not overwrite"
-
-#################################################
-# Setup h5 file to save imageStack intermediate/cal files, parameter, and output
-stackPath = os.path.join(calPath,"imageStacks")
-
-h5Path = os.path.join(stackPath,run)
-h5Path = os.path.join(h5Path, date)
+h5Path = outputDir
 h5baseName = configFileName.split('/')[1].split('.')[0]
 h5FileName = h5Path+'/%s.h5'%h5baseName
-print h5FileName
+print(h5FileName)
 
 np.savez(h5Path+'/%s.npz'%h5baseName,stack = shiftedFrames, final = finalImage)
 

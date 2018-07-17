@@ -1,7 +1,6 @@
 '''
 Author: Seth Meeker        Date: August 5, 2016
 Based mostly on darkQuickViewer.py
-
 TODO:
         Right now images are loaded and diplayed properly from the parsed dictionary
         Need to implement appending of phases and other parsed data into full photon lists
@@ -10,28 +9,23 @@ TODO:
 
 import sys, os, time, struct
 import numpy as np
-from PyQt5 import QtCore
-from PyQt5 import QtWidgets
-from PyQt5 import QtGui
+from PyQt4 import QtCore
+from PyQt4 import QtGui
 import matplotlib
-#matplotlib.rcParams['backend.qt4']='PyQt4'
-#matplotlib.rcParams['backend.qt5']='PyQt5'
-matplotlib.use('Qt5agg')
-from PyQt5.QtCore import Qt, pyqtSignal
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+matplotlib.rcParams['backend.qt4']='PyQt4'
+from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 #from matplotlib.backends.backend_qt4agg import NavigationToolbar2QTAgg as NavigationToolbar
 from matplotlib.figure import Figure
 from functools import partial
 from DarknessPipeline.Utils.parsePacketDump2 import parsePacketData
-from DarknessPipeline.Cleaning.HotPix import darkHotPixMask as dhpm
-from ast import literal_eval
+import DarknessPipeline.Cleaning.HotPix.darkHotPixMask as dhpm
 
 
 basePath = '/mnt/data0/ScienceData/'
 imageShape = {'nRows':125,'nCols':80}
 
 
-class DarkQuick(QtWidgets.QMainWindow):
+class DarkQuick(QtGui.QMainWindow):
     def __init__(self, run, date,startTstamp, endTstamp):
         
         self.dataPath = basePath+str(run)+'/'+str(date)+'/'
@@ -49,7 +43,7 @@ class DarkQuick(QtWidgets.QMainWindow):
         self.darkStart = 0
         self.darkEnd = 0
         
-        self.app = QtWidgets.QApplication([])
+        self.app = QtGui.QApplication([])
         self.app.setStyle('plastique')
         super(DarkQuick,self).__init__()
         self.setWindowTitle('Darkness Binary Viewer')
@@ -83,29 +77,28 @@ class DarkQuick(QtWidgets.QMainWindow):
         newPlotId = len(self.plotWindows)
         plotWindow = PlotWindow(parent=self,plotId=newPlotId,selectedPixels=self.arrayImageWidget.selectedPixels)
         self.plotWindows.append(plotWindow)
-        self.arrayImageWidget.newPixelSelection(PyQt_PyObject).connect(plotWindow.newPixelSelection)
-        #self.connect(self.arrayImageWidget,QtCore.SIGNAL('newPixelSelection(PyQt_PyObject)'), plotWindow.newPixelSelection)
+        self.connect(self.arrayImageWidget,QtCore.SIGNAL('newPixelSelection(PyQt_PyObject)'), plotWindow.newPixelSelection)
         
         plotWindow.show()
 
     def createWidgets(self):
-        self.mainFrame = QtWidgets.QWidget()
+        self.mainFrame = QtGui.QWidget()
         
-        self.label_startTstamp = QtWidgets.QLabel(str(self.startTstamp))
-        self.label_endTstamp = QtWidgets.QLabel(str(self.endTstamp))
-        self.lineEdit_currentTstamp = QtWidgets.QLineEdit(str(self.startTstamp+self.currentImageIndex))
+        self.label_startTstamp = QtGui.QLabel(str(self.startTstamp))
+        self.label_endTstamp = QtGui.QLabel(str(self.endTstamp))
+        self.lineEdit_currentTstamp = QtGui.QLineEdit(str(self.startTstamp+self.currentImageIndex))
         
-        self.checkbox_applyDark = QtWidgets.QCheckBox('Subtract Dark')
-        self.button_generateDark = QtWidgets.QPushButton('Generate Dark')
+        self.checkbox_applyDark = QtGui.QCheckBox('Subtract Dark')
+        self.button_generateDark = QtGui.QPushButton('Generate Dark')
         self.checkbox_applyDark.setChecked(False)
-        self.lineEdit_darkStart = QtWidgets.QLineEdit(str(self.darkStart))
-        self.lineEdit_darkEnd = QtWidgets.QLineEdit(str(self.darkEnd))
+        self.lineEdit_darkStart = QtGui.QLineEdit(str(self.darkStart))
+        self.lineEdit_darkEnd = QtGui.QLineEdit(str(self.darkEnd))
         
         self.arrayImageWidget = ArrayImageWidget(parent=self,hoverCall=self.hoverCanvas)
-        self.button_jumpToBeginning = QtWidgets.QPushButton('|<')
-        self.button_jumpToEnd = QtWidgets.QPushButton('>|')
-        self.button_incrementBack = QtWidgets.QPushButton('<')
-        self.button_incrementForward = QtWidgets.QPushButton('>')
+        self.button_jumpToBeginning = QtGui.QPushButton('|<')
+        self.button_jumpToEnd = QtGui.QPushButton('>|')
+        self.button_incrementBack = QtGui.QPushButton('<')
+        self.button_incrementForward = QtGui.QPushButton('>')
 
         self.button_jumpToBeginning.setMaximumWidth(30)
         self.button_jumpToEnd.setMaximumWidth(30)
@@ -132,7 +125,7 @@ class DarkQuick(QtWidgets.QMainWindow):
         self.setCentralWidget(self.mainFrame)
   
     def createStatusBar(self):
-        self.statusText = QtWidgets.QLabel("Click Pixels")
+        self.statusText = QtGui.QLabel("Click Pixels")
         self.statusBar().addWidget(self.statusText, 1)
         
     def createMenu(self):        
@@ -155,20 +148,13 @@ class DarkQuick(QtWidgets.QMainWindow):
         addActions(self.helpMenu, (aboutAction,))
 
     def connectControls(self):
-        self.button_jumpToBeginning.clicked.connect(self.jumpToBeginning)
-        self.button_jumpToEnd.clicked.connect(self.jumpToEnd)
-        self.button_incrementForward.clicked.connect(self.incrementForward)
-        self.button_incrementBack.clicked.connect(self.incrementBack)
-        self.lineEdit_currentTstamp.editingFinished.connect(self.jumpToTstamp)
-        self.checkbox_applyDark.stateChanged.connect(self.applyDark)
-        self.button_generateDark.clicked.connect(self.generateDarkFrame)
-        #self.connect(self.button_jumpToBeginning,QtCore.SIGNAL('clicked()'), self.jumpToBeginning)
-        #self.connect(self.button_jumpToEnd,QtCore.SIGNAL('clicked()'), self.jumpToEnd)
-        #self.connect(self.button_incrementForward,QtCore.SIGNAL('clicked()'), self.incrementForward)
-        #self.connect(self.button_incrementBack,QtCore.SIGNAL('clicked()'), self.incrementBack)
-        #self.connect(self.lineEdit_currentTstamp,QtCore.SIGNAL('editingFinished()'),self.jumpToTstamp)
-        #self.connect(self.checkbox_applyDark,QtCore.SIGNAL('stateChanged(int)'),self.applyDark)
-        #self.connect(self.button_generateDark,QtCore.SIGNAL('clicked()'), self.generateDarkFrame)
+        self.connect(self.button_jumpToBeginning,QtCore.SIGNAL('clicked()'), self.jumpToBeginning)
+        self.connect(self.button_jumpToEnd,QtCore.SIGNAL('clicked()'), self.jumpToEnd)
+        self.connect(self.button_incrementForward,QtCore.SIGNAL('clicked()'), self.incrementForward)
+        self.connect(self.button_incrementBack,QtCore.SIGNAL('clicked()'), self.incrementBack)
+        self.connect(self.lineEdit_currentTstamp,QtCore.SIGNAL('editingFinished()'),self.jumpToTstamp)
+        self.connect(self.checkbox_applyDark,QtCore.SIGNAL('stateChanged(int)'),self.applyDark)
+        self.connect(self.button_generateDark,QtCore.SIGNAL('clicked()'), self.generateDarkFrame)
 
     def addClickFunc(self,clickFunc):
         self.arrayImageWidget.addClickFunc(clickFunc)
@@ -189,7 +175,7 @@ class DarkQuick(QtWidgets.QMainWindow):
         for iTs,ts in enumerate(self.darkTimes):
             try:
                 imagePath = os.path.join(self.dataPath,str(ts)+'.bin')
-                print(imagePath)
+                print imagePath
                 with open(imagePath,'rb') as dumpFile:
                     data = dumpFile.read()
 
@@ -213,12 +199,12 @@ class DarkQuick(QtWidgets.QMainWindow):
 
             except (IOError, ValueError):
                 image = np.zeros((imageShape['nRows'], imageShape['nCols']),dtype=np.uint16)
-                print("Failed to load dark frame...")
+                print "Failed to load dark frame..."
             darkFrames.append(image)
             
         self.darkStack = np.array(darkFrames)
         self.darkFrame = np.median(self.darkStack, axis=0)
-        print("Generated median dark frame from timestamps %i to %i"%(self.darkStart, self.darkEnd))
+        print "Generated median dark frame from timestamps %i to %i"%(self.darkStart, self.darkEnd)
         self.darkLoaded = True
 
     def loadBadPixMask(self):
@@ -253,15 +239,16 @@ class DarkQuick(QtWidgets.QMainWindow):
         for iTs,ts in enumerate(self.timestampList):
             try:
                 imagePath = os.path.join(self.dataPath,str(ts)+'.bin')
-                print(imagePath)
+                print imagePath
                 with open(imagePath,'rb') as dumpFile:
                     data = dumpFile.read()
 
                 nBytes = len(data)
-                nWords = nBytes//8 #64 bit words
+                nWords = nBytes/8 #64 bit words
                 
                 #break into 64 bit words
                 words = np.array(struct.unpack('>{:d}Q'.format(nWords), data),dtype=object)
+
                 parseDict = parsePacketData(words,verbose=False)
 
                 photonTimes = np.array(parseDict['photonTimestamps'])
@@ -331,7 +318,7 @@ class DarkQuick(QtWidgets.QMainWindow):
         image = self.imageStack[self.currentImageIndex]
         if self.subtractDark:
             if not self.darkLoaded:
-                print("Warning: no dark frame loaded")
+                print "Warning: no dark frame loaded"
             else:
                 zeroes = np.where(self.darkFrame>image)
                 self.image=image-self.darkFrame
@@ -343,7 +330,7 @@ class DarkQuick(QtWidgets.QMainWindow):
             self.image[np.where(self.badPixMask==1)]=0
 
         self.plotArray(self.image,**paramsDict['plotParams'])
-        print(self.currentImageIndex)
+        print self.currentImageIndex
 
     def jumpToBeginning(self):
         self.currentImageIndex = 0
@@ -357,20 +344,20 @@ class DarkQuick(QtWidgets.QMainWindow):
         if self.currentImageIndex < len(self.imageStack)-1:
             self.currentImageIndex = self.currentImageIndex + 1
         else:
-            print('Warning: can\'t increment any more')
+            print 'Warning: can\'t increment any more'
         self.getObsImage()
 
     def incrementBack(self):
         if self.currentImageIndex > 0:
             self.currentImageIndex = self.currentImageIndex - 1
         else:
-            print('Warning: can\'t decrement any more')
+            print 'Warning: can\'t decrement any more'
         self.getObsImage()
 
     def jumpToTstamp(self):
         desiredTstamp = int(self.lineEdit_currentTstamp.text())
         if (desiredTstamp > self.endTstamp) or (desiredTstamp < self.startTstamp):
-            print('Warning: requested time stamp is outside available range')
+            print 'Warning: requested time stamp is outside available range'
         else:
             self.currentImageIndex = desiredTstamp-self.startTstamp
             self.getObsImage()
@@ -388,7 +375,7 @@ class DarkQuick(QtWidgets.QMainWindow):
     def aboutMessage(self):
         msg = """ Use to open and view DARKNESS .img files
         """
-        QtWidgets.QMessageBox.about(self, "Dark Quick File Viewer", msg.strip())
+        QtGui.QMessageBox.about(self, "Dark Quick File Viewer", msg.strip())
 
     def plotArray(self,*args,**kwargs):
         self.arrayImageWidget.plotArray(*args,**kwargs)
@@ -401,7 +388,7 @@ class DarkQuick(QtWidgets.QMainWindow):
 
             
 
-class ModelessWindow(QtWidgets.QDialog):
+class ModelessWindow(QtGui.QDialog):
     def __init__(self,parent=None):
         super(ModelessWindow,self).__init__(parent=parent)
         self.parent=parent
@@ -418,7 +405,7 @@ class ModelessWindow(QtWidgets.QDialog):
     def initUI(self):
         pass
 
-class PlotWindow(QtWidgets.QDialog):
+class PlotWindow(QtGui.QDialog):
     def __init__(self,parent=None,plotId=0,selectedPixels=[]):
         super(PlotWindow,self).__init__(parent=parent)
         self.parent=parent
@@ -434,20 +421,18 @@ class PlotWindow(QtWidgets.QDialog):
 
     def initUI(self):
         #first gui controls that apply to all modes
-        self.checkbox_trackSelection = QtWidgets.QCheckBox('Plot selected pixel(s)',self)
+        self.checkbox_trackSelection = QtGui.QCheckBox('Plot selected pixel(s)',self)
         self.checkbox_trackSelection.setChecked(True)
 
-        self.checkbox_trackTimes = QtWidgets.QCheckBox('Use main window times',self)
+        self.checkbox_trackTimes = QtGui.QCheckBox('Use main window times',self)
         self.checkbox_trackTimes.setChecked(True)
-        self.checkbox_trackTimes.stateChanged.connect(self.changeTrackTimes)
-        #self.connect(self.checkbox_trackTimes,QtCore.SIGNAL('stateChanged(int)'),self.changeTrackTimes)
+        self.connect(self.checkbox_trackTimes,QtCore.SIGNAL('stateChanged(int)'),self.changeTrackTimes)
 
-        self.checkbox_clearPlot = QtWidgets.QCheckBox('Clear axes before plotting',self)
+        self.checkbox_clearPlot = QtGui.QCheckBox('Clear axes before plotting',self)
         self.checkbox_clearPlot.setChecked(True)
 
-        self.button_drawPlot = QtWidgets.QPushButton('Plot',self)
-        self.button_drawPlot.clicked.connect(self.updatePlot)
-        #self.connect(self.button_drawPlot,QtCore.SIGNAL('clicked()'), self.updatePlot)
+        self.button_drawPlot = QtGui.QPushButton('Plot',self)
+        self.connect(self.button_drawPlot,QtCore.SIGNAL('clicked()'), self.updatePlot)
         self.dpi = 100
         self.fig = Figure((10.0, 3.0), dpi=self.dpi)
         self.canvas = FigureCanvas(self.fig)
@@ -465,58 +450,55 @@ class PlotWindow(QtWidgets.QDialog):
         self.selecting = False
         self.lastPlotType = None
 
-        self.combobox_plotType = QtWidgets.QComboBox(self)
+        self.combobox_plotType = QtGui.QComboBox(self)
         self.plotTypeStrs = ['Light Curve', 'Phase Histogram', 'Intensity Histogram']
         self.combobox_plotType.addItems(self.plotTypeStrs)
-        self.combobox_plotType.activated.connect(self.changePlotType)
-        #self.connect(self.combobox_plotType,QtCore.SIGNAL('activated(QString)'), self.changePlotType)
+        self.connect(self.combobox_plotType,QtCore.SIGNAL('activated(QString)'), self.changePlotType)
 
 
         #light curve controls
-        self.textbox_intTime = QtWidgets.QLineEdit('1')
+        self.textbox_intTime = QtGui.QLineEdit('1')
         self.textbox_intTime.setFixedWidth(50)
 
         lightCurveControlsBox = layoutBox('H',['Int Time',self.textbox_intTime,'s',1.])
-        self.lightCurveControlsGroup = QtWidgets.QGroupBox('Light Curve Controls',parent=self)
+        self.lightCurveControlsGroup = QtGui.QGroupBox('Light Curve Controls',parent=self)
         self.lightCurveControlsGroup.setLayout(lightCurveControlsBox)
 
         #intensity hist controls
-        self.textbox_exposureTime = QtWidgets.QLineEdit('1')
+        self.textbox_exposureTime = QtGui.QLineEdit('1')
         self.textbox_exposureTime.setFixedWidth(50)
         
-        self.checkbox_restrictIntensityRange = QtWidgets.QCheckBox('Restrict intensity range')
-        self.checkbox_restrictIntensityRange.stateChanged.connect(self.changeRestrictIntensityRange)
-        #self.connect(self.checkbox_restrictIntensityRange,QtCore.SIGNAL('stateChanged(int)'),self.changeRestrictIntensityRange)
+        self.checkbox_restrictIntensityRange = QtGui.QCheckBox('Restrict intensity range')
+        self.connect(self.checkbox_restrictIntensityRange,QtCore.SIGNAL('stateChanged(int)'),self.changeRestrictIntensityRange)
         self.checkbox_restrictIntensityRange.setChecked(False)
 
-        self.textbox_intensityHistStart = QtWidgets.QLineEdit('')
-        self.textbox_intensityHistEnd = QtWidgets.QLineEdit('')
+        self.textbox_intensityHistStart = QtGui.QLineEdit('')
+        self.textbox_intensityHistEnd = QtGui.QLineEdit('')
         self.changeRestrictIntensityRange()
 
-        self.textbox_intensityHistNBins = QtWidgets.QLineEdit('1')
+        self.textbox_intensityHistNBins = QtGui.QLineEdit('1')
 
         intensityHistControlsBoxRow0 = layoutBox('H',[self.checkbox_restrictIntensityRange,5.,'Start intensity',self.textbox_intensityHistStart,1.,'End intensity',self.textbox_intensityHistEnd,10.])
         intensityHistControlsBoxRow1 = layoutBox('H',['Intensity bin resolution', self.textbox_intensityHistNBins,5.,'Short Exposure Time',self.textbox_exposureTime,'s', 10.])
         intensityHistControlsBox = layoutBox('V',[intensityHistControlsBoxRow0,intensityHistControlsBoxRow1])
 
-        self.intensityHistControlsGroup = QtWidgets.QGroupBox('Intensity Histogram Controls',parent=self)
+        self.intensityHistControlsGroup = QtGui.QGroupBox('Intensity Histogram Controls',parent=self)
         self.intensityHistControlsGroup.setLayout(intensityHistControlsBox)
         self.intensityHistControlsGroup.setVisible(False)
 
         #phase hist controls
-        self.checkbox_restrictPhaseRange = QtWidgets.QCheckBox('Restrict phase range')
-        self.checkbox_restrictPhaseRange.stateChanged.connect(self.changeRestrictPhaseRange)
-        #self.connect(self.checkbox_restrictPhaseRange,QtCore.SIGNAL('stateChanged(int)'),self.changeRestrictPhaseRange)
+        self.checkbox_restrictPhaseRange = QtGui.QCheckBox('Restrict phase range')
+        self.connect(self.checkbox_restrictPhaseRange,QtCore.SIGNAL('stateChanged(int)'),self.changeRestrictPhaseRange)
         self.checkbox_restrictPhaseRange.setChecked(False)
 
-        self.checkbox_keepRawPhase = QtWidgets.QCheckBox('Raw units')
+        self.checkbox_keepRawPhase = QtGui.QCheckBox('Raw units')
 
-        self.textbox_phaseHistStart = QtWidgets.QLineEdit('')
-        self.textbox_phaseHistEnd = QtWidgets.QLineEdit('')
+        self.textbox_phaseHistStart = QtGui.QLineEdit('')
+        self.textbox_phaseHistEnd = QtGui.QLineEdit('')
         self.changeRestrictPhaseRange()
 
-        self.textbox_phaseHistNBins = QtWidgets.QLineEdit('1')
-        self.combobox_phaseHistType = QtWidgets.QComboBox(self)
+        self.textbox_phaseHistNBins = QtGui.QLineEdit('1')
+        self.combobox_phaseHistType = QtGui.QComboBox(self)
         self.phaseHistTypeStrs = ['Peaks','Baselines','Peaks - Baselines']
         self.combobox_phaseHistType.addItems(self.phaseHistTypeStrs)
         self.combobox_phaseHistType.setCurrentIndex(2)
@@ -525,16 +507,16 @@ class PlotWindow(QtWidgets.QDialog):
         phaseHistControlsBoxRow1 = layoutBox('H',['Start phase',self.textbox_phaseHistStart,1.,'End phase',self.textbox_phaseHistEnd,1.,'Number of ADC units per bin',self.textbox_phaseHistNBins,10.])
         phaseHistControlsBox = layoutBox('V',[phaseHistControlsBoxRow0,phaseHistControlsBoxRow1])
 
-        self.phaseHistControlsGroup = QtWidgets.QGroupBox('Phase Histogram Controls',parent=self)
+        self.phaseHistControlsGroup = QtGui.QGroupBox('Phase Histogram Controls',parent=self)
         self.phaseHistControlsGroup.setLayout(phaseHistControlsBox)
         self.phaseHistControlsGroup.setVisible(False)
 
         #time controls
-        self.textbox_startTime = QtWidgets.QLineEdit(str(self.parent.startTstamp))
+        self.textbox_startTime = QtGui.QLineEdit(str(self.parent.startTstamp))
         self.textbox_startTime.setFixedWidth(120)
-        self.textbox_endTime = QtWidgets.QLineEdit(str(self.parent.endTstamp))
+        self.textbox_endTime = QtGui.QLineEdit(str(self.parent.endTstamp))
         self.textbox_endTime.setFixedWidth(120)
-        self.timesGroup = QtWidgets.QGroupBox('',parent=self)
+        self.timesGroup = QtGui.QGroupBox('',parent=self)
         timesBox = layoutBox('H',['Start Time',self.textbox_startTime,'s',1.,'End Time',self.textbox_endTime,'s',10.])
         self.timesGroup.setLayout(timesBox)
         self.timesGroup.setVisible(False)
@@ -602,7 +584,7 @@ class PlotWindow(QtWidgets.QDialog):
             self.plotIntensityHist()
         self.lastPlotType = plotType
         self.draw()
-        print('plot updated')
+        print 'plot updated'
         
     def changeTrackTimes(self):
         if self.checkbox_trackTimes.isChecked():
@@ -662,7 +644,6 @@ class PlotWindow(QtWidgets.QDialog):
         ''' # Old version of lightcurve plotting from IMG files
         for col,row in self.selectedPixels:
             self.lightCurve = self.parent.imageStack[:,row,col]
-
         self.axes.plot(self.parent.timestampList, self.lightCurve)
         x_formatter = matplotlib.ticker.ScalarFormatter(useOffset=False)
         x_formatter.set_scientific(False)
@@ -788,12 +769,12 @@ class PlotWindow(QtWidgets.QDialog):
 
 class ImageParamsWindow(ModelessWindow):
     def initUI(self):
-        self.combobox_cmap = QtWidgets.QComboBox(self)
+        self.combobox_cmap = QtGui.QComboBox(self)
         self.cmapStrs = ['hot','gray','jet','gnuplot2','Paired']
         self.combobox_cmap.addItems(self.cmapStrs)
 
         plotArrayBox = layoutBox('V',[self.combobox_cmap])
-        plotArrayGroup = QtWidgets.QGroupBox('plotArray parameters',self)
+        plotArrayGroup = QtGui.QGroupBox('plotArray parameters',self)
         plotArrayGroup.setLayout(plotArrayBox)
 
         mainBox = layoutBox('V',[plotArrayGroup])
@@ -812,7 +793,7 @@ class ImageParamsWindow(ModelessWindow):
         outDict['plotParams'] = plotParamsDict
         return outDict
     
-class ArrayImageWidget(QtWidgets.QWidget):
+class ArrayImageWidget(QtGui.QWidget):
     def __init__(self,parent=None,hoverCall=None):
         super(ArrayImageWidget,self).__init__(parent=parent)
         self.parent=parent
@@ -894,7 +875,7 @@ class ArrayImageWidget(QtWidgets.QWidget):
             self.drawOverlayImage()
         else:
             self.draw()
-        print('image drawn')
+        print 'image drawn'
 
     def drawSelections(self):
         for patch in self.selectionPatches:
@@ -912,9 +893,7 @@ class ArrayImageWidget(QtWidgets.QWidget):
         self.clickFuncs.append(clickFunc)
 
     def emitNewSelection(self):
-        sig='newPixelSelection(PyQt_PyObject)'
-        #self.emit(QtCore.SIGNAL('newPixelSelection(PyQt_PyObject)'),self.selectedPixels)
-        self.clicked.emit(self.selectedPixels)
+        self.emit(QtCore.SIGNAL('newPixelSelection(PyQt_PyObject)'),self.selectedPixels)
 
     def clickCanvas(self,event):
         if event.inaxes is self.axes:
@@ -938,14 +917,14 @@ class ArrayImageWidget(QtWidgets.QWidget):
             currentClim = self.fig.cbar.mappable.get_clim()
             currentRange = currentClim[1]-currentClim[0]
             if event.button == 'up':
-                if QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
+                if QtGui.QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
                     newClim = (currentClim[0]+increment*currentRange,currentClim[1])
-                elif QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
+                elif QtGui.QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
                     newClim = (currentClim[0],currentClim[1]+increment*currentRange)
             if event.button == 'down':
-                if QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
+                if QtGui.QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
                     newClim = (currentClim[0]-increment*currentRange,currentClim[1])
-                elif QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
+                elif QtGui.QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
                     newClim = (currentClim[0],currentClim[1]-increment*currentRange)
             self.fig.cbar.mappable.set_clim(newClim)
             self.fig.canvas.draw()
@@ -960,14 +939,14 @@ class ArrayImageWidget(QtWidgets.QWidget):
             clickedValue = lower+fraction*currentRange
             extrapolatedValue = lower+event.ydata*currentRange
             if event.button == 1:
-                if QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
+                if QtGui.QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
                     newClim = (clickedValue,upper)
-                elif QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
+                elif QtGui.QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
                     newClim = (lower,clickedValue)
             if event.button == 3:
-                if QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
+                if QtGui.QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
                     newClim = ((lower-fraction*upper)/(1.-fraction),upper)
-                elif QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
+                elif QtGui.QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
                     newClim = (lower,lower+currentRange/fraction)
             self.fig.cbar.mappable.set_clim(newClim)
             self.fig.canvas.draw()
@@ -991,8 +970,8 @@ def addActions(target, actions):
 
 def createAction(  gui, text, slot=None, shortcut=None, 
                     icon=None, tip=None, checkable=False, 
-                    signal='triggered'):
-    action = QtWidgets.QAction(text, gui)
+                    signal="triggered()"):
+    action = QtGui.QAction(text, gui)
     if icon is not None:
         action.setIcon(QIcon(":/%s.png" % icon))
     if shortcut is not None:
@@ -1001,17 +980,16 @@ def createAction(  gui, text, slot=None, shortcut=None,
         action.setToolTip(tip)
         action.setStatusTip(tip)
     if slot is not None:
-        #gui.connect(action, QtCore.SIGNAL(signal), slot)
-        action.triggered.connect(slot)
+        gui.connect(action, QtCore.SIGNAL(signal), slot)
     if checkable:
         action.setCheckable(True)
     return action
 
 def layoutBox(type,elements):
     if type == 'vertical' or type == 'V':
-        box = QtWidgets.QVBoxLayout()
+        box = QtGui.QVBoxLayout()
     elif type == 'horizontal' or type == 'H':
-        box = QtWidgets.QHBoxLayout()
+        box = QtGui.QHBoxLayout()
     else:
         raise TypeError('type should be one of [\'vertical\',\'horizontal\',\'V\',\'H\']')
 
@@ -1026,11 +1004,11 @@ def layoutBox(type,elements):
                     box.addStretch(element)
                 except:
                     try:
-                        label = QtWidgets.QLabel(element)
+                        label = QtGui.QLabel(element)
                         box.addWidget(label)
                         #label.adjustSize()
                     except:
-                        print('could\'t add {} to layout box'.format(element))
+                        print 'could\'t add {} to layout box'.format(element)
     return box
 
 def plotHist(ax,histBinEdges,hist,**kwargs):
@@ -1040,7 +1018,7 @@ def plotHist(ax,histBinEdges,hist,**kwargs):
 if __name__ == "__main__":
     kwargs = {}
     if len(sys.argv) != 5:
-        print('Usage: {} run date tstampStart tstampEnd'.format(sys.argv[0]))
+        print 'Usage: {} run date tstampStart tstampEnd'.format(sys.argv[0])
         exit(0)
     else:
         kwargs['run'] = str(sys.argv[1])

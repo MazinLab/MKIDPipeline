@@ -3,9 +3,9 @@ Author Seth Meeker 2017-06-11
 
 New PtSi devices do not seem to display hot pixel behavior from the same mechanism as
 old TiN devices. As such, the full time masking technique used in the ARCONS pipeline
-may not be necessary. Bad pixels largely remain "bad" with little switching behavior. 
-A small population have a sawtooth pattern in their lightcurve, possibly due to constant, 
-slow loop rotation. These may need the full time masking routine for cleaning, but are 
+may not be necessary. Bad pixels largely remain "bad" with little switching behavior.
+A small population have a sawtooth pattern in their lightcurve, possibly due to constant,
+slow loop rotation. These may need the full time masking routine for cleaning, but are
 ignored for now.
 
 This routine provides a temporary (though quite good) means of determining which pixels
@@ -29,11 +29,12 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
-from functools import partial
-from arrayPopup import plotArray
-import P3Utils
-import irUtils
-from loadStack import loadIMGStack
+from DarknessPipeline.Utils.arrayPopup import plotArray
+import DarknessPipeline.Utils.utils as utils
+import warnings
+from DarknessPipeline.ImageReg.loadStack import loadIMGStack
+import image_registration as ir
+import DarknessPipeline.ImageReg.irUtils as irUtils
 
 
 #ultimately want the path to be flexible: use .bin files if they exist,
@@ -52,7 +53,7 @@ def makeDHPMask(stack=None, outputFileName=None, verbose=False, sigma=3, maxCut=
 
 
     '''
-    medStack = irUtils.medianStack(stack)
+    medStack = utils.medianStack(stack)
 
     if verbose:
         try:
@@ -83,11 +84,17 @@ def makeDHPMask(stack=None, outputFileName=None, verbose=False, sigma=3, maxCut=
 
     #second round of masking, where cps > mean+sigma*std
     mask2 = np.zeros(np.shape(medStack),dtype=int)
-    mask2[np.where(medStack>=np.nanmean(medStack)+sigma*np.nanstd(medStack))]=1
+    with warnings.catch_warnings():
+        # nan values will give an unnecessary RuntimeWarning
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        mask2[np.where(medStack>=np.nanmean(medStack)+sigma*np.nanstd(medStack))]=1
 
     #if coldCut is true, also mask cps < mean-sigma*std
     if coldCut==True:
-        mask2[np.where(medStack<=np.nanmean(medStack)-sigma*np.nanstd(medStack))]=1
+        with warnings.catch_warnings():
+            # nan values will give an unnecessary RuntimeWarning
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            mask2[np.where(medStack<=np.nanmean(medStack)-sigma*np.nanstd(medStack))]=1
 
     if verbose:
         try:
@@ -141,7 +148,7 @@ def makeMask(run=None, date=None, basePath=None,startTimeStamp=None, stopTimeSta
         dataPath = '/mnt/ramdisk/'
         stack = loadIMGStack(dataPath, startTimeStamp, stopTimeStamp, nCols=nCols, nRows=nRows)
 
-    medStack = ir.utils.medianStack(stack)
+    medStack = irUtils.medianStack(stack) #####
 
     if verbose:
         try:
@@ -279,6 +286,3 @@ if __name__ == "__main__":
     mask = makeMask(run=run, date=date, startTimeStamp=startTS, stopTimeStamp=stopTS, verbose=verb,
                     coldCut=coldCut,manualArray=manHP)
     saveMask(mask, timeStamp = startTS, date=date)
-
-
-    

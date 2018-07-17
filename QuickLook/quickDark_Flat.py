@@ -1,12 +1,11 @@
 '''
-Author: Giulia Collura Oct 1 2017 
 Quick routine to load in dark and flat img files.  For a given set of dark and flat timestamps, this code will:
 -Load in dark and flat img files
 -Make and save a hot pixel mask to a .npz
 -Make a master dark calibration file and save to a .npz
 -Dark subtract the flat and make a master flat calibration weight file and save both to a .npz
 
-Adapted from SR Meeker's quickStack and makeSimpleFlatNPZ and Isabel's code
+Adapted from SR Meeker's quickStack and makeSimpleFlatNPZ
 
 load params from a cfg file. The functions makeFlat and makeDark can be used without a cfg file
 
@@ -26,16 +25,6 @@ binDir = '/mnt/data0/ScienceData/' #not used
 imgDir = '/mnt/data0/ScienceDataIMGs/' #not used
 outputDir = '/mnt/data0/CalibrationFiles/imageStacks/' 
 beammapFile = '/mnt/data0/Darkness/20170924/Beammap/finalMap_20170924.txt'
-
-#dark/flatSpan:  timespan range of dark/flat files
-#useImg: boolean true/false, specify if you are using img or bin files
-#target:  give your target a name
-#numRows/numCols: should always be 125/80 for DARKNESS
-#date: YYYYMMDD, the date your data was taken
-#run: PALYYYa/b or LabData
-#binDir/imgDir:  location of your bin/img files.  Code will append the run+date to your bin/img paths
-#outputDir:  Where you want your output data to go.  Code will append the run+date to your output path.
-#beammapFile: Directory and filename of the beammap you want to use.  This will be used to exclude the unbeammaped pixels from the flat median calculation.
 '''
 
 import glob
@@ -45,24 +34,23 @@ import tables
 from scipy import ndimage
 from scipy import signal
 import astropy
-import cPickle as pickle
-from PyQt4 import QtCore
-from PyQt4 import QtGui
+import _pickle as pickle
+from PyQt5 import QtGui
+from PyQt5 import QtWidgets
+from PyQt5 import QtCore
 import matplotlib
-from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from functools import partial
-from parsePacketDump2 import parsePacketData
-from arrayPopup import plotArray
-from readDict import readDict
+from DarknessPipeline.Utils.parsePacketDump2 import parsePacketData
+from DarknessPipeline.Utils.arrayPopup import plotArray
+from DarknessPipeline.Utils.readDict import readDict
 
-from img2fitsExample import writeFits
-from readFITStest import readFITS
-import HotPix.darkHotPixMask as dhpm
+import DarknessPipeline.Cleaning.HotPix.darkHotPixMask as dhpm
 
 import image_registration as ir
-from loadStack import loadIMGStack, loadBINStack
-import irUtils
+from DarknessPipeline.ImageReg.loadStack import loadIMGStack, loadBINStack
+import DarknessPipeline.ImageReg.irUtils as irUtils
 
 
 #def makeHPM(run=None, date=None, outputDir=None,darkSpan=None, numRows=None,numCols=None):
@@ -82,7 +70,7 @@ def makeHPM(configFileName):
     dataDir=params[11]
     
     if darkSpan[0]!='0':
-        print "Making dark hot pixel mask"
+        print("Making dark hot pixel mask")
         darkHPM = dhpm.makeMask(run=run, date=date, basePath=outputDir,startTimeStamp=darkSpan[0], stopTimeStamp=darkSpan[1], coldCut=False, manualArray=None)
         hpFN='darkHPM_'+target+'.npz'  #Save the hot pixel mask into the output directory
         runOutDir = os.path.join(outputDir,run)
@@ -90,7 +78,7 @@ def makeHPM(configFileName):
         hpPath = os.path.join(outPath,hpFN)
         np.savez(hpPath,darkHPM = darkHPM)
     else:
-       print "No dark hot pixel mask saved"
+       print("No dark hot pixel mask saved")
        darkHPM = np.zeros((numRows, numCols),dtype=int)
     return darkHPM
    
@@ -101,19 +89,19 @@ def makeDark(stackForDark=None, outPutFileName=None,verbose=True):
     """
     try: 
         dark = irUtils.medianStack(stackForDark)
-        print "Making dark hot pixel mask"
+        print("Making dark hot pixel mask")
         if verbose:
             plotArray(dark,title='Dark',origin='upper')
     except:
-        print "####    Error with the stack of dark. makeDark takes a list of array of arrays to make the dark   ####"
+        print("####    Error with the stack of dark. makeDark takes a list of array of arrays to make the dark   ####")
         sys.exit(0)
     try:
         np.savez(darkPath,dark=dark)
     except: 
         if outPutFileName==None:
-            print "No output file name provided. Dark not saved"
+            print("No output file name provided. Dark not saved")
         else:
-            print "Wrong output path. Dark not saved"
+            print("Wrong output path. Dark not saved")
     return dark
 
 def makeBadPixelMask(beamMapFile=None, darkHotPixelMask=None):
@@ -143,20 +131,20 @@ def makeFlat(flatStack=None, dark=None, outPutFileName=None, badPixelMask=None, 
     
     try:
         flat = irUtils.medianStack(flatStack)
-        print "Loading flat frame"
+        print("Loading flat frame")
     except:
-        print "No valid flat stack provided. Exiting"
+        print("No valid flat stack provided. Exiting")
         sys.exit(0)
     
     if verbose:
         plotArray(flat,title='NotdarkSubFlat')
     
-    if dark==None:
+    if darkSpan[0]!='0':
         #dark subtract the flat
-        print "Subtracting dark"
+        print("Subtracting dark")
         flatSub=flat-dark
     else:
-        print "Dark=None, will make a flat without dark subtraction"
+        print("Dark=None, will make a flat without dark subtraction")
         flatSub=flat
     
     flatSub[np.where(flatSub < 0.0)]=np.nan
@@ -172,12 +160,12 @@ def makeFlat(flatStack=None, dark=None, outPutFileName=None, badPixelMask=None, 
                 croppedFrame[cropInd[0]:cropInd[1]+1,:]=np.nan
     #Apply bad pixel mask 
     if badPixelMask!=None:
-         print "Applying bad pixel mask"
+         print("Applying bad pixel mask")
          croppedFrame[badPixelMask!=0] = np.nan
     if verbose:
         plotArray(croppedFrame,title='Cropped flat frame') #Plot the cropped flat frame
     med = np.nanmedian(croppedFrame.flatten())
-    print 'median', med
+    print('median', med)
     
     flatSub[flatSub==0]=1
     weights = med/flatSub #calculate the weights by dividing the median by the dark-subtracted flat frame
@@ -188,9 +176,9 @@ def makeFlat(flatStack=None, dark=None, outPutFileName=None, badPixelMask=None, 
         np.savez(outPutFileName,weights = weights,flat=flatSub)
     except:
         if outPutFileName==None:
-            print 'No output file name provided. Not saving flat'
+            print('No output file name provided. Not saving flat')
         else:
-            print 'Output file name not valid. Not saving flat'
+            print('Output file name not valid. Not saving flat')
     dict={}
     dict['flat']=flat
     dict['weights']=weights
@@ -205,15 +193,15 @@ def readConfig(configFileName=None):
 if __name__ == "__main__":
     if len(sys.argv)<2:
          #grab most recent .cfg file if one has not been provided
-         print "No .cfg file provided, trying to grab most recent one from Params..."
+         print("No .cfg file provided, trying to grab most recent one from Params...")
          try:
               configFileName = max(glob.iglob('./Params/*.cfg'), key=os.path.getctime)
-              print "Using cfg file", configFileName
+              print("Using cfg file", configFileName)
          except:
-              print "Failed to load appropriate .cfg file. Please provide path as argument"
+              print("Failed to load appropriate .cfg file. Please provide path as argument")
               sys.exit(0)
     else:
-         configFileName = configFileName
+         configFileName = sys.argv[1]
     configData = readDict()
     configData.read_from_file(configFileName)
 
@@ -223,7 +211,7 @@ if __name__ == "__main__":
     imgPath=None
 
 
-    imgDir='/mnt/data0/ScienceDataIMGs/'
+    imgDir='/mnt/ramdisk/'
     binDir='/mnt/data0/ScienceData/'
 
     # Extract parameters from config file
@@ -252,31 +240,32 @@ if __name__ == "__main__":
     if imgPath==None:    
         if useImg:
             runDir=os.path.join(imgDir,run)
-            imgPath=os.path.join(runDir,date)
+            #imgPath=os.path.join(runDir,date)
+            imgPath=imgDir
         else:
             runDir=os.path.join(binDir,run)
             binPath=os.path.join(runDir,date)
 
     if useImg == True:
         dataDir = imgPath
-        print "Loading data from .img files"
+        print("Loading data from .img files")
     else:
         dataDir = binPath
-        print "Loading data from .bin files"
+        print("Loading data from .bin files")
 
-    print "This is the span of Dark Frames"
-    print darkSpan
-    print "This is the span of Flat Frames"
-    print flatSpan
+    print("This is the span of Dark Frames")
+    print(darkSpan)
+    print("This is the span of Flat Frames")
+    print(flatSpan)
 
     if darkSpan[0]!='0':
-        print "Loading dark frame"
+        print("Loading dark frame")
         if useImg == True:
            darkStack = loadIMGStack(dataDir, darkSpan[0], darkSpan[1], nCols=numCols, nRows=numRows)
         else:
            darkStack = loadBINStack(dataDir, darkSpan[0], darkSpan[1], nCols=numCols, nRows=numRows)
     if flatSpan[0]!='0':
-        print "Loading flat frame"
+        print("Loading flat frame")
         if useImg == True:
             flatStack = loadIMGStack(dataDir, flatSpan[0], flatSpan[1], nCols=numCols, nRows=numRows)
         else:
@@ -284,9 +273,9 @@ if __name__ == "__main__":
 
     #makeHPM(configFileName)
     
-    if darkStack!=None:
+    if darkSpan[0]!='0':
         dark=makeDark(stackForDark=darkStack, outPutFileName=None,verbose=True)
     else:
         dark=None
-    if flatStack!=None: 
-        makeFlat(flatStack=flatStack, dark=dark, outPutFileName=None, badPixelMask=None, crop=True, cropColsForMedian=[(0,19),(60,79)], cropRowsForMedian=[(25,49)], verbose=True)
+    if flatSpan[0]!='0':
+        makeFlat(flatStack=flatStack, dark=dark, outPutFileName=None, badPixelMask=None, crop=True, cropColsForMedian=[(0,19),(60,79)], cropRowsForMedian=[(100,125)], verbose=True)
