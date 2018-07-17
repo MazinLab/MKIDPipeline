@@ -20,13 +20,13 @@ nCols = 80
 
 
 def parseBinFiles(dataPath,ts):
-    '''
+    """
     Given array of timestamps, extracts binary data from all bin files (ts[0].bin, ts[1].bin, etc)
     and returns concatenated arrays of all photons timestamps, phases, etc
     Input: dataPath (String) - location of .bin files
            ts (Numpy int array) - list of timestamps
     Output: photonTstamps,photonPhases,photonBases,photonXs,photonYs,photonPixelIDs
-    '''
+    """
     
     timestampList = ts
     #timestampList = np.arange(startTstamp,endTstamp+1)
@@ -67,9 +67,9 @@ def parseBinFiles(dataPath,ts):
 
 
 def parseSingleBinFile(imagePath):
-    ''' 
+    """
     Opens single .bin file, extracts all photon words, runs parsePacketData on those words, returns parseDict
-    '''
+    """
     print("Parsing file: %s"%imagePath)
     with open(imagePath,'rb') as dumpFile:
         data = dumpFile.read()

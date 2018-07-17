@@ -1,10 +1,10 @@
-'''
+"""
 Author: Seth Meeker 2017-04-09
 Updated from Original in ARCONS-pipeline for DARKNESS-pipeline
 
 Original info:
 Author: Matt Strader        Date: January 08, 2015
-'''
+"""
 
 import fnmatch
 import os

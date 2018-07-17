@@ -1,8 +1,8 @@
-'''
+"""
 Author: Isabel Lipartito        Date: August 10, 2016
 Loads darkness image stack given start and stop timestamps, then writes your input slice range to a fits file.  
 Name of the fits file is in the format -starttime- to -endtime-.fits
-'''
+"""
 
 import os
 import sys

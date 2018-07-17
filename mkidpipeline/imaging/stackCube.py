@@ -1,4 +1,4 @@
-'''
+"""
 Author: Seth Meeker        Date: Jun 15, 2017
 
 stackCube:
@@ -13,7 +13,7 @@ organized into dictionary that follows the timestamps/centroids saved by quickst
 
 Takes same .cfg as quickStack, since it will be synced with the centroids that quickStack produces
 
-'''
+"""
 
 import glob
 import sys

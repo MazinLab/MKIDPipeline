@@ -1,7 +1,7 @@
-'''
+"""
 Author: Seth Meeker         Date: Feb 07, 2017
 Based on darkQuickViewer.py by Matt Strader        Date: July 20, 2016
-'''
+"""
 
 import os
 import sys

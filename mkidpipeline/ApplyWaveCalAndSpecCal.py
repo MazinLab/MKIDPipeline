@@ -10,7 +10,7 @@ from mkidpipeline.calibration import wavecal as W
 
 
 class ApplyWaveCalAndSpecCal:
-    '''
+    """
     Created by: Isabel Lipartito, June 2018
     A wrapper to complete basic image reduction for a single observation OR dither (set of observations)
     Currently:  Makes and applies wavecal and flatcal (optional).  Full spectral calibration in the future
@@ -29,7 +29,7 @@ class ApplyWaveCalAndSpecCal:
               6.  Making a flatcal solution file 
               7.  Running FlatCal.py on the flatcal cfg file 
               8.  Applying the flatcal solution file to the science data
-    '''
+    """
     def __init__(self, config_file='default.cfg'):
 
         # define the configuration file path
@@ -255,10 +255,10 @@ class ApplyWaveCalAndSpecCal:
 
 
     def __configCheck(self, index):
-        '''
+        """
         Checks the variables loaded in from the configuration file for type and
         consistencey. Run in the '__init__()' method.
-        '''
+        """
         if index == 0:
             # check for configuration file, and any other keyword args
             assert os.path.isfile(self.config_directory), \

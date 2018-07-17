@@ -1,4 +1,4 @@
-'''
+"""
 Author: Isabel Lipartito        Date: Sept 27 2017
 
 Quick routine to load in dark and flat img files.  For a given set of dark and flat timestamps, this code will:
@@ -36,7 +36,7 @@ beammapFile = '/mnt/data0/Darkness/20170924/Beammap/finalMap_20170924.txt'
 #binDir/imgDir:  location of your bin/img files.  Code will append the run+date to your bin/img paths
 #outputDir:  Where you want your output data to go.  Code will append the run+date to your output path.
 #beammapFile: Directory and filename of the beammap you want to use.  This will be used to exclude the unbeammaped pixels from the flat median calculation.
-'''
+"""
 
 import glob
 import os

@@ -150,7 +150,7 @@ def aperture(startpx=None, startpy=None, cenRA=None, cenDec=None, nPixRA=None, n
 
 
 
-'''
+"""
         #conv = (vPlateScale*2*numpy.pi/1296000)  #no. of radians on sky per virtual pixel
         #conv = conv/.0174532925 #no of degrees per virtual pixel
         
@@ -179,7 +179,7 @@ def aperture(startpx=None, startpy=None, cenRA=None, cenDec=None, nPixRA=None, n
         print allRA
         print allDec
         
-'''         
+"""
         
         
         
@@ -389,7 +389,7 @@ def ds9Array(xyarray, colormap='B', normMin=None, normMax=None,
 
 def gaussian_psf(fwhm, boxsize, oversample=50):
     
-    '''
+    """
     Returns a simulated Gaussian PSF: an array containing a 2D Gaussian function
     of width fwhm (in pixels), binned down to the requested box size. 
     JvE 12/28/12
@@ -405,7 +405,7 @@ def gaussian_psf(fwhm, boxsize, oversample=50):
     
     (Verified against IDL astro library daoerf routine)
         
-    '''
+    """
     fineboxsize = boxsize * oversample
     
     xcoord = ycoord = numpy.arange(-(fineboxsize - 1.) / 2., (fineboxsize - 1.) / 2. + 1.)
@@ -422,7 +422,7 @@ def gaussian_psf(fwhm, boxsize, oversample=50):
 
 
 def intervalSize(inter):
-    '''
+    """
     INPUTS:
         inter - a pyinterval 'interval' instance.
     OUTPUTS:
@@ -438,7 +438,7 @@ def intervalSize(inter):
             interval([2.0, 3.5], [9.0], [10.0, 15.0])
             >>> utils.intervalSize(x)
             6.5
-    '''
+    """
     size=0.0
     for eachComponent in inter.components:
         size+=(eachComponent[0][-1]-eachComponent[0][0])
@@ -594,17 +594,17 @@ def makeMovie( listOfFrameObj, frameTitles=None, outName='Test_movie',
     
     
 def mean_filterNaN(inputarray, size=3, *nkwarg, **kwarg):
-    '''
+    """
     Basically a box-car smoothing filter. Same as median_filterNaN, but calculates a mean instead. 
     Any NaN values in the input array are ignored in calculating means.
     See median_filterNaN for details.
     JvE 1/4/13
-    '''
+    """
     return scipy.ndimage.filters.generic_filter(inputarray, lambda x:numpy.mean(x[~numpy.isnan(x)]), size,
                                                  *nkwarg, **kwarg)
 
 def median_filterNaN(inputarray, size=5, *nkwarg, **kwarg):
-    '''
+    """
     NaN-handling version of the scipy median filter function
     (scipy.ndimage.filters.median_filter). Any NaN values in the input array are
     simply ignored in calculating medians. Useful e.g. for filtering 'salt and pepper
@@ -634,12 +634,12 @@ def median_filterNaN(inputarray, size=5, *nkwarg, **kwarg):
     -- returns median boxcar filtered image with a moving box size 3x3 pixels.
     
     JvE 12/28/12
-    '''     
+    """
     return scipy.ndimage.filters.generic_filter(inputarray, lambda x:numpy.median(x[~numpy.isnan(x)]), size,
                                                  *nkwarg, **kwarg)
 
 def nanStdDev(x):
-    '''
+    """
     NaN resistant standard deviation - basically scipy.stats.tstd, but
     with NaN rejection, and returning NaN if there aren't enough non-NaN
     input values, instead of just crashing. Used by stdDev_filterNaN.
@@ -647,7 +647,7 @@ def nanStdDev(x):
         x - array of input values
     OUTPUTS:
         The standard deviation....
-    '''
+    """
     xClean = x[~numpy.isnan(x)]
     if numpy.size(xClean) > 1 and xClean.min() != xClean.max():
         return scipy.stats.tstd(xClean)
@@ -801,7 +801,7 @@ def printObsFileDescriptions( dir_path ):
   
 
 def rebin2D(a, ysize, xsize):
-    '''
+    """
     Rebin an array to a SMALLER array. Rescales the values such that each element
     in the output array is the mean of the elememts which it encloses in the input
     array (i.e., not the total). Similar to the IDL rebin function.
@@ -816,14 +816,14 @@ def rebin2D(a, ysize, xsize):
 
     OUTPUTS:
         Returns the original array rebinned to the new dimensions requested.        
-    '''
+    """
     
     yfactor, xfactor = numpy.asarray(a.shape) / numpy.array([ysize, xsize])
     return a.reshape(ysize, yfactor, xsize, xfactor,).mean(1).mean(2)
 
 
 def replaceNaN(inputarray, mode='mean', boxsize=3, iterate=True):
-    '''
+    """
     Replace all NaN values in an array with the mean (or median)
     of the surrounding pixels. Should work for any number of dimensions, 
     but only fully tested for 2D arrays at the moment.
@@ -851,7 +851,7 @@ def replaceNaN(inputarray, mode='mean', boxsize=3, iterate=True):
            NaNs are not all removed on the first pass. These can safely be ignored.
            Will implement some warning catching to suppress them.
     JvE 1/4/2013    
-    '''
+    """
     
     outputarray = numpy.copy(inputarray)
     while numpy.sum(numpy.isnan(outputarray)) > 0 and numpy.all(numpy.isnan(outputarray)) == False:
@@ -874,7 +874,7 @@ def replaceNaN(inputarray, mode='mean', boxsize=3, iterate=True):
 
 
 def stdDev_filterNaN(inputarray, size=5, *nkwarg, **kwarg):
-    '''
+    """
     Calculated a moving standard deviation across a 2D (image) array. The standard
     deviation is calculated for a box of side 'size', centered at each pixel (element)
     in the array. NaN values are ignored, and the center pixel at which the box is located
@@ -893,7 +893,7 @@ def stdDev_filterNaN(inputarray, size=5, *nkwarg, **kwarg):
     OUTPUTS:
         NaN-resistant std. dev. filtered version of inputarray.
     
-    '''  
+    """
     
     #Can set 'footprint' as follows to remove the central array element:
     #footprint = numpy.ones((size,size))
@@ -1003,7 +1003,7 @@ def findNearestFinite(im,i,j,n=10):
 
 
 def nearestNstdDevFilter(inputArray,n=24):
-    '''
+    """
     JvE 2/25/2014
     Return an array of the same shape as the (2D) inputArray, with output values at each element
     corresponding to the standard deviation of the nearest n finite values in inputArray.
@@ -1014,7 +1014,7 @@ def nearestNstdDevFilter(inputArray,n=24):
         
     OUTPUTS:
         A 2D array of standard deviations with the same shape as inputArray
-    '''
+    """
     
     outputArray = numpy.zeros_like(inputArray)
     outputArray.fill(numpy.nan)
@@ -1026,7 +1026,7 @@ def nearestNstdDevFilter(inputArray,n=24):
 
 
 def nearestNrobustSigmaFilter(inputArray,n=24):
-    '''
+    """
     JvE 4/8/2014
     Similar to nearestNstdDevFilter, but estimate the standard deviation using the 
     median absolute deviation instead, scaled to match 1-sigma (for a normal
@@ -1039,7 +1039,7 @@ def nearestNrobustSigmaFilter(inputArray,n=24):
         
     OUTPUTS:
         A 2D array of standard deviations with the same shape as inputArray
-    '''
+    """
     
     outputArray = numpy.zeros_like(inputArray)
     outputArray.fill(numpy.nan)
@@ -1057,7 +1057,7 @@ def nearestNrobustSigmaFilter(inputArray,n=24):
 
 
 def nearestNmedFilter(inputArray,n=24):
-    '''
+    """
     JvE 2/25/2014
     Same idea as nearestNstdDevFilter, but returns medians instead of std. deviations.
     
@@ -1067,7 +1067,7 @@ def nearestNmedFilter(inputArray,n=24):
         
     OUTPUTS:
         A 2D array of medians with the same shape as inputArray
-    '''
+    """
     
     outputArray = numpy.zeros_like(inputArray)
     outputArray.fill(numpy.nan)
@@ -1079,7 +1079,7 @@ def nearestNmedFilter(inputArray,n=24):
 
 
 def nearestNRobustMeanFilter(inputArray,n=24,nSigmaClip=3.,iters=None):
-    '''
+    """
     Matt 7/18/2014
     Same idea as nearestNstdDevFilter, but returns sigma clipped mean instead of std. deviations.
     
@@ -1089,7 +1089,7 @@ def nearestNRobustMeanFilter(inputArray,n=24,nSigmaClip=3.,iters=None):
         
     OUTPUTS:
         A 2D array of medians with the same shape as inputArray
-    '''
+    """
     
     outputArray = numpy.zeros_like(inputArray)
     outputArray.fill(numpy.nan)
@@ -1101,7 +1101,7 @@ def nearestNRobustMeanFilter(inputArray,n=24,nSigmaClip=3.,iters=None):
 
 
 def interpolateImage(inputArray, method='linear'):
-    '''
+    """
     Seth 11/13/14
     2D interpolation to smooth over missing pixels using built-in scipy methods
 
@@ -1112,7 +1112,7 @@ def interpolateImage(inputArray, method='linear'):
 
     OUTPUTS:
         the interpolated image with same shape as input array
-    '''
+    """
 
     finalshape = numpy.shape(inputArray)
 
@@ -1130,7 +1130,7 @@ def interpolateImage(inputArray, method='linear'):
 
 
 def showzcoord():
-    '''
+    """
     For arrays displayed using 'matshow', hack to set the cursor location
     display to include the value under the cursor, for the currently
     selected axes.
@@ -1143,7 +1143,7 @@ def showzcoord():
     
     JvE 5/28/2014
     
-    '''
+    """
     
     def format_coord(x,y):
         try:
@@ -1160,7 +1160,7 @@ def showzcoord():
 
 
 def fitBlackbody(wvls,flux,fraction=1.0,newWvls=None,tempGuess=6000):
-    '''
+    """
     Seth 11/13/14
     Simple blackbody fitting function that returns BB temperature and fluxes if requested.
 
@@ -1176,7 +1176,7 @@ def fitBlackbody(wvls,flux,fraction=1.0,newWvls=None,tempGuess=6000):
         T - temperature in Kelvin of blackbody fit
         newFlux - fluxes calculated at newWvls using the BB equation generated by the fit
         
-    '''
+    """
     c=3.00E10 #cm/s
     h=6.626E-27 #erg*s
     k=1.3806488E-16 #erg/K
@@ -1214,7 +1214,7 @@ def fitBlackbody(wvls,flux,fraction=1.0,newWvls=None,tempGuess=6000):
 
 
 def rebin(x,y,binedges):
-    '''
+    """
     Seth Meeker 1-29-2013
     Given arrays of wavelengths and fluxes (x and y) rebins to specified bin size by taking average value of input data within each bin
     use: rebinnedData = rebin(x,y,binedges)
@@ -1222,7 +1222,7 @@ def rebin(x,y,binedges):
     returns rebinned data as 2D array:
         rebinned[:,0] = centers of wvl bins
         rebinned[:,1] = average of y-values per new bins
-    '''
+    """
     #must be passed binedges array since spectra will not be binned with evenly sized bins
     start = binedges[0]
     stop = x[-1]
@@ -1251,7 +1251,7 @@ def rebin(x,y,binedges):
     return rebinned
 
 def gaussianConvolution(x,y,xEnMin=0.005,xEnMax=6.0,xdE=0.001,fluxUnits = "lambda",r=8, plots=False):
-    '''
+    """
     Seth 2-16-2015
     Given arrays of wavelengths and fluxes (x and y) convolves with gaussian of a given energy resolution (r)
     Input spectrum is converted into F_nu units, where a Gaussian of a given R has a constant width unlike in
@@ -1267,7 +1267,7 @@ def gaussianConvolution(x,y,xEnMin=0.005,xEnMax=6.0,xdE=0.001,fluxUnits = "lambd
     OUTPUTS:
         xOut - new x-values that convolution is calculated at (defined by xEnMin, xEnMax, xdE), returned in same units as original x
         yOut - fluxes calculated at new x-values are returned in same units as original y provided
-    '''
+    """
     ##=======================  Define some Constants     ============================
     c=3.00E10 #cm/s
     h=6.626E-27 #erg*s
@@ -1331,7 +1331,7 @@ def gaussianConvolution(x,y,xEnMin=0.005,xEnMax=6.0,xdE=0.001,fluxUnits = "lambd
 
 
 def countsToApparentMag(cps, filterName = 'V', telescope = None):
-    '''
+    """
     routine to convert counts measured in a given filter to an apparent magnitude
     input: cps = counts/s to be converted to magnitude. Can accept np array of numbers.
            filterName = filter to have magnitude calculated for
@@ -1339,7 +1339,7 @@ def countsToApparentMag(cps, filterName = 'V', telescope = None):
                        area since the counts need to be in units of counts/s/m^2 for conversion to mags
                        If telescope = None: assumes data was already given in correct units
     output: apparent magnitude. Returns same format as input (either single value or np array)
-    '''
+    """
     Jansky2Counts = 1.51E7
     dLambdaOverLambda = {'U':0.15,'B':0.22,'V':0.16,'R':0.23,'I':0.19,'g':0.14,'r':0.14,'i':0.16,'z':0.13}
     f0 = {'U':1810.,'B':4260.,'V':3640.,'R':3080.,'I':2550.,'g':3730.,'r':4490.,'i':4760.,'z':4810.}

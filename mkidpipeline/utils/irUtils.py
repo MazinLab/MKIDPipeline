@@ -1,9 +1,9 @@
-'''
+"""
 Seth Meeker 2017-06-14 for DarknessPipeline
 Based on utils-M82.py by Giulia Collura
 
 Handful of utilities for making padded image canvases and aligning images
-'''
+"""
 
 import matplotlib.pyplot as plt
 import numpy as np

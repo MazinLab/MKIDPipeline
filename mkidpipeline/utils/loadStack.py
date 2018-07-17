@@ -6,9 +6,9 @@ import tables
 
 from mkidpipeline.utils.parsePacketDump import parsePacketData
 
-'''
+"""
 Utilities for loading sets of image stacks from either .IMG or .bin files
-'''
+"""
 
 def loadIMGStack(dataDir, start, stop, nCols=80, nRows=125, verbose=True):
     useImg = True
@@ -43,7 +43,7 @@ def loadIMGStack(dataDir, start, stop, nCols=80, nRows=125, verbose=True):
         frames.append(image)
     stack = np.array(frames)
     return stack
-'''
+"""
 def loadBINStack(dataDir, start, stop, nCols=80, nRows=125):
     useImg = False
     frameTimes = np.arange(start, stop+1)
@@ -76,7 +76,7 @@ def loadBINStack(dataDir, start, stop, nCols=80, nRows=125):
         frames.append(image)
     stack = np.array(frames)
     return stack
-'''
+"""
 def loadBINStack(dataDir, start, stop, nCols=80, nRows=125):
     useImg = False
     frameTimes = np.arange(start, stop+1)
@@ -141,9 +141,9 @@ def loadH5Stack(h5Path, verbose=True):
 
 
 def loadCubeStack(npzPath,verbose=True):
-    '''
+    """
     Load up times, cubes, and wvlBinEdges from npz output of makeCubeTimestream
-    '''
+    """
     npzfile = np.load(npzPath)
     times = npzfile['times']
     cubes = npzfile['cubes']

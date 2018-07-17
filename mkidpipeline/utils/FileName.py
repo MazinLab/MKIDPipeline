@@ -41,7 +41,7 @@ class FileName:
     
     def __init__(self, run='', date='', tstamp='', \
                  mkidDataDir=None, intermDir=None, obsFile=None):
-        '''
+        """
         To create a FileName instance, supply:
             run - string, name of folder which contains all obs files for this run
             date - string, date (usually of sunset), name of folder in which obs files for this date are stored
@@ -51,7 +51,7 @@ class FileName:
                       a full obs file path name instead.
             mkidDataDir - raw data directory (uses path pointed to by system variable 'MKID_RAW_PATH' if not specified.)
             intermDir - data reduction product directory (uses path pointed to by system variable 'MKID_PROC_PATH' if not specified.
-        '''
+        """
             
         if mkidDataDir is None:
             mkidDataDir = os.getenv('MKID_RAW_PATH', default="/mnt/data0/ScienceData")
@@ -295,10 +295,10 @@ class FileName:
     ##################################
     
     def getComponents(self):
-        '''
+        """
         Return a tuple of run, date, and timestamp.
         Potentially useful if an FileName object was created
         using an obsFile instance instead of individual components.
-        '''
+        """
         return self.run, self.date, self.tstamp
         

@@ -1,5 +1,5 @@
 #!/bin/python
-'''
+"""
 File: printLogs.py
 Author: Seth Meeker
 Date: Aug 4, 2016
@@ -17,7 +17,7 @@ OUTPUTS:
         
 TODO:
         Allow user to specify optional range of timestamps to print logs from
-'''
+"""
 
 import glob
 import os

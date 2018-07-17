@@ -80,14 +80,14 @@ class DraggableColorbar(object):
         self.cbar.patch.figure.canvas.mpl_disconnect(self.cidmotion)
 
 class MyNormalize(Normalize):
-    '''
+    """
     A Normalize class for imshow that allows different stretching functions
     for astronomical images.
-    '''
+    """
 
     def __init__(self, stretch='linear', exponent=5, vmid=None, vmin=None,
                  vmax=None, clip=False):
-        '''
+        """
         Initalize an APLpyNormalize instance.
 
         Optional Keyword Arguments:
@@ -111,7 +111,7 @@ class MyNormalize(Normalize):
             *clip*: [ True | False ]
                 If clip is True and the given value falls outside the range,
                 the returned value will be 0 or 1, whichever is closer.
-        '''
+        """
 
         if vmax < vmin:
             raise Exception("vmax should be larger than vmin")
