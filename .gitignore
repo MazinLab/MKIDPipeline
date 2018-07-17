@@ -2,7 +2,6 @@
 *~*
 *#*
 *.pyc
-*.png
 .idea
 *.iml
 
@@ -12,9 +11,3 @@
 
 #ignore profiler output files
 *.prof
-
-#exclude cfg files in any Params folders except the template folder
-*/Params/*
-
-#exception, to force Params folders to still be created
-!*/Params/.gitkeep
