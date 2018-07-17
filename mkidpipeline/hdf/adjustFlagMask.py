@@ -20,7 +20,7 @@ from mkidpipeline.hdf.darkObsFile import ObsFile
 #    s+=str(int(x))+', '
 # print(s)
 
-'''
+"""
 Author: Alex Walter
 Date: April 19, 2018
 
@@ -31,7 +31,7 @@ This script is only valid for on-sky Darkness data from the PAL2017b run.
 
 Usage:
     manually adjust fns to be a list of the h5 files you want to change
-'''
+"""
 
 path='/home/abwalter/peg32/'
 fns=glob.glob(path+'*.h5')      #grabs all files in directory

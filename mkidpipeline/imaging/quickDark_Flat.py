@@ -1,4 +1,4 @@
-'''
+"""
 Quick routine to load in dark and flat img files.  For a given set of dark and flat timestamps, this code will:
 -Load in dark and flat img files
 -Make and save a hot pixel mask to a .npz
@@ -25,7 +25,7 @@ binDir = '/mnt/data0/ScienceData/' #not used
 imgDir = '/mnt/data0/ScienceDataIMGs/' #not used
 outputDir = '/mnt/data0/CalibrationFiles/imageStacks/' 
 beammapFile = '/mnt/data0/Darkness/20170924/Beammap/finalMap_20170924.txt'
-'''
+"""
 
 import glob
 import os

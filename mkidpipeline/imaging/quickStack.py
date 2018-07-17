@@ -1,4 +1,4 @@
-'''
+"""
 Original Author: Seth Meeker        Date: Jun 14, 2017
 
 Quick routine to take a series of files from multiple dither positions,
@@ -10,7 +10,7 @@ Modification Author: Isabel Lipartito     Date: Sept 29, 2017
 
 Modifications: searches for pre-existing dark, flat, and hpm from quickImgCal.py and uses them.  If no dark/flat/hpm found, code will make them.
 
-'''
+"""
 
 import glob
 import os
@@ -240,13 +240,13 @@ if divideFlat:
    croppedFrame = np.copy(flatSub)
 
    plotArray(flatSub, title='FLAT',origin='upper')
-   '''
+   """
    Apply SR Meeker's feedline cropping script when we calculate the flat weights
    This cropping assumes poor FL2 performance and
    poor high frequency performance, a la Faceless from 2017a,b.
    This is a good place to play around to change crappy weights
    at fringes of the array.
-   '''
+   """
    croppedFrame = np.copy(flatSub)
 
    croppedFrame[25:50,::] = np.nan

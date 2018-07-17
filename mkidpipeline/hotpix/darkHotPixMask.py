@@ -1,4 +1,4 @@
-'''
+"""
 Author Seth Meeker 2017-06-11
 
 New PtSi devices do not seem to display hot pixel behavior from the same mechanism as
@@ -22,7 +22,7 @@ saveMask(mask, timeStamp=None, date=None)
 loadMask(path)
 plotMask(mask)
 
-'''
+"""
 
 import os
 import sys
@@ -44,14 +44,14 @@ nCols=80
 nRows=125
 #maxCut=2450
 def makeDHPMask(stack=None, outputFileName=None, verbose=False, sigma=3, maxCut=2450, coldCut=False, manualArray=None):
-    '''
+    """
     MaxCut sets level for initial hot pixel cut. Everything with cps>maxCut -> np.nan
     Sigma determines level for second cut. Everything with cps>mean+sigma*stdev -> np.nan
     If coldCut=True, third cut where everything with cps<mean-sigma*stdev -> np.nan
     manualArray is a way to give a list of bad pixels manually, in format [[row,col],[row,col],...]
 
 
-    '''
+    """
     medStack = utils.medianStack(stack)
 
     if verbose:
@@ -130,14 +130,14 @@ def makeDHPMask(stack=None, outputFileName=None, verbose=False, sigma=3, maxCut=
 
 
 def makeMask(run=None, date=None, basePath=None,startTimeStamp=None, stopTimeStamp=None, verbose=False, sigma=3, maxCut=2450, coldCut=False, manualArray=None):
-    '''
+    """
     MaxCut sets level for initial hot pixel cut. Everything with cps>maxCut -> np.nan
     Sigma determines level for second cut. Everything with cps>mean+sigma*stdev -> np.nan
     If coldCut=True, third cut where everything with cps<mean-sigma*stdev -> np.nan
     manualArray is a way to give a list of bad pixels manually, in format [[row,col],[row,col],...]
 
 
-    '''
+    """
 
     try:
         dataPath = basePath+str(run)+os.path.sep+str(date)+os.path.sep
@@ -220,9 +220,9 @@ def makeMask(run=None, date=None, basePath=None,startTimeStamp=None, stopTimeSta
 
 
 def saveMask(mask, timeStamp=None, date=None):
-    '''
+    """
      Write hot pixel mask to darkness calibration files directory
-    '''
+    """
     scratchDir = os.getenv('MKID_PROC_PATH', '/')
     hpMaskPath = os.path.join(scratchDir, 'darkHotPixMasks')
     datePath = os.path.join(hpMaskPath,date)
@@ -234,9 +234,9 @@ def saveMask(mask, timeStamp=None, date=None):
     return
 
 def loadMask(path):
-    '''
+    """
     Load and return a mask
-    '''
+    """
     npzfile = np.load(path)
     mask = npzfile['mask']
     npzfile.close()

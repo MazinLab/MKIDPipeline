@@ -1,7 +1,7 @@
-'''
+"""
 Author: Matt Strader        Date: July 20, 2016
 Same as darkQuickViewer.py, only this one writes your input slice range to a fits file.  Name of the fits file is in the format -starttime- to -endtime-.fits
-'''
+"""
 
 import os
 import sys

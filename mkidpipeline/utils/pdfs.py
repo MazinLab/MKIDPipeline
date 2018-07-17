@@ -1,10 +1,10 @@
-'''
+"""
 Author: Seth Meeker        Date: Feb 11, 2017
 
 
 Define some probability density functions for fitting speckle histograms
 
-'''
+"""
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -20,11 +20,11 @@ from scipy.stats import rv_continuous
 
 
 def modifiedRician(I, Ic, Is):
-    '''
+    """
     MR pdf(I) = 1/Is * exp(-(I+Ic)/Is) * I0(2*sqrt(I*Ic)/Is)
     mean = Ic + Is
     variance = Is^2 + 2*Ic*Is
-    '''
+    """
     mr = 1.0/Is * np.exp(-1.0*(I+Ic)/Is)* special.iv(0,2.0*np.sqrt(I*Ic)/Is)
     return mr
 
@@ -48,20 +48,20 @@ def lorentzian(x,gamma,x0):
     return loren
 
 def fitLorentzian(x,y,guessGam,guessX0):
-    '''
+    """
     Given a histogram of intensity values (x = I bin centers, y = N(I))
     and a guess for Gamma and x0, returns fit values for Gamma and x0.
-    '''
+    """
     lor_guess = [guessGam,guessX0]
     lf = lambda fx, gam, x0: lorentzian(fx, gam, x0)
     params, cov = curve_fit(lf, x, y, p0=lor_guess, maxfev=2000)
     return params[0], params[1] #params = [gamma, x0]
 
 #def fitLorentzian(x,y,guessGam):
-    '''
+    """
     Given a histogram of intensity values (x = I bin centers, y = N(I))
     and a guess for Gamma, returns fit values for Gamma.
-    '''
+    """
 #    lor_guess = [guessGam]
 #    lf = lambda fx, gam: lorentzian(fx, gam)
 #    params, cov = curve_fit(lf, x, y, p0=lor_guess, maxfev=2000)
@@ -81,40 +81,40 @@ def fitDoubleLorentzian(x,y,guessGam1,guessX1, guessGam2,guessX2):
 
 
 def fitMR(x, y, guessIc, guessIs):
-    '''
+    """
     Given a histogram of intensity values (x = I bin centers, y = N(I))
     and a guess for Ic and Is, returns fit values for Ic and Is.
-    '''
+    """
     mr_guess = [guessIc,guessIs]
     mrf = lambda fx, Ic, Is: modifiedRician(fx, Ic, Is)
     params, cov = curve_fit(mrf, x, y, p0=mr_guess, maxfev=2000)
     return params[0], params[1] #params = [fitIc, fitIs]
 
 def fitPoisson(x,y,guessLambda):
-    '''
+    """
     Given a histogram of intensity values (x = I bin centers, y = N(I))
     and a guess for expectation value, returns fit values for lambda.
-    '''
+    """
     p_guess = [guessLambda]
     pf = lambda fx, lam: poisson(fx, lam)
     params, cov = curve_fit(pf, x, y, p0=p_guess, maxfev=2000)
     return params[0] #params = [lambda]
 
 def fitGaussian(x,y,guessMu,guessSigma):
-    '''
+    """
     Given a histogram of intensity values (x = I bin centers, y = N(I))
     and a guess for mu and sigma, returns fits for mu and sigma
-    '''
+    """
     g_guess = [guessMu,guessSigma]
     gf = lambda fx, mu, sigma: gaussian(fx, mu, sigma)
     params, cov = curve_fit(gf, x, y, p0=g_guess, maxfev=2000)
     return params[0], params[1] #params = [mu, sigma]
 
 def fitExponential(x,y,guessLam,guessTau,guessf0):
-    '''
+    """
     Given a histogram of intensity values (x = I bin centers, y = N(I))
     and a guess for mu and sigma, returns fits for mu and sigma
-    '''
+    """
     e_guess = [guessLam,guessTau,guessf0]
     ef = lambda fx, lam, tau, f0: exponential(fx, lam,tau,f0)
     params, cov = curve_fit(ef, x, y, p0=e_guess, maxfev=2000)
@@ -154,11 +154,11 @@ def blurredMR2(x,Ic,Is):
 
 
 class mr_gen(rv_continuous):
-    '''
+    """
     Modified Rician distribution for drawing random variates
     Define distribution with mr = mr_gen(). Class already knows (Ic, Is) are shape of PDF for rvs.
     Get random variates with randomSamples = mr.rvs(Ic=Ic, Is=Is, size=N)
-    '''
+    """
     def _pdf(self, x, Ic, Is):
         return modifiedRician(x,Ic,Is)
     def _stats(self, Ic, Is):

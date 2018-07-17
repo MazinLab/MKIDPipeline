@@ -1,5 +1,5 @@
 #!/bin/python
-'''
+"""
 Author: Matt Strader        Date: August 19, 2012
 Modified 2017 for Darkness/MEC
 Authors: Seth Meeker, Neelay Fruitwala, Alex Walter
@@ -49,7 +49,7 @@ modifyHeaderEntry(self, headerTitle, headerValue)
 
 
 
-'''
+"""
 
 import glob
 import os
@@ -1184,7 +1184,7 @@ class ObsFile:
 
 
 def calculateSlices(inter, timestamps):
-    '''
+    """
     Hopefully a quicker version of  the original calculateSlices. JvE 3/8/2013
 
     Returns a list of strings, with format i0:i1 for a python array slice
@@ -1197,7 +1197,7 @@ def calculateSlices(inter, timestamps):
     If inter is a multi-component interval, the components must be unioned and sorted
     (which is the default behaviour when intervals are defined, and is probably
     always the case, so shouldn't be a problem).
-    '''
+    """
     timerange = interval([timestamps[0],timestamps[-1]])
     slices = []
     slce = "0:"     #Start at the beginning of the timestamps array....

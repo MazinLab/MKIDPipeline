@@ -10,7 +10,7 @@ f = pt.open_file(fn,'a')
 t = f.root.Photons.data
 print(t)
 
-'''
+"""
 print "Querying photon table with ITERROWS for all wavelengths in pixel (0,0)..."
 print "this may take a minute..."
 t0 = time.time()
@@ -24,8 +24,8 @@ t2 = time.time()
 wvlsFast = [i['Wavelength'] for i in t.where("""(X==0) & (Y==0)""")]
 t3 = time.time()
 print "Gathered %i values in %3.2f seconds"%(len(wvlsFast),t3-t2)
-'''
-'''
+"""
+"""
 print "Now trying same query with indexed columns..."
 print "Indexing columns X, Y, ResID..."
 t4 = time.time()
@@ -43,7 +43,7 @@ except ValueError:
     print "ResID col already indexed"
 t5 = time.time()
 print "Time to index = %3.2f"%(t5-t4)
-'''
+"""
 
 print("Performing query...")
 print(t.will_query_use_indexing("""(X==0) & (Y==0) & (ResID==1)"""))

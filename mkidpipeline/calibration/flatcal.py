@@ -223,10 +223,10 @@ class FlatCal:
             trimmedCubeDeltaWeightsReordered = cubeDeltaWeightsReordered[self.fractionOfChunksToTrim * nCubes:(
                                                                                                                       1 - self.fractionOfChunksToTrim) * nCubes,
                                                :, :, :]
-            '''
+            """
             Uncertainty in weighted average is sqrt(1/sum(averagingWeights))
             Normalize weights at each wavelength bin
-            '''
+            """
             self.flatWeights, summedAveragingWeights = np.ma.average(trimmedWeights, axis=0,
                                                                      weights=trimmedCubeDeltaWeightsReordered ** -2.,
                                                                      returned=True)
@@ -250,10 +250,10 @@ class FlatCal:
                     flatcal.plotWeightsByPixelWvlCompare()
 
     def plotWeightsByPixelWvlCompare(self):
-        '''
+        """
         Plot weights of each wavelength bin for every single pixel
                 Makes a plot of wavelength vs weights, twilight spectrum, and wavecal solution for each pixel
-        '''
+        """
         if not self.save_plots:
             return
         if self.save_plots:
@@ -548,9 +548,9 @@ class FlatCal:
                 print(self.pdfFullPath)
 
     def _mergePlots(self):
-        '''
+        """
         Merge recently created temp.pdf with the main file
-        '''
+        """
         temp_file = os.path.join(self.calSolnPath, 'temp.pdf')
         if os.path.isfile(self.pdfFullPath):
             merger = PdfFileMerger()
@@ -574,10 +574,10 @@ class FlatCal:
         plt.close('all')
 
     def _configCheck(self, index):
-        '''
+        """
         Checks the variables loaded in from the configuration file for type and
         consistencey. Run in the '_init_()' method.
-        '''
+        """
         if index == 0:
             # check for configuration file
             assert os.path.isfile(self.config_file), \
@@ -661,7 +661,7 @@ class FlatCal:
 
     @staticmethod
     def _query(question, yes_or_no=False, default="no"):
-        '''
+        """
         Ask a question via raw_input() and return their answer.
         "question" is a string that is presented to the user.
         "yes_or_no" specifies if it is a yes or no question
@@ -671,7 +671,7 @@ class FlatCal:
 
         The "answer" return value is the user input for a general question. For a yes or
         no question it is True for "yes" and False for "no".
-        '''
+        """
         if yes_or_no:
             valid = {"yes": True, "y": True, "ye": True, "no": False, "n": False}
         if not yes_or_no:

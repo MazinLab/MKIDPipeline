@@ -1,4 +1,4 @@
-'''
+"""
 Author: Seth Meeker        Date: August 5, 2016
 Based mostly on darkQuickViewer.py
 
@@ -6,7 +6,7 @@ TODO:
         Right now images are loaded and diplayed properly from the parsed dictionary
         Need to implement appending of phases and other parsed data into full photon lists
         Speed up parsing of data packets. VERY SLOW NOW!
-'''
+"""
 
 import os
 import struct
@@ -654,7 +654,7 @@ class PlotWindow(QtWidgets.QDialog):
         self.axes.set_xlabel('time (s)')
         self.axes.set_ylabel('counts')
         
-        ''' # Old version of lightcurve plotting from IMG files
+        """ # Old version of lightcurve plotting from IMG files
         for col,row in self.selectedPixels:
             self.lightCurve = self.parent.imageStack[:,row,col]
 
@@ -664,7 +664,7 @@ class PlotWindow(QtWidgets.QDialog):
         self.axes.xaxis.set_major_formatter(x_formatter)
         self.axes.set_xlabel('time (s)')
         self.axes.set_ylabel('counts per sec')
-        '''
+        """
     
     def plotPhaseHist(self):
         phaseHistType = self.combobox_phaseHistType.currentText()

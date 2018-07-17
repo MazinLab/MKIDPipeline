@@ -15,7 +15,7 @@ from mkidpipeline.core import pixelflags
 
 
 def plotEnergySolution(file_name, res_id=None, pixel=[], axis=None):
-    '''
+    """
     Plot the phase to energy solution for a pixel from the wavlength calibration solution
     file 'file_name'. Provide either the pixel location pixel=(row, column) or the res_id
     for the resonator.
@@ -28,7 +28,7 @@ def plotEnergySolution(file_name, res_id=None, pixel=[], axis=None):
                instead. (length 2 list of integers)
         axis: matplotlib axis object on which to display the plot. If no axis is provided
               a new figure will be made.
-    '''
+    """
     # load file_name
     wave_cal = tb.open_file(file_name, mode='r')
     wavelengths = wave_cal.root.header.wavelengths.read()[0]
@@ -140,7 +140,7 @@ def plotEnergySolution(file_name, res_id=None, pixel=[], axis=None):
 
 
 def plotHistogramFits(file_name, res_id=None, pixel=[], axis=None):
-    '''
+    """
     Plot the histogram fits for a pixel from the wavlength calibration solution
     file 'file_name'. Provide either the pixel location pixel=(row, column) or the res_id
     for the resonator.
@@ -153,7 +153,7 @@ def plotHistogramFits(file_name, res_id=None, pixel=[], axis=None):
                instead. (length 2 list of integers)
         axis: matplotlib axis object on which to display the plot (will be an embedded
               png). If no axis is provided a new figure will be made.
-    '''
+    """
     # load file_name
     wave_cal = tb.open_file(file_name, mode='r')
     wavelengths = wave_cal.root.header.wavelengths.read()[0]
@@ -318,7 +318,7 @@ def plotHistogramFits(file_name, res_id=None, pixel=[], axis=None):
 
 
 def plotRHistogram(file_name, mask=None, axis=None):
-    '''
+    """
     Plot a histogram of the energy resolution, R, for each wavelength in the wavlength
     calibration solution file 'file_name'.
 
@@ -328,7 +328,7 @@ def plotRHistogram(file_name, mask=None, axis=None):
               False entries are not displayed.
         axis: matplotlib axis object on which to display the plot. If no axis is provided
               a new figure will be made.
-    '''
+    """
     # load file_name
     wave_cal = tb.open_file(file_name, mode='r')
     wavelengths = wave_cal.root.header.wavelengths.read()[0]
@@ -386,7 +386,7 @@ def plotRHistogram(file_name, mask=None, axis=None):
 
 
 def plotRvsF(file_name, config_name, axis=None, verbose=True):
-    '''
+    """
     Plot the median energy resolution over all wavelengths against the resonance
     frequency.
 
@@ -398,7 +398,7 @@ def plotRvsF(file_name, config_name, axis=None, verbose=True):
               a new figure will be made.
         verbose: determines whether information about loading the frequency files is
                  printed to the terminal (boolean)
-    '''
+    """
     freqs = loadFrequencyFile(config_name, verbose=verbose)
     wave_cal = tb.open_file(file_name, mode='r')
     wavelengths = wave_cal.root.header.wavelengths.read()[0]
@@ -451,7 +451,7 @@ def plotRvsF(file_name, config_name, axis=None, verbose=True):
 
 
 def plotCenterHist(file_name, mask=None, axis=None):
-    '''
+    """
     Plot a histogram of the fitted gaussian centers for the solution file (file_name).
     Args:
         file_name: the wavecal solution file including the path (string)
@@ -459,7 +459,7 @@ def plotCenterHist(file_name, mask=None, axis=None):
               False entries are not displayed.
         axis: matplotlib axis object on which to display the plot. If no axis is provided
               a new figure will be made.
-    '''
+    """
     # load file_name
     wave_cal = tb.open_file(file_name, mode='r')
     info = wave_cal.root.header.info.read()
@@ -528,11 +528,11 @@ def plotCenterHist(file_name, mask=None, axis=None):
 
 
 def plotFitParameters(file_name):
-    '''
+    """
     Plots histograms of the fit parameters for the solution file (file_name).
     Args:
         file_name: the wavecal solution file including the path (string)
-    '''
+    """
     wave_cal = tb.open_file(file_name, mode='r')
     wavelengths = wave_cal.root.header.wavelengths.read()[0]
     info = wave_cal.root.header.info.read()
@@ -644,12 +644,12 @@ def plotFitParameters(file_name):
 
 
 def plotResolutionImage(file_name):
-    '''
+    """
     Plots an image of the array with the energy resolution as a color for the solution
     file (file_name).
     Args:
         file_name: the wavecal solution file including the path (string)
-    '''
+    """
     wave_cal = tb.open_file(file_name, mode='r')
     beamImage = wave_cal.root.header.beamMap.read()
     wavelengths = wave_cal.root.header.wavelengths.read()[0]
@@ -744,7 +744,7 @@ def plotResolutionImage(file_name):
 
 
 def plotSummary(file_name, config_name='', save_name=None, verbose=True):
-    '''
+    """
     Plot one page summary pdf of the wavelength calibration solution file 'file_name'.
 
     Args:
@@ -754,7 +754,7 @@ def plotSummary(file_name, config_name='', save_name=None, verbose=True):
         save_name: name of the pdf that's saved. No pdf is saved if set to None.
         verbose: determines whether information about loading the frequency files is
                  printed to the terminal (boolean)
-    '''
+    """
 
     # load file_name
     wave_cal = tb.open_file(file_name, mode='r')
@@ -795,13 +795,13 @@ def plotSummary(file_name, config_name='', save_name=None, verbose=True):
                   "total \\% out of read-out pixels",
                   "total \\% out of photosensitive pixels"]
     mpl.rcParams['text.latex.preamble'] = [r'\usepackage{array}']
-    table = r'''\begin{{tabular}}{{>{{\raggedright}}p{{1.1in}} | ''' + \
-            r''' >{{\raggedright}}p{{1in}} | >{{\raggedright}}p{{1in}} | ''' + \
-            r''' >{{\raggedright}}p{{1in}} | p{{1.1in}}}}''' + \
-            r''' & {0} & {1} & {2} & {3} \\''' + \
-            r'''\hline {4} & {5} & {6} & {7} & {8} \\''' + \
-            r'''{9} & {10} & {11} & {12} & {13} \\''' + \
-            r'''{14} & ({15}, {16}) & - & - & - \end{{tabular}}'''
+    table = r"""\begin{{tabular}}{{>{{\raggedright}}p{{1.1in}} | """ + \
+            r""" >{{\raggedright}}p{{1in}} | >{{\raggedright}}p{{1in}} | """ + \
+            r""" >{{\raggedright}}p{{1in}} | p{{1.1in}}}}""" + \
+            r""" & {0} & {1} & {2} & {3} \\""" + \
+            r"""\hline {4} & {5} & {6} & {7} & {8} \\""" + \
+            r"""{9} & {10} & {11} & {12} & {13} \\""" + \
+            r"""{14} & ({15}, {16}) & - & - & - \end{{tabular}}"""
     table = table.format(col_labels[0], col_labels[1], col_labels[2], col_labels[3],
                          row_labels[0], text[0, 0], text[0, 1], text[0, 2], text[0, 3],
                          row_labels[1], text[1, 0], text[1, 1], text[1, 2], text[1, 3],
@@ -920,7 +920,7 @@ def plotSummary(file_name, config_name='', save_name=None, verbose=True):
 
 
 def loadFrequencyFile(config_file, verbose=True):
-    '''
+    """
     Returns a dictionary mapping res_id to resonance frequency for a particular templar
     configuration file.
 
@@ -933,7 +933,7 @@ def loadFrequencyFile(config_file, verbose=True):
         a numpy array of the frequency files that could be loaded from the templar config
         file vertically stacked. The first column is the res_id and the second is the
         frequency. a 1 by 2 array with -1 entries is returned if no files could be loaded.
-    '''
+    """
     #TODO Move this elsewhere if it is general and make part of a templar config file class
     config = ConfigParser()
     config.read(config_file)
@@ -958,9 +958,9 @@ def loadFrequencyFile(config_file, verbose=True):
 
 
 def fitModels(model_name):
-    '''
+    """
     Returns the specified fit model from a library of possible functions
-    '''
+    """
     if model_name == 'gaussian_and_exp':
         fit_function = lambda x, a, b, c, d, f: \
             a * np.exp(b * x) + c * np.exp(-1 / 2.0 * ((x - d) / f)**2)

@@ -1,11 +1,11 @@
-'''
+"""
 SRM - Migrated to DARKNESS-pipeline unchanged 2017-04-09
 
 Author: Julian van Eyken    Date: Apr 30 2013
 Definitions of all data flags used by the pipeline.
 Currently dictionaries to map flag descriptions to integer values.
 May update to use pytables Enums at some point down the road....
-'''
+"""
 
 #Flat cal. flags:
 flatCal = {

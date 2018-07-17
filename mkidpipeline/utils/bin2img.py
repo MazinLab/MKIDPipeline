@@ -1,10 +1,10 @@
-'''
+"""
 Author: Seth Meeker        Date: November 9, 2016
 
 function to load up darkness .bin file and output a .img file
 in the format they would have been written to ramdisk in
 
-'''
+"""
 
 import glob
 import os
