@@ -3,15 +3,15 @@ Author: Matt Strader        Date: July 20, 2016
 Same as darkQuickViewer.py, only this one writes your input slice range to a fits file.  Name of the fits file is in the format -starttime- to -endtime-.fits
 '''
 
-from astropy.io import fits as pyfits
-import sys, os
+import os
+import sys
+
+import matplotlib
 import numpy as np
 from PyQt5 import QtCore, QtGui
+from astropy.io import fits as pyfits
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-import matplotlib
-
-
 
 dataPath = '/mnt/data0/ScienceDataIMGs/'
 imageShape = {'nRows':125,'nCols':80}
@@ -227,7 +227,7 @@ class DarkQuick(QtGui.QMainWindow):
     def savePlot(self):
         file_choices = "PNG (*.png)|*.png"
         
-        path = unicode(QFileDialog.getSaveFileName(self, 
+        path = unicode(QFileDialog.getSaveFileName(self,
                         'Save file', '', 
                         file_choices))
         if path:

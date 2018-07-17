@@ -4,9 +4,11 @@ Loads darkness image stack given start and stop timestamps, then writes your inp
 Name of the fits file is in the format -starttime- to -endtime-.fits
 '''
 
-from astropy.io import fits as pyfits
-import sys, os
+import os
+import sys
+
 import numpy as np
+from astropy.io import fits as pyfits
 
 from mkidpipeline.utils.arrayPopup import plotArray
 

@@ -16,13 +16,10 @@ import matplotlib
 import numpy as np
 from PyQt5 import QtCore, QtWidgets
 
-#matplotlib.rcParams['backend.qt4']='PyQt4'
-#matplotlib.rcParams['backend.qt5']='PyQt5'
 matplotlib.use('Qt5agg')
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-#from matplotlib.backends.backend_qt4agg import NavigationToolbar2QTAgg as NavigationToolbar
 from matplotlib.figure import Figure
-from mkidpipeline.utils.parsePacketDump2 import parsePacketData
+from mkidpipeline.utils.parsePacketDump import parsePacketData
 from mkidpipeline.hotpix import darkHotPixMask as dhpm
 
 basePath = '/mnt/data0/ScienceData/'

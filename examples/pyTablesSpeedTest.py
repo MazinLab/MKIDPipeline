@@ -1,6 +1,6 @@
-import tables as pt
 import time
-import numpy as np
+
+import tables as pt
 
 #fn = '/mnt/data0/ScienceData/PAL2017a/20170409/cal_4lasAllInd_1491793638.h5'
 fn = '/mnt/data0/ScienceData/PAL2017a/20170409/cal_maxInd_1491793638.h5'

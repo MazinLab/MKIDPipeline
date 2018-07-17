@@ -42,9 +42,10 @@ import glob
 import os
 import sys
 
+import numpy as np
+
 import mkidpipeline.hotpix.darkHotPixMask as dhpm
 import mkidpipeline.utils.irUtils as irUtils
-import numpy as np
 from mkidpipeline.utils.arrayPopup import plotArray
 from mkidpipeline.utils.loadStack import loadBINStack, loadIMGStack
 from mkidpipeline.utils.readDict import readDict
