@@ -145,7 +145,7 @@ def blurredMR1(x,Ic,Is):
     return f
 
 
-def blurredMR2(x,Ic,Is):
+def blurredMR(x,Ic,Is):
     p = np.zeros(len(x))
     for ii in x:
         p[ii] = 1/(Is + 1)*(1 + 1/Is)**(-ii)*np.exp(-Ic/Is)*hyp1f1(float(x[ii]) + 1,1,Ic/(Is**2 + Is))
