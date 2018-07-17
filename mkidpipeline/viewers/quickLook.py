@@ -27,6 +27,7 @@ from mkidpipeline.hdf.darkObsFile import ObsFile
 from scipy.optimize import curve_fit
 import os.path
 from mkidpipeline.utils import pdfs
+from mkidpipeline.speckle import binned_rician as binnedRE
 from scipy.special import factorial
 
 
@@ -149,25 +150,6 @@ class subWindow(QMainWindow):
         
         return photonList
             
-            
-            
-        
-    def getLightCurve(self):
-        #take a time stream and bin it up into a lightcurve
-        #in other words, take a list of photon time stamps and figure out the 
-        #intensity during each exposureTime, which is ~.01 sec
-        
-        self.histBinEdges = np.arange(self.spinbox_startTime.value(),self.spinbox_startTime.value()+self.spinbox_integrationTime.value(),self.effExpTime)
-        self.hist,_ = np.histogram(self.photonList['Time']/10**6,bins=self.histBinEdges) #if histBinEdges has N elements, hist has N-1
-        lightCurveIntensityCounts = 1.*self.hist  #units are photon counts
-        lightCurveIntensity = 1.*self.hist/self.effExpTime  #units are counts/sec
-        lightCurveTimes = self.histBinEdges[:-1] + 1.0*self.effExpTime/2
-        
-        return lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes
-        # [lightCurveIntensityCounts] = counts
-        # [lightCurveIntensity] = counts/sec
-
-
 
 
 class timeStream(subWindow):
@@ -192,7 +174,9 @@ class timeStream(subWindow):
         self.photonList = self.getPhotonList()
         
         self.effExpTime = self.spinbox_effExpTime.value()/1000
-        self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = self.getLightCurve()
+#        self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = self.getLightCurve()
+        
+        self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(self.photonList['Time'],self.spinbox_startTime.value(),self.spinbox_startTime.value()+self.spinbox_integrationTime.value(),self.effExpTime)
 
         self.ax.plot(self.lightCurveTimes,self.lightCurveIntensity,color = self.lineColor)
         self.ax.set_xlabel('time [seconds]')
@@ -217,27 +201,15 @@ class intensityHistogram(subWindow):
         self.plotData()
         self.draw()
         
-        
-    
-    def histogramLC(self,lightCurve):
-        #makes a histogram of the light curve intensities
-        self.Nbins=30  #smallest number of bins to show
-        #count the number of times each count rate occurs in the timestream
-        intensityHist, _ = np.histogram(lightCurve,bins=self.Nbins,range=[0,self.Nbins])
-        
-        intensityHist = intensityHist/float(len(lightCurve))      
-        bins = np.arange(self.Nbins)
-        
-        return intensityHist, bins
+   
     
     
-    
-    
+    """
     def fitBlurredMR(self,bins,intensityHist):   #this needs some work
         sigma = np.sqrt(intensityHist)
         sigma[np.where(sigma==0)] = 1
         try:
-            popt2,pcov2 = curve_fit(pdfs.blurredMR2,bins,intensityHist,p0=[1,1],sigma=sigma,bounds=(0,np.inf))
+            popt2,pcov2 = curve_fit(binnedRE.blurredMR,bins,intensityHist,p0=[1,1],sigma=sigma,bounds=(0,np.inf))
             
             Ic = popt2[0]
             Is = popt2[1]
@@ -245,6 +217,7 @@ class intensityHistogram(subWindow):
             Ic, Is = 1,0.1
         
         return Ic,Is
+    """
             
 
     
@@ -260,9 +233,16 @@ class intensityHistogram(subWindow):
         
         self.effExpTime = self.spinbox_effExpTime.value()/1000
         
-        self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = self.getLightCurve()
-        self.intensityHist, self.bins = self.histogramLC(self.lightCurveIntensityCounts)
+        #self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = self.getLightCurve()
+        
+        self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(self.photonList['Time'],self.spinbox_startTime.value(),self.spinbox_startTime.value()+self.spinbox_integrationTime.value(),self.effExpTime)
+        
+#        self.intensityHist, self.bins = self.histogramLC(self.lightCurveIntensityCounts)
+        
+        self.intensityHist, self.bins = binnedRE.histogramLC(self.lightCurveIntensityCounts)
         # [self.intensityHist] = counts
+        
+        Nbins = max(30,len(self.bins))
         
         self.ax.bar(self.bins,self.intensityHist)
         self.ax.set_xlabel('intensity, counts per {:.3f} sec'.format(self.effExpTime))
@@ -271,27 +251,27 @@ class intensityHistogram(subWindow):
         
         if np.sum(self.lightCurveIntensityCounts) > 0:
 #            try:
-#                popt, pcov = curve_fit(pdfs.modifiedRician,self.bins,self.intensityHist,p0=[1,1])
+#                popt, pcov = curve_fit(binnedRE.modifiedRician,self.bins,self.intensityHist,p0=[1,1])
 #            
 #                Ic = popt[0]
 #                Is = popt[1]
 #            except RuntimeError:
 #                Ic, Is, =1,0.1
             
-#            self.ax.plot(np.arange(self.Nbins, step=sstep),pdfs.modifiedRician(np.arange(self.Nbins, step=sstep),Ic,Is),'.-r',label = 'MR from numpy.curve_fit')
+#            self.ax.plot(np.arange(self.Nbins, step=sstep),binnedRE.modifiedRician(np.arange(self.Nbins, step=sstep),Ic,Is),'.-r',label = 'MR from numpy.curve_fit')
             
 #            self.ax.set_title('pixel ({},{})  Ic = {:.2f}, Is = {:.2f}, Ic/Is = {:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic,Is,Ic/Is))
             
             mu = np.mean(self.lightCurveIntensityCounts)
             var = np.var(self.lightCurveIntensityCounts)  
             
-            k = np.arange(self.Nbins)
+            k = np.arange(Nbins)
             poisson= np.exp(-mu)*np.power(mu,k)/factorial(k)
             self.ax.plot(np.arange(len(poisson)),poisson,'.-c',label = 'Poisson')
             
-            Ic_final,Is_final = self.fitBlurredMR(self.bins,self.intensityHist)
+            Ic_final,Is_final,covMatrix = binnedRE.fitBlurredMR(self.bins,self.intensityHist,self.effExpTime)
             
-            self.ax.plot(np.arange(self.Nbins, step=sstep),pdfs.blurredMR2(np.arange(self.Nbins, step=sstep),Ic_final,Is_final),'.-k',label = 'blurred MR from curve_fit. Ic,Is = {:.2f}, {:.2f}'.format(Ic_final/self.effExpTime,Is_final/self.effExpTime))
+            self.ax.plot(np.arange(Nbins, step=sstep),binnedRE.blurredMR(np.arange(Nbins, step=sstep),Ic_final,Is_final),'.-k',label = 'blurred MR from curve_fit. Ic,Is = {:.2f}, {:.2f}'.format(Ic_final/self.effExpTime,Is_final/self.effExpTime))
             
 #            self.ax.set_title('pixel ({},{})  Ic = {:.2f}, Is = {:.2f}, Ic/Is = {:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic_final,Is_final,Ic_final/Is_final))
 #            self.ax.set_title('pixel ({},{})  Ic,Ic_f = {:.2f},{:.2f}, Is,Is_f = {:.2f},{:.2f}, Ic/Is, Ic_f/Is_f = {:.2f},{:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic,Ic_final,Is,Is_final,Ic/Is,Ic_final/Is_final))
@@ -305,7 +285,7 @@ class intensityHistogram(subWindow):
                 IIs = mu - IIc
 
         
-                self.ax.plot(np.arange(self.Nbins, step=sstep),pdfs.blurredMR2(np.arange(self.Nbins, step=sstep),IIc,IIs),'.-b',label = r'blurred MR from $\sigma$ and $\mu$. Ic,Is = {:.2f}, {:.2f}'.format(IIc/self.effExpTime,IIs/self.effExpTime))
+                self.ax.plot(np.arange(Nbins, step=sstep),binnedRE.blurredMR(np.arange(Nbins, step=sstep),IIc,IIs),'.-b',label = r'blurred MR from $\sigma$ and $\mu$. Ic,Is = {:.2f}, {:.2f}'.format(IIc/self.effExpTime,IIs/self.effExpTime))
                 
 #                self.ax.set_title('pixel ({},{})  Ic,IIc = {:.2f},{:.2f}, Is,IIs = {:.2f},{:.2f}, Ic/Is, IIc/IIs = {:.2f},{:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic_final,IIc,Is_final,IIs,Ic_final/Is_final,IIc/IIs))
             
@@ -378,6 +358,7 @@ class mainWindow(QMainWindow):
         QMainWindow.__init__(self,parent=parent)
         self.initializeEmptyArrays()
         self.setWindowTitle('quickLook.py')
+        self.resize(600,850)  #(600,850 works for clint's laptop screen. Units are pixels I think.)
         self.create_main_frame()
         self.create_status_bar()
         self.createMenu()
@@ -524,12 +505,55 @@ class mainWindow(QMainWindow):
             print('\nNo obsfile object defined. Select H5 file to load.\n')
             return
         else:
-            self.ax.clear() #clear the axes
+            self.ax1.clear() #clear the axes
             
-#            for col in range(self.nCol):
-#                for row in range(self.nRow):
+            for col in range(self.nCol):
+                print(col,'/80')
+                for row in range(self.nRow):
+                    photonList = self.a.getPixelPhotonList(col, row, firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart=self.spinbox_startLambda.value(),wvlStop=self.spinbox_stopLambda.value())
+                    
+                    
+                    
+                    
+                    effExpTime = .00001 #10 ms/1000
+
+                    
+                    lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = binnedRE.getLightCurve(photonList['Time'],self.spinbox_startTime.value(),self.spinbox_startTime.value()+self.spinbox_integrationTime.value(),effExpTime)
+                    
+                    intensityHist, bins = binnedRE.histogramLC(lightCurveIntensityCounts)
+                    # [self.intensityHist] = counts
+                    
+                    Nbins = max(30,len(bins))
+                    
+                    if np.sum(lightCurveIntensityCounts) > 0:
+
+                        
+                        Ic_final,Is_final,covMatrix = binnedRE.fitBlurredMR(bins,intensityHist,effExpTime)
+                    
+                        self.IcMap[row][col] = Ic_final
+                        self.IsMap[row][col] = Is_final
                 
+            self.image = self.IsMap
+            self.image[np.where(np.logical_not(np.isfinite(self.image)))]=0
+#            self.image = self.rawCountsImage*self.beamFlagMask
+            #self.image = self.rawCountsImage*self.beamFlagMask*self.hotPixMask
+#            self.image = 1.0*self.image/self.spinbox_integrationTime.value()
             
+            self.cbarLimits = np.array([np.amin(self.image),np.amax(self.image)])
+            
+            self.ax1.imshow(self.image,interpolation='none',vmin = self.cbarLimits[0],vmax = self.cbarLimits[1])
+            
+            self.fig.cbar.set_clim(self.cbarLimits[0],self.cbarLimits[1])
+            self.fig.cbar.draw_all()
+
+            self.ax1.set_title('Raw counts')
+            
+            self.ax1.axis('off')
+            
+            self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=2)
+            
+            
+            self.draw()
 
 
 
@@ -563,7 +587,7 @@ class mainWindow(QMainWindow):
         if self.radio_button_img.isChecked() == True:
             self.plotNoise()
         elif self.radio_button_ic_is.isChecked() == True:
-            self.plotNoise()
+            self.plotIcIs()
         elif self.radio_button_beamFlagImage.isChecked() == True:
             self.plotBeamImage()
         elif self.radio_button_rawCounts.isChecked() == True:
@@ -593,7 +617,7 @@ class mainWindow(QMainWindow):
         #Define the plot window. 
         self.main_frame = QWidget()
         self.dpi = 100
-        self.fig = Figure((1.0, 20.0), dpi=self.dpi, tight_layout=True) #define the figure, set the size and resolution
+        self.fig = Figure((5.0, 10.0), dpi=self.dpi, tight_layout=True) #define the figure, set the size and resolution
         self.canvas = FigureCanvas(self.fig)
         self.canvas.setParent(self.main_frame)
         self.ax1 = self.fig.add_subplot(111)
@@ -719,7 +743,7 @@ class mainWindow(QMainWindow):
         
         
     def quickLoadH5(self):
-        self.filename = '/Users/clint/Documents/mazinlab/ScienceData/PAL2017b/20171004/1507175503.h5'
+        self.filename = '/Users/clint/Documents/mazinlab/ScienceData/PAL2017b/20171004/1507175503_old.h5'
         self.loadDataFromH5()  
         
 
