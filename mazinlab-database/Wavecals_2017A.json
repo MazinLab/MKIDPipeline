@@ -1,0 +1,134 @@
+
+  {
+    "Target": "SAO82875",
+    "Run": "2017A",
+    "Date": "20170407",
+    "Time": "1:44",
+    "808nm": "41132 - 41205 (color FW open)",
+    "904 nm": "41290 - 41360 (color FW 1D)",
+    "980 nm": "41385 - 41455 (color FW 1D)",
+    "1120 nm": "41490 - 41560 (colr FW 1D)",
+    "1310 nm": "Not Used"
+  },
+  {
+    "Target": "HD77407",
+    "Run": "2017A",
+    "Date": "20170408",
+    "Time": "20:46",
+    "808nm": "1491709573 - 1491709953",
+    "904 nm": "Not Used",
+    "980 nm": "Not Used",
+    "1120 nm": "Not Used",
+    "1310 nm": "Not Used"
+  },
+  {
+    "Target": "HD77407",
+    "Run": "2017A",
+    "Date": "20170408",
+    "Time": "21:36",
+    "808nm": "open timestamp xxxxx12625 - xxxxx12690",
+    "904 nm": "1x diffuser timestamp xxxxx12740 - xxxxx12810",
+    "980 nm": "1x diffuser timestamp xxxxx12855 - xxxxx12920. Count rates 1000 - 1500, so we’re going - do a measurement with the color wheel open",
+    "1120 nm": "open, timestamp xxxxx12950 - xxxxx13920",
+    "1310 nm": "1x diffusor, timestamp xxxxx13180 - xxxxx13260"
+  },
+  {
+    "Target": "SAO100725",
+    "Run": "2017A",
+    "Date": "20170408",
+    "Time": "3:00",
+    "808nm": "1xdiffuser, timestamp xxxxx32190 - xxxxx32260",
+    "904 nm": "1xdiffuser xxxxx32310 - xxxxx32380",
+    "980 nm": "1x diffuser xxxxx32420 - 32495",
+    "1120 nm": "1x diffuser xxxxx32515 - xxxxx32590",
+    "1310 nm": "Not Used"
+  },
+  {
+    "Target": "Tau Boo",
+    "Run": "2017A",
+    "Date": "20170408",
+    "Time": "3:00",
+    "808nm": "1xdiffuser, timestamp xxxxx32190 - xxxxx32260",
+    "904 nm": "1xdiffuser xxxxx32310 - xxxxx32380",
+    "980 nm": "1x diffuser xxxxx32420 - 32495",
+    "1120 nm": "1x diffuser xxxxx32515 - xxxxx32590",
+    "1310 nm": "Not Used"
+  },
+  {
+    "Target": "Candidate 1",
+    "Run": "2017A",
+    "Date": "20170409",
+    "Time": "20:06",
+    "808nm": "open, Timestamp 1491793638 - xxxxx93705",
+    "904 nm": "1x diffuser, Timestamp xxxxx93720 - xxxxx93785",
+    "980 nm": "1x diffuser, Timestamp xxxxx93810 - xxxxx93880",
+    "1120 nm": "1x diffuser timestamp xxxxx93895 - xxxxx93955",
+    "1310 nm": "Not Used"
+  },
+  {
+    "Target": "HD114174",
+    "Run": "2017A",
+    "Date": "20170409",
+    "Time": "00:54",
+    "808nm": "open, timestamp 1491810908 - 1491810970",
+    "904 nm": "1x diffuser, timestamp xxxxx11026 - xxxxx11100",
+    "980 nm": "1x diffuser, timestamp xxxxx11258 - xxxxx11333",
+    "1120 nm": "1x diffuser, timestamp xxxxx11353 - xxxxx11430",
+    "1310 nm": "Not Used"
+  },
+  {
+    "Target": "SAO65921",
+    "Run": "2017A",
+    "Date": "20170409",
+    "Time": "03:10",
+    "808nm": "open. Timestamp 1491819058 - xxxxx19130",
+    "904 nm": "1x diffuser Timestamp xxxxx19193 - xxxxx19260",
+    "980 nm": "1x diffuser Timestamp xxxxx19295 - xxxxx19365",
+    "1120 nm": "1x diffuserTimestamp xxxxx19395 - xxxxx19462",
+    "1310 nm": "Not Used"
+  },
+  {
+    "Target": "Candidate 1",
+    "Run": "2017A",
+    "Date": "20170410",
+    "Time": "03:10",
+    "808nm": "(FW open). 1491870376 - 0460",
+    "904 nm": "(1x diff). 1491870497 - 70560",
+    "980 nm": "(1x diff): 1491870605 - 70670",
+    "1120 nm": "(1x diff): 1491870693 - 70760",
+    "1310 nm": "Not Used"
+  },
+  {
+    "Target": "HD91782",
+    "Run": "2017A",
+    "Date": "20170410",
+    "Time": "00:05",
+    "808nm": "open Timestamp 1491894285 - xxxxx94355",
+    "904 nm": "1x diffuser Timestamp xxxxx94438 - xxxxx94500",
+    "980 nm": "1x diffuser Timestamp xxxxx94531 - xxxxx94600",
+    "1120 nm": "1x diffuser Timestamp xxxxx94650 - xxxxx94720",
+    "1310 nm": "Not Used"
+  },
+  {
+    "Target": "HD148112",
+    "Run": "2017A",
+    "Date": "20170410",
+    "Time": "3:38",
+    "808nm": "open, timestamp 1491907165 - xxxxx07245",
+    "904 nm": "1x diffuser, timestamp xxxxx07265 - xxxxx07335",
+    "980 nm": "1x diffuser, timestamp xxxxx07355 - xxxxx07420",
+    "1120 nm": "1x diffuser, timestamp xxxxx07445 - xxxxx07520",
+    "1310 nm": "Not Used"
+  },
+  {
+    "Target": "SAO83893",
+    "Run": "2017A",
+    "Date": "20170410",
+    "Time": "3:38",
+    "808nm": "open, timestamp 1491907165 - xxxxx07245",
+    "904 nm": "1x diffuser, timestamp xxxxx07265 - xxxxx07335",
+    "980 nm": "1x diffuser, timestamp xxxxx07355 - xxxxx07420",
+    "1120 nm": "1x diffuser, timestamp xxxxx07445 - xxxxx07520",
+    "1310 nm": "Not Used"
+  }
+]
