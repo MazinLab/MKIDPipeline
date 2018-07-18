@@ -151,6 +151,8 @@ body {font-family: Arial;}
 <div id="Targets" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
   <h3>Targets</h3>
+  jsonfiles = json
+  {% for targetstring in jsonfiles %}
 
 
   <ul>
@@ -192,10 +194,10 @@ body {font-family: Arial;}
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
   <h4>Runs</h4>
   <ul>
-	 <li id="2016B"><u><font color = "blue">2016B </font></u></li>
-	 <li id="2017A"><u><font color = "blue">2017A </font></u></li>
-   <li id="2017B"><u><font color = "blue">2017B </font></u></li>
-   <li id="2018A"><u><font color = "blue">2018A </font></u></li>
+	 <u><font color = "blue"><li id="2016B">2016B</li></font></u>
+	<u><font color = "blue"><li id="2017A">2017A</li></font></u>
+  <u><font color = "blue"><li id="2017B">2017B</li></font></u>
+    <u><font color = "blue"><li id="2018A">2018A</li></font></u>
   </ul> 
 
 </div>
