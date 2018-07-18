@@ -8,7 +8,7 @@
   <script src="database.js"></script>
 <style>
 
-li { cursor: pointer; }
+li:hover { cursor: pointer; }
 
 .content {
 	  	width: 300px;
@@ -151,6 +151,8 @@ body {font-family: Arial;}
 <div id="Targets" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
   <h3>Targets</h3>
+
+
   <ul>
      <li><a href="#">SAO61424</a></li>
       <li><a href="#">HR8799</a></li>
@@ -190,10 +192,10 @@ body {font-family: Arial;}
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
   <h4>Runs</h4>
   <ul>
-	<li id="2016B">2016B</li>
-	 <li id="2017A">2017A</li>
-   <li id="2017B">2017B</li>
-   <li id="2018A">2018A</li>
+	 <li id="2016B"><u><font color = "blue">2016B </font></u></li>
+	 <li id="2017A"><u><font color = "blue">2017A </font></u></li>
+   <li id="2017B"><u><font color = "blue">2017B </font></u></li>
+   <li id="2018A"><u><font color = "blue">2018A </font></u></li>
   </ul> 
 
 </div>
@@ -220,6 +222,7 @@ body {font-family: Arial;}
 	  <li>May 30th, 2018</li>
 	  
   </ul>
+</div>
   <div id="Calibrations" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
   <h4>Calibrations</h4>
@@ -228,7 +231,7 @@ body {font-family: Arial;}
    <li id="16BCals">2016B Calibrations</li>
    <li id="17ACals">2017A Calibrations</li>
    <li id="17BCals">2017B Calibrations</li>
-   <li id="18ACals">2018A Calibrations</li>s
+   <li id="18ACals">2018A Calibrations</li>
   </ul> 
 </p>
 </div>
