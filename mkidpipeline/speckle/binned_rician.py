@@ -17,7 +17,6 @@ from scipy.optimize import minimize
 from statsmodels.base.model import GenericLikelihoodModel
 import matplotlib.pyplot as plt
 import matplotlib
-matplotlib.rcParams['contour.negative_linestyle'] = 'solid'
 from scipy.optimize import curve_fit
 
 from mkidpipeline.hdf.darkObsFile import ObsFile
@@ -259,12 +258,22 @@ def plotLogLMap(n, Ic_list, Is_list, effExpTime):
   
     
     X, Y = np.meshgrid(Ic_list, Is_list)
+    sigmaLevels = np.array([8.36, 4.78, 2.1])
+    levels = np.amax(im) - sigmaLevels
 
-    plt.contourf(X,Y,im.T)
+    MYSTYLE = {'contour.negative_linestyle':'solid'}
+    oldstyle = {key:matplotlib.rcParams[key] for key in MYSTYLE}
+    matplotlib.rcParams.update(MYSTYLE)
+
+#    plt.contourf(X,Y,im.T)
+    plt.imshow(im.T,extent = [np.amin(Ic_list), np.amax(Ic_list), np.amin(Is_list), np.amax(Is_list)],aspect='auto',origin = 'lower')
+    plt.contour(X,Y,im.T,colors='black',levels = levels)
     plt.plot(Ic_list[Ic_ind],Is_list[Is_ind],"xr")
     plt.xlabel('Ic [/s]')
     plt.ylabel('Is [/s]')
     plt.title('Map of log likelihood')
+    
+    matplotlib.rcParams.update(oldstyle)
 
     return X,Y,im
 
@@ -533,8 +542,8 @@ if __name__ == "__main__":
         
         
         print("Mapping...")
-        Ic_list=np.linspace(285,315,5)  #linspace(start,stop,number of steps)
-        Is_list=np.linspace(25,35,5)
+        Ic_list=np.linspace(285,315,2)  #linspace(start,stop,number of steps)
+        Is_list=np.linspace(25,35,2)
         X,Y,im = plotLogLMap(lightCurveIntensityCounts, Ic_list, Is_list, effExpTime)
         
         """
