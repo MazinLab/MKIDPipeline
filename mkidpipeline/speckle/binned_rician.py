@@ -16,19 +16,46 @@ import numpy as np
 from scipy.optimize import minimize
 from statsmodels.base.model import GenericLikelihoodModel
 import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.rcParams['contour.negative_linestyle'] = 'solid'
 from scipy.optimize import curve_fit
 
-from DarknessPipeline.RawDataProcessing.darkObsFile import ObsFile
-from DarknessPipeline.SpeckleAnalysis.genphotonlist import genphotonlist
+from mkidpipeline.hdf.darkObsFile import ObsFile
+from mkidpipeline.speckle.genphotonlist import genphotonlist
 from mpmath import mp, hyp1f1
 from scipy import special
 
 
 
-def blurredMR(x,Ic,Is):
-    p = np.zeros(len(x))
-    for ii in x:
-        p[ii] = 1/(Is + 1)*(1 + 1/Is)**(-ii)*np.exp(-Ic/Is)*hyp1f1(float(x[ii]) + 1,1,Ic/(Is**2 + Is))
+def blurredMR(n,Ic,Is):
+    """
+    Calculates the probability of getting a bin with n counts given Ic & Is. 
+    n, Ic, Is must have the same units. 
+    
+    INPUTS:
+        n - array of the number of counts you want to know the probability of encountering. numpy array, can have length = 1. Units are the same as Ic & Is
+        Ic - the constant part of the speckle pattern [counts/time]. User needs to keep track of the bin size. 
+        Is - the random part of the speckle pattern [units] - same as Ic
+    OUTPUTS:
+        p - array of probabilities
+        
+    EXAMPLE:
+        n = np.arange(8)
+        Ic,Is = 4.,6.
+        p = blurredMR(n,Ic,Is)
+        plt.plot(n,p)
+        #plot the probability distribution of the blurredMR vs n
+        
+        n = 5
+        p = blurredMR(n,Ic,Is)
+        #returns the probability of getting a bin with n counts
+    
+    """
+    
+    n = n.astype(int)
+    p = np.zeros(len(n))
+    for ii in range(len(n)):
+        p[ii] = 1/(Is + 1)*(1 + 1/Is)**(-n[ii])*np.exp(-Ic/Is)*hyp1f1(float(n[ii]) + 1,1,Ic/(Is**2 + Is))
     return p
 
 
@@ -183,11 +210,65 @@ def binMRlogL(n, Ic, Is):
         [float] the Log likelihood. 
     
     '''
-    lnL = np.zeros(len(n))
-    for ii in range(len(n)):
-        lnL[ii] = np.log(1./(Is+1)) - n[ii]*np.log(1+1./Is) - Ic/Is + np.log(float(hyp1f1(n[ii] + 1,1,Ic/(Is**2 + Is))))
+    lnL = np.zeros(len(n)) 
+    tmp = np.zeros(len(n))
+    for ii in range(len(n)): #hyp1f1 can't do numpy arrays because of its data type, which is mpf
+        tmp[ii] = float(hyp1f1(n[ii] + 1,1,Ic/(Is**2 + Is)))
+    lnL = np.log(1./(Is+1)) - n*np.log(1+1./Is) - Ic/Is + np.log(tmp)
         
     return np.sum(lnL)
+
+
+
+def plotLogLMap(n, Ic_list, Is_list, effExpTime):
+    """
+    plots a map of the MR log likelihood function over the range of Ic, Is
+    
+    INPUTS:
+        n - light curve [counts]
+        Ic_list - list of Ic values [photons/second]
+        Is_list - list
+    OUTPUTS:
+        
+    """
+    
+    Ic_list_countsperbin = Ic_list*effExpTime  #convert from cps to counts/bin
+    Is_list_countsperbin = Is_list*effExpTime
+    
+    im = np.zeros((len(Ic_list),len(Is_list)))
+    
+    for i, Ic in enumerate(Ic_list_countsperbin): #calculate maximum likelihood for a grid of 
+        for j, Is in enumerate(Is_list_countsperbin):   #Ic,Is values using counts/bin
+            print('Ic,Is = ',Ic/effExpTime,Is/effExpTime)
+            lnL = binMRlogL(n, Ic, Is)
+            im[i,j] = lnL
+            
+    Ic_ind, Is_ind=np.unravel_index(im.argmax(), im.shape)
+    print('Max at ('+str(Ic_ind)+', '+str(Is_ind)+')')
+    print("Ic="+str(Ic_list[Ic_ind])+", Is="+str(Is_list[Is_ind]))
+    print(im[Ic_ind, Is_ind])
+
+    
+#    l_90 = np.percentile(im, 90)
+#    l_max=np.amax(im)
+#    l_min=np.amin(im)
+#    levels=np.linspace(l_90,l_max,int(len(im.flatten())*.1))
+    
+    plt.figure()
+#    plt.contourf(Ic_list, Is_list,im.T,levels=levels,extend='min')
+  
+    
+    X, Y = np.meshgrid(Ic_list, Is_list)
+
+    plt.contourf(X,Y,im.T)
+    plt.plot(Ic_list[Ic_ind],Is_list[Is_ind],"xr")
+    plt.xlabel('Ic [/s]')
+    plt.ylabel('Is [/s]')
+    plt.title('Map of log likelihood')
+
+    return X,Y,im
+
+
 
 
 
@@ -203,7 +284,7 @@ if __name__ == "__main__":
         print("=====================================")
     
     
-    if 1:
+    if 0:
         """
         Make a plot showing a histogram fit.
         """
@@ -445,6 +526,40 @@ if __name__ == "__main__":
         print('sum is: ', np.sum(y))
             
             
+        
+    if 1:
+        
+        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+        
+        
+        print("Mapping...")
+        Ic_list=np.linspace(285,315,5)  #linspace(start,stop,number of steps)
+        Is_list=np.linspace(25,35,5)
+        X,Y,im = plotLogLMap(lightCurveIntensityCounts, Ic_list, Is_list, effExpTime)
+        
+        """
+        Save the logL plot data in a pickle file:
+        
+        with open('junk.pkl','wb') as f:
+            pickle.dump([ts,Ic_list,Is_list,X,Y,im],f)
+            f.close()
+            
+            
+        
+        Open the LogL plot data in another python session:
+            
+        with open('junk.pkl','rb') as f:
+            ts,Ic_list,Is_list,X,Y,im = pickle.load(f)
+            f.close() 
+            
+        plt.contourf(X,Y,im.T)
+        plt.xlabel('Ic [/s]')
+        plt.ylabel('Is [/s]')
+        plt.title('Map of log likelihood')
+        plt.show()
+            
+            
+        """
     
     
     
