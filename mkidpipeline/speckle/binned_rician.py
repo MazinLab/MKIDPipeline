@@ -24,6 +24,8 @@ from mkidpipeline.speckle.genphotonlist import genphotonlist
 from mpmath import mp, hyp1f1
 from scipy import special
 
+import time
+
 
 
 def blurredMR(n,Ic,Is):
@@ -211,8 +213,14 @@ def binMRlogL(n, Ic, Is):
     '''
     lnL = np.zeros(len(n)) 
     tmp = np.zeros(len(n))
-    for ii in range(len(n)): #hyp1f1 can't do numpy arrays because of its data type, which is mpf
-        tmp[ii] = float(hyp1f1(n[ii] + 1,1,Ic/(Is**2 + Is)))
+    
+    #hyp1f1 can't do numpy arrays because of its data type, which is mpf
+    
+#    for ii in range(len(n)): 
+#        tmp[ii] = float(hyp1f1(n[ii] + 1,1,Ic/(Is**2 + Is)))
+    
+    #TODO: rewrite the equation below to optimize for speed.
+    tmp = np.array([float(hyp1f1(i + 1,1,Ic/(Is**2 + Is))) for i in n])
     lnL = np.log(1./(Is+1)) - n*np.log(1+1./Is) - Ic/Is + np.log(tmp)
         
     return np.sum(lnL)
@@ -536,14 +544,14 @@ if __name__ == "__main__":
             
             
         
-    if 1:
+    if 0:
         
         lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         
         
         print("Mapping...")
-        Ic_list=np.linspace(285,315,2)  #linspace(start,stop,number of steps)
-        Is_list=np.linspace(25,35,2)
+        Ic_list=np.linspace(285,315,25)  #linspace(start,stop,number of steps)
+        Is_list=np.linspace(25,35,25)
         X,Y,im = plotLogLMap(lightCurveIntensityCounts, Ic_list, Is_list, effExpTime)
         
         """
@@ -571,7 +579,16 @@ if __name__ == "__main__":
         """
     
     
-    
+    if 1:
+        
+        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+        
+        time1 = time.time()
+        lnL = binMRlogL(lightCurveIntensityCounts, Ic, Is)
+        
+        
+        time2 = time.time()
+        print(time2 - time1)
     
     
     
