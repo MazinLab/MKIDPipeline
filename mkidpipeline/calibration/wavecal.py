@@ -999,7 +999,7 @@ class WaveCal:
                     poly = self.wavelength_cal[row, column][1]
                     dE = (np.polyval(poly, mu - std) - np.polyval(poly, mu + std)) / 2
                     E = h.to('eV s').value * c.to('nm/s').value / wavelength
-                    sigma.append(dE)
+                    sigma.append(dE * 2 * np.sqrt(2 * np.log(2)))  # convert to FWHM
                     R.append(E / dE)
                     wavelengths.append(wavelength)
                 else:
