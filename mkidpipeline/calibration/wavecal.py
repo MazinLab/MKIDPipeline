@@ -20,7 +20,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from progressbar import Bar, ETA, Percentage, ProgressBar, Timer
 
 import mkidpipeline.utils.pipelinelog as pipelinelog
-from mkidpipeline.wavecal import fitModels, plotSummary
+from mkidpipeline.calibration.wavecalplots import fitModels, plotSummary
 from mkidpipeline.core import pixelflags
 from mkidpipeline.core.headers import (WaveCalDebugDescription, WaveCalDescription, WaveCalHeader)
 from mkidpipeline.hdf.darkObsFile import ObsFile
@@ -304,6 +304,7 @@ class WaveCalConfig:
     def write(self, file, forceconsistency=True):
         if forceconsistency:
             self.enforceselfconsistency() #Force self consistency
+        # TODO bin2hdf_path not written if specified in the config file
         with open(file,'w') as f:
             f.write('[Data]\n'
                     '\n'
@@ -1000,7 +1001,7 @@ class WaveCal:
                     dE = (np.polyval(poly, mu - std) - np.polyval(poly, mu + std)) / 2
                     E = h.to('eV s').value * c.to('nm/s').value / wavelength
                     sigma.append(dE * 2 * np.sqrt(2 * np.log(2)))  # convert to FWHM
-                    R.append(E / dE)
+                    R.append(E / (dE * 2 * np.sqrt(2 * np.log(2))))
                     wavelengths.append(wavelength)
                 else:
                     sigma.append(-1)
