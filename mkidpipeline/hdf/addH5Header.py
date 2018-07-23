@@ -47,4 +47,3 @@ if __name__=='__main__':
     headerContents.append()
     headerTable.flush()
     hfile.close()
-

@@ -28,3 +28,4 @@ photonTable.cols.Wavelength.create_csindex(filters=filterObj)
 photonTable.flush()
 
 hfile.close()
+
