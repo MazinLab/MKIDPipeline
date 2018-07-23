@@ -25,7 +25,6 @@ def targetfinder():
 		return jsonify(data)
 
 
-
 @app.route('/runfinder', methods=['POST'])
 def runfinder():
 	if request.method == 'POST':
@@ -35,7 +34,8 @@ def runfinder():
 			with open(recordYear+'J.json') as datarunner:
 					data1 = json.load(datarunner)
 			for elem in data1:
-				if elem.get("Sunset Date(s)") == request.form['submit']:
+				rundate = request.form['submit']
+				if rundate in elem.get("Sunset Date(s)"):
 					data.append(elem)	
 		return jsonify(data)
 
@@ -62,7 +62,8 @@ def datefinder():
 			with open(recordYear+'J.json') as datarunner:
 					data1 = json.load(datarunner)
 			for elem in data1:
-				if elem.get("Sunset Date(s)") == request.form['submit']:
+				date = request.form['submit']
+				if date in elem.get("Sunset Date(s)"):
 					data.append(elem)	
 		return jsonify(data)
 if __name__ == '__main__':
