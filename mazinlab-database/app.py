@@ -21,8 +21,8 @@ def targetfinder():
 					data1 = json.load(datarunner)
 			for elem in data1:
 				if elem.get("Target") == request.form['submit']:
-					data.append(elem)	
-		return jsonify(data)
+					data.append(elem)		
+		return render_template("targets.html", data = json.dumps(data))
 
 
 @app.route('/runfinder', methods=['POST'])
@@ -37,7 +37,7 @@ def runfinder():
 				rundate = request.form['submit']
 				if rundate in elem.get("Sunset Date(s)"):
 					data.append(elem)	
-		return jsonify(data)
+		return render_template("runs.html", data = json.dumps(data))
 
 @app.route('/calibrationfinder', methods=['POST'])
 def calibrationfinder():
@@ -50,7 +50,7 @@ def calibrationfinder():
 			for elem in data1:
 				if elem.get("Target") == request.form['submit']:
 					data.append(elem)	
-		return jsonify(data)
+		return render_template("cals.html", data = json.dumps(data))
 
 
 @app.route('/datefinder', methods=['POST'])
@@ -65,6 +65,6 @@ def datefinder():
 				date = request.form['submit']
 				if date in elem.get("Sunset Date(s)"):
 					data.append(elem)	
-		return jsonify(data)
+		return render_template("dates.html", data = json.dumps(data))
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port = 3000)
