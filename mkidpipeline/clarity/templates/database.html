@@ -179,6 +179,11 @@ body {font-family: Arial;}
 <div id="Targets" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
   <h3>Targets</h3>
+
+  {% if data %}
+   <pre>{{ data }}</pre>
+{% endif %}
+
   <form action="/targetfinder" method="POST">
 
     <button class="buttony button1" value="SAO61424" input type="submit" name="submit">SAO61424</button>
@@ -212,8 +217,6 @@ body {font-family: Arial;}
   </form>
  
 
-
-
 </div>
 
      
@@ -223,10 +226,10 @@ body {font-family: Arial;}
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
   <h4>Runs</h4>
    <form action="/runfinder" method="POST">
- <button class="buttony button1" value="2016" input type="submit" name="submit">2016B</button>
-    <button class="buttony button1" value="201704" input type="submit" name="submit">2017A</button>
-    <button class="buttony button1" value="201710" input type="submit" name="submit">2017B</button> 
-    <button class="buttony button1" value="2018" input type="submit" name="submit">2018A</button> 
+ <button class="buttony button1" value="2016B" input type="submit" name="submit">2016B</button>
+    <button class="buttony button1" value="2017A" input type="submit" name="submit">2017A</button>
+    <button class="buttony button1" value="2017B" input type="submit" name="submit">2017B</button> 
+    <button class="buttony button1" value="2018A" input type="submit" name="submit">2018A</button> 
 </form>
 </div>
 

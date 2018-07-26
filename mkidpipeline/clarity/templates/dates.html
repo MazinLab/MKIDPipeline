@@ -155,10 +155,10 @@ body {font-family: Arial;}
 
 <div class="tab">
 <a href ="http://0.0.0.0:3000/"><button class="tablinks" onclick="openData(event, 'Home')">Home</button></a>
-  <button class="tablinks" onclick="openData(event, 'Targets')">Targets</button>
-  <button class="tablinks" onclick="openData(event, 'Runs')">Runs</button>
+  <a href ="http://0.0.0.0:3000/"><button class="tablinks" onclick="openData(event, 'Targets')">Targets</button></a>
+  <a href ="http://0.0.0.0:3000/"><button class="tablinks" onclick="openData(event, 'Runs')">Runs</button></a>
   <button class="tablinks" onclick="openData(event, 'Dates')" id="defaultOpen">Dates</button>
-   <button class="tablinks" onclick="openData(event, 'Calibrations')">Calibrations</button>
+   <a href ="http://0.0.0.0:3000/"><button class="tablinks" onclick="openData(event, 'Calibrations')">Calibrations</button></a>
     <div class="search-container">
             <form action="/action_page.php">
               <input type="text" placeholder="Search..." name="search" size = 30px>
@@ -183,11 +183,12 @@ body {font-family: Arial;}
 <div id="Dates" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
 
-  
-  {% if data %}
-   <pre>{{ data }}</pre>
-{% endif %}
-
+{% for elem in data %}
+      {%for key in elem%} 
+       <b> {{key}}{{": " }}<p>&nbsp;&nbsp;&nbsp;&nbsp;</b>{{elem[key]}}</p>
+      {%endfor%}
+     {{"------------------------------------------------------------------------------------------------------------------------"}} <br>
+  {% endfor %}
 
   <div id="Calibrations" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
