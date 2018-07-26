@@ -1,0 +1,6 @@
+multiprocessing_logging
+numpy
+scipy
+matplotlib
+PyPDF2
+lmfit
