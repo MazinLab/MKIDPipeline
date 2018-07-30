@@ -1,0 +1,13 @@
+.DS_Store
+*~*
+*#*
+*.pyc
+.idea
+*.iml
+
+#ignore C compiled (or Cython compiled) files
+*.o
+*.so
+
+#ignore profiler output files
+*.prof
