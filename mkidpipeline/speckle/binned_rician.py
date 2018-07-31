@@ -5,7 +5,7 @@ Created on Thu Jun 21 11:24:00 2018
 
 Author: Clint Bockstiegel
 Date: June 21, 2018
-Last Updated: June 21, 2018
+Last Updated: July 31, 2018
 
 This code contains functions for analyzing photon arrival times using BINNING. 
 
@@ -20,9 +20,12 @@ import matplotlib
 from scipy.optimize import curve_fit
 
 from mkidpipeline.hdf.darkObsFile import ObsFile
-from mkidpipeline.speckle.genphotonlist import genphotonlist
+#from mkidpipeline.speckle.genphotonlist import genphotonlist
+from mkidpipeline.speckle.genphotonlist_IcIsIr import genphotonlist
 from mpmath import mp, hyp1f1
 from scipy import special
+from scipy.special import eval_laguerre
+from scipy import optimize
 
 import time
 
@@ -211,19 +214,46 @@ def binMRlogL(n, Ic, Is):
         [float] the Log likelihood. 
     
     '''
-    lnL = np.zeros(len(n)) 
-    tmp = np.zeros(len(n))
+    N = len(n)
+    lnL = np.zeros(N) 
+    tmp = np.zeros(N)
     
     #hyp1f1 can't do numpy arrays because of its data type, which is mpf
-    
+
+# v1
 #    for ii in range(len(n)): 
 #        tmp[ii] = float(hyp1f1(n[ii] + 1,1,Ic/(Is**2 + Is)))
     
-    #TODO: rewrite the equation below to optimize for speed.
-    tmp = np.array([float(hyp1f1(i + 1,1,Ic/(Is**2 + Is))) for i in n])
-    lnL = np.log(1./(Is+1)) - n*np.log(1+1./Is) - Ic/Is + np.log(tmp)
+#    tmp = np.array([float(hyp1f1(i + 1,1,Ic/(Is**2 + Is))) for i in n])
+#    lnL = np.log(1./(Is+1)) - n*np.log(1+1./Is) - Ic/Is + np.log(tmp)
+#    
+#    return np.sum(lnL)
+
+# v2, gains about a factor of 10 in speed over v1
+#    k = Ic/(Is**2 + Is)
+#    tmp = np.log([eval_laguerre(i,-k)*np.exp(k) for i in n])
+#    lnL = N*(np.log(1./(Is+1))  - 1.*Ic/Is) + np.sum(tmp) + np.sum(n)*np.log(Is/(1.+Is))
+#    
+#    return lnL
+    
+    
+# v3, another factor of ~5 in speed over v2
+    k = Ic/(Is**2 + Is)
+    tmp = np.log([eval_laguerre(i,-k) for i in n])
+    tmp += k
+    
+    lnL = N*(np.log(1./(Is+1))  - 1.*Ic/Is) + np.sum(tmp) + np.sum(n)*np.log(Is/(1.+Is))
+    
+    return lnL
+
+
+def negLogLike(p,lightcurve):
+    Ic = p[0]
+    Is = p[1]
+    
+    return -binMRlogL(lightcurve, Ic, Is)
         
-    return np.sum(lnL)
+
 
 
 
@@ -246,9 +276,10 @@ def plotLogLMap(n, Ic_list, Is_list, effExpTime):
     
     for i, Ic in enumerate(Ic_list_countsperbin): #calculate maximum likelihood for a grid of 
         for j, Is in enumerate(Is_list_countsperbin):   #Ic,Is values using counts/bin
-            print('Ic,Is = ',Ic/effExpTime,Is/effExpTime)
+            
             lnL = binMRlogL(n, Ic, Is)
             im[i,j] = lnL
+        print('Ic,Is = ',Ic/effExpTime,Is/effExpTime)
             
     Ic_ind, Is_ind=np.unravel_index(im.argmax(), im.shape)
     print('Max at ('+str(Ic_ind)+', '+str(Is_ind)+')')
@@ -292,10 +323,14 @@ def plotLogLMap(n, Ic_list, Is_list, effExpTime):
 
 if __name__ == "__main__":
 
-    if 0:
+    if 1:
         print("Generating photon list...",end="", flush=True)
-        Ic, Is, Ttot, tau = [300., 30., 300., .1] # [Ic, Is] = cps, [Ttot, tau] = sec
-        ts = genphotonlist(Ic, Is, Ttot, tau)
+#        Ic, Is, Ttot, tau = [300., 30., 300., .1] # [Ic, Is] = cps, [Ttot, tau] = sec
+#        ts = genphotonlist(Ic, Is, Ttot, tau)
+        
+        Ic, Is, Ir, Ttot, tau = [300., 30., 0, 300., .1] # [Ic, Is] = cps, [Ttot, tau] = sec
+        ts = genphotonlist(Ic, Is, Ir, Ttot, tau)
+        
         print("[Done]\n")
     
         print("=====================================")
@@ -544,14 +579,15 @@ if __name__ == "__main__":
             
             
         
-    if 0:
+    if 1:
         
+        effExpTime = .01
         lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         
         
         print("Mapping...")
-        Ic_list=np.linspace(285,315,25)  #linspace(start,stop,number of steps)
-        Is_list=np.linspace(25,35,25)
+        Ic_list=np.linspace(285,315,5)  #linspace(start,stop,number of steps)
+        Is_list=np.linspace(25,35,5)
         X,Y,im = plotLogLMap(lightCurveIntensityCounts, Ic_list, Is_list, effExpTime)
         
         """
@@ -577,18 +613,56 @@ if __name__ == "__main__":
             
             
         """
-    
-    
-    if 1:
         
+        
+        
+    if 0:
+        effExpTime = .01
         lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         
-        time1 = time.time()
-        lnL = binMRlogL(lightCurveIntensityCounts, Ic, Is)
+        print("Calling scipy.optimize.minimize to find Ic,Is...")
+        
+        mu = np.mean(lightCurveIntensityCounts)
+        var = np.var(lightCurveIntensityCounts)
+
+        try:
+            IIc,IIs = muVar_to_IcIs(mu,var,effExpTime)
+        except:
+            IIc = mu/2       #just create a reasonable seed 
+            IIs = mu - IIc
+            IIc/=effExpTime
+            IIs/=effExpTime
+        
+        p0 = np.array([IIc,IIs])
+        
+        t1 = time.time()
+        
+        p1 = optimize.minimize(negLogLike, p0,lightCurveIntensityCounts,bounds=((0.1,np.inf),(0.1,np.inf)))
+        
+        t2 = time.time()
+        
+        dT = t2 - t1
+        
+        print('\nelapsed time: ', dT, 'sec\n')
+        
+        print(p1)
+        Ic = p1.x[0]/effExpTime
+        Is = p1.x[1]/effExpTime
+        
+        print('\nIc,Is = ', Ic, Is)
         
         
-        time2 = time.time()
-        print(time2 - time1)
+        print("[Done]\n")
+        
+        print("=====================================")
+        
+#        
+#        p1 = optimize.minimize(loglike, p0, (dt, deadtime, False),
+#                           method='Newton-CG', jac=_jacobean, hess=_hessian,
+#                           options={"disp" : True}).x
+        
+    
+
     
     
     
