@@ -3,7 +3,7 @@
 from __future__ import print_function
 import numpy as np
 from scipy import special, interpolate
-import photonstats_utils as utils
+import mkidpipeline.speckle.photonstats_utils as utils
 
 def MRicdf(Ic, Is, interpmethod='cubic'):
 
