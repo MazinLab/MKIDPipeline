@@ -180,15 +180,18 @@ body {font-family: Arial;}
 </div>
 
 <div id="Runs" class="tabcontent">
-<p class="solid">
- {% for elem in data %}
-      {%for key in elem%} 
-       <b> {{key}}{{": " }}<p>&nbsp;&nbsp;&nbsp;&nbsp;</b>{{elem[key]}}</p>
-      {%endfor%}
-     {{"------------------------------------------------------------------------------------------------------------------------"}} <br>
+  <p class="solid">
+    
+    {% for elem in data %}
+    <table>
+     {%for key in ["Target", "Type", "J mag", "Sunset Date(s)", "Seeing (AO)", "Filters", "Time Windows", "Nearby Laser Cals", "Important Notes", "Number of Dithers", "AO Saved State", "BIN File Range"] %}
+        <tr> <th> {{key}}:</th><td> {{elem[key] | safe}} </td></tr>
+     {%endfor%}
+     </table>
+  <hr>
   {% endfor %}
-
-
+</table>
+</p>
 
 </div>
 <div id="Dates" class="tabcontent">
