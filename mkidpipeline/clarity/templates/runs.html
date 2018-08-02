@@ -155,11 +155,11 @@ body {font-family: Arial;}
             </div>
 
 <div class="tab">
- <a href ="http://0.0.0.0:3000/"><button class="tablinks" onclick="openData(event, 'Home')">Home</button></a>
-  <a href ="http://0.0.0.0:3000/"><button class="tablinks" onclick="openData(event, 'Targets')" >Targets</button></a>
+ <a href =" http://dark.physicsb.ucsb.edu:3000/"><button class="tablinks" onclick="openData(event, 'Home')">Home</button></a>
+  <a href = "http://dark.physicsb.ucsb.edu:3000/"><button class="tablinks" onclick="openData(event, 'Targets')" >Targets</button></a>
 <button class="tablinks" onclick="openData(event, 'Runs')" id="defaultOpen">Runs</button>
-  <a href ="http://0.0.0.0:3000/"><button class="tablinks" onclick="openData(event, 'Dates')">Dates</button></a>
-  <a href ="http://0.0.0.0:3000/"> <button class="tablinks" onclick="openData(event, 'Calibrations')">Calibrations</button></a>
+  <a href = "http://dark.physicsb.ucsb.edu:3000/><button class="tablinks" onclick="openData(event, 'Dates')">Dates</button></a>
+  <a href = "http://dark.physicsb.ucsb.edu:3000/> <button class="tablinks" onclick="openData(event, 'Calibrations')">Calibrations</button></a>
     <div class="search-container">
             <form action="/action_page.php">
               <input type="text" placeholder="Search..." name="search" size = 30px>
@@ -178,6 +178,16 @@ body {font-family: Arial;}
 
      
 </div>
+
+<div id="Runs" class="tabcontent">
+<p class="solid">
+ {% for elem in data %}
+      {%for key in elem%} 
+       <b> {{key}}{{": " }}<p>&nbsp;&nbsp;&nbsp;&nbsp;</b>{{elem[key]}}</p>
+      {%endfor%}
+     {{"------------------------------------------------------------------------------------------------------------------------"}} <br>
+  {% endfor %}
+
 <div id="Runs" class="tabcontent">
   <p class="solid">
     
@@ -191,6 +201,7 @@ body {font-family: Arial;}
   {% endfor %}
 </table>
 </p>
+
 
 </div>
 <div id="Dates" class="tabcontent">
