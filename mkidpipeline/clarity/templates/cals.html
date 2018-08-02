@@ -189,14 +189,19 @@ body {font-family: Arial;}
   <div id="Calibrations" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
   <h4>Calibrations</h4>
- {% for elem in data %}
-      {%for key in elem%} 
-       <b> {{key}}{{": " }}<p>&nbsp;&nbsp;&nbsp;&nbsp;</b>{{elem[key]}}</p>
-      {%endfor%}
-     {{"------------------------------------------------------------------------------------------------------------------------"}} <br>
+  <p class="solid">
+    
+    {% for elem in data %}
+    <table>
+     {%for key in ["Target", "Run", "Date", "Time", "808nm", "904 nm", "920 nm", "980 nm", "1120 nm"] %}
+        <tr> <th> {{key}}:</th><td> {{elem[key] | safe}} </td></tr>
+     {%endfor%}
+     </table>
+  <hr>
   {% endfor %}
+</table>
+</p>
 
-</div>
 
 <script>
   function openData(evt, infoName) {
