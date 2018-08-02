@@ -1,30 +1,48 @@
 import os
-from flask import Flask, send_file, render_template, jsonify, request
+from flask import Flask, send_file, render_template, jsonify, request, url_for, g, session, redirect
 import json
 
-def makeList(stri):
-    out = []
-    buff = []
-    for c in stri:
-        if c == '\n':
-            out.append(''.join(buff))
-            buff = []
-        else:
-            buff.append(c)
-    else:
-        if buff:
-           out.append(''.join(buff))
-
-    return out
-
-
 app = Flask(__name__)
+app.debug = True
 app.config['JSON_SORT_KEYS'] = False
+app.secret_key = os.urandom(24)
 
-@app.route('/')
-def homepage():
-    return render_template('database.html')
+@app.route('/', methods = ['GET', 'POST'])
+def index():
+    if request.method == 'POST':
+        session.pop('user', None)
+
+        if request.form['password'] == 'mkidsecure':
+            session['user'] = request.form['username']
+        return redirect(url_for('database'))
+    return render_template('index.html')
+
+
+
+@app.route('/database')
+def database():
+    if g.user:
+        return render_template('database.html')
+    return redirect(url_for('index'))
+
+@app.before_request
+def before_request():
+    g.user = None
+    if 'user' in session:
+        g.user = session['user']
     #return send_file(os.path.join(app.config['/'], 'database.html'))
+
+@app.route('/getsession')
+def getsession():
+    if 'user' in session:
+        return session['user']
+
+    return 'Not logged in!'
+
+@app.route('/dropsession')
+def dropsession():
+    session.pop('user', None)
+    return 'Dropped!'
 
 
 @app.route('/targetfinder', methods=['POST'])
