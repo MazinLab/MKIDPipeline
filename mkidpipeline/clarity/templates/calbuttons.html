@@ -154,11 +154,11 @@ body {font-family: Arial;}
             </div>
 
 <div class="tab">
-  <button class="tablinks" onclick="openData(event, 'Home')" id="defaultOpen">Home</button>
- <a href ="/targetbuttons"> <button class="tablinks" onclick="openData(event, 'Targets')">Targets</button></a>
-   <a href ="/runbuttons"><button class="tablinks" onclick="openData(event, 'Runs')">Runs</button></a>
-  <a href ="/datebuttons"> <button class="tablinks" onclick="openData(event, 'Dates')">Dates</button></a>
-    <a href ="/calbuttons"><button class="tablinks" onclick="openData(event, 'Calibrations')">Calibrations</button></a>
+<a href ="/database"><button class="tablinks" onclick="openData(event, 'Home')">Home</button></a>
+  <a href ="/targetbuttons"><button class="tablinks" onclick="openData(event, 'Targets')">Targets</button></a>
+  <a href ="/runbuttons"><button class="tablinks" onclick="openData(event, 'Runs')">Runs</button></a>
+  <a href ="/datebuttons"><button class="tablinks" onclick="openData(event, 'Dates')" >Dates</button></a>
+  <button class="tablinks" onclick="openData(event, 'Calibrations')" id="defaultOpen">Calibrations</button>
     <div class="search-container">
             <form action="/action_page.php">
               <input type="text" placeholder="Search..." name="search" size = 30px>
@@ -168,41 +168,59 @@ body {font-family: Arial;}
 </div>
 <div id="Home" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
-  <h3>Home</h3>
-  <p> The Mazin Lab is a University of California, Santa Barbara astrophysics laboratory that uses MKIDS technology to detect stars and exoplanets. This website is the database for all the stars, runs and dates of observation. The official lab website and more information on staff can be found <a href = "https://web.physics.ucsb.edu/~bmazin/">here</a>.</p>
-  <p>The "Targets" section allows you to search for any target from the last four Palomar DARKNESS runs. The "Runs" tab allows you to find all information on a specific run (i.e. 2017A): targets, nearby laser cal times, etc. The "Dates" tab allows you to find information on a specific date. The "Calibrations" tab allows you to find information on Calibration times, dates, targets and bands for each run. You may also search any of these on the Search Bar.</p>
-  <p>Right now, what you will find here is information for the DARKNESS runs, which happened at the Palomar Observatory. The Database is currently being developed by undergraduate student Clarissa Do O, with help from Isabel Lipartito and Jonathan Guiang.</p>
+ </div>
 
-  
-</div>
-<div id = "data">
 <div id="Targets" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
-
-
- 
- 
-
-</div>
+  <h3>Targets</h3>
 
      
 </div>
 
 <div id="Runs" class="tabcontent">
-  <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
-  
-
+ 
 </div>
-
 <div id="Dates" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
 
+  
 
 </div>
   <div id="Calibrations" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
- 
-</div>
+  <h4>Calibrations</h4>
+   <form action="/calibrationfinder" method="POST">
+
+    <button class="buttony button1" value="SAO61424" input type="submit" name="submit">SAO61424</button>
+    <button class="buttony button1" value="HR8799" input type="submit" name="submit">HR8799</button>
+    <button class="buttony button1" value="Eps Eridani" input type="submit" name="submit">Eps Eridani</button>
+    <button class="buttony button1" value="SAO78135 (Propus)" input type="submit" name="submit">SAO78135 (Propus)</button>
+    <button class="buttony button1" value="SAO42642" input type="submit" name="submit">SAO42642</button>
+    <button class="buttony button1" value="SAO82875" input type="submit" name="submit">SAO82875</button>
+    <button class="buttony button1" value="HD77407" input type="submit" name="submit">HD77407</button> 
+    <button class="buttony button1" value="SAO100725" input type="submit" name="submit">SAO100725</button> 
+    <button class="buttony button1" value="Tau Boo" input type="submit" name="submit">Tau Boo</button> 
+    <button class="buttony button1" value="Candidate 1" input type="submit" name="submit">Candidate 1</button>
+    <button class="buttony button1" value="HD114174" input type="submit" name="submit">HD114174</button>
+    <button class="buttony button1" value="SAO65921" input type="submit" name="submit">SAO65921</button>
+    <button class="buttony button1" value="SAO65890" input type="submit" name="submit">SAO65890</button>
+    <button class="buttony button1" value="HD91782" input type="submit" name="submit">HD91782</button>
+    <button class="buttony button1" value="HD148112" input type="submit" name="submit">HD148112</button>
+    <button class="buttony button1" value="SAO83893" input type="submit" name="submit">SAO83893</button>
+    <button class="buttony button1" value="SAO90440 (32 Peg)" input type="submit" name="submit">SAO90440 (32 Peg)</button>
+    <button class="buttony button1" value="SAO90717" input type="submit" name="submit">SAO90717</button>
+    <button class="buttony button1" value="SAO108402" input type="submit" name="submit">SAO108402</button>
+    <button class="buttony button1" value="SAO54058 (Delta And)" input type="submit" name="submit">SAO54058 (Delta And)</button>
+    <button class="buttony button1" value="SAO112345 (HD32297)" input type="submit" name="submit">SAO112345 (HD32297)</button>
+    <button class="buttony button1" value="SAO 37734 (Gamma And)" input type="submit" name="submit">SAO 37734 (Gamma And)</button>
+    <button class="buttony button1" value="SAO44531" input type="submit" name="submit">SAO44531</button>
+    <button class="buttony button1" value="Vega" input type="submit" name="submit">Vega</button>
+    <button class="buttony button1" value="Omega Her" input type="submit" name="submit">Omega Her</button>
+    <button class="buttony button1" value="SAO47913" input type="submit" name="submit">SAO47913</button>
+    <button class="buttony button1" value="White Light" input type="submit" name="submit">White Light</button>
+
+  </form>
+
 
 <script>
   function openData(evt, infoName) {

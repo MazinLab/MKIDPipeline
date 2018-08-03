@@ -154,11 +154,11 @@ body {font-family: Arial;}
             </div>
 
 <div class="tab">
-  <button class="tablinks" onclick="openData(event, 'Home')" id="defaultOpen">Home</button>
- <a href ="/targetbuttons"> <button class="tablinks" onclick="openData(event, 'Targets')">Targets</button></a>
-   <a href ="/runbuttons"><button class="tablinks" onclick="openData(event, 'Runs')">Runs</button></a>
-  <a href ="/datebuttons"> <button class="tablinks" onclick="openData(event, 'Dates')">Dates</button></a>
-    <a href ="/calbuttons"><button class="tablinks" onclick="openData(event, 'Calibrations')">Calibrations</button></a>
+<a href ="/database"><button class="tablinks" onclick="openData(event, 'Home')">Home</button></a>
+  <a href ="/targetbuttons"><button class="tablinks" onclick="openData(event, 'Targets')">Targets</button></a>
+  <a href ="/runbuttons"><button class="tablinks" onclick="openData(event, 'Runs')">Runs</button></a>
+  <button class="tablinks" onclick="openData(event, 'Dates')" id="defaultOpen">Dates</button>
+   <a href ="/calbuttons"><button class="tablinks" onclick="openData(event, 'Calibrations')">Calibrations</button></a>
     <div class="search-container">
             <form action="/action_page.php">
               <input type="text" placeholder="Search..." name="search" size = 30px>
@@ -168,40 +168,46 @@ body {font-family: Arial;}
 </div>
 <div id="Home" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
-  <h3>Home</h3>
-  <p> The Mazin Lab is a University of California, Santa Barbara astrophysics laboratory that uses MKIDS technology to detect stars and exoplanets. This website is the database for all the stars, runs and dates of observation. The official lab website and more information on staff can be found <a href = "https://web.physics.ucsb.edu/~bmazin/">here</a>.</p>
-  <p>The "Targets" section allows you to search for any target from the last four Palomar DARKNESS runs. The "Runs" tab allows you to find all information on a specific run (i.e. 2017A): targets, nearby laser cal times, etc. The "Dates" tab allows you to find information on a specific date. The "Calibrations" tab allows you to find information on Calibration times, dates, targets and bands for each run. You may also search any of these on the Search Bar.</p>
-  <p>Right now, what you will find here is information for the DARKNESS runs, which happened at the Palomar Observatory. The Database is currently being developed by undergraduate student Clarissa Do O, with help from Isabel Lipartito and Jonathan Guiang.</p>
+ </div>
 
-  
-</div>
-<div id = "data">
 <div id="Targets" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
-
-
- 
- 
-
-</div>
+  <h3>Targets</h3>
 
      
 </div>
 
 <div id="Runs" class="tabcontent">
-  <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
-  
-
+ 
 </div>
-
 <div id="Dates" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
+      <form action="/datefinder" method="POST">
+     <button class="buttony button1" value="20161121" input type="submit" name="submit">November 21st, 2016</button>
+    <button class="buttony button1" value="20161122" input type="submit" name="submit">November 22nd, 2016</button>
+    <button class="buttony button1" value="20170407" input type="submit" name="submit">April 7th, 2017</button> 
+    <button class="buttony button1" value="20170408" input type="submit" name="submit">April 8th, 2017</button> 
+    <button class="buttony button1" value="20170409" input type="submit" name="submit">April 9th, 2017</button> 
+    <button class="buttony button1" value="20170410" input type="submit" name="submit">April 10th, 2017</button>
+    <button class="buttony button1" value="20171003" input type="submit" name="submit">October 3rd, 2017</button>
+    <button class="buttony button1" value="20171004" input type="submit" name="submit">October 4th, 2017</button>
+    <button class="buttony button1" value="20171005" input type="submit" name="submit">October 5th, 2017</button>
+   <button class="buttony button1" value="20171006" input type="submit" name="submit">October 6th, 2017</button> 
+    <button class="buttony button1" value="20180523" input type="submit" name="submit">May 23rd, 2018</button> 
+    <button class="buttony button1" value="20180524" input type="submit" name="submit">May 24th, 2018</button> 
+    <button class="buttony button1" value="20180527" input type="submit" name="submit">May 27th, 2018</button>
+    <button class="buttony button1" value="20180528" input type="submit" name="submit">May 28th, 2018</button>
+    <button class="buttony button1" value="20180529" input type="submit" name="submit">May 29th, 2018</button>
+    <button class="buttony button1" value="20180530" input type="submit" name="submit">May 30th, 2018</button>
 
-
-</div>
+</form>
   <div id="Calibrations" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
+  <h4>Calibrations</h4>
+
+
  
+</div>
 </div>
 
 <script>
