@@ -17,13 +17,39 @@ def index():
         return redirect(url_for('database'))
     return render_template('index.html')
 
-
-
 @app.route('/database')
 def database():
     if g.user:
         return render_template('database.html')
     return redirect(url_for('index'))
+
+@app.route('/targetbuttons')
+def targetbuttons():
+    if g.user:
+        return render_template('targetbuttons.html')
+    return redirect(url_for('index'))
+
+
+@app.route('/runbuttons')
+def runbuttons():
+    if g.user:
+        return render_template('runbuttons.html')
+    return redirect(url_for('index'))
+
+@app.route('/datebuttons')
+def datebuttons():
+    if g.user:
+        return render_template('datebuttons.html')
+    return redirect(url_for('index'))
+
+
+@app.route('/calbuttons')
+def calbuttons():
+    if g.user:
+        return render_template('calbuttons.html')
+    return redirect(url_for('index'))
+
+
 
 @app.before_request
 def before_request():
@@ -38,6 +64,7 @@ def getsession():
         return session['user']
 
     return 'Not logged in!'
+
 
 @app.route('/dropsession')
 def dropsession():
