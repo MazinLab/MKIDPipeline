@@ -8,7 +8,8 @@
     "920 nm": "1507097845 - 1507097915 (1x Diffuser)",
     "980 nm": "1507097935 - 1507098030 (1x Diffuser)",
     "1120 nm": "1507098045 - 1507098100 (1x diffuser)",
-    "1310 nm": "Broken"
+    "1310 nm": "Broken",
+    "Rethresholding range": "23:06 - 2:01"
   },
   {
     "Target": "HR8799",
@@ -19,7 +20,8 @@
     "920 nm": "1507097845 - 1507097915 (1x Diffuser)",
     "980 nm": "1507097935 - 1507098030 (1x Diffuser)",
     "1120 nm": "1507102665 - 1507102765 (1x diffuser, open)",
-    "1310 nm": "Broken"
+    "1310 nm": "Broken",
+    "Rethresholding range": "23:06 - 2:01"
   },
   {
     "Target": "SAO90440 (32 Peg)",
@@ -30,7 +32,8 @@
     "920 nm": "1507173097 - 1507173165 (1x Diffuser)",
     "980 nm": "1507173180 - 1507173250 (1x Diffuser)",
     "1120 nm": "1507173270 (1x diffuser)",
-    "1310 nm": "Broken"
+    "1310 nm": "Broken",
+    "Rethresholding range": "20:09 - 20:21"
   },
   {
     "Target": "SAO90717",
@@ -41,7 +44,8 @@
     "920 nm": "1507178945 - 1507179070 (1x Diffuser)",
     "980 nm": "1507179085 - 1507179155 (1x Diffuser)",
     "1120 nm": "1507179172 - 1507179244 (1x diffuser)",
-    "1310 nm": "Broken"
+    "1310 nm": "Broken",
+    "Rethresholding range": "20:21 - 22:54"
   },
   {
     "Target": "HR8799",
@@ -52,7 +56,8 @@
     "920 nm": "1507191908 - 1507192020 (1x Diffuser)",
     "980 nm": "1507192035 - 1507192100 (1x Diffuser)",
     "1120 nm": "1507179172 - 1507179244 (1x diffuser)",
-    "1310 nm": "Broken"
+    "1310 nm": "Broken",
+    "Rethresholding range": "22:24 - 02:54"
   },
   {
     "Target": "SAO54058 (Delta And)",
@@ -63,7 +68,8 @@
     "920 nm": "95940 - 96020 (1x Diffuser)",
     "980 nm": "96065 - 96150 (1x Diffuser)",
     "1120 nm": "1507179172 - 1507179244 (1x diffuser)",
-    "1310 nm": "Broken"
+    "1310 nm": "Broken",
+    "Rethresholding range": "22:24 - 02:54"
   },
   {
     "Target": "SAO90440 (32 Peg)",
@@ -74,7 +80,8 @@
     "920 nm": " 1507256172 -  1507256255 (1x Diffuser)",
     "980 nm": "96065 - 96150 (1x Diffuser)",
     "1120 nm": "1507179172 - 1507179244 (1x diffuser)",
-    "1310 nm": "1507255310 - 1507255460 (Color FW open - 1x Diffuser)"
+    "1310 nm": "1507255310 - 1507255460 (Color FW open - 1x Diffuser)",
+    "Rethresholding range": "18:44 - 01:25"
   },
   {
     "Target": "SAO54058 (Delta And)",
@@ -85,7 +92,8 @@
     "920 nm": " 1507284840 -  1507284930 (1x Diffuser)",
     "980 nm": "Broken",
     "1120 nm": "1507284975 - 1507285050 (1x diffuser)",
-    "1310 nm": "Labelled incorrectly. Go to Logs for more detail."
+    "1310 nm": "Labelled incorrectly. Go to Logs for more detail.",
+    "Rethresholding range": "01:25 - 03:24"
   },
   {
     "Target": "SAO112345 (HD32297)",

@@ -7,13 +7,25 @@ app.debug = True
 app.config['JSON_SORT_KEYS'] = False
 app.secret_key = os.urandom(24)
 
+
+def saveFile(name, newlist):
+    with open(name + 'J.json', 'w') as outfile:
+        json.dump(newlist, outfile, indent=4, separators=(',', ': '))
+
+def loadFile(name):
+    with open(name + 'J.json', 'r') as infile:
+        return json.load(infile)
+
+
+
+
 @app.route('/', methods = ['GET', 'POST'])
 def index():
     if request.method == 'POST':
         session.pop('user', None)
-
-        if request.form['password'] == 'mkidsecure':
-            session['user'] = request.form['username']
+        if request.form['password'] == 'password':
+                if request.form['username'] in userlist:
+                    session['user'] = request.form['username']
         return redirect(url_for('database'))
     return render_template('index.html')
 
@@ -29,10 +41,37 @@ def targetbuttons():
         return render_template('targetbuttons.html')
     return redirect(url_for('index'))
 
+@app.route('/datarecorder', methods = ['GET', 'POST'])
+def datarecorder():
+    if g.user:
+        newtargets = loadFile('2018B')
+        data = {}
+        if request.method == 'POST':
+           data['Target'] = request.form['Target']
+           data['Type'] = request.form['Type']
+           data['J mag'] = request.form['J mag']
+           data['Filters'] = request.form['Filters']
+           data['Time Windows'] = request.form['Time Windows']
+           data['Nearby Laser Cals'] = request.form['Nearby Laser Cals']
+           data['Important Notes'] = request.form['Important Notes']
+           data['Number of Dithers'] = request.form['Number of Dithers']
+           data['AO Saved State'] = request.form['AO Saved State']
+           data['BIN File Range'] = request.form['BIN File Range']
+           newtargets.append(data)
+           saveFile('2018B', newtargets)
+           print(newtargets)
 
-@app.route('/runbuttons')
+           
+
+        return render_template('datarecorder.html')
+
+@app.route('/runbuttons', methods = ['GET', 'POST'])
 def runbuttons():
     if g.user:
+        if request.method == 'POST':
+            filename = request.form['newFile'] + 'J.json'
+            with open(filename, 'w') as json_file:
+                json_file.write('[]')
         return render_template('runbuttons.html')
     return redirect(url_for('index'))
 
