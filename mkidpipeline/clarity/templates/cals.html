@@ -159,6 +159,7 @@ body {font-family: Arial;}
   <a href ="/runbuttons"><button class="tablinks" onclick="openData(event, 'Runs')">Runs</button></a>
   <a href ="/datebuttons"><button class="tablinks" onclick="openData(event, 'Dates')" >Dates</button></a>
   <button class="tablinks" onclick="openData(event, 'Calibrations')" id="defaultOpen">Calibrations</button>
+  <a href ="/datarecorder"><button class="tablinks" onclick="openData(event, 'Add New Data')">Add New Data</button></a>
     <div class="search-container">
             <form action="/action_page.php">
               <input type="text" placeholder="Search..." name="search" size = 30px>
@@ -189,11 +190,12 @@ body {font-family: Arial;}
   <div id="Calibrations" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
   <h4>Calibrations</h4>
+   <a href ="/calbuttons"><img src="/static/backbutton.png" alt="backbutton" height="42" width="42"></a>
   <p class="solid">
     
     {% for elem in data %}
     <table>
-     {%for key in ["Target", "Run", "Date", "Time", "808nm", "904 nm", "920 nm", "980 nm", "1120 nm"] %}
+     {%for key in ["Target", "Run", "Date", "Time", "808nm", "904 nm", "920 nm", "980 nm", "1120 nm", "Rethresholding range"] %}
         <tr> <th> {{key}}:</th><td> {{elem[key] | safe}} </td></tr>
      {%endfor%}
      </table>

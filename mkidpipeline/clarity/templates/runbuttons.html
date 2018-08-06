@@ -160,6 +160,7 @@ body {font-family: Arial;}
 <button class="tablinks" onclick="openData(event, 'Runs')" id="defaultOpen">Runs</button>
   <a href = "/datebuttons"><button class="tablinks" onclick="openData(event, 'Dates')">Dates</button></a>
   <a href = "/calbuttons"><button class="tablinks" onclick="openData(event, 'Calibrations')">Calibrations</button></a>
+  <a href ="/datarecorder"><button class="tablinks" onclick="openData(event, 'Add New Data')">Add New Data</button></a>
     <div class="search-container">
             <form action="/action_page.php">
               <input type="text" placeholder="Search..." name="search" size = 30px>
@@ -180,13 +181,19 @@ body {font-family: Arial;}
 </div>
 <div id="Runs" class="tabcontent">
   <p class="solid">
-
+<h4>Runs</h4>
       <form action="/runfinder" method="POST">
  <button class="buttony button1" value="2016B" input type="submit" name="submit">2016B</button>
     <button class="buttony button1" value="2017A" input type="submit" name="submit">2017A</button>
     <button class="buttony button1" value="2017B" input type="submit" name="submit">2017B</button> 
     <button class="buttony button1" value="2018A" input type="submit" name="submit">2018A</button> 
 </form>
+<br /> <br />
+ <b>Create a New Run </b><br/> (type year, A or B) - e.g. 2018B:<br/>
+<form method = 'POST'>
+<input type ='text' name = 'newFile'>
+<input type = 'submit'>
+  </form>
 
 </div>
 <div id="Dates" class="tabcontent">
@@ -194,7 +201,7 @@ body {font-family: Arial;}
  
   <div id="Calibrations" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
-  <h4>Calibrations</h4>
+  
  
 </div>
 </div>

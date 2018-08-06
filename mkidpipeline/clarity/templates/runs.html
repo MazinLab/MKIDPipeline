@@ -160,6 +160,7 @@ body {font-family: Arial;}
 <button class="tablinks" onclick="openData(event, 'Runs')" id="defaultOpen">Runs</button>
   <a href = "/datebuttons"><button class="tablinks" onclick="openData(event, 'Dates')">Dates</button></a>
   <a href = "/calbuttons"><button class="tablinks" onclick="openData(event, 'Calibrations')">Calibrations</button></a>
+  <a href ="/datarecorder"><button class="tablinks" onclick="openData(event, 'Add New Data')">Add New Data</button></a>
     <div class="search-container">
             <form action="/action_page.php">
               <input type="text" placeholder="Search..." name="search" size = 30px>
@@ -179,6 +180,7 @@ body {font-family: Arial;}
      
 </div>
 <div id="Runs" class="tabcontent">
+   <a href ="/runbuttons"><img src="/static/backbutton.png" alt="backbutton" height="42" width="42"></a>
   <p class="solid">
     
     {% for elem in data %}

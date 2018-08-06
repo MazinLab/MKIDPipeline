@@ -159,6 +159,7 @@ body {font-family: Arial;}
   <a href ="/runbuttons"><button class="tablinks" onclick="openData(event, 'Runs')">Runs</button></a>
   <button class="tablinks" onclick="openData(event, 'Dates')" id="defaultOpen">Dates</button>
    <a href ="/calbuttons"><button class="tablinks" onclick="openData(event, 'Calibrations')">Calibrations</button></a>
+   <a href ="/datarecorder"><button class="tablinks" onclick="openData(event, 'Add New Data')">Add New Data</button></a>
     <div class="search-container">
             <form action="/action_page.php">
               <input type="text" placeholder="Search..." name="search" size = 30px>
@@ -182,6 +183,7 @@ body {font-family: Arial;}
 </div>
 <div id="Dates" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
+  <h3> Dates </h3>
       <form action="/datefinder" method="POST">
      <button class="buttony button1" value="20161121" input type="submit" name="submit">November 21st, 2016</button>
     <button class="buttony button1" value="20161122" input type="submit" name="submit">November 22nd, 2016</button>
