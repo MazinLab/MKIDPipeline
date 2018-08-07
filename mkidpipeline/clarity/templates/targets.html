@@ -178,7 +178,7 @@ body {font-family: Arial;}
     
     {% for elem in data %}
     <table>
-     {%for key in ["Target", "Type", "J mag", "Sunset Date(s)", "Seeing (AO)", "Filters", "Time Windows", "Nearby Laser Cals", "Important Notes", "Number of Dithers", "AO Saved State", "BIN File Range"] %}
+     {%for key in ["Target", "Type", "J mag", "Sunset Date(s)", "Seeing (AO)", "Filters", "Time Windows", "Nearby Laser Cals", "Important Notes", "Number of Dithers", "AO Saved State", "BIN File Range", "Simbad Webpage"] %}
         <tr> <th> {{key}}:</th><td> {{elem[key] | safe}} </td></tr>
      {%endfor%}
      </table>
