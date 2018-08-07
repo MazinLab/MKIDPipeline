@@ -221,8 +221,8 @@ def binMRlogL(n, Ic, Is):
     #hyp1f1 can't do numpy arrays because of its data type, which is mpf
 
 # v1
-#    for ii in range(len(n)): 
-#        tmp[ii] = float(hyp1f1(n[ii] + 1,1,Ic/(Is**2 + Is)))
+##    for ii in range(len(n)): 
+##        tmp[ii] = float(hyp1f1(n[ii] + 1,1,Ic/(Is**2 + Is)))
     
 #    tmp = np.array([float(hyp1f1(i + 1,1,Ic/(Is**2 + Is))) for i in n])
 #    lnL = np.log(1./(Is+1)) - n*np.log(1+1./Is) - Ic/Is + np.log(tmp)
@@ -241,23 +241,32 @@ def binMRlogL(n, Ic, Is):
     k = Ic/(Is**2 + Is)
     tmp = np.log([eval_laguerre(i,-k) for i in n])
     tmp += k
-    
     lnL = N*(np.log(1./(Is+1))  - 1.*Ic/Is) + np.sum(tmp) + np.sum(n)*np.log(Is/(1.+Is))
     
     return lnL
 
 
-def negLogLike(p,lightcurve):
-    Ic = p[0]
-    Is = p[1]
+def negLogLike(p,n):
+    """
+    Wrapper for getting the negative log likelihood of the binned 
+    & blurred modified rician. The inputs are given in a 
+    different order because that's what scipy.optimize.minimize wants.
     
-    return -binMRlogL(lightcurve, Ic, Is)
+    Use this with scipy.optimize.minimize
+    
+    INPUTS:
+        p: a 2 element numpy array, where the first element is Ic and the second element is Is. 
+        n: 1d array containing the (binned) intensity as a function of time, i.e. a lightcurve [counts/sec]. Bin size must be fixed. 
+    OUTPUTS:
+        negative log likelihood [float]
+    """
+    return -binMRlogL(n, p[0], p[1])
         
 
 
 
 
-def plotLogLMap(n, Ic_list, Is_list, effExpTime):
+def plotLogLMap(n, Ic_list, Is_list, effExpTime,IcPlusIs = False):
     """
     plots a map of the MR log likelihood function over the range of Ic, Is
     
@@ -269,17 +278,38 @@ def plotLogLMap(n, Ic_list, Is_list, effExpTime):
         
     """
     
+    
     Ic_list_countsperbin = Ic_list*effExpTime  #convert from cps to counts/bin
     Is_list_countsperbin = Is_list*effExpTime
     
     im = np.zeros((len(Ic_list),len(Is_list)))
     
-    for i, Ic in enumerate(Ic_list_countsperbin): #calculate maximum likelihood for a grid of 
-        for j, Is in enumerate(Is_list_countsperbin):   #Ic,Is values using counts/bin
+#    for i, Ic in enumerate(Ic_list_countsperbin): #calculate maximum likelihood for a grid of 
+#        for j, Is in enumerate(Is_list_countsperbin):   #Ic,Is values using counts/bin
+#            print('Ic,Is = ',Ic/effExpTime,Is/effExpTime)
+#            if IcPlusIs==True:
+#                tmp = Ic - Is
+#                else:
+#                tmp = Ic
+#            
+#            lnL = binMRlogL(n, tmp, Is)
+#            im[i,j] = lnL
             
-            lnL = binMRlogL(n, Ic, Is)
+            
+            
+    for j, Is in enumerate(Is_list_countsperbin):
+        for i, Ic in enumerate(Ic_list_countsperbin):
+            if IcPlusIs==True:
+                tmp = Ic - Is
+            else:
+                tmp = Ic
+                
+            lnL = binMRlogL(n, tmp, Is)
             im[i,j] = lnL
         print('Ic,Is = ',Ic/effExpTime,Is/effExpTime)
+            
+        
+        
             
     Ic_ind, Is_ind=np.unravel_index(im.argmax(), im.shape)
     print('Max at ('+str(Ic_ind)+', '+str(Is_ind)+')')
@@ -308,7 +338,10 @@ def plotLogLMap(n, Ic_list, Is_list, effExpTime):
     plt.imshow(im.T,extent = [np.amin(Ic_list), np.amax(Ic_list), np.amin(Is_list), np.amax(Is_list)],aspect='auto',origin = 'lower')
     plt.contour(X,Y,im.T,colors='black',levels = levels)
     plt.plot(Ic_list[Ic_ind],Is_list[Is_ind],"xr")
-    plt.xlabel('Ic [/s]')
+    if IcPlusIs==True:
+        plt.xlabel('Ic + Is [/s]')
+    else:
+        plt.xlabel('Ic [/s]')
     plt.ylabel('Is [/s]')
     plt.title('Map of log likelihood')
     
@@ -579,7 +612,7 @@ if __name__ == "__main__":
             
             
         
-    if 1:
+    if 0:
         
         effExpTime = .01
         lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
@@ -645,7 +678,6 @@ if __name__ == "__main__":
         
         print('\nelapsed time: ', dT, 'sec\n')
         
-        print(p1)
         Ic = p1.x[0]/effExpTime
         Is = p1.x[1]/effExpTime
         
@@ -656,10 +688,21 @@ if __name__ == "__main__":
         
         print("=====================================")
         
-#        
-#        p1 = optimize.minimize(loglike, p0, (dt, deadtime, False),
-#                           method='Newton-CG', jac=_jacobean, hess=_hessian,
-#                           options={"disp" : True}).x
+        
+        
+    if 1:
+        
+        effExpTime = .01
+        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+        
+        
+        print("Mapping...")
+        Is_list=np.linspace(25,35,25)
+        IcpIs_list=np.linspace(320,340,25)  #linspace(start,stop,number of steps)
+
+        X,Y,im = plotLogLMap(lightCurveIntensityCounts, IcpIs_list, Is_list, effExpTime,IcPlusIs = True)
+        
+
         
     
 
