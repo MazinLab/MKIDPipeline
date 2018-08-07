@@ -11,7 +11,9 @@
    "Important Notes": "",
    "Number of Dithers": "-",
    "AO Saved State": "",
-   "BIN File Range":"1491639060 to 1491641040"
+   "BIN File Range":"1491639060 to 1491641040",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?Ident=HD117876' target='_blank'> Click Here! </a>"
+
  },
  {
    "Target": "HD77407",
@@ -25,7 +27,8 @@
    "Important Notes": "",
    "Number of Dithers": "2",
    "AO Saved State": "",
-   "BIN File Range": "1491708679 to 1491711666"
+   "BIN File Range": "1491708679 to 1491711666",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?protocol=html&Ident=HD077407' target='_blank'> Click Here! </a>"
  },
  {
    "Target": "SAO100725",
@@ -39,7 +42,8 @@
    "Important Notes": "",
    "Number of Dithers": "3",
    "AO Saved State": "",
-   "BIN File Range": "1491726059 to 1491727561"
+   "BIN File Range": "1491726059 to 1491727561",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?Ident=HD%20120477' target='_blank'> Click Here! </a>"
  },
  {
    "Target": "Tau Boo",
@@ -53,7 +57,8 @@
    "Important Notes": "",
    "Number of Dithers": "1",
    "AO Saved State": "",
-   "BIN File Range": "1491727650 to 1491733894"
+   "BIN File Range": "1491727650 to 1491733894",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?Ident=*+tau+Boo' target='_blank'> Click Here! </a>"
  },
  {
    "Target": "Candidate 1",
@@ -67,7 +72,8 @@
    "Important Notes": "",
    "Number of Dithers": "1<br />16",
    "AO Saved State": "",
-   "BIN File Range": "1491792153 to 1491812095\n14918803791 to 1491894725"
+   "BIN File Range": "1491792153 to 1491812095\n14918803791 to 1491894725",
+   "Simbad Webpage": "None"
  },
  {
    "Target": "HD114174",
@@ -81,7 +87,8 @@
    "Important Notes": "",
    "Number of Dithers": "3<br />6",
    "AO Saved State": "",
-   "BIN File Range": "1491812519 to 1491818448<br />1491897669 to 1491904265"
+   "BIN File Range": "1491812519 to 1491818448<br />1491897669 to 1491904265",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?Ident=%402106944&Name=HD%20114174&submit=submit' target='_blank'> Click Here! </a>"
  },
  {
    "Target": "SAO65921",
@@ -95,7 +102,9 @@
    "Important Notes": "",
    "Number of Dithers": "3",
    "AO Saved State": "",
-   "BIN File Range": "1491819000 to 1491826075"
+   "BIN File Range": "1491819000 to 1491826075",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?Ident=HIP+84606' target='_blank'> Click Here! </a>"
+
  },
  {
    "Target": "SAO65890",
@@ -109,8 +118,8 @@
    "Important Notes": "",
    "Number of Dithers": "5",
    "AO Saved State": "",
-   "BIN File Range": "1491826154 to 1491897430"
-
+   "BIN File Range": "1491826154 to 1491897430",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-basic?Ident=BD%2B36+2844&submit=SIMBAD+search' target='_blank'> Click Here! </a>"
  },
  {
    "Target": "HD91782",
@@ -124,7 +133,9 @@
    "Important Notes": "",
    "Number of Dithers": "2",
    "AO Saved State": "",
-   "BIN File Range": "1491894840 to 1491897430"
+   "BIN File Range": "1491894840 to 1491897430",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?Ident=HD++91782' target='_blank'> Click Here! </a>"
+
  },
  {
    "Target": "HD148112",
@@ -138,7 +149,9 @@
    "Important Notes": "",
    "Number of Dithers": "3",
    "AO Saved State": "",
-   "BIN File Range": "1491904355 to 1491907711"
+   "BIN File Range": "1491904355 to 1491907711",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?protocol=html&Ident=HD148112' target='_blank'> Click Here! </a>"
+
  },
  {
    "Target": "SAO83893",
@@ -152,6 +165,7 @@
    "Important Notes": "",
    "Number of Dithers": "2",
    "AO Saved State": "",
-   "BIN File Range": "1491907712 to 1491914579"
+   "BIN File Range": "1491907712 to 1491914579",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?Ident=Alpha%20CrB' target='_blank'> Click Here! </a>"
  }
 ]

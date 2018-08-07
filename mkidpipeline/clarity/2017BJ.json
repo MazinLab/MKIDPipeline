@@ -11,7 +11,8 @@
    "Important Notes": "AO Tuneup on SAO 90717<br />None<br />HODM was down",
    "Number of Dithers": "8<br />4<br />2",
    "AO Saved State": "darkness_20171004_sky_a --<br />20171005_darkness_sky_a --<br />20171006_darkness_sky_noHODM_a,b,c",
-   "BIN File Range": "1507098660 to 1507102279<br />1507173960 to 1507178255<br />1507258693 to 1507266486"
+   "BIN File Range": "1507098660 to 1507102279<br />1507173960 to 1507178255<br />1507258693 to 1507266486",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?Ident=SAO%2090440' target='_blank'> Click Here! </a>"
  },
  {
    "Target": "SAO90717",
@@ -25,7 +26,8 @@
    "Important Notes": "",
    "Number of Dithers": "1",
    "AO Saved State": "darkness_20171004_sky_a",
-   "BIN File Range": "1507178262 to 1507178743"
+   "BIN File Range": "1507178262 to 1507178743",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?protocol=html&Ident=HD214994' target='_blank'> Click Here! </a>"
  },
  {
    "Target": "HR8799",
@@ -39,7 +41,8 @@
    "Important Notes": "Note at 1:31 to NOT use Dither Data due to PSF issues",
    "Number of Dithers": "5 (but don't use last one)<br />8<br />3",
    "AO Saved State": "darkness_20171004_sky_b",
-   "BIN File Range": "1507102320 to 1507106713<br />507179632 to 150719763<br />1507348402 to 1507351439, 1507353600 to 1507355339, 1507357260 to 1507362779"
+   "BIN File Range": "1507102320 to 1507106713<br />507179632 to 150719763<br />1507348402 to 1507351439, 1507353600 to 1507355339, 1507357260 to 1507362779",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?Ident=HR+8799' target='_blank'> Click Here! </a>"
 
  },
  {
@@ -54,7 +57,8 @@
    "Important Notes": "Object walked off coronograph during first dither pos.",
    "Number of Dithers": "1",
    "AO Saved State": "",
-   "BIN File Range": "1507351860 to 1507352999, 1507355340 to 1507357259"
+   "BIN File Range": "1507351860 to 1507352999, 1507355340 to 1507357259",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?protocol=html&Ident=HD218261' target='_blank'> Click Here! </a>"
  },
  {
    "Target": "SAO54058 (Delta And)",
@@ -68,7 +72,8 @@
    "Important Notes": "Full AO crash at 02:34<br />HODM was down<br />Not sure we took data on this on 10/06?",
    "Number of Dithers": "2<br />None<br />3",
    "AO Saved State": "20171006_darkness_sky_nohodm_d",
-   "BIN File Range": "1507197002 to 1507205323<br />1507280159 to 1507284540<br />1507364400 to 1507370938"
+   "BIN File Range": "1507197002 to 1507205323<br />1507280159 to 1507284540<br />1507364400 to 1507370938",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?Ident=delta+andromedae&NbIdent=1&Radius=2&Radius.unit=arcmin&submit=submit+id' target='_blank'> Click Here! </a>"
 
  },
  {
@@ -83,10 +88,11 @@
    "Important Notes": "No HODM<br />AO crashed and we did not get data on this target on 10/4",
    "Number of Dithers": "1<br />None",
    "AO Saved State": "20171006_darkness_sky_nohodm_e",
-   "BIN File Range": "1507287720 to 1507292424<br />1507197002 to 1507205323"
+   "BIN File Range": "1507287720 to 1507292424<br />1507197002 to 1507205323",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?Ident=HD+32297' target='_blank'> Click Here! </a>"
  },
  {
-   "Target": "SAO041363",
+   "Target": "SAO41363",
    "Type": "Brown Dwarf",
    "J mag": "B' 9.6, 'C' 6.86",
    "Sunset Date(s)": "20171006",
@@ -97,7 +103,8 @@
    "Important Notes": "",
    "Number of Dithers": "4",
    "AO Saved State": "",
-   "BIN File Range": "1507374600 to 1507380300"
+   "BIN File Range": "1507374600 to 1507380300",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?Ident=%40917834&Name=HD%20%2049197&submit=submit' target='_blank'> Click Here! </a>"
  },
  {
    "Target": "SAO 37734 (Gamma And)",
@@ -111,6 +118,7 @@
    "Important Notes": "Bad seeing, doesn't appear we got data on this target?",
    "Number of Dithers": "---------",
    "AO Saved State": "darkness_20171004_sky_c",
-   "BIN File Range": "No data available"
+   "BIN File Range": "No data available",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?Ident=gam01+and' target='_blank'> Click Here! </a>"
  }
 ]

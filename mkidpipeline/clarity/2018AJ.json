@@ -11,7 +11,8 @@
    "Important Notes": "",
    "Number of Dithers": "3<br />NR",
    "AO Saved State": "20180524_tl_d",
-   "BIN File Range": "1527150300 to 1527159659<br />1527233100 to 1527235439"
+   "BIN File Range": "1527150300 to 1527159659<br />1527233100 to 1527235439",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?Ident=HIP+84606' target='_blank'> Click Here! </a>"
  },
  {
    "Target": "SAO44531",
@@ -25,7 +26,8 @@
    "Important Notes": "",
    "Number of Dithers": "2<br />None<br />3<br />8",
    "AO Saved State": "",
-   "BIN File Range": "1527222599 to 1527231660<br />1527479324 to 1527485759<br />1527566146 to 1527580199<br />1527651051 to 1527663539"
+   "BIN File Range": "1527222599 to 1527231660<br />1527479324 to 1527485759<br />1527566146 to 1527580199<br />1527651051 to 1527663539",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?Ident=19+CVn' target='_blank'> Click Here! </a>"
  },
  {
    "Target": "Tau Boo",
@@ -39,7 +41,8 @@
    "Important Notes": "",
    "Number of Dithers": "NR",
    "AO Saved State": "",
-   "BIN File Range": "1527487024 to 1527490679<br />1527742858 to 1527757234"
+   "BIN File Range": "1527487024 to 1527490679<br />1527742858 to 1527757234",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?Ident=*+tau+Boo' target='_blank'> Click Here! </a>"
 
  },
  {
@@ -54,7 +57,8 @@
    "Important Notes": "",
    "Number of Dithers": "",
    "AO Saved State": "",
-   "BIN File Range": "NR<br />1527592800 to 1527594960<br />1527757200 to 1527762160"
+   "BIN File Range": "NR<br />1527592800 to 1527594960<br />1527757200 to 1527762160",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?Ident=Vega' target='_blank'> Click Here! </a>"
  },
  {
    "Target": "Omega Her",
@@ -68,7 +72,8 @@
    "Important Notes": "",
    "Number of Dithers": "",
    "AO Saved State": "",
-   "BIN File Range": "1527666447 to 1527675719"
+   "BIN File Range": "1527666447 to 1527675719",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?protocol=html&Ident=Omega+Herculis&NbIdent=1&Radius=2&Radius.unit=arcmin&submit=submit+id' target='_blank'> Click Here! </a>"
  },
  {
    "Target": "SAO47913",
@@ -82,7 +87,8 @@
    "Important Notes": "",
    "Number of Dithers": "1",
    "AO Saved State": "",
-   "BIN File Range": "1527676320 to 1527682979"
+   "BIN File Range": "1527676320 to 1527682979",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?Ident=SAO%2047913' target='_blank'> Click Here! </a>"
  },
  {
    "Target": "HD114174",
@@ -96,7 +102,8 @@
    "Important Notes": "",
    "Number of Dithers": "4",
    "AO Saved State": "",
-   "BIN File Range": "1527738455 to 1527742079"
+   "BIN File Range": "1527738455 to 1527742079",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?Ident=%402106944&Name=HD%20114174&submit=submit' target='_blank'> Click Here! </a>"
  },
  {
    "Target": "White Light",
@@ -110,6 +117,7 @@
    "Important Notes": "Calibration Purposes",
    "Number of Dithers": "",
    "AO Saved State": "",
-   "BIN File Range": "1527762120 to 1527770545"
+   "BIN File Range": "1527762120 to 1527770545",
+   "Simbad Webpage": "None"
  }
 ]

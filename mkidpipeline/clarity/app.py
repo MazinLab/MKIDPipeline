@@ -23,7 +23,8 @@ def loadFile(name):
 def index():
     if request.method == 'POST':
         session.pop('user', None)
-        if request.form['password'] == 'password':
+        userlist 
+        if request.form['password'] == '':
                 if request.form['username'] in userlist:
                     session['user'] = request.form['username']
         return redirect(url_for('database'))
