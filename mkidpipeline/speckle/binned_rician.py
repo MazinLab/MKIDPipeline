@@ -24,7 +24,7 @@ from mkidpipeline.hdf.darkObsFile import ObsFile
 from mkidpipeline.speckle.genphotonlist_IcIsIr import genphotonlist
 from mpmath import mp, hyp1f1
 from scipy import special
-from scipy.special import eval_laguerre
+from scipy.special import eval_laguerre, eval_genlaguerre
 from scipy import optimize
 
 import time
@@ -238,8 +238,19 @@ def binMRlogL(n, Ic, Is):
     
     
 # v3, another factor of ~5 in speed over v2
+    #Use scipy.special.eval_laguerre instead of the hypergeometric function because
+    #it's WAY faster. 
+#    k = Ic/(Is**2 + Is)
+#    tmp = np.log([eval_laguerre(i,-k) for i in n])
+#    tmp += k
+#    lnL = N*(np.log(1./(Is+1))  - 1.*Ic/Is) + np.sum(tmp) + np.sum(n)*np.log(Is/(1.+Is))
+#    
+#    return lnL
+
+
+# v4. eval_laguerre can accept numpy arrays! Another factor of ~9 in speed. 
     k = Ic/(Is**2 + Is)
-    tmp = np.log([eval_laguerre(i,-k) for i in n])
+    tmp = np.log(eval_laguerre(n,-k))
     tmp += k
     lnL = N*(np.log(1./(Is+1))  - 1.*Ic/Is) + np.sum(tmp) + np.sum(n)*np.log(Is/(1.+Is))
     
@@ -263,6 +274,70 @@ def negLogLike(p,n):
     return -binMRlogL(n, p[0], p[1])
         
 
+
+def maxBinMRlogL(n, Ic_guess=1., Is_guess=1., method='Powell'):
+    """
+    Find the maximum likelihood values for Ic and Is for a given lightcurve.
+    
+    INPUTS:
+        n: 1d array containing the (binned) intensity as a function of time, i.e. a lightcurve [counts/sec]. Bin size must be fixed. 
+        Ic_guess: initial guess for Ic for optimization routine
+        Is_guess: initial guess for Is for optimization routine
+    OUTPUTS:
+        Ic: max likelihood estimate for Ic
+        Is: max likelihood estimate for Is
+    """
+    p0 = np.array([Ic_guess,Is_guess])
+    
+    t1 = time.time()
+    
+    res = optimize.minimize(negLogLike, p0,n,bounds=((0.1,np.inf),(0.1,np.inf)))
+    
+    t2 = time.time()
+    
+    dT = t2 - t1
+    
+    print('\nelapsed time for estimating Ic & Is by finding the maximum likelihood: ', dT, 'sec\n')
+    
+    Ic = res.x[0]/effExpTime
+    Is = res.x[1]/effExpTime
+    
+    print('\nIc,Is = ', Ic, Is)
+    
+    return Ic,Is,res
+
+
+
+def binMRlogL_jacobian(n,Ic,Is):
+    """
+    Finds the Jacobian of the log likelihood function at the specified Ic and 
+    Is for a given lightcurve n.
+    The Jacobian is a vector of the first derivatives. 
+    
+    INPUTS:
+        n: 1d array containing the (binned) intensity as a function of time, i.e. a lightcurve [counts/sec]. Bin size must be fixed. 
+        Ic:
+        Is:
+    OUTPUTS:
+        jacobian vector [dlnL/dIc, dlnL/dIs] at Ic, Is
+    """
+    
+    
+    
+def binMRlogL_hessian(n,Ic,Is):
+    """
+    Finds the Hessian of the log likelihood function at the specified Ic and 
+    Is for a given lightcurve n.
+    The Hessian is a matrix of the second derivatives. 
+    
+    INPUTS:
+        n: 1d array containing the (binned) intensity as a function of time, i.e. a lightcurve [counts/sec]. Bin size must be fixed. 
+        Ic:
+        Is:
+    OUTPUTS:
+        Hessian matrix [[d2lnL/dIc2, d2lnL/dIcdIs], [d2lnL/dIsdIc, d2lnL/dIsdIs]] at Ic, Is
+    """
+    
 
 
 
@@ -363,6 +438,8 @@ if __name__ == "__main__":
         
         Ic, Is, Ir, Ttot, tau = [300., 30., 0, 300., .1] # [Ic, Is] = cps, [Ttot, tau] = sec
         ts = genphotonlist(Ic, Is, Ir, Ttot, tau)
+        
+        print("\nPhoton list parameters:\n Ic, Is, Ir, Ttot, tau = [{:g}, {:g}, {:g}, {:g}, {:g}]".format(Ic, Is, Ir, Ttot, tau))
         
         print("[Done]\n")
     
@@ -612,15 +689,15 @@ if __name__ == "__main__":
             
             
         
-    if 0:
+    if 1:
         
         effExpTime = .01
         lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         
         
         print("Mapping...")
-        Ic_list=np.linspace(285,315,5)  #linspace(start,stop,number of steps)
-        Is_list=np.linspace(25,35,5)
+        Ic_list=np.linspace(285,315,25)  #linspace(start,stop,number of steps)
+        Is_list=np.linspace(25,35,25)
         X,Y,im = plotLogLMap(lightCurveIntensityCounts, Ic_list, Is_list, effExpTime)
         
         """
@@ -649,7 +726,7 @@ if __name__ == "__main__":
         
         
         
-    if 0:
+    if 1:
         effExpTime = .01
         lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         
@@ -666,22 +743,7 @@ if __name__ == "__main__":
             IIc/=effExpTime
             IIs/=effExpTime
         
-        p0 = np.array([IIc,IIs])
-        
-        t1 = time.time()
-        
-        p1 = optimize.minimize(negLogLike, p0,lightCurveIntensityCounts,bounds=((0.1,np.inf),(0.1,np.inf)))
-        
-        t2 = time.time()
-        
-        dT = t2 - t1
-        
-        print('\nelapsed time: ', dT, 'sec\n')
-        
-        Ic = p1.x[0]/effExpTime
-        Is = p1.x[1]/effExpTime
-        
-        print('\nIc,Is = ', Ic, Is)
+        Ic,Is,res = maxBinMRlogL(lightCurveIntensityCounts, Ic_guess=IIc, Is_guess=IIs)
         
         
         print("[Done]\n")
@@ -690,7 +752,10 @@ if __name__ == "__main__":
         
         
         
-    if 1:
+    if 0:
+        """
+        Make a map of log likelihood with Is and Ic+Is for the axes. 
+        """
         
         effExpTime = .01
         lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
