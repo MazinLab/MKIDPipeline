@@ -15,9 +15,9 @@ import sys
 
 import irUtils
 import numpy as np
-from RawDataProcessing.darkObsFile import ObsFile as obs
-from arrayPopup import plotArray
-from readDict import readDict
+from mkidpipeline.hdf.darkObsFile import ObsFile as obs
+from mkidpipeline.utils.arrayPopup import plotArray
+from mkidreadout.utils.readDict import readDict
 
 if len(sys.argv)<2:
     #grab most recent .cfg file
