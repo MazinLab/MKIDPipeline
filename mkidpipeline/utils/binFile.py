@@ -12,8 +12,8 @@ import sys
 
 import matplotlib.pyplot as plt
 import numpy as np
-from utils import binTools
-from utils.arrayPopup import plotArray
+from .utils import binTools
+from .arrayPopup import plotArray
 
 nRows = 125
 nCols = 80
