@@ -15,7 +15,6 @@ Per pixel:  plots of weights vs wavelength next to twilight spectrum OR
 """
 import ast
 import os
-import sys
 from configparser import ConfigParser
 from typing import Any, Union
 import matplotlib
@@ -28,7 +27,7 @@ from progressbar import Bar, ETA, Percentage, ProgressBar, Timer
 from mkidpipeline.calibration import wavecalplots
 from mkidpipeline.core.headers import FlatCalSoln_Description
 from mkidpipeline.hdf.darkObsFile import ObsFile
-from mkidpipeline.utils.pipelinelog import getLogger
+from mkidpipeline.core.logging import getLogger
 np.seterr(divide='ignore', invalid='ignore')
 
 class FlatCalConfig:
