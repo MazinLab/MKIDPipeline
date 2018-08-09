@@ -19,12 +19,13 @@ from matplotlib import lines, pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from progressbar import Bar, ETA, Percentage, ProgressBar, Timer
 
-import mkidpipeline.utils.pipelinelog as pipelinelog
+
 from mkidpipeline.calibration.wavecalplots import fitModels, plotSummary
 from mkidpipeline.core import pixelflags
 from mkidpipeline.core.headers import (WaveCalDebugDescription, WaveCalDescription, WaveCalHeader)
 from mkidpipeline.hdf.darkObsFile import ObsFile
-from mkidpipeline.utils.pipelinelog import getLogger
+import mkidpipeline.core.logging as pipelinelog
+from mkidpipeline.core.logging import getLogger
 
 DEFAULT_CONFIG_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)),
                                                    'Params', 'default.cfg')

@@ -38,7 +38,7 @@ def setup_logging(configfile='', env_key='MKID_LOG_CONFIG', logfile=None):
     value = os.getenv(env_key, '')
     path = configfile if os.path.exists(configfile) else value
     if not os.path.exists(path):
-        path = os.path.join(os.path.dirname(__file__),'logging.yaml')
+        path = os.path.join(os.path.dirname(__file__), 'logging.yaml')
 
     try:
         with open(path, 'r') as f:
