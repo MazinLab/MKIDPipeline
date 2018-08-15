@@ -24,8 +24,8 @@ from mkidpipeline.calibration.wavecalplots import fitModels, plotSummary
 from mkidpipeline.core import pixelflags
 from mkidpipeline.core.headers import (WaveCalDebugDescription, WaveCalDescription, WaveCalHeader)
 from mkidpipeline.hdf.darkObsFile import ObsFile
-import mkidpipeline.core.logging as pipelinelog
-from mkidpipeline.core.logging import getLogger
+import mkidpipeline.core.corelog as pipelinelog
+from mkidpipeline.core.corelog import getLogger
 
 DEFAULT_CONFIG_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)),
                                                    'Params', 'default.cfg')

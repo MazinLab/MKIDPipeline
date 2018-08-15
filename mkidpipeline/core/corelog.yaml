@@ -17,7 +17,7 @@ handlers:
     formatter: simple
 
   file:
-    (): mkidpipeline.utils.pipelinelog.MakeFileHandler
+    (): mkidpipeline.core.corelog.MakeFileHandler
     filename: default.log
     mode: a
     level: DEBUG

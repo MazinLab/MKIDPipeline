@@ -11,6 +11,8 @@ from multiprocessing_logging import install_mp_handler
 
 getLogger = logging.getLogger
 
+_setup = False
+
 def mkdir_p(path):
     """http://stackoverflow.com/a/600612/190597 (tzot)"""
     if not path:
@@ -35,10 +37,14 @@ class MakeFileHandler(logging.FileHandler):
 
 def setup_logging(configfile='', env_key='MKID_LOG_CONFIG', logfile=None):
     """Setup logging configuration"""
+    global _setup
+    if _setup:
+        return
+    _setup=True
     value = os.getenv(env_key, '')
     path = configfile if os.path.exists(configfile) else value
     if not os.path.exists(path):
-        path = os.path.join(os.path.dirname(__file__), 'logging.yaml')
+        path = os.path.join(os.path.dirname(__file__), 'corelog.yaml')
 
     try:
         with open(path, 'r') as f:
@@ -50,14 +56,15 @@ def setup_logging(configfile='', env_key='MKID_LOG_CONFIG', logfile=None):
     except:
         logging.basicConfig(level=logging.DEBUG)
         logger = logging.getLogger()
-        logger.error('Could not load log config file "{}" failing back to basicConfig'.format(path), exc_info=True)
+        logger.error('Could not load log config file "{}" failing back to basicConfig'.format(path),
+                     exc_info=True)
 
     install_mp_handler()
 
 
 def createFileLog(name, logfile, mpsafe=True, propagate=False,
-               fmt='%(asctime)s %(levelname)s %(message)s %(process)d',
-               level=logging.DEBUG):
+                  fmt='%(asctime)s %(levelname)s %(message)s %(process)d',
+                  level=logging.DEBUG):
 
     if name in logging.Logger.manager.loggerDict:
         logging.getLogger().warning("Log {} already exists,"

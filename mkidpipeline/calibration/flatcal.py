@@ -27,7 +27,7 @@ from progressbar import Bar, ETA, Percentage, ProgressBar, Timer
 from mkidpipeline.calibration import wavecalplots
 from mkidpipeline.core.headers import FlatCalSoln_Description
 from mkidpipeline.hdf.darkObsFile import ObsFile
-from mkidpipeline.core.logging import getLogger
+from mkidpipeline.core.corelog import getLogger
 np.seterr(divide='ignore', invalid='ignore')
 
 class FlatCalConfig:
