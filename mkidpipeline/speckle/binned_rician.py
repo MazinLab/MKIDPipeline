@@ -5,7 +5,7 @@ Created on Thu Jun 21 11:24:00 2018
 
 Author: Clint Bockstiegel
 Date: June 21, 2018
-Last Updated: July 31, 2018
+Last Updated: August 10, 2018
 
 This code contains functions for analyzing photon arrival times using BINNING. 
 
@@ -13,22 +13,19 @@ For example usage, see if __name__ == "__main__":
 """
 
 import numpy as np
-from scipy.optimize import minimize
-from statsmodels.base.model import GenericLikelihoodModel
 import matplotlib.pyplot as plt
 import matplotlib
 from scipy.optimize import curve_fit
 
-from mkidpipeline.hdf.darkObsFile import ObsFile
-#from mkidpipeline.speckle.genphotonlist import genphotonlist
 from mkidpipeline.speckle.genphotonlist_IcIsIr import genphotonlist
 from mpmath import mp, hyp1f1
 from scipy import special
-from scipy.special import eval_laguerre, eval_genlaguerre
+from scipy.special import eval_laguerre, eval_genlaguerre, factorial
 from scipy import optimize
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from scipy.stats import poisson
 
 import time
-
 
 
 def blurredMR(n,Ic,Is):
@@ -162,7 +159,7 @@ def muVar_to_IcIs(mu,var,effExpTime):
 
 def fitBlurredMR(bins,intensityHist,effExpTime, **kwargs): 
     """
-    fit a blurred modified rician to a histogram of intensities
+    fit a blurred modified rician to a histogram of intensities using curve_fit
     INPUTS:
         bins - 1d array specifying the bins (0 photons, 1 photon, etc.)
         intensityHist - 1d array containing the histogram
@@ -212,8 +209,12 @@ def binMRlogL(n, Ic, Is):
         Is: Speckle portion of MR [cts/bin]
     OUTPUTS:
         [float] the Log likelihood. 
-    
     '''
+    if Ic<=0 or Is<=0:
+        print('Ic or Is are <= zero. Ic, Is = {:g}, {:g}'.format(Ic,Is))
+        lnL = -np.inf
+        return lnL
+    
     N = len(n)
     lnL = np.zeros(N) 
     tmp = np.zeros(N)
@@ -256,9 +257,114 @@ def binMRlogL(n, Ic, Is):
     k = -Ic/(Is**2 + Is)
     tmp = np.log(eval_laguerre(n,k))
     tmp -= k
-    lnL = N*(np.log(1./(Is+1))  - 1.*Ic/Is) + np.sum(tmp) + np.sum(n)*np.log(Is/(1.+Is))
+    lnL = N*(np.log(1./(Is+1))  - Ic/Is) + np.sum(tmp) + np.sum(n)*np.log(Is/(1.+Is))
+    junk = (np.log(1./(Is+1))  - Ic/Is) + tmp + n*np.log(Is/(1.+Is))
     
-    return lnL
+    return lnL,junk
+
+def binMR_like(n, Ic, Is):
+    '''
+    Given a light curve, calculate the likelihood that
+    its intensity distribution follows a blurred modified Rician with Ic, Is. 
+    
+    INPUTS:
+        n: 1d array containing the (binned) intensity as a function of time, i.e. a lightcurve [counts/bin]. Bin size must be fixed. 
+        Ic: Coherent portion of MR [cts/bin]
+        Is: Speckle portion of MR [cts/bin]
+    OUTPUTS:
+         the likelihood. 
+    '''
+#    k = -Ic/(Is**2 + Is)
+#    like = (1+1/Is)**-n/(1+Is)*np.exp(-Ic/Is-k)*eval_laguerre(n,k)
+#    like[np.argwhere(np.isnan(like))]=0
+#    return like
+    
+#    like = np.zeros(len(n))
+#    for ii in range(len(n)):
+#        like[ii] = np.exp(binMRlogL(n[ii:ii+1],Ic,Is))
+    
+    if Ic<=0 or Is<=0:
+        print('Ic or Is are <= zero. Ic, Is = {:g}, {:g}'.format(Ic,Is))
+        like = 0.
+        likeArray = np.zeros(len(n))
+        return like
+    
+    k = -Ic/(Is**2 + Is)
+    tmp = np.log(eval_laguerre(n,k))
+    tmp -= k
+    likeArray = np.exp(np.log(1./(Is+1))  - 1.*Ic/Is + tmp + n*np.log(Is/(1.+Is)))
+    like = 1.
+    tmp = mp.mpf(1)*likeArray
+    for ii in tmp:
+        like*=ii
+     
+    if like==0:
+        print('k = ', k)
+        print('likeArray = ', likeArray)
+        print('tmp = ', tmp)
+        
+    return like, likeArray
+
+
+def pssn(m,mu): #scipy has a module called poisson
+    return np.exp(-mu)*mu**m/factorial(m)
+
+
+def loglike_planet_blurredMR(n,Ic,Is,Ir):
+    """
+    Calculate the log likelihood of lightcurve that has both speckle Ic and Is,
+    as well as planet light Ir
+    """
+    if Ir>3:
+        maxx = int(5*Ir)
+        tmp = np.arange(maxx)
+        cpd = poisson.cdf(tmp,Ir)
+        mm = tmp[np.where(cpd<.99999)]
+
+    else:
+        maxx = 15
+        tmp = np.arange(maxx)
+        cpd = poisson.cdf(tmp,Ir)
+        mm = tmp[np.where(cpd<.99999)]
+    
+    like = np.zeros(len(n))
+    
+#    for m in mm:
+#        
+#        print(pssn(m,Ir))
+#        plt.plot(binMR_like(n-m, Ic, Is),'.-',label='m={:g}'.format(m))
+#        like += pssn(m,Ir)*binMR_like(n-m, Ic, Is)
+        
+    
+#    for ii in range(len(n)):
+    for ii in range(len(n)):
+        for mm in range(int(n[ii])+1):  #make sure it executes at least 1 time
+            like[ii] += pssn(mm,Ir)*binMR_like(np.array([n[ii]-mm]), Ic, Is)[0]
+            
+            
+    
+        
+
+
+    logL=0
+    for jj in [mp.log(ii) for ii in like]:
+        logL +=jj
+
+#    logL = np.sum(np.log(like))
+#    plt.legend()
+    
+#    print('\n\ntmp: ',tmp)
+#    print('cpd: ',cpd)
+#    print('mm: ',mm)
+
+    return logL, like
+
+
+def negloglike_planet_blurredMR(p,n):
+    return -loglike_planet_blurredMR(n,p[0],p[1],p[2])
+    
+    
+    
 
 
 def negLogLike(p,n):
@@ -372,19 +478,14 @@ def binMRlogL_hessian(n,Ic,Is):
     tmp1 = 1/(Is + Is**2)
     tmp2 = 1/(1+Is)
     k = -Ic*tmp1
-    
-    
+
+#   check that my simplifications are correct. Compare the results to the raw output
+#   from mathematica.
 #    H_IcIc = np.sum(eval_genlaguerre(n-2,2,k)/eval_laguerre(n,k) - eval_genlaguerre(n-1,1,k)**2/eval_laguerre(n,k)**2)*tmp1**2
-#    
 #    H_IcIs = N/(1+Is)**2 + np.sum( - Ic*(1+2*Is)*eval_genlaguerre(n-2,2,k)*tmp1*tmp1*tmp1/eval_laguerre(n,k) - (1+2*Is)*eval_genlaguerre(n-1,1,k)*tmp1*tmp1/eval_laguerre(n,k) + Ic*(1+2*Is)*eval_genlaguerre(n-1,1,k)**2*tmp1*tmp1*tmp1/eval_laguerre(n,k)**2 )
-#    
 #    H_IsIs = N*(1-2*Ic+Is)*tmp2**3 + np.sum( -(1+2*Is)*n/(Is**2)*tmp2**2 + Ic**2*(1+2*Is)**2*eval_genlaguerre(n-2,2,k)*tmp1**4/eval_laguerre(n,k) + 2*Ic*(1+2*Is)**2*eval_genlaguerre(n-1,1,k)*tmp1**3/eval_laguerre(n,k) -  2*Ic*eval_genlaguerre(n-1,1,k)*tmp1**2/eval_laguerre(n,k) - Ic**2*(1+2*Is)**2*eval_genlaguerre(n-1,1,k)**2*tmp1**4/eval_laguerre(n,k)**2 )
-#    
 #    Hessian = np.asarray([[H_IcIc, H_IcIs],[H_IcIs, H_IsIs]])
-    
-    
-    
-    
+
     N = len(n)
     a = 1/(1+Is)                  # a = 1/(1 + Is)
     b = a/Is                      # b = 1/(Is + Is**2)
@@ -415,6 +516,48 @@ def binMRlogL_hessian(n,Ic,Is):
 
     return hessian
 
+
+
+
+def logLMap(n, Ic_list, Is_list, effExpTime,IcPlusIs = False):
+    """
+    makes a map of the MR log likelihood function over the range of Ic, Is
+
+    INPUTS:
+        n - light curve [counts]
+        Ic_list - list of Ic values [photons/second]
+        Is_list - list
+    OUTPUTS:
+        X - meshgrid of x coords
+        Y - meshgrid of y coords
+        im - log likelihood map
+    """
+    Ic_list_countsperbin = Ic_list * effExpTime  # convert from cps to counts/bin
+    Is_list_countsperbin = Is_list * effExpTime
+
+    im = np.zeros((len(Is_list), len(Ic_list)))
+
+    for j, Is in enumerate(Is_list_countsperbin):
+        for i, Ic in enumerate(Ic_list_countsperbin):
+            if IcPlusIs == True:
+                tmp = Ic - Is
+            else:
+                tmp = Ic
+
+            lnL = binMRlogL(n, tmp, Is)
+            im[j,i] = lnL
+        print('Ic,Is = ', Ic / effExpTime, Is / effExpTime)
+
+    Ic_ind, Is_ind = np.unravel_index(im.argmax(), im.shape)
+    print('Max at (' + str(Ic_ind) + ', ' + str(Is_ind) + ')')
+    print("Ic=" + str(Ic_list[Ic_ind]) + ", Is=" + str(Is_list[Is_ind]))
+    print(im[Ic_ind, Is_ind])
+
+    X, Y = np.meshgrid(Ic_list, Is_list)
+    sigmaLevels = np.array([8.36, 4.78, 2.1])
+    levels = np.amax(im) - sigmaLevels
+
+    return X,Y,im
 
 
 
@@ -453,8 +596,8 @@ def plotLogLMap(n, Ic_list, Is_list, effExpTime,IcPlusIs = False):
     print("Ic="+str(Ic_list[Ic_ind])+", Is="+str(Is_list[Is_ind]))
     print(im[Ic_ind, Is_ind])
 
-    
-    plt.figure()
+
+
     X, Y = np.meshgrid(Ic_list, Is_list)
     sigmaLevels = np.array([8.36, 4.78, 2.1])
     levels = np.amax(im) - sigmaLevels
@@ -463,26 +606,59 @@ def plotLogLMap(n, Ic_list, Is_list, effExpTime,IcPlusIs = False):
     oldstyle = {key:matplotlib.rcParams[key] for key in MYSTYLE}
     matplotlib.rcParams.update(MYSTYLE)
 
-    plt.imshow(im.T,extent = [np.amin(Ic_list), np.amax(Ic_list), np.amin(Is_list), np.amax(Is_list)],aspect='auto',origin = 'lower')
-    
-    CS = plt.contour(X,Y,im.T,colors='black',levels = levels)
-    
+    tmpim = im.T - np.amax(im)
+    fig, ax = plt.subplots()
+    img = ax.imshow(tmpim, extent=[np.amin(Ic_list), np.amax(Ic_list), np.amin(Is_list), np.amax(Is_list)], aspect='auto', origin='lower', cmap='hot_r', vmin=-8, vmax=0, interpolation='spline16')
+
+    CS = ax.contour(X, Y, im.T, colors='black', levels=levels)
+
     fmt = {}
-    strs = [ r'3$\sigma$', r'2$\sigma$',r'1$\sigma$']
+    strs = [r'3$\sigma$', r'2$\sigma$', r'1$\sigma$']
     for l, s in zip(CS.levels, strs):
         fmt[l] = s
     plt.clabel(CS, inline=True, fmt=fmt, fontsize=8)
-    
-    
-    plt.plot(Ic_list[Ic_ind],Is_list[Is_ind],"xr")
-    if IcPlusIs==True:
+
+    plt.plot(Ic_list[Ic_ind], Is_list[Is_ind], "xr")
+    if IcPlusIs == True:
         plt.xlabel('Ic + Is [/s]')
     else:
         plt.xlabel('Ic [/s]')
     plt.ylabel('Is [/s]')
-    plt.title('Map of log likelihood. Bin size = {:g}s'.format(effExpTime) )
+    plt.title('Map of log likelihood. Bin size = {:g}s'.format(effExpTime))
+
+
+
+
+
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes('right', size = '5%', pad=0.4)
+    cbar = fig.colorbar(img,cax=cax)
+    cbar.set_label(r'ln$\mathcal{L}$ - ln$\mathcal{L}_{max}$')
+
+
+
+    # fig, ax = plt.subplots()
+    # X, Y = np.meshgrid(Ic_list, Is_list)
+    # sigmaLevels = np.array([8.36, 4.78, 2.1])
+    # levels = np.amax(im) - sigmaLevels
+    #
+    # MYSTYLE = {'contour.negative_linestyle':'solid'}
+    # oldstyle = {key:matplotlib.rcParams[key] for key in MYSTYLE}
+    # matplotlib.rcParams.update(MYSTYLE)
+    #
+    # tmpim = im.T - np.amax(im)
+    # cax = ax.imshow(tmpim,extent = [np.amin(Ic_list), np.amax(Ic_list), np.amin(Is_list), np.amax(Is_list)],aspect='auto',origin = 'lower', cmap = 'hot_r',vmin=-8, vmax=0, interpolation='spline16')
+    # cbar = fig.colorbar(cax, orientation = 'horizontal')
+    # cbar.set_label(r'ln$\mathcal{L}$ - ln$\mathcal{L}_{max}$')
+
+
+
+    
+
     
     matplotlib.rcParams.update(oldstyle)
+
+    plt.show()
 
     return X,Y,im
 
@@ -493,12 +669,12 @@ def plotLogLMap(n, Ic_list, Is_list, effExpTime,IcPlusIs = False):
 
 if __name__ == "__main__":
 
-    if 1:
+    if 0:
         print("Generating photon list...",end="", flush=True)
 #        Ic, Is, Ttot, tau = [300., 30., 300., .1] # [Ic, Is] = cps, [Ttot, tau] = sec
 #        ts = genphotonlist(Ic, Is, Ttot, tau)
         
-        Ic, Is, Ir, Ttot, tau = [300., 30., 0, 300., .1] # [Ic, Is] = cps, [Ttot, tau] = sec
+        Ic, Is, Ir, Ttot, tau = [300., 30., 80, 300., .1] # [Ic, Is] = cps, [Ttot, tau] = sec
         ts = genphotonlist(Ic, Is, Ir, Ttot, tau)
         
         print("\nPhoton list parameters:\n Ic, Is, Ir, Ttot, tau = [{:g}, {:g}, {:g}, {:g}, {:g}]".format(Ic, Is, Ir, Ttot, tau))
@@ -788,7 +964,7 @@ if __name__ == "__main__":
         
         
         
-    if 1:
+    if 0:
         effExpTime = .01
         lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         
