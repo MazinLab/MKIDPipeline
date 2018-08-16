@@ -19,6 +19,7 @@ from scipy.optimize import curve_fit
 
 from mkidpipeline.speckle.genphotonlist_IcIsIr import genphotonlist
 from mpmath import mp, hyp1f1
+import mpmath
 from scipy import special
 from scipy.special import eval_laguerre, eval_genlaguerre, factorial
 from scipy import optimize
@@ -87,7 +88,7 @@ def getLightCurve(photonTimeStamps,startTime =0,stopTime =10,effExpTime=.01):
     histBinEdges = np.arange(startTime,stopTime,effExpTime)
     
     hist,_ = np.histogram(photonTimeStamps/10**6,bins=histBinEdges) #if histBinEdges has N elements, hist has N-1
-    lightCurveIntensityCounts = 1.*hist  #units are photon counts
+    lightCurveIntensityCounts = hist  #units are photon counts
     lightCurveIntensity = 1.*hist/effExpTime  #units are counts/sec
     lightCurveTimes = histBinEdges[:-1] + 1.0*effExpTime/2
     
@@ -258,9 +259,10 @@ def binMRlogL(n, Ic, Is):
     tmp = np.log(eval_laguerre(n,k))
     tmp -= k
     lnL = N*(np.log(1./(Is+1))  - Ic/Is) + np.sum(tmp) + np.sum(n)*np.log(Is/(1.+Is))
-    junk = (np.log(1./(Is+1))  - Ic/Is) + tmp + n*np.log(Is/(1.+Is))
+#    junk = (np.log(1./(Is+1))  - Ic/Is) + tmp + n*np.log(Is/(1.+Is))
     
-    return lnL,junk
+    return lnL
+
 
 def binMR_like(n, Ic, Is):
     '''
@@ -313,42 +315,67 @@ def pssn(m,mu): #scipy has a module called poisson
 def loglike_planet_blurredMR(n,Ic,Is,Ir):
     """
     Calculate the log likelihood of lightcurve that has both speckle Ic and Is,
-    as well as planet light Ir
+    as well as planet light Ir.
+    
+    This might break if you give it values of Ic Is Ir that are too big. mpmath
+    might give complex answers when calling the mpmath.log(tiny number)
     """
-    if Ir>3:
-        maxx = int(5*Ir)
-        tmp = np.arange(maxx)
-        cpd = poisson.cdf(tmp,Ir)
-        mm = tmp[np.where(cpd<.99999)]
-
-    else:
-        maxx = 15
-        tmp = np.arange(maxx)
-        cpd = poisson.cdf(tmp,Ir)
-        mm = tmp[np.where(cpd<.99999)]
+#    if Ir>3:
+#        maxx = int(5*Ir)
+#        tmp = np.arange(maxx)
+#        cpd = poisson.cdf(tmp,Ir)
+#        mm = tmp[np.where(cpd<.99999)]
+#
+#    else:
+#        maxx = 15
+#        tmp = np.arange(maxx)
+#        cpd = poisson.cdf(tmp,Ir)
+#        mm = tmp[np.where(cpd<.99999)]
     
     like = np.zeros(len(n))
     
-#    for m in mm:
-#        
-#        print(pssn(m,Ir))
-#        plt.plot(binMR_like(n-m, Ic, Is),'.-',label='m={:g}'.format(m))
-#        like += pssn(m,Ir)*binMR_like(n-m, Ic, Is)
-        
-    
+
+
+#    t1 = time.time()
 #    for ii in range(len(n)):
-    for ii in range(len(n)):
-        for mm in range(int(n[ii])+1):  #make sure it executes at least 1 time
-            like[ii] += pssn(mm,Ir)*binMR_like(np.array([n[ii]-mm]), Ic, Is)[0]
-            
-            
+#        for mm in range(int(n[ii])+1):  #make sure it executes at least 1 time
+#            like[ii] += pssn(mm,Ir)*binMR_like(np.array([n[ii]-mm]), Ic, Is)[0]
+#    
+#    t2 = time.time()
+#    
+#    logL=0
+#    for jj in [mp.log(ii) for ii in like]:
+#        logL +=jj
+#        
+#    t3 = time.time()
     
+            
         
-
-
-    logL=0
-    for jj in [mp.log(ii) for ii in like]:
-        logL +=jj
+        
+        
+    #make a lookup table
+    lutSize = int(max(n))+1
+    lut = np.zeros(lutSize)
+    loglut = np.zeros(lutSize)
+    inds = np.unique(n).astype(int)
+    for ii in inds:
+        for mm in np.arange(ii+1):
+            lut[ii] += pssn(mm,Ir)*binMR_like(np.array([ii-mm]), Ic, Is)[0]    
+    loglut = np.log(lut)
+    like2 = lut[n]
+#    print('\n\nlut = ',lut,'\n\n')
+    
+#    logL2=0
+#    for jj in [mpmath.log(ii) for ii in like2]:
+#        logL2 +=jj
+#    logL2 = np.float(logL2)
+        
+    logL3 = np.sum(loglut[n])
+    
+#    t4 = time.time()
+#    print('foo = ', t2-t1)
+#    print('foo = ', t3-t2)
+#    print('foo = ', t4-t3)
 
 #    logL = np.sum(np.log(like))
 #    plt.legend()
@@ -357,11 +384,12 @@ def loglike_planet_blurredMR(n,Ic,Is,Ir):
 #    print('cpd: ',cpd)
 #    print('mm: ',mm)
 
-    return logL, like
+#    return logL, like, logL2, like2
+    return logL3, like2
 
 
 def negloglike_planet_blurredMR(p,n):
-    return -loglike_planet_blurredMR(n,p[0],p[1],p[2])
+    return -loglike_planet_blurredMR(n, p[0], p[1], p[2])[0]
     
     
     
@@ -544,7 +572,8 @@ def logLMap(n, Ic_list, Is_list, effExpTime,IcPlusIs = False):
             else:
                 tmp = Ic
 
-            lnL = binMRlogL(n, tmp, Is)
+#            lnL = binMRlogL(n, tmp, Is)
+            lnL = loglike_planet_blurredMR(n,tmp,Is,.8)[0]
             im[j,i] = lnL
         print('Ic,Is = ', Ic / effExpTime, Is / effExpTime)
 
