@@ -11,7 +11,7 @@ import os
 
 import tables
 
-from mkidpipeline.core.headers import CalLookup_Description
+from mkidcore.headers  import CalLookup_Description
 from mkidpipeline.hdf.darkObsFile import ObsFile
 from mkidpipeline.utils import utils
 from mkidpipeline.utils.FileName import FileName

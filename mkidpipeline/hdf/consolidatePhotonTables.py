@@ -3,7 +3,7 @@ import sys
 import numpy as np
 import tables
 
-from mkidpipeline.core.headers import ObsFileCols
+from mkidcore.headers  import ObsFileCols
 
 if(len(sys.argv)<2):
     print("Usage: python consolidatePhotonTables.py <filename>")
