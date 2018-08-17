@@ -2,7 +2,7 @@ import sys
 
 import tables
 
-from mkidpipeline.core.headers import ObsHeader
+from mkidcore.headers  import ObsHeader
 
 if __name__=='__main__':
     if len(sys.argv)<3:

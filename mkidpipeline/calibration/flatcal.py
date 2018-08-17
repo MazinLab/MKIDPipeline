@@ -25,9 +25,9 @@ from PyPDF2 import PdfFileMerger, PdfFileReader
 from matplotlib.backends.backend_pdf import PdfPages
 from progressbar import Bar, ETA, Percentage, ProgressBar, Timer
 from mkidpipeline.calibration import wavecalplots
-from mkidpipeline.core.headers import FlatCalSoln_Description
+from mkidcore.headers  import FlatCalSoln_Description
 from mkidpipeline.hdf.darkObsFile import ObsFile
-from mkidpipeline.core.corelog import getLogger
+from mkidcore.corelog import getLogger
 np.seterr(divide='ignore', invalid='ignore')
 
 class FlatCalConfig:
