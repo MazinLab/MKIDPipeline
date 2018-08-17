@@ -161,6 +161,7 @@ body {font-family: Arial;}
   <a href = "/datebuttons"><button class="tablinks" onclick="openData(event, 'Dates')">Dates</button></a>
   <a href = "/calbuttons"><button class="tablinks" onclick="openData(event, 'Calibrations')">Calibrations</button></a>
   <a href ="/datarecorder"><button class="tablinks" onclick="openData(event, 'Add New Data')">Add New Data</button></a>
+  <a href ="/calrecorder"><button class="tablinks" onclick="openData(event, 'Add New Cals')">Add New Cals</button></a>
     <div class="search-container">
             <form action="/action_page.php">
               <input type="text" placeholder="Search..." name="search" size = 30px>
@@ -182,14 +183,20 @@ body {font-family: Arial;}
 <div id="Runs" class="tabcontent">
   <p class="solid">
 <h4>Runs</h4>
+<h3>DARKNESS</h3>
       <form action="/runfinder" method="POST">
- <button class="buttony button1" value="2016B" input type="submit" name="submit">2016B</button>
+    <button class="buttony button1" value="2016B" input type="submit" name="submit">2016B</button>
     <button class="buttony button1" value="2017A" input type="submit" name="submit">2017A</button>
     <button class="buttony button1" value="2017B" input type="submit" name="submit">2017B</button> 
     <button class="buttony button1" value="2018A" input type="submit" name="submit">2018A</button> 
 </form>
+
+<h3>MEC</h3>
+
+
+
 <br /> <br />
- <b>Create a New Run </b><br/> (type year, A or B) - e.g. 2018B:<br/>
+ <b>Create a New Run </b><br/> (type year, A or B and DO NOT create a run with an existing file. That will overwrite the JSON!!) - e.g. 2018B:<br/>
 <form method = 'POST'>
 <input type ='text' name = 'newFile'>
 <input type = 'submit'>

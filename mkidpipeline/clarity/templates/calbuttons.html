@@ -160,6 +160,7 @@ body {font-family: Arial;}
   <a href ="/datebuttons"><button class="tablinks" onclick="openData(event, 'Dates')" >Dates</button></a>
   <button class="tablinks" onclick="openData(event, 'Calibrations')" id="defaultOpen">Calibrations</button>
   <a href ="/datarecorder"><button class="tablinks" onclick="openData(event, 'Add New Data')">Add New Data</button></a>
+  <a href ="/calrecorder"><button class="tablinks" onclick="openData(event, 'Add New Cals')">Add New Cals</button></a>
     <div class="search-container">
             <form action="/action_page.php">
               <input type="text" placeholder="Search..." name="search" size = 30px>
@@ -190,6 +191,7 @@ body {font-family: Arial;}
   <div id="Calibrations" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
   <h4>Calibrations</h4>
+
    <form action="/calibrationfinder" method="POST">
 
     <button class="buttony button1" value="SAO61424" input type="submit" name="submit">SAO61424</button>
@@ -222,6 +224,14 @@ body {font-family: Arial;}
 
   </form>
 <h5> Click <a href = "https://www.epochconverter.com/"  target="_blank">HERE</a> for the Unix Timestamp Website converter!</h5>
+</form>
+<br /> <br />
+ <b>Create a New Cal File</b><br/> (type 'WaveCals_Year, A or B and DO NOT create a run with an existing file. That will overwrite the JSON!!) - e.g. WaveCals_2018B:<br/>
+
+<form method = 'POST'>
+<input type ='text' name = 'newCalFile'>
+<input type = 'submit'>
+  </form>
 
 
 <script>

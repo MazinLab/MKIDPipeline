@@ -160,6 +160,7 @@ body {font-family: Arial;}
   <a href ="/datebuttons"> <button class="tablinks" onclick="openData(event, 'Dates')">Dates</button></a>
     <a href ="/calbuttons"><button class="tablinks" onclick="openData(event, 'Calibrations')">Calibrations</button></a>
        <button class="tablinks" onclick="openData(event, 'Add New Data')" id="defaultOpen">Add New Data</button>
+       <a href ="/calrecorder"><button class="tablinks" onclick="openData(event, 'Add New Cals')">Add New Cals</button></a>
 
     <div class="search-container">
             <form action="/action_page.php">
@@ -203,10 +204,15 @@ body {font-family: Arial;}
 
  <div id="Add New Data" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
- <form method = 'POST'>
+ 
+   <form method = 'POST'>
+  Please Type the File Name of what you would like to add Data to (e.g. MEC2018B): 
+  <input type ='text' name = 'FileName'> <br /> <br />
   Target: <input type ='text' name = 'Target'> <br />
    Type: <input type ='text' name = 'Type'> <br />
    J mag: <input type ='text' name = 'J mag'> <br />
+   Sunset Date(s):<input type ='text' name = 'Sunset Date(s)'> <br />
+   Seeing (AO):<input type ='text' name = 'Seeing (AO)'> <br />
    Filters: <input type ='text' name = 'Filters'> <br />
    Time Windows:<input type ='text' name = 'Time Windows'> <br />
    Nearby Laser Cals: <input type ='text' name = 'Nearby Laser Cals'> <br />
