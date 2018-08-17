@@ -153,7 +153,7 @@ void AddPacket(char *packet, uint64_t l, hid_t file_id, size_t dst_size, size_t 
 		// add the photon to ptable and increment the appropriate counter
         ptable[data->xcoord][data->ycoord][ptablect[data->xcoord][data->ycoord]].resID = BeamMap[data->xcoord][data->ycoord];
 		ptable[data->xcoord][data->ycoord][ptablect[data->xcoord][data->ycoord]].timestamp = (uint32_t) (basetime*500 + data->timestamp);
-		ptable[data->xcoord][data->ycoord][ptablect[data->xcoord][data->ycoord]].wvl = ((float) data->wvl)*RAD2DEG/32768.0 + ((float) data->baseline)*RAD2DEG/16384.0;
+		ptable[data->xcoord][data->ycoord][ptablect[data->xcoord][data->ycoord]].wvl = ((float) data->wvl)*RAD2DEG/32768.0; //+ ((float) data->baseline)*RAD2DEG/16384.0;
 		ptable[data->xcoord][data->ycoord][ptablect[data->xcoord][data->ycoord]].wSpec = 1.0;
 		ptable[data->xcoord][data->ycoord][ptablect[data->xcoord][data->ycoord]].wNoise = 1.0;
 		ptablect[data->xcoord][data->ycoord]++;
