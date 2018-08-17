@@ -380,7 +380,7 @@ class mainWindow(QMainWindow):
         
         
     def loadDataFromH5(self,*args):
-        #a = darkObsFile.ObsFile('/Users/clint/Documents/mazinlab/ScienceData/PAL2017b/20171004/1507175503.h5')
+        #a = ObsFile('/Users/clint/Documents/mazinlab/ScienceData/PAL2017b/20171004/1507175503.h5')
         if os.path.isfile(self.filename):
             try:
                 self.a = ObsFile(self.filename)
@@ -402,11 +402,21 @@ class mainWindow(QMainWindow):
                 
                 #set the max and min values for the lambda spinboxes
 #                self.spinbox_startLambda.setMinimum(self.wvlBinStart)
-                self.spinbox_stopLambda.setMinimum(self.wvlBinStart)
-                self.spinbox_startLambda.setMaximum(self.wvlBinEnd)
-                self.spinbox_stopLambda.setMaximum(self.wvlBinEnd)
-                self.spinbox_startLambda.setValue(self.wvlBinStart)
-                self.spinbox_stopLambda.setValue(self.wvlBinEnd)
+                #check if the data is wavecaled and set the limits on the spinboxes accordingly
+                if self.a.getFromHeader('isWvlCalibrated'):
+                    self.spinbox_stopLambda.setMinimum(self.wvlBinStart)
+                    self.spinbox_startLambda.setMaximum(self.wvlBinEnd)
+                    self.spinbox_stopLambda.setMaximum(self.wvlBinEnd)
+                    self.spinbox_startLambda.setMinimum(self.wvlBinStart)
+                    self.spinbox_startLambda.setValue(self.wvlBinStart)
+                    self.spinbox_stopLambda.setValue(self.wvlBinEnd)
+                else:
+                    self.spinbox_stopLambda.setMinimum(-180)
+                    self.spinbox_startLambda.setMaximum(1)
+                    self.spinbox_stopLambda.setMaximum(0)
+                    self.spinbox_startLambda.setMinimum(-180)
+                    self.spinbox_startLambda.setValue(-180)
+                    self.spinbox_stopLambda.setValue(0)
                 
                 #set the max value of the integration time spinbox
                 self.spinbox_startTime.setMinimum(0)
@@ -645,8 +655,8 @@ class mainWindow(QMainWindow):
         label_integrationTime = QLabel('integration time')
         
         #spinboxes for the start & stop wavelengths
-        self.spinbox_startLambda = QSpinBox()
-        self.spinbox_stopLambda = QSpinBox()
+        self.spinbox_startLambda = QDoubleSpinBox()
+        self.spinbox_stopLambda = QDoubleSpinBox()
         
         #labels for the start/stop time spinboxes
         label_startLambda = QLabel('start wavelength [nm]')
