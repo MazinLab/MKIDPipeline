@@ -329,6 +329,41 @@ class spectrum(subWindow):
         self.ax.set_title('pixel ({},{})' .format(self.activePixel[0],self.activePixel[1]))
         self.draw()
         
+        
+        
+        
+class pulseHeightHistogram(subWindow):
+    #this class inherits from the subWindow class. 
+    def __init__(self,parent):
+        #call the init function from the superclass 'subWindow'. 
+        super(spectrum, self).__init__(parent)
+        self.setWindowTitle("Pulse Heights")
+        self.plotData()
+        self.draw()
+        
+        
+    def getHist(self):
+        pulseHeights = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1])['Wavelength']
+        
+        
+    def plotData(self): 
+        self.ax.clear()
+        
+        
+        self.spectrum = temp['spectrum']
+        self.wvlBinEdges = temp['wvlBinEdges']
+        #self.effIntTime = temp['effIntTime']
+        self.rawCounts = temp['rawCounts']
+        
+        self.wvlBinCenters = np.diff(self.wvlBinEdges)/2 + self.wvlBinEdges[:-1]
+        
+        
+        self.ax.plot(self.wvlBinCenters,self.spectrum,'-o')
+        self.ax.set_xlabel('wavelength [nm]')
+        self.ax.set_ylabel('intensity [counts]')
+        self.ax.set_title('pixel ({},{})' .format(self.activePixel[0],self.activePixel[1]))
+        self.draw()
+        
 
         
         
