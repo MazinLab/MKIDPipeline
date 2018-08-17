@@ -1,6 +1,7 @@
 import os
 from flask import Flask, send_file, render_template, jsonify, request, url_for, g, session, redirect
 import json
+from pathlib import Path
 
 app = Flask(__name__)
 app.debug = True
@@ -9,22 +10,20 @@ app.secret_key = os.urandom(24)
 
 
 def saveFile(name, newlist):
-    with open(name + 'J.json', 'w') as outfile:
+    with open(name + '.json', 'w') as outfile:
         json.dump(newlist, outfile, indent=4, separators=(',', ': '))
 
 def loadFile(name):
-    with open(name + 'J.json', 'r') as infile:
+    with open(name + '.json', 'r') as infile:
         return json.load(infile)
-
-
 
 
 @app.route('/', methods = ['GET', 'POST'])
 def index():
     if request.method == 'POST':
         session.pop('user', None)
-        userlist 
-        if request.form['password'] == '':
+        userlist = ['clarissardoo']
+        if request.form['password'] == 'password123':
                 if request.form['username'] in userlist:
                     session['user'] = request.form['username']
         return redirect(url_for('database'))
@@ -45,12 +44,14 @@ def targetbuttons():
 @app.route('/datarecorder', methods = ['GET', 'POST'])
 def datarecorder():
     if g.user:
-        newtargets = loadFile('2018B')
         data = {}
         if request.method == 'POST':
+           newtargets = loadFile(request.form['FileName'])
            data['Target'] = request.form['Target']
            data['Type'] = request.form['Type']
            data['J mag'] = request.form['J mag']
+           data['Sunset Date(s)'] = request.form['Sunset Date(s)']
+           data['Seeing (AO)'] = request.form['Seeing (AO)']
            data['Filters'] = request.form['Filters']
            data['Time Windows'] = request.form['Time Windows']
            data['Nearby Laser Cals'] = request.form['Nearby Laser Cals']
@@ -59,18 +60,37 @@ def datarecorder():
            data['AO Saved State'] = request.form['AO Saved State']
            data['BIN File Range'] = request.form['BIN File Range']
            newtargets.append(data)
-           saveFile('2018B', newtargets)
-           print(newtargets)
-
-           
-
+           saveFile(request.form['FileName'], newtargets)
+           #print(newtargets)
         return render_template('datarecorder.html')
+
+
+@app.route('/calrecorder', methods = ['GET', 'POST'])
+def calrecorder():
+    if g.user:
+        data = {}
+        if request.method == 'POST':
+            newCals = loadFile(request.form['File_Name'])
+            data['calTarget'] = request.form['calTarget']
+            data['Run'] = request.form['Run']
+            data['Time'] = request.form['Time']
+            data['808nm'] = request.form['808nm']
+            data['904 nm'] = request.form['904 nm']
+            data['920 nm'] = request.form['920 nm']
+            data['980 nm'] = request.form['980 nm']
+            data['1120 nm'] = request.form['1120 nm']
+            data['Rethresholding range'] = request.form['Rethresholding range']
+            newCals.append(data)
+            saveFile(request.form['File_Name'], newCals)
+            print(newCals)
+        return render_template('calrecorder.html')
 
 @app.route('/runbuttons', methods = ['GET', 'POST'])
 def runbuttons():
     if g.user:
         if request.method == 'POST':
-            filename = request.form['newFile'] + 'J.json'
+            filename = request.form['newFile'] + '.json'
+            print(filename)
             with open(filename, 'w') as json_file:
                 json_file.write('[]')
         return render_template('runbuttons.html')
@@ -83,9 +103,14 @@ def datebuttons():
     return redirect(url_for('index'))
 
 
-@app.route('/calbuttons')
+@app.route('/calbuttons', methods = ['GET', 'POST'])
 def calbuttons():
     if g.user:
+        if request.method == 'POST':
+            file_name = request.form['newCalFile'] + '.json'
+            print(file_name)
+            with open(file_name, 'w') as jsonfile:
+                jsonfile.write('[]')
         return render_template('calbuttons.html')
     return redirect(url_for('index'))
 
@@ -105,7 +130,6 @@ def getsession():
 
     return 'Not logged in!'
 
-
 @app.route('/dropsession')
 def dropsession():
     session.pop('user', None)
@@ -118,7 +142,7 @@ def targetfinder():
         filelist = ('2016B', '2017A', '2017B', '2018A')
         data = []
         for recordYear in filelist:
-            with open(recordYear+'J.json') as datarunner:
+            with open(recordYear+'.json') as datarunner:
                     data1 = json.load(datarunner)
             for elem in data1:
                 if elem.get("Target") == request.form['submit']:
@@ -129,7 +153,7 @@ def targetfinder():
 @app.route('/runfinder', methods=['POST'])
 def runfinder():
     if request.method == 'POST':
-        datarunner = open(request.form['submit']+'J.json')
+        datarunner = open(request.form['submit']+'.json')
         data1 = json.load(datarunner)
         return render_template("runs.html", data = data1)
 
@@ -147,13 +171,15 @@ def calibrationfinder():
         return render_template("cals.html", data = data)
 
 
+
+
 @app.route('/datefinder', methods=['POST'])
 def datefinder():
     if request.method == 'POST':
         filelist = ('2016B', '2017A', '2017B', '2018A')
         data = []
         for recordYear in filelist:
-            with open(recordYear+'J.json') as datarunner:
+            with open(recordYear+'.json') as datarunner:
                     data1 = json.load(datarunner)
             for elem in data1:
                 date = request.form['submit']
