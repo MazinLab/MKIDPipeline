@@ -64,7 +64,7 @@ from interval import interval
 from matplotlib.backends.backend_pdf import PdfPages
 from regions import CirclePixelRegion, PixCoord
 
-from mkidpipeline.core.pixelflags import h5FileFlags
+from mkidcore.pixelflags import h5FileFlags
 
 
 class ObsFile:
