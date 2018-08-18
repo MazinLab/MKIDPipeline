@@ -336,31 +336,26 @@ class pulseHeightHistogram(subWindow):
     #this class inherits from the subWindow class. 
     def __init__(self,parent):
         #call the init function from the superclass 'subWindow'. 
-        super(spectrum, self).__init__(parent)
+        super(pulseHeightHistogram, self).__init__(parent)
         self.setWindowTitle("Pulse Heights")
         self.plotData()
         self.draw()
         
         
-    def getHist(self):
-        pulseHeights = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1])['Wavelength']
-        
         
     def plotData(self): 
         self.ax.clear()
         
+        pulseHeights = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1])['Wavelength']
         
-        self.spectrum = temp['spectrum']
-        self.wvlBinEdges = temp['wvlBinEdges']
-        #self.effIntTime = temp['effIntTime']
-        self.rawCounts = temp['rawCounts']
+        hist,binEdges = np.histogram(pulseHeights,bins=100)
         
-        self.wvlBinCenters = np.diff(self.wvlBinEdges)/2 + self.wvlBinEdges[:-1]
+        binCenters = np.diff(binEdges)/2 + binEdges[:-1]
         
         
-        self.ax.plot(self.wvlBinCenters,self.spectrum,'-o')
-        self.ax.set_xlabel('wavelength [nm]')
-        self.ax.set_ylabel('intensity [counts]')
+        self.ax.bar(binCenters,hist)
+        self.ax.set_xlabel('raw phase [uncalibrated degrees]')
+        self.ax.set_ylabel('[counts]')
         self.ax.set_title('pixel ({},{})' .format(self.activePixel[0],self.activePixel[1]))
         self.draw()
         
@@ -392,7 +387,7 @@ class mainWindow(QMainWindow):
     def __init__(self,parent=None):
         QMainWindow.__init__(self,parent=parent)
         self.initializeEmptyArrays()
-        self.setWindowTitle('quickLook.py')
+        self.setWindowTitle('oracle')
         self.resize(600,850)  #(600,850 works for clint's laptop screen. Units are pixels I think.)
         self.create_main_frame()
         self.create_status_bar()
@@ -452,6 +447,9 @@ class mainWindow(QMainWindow):
                     self.spinbox_startLambda.setMinimum(-180)
                     self.spinbox_startLambda.setValue(-180)
                     self.spinbox_stopLambda.setValue(0)
+                    
+                    self.label_startLambda.setText('start phase [uncal degrees]')
+                    self.label_stopLambda.setText('stop phase [uncal degrees]')
                 
                 #set the max value of the integration time spinbox
                 self.spinbox_startTime.setMinimum(0)
@@ -489,7 +487,7 @@ class mainWindow(QMainWindow):
             
             self.ax1.axis('off')
             
-            self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=2)
+            self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
             
             self.draw()
         
@@ -528,12 +526,15 @@ class mainWindow(QMainWindow):
             
             self.ax1.axis('off')
             
-            self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=2)
+            self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
             
             #self.ax1.plot(np.arange(10),np.arange(10)**2)
             
             
             self.draw()
+            
+            
+            print(self.sWindowList)
             
 
 
@@ -595,7 +596,7 @@ class mainWindow(QMainWindow):
             
             self.ax1.axis('off')
             
-            self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=2)
+            self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
             
             
             self.draw()
@@ -622,7 +623,7 @@ class mainWindow(QMainWindow):
         
         self.ax1.axis('off')
         
-        self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=2)
+        self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
 
         self.draw()
         
@@ -694,8 +695,8 @@ class mainWindow(QMainWindow):
         self.spinbox_stopLambda = QDoubleSpinBox()
         
         #labels for the start/stop time spinboxes
-        label_startLambda = QLabel('start wavelength [nm]')
-        label_stopLambda = QLabel('stop wavelength [nm]')      
+        self.label_startLambda = QLabel('start wavelength [nm]')
+        self.label_stopLambda = QLabel('stop wavelength [nm]')      
         
         #label for the filenames
         self.h5_filename_label = QLabel('no file loaded')
@@ -726,9 +727,9 @@ class mainWindow(QMainWindow):
         
         #create a v box for the wavelength spinboxes
         vbox_lambda = QVBoxLayout()
-        vbox_lambda.addWidget(label_startLambda)
+        vbox_lambda.addWidget(self.label_startLambda)
         vbox_lambda.addWidget(self.spinbox_startLambda)
-        vbox_lambda.addWidget(label_stopLambda)
+        vbox_lambda.addWidget(self.label_stopLambda)
         vbox_lambda.addWidget(self.spinbox_stopLambda)
         
         #create an h box for the buttons
@@ -788,7 +789,8 @@ class mainWindow(QMainWindow):
         
         
     def quickLoadH5(self):
-        self.filename = '/Users/clint/Documents/mazinlab/ScienceData/PAL2017b/20171004/1507175503_old.h5'
+#        self.filename = '/Users/clint/Documents/mazinlab/ScienceData/PAL2017b/20171004/1507175503_old.h5'
+        self.filename = '/Users/clint/Documents/mazinlab/ScienceData/PAL2017b/20171004/1507173006.h5'
         self.loadDataFromH5()  
         
 
@@ -898,9 +900,12 @@ class mainWindow(QMainWindow):
         plotIntensityHistogramButton.triggered.connect(self.makeIntensityHistogramPlot)
         plotSpectrumButton = QAction('Spectrum',self)
         plotSpectrumButton.triggered.connect(self.makeSpectrumPlot)
+        plotPhaseHistButton = QAction('Phase Height Histogram',self)
+        plotPhaseHistButton.triggered.connect(self.makePulseHeightHistogramPlot)
         self.plotMenu.addAction(plotLightCurveButton)
         self.plotMenu.addAction(plotIntensityHistogramButton)
         self.plotMenu.addAction(plotSpectrumButton)
+        self.plotMenu.addAction(plotPhaseHistButton)
 
         
         self.menubar.setNativeMenuBar(False) #This is for MAC OS
@@ -933,6 +938,12 @@ class mainWindow(QMainWindow):
         
     def makeSpectrumPlot(self):
         sWindow = spectrum(self)
+        sWindow.show()
+        self.sWindowList.append(sWindow)
+        
+        
+    def makePulseHeightHistogramPlot(self):
+        sWindow = pulseHeightHistogram(self)
         sWindow.show()
         self.sWindowList.append(sWindow)
         
