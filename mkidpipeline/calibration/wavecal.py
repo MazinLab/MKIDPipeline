@@ -22,7 +22,8 @@ from progressbar import Bar, ETA, Percentage, ProgressBar, Timer
 
 from mkidpipeline.calibration.wavecalplots import fitModels, plotSummary
 from mkidpipeline.core import pixelflags
-from mkidpipeline.core.headers import (WaveCalDebugDescription, WaveCalDescription, WaveCalHeader)
+from mkidpipeline.core.headers import (WaveCalDebugDescription, WaveCalDescription,
+                                       WaveCalHeader)
 from mkidpipeline.hdf.darkObsFile import ObsFile
 import mkidpipeline.core.corelog as pipelinelog
 from mkidpipeline.core.corelog import getLogger
@@ -132,7 +133,7 @@ class BIN2HDFConfig(object):
         raise NotImplementedError
 
 
-class WaveCalConfig:
+class WaveCalConfig(object):
     def __init__(self, file='default.cfg', cal_file_name = 'calsol_default.h5'):
 
         # define the configuration file path
@@ -335,6 +336,242 @@ class WaveCalConfig:
                     'templar_config = "{}"\n'.format(self.templar_config) +
                     'verbose = {}\n'.format(self.verbose) +
                     'logging = {}'.format(self.logging))
+
+
+class Solution(object):
+    def __init__(self, file_name=None, load_on_init=False):
+        assert file_name is not None, "must specify a file_name"
+        self._calibration = None
+        self._debug = None
+        self._wavelengths = None
+        self._beam_map = None
+        self._model_name = None
+        self._h5_files = None
+
+        self.file_name = file_name
+        if load_on_init:
+            self.load_all()
+        else:
+            self._calibration = None
+            self._debug = None
+            self._loaded = False
+            self._header_loaded = False
+
+    def load_all(self):
+        """Loads all the data from the solution file."""
+        file_ = tb.open_file(self.file_name, mode='r')
+        self._calibration = file_.root.wavecal.calsoln.read()
+        self._debug = file_.root.debug.debug_info.read()
+        self._wavelengths = file_.root.header.wavelengths.read()[0]
+        self._beam_map = file_.root.header.beamMap.read()
+        self._model_name = file_.root.header.info.read()['model_name'][0].astype(str)
+        self._h5_files = file_.root.header.obsFiles.read()[0].astype(str)
+        file_.close()
+        self._loaded = True
+        self._header_loaded = True
+
+    def load_header(self):
+        """Loads just the header from the solution file."""
+        file_ = tb.open_file(self.file_name, mode='r')
+        self._wavelengths = file_.root.header.wavelengths.read()[0]
+        self._beam_map = file_.root.header.beamMap.read()
+        self._model_name = file_.root.header.info.read()['model_name'][0].astype(str)
+        self._h5_files = file_.root.header.obsFiles.read()[0].astype(str)
+        file_.close()
+        self._header_loaded = True
+
+    @property
+    def wavelengths(self):
+        """wavelengths used to compute the solution."""
+        self._check_header_loaded()
+        return self._wavelengths
+
+    @property
+    def beam_map(self):
+        """beam map for the array in the solution."""
+        self._check_header_loaded()
+        return self._beam_map
+
+    @property
+    def model_name(self):
+        """histogram fit model name used to make the solution."""
+        self._check_header_loaded()
+        return self._model_name
+
+    @property
+    def h5_files(self):
+        """h5 files used to compute the solution."""
+        self._check_header_loaded()
+        return self._h5_files
+
+    def resolving_powers(self, pixel=None, res_id=None, wavelengths=None):
+        """Returns the resolving powers for a particular resonator if pixel or res_id is
+        specified. Otherwise, all the resolving powers are returned.
+        Use the wavelengths parameter to specify a subset of wavelengths to return."""
+        self._check_loaded()
+
+        array_indices = self._get_array_indices(self._calibration,
+                                                pixel=pixel, res_id=res_id)
+        wavelength_indices = self._get_wavelength_indices(wavelengths)
+
+        R = self._calibration['R'][array_indices, wavelength_indices]
+        R[R == -1] = np.nan
+        return R
+
+    def energies(self, pixel=None, res_id=None):
+        """Returns a tuple of the  phases, energies, and phase errors (1 sigma) data
+        points for a particular resonator. Only includes points that have good histogram
+        fits."""
+        self._check_loaded()
+
+        array_index = self._get_array_indices(self._debug,  pixel=pixel, res_id=res_id)
+        phases, errors, energies = [], [], []
+        for wavelength_index, wavelength in enumerate(self._wavelengths):
+            good_fit = self.has_good_histogram_solution(wavelength,
+                                                        pixel=pixel, res_id=res_id)
+            if good_fit:
+                hist_fit = self.histogram_fit_coefficients(wavelength,
+                                                           pixel=pixel, res_id=res_id)
+                hist_cov = self._debug['hist_cov' + str(wavelength_index)][array_index][0]
+
+                if self._model_name == 'gaussian_and_exp':
+                    energies.append(h.to('eV s').value * c.to('nm/s').value /
+                                    np.array(wavelength))
+                    phases.append(hist_fit[3])
+                    errors.append(np.sqrt(hist_cov.reshape((5, 5))[3, 3]))
+                else:
+                    raise ValueError("{0} is not a valid fit model name"
+                                     .format(self._model_name))
+        return phases, energies, errors
+
+    def energy_fit_coefficients(self, pixel=None, res_id=None):
+        """Returns the energy fit coefficients"""
+        self._check_loaded()
+
+        index = self._get_array_index(self._calibration, pixel=pixel, res_id=res_id)
+        poly = self._calibration['polyfit'][index]
+
+        return poly
+
+    def energy_fit_function(self, pixel=None, res_id=None):
+        """Returns the phase to energy conversion function for a particular resonator."""
+        poly = self.energy_fit_coefficients(pixel=pixel, res_id=res_id)
+
+        def phase_to_energy(phase):
+            return np.polyval(poly, phase)
+
+        return phase_to_energy
+
+    def has_good_energy_solution(self, pixel=None, res_id=None):
+        """Returns True if the resonator has a good wavelength calibration solution.
+        Returns False otherwise."""
+        self._check_loaded()
+
+        index = self._get_array_index(self._calibration, pixel=pixel, res_id=res_id)
+        flag = self._calibration["wave_flag"][index]
+
+        if flag == 4 or flag == 5:
+            return True
+        else:
+            return False
+
+    def histogram(self, wavelength, pixel=None, res_id=None):
+        """Returns the bin centers and counts for a particular resonator."""
+        self._check_loaded()
+
+        array_index = self._get_array_index(self._calibration, pixel=pixel, res_id=res_id)
+        wavelength_index = self._get_wavelength_indices(wavelength)[0]
+
+        bin_centers = self._debug['phase_centers' + str(wavelength_index)][array_index][0]
+        counts = self._debug['phase_counts' + str(wavelength_index)][array_index][0]
+
+        # remove padded indices
+        good_indices = (counts != -1)
+        bin_centers = bin_centers[good_indices]
+        counts = counts[good_indices]
+
+        return bin_centers, counts
+
+    def histogram_fit_coefficients(self, wavelength, pixel=None, res_id=None):
+        """Returns the phase histogram fit coefficients."""
+        self._check_loaded()
+
+        array_index = self._get_array_index(self._calibration, pixel=pixel, res_id=res_id)
+        wavelength_index = self._get_wavelength_indices(wavelength)[0]
+
+        hist_fit = self._debug['hist_fit' + str(wavelength_index)][array_index][0]
+
+        return hist_fit
+
+    def histogram_fit_function(self, wavelength, pixel=None, res_id=None):
+        """Returns the phase histogram fit function which takes phase as an argument."""
+        coefficients = self.histogram_fit_coefficients(wavelength,
+                                                       pixel=pixel, res_id=res_id)
+        fit_function = fitModels(self._model_name)
+
+        def histogram_fit(phase):
+            return fit_function(phase, *coefficients)
+
+        return histogram_fit
+
+    def has_good_histogram_solution(self, wavelength, pixel=None, res_id=None):
+        """Returns True if the resonator has a good histogram fit at the specified
+        wavelength. Returns False otherwise."""
+        self._check_loaded()
+
+        array_index = self._get_array_indices(self._debug, pixel=pixel, res_id=res_id)
+        wavelength_index = self._get_wavelength_indices(wavelength)
+        hist_flag = self._debug['hist_flag'][array_index, wavelength_index][0]
+
+        if hist_flag == 0:
+            return True
+        else:
+            return False
+
+    def _check_loaded(self):
+        if not self._loaded:
+            self.load_all()
+
+    def _check_header_loaded(self):
+        if not self._header_loaded:
+            self.load_header()
+
+    def _get_array_index(self, table, pixel=None, res_id=None):
+        if pixel is None and res_id is None:
+            ValueError('must specify a resonator location (x_cord, y_cord) or a res_id')
+        index = self._get_array_indices(table, pixel=pixel, res_id=res_id)
+        return index
+
+    def _get_array_indices(self, table, pixel=None, res_id=None):
+        if pixel is None and res_id is None:
+            indices = slice(0, -1)
+        elif pixel is not None:
+            assert len(pixel) == 2, \
+                "pixel must be a list or tuple of length 2 (x_coord, y_coord)"
+            res_id = self._beam_map[pixel[0], pixel[1]]
+            indices = np.where(res_id == np.array(table['resid']))[0]
+        else:
+            assert isinstance(res_id, (int, float)), "res_id must be an integer"
+            indices = np.where(res_id == np.array(table['resid']))[0]
+
+        if not isinstance(indices, slice) and len(indices) != 1:
+            raise ValueError("res_id must exist and be unique")
+
+        return indices
+
+    def _get_wavelength_indices(self, wavelengths):
+        if wavelengths is None:
+            indices = slice(0, -1)
+        else:
+            if not isinstance(wavelengths, (np.ndarray, list)):
+                wavelengths = np.array([wavelengths])
+            indices = np.array([], dtype=np.int)
+            for wavelength in wavelengths:
+                indices = np.append(indices, np.where(self._wavelengths == wavelength)[0])
+                if wavelength not in self._wavelengths:
+                    warnings.warn("{} nm is not in the wavelength list for this solution"
+                                  .format(wavelength))
+        return indices
 
 
 class WaveCal:

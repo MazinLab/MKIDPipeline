@@ -14,7 +14,7 @@ from mpl_toolkits.axes_grid1 import axes_size, make_axes_locatable
 from mkidpipeline.core import pixelflags
 
 
-def plotEnergySolution(file_name, res_id=None, pixel=[], axis=None):
+def plotEnergySolution(file_name, res_id=None, pixel=(), axis=None):
     """
     Plot the phase to energy solution for a pixel from the wavlength calibration solution
     file 'file_name'. Provide either the pixel location pixel=(row, column) or the res_id
@@ -974,5 +974,7 @@ def fitModels(model_name):
         fit_function = lambda p, x: p['b'] * x + p['c']
     elif model_name == 'linear_zero':
         fit_function = lambda p, x: p['b'] * x
+    else:
+        raise ValueError("{} is not a valid fit model".format(model_name))
 
     return fit_function
