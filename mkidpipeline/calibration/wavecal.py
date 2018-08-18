@@ -21,12 +21,11 @@ from progressbar import Bar, ETA, Percentage, ProgressBar, Timer
 
 
 from mkidpipeline.calibration.wavecalplots import fitModels, plotSummary
-from mkidpipeline.core import pixelflags
-from mkidpipeline.core.headers import (WaveCalDebugDescription, WaveCalDescription,
-                                       WaveCalHeader)
+from mkidcore import pixelflags
+from mkidcore.headers  import WaveCalDebugDescription, WaveCalDescription, WaveCalHeader
 from mkidpipeline.hdf.darkObsFile import ObsFile
-import mkidpipeline.core.corelog as pipelinelog
-from mkidpipeline.core.corelog import getLogger
+import mkidcore.corelog as pipelinelog
+from mkidcore.corelog import getLogger
 
 DEFAULT_CONFIG_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)),
                                                    'Params', 'default.cfg')
@@ -336,7 +335,6 @@ class WaveCalConfig(object):
                     'templar_config = "{}"\n'.format(self.templar_config) +
                     'verbose = {}\n'.format(self.verbose) +
                     'logging = {}'.format(self.logging))
-
 
 class Solution(object):
     def __init__(self, file_name=None, load_on_init=False):

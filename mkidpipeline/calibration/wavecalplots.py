@@ -11,7 +11,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.widgets import Button, Slider
 from mpl_toolkits.axes_grid1 import axes_size, make_axes_locatable
 
-from mkidpipeline.core import pixelflags
+from mkidcore import pixelflags
 
 
 def plotEnergySolution(file_name, res_id=None, pixel=(), axis=None):
