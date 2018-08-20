@@ -26,31 +26,11 @@ from mkidcore.headers  import WaveCalDebugDescription, WaveCalDescription, WaveC
 from mkidpipeline.hdf.darkObsFile import ObsFile
 import mkidcore.corelog as pipelinelog
 from mkidcore.corelog import getLogger
+from mkidpipeline.hdf import bin2hdf
 
 DEFAULT_CONFIG_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)),
                                                    'Params', 'default.cfg')
 BIN2HDF_DEFAULT_PATH = '/mnt/data0/DarknessPipeline/RawDataProcessing'
-
-
-def makeHDFscripts(wavecfg):
-    scriptpath = wavecfg.h5directory + 'makeh5files_{}.sh'
-
-    scripts = []
-    for wave, startt, intt  in zip(wavecfg.wavelengths, wavecfg.startTimes, wavecfg.expTimes):
-        wavepath = '{}{}nm.txt'.format(wavecfg.h5directory, wave)
-
-        BIN2HDFConfig(wavepath, datadir=wavecfg.dataDir, beamdir=wavecfg.beamDir,
-                      outdir=wavecfg.h5directory, starttime=startt, inttime=intt, x=wavecfg.xpix, y=wavecfg.ypix).write()
-
-        # TODO bin2hdf should with a path and require running in the directory with its python scripts
-        scripts.append(scriptpath.format(wave))
-        with open(scripts[-1], 'w') as script:
-            getLogger('WaveCal').info('Creating {}'.format(scripts[-1]))
-            script.write('#!/bin/bash\n'
-                         'cd {}\n'.format(wavecfg.bin2hdf_path)+
-                         '{} {}\n'.format('./Bin2HDF ', wavepath)+
-                         'cd -')
-    return scripts
 
 
 def findDifferences(solution1, solution2):
@@ -99,37 +79,6 @@ def findDifferences(solution1, solution2):
                 bad_to_good.append((row, column))
 
     return good_to_bad, bad_to_good
-
-
-class BIN2HDFConfig(object):
-    #TODO this should not be part of wavecal
-    template = ('{x} {y}\n'
-                '{datadir}\n'
-                '{starttime}\n'
-                '{inttime}\n'
-                '{beamdir}\n'
-                '1\n'
-                '{outdir}')
-
-    def __init__(self, file, datadir='./', beamdir = './', starttime = None, inttime = None,
-                 outdir = './', x=140, y=145):
-        self.file = file
-        self.datadir = datadir
-        self.starttime = starttime
-        self.inttime = inttime
-        self.beamdir = beamdir
-        self.outdir = outdir
-        self.x = x
-        self.y = y
-
-    def write(self, file=None):
-        with open(file if isinstance(file, str) else self.file, 'w') as wavefile:
-            wavefile.write(BIN2HDFConfig.template.format(datadir=self.datadir, starttime=self.starttime,
-                                                  inttime=self.inttime, beamdir=self.beamdir,
-                                                  outdir=self.outdir,x=self.x,y=self.y))
-
-    def load(self):
-        raise NotImplementedError
 
 
 class WaveCalConfig:
@@ -335,11 +284,6 @@ class WaveCalConfig:
                     'templar_config = "{}"\n'.format(self.templar_config) +
                     'verbose = {}\n'.format(self.verbose) +
                     'logging = {}'.format(self.logging))
-
-class Solution(caching.Cached, persistance.Persistable):
-    pass
-
-def getSolution(*args):
 
 
 class Calibrator:
@@ -2210,8 +2154,6 @@ if __name__ == '__main__':
     parser.add_argument('cfgfile', type=str, help='The config file')
     parser.add_argument('--vet', action='store_true', dest='vetonly', default=False,
                         help='Only verify config file')
-    parser.add_argument('--h5script', action='store_true', dest='scriptsonly', default=False,
-                        help='Only make HDF scripts')
     parser.add_argument('--h5', action='store_true', dest='h5only', default=False,
                         help='Only make h5 files')
     parser.add_argument('--forceh5', action='store_true', dest='forcehdf', default=False,
@@ -2245,23 +2187,21 @@ if __name__ == '__main__':
         WaveCal(config).dataSummary()
         exit()
 
-    if not config.hdfexist() or args.forcehdf or args.scriptsonly:
+    if not config.hdfexist() or args.forcehdf:
 
         config.write(config.file+'.bak', forceconsistency=False)
         config.write(config.file)  # Make sure the file is consistent and save
 
-        scripts = makeHDFscripts(config)
+        b2h_configs = []
+        for wave, startt, intt in zip(config.wavelengths, config.startTimes, config.expTimes):
+            wavepath = '{}{}nm.txt'.format(config.h5directory, wave)
 
-        if args.scriptsonly:
-            exit()
+            b2h_configs.append(bin2hdf.Bin2HdfConfig(wavepath, datadir=config.dataDir,
+                                                     beamdir=config.beamDir, outdir=config.h5directory,
+                                                     starttime=startt, inttime=intt, x=config.xpix,
+                                                     y=config.ypix).write())
 
-        if args.ncpu > 1:
-            pool = mp.Pool(processes=min(args.ncpu, mp.cpu_count()))
-            pool.map(sp.call, zip(['bash']*len(scripts), scripts))
-            pool.close()
-        else:
-            for s in scripts:
-                sp.call(('bash', s))
+        bin2hdf.makehdf(b2h_configs, maxprocs=min(args.ncpu, mp.cpu_count()))
 
     if args.h5only:
         exit()
