@@ -29,6 +29,7 @@ import os.path
 from mkidpipeline.utils import pdfs
 from mkidpipeline.speckle import binned_rician as binnedRE
 from scipy.special import factorial
+import time
 
 
 
@@ -58,6 +59,8 @@ class subWindow(QMainWindow):
         self.apertureRadius = 2.27/2   #Taken from Seth's paper (not yet published in Jan 2018)
         self.apertureOn = False
         self.lineColor = 'blue'
+        self.minLambda = parent.minLambda
+        self.maxLambda = parent.maxLambda
         
 
     def getAxes(self):
@@ -146,7 +149,48 @@ class subWindow(QMainWindow):
             photonList,aperture = self.a.getCircularAperturePhotonList(self.activePixel[0], self.activePixel[1], radius = self.apertureRadius, firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart = self.spinbox_startLambda.value(), wvlStop=self.spinbox_stopLambda.value(), flagToUse=0)
         
         else:
-            photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart=self.spinbox_startLambda.value(),wvlStop=self.spinbox_stopLambda.value())
+#            t1 = time.time()
+            foo = self.activePixel[0]
+#            t2 = time.time()
+#            print('timer: ', t2 - t1)
+            
+#            t1 = time.time()
+            foo = self.activePixel[1]
+#            t2 = time.time()
+#            print('timer: ', t2 - t1)
+            
+#            t1 = time.time()
+            firstSec = self.spinbox_startTime.value()
+#            t2 = time.time()
+#            print('timer: ', t2 - t1)
+            
+#            t1 = time.time()
+            firstSec = self.spinbox_startTime.value()
+#            t2 = time.time()
+#            print('timer: ', t2 - t1)
+            
+#            t1 = time.time()
+            wvlStart=self.spinbox_startLambda.value()
+#            t2 = time.time()
+#            print('timer: ', t2 - t1)
+            
+#            t1 = time.time()
+            wvlStop=self.spinbox_stopLambda.value()
+#            t2 = time.time()
+#            print('timer: ', t2 - t1)
+            
+            
+            t1 = time.time()
+            if wvlStart==self.minLambda and wvlStop==self.maxLambda:
+                photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value())
+            elif wvlStart==self.minLambda:
+                photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart=self.spinbox_startLambda.value())
+            elif wvlStop==self.maxLambda:
+                photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStop=self.spinbox_stopLambda.value())
+            else:
+                photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart=self.spinbox_startLambda.value(),wvlStop=self.spinbox_stopLambda.value())
+            t2 = time.time()
+            print('timer: ', t2 - t1)
         
         return photonList
             
@@ -169,20 +213,32 @@ class timeStream(subWindow):
 
         
     def plotData(self): 
+#        t1 = time.time()
         self.ax.clear()
+#        t2 = time.time()
+#        print('timer: ', t2 - t1)
      
+        t1 = time.time()
         self.photonList = self.getPhotonList()
+        t2 = time.time()
+        print('timer: ', t2 - t1)
         
         self.effExpTime = self.spinbox_effExpTime.value()/1000
 #        self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = self.getLightCurve()
         
+#        t1 = time.time()
         self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(self.photonList['Time'],self.spinbox_startTime.value(),self.spinbox_startTime.value()+self.spinbox_integrationTime.value(),self.effExpTime)
+#        t2 = time.time()
+#        print('timer: ', t2 - t1)
 
+#        t1 = time.time()
         self.ax.plot(self.lightCurveTimes,self.lightCurveIntensity,color = self.lineColor)
         self.ax.set_xlabel('time [seconds]')
         self.ax.set_ylabel('intensity [cps]')
         self.ax.set_title('pixel ({},{})' .format(self.activePixel[0],self.activePixel[1]))
         self.draw()
+#        t2 = time.time()
+#        print('timer: ', t2 - t1)
         
         
         
@@ -434,22 +490,23 @@ class mainWindow(QMainWindow):
 #                self.spinbox_startLambda.setMinimum(self.wvlBinStart)
                 #check if the data is wavecaled and set the limits on the spinboxes accordingly
                 if self.a.getFromHeader('isWvlCalibrated'):
-                    self.spinbox_stopLambda.setMinimum(self.wvlBinStart)
-                    self.spinbox_startLambda.setMaximum(self.wvlBinEnd)
-                    self.spinbox_stopLambda.setMaximum(self.wvlBinEnd)
-                    self.spinbox_startLambda.setMinimum(self.wvlBinStart)
-                    self.spinbox_startLambda.setValue(self.wvlBinStart)
-                    self.spinbox_stopLambda.setValue(self.wvlBinEnd)
+                    self.minLambda = self.wvlBinStart
+                    self.maxLambda = self.wvlBinEnd
                 else:
-                    self.spinbox_stopLambda.setMinimum(-180)
-                    self.spinbox_startLambda.setMaximum(1)
-                    self.spinbox_stopLambda.setMaximum(0)
-                    self.spinbox_startLambda.setMinimum(-180)
-                    self.spinbox_startLambda.setValue(-180)
-                    self.spinbox_stopLambda.setValue(0)
-                    
+                    self.minLambda = -200
+                    self.maxLambda = 200
                     self.label_startLambda.setText('start phase [uncal degrees]')
                     self.label_stopLambda.setText('stop phase [uncal degrees]')
+                    
+                    
+                self.spinbox_stopLambda.setMinimum(self.minLambda)
+                self.spinbox_startLambda.setMaximum(self.maxLambda)
+                self.spinbox_stopLambda.setMaximum(self.maxLambda)
+                self.spinbox_startLambda.setMinimum(self.minLambda)
+                self.spinbox_startLambda.setValue(self.minLambda)
+                self.spinbox_stopLambda.setValue(self.maxLambda)
+                    
+
                 
                 #set the max value of the integration time spinbox
                 self.spinbox_startTime.setMinimum(0)
@@ -534,7 +591,6 @@ class mainWindow(QMainWindow):
             self.draw()
             
             
-            print(self.sWindowList)
             
 
 
