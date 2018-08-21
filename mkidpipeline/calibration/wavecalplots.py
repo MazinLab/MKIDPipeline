@@ -14,14 +14,14 @@ from mpl_toolkits.axes_grid1 import axes_size, make_axes_locatable
 from mkidcore import pixelflags
 
 
-def plotEnergySolution(file_name, res_id=None, pixel=(), axis=None):
+def plot_energy_solution(solution, res_id=None, pixel=None, axis=None):
     """
-    Plot the phase to energy solution for a pixel from the wavlength calibration solution
-    file 'file_name'. Provide either the pixel location pixel=(row, column) or the res_id
-    for the resonator.
+    Plot the phase to energy solution for a pixel from the wavelength calibration solution
+    object. Provide either the pixel location pixel=(row, column) or the res_id for the
+    resonator.
 
     Args:
-        file_name: the wavecal solution file including the path (string)
+        solution: the wavecal solution object
         res_id: the resonator ID for the plotted pixel. Can use pixel keyword-arg
                 instead. (integer)
         pixel: the pixel row and column for the plotted pixel. Can use res_id keyword-arg
@@ -29,66 +29,27 @@ def plotEnergySolution(file_name, res_id=None, pixel=(), axis=None):
         axis: matplotlib axis object on which to display the plot. If no axis is provided
               a new figure will be made.
     """
-    # load file_name
-    wave_cal = tb.open_file(file_name, mode='r')
-    wavelengths = wave_cal.root.header.wavelengths.read()[0]
-    info = wave_cal.root.header.info.read()
-    model_name = info['model_name'][0].decode('utf-8')
-    calsoln = wave_cal.root.wavecal.calsoln.read()
-    debug = wave_cal.root.debug.debug_info.read()
-    beamImage = wave_cal.root.header.beamMap.read()
-
     # parse inputs
-    if len(pixel) != 2 and res_id is None:
-        wave_cal.close()
+    if pixel is not None and len(pixel) != 2 and res_id is None:
         raise ValueError('please supply resonator location or res_id')
-    if len(pixel) == 2 and res_id is None:
+    if pixel is not None and len(pixel) == 2 and res_id is None:
         row = pixel[0]
         column = pixel[1]
-        res_id = beamImage[row][column]
-        index = np.where(res_id == np.array(calsoln['resid']))
+        res_id = solution.beam_map[row, column]
     elif res_id is not None:
-        index = np.where(res_id == np.array(calsoln['resid']))
+        index = np.where(res_id == solution.res_ids)
         if len(index[0]) != 1:
-            wave_cal.close()
             raise ValueError("res_id must exist and be unique")
-        row = calsoln['pixel_row'][index][0]
-        column = calsoln['pixel_col'][index][0]
+        row = solution.rows[index][0]
+        column = solution.columns[index][0]
 
     # load data
-    if len(calsoln['polyfit'][index]) == 0:
-        print('pixel has no data')
-        return
-    poly = calsoln['polyfit'][index][0]
-    flag = calsoln['wave_flag'][index][0]
-    centers = []
-    errors = []
-    energies = []
-    for ind, wavelength in enumerate(wavelengths):
-        hist_fit = debug['hist_fit' + str(ind)][index][0]
-        hist_cov = debug['hist_cov' + str(ind)][index][0]
-        hist_flag = debug['hist_flag'][index, ind][0]
-        if hist_flag == 0:
-            if model_name == 'gaussian_and_exp':
-                energies.append(h.to('eV s').value * c.to('nm/s').value /
-                                np.array(wavelength))
-
-                centers.append(hist_fit[3])
-                errors.append(np.sqrt(hist_cov.reshape((5, 5))[3, 3]))
-            else:
-                raise ValueError("{0} is not a valid fit model name"
-                                 .format(model_name))
-    wave_cal.close()
-    energies = np.array(energies)
-    centers = np.array(centers)
-    errors = np.array(errors)
-
+    centers, energies, errors = solution.energies(res_id=res_id)
+    flag = solution.energy_fit_flag(res_id=res_id)
     if len(energies) == 0:
         print('pixel has no data')
         return
-
-    R0 = calsoln['R'][index]
-    R0[R0 == -1] = np.nan
+    R0 = solution.resolving_power(res_id=res_id)
     with warnings.catch_warnings():
         # rows with all nan values will give an unnecessary RuntimeWarning
         warnings.simplefilter("ignore", category=RuntimeWarning)
@@ -110,9 +71,10 @@ def plotEnergySolution(file_name, res_id=None, pixel=(), axis=None):
     xlim = [1.05 * min(centers - errors), 0.92 * max(centers + errors)]
     axis.set_xlim(xlim)
 
-    if poly[0] != -1:
+    if not np.isnan(solution.energy_fit_coefficients(res_id=res_id)).any():
         xx = np.arange(-180, 0, 0.1)
-        axis.plot(xx, np.polyval(poly, xx), color='orange')
+        fit_function = solution.energy_fit_function(res_id=res_id)
+        axis.plot(xx, fit_function(xx), color='orange')
 
     xmax = xlim[1]
     ymax = ylim[1]
@@ -121,16 +83,12 @@ def plotEnergySolution(file_name, res_id=None, pixel=(), axis=None):
     flag_dict = pixelflags.waveCal
     axis.text(xmax - 0.05 * dx, ymax - 0.05 * dy,
               '{0} : ({1}, {2})'.format(res_id, row, column), ha='right', va='top')
-    if poly[0] == -1:
+    if not solution.has_good_energy_solution(res_id=res_id):
         axis.text(xmax - 0.05 * dx, ymax - 0.1 * dy, flag_dict[flag],
                   color='red', ha='right', va='top')
     else:
-        if flag == 9:
-            axis.text(xmax - 0.05 * dx, ymax - 0.1 * dy, flag_dict[flag], color='red',
-                      ha='right', va='top')
-        else:
-            axis.text(xmax - 0.05 * dx, ymax - 0.1 * dy, flag_dict[flag],
-                      ha='right', va='top')
+        axis.text(xmax - 0.05 * dx, ymax - 0.1 * dy, flag_dict[flag],
+                  ha='right', va='top')
     axis.text(xmax - 0.05 * dx, ymax - 0.15 * dy, "Median R = {0}".format(round(R, 2)),
               ha='right', va='top')
     if show:
@@ -139,14 +97,14 @@ def plotEnergySolution(file_name, res_id=None, pixel=(), axis=None):
         return axis
 
 
-def plotHistogramFits(file_name, res_id=None, pixel=[], axis=None):
+def plot_histogram_fits(solution, res_id=None, pixel=None, axis=None):
     """
     Plot the histogram fits for a pixel from the wavlength calibration solution
-    file 'file_name'. Provide either the pixel location pixel=(row, column) or the res_id
-    for the resonator.
+    object. Provide either the pixel location pixel=(row, column) or the res_id for the
+    resonator.
 
     Args:
-        file_name: the wavecal solution file including the path (string)
+        solution: the wavecal solution object
         res_id: the resonator ID for the plotted pixel. Can use pixel keyword-arg
                 instead. (integer)
         pixel: the pixel row and column for the plotted pixel. Can use res_id keyword-arg
@@ -154,40 +112,25 @@ def plotHistogramFits(file_name, res_id=None, pixel=[], axis=None):
         axis: matplotlib axis object on which to display the plot (will be an embedded
               png). If no axis is provided a new figure will be made.
     """
-    # load file_name
-    wave_cal = tb.open_file(file_name, mode='r')
-    wavelengths = wave_cal.root.header.wavelengths.read()[0]
-    info = wave_cal.root.header.info.read()
-    model_name = info['model_name'][0].decode('utf-8')
-    debug = wave_cal.root.debug.debug_info.read()
-    beamImage = wave_cal.root.header.beamMap.read()
 
     # parse inputs
-    if len(pixel) != 2 and res_id is None:
-        wave_cal.close()
+    if pixel is not None and len(pixel) != 2 and res_id is None:
         raise ValueError('please supply resonator location or res_id')
-    if len(pixel) == 2 and res_id is None:
+    if pixel is not None and len(pixel) == 2 and res_id is None:
         row = pixel[0]
         column = pixel[1]
-        res_id = beamImage[row][column]
-        index = np.where(res_id == np.array(debug['resid']))
+        res_id = solution.beam_map[row, column]
     elif res_id is not None:
-        index = np.where(res_id == np.array(debug['resid']))
+        index = np.where(res_id == solution.histogram_res_ids)
         if len(index[0]) != 1:
-            wave_cal.close()
             raise ValueError("res_id must exist and be unique")
-        if len(debug['pixel_row'][index]) == 0:
-            print('pixel has no data')
-            return
-        row = debug['pixel_row'][index][0]
-        column = debug['pixel_col'][index][0]
+        row = solution.histogram_rows[index][0]
+        column = solution.histogram_columns[index][0]
 
-    if len(debug['pixel_row'][index]) == 0:
-        print('pixel has no data')
-        return
+    wavelengths = solution.wavelengths
 
     cmap = cm.get_cmap('viridis')
-    fit_function = fitModels(model_name)
+    fit_function = fitModels(solution.model_name)
     x_num = int(np.ceil(len(wavelengths) / 2))
     y_num = 3
 
@@ -213,8 +156,7 @@ def plotHistogramFits(file_name, res_id=None, pixel=[], axis=None):
     y_list = []
     if x_num > 5:
         for ind, wavelength in enumerate(wavelengths):
-            counts = debug['phase_counts' + str(ind)][index][0]
-            counts = counts[counts >= 0]
+            _, counts = solution.histogram(wavelength, res_id=res_id)
             if len(counts) > 0:
                 y_list.append(np.max(counts))
         if len(y_list) > 0:
@@ -222,13 +164,10 @@ def plotHistogramFits(file_name, res_id=None, pixel=[], axis=None):
         else:
             largest_y = 1
     for ind, wavelength in enumerate(wavelengths):
-        hist_fit = debug['hist_fit' + str(ind)][index][0]
-        centers = debug['phase_centers' + str(ind)][index][0]
-        centers = centers[centers <= 0]
-        counts = debug['phase_counts' + str(ind)][index][0]
-        counts = counts[counts >= 0]
-        bin_width = debug['bin_width'][index, ind][0][0]
-        flag = debug['hist_flag'][index, ind][0]
+        hist_fit = solution.histogram_fit_coefficients(wavelength, res_id=res_id)
+        centers, counts = solution.histogram(wavelength, res_id=res_id)
+        bin_width = solution.bin_width(wavelength, res_id=res_id)
+        flag = solution.histogram_fit_flag(wavelength, res_id=res_id)
         if flag == 0:
             color = 'green'
         else:
@@ -245,7 +184,7 @@ def plotHistogramFits(file_name, res_id=None, pixel=[], axis=None):
         else:
             ylim = axes[ind].get_ylim()
             ymax = ylim[1]
-        if model_name == 'gaussian_and_exp':
+        if solution.model_name == 'gaussian_and_exp':
             if len(hist_fit) > 0 and len(centers) != 0 and flag != 3 and flag != 10:
                 g_func = fitModels('gaussian')
                 e_func = fitModels('exp')
@@ -291,7 +230,6 @@ def plotHistogramFits(file_name, res_id=None, pixel=[], axis=None):
                           label=str(wavelength) + ' nm')
         else:
             counter += 1
-    wave_cal.close()
     if ind < x_num * 2 + 1:
         axes[ind + 1].get_yaxis().set_ticks([])
         if x_num > 3:
@@ -317,29 +255,24 @@ def plotHistogramFits(file_name, res_id=None, pixel=[], axis=None):
         return axis
 
 
-def plotRHistogram(file_name, mask=None, axis=None):
+def plot_R_histogram(solution, wavelengths=None, axis=None):
     """
     Plot a histogram of the energy resolution, R, for each wavelength in the wavlength
-    calibration solution file 'file_name'.
+    calibration solution object.
 
     Args:
-        file_name: the wavecal solution file including the path (string)
-        mask: a list of booleans which masks which wavelengths to include in the plot
-              False entries are not displayed.
+        solution: the wavecal solution object
+        wavelengths: a list of wavelengths to include in the plot.
         axis: matplotlib axis object on which to display the plot. If no axis is provided
               a new figure will be made.
     """
-    # load file_name
-    wave_cal = tb.open_file(file_name, mode='r')
-    wavelengths = wave_cal.root.header.wavelengths.read()[0]
-    if mask is None:
-        mask = np.ones(np.shape(wavelengths), dtype=bool)
-    elif np.shape(mask) != np.shape(wavelengths):
-        wave_cal.close()
-        raise ValueError('mask must be a list of booleans the same length as the ' +
-                         'number of wavelengths in the solution file')
-    calsoln = wave_cal.root.wavecal.calsoln.read()
-    R = calsoln['R'][:, mask]
+
+    if wavelengths is None:
+        wavelengths = solution.wavelengths
+    if isinstance(wavelengths, (int, float)):
+        wavelengths = [wavelengths]
+
+    R, _ = solution.resolving_powers(wavelengths=wavelengths)
 
     show = False
     if axis is None:
@@ -353,9 +286,9 @@ def plotRHistogram(file_name, mask=None, axis=None):
         plt.colorbar(c, ax=axis, label='wavelength [nm]', aspect=50)
         axis.clear()
     max_counts = []
-    for index, wavelength in enumerate(wavelengths[mask]):
+    for index, wavelength in enumerate(wavelengths):
         r = R[:, index]
-        r = r[r != -1]
+        r = r[np.logical_not(np.isnan(r))]
         counts, edges = np.histogram(r, bins=30, range=(0, 12))
         bws = np.diff(edges)
         cents = edges[:-1] + bws[0] / 2.0
@@ -366,7 +299,7 @@ def plotRHistogram(file_name, mask=None, axis=None):
             median = np.nan
 
         label = "{0} nm, Median R = {1}".format(wavelength, median)
-        color = cmap(index / (len(wavelengths) - 1))
+        color = cmap(index / (max([len(wavelengths) - 1, 1])))
         axis.step(bins, counts, color=color, linewidth=2, label=label, where="mid")
         axis.axvline(x=median, ymin=0, ymax=1000, linestyle='--', color=color,
                      linewidth=2)
@@ -385,13 +318,13 @@ def plotRHistogram(file_name, mask=None, axis=None):
         return axis
 
 
-def plotRvsF(file_name, config_name, axis=None, verbose=True):
+def plot_R_vs_F(solution, config_name, axis=None, verbose=True):
     """
     Plot the median energy resolution over all wavelengths against the resonance
     frequency.
 
     Args:
-        file_name: the wavecal solution file including the path (string)
+        solution: the wavecal solution object
         config_name: the templar configuration file, including the path, associated with
                      the data (string)
         axis: matplotlib axis object on which to display the plot. If no axis is provided
@@ -400,23 +333,18 @@ def plotRvsF(file_name, config_name, axis=None, verbose=True):
                  printed to the terminal (boolean)
     """
     freqs = loadFrequencyFile(config_name, verbose=verbose)
-    wave_cal = tb.open_file(file_name, mode='r')
-    wavelengths = wave_cal.root.header.wavelengths.read()[0]
-    calsoln = wave_cal.root.wavecal.calsoln.read()
-    wave_flag = calsoln["wave_flag"]
-    R0 = calsoln['R']
-    R0[R0 == -1] = np.nan
+    R0, _ = solution.resolving_powers()
     with warnings.catch_warnings():
         # rows with all nan values will give an unnecessary RuntimeWarning
         warnings.simplefilter("ignore", category=RuntimeWarning)
         R = np.nanmedian(R0, axis=1)
-    res_id = calsoln['resid']
+    res_id = solution.res_ids
     f = []
     r0 = []
     for id_index, id_ in enumerate(res_id):
         index = np.where(id_ == freqs[:, 0])
-        good_fit = np.logical_or(wave_flag == 4, wave_flag == 5)
-        if len(index[0]) == 1 and not np.isnan(R[id_index]) and good_fit[id_index]:
+        if (len(index[0]) == 1 and not np.isnan(R[id_index]) and
+           solution.has_good_energy_solution(res_id=id_)):
             f.append(freqs[index, 1])
             r0.append(R[id_index])
     f = np.ndarray.flatten(np.array(f))
@@ -442,7 +370,6 @@ def plotRvsF(file_name, config_name, axis=None, verbose=True):
     axis.set_xlabel('resonance frequency [GHz]')
     axis.set_ylabel(r'R [E/$\Delta$E]')
     axis.legend(fontsize=6)
-    wave_cal.close()
     plt.tight_layout()
     if show:
         plt.show(block=False)
@@ -450,29 +377,21 @@ def plotRvsF(file_name, config_name, axis=None, verbose=True):
         return axis
 
 
-def plotCenterHist(file_name, mask=None, axis=None):
+def plot_center_histogram(solution, wavelengths=None, axis=None):
     """
-    Plot a histogram of the fitted gaussian centers for the solution file (file_name).
+    Plot a histogram of the fitted gaussian centers for the solution object.
     Args:
-        file_name: the wavecal solution file including the path (string)
-        mask: a list of booleans which masks which wavelengths to include in the plot
-              False entries are not displayed.
+        solution: the wavecal solution object
+        wavelengths: a list of wavelengths to include in the plot.
         axis: matplotlib axis object on which to display the plot. If no axis is provided
               a new figure will be made.
     """
-    # load file_name
-    wave_cal = tb.open_file(file_name, mode='r')
-    info = wave_cal.root.header.info.read()
-    model_name = info['model_name'][0].decode('utf-8')
-    wavelengths = wave_cal.root.header.wavelengths.read()[0]
-    if mask is None:
-        mask = np.ones(np.shape(wavelengths), dtype=bool)
-    elif np.shape(mask) != np.shape(wavelengths):
-        wave_cal.close()
-        raise ValueError('mask must be a list of booleans the same length as the ' +
-                         'number of wavelengths in the solution file')
-    debug = wave_cal.root.debug.debug_info.read()
-    calsoln = wave_cal.root.wavecal.calsoln.read()
+    model_name = solution.model_name
+    if wavelengths is None:
+        wavelengths = solution.wavelengths
+    if isinstance(wavelengths, (int, float)):
+        wavelengths = [wavelengths]
+
     show = False
     if axis is None:
         fig, axis = plt.subplots()
@@ -489,18 +408,16 @@ def plotCenterHist(file_name, mask=None, axis=None):
     max_counts = []
 
     for index, wavelength in enumerate(wavelengths):
-        if not mask[index]:
-            continue
         if model_name == 'gaussian_and_exp':
-            centers = debug["hist_fit" + str(index)][:, 3]
+            centers = solution.histogram_fit_coefficients(wavelength)[:, 3]
         else:
             raise ValueError("{0} is not a valid fit model name"
                              .format(model_name))
-        hist_flag = debug["hist_flag"][:, index]
-        wave_flag = calsoln["wave_flag"]
-        condition = np.logical_and(hist_flag == 0, np.logical_or(wave_flag == 4,
-                                                                 wave_flag == 5))
+
+        condition = np.logical_and(solution.has_good_energy_solution(),
+                                   solution.has_good_histogram_solution(wavelength))
         centers = centers[condition]
+
         counts, edges = np.histogram(centers, bins=30, range=(-150, -20))
         bws = np.diff(edges)
         cents = edges[:-1] + bws[0] / 2.0
@@ -510,14 +427,13 @@ def plotCenterHist(file_name, mask=None, axis=None):
         else:
             median = np.nan
         label = "{0} nm, Median = {1}".format(wavelength, median)
-        color = cmap(index / (len(wavelengths) - 1))
+        color = cmap(index / max([len(wavelengths) - 1, 1]))
         axis.step(bins, counts, color=color, linewidth=2, where="mid", label=label)
         axis.axvline(x=median, ymin=0, ymax=1000, linestyle='--', color=color,
                      linewidth=2)
         max_counts.append(np.max(counts))
     if np.max(max_counts) != 0:
         axis.set_ylim([0, 1.2 * np.max(max_counts)])
-    wave_cal.close()
     plt.tight_layout()
     if len(wavelengths) < 10:
         axis.legend(fontsize=6)
@@ -527,24 +443,18 @@ def plotCenterHist(file_name, mask=None, axis=None):
         return axis
 
 
-def plotFitParameters(file_name):
+def plot_fit_parameters(solution):
     """
-    Plots histograms of the fit parameters for the solution file (file_name).
+    Plots histograms of the fit parameters for the solution object.
     Args:
-        file_name: the wavecal solution file including the path (string)
+        solution: the wavecal solution object
     """
-    wave_cal = tb.open_file(file_name, mode='r')
-    wavelengths = wave_cal.root.header.wavelengths.read()[0]
-    info = wave_cal.root.header.info.read()
-    model_name = info['model_name'][0].decode('utf-8')
-    debug = wave_cal.root.debug.debug_info.read()
-    hist_flags = debug['hist_flag']
-    calsoln = wave_cal.root.wavecal.calsoln.read()
-    wave_flag = calsoln["wave_flag"]
-    wave_cal.close()
+    wavelengths = solution.wavelengths
+    model_name = solution.model_name
+
     cmap = cm.get_cmap('viridis')
 
-    calibrated_pixels = np.logical_or(wave_flag == 4, wave_flag == 5)
+    calibrated_pixels = solution.has_good_energy_solution()
 
     if model_name == 'gaussian_and_exp':
         fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(6.95, 9))
@@ -558,10 +468,11 @@ def plotFitParameters(file_name):
             plt.colorbar(c, ax=axes[1, 1], label='wavelength [nm]', aspect=50)
             axes[1, 1].clear()
         for index, wavelength in enumerate(wavelengths):
-            fit = debug["hist_fit" + str(index)]
+            fit = solution.histogram_fit_coefficients(wavelength)
             # first histogram
             a = fit[:, 0]
-            logic = np.logical_and(hist_flags[:, index] == 0, calibrated_pixels)
+            logic = np.logical_and(solution.has_good_histogram_solution(wavelength),
+                                   calibrated_pixels)
             a = a[logic]
             counts, edges = np.histogram(a, bins=30, range=(-1, 1e8), density=True)
             bws = np.diff(edges)
@@ -643,32 +554,29 @@ def plotFitParameters(file_name):
     plt.show(block=False)
 
 
-def plotResolutionImage(file_name):
+def plot_resolution_image(solution):
     """
-    Plots an image of the array with the energy resolution as a color for the solution
-    file (file_name).
+    Plots an image of the array with the energy resolution as a color for the solution.
     Args:
-        file_name: the wavecal solution file including the path (string)
+        solution: the wavecal solution object
     """
-    wave_cal = tb.open_file(file_name, mode='r')
-    beamImage = wave_cal.root.header.beamMap.read()
-    wavelengths = wave_cal.root.header.wavelengths.read()[0]
-    calsoln = wave_cal.root.wavecal.calsoln.read()
-    wave_flag = calsoln["wave_flag"]
-    R0 = calsoln["R"]
-    R0[R0 == -1] = 0
-    rows = calsoln['pixel_row']
-    columns = calsoln['pixel_col']
-    wave_cal.close()
+    beam_map = solution.beam_map
+    wavelengths = solution.wavelengths
+    R0, _ = solution.resolving_powers()
+    R0[np.isnan(R0)] = 0
+    rows = solution.rows
+    columns = solution.columns
+    res_id = solution.res_ids
 
-    R = np.zeros((len(wavelengths) + 1, *beamImage.shape))
-    for pixel_ind, flag in enumerate(wave_flag):
+    R = np.zeros((len(wavelengths) + 1, *beam_map.shape))
+
+    for pixel_index, res_id in enumerate(res_id):
         # add good fits to the image
-        if flag == 4 or flag == 5:
-            row = rows[pixel_ind]
-            col = columns[pixel_ind]
-            for wave_ind, _ in enumerate(wavelengths):
-                R[wave_ind, row, col] = R0[pixel_ind, wave_ind]
+        if solution.has_good_energy_solution(res_id=res_id):
+            row = rows[pixel_index]
+            col = columns[pixel_index]
+            for wave_index, _ in enumerate(wavelengths):
+                R[wave_index, row, col] = R0[pixel_index, wave_index]
             R[-1, row, col] = 1
     R = np.transpose(R, (0, 2, 1))
 
@@ -743,12 +651,12 @@ def plotResolutionImage(file_name):
     plt.show(block=True)
 
 
-def plotSummary(file_name, config_name='', save_name=None, verbose=True):
+def plot_summary(solution, config_name='', save_name=None, verbose=True):
     """
-    Plot one page summary pdf of the wavelength calibration solution file 'file_name'.
+    Plot one page summary pdf of the wavelength calibration solution.
 
     Args:
-        file_name: the wavecal solution file including the path (string)
+        solution: the wavecal solution object
         config_name: the templar configuration file, including the path, associated with
                      the data (string)
         save_name: name of the pdf that's saved. No pdf is saved if set to None.
@@ -756,38 +664,33 @@ def plotSummary(file_name, config_name='', save_name=None, verbose=True):
                  printed to the terminal (boolean)
     """
 
-    # load file_name
-    wave_cal = tb.open_file(file_name, mode='r')
-    wavelengths = wave_cal.root.header.wavelengths.read()[0]
-    obsFiles = wave_cal.root.header.obsFiles.read()[0]
-    info = wave_cal.root.header.info.read()
-    model_name = info['model_name'][0].decode('utf-8')
-    calsoln = wave_cal.root.wavecal.calsoln.read()
-    debug = wave_cal.root.debug.debug_info.read()
-    beamImage = wave_cal.root.header.beamMap.read()
-    res_id = debug['resid']
-    R = calsoln['R']
-    ind = np.where(R[:, 0] > 0)
-    data = []
-    flags = debug['hist_flag']
-    has_data = debug['has_data']
-    fit_flags = calsoln['wave_flag']
-    text = np.zeros((3, 4))
-    text[0, 0] = round(np.sum(flags == 0) / len(wavelengths), 2)
-    text[0, 1] = round(text[0, 0] / beamImage.size * 100, 2)
-    text[0, 2] = round(text[0, 0] / np.sum(res_id != 2**23 - 1) * 100, 2)
-    text[0, 3] = round(text[0, 0] * len(wavelengths) /
-                       np.sum(has_data) * 100, 2)
+    wavelengths = solution.wavelengths
+    obsFiles = solution.h5_files
+    model_name = solution.model_name
+    beam_map = solution.beam_map
+    res_id = solution.histogram_res_ids
+    R, _ = solution.resolving_powers()
+    file_name = solution.file_name
 
-    text[1, 0] = np.sum(fit_flags == 4) + np.sum(fit_flags == 5)
-    text[1, 1] = round(text[1, 0] / beamImage.size * 100, 2)
-    text[1, 2] = round(text[1, 0] / np.sum(res_id != 2**23 - 1) * 100, 2)
-    text[1, 3] = round(text[1, 0] * len(wavelengths) /
-                       np.sum(np.array(has_data) == 1) * 100, 2)
+
+    has_data = solution.histogram_has_data()
+    fit_flags = solution.energy_fit_flag()
+    text = np.zeros((3, 4))
+    text[0, 0] = np.round(np.sum(solution.has_good_histogram_solution()) /
+                          len(wavelengths), 2)
+    text[0, 1] = np.round(text[0, 0] / beam_map.size * 100, 2)
+    text[0, 2] = np.round(text[0, 0] / np.sum(res_id != 2**23 - 1) * 100, 2)
+    text[0, 3] = np.round(text[0, 0] * len(wavelengths) /
+                          np.sum(has_data) * 100, 2)
+
+    text[1, 0] = np.sum(solution.has_good_energy_solution())
+    text[1, 1] = np.round(text[1, 0] / beam_map.size * 100, 2)
+    text[1, 2] = np.round(text[1, 0] / np.sum(res_id != 2**23 - 1) * 100, 2)
+    text[1, 3] = np.round(text[1, 0] * len(wavelengths) /
+                          np.sum(np.array(has_data) == 1) * 100, 2)
 
     text[2, 0] = np.sum(fit_flags == 5)
     text[2, 1] = np.sum(fit_flags == 4)
-    wave_cal.close()
 
     fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(6.95, 9))
     row_labels = ['histogram fits', 'energy solution', '(linear, quadratic)']
@@ -807,7 +710,7 @@ def plotSummary(file_name, config_name='', save_name=None, verbose=True):
                          row_labels[1], text[1, 0], text[1, 1], text[1, 2], text[1, 3],
                          row_labels[2], text[2, 0], text[2, 1])
 
-    axes[0, 0] = plotRHistogram(file_name, axis=axes[0, 0])
+    axes[0, 0] = plot_R_histogram(solution, axis=axes[0, 0])
     ylim = axes[0, 0].get_ylim()
     xlim = axes[0, 0].get_xlim()
     axes[0, 0].text(xlim[0] - np.mean(xlim) / 5, ylim[1] + (ylim[1] - ylim[0]) * 0.4,
@@ -834,16 +737,16 @@ def plotSummary(file_name, config_name='', save_name=None, verbose=True):
     if len(wavelengths) > large_number:
         for ind in range(int(np.floor(len(obsFiles) / 3))):
             axes[1, 1].text(-0.1, 0.97 - 6 * dz - ind * dz,
-                            obsFiles[3 * ind].decode("utf-8") + ', ' +
-                            obsFiles[3 * ind + 1].decode("utf-8") + ', ' +
-                            obsFiles[3 * ind + 2].decode("utf-8"), **fontstyle)
+                            obsFiles[3 * ind] + ', ' +
+                            obsFiles[3 * ind + 1] + ', ' +
+                            obsFiles[3 * ind + 2], **fontstyle)
         if len(obsFiles) - (3 * ind + 2) == 3:
             axes[1, 1].text(-0.1, 0.97 - 6 * dz - (ind + 1) * dz,
-                            obsFiles[3 * ind + 3].decode("utf-8") + ', ' +
-                            obsFiles[3 * ind + 4].decode("utf-8"), **fontstyle)
+                            obsFiles[3 * ind + 3] + ', ' +
+                            obsFiles[3 * ind + 4], **fontstyle)
         elif len(obsFiles) - (3 * ind + 2) == 2:
             axes[1, 1].text(-0.1, 0.97 - 6 * dz - (ind + 1) * dz,
-                            obsFiles[3 * ind + 3].decode("utf-8"), **fontstyle)
+                            obsFiles[3 * ind + 3], **fontstyle)
         axes[1, 1].text(-0.1, 0.97 - 8 * dz - (np.ceil(len(obsFiles) / 3) - 1) * dz,
                         "Wavelengths [nm]:", **fontstyle)
         for ind in range(int(np.floor(len(obsFiles) / 3))):
@@ -861,10 +764,10 @@ def plotSummary(file_name, config_name='', save_name=None, verbose=True):
             axes[1, 1].text(-0.1, 0.97 - 8 * dz - (ind + 1) * dz -
                             np.ceil(len(obsFiles) / 3) * dz,
                             str(wavelengths[3 * ind + 3]), **fontstyle)
-        good_hist = np.sum(flags == 0, axis=1)
+        good_hist = np.sum(solution.has_good_histogram_solution(), axis=1)
 
         if np.sum(good_hist >= 3) > 0:
-            perc = round(np.sum(fit_flags == 7) / np.sum(good_hist >= 3) * 100, 2)
+            perc = np.round(np.sum(fit_flags == 7) / np.sum(good_hist >= 3) * 100, 2)
         else:
             perc = 'N/A'
         axes[1, 1].text(-0.1, 0.97 - 8 * dz - 2 * np.ceil(len(obsFiles) / 3) * dz,
@@ -874,11 +777,11 @@ def plotSummary(file_name, config_name='', save_name=None, verbose=True):
     else:
         for ind in range(int(np.floor(len(obsFiles) / 2))):
             axes[1, 1].text(-0.1, 0.97 - 6 * dz - ind * dz,
-                            obsFiles[2 * ind].decode("utf-8") + ', ' +
-                            obsFiles[2 * ind + 1].decode("utf-8"), **fontstyle)
+                            obsFiles[2 * ind] + ', ' +
+                            obsFiles[2 * ind + 1], **fontstyle)
         if len(obsFiles) - (2 * ind + 1) == 2:
             axes[1, 1].text(-0.1, 0.97 - 6 * dz - (ind + 1) * dz,
-                            obsFiles[2 * ind + 2].decode("utf-8"), **fontstyle)
+                            obsFiles[2 * ind + 2], **fontstyle)
         axes[1, 1].text(-0.1, 0.97 - 8 * dz - (np.ceil(len(obsFiles) / 2) - 1) * dz,
                         "Wavelengths [nm]:", **fontstyle)
         for ind in range(int(np.floor(len(obsFiles) / 2))):
@@ -890,9 +793,9 @@ def plotSummary(file_name, config_name='', save_name=None, verbose=True):
             axes[1, 1].text(-0.1, 0.97 - 8 * dz - (ind + 1) * dz -
                             np.ceil(len(obsFiles) / 2) * dz,
                             str(wavelengths[2 * ind + 2]), **fontstyle)
-        good_hist = np.sum(flags == 0, axis=1)
+        good_hist = np.sum(solution.has_good_histogram_solution(), axis=1)
         if np.sum(good_hist >= 3) > 0:
-            perc = round(np.sum(fit_flags == 7) / np.sum(good_hist >= 3) * 100, 2)
+            perc = np.round(np.sum(fit_flags == 7) / np.sum(good_hist >= 3) * 100, 2)
         else:
             perc = 'N/A'
         axes[1, 1].text(-0.1, 0.97 - 8 * dz - 2 * np.ceil(len(obsFiles) / 2) * dz,
@@ -903,8 +806,8 @@ def plotSummary(file_name, config_name='', save_name=None, verbose=True):
     if not switch:
         mpl.rc('text', usetex=True)
 
-    axes[1, 0] = plotCenterHist(file_name, axis=axes[1, 0])
-    axes[0, 1] = plotRvsF(file_name, config_name, axis=axes[0, 1], verbose=verbose)
+    axes[1, 0] = plot_center_histogram(solution, axis=axes[1, 0])
+    axes[0, 1] = plot_R_vs_F(solution, config_name, axis=axes[0, 1], verbose=verbose)
 
     plt.tight_layout(rect=[0.03, 0.03, 0.95, 0.85])
     if save_name is not None:
