@@ -1,0 +1,50 @@
+#conda update -n root conda
+#conda env create -f <thisfile>
+name: pipeline
+channels:
+  - defaults
+  - conda-forge
+  - intel
+dependencies:
+#key parts
+  - mkl
+  - ipython>=6.3
+  - scikit-image
+  - scikit-learn
+  - pypdf2=1.26
+  - pyqt=5.6
+  - pytables=3.4.4
+  - astropy=3.0
+  - regions=0.2
+  - lmfit=0.9.11
+  - hdf5=1.10.2
+  - progressbar2=3.38
+  - statsmodels=0.9
+  - mpmath=1.0
+  - matplotlib=2.2
+  - pip>=10
+  - six>1.10.0
+  - vitables
+  - ruamel.yaml
+#optional things
+  - tensorflow>=1.8
+  - mkl_fft
+  - mkl_random
+  - mkl-include
+  - boost
+  - python
+  - blas
+  - openblas
+  - opencv
+  - ipp
+  - ipdb
+  - cython
+#pip requirements
+  - pip:
+    - crlibm==1.0.3
+    - image-registration==0.2.4
+    - pyinterval==1.2
+    - multiprocessing-logging==0.2.6
+
+prefix: /opt/anaconda/envs/pipeline
+
