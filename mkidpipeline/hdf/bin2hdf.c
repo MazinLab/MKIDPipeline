@@ -289,10 +289,6 @@ int main(int argc, char *argv[])
     uint32_t *toWriteBeamFlag;
     uint32_t beamMapInitVal = (uint32_t)(-1);
     char ***ResIdString;
-    char addHeaderCmd[120] = "python addH5Header.py ";
-    char correctTimestampsCmd[120] = "python correctUnsortedTimestamps.py ";
-    char consolidatePhotonTablesCmd[120] = "python consolidatePhotonTables.py ";
-    char indexHDFCmd[120] = "python indexHDF.py ";
     photon p1;
     photon ***ptable;
     uint32_t **ptablect;
@@ -687,33 +683,6 @@ int main(int argc, char *argv[])
 
     free(yearStartTime);
 
-    printf("adding header\n"); fflush(stdout);
-    strcat(addHeaderCmd, argv[1]);
-    strcat(addHeaderCmd, " ");
-    strcat(addHeaderCmd, outfile);
-    system(addHeaderCmd);
-
-    if(FirstFile < 1518222559) //before firmware upgrade
-    {
-        printf("correcting timestamps\n"); fflush(stdout);
-        strcat(correctTimestampsCmd, outfile);
-        system(correctTimestampsCmd);
-
-    }
-
-    //fnStartTime = time(NULL);
-    //printf("Consolidating photon tables...\n"); fflush(stdout);
-    //strcat(consolidatePhotonTablesCmd, outfile);
-    //system(consolidatePhotonTablesCmd);
-    //fnEndTime = time(NULL) - fnStartTime;
-    //printf("Done consolidating photon tables in %d seconds\n", (int)fnEndTime);
-
-    fnStartTime = time(NULL);
-    printf("indexing HDF file\n"); fflush(stdout);
-    strcat(indexHDFCmd, outfile);
-    system(indexHDFCmd);
-    fnEndTime = time(NULL) - fnStartTime;
-    printf("Done indexing HDF file in %d seconds\n", (int)fnEndTime);
     exit(0);
 
 }
