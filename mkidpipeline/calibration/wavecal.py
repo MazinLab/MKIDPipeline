@@ -2693,11 +2693,10 @@ if __name__ == '__main__':
         b2h_configs = []
         for wave, startt, intt in zip(config.wavelengths, config.startTimes, config.expTimes):
             wavepath = '{}{}nm.txt'.format(config.h5directory, wave)
-
-            b2h_configs.append(bin2hdf.Bin2HdfConfig(wavepath, datadir=config.dataDir,
+            b2h_configs.append(bin2hdf.Bin2HdfConfig(datadir=config.dataDir,
                                                      beamdir=config.beamDir, outdir=config.h5directory,
                                                      starttime=startt, inttime=intt, x=config.xpix,
-                                                     y=config.ypix).write())
+                                                     y=config.ypix, writeto=wavepath))
 
         bin2hdf.makehdf(b2h_configs, maxprocs=min(args.ncpu, mp.cpu_count()))
 
