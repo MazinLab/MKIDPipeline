@@ -333,12 +333,11 @@ def plot_R_vs_F(solution, config_name, axis=None, verbose=True):
                  printed to the terminal (boolean)
     """
     freqs = loadFrequencyFile(config_name, verbose=verbose)
-    R0, _ = solution.resolving_powers()
+    R0, res_id = solution.resolving_powers()
     with warnings.catch_warnings():
         # rows with all nan values will give an unnecessary RuntimeWarning
         warnings.simplefilter("ignore", category=RuntimeWarning)
         R = np.nanmedian(R0, axis=1)
-    res_id = solution.res_ids
     f = []
     r0 = []
     for id_index, id_ in enumerate(res_id):
@@ -562,7 +561,7 @@ def plot_resolution_image(solution):
     """
     beam_map = solution.beam_map
     wavelengths = solution.wavelengths
-    R0, _ = solution.resolving_powers()
+    R0, R_res_id = solution.resolving_powers()
     R0[np.isnan(R0)] = 0
     rows = solution.rows
     columns = solution.columns
@@ -576,7 +575,7 @@ def plot_resolution_image(solution):
             row = rows[pixel_index]
             col = columns[pixel_index]
             for wave_index, _ in enumerate(wavelengths):
-                R[wave_index, row, col] = R0[pixel_index, wave_index]
+                R[wave_index, row, col] = R0[R_res_id==res_id, wave_index]
             R[-1, row, col] = 1
     R = np.transpose(R, (0, 2, 1))
 
@@ -651,7 +650,7 @@ def plot_resolution_image(solution):
     plt.show(block=True)
 
 
-def plot_summary(solution, config_name='', save_name=None, verbose=True):
+def plot_summary(solution, config_name='', feedline=None, save_name=None, verbose=True):
     """
     Plot one page summary pdf of the wavelength calibration solution.
 
@@ -659,6 +658,8 @@ def plot_summary(solution, config_name='', save_name=None, verbose=True):
         solution: the wavecal solution object
         config_name: the templar configuration file, including the path, associated with
                      the data (string)
+        feedline: the feedline that you want to plot data from (int). All are plotted if
+                  set to None
         save_name: name of the pdf that's saved. No pdf is saved if set to None.
         verbose: determines whether information about loading the frequency files is
                  printed to the terminal (boolean)
