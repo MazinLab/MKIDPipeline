@@ -15,7 +15,7 @@ BIN2HDFCONFIGTEMPLATE = ('{x} {y}\n'
                          '{outdir}')
 
 
-def makehdf(cfgORcfgs, maxprocs=2, polltime=.1):
+def makehdf(cfgORcfgs, maxprocs=2, polltime=.1, executable_path=''):
     """
     Run b2n2hdf on the config(s). Takes a config or iterable of configs.
 
@@ -40,11 +40,12 @@ def makehdf(cfgORcfgs, maxprocs=2, polltime=.1):
                                                      outdir=cfg.outdir, x=cfg.x, y=cfg.y))
             tfiles.append(tfile)
 
-    things = zip(tfiles, args)
+    things = list(zip(tfiles, cfgs))
     procs = []
     while things:
         tfile, cfg = things.pop()
-        procs.append(psutil.Popen(('bin2hdf',tfile.name), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        procs.append(psutil.Popen((os.path.join(executable_path,'bin2hdf'),tfile.name),
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                   shell=False, cwd=None, env=None, creationflags=0))
         while len(procs) >= nproc:
             #TODO consider repalcing with https://gist.github.com/bgreenlee/1402841
@@ -52,7 +53,7 @@ def makehdf(cfgORcfgs, maxprocs=2, polltime=.1):
                 out, err = proc.communicate(timeout=polltime)
                 getLogger(__name__ + '.bin2hdf_{}'.format(i)).info(out)
                 getLogger(__name__ + '.bin2hdf_{}'.format(i)).error(err)
-            procs = filter(lambda p: p.poll() is None, procs)
+            procs = list(filter(lambda p: p.poll() is None, procs))
 
     #Clean up temp files
     while tfiles and not keepconfigs:
@@ -66,7 +67,7 @@ def makehdf(cfgORcfgs, maxprocs=2, polltime=.1):
 @yaml_object(yaml)
 class Bin2HdfConfig(object):
     def __init__(self, datadir='./', beamdir='./', starttime=None, inttime=None,
-                 outdir='./', x=140, y=145):
+                 outdir='./', x=140, y=145, writeto=None):
         self.datadir = datadir
         self.starttime = starttime
         self.inttime = inttime
@@ -74,7 +75,8 @@ class Bin2HdfConfig(object):
         self.outdir = outdir
         self.x = x
         self.y = y
-
+        if writeto is not None:
+            self.write(writeto)
 
     def write(self, file):
         with open(file, 'w') as wavefile:
