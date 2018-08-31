@@ -448,6 +448,12 @@ class Solution(object):
         R = R0[logic, :][:, wavelength_indices]
         res_ids = self.res_ids[logic]
 
+        res_ids = res_ids[np.logical_not(np.isnan(R).all(axis=1))]
+        R = R[np.logical_not(np.isnan(R).all(axis=1)), :]
+        ind = np.argsort(np.nanmedian(R, axis=1))
+        R = R[ind, :]
+        res_ids = res_ids[ind]
+
         return R, res_ids
 
     def energies(self, pixel=None, res_id=None):
@@ -691,7 +697,7 @@ class Solution(object):
         """
         wcplots.plot_resolution_image(self)
 
-    def plot_summary(self, config_name='', save_name=None, verbose=True):
+    def plot_summary(self, config_name='', feedline=None, save_name=None, verbose=True):
         """
         Plot one page summary pdf of the wavelength calibration solution object.
 
@@ -702,8 +708,8 @@ class Solution(object):
             verbose: determines whether information about loading the frequency files is
                          printed to the terminal (boolean)
         """
-        wcplots.plot_summary(self, config_name=config_name, save_name=save_name,
-                             verbose=verbose)
+        wcplots.plot_summary(self, config_name=config_name, feedline=feedline,
+                             save_name=save_name, verbose=verbose)
 
     def _load_all(self):
         """Loads all the data from the solution file."""
@@ -776,11 +782,13 @@ class Solution(object):
             if not isinstance(wavelengths, (np.ndarray, list)):
                 wavelengths = np.array([wavelengths])
             indices = np.array([], dtype=np.int)
-            for wavelength in wavelengths:
+            for index, wavelength in enumerate(wavelengths):
                 indices = np.append(indices, np.where(self._wavelengths == wavelength)[0])
                 if wavelength not in self._wavelengths:
                     warnings.warn("{} nm is not in the wavelength list for this solution"
                                   .format(wavelength))
+            if len(indices) == 0:
+                raise ValueError('no valid wavelengths were given')
         return indices
 
 
@@ -1063,7 +1071,7 @@ class WaveCal:
         for (row, column) in result_dict.keys():
             self.fit_data[row, column] = result_dict[(row, column)]
 
-    def getPhaseHeights(self, pixels=[]):
+    def getPhaseHeights(self, pixels=()):
         """
         Fits the phase height histogram to a model for a specified list of pixels.
 
@@ -1122,13 +1130,10 @@ class WaveCal:
                     fit_data[row, column].append((3, False, False,
                                                   {'centers': np.array([]),
                                                    'counts': np.array([])}))
-                    # update progress bar and log
+                    # update log
                     dt = str(round((datetime.now() - start_time).total_seconds(), 2)) + ' s'
                     self._log.info("({0}, {1}) {2}nm: {3} : {4}".format(row, column, wavelength,
                                     self.flag_dict[3], dt))
-                    if self.cfg.verbose and wavelength_index == len(self.wavelengths) - 1:
-                        self.pbar_iter += 1
-                        self.pbar.update(self.pbar_iter)
                     continue
 
                 # cut photons too close together in time
@@ -1146,13 +1151,10 @@ class WaveCal:
                     flag = 0  # for now
                 if flag == 3 or flag == 10:
                     fit_data[row, column].append((flag, False, False, phase_hist))
-                    # update progress bar and log
+                    # update log
                     dt = str(round((datetime.now() - start_time).total_seconds(), 2)) + ' s'
                     self._log.info("({0}, {1}) {2}nm: {3} : {4}".format(row, column, wavelength,
                                     self.flag_dict[3], dt))
-                    if self.cfg.verbose and wavelength_index == len(self.wavelengths) - 1:
-                        self.pbar_iter += 1
-                        self.pbar.update(self.pbar_iter)
                     continue
 
                 # get fit model
@@ -1369,7 +1371,7 @@ class WaveCal:
 
         self.wavelength_cal = wavelength_cal
 
-    def exportData(self, pixels=[]):
+    def exportData(self, pixels=()):
         """
         Saves data in the WaveCal format to the filename.
 
@@ -1556,14 +1558,15 @@ class WaveCal:
         try:
             save_name = self.cfg.cal_file_name + '.summary.pdf'
             save_dir = os.path.join(self.cfg.out_directory, save_name)
-            wcplots.plotSummary(self.cal_file, self.cfg.templar_config,
-                                save_name=save_name, verbose=self.cfg.verbose)
+            wcplots.plot_summary(Solution(self.cal_file),
+                                 config_name=self.cfg.templar_config, save_name=save_name,
+                                 verbose=self.cfg.verbose)
             self._log.info("summary plot saved as {0}".format(save_dir))
         except KeyboardInterrupt:
             self._clog.info(os.linesep + "Shutdown requested ... exiting")
         except Exception as error:
             self._clog.error('Summary plot generation failed. It can be remade by ' +
-                           'using plotSummary() in plotWaveCal.py', exc_info=True)
+                             'using plot_summary() in wavecalplots.py', exc_info=True)
             self._log.error("summary plot failed", exc_info=True)
 
     def loadPhotonData(self, row, column, wavelength_index):
