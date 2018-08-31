@@ -82,37 +82,6 @@ def findDifferences(solution1, solution2):
     return good_to_bad, bad_to_good
 
 
-class BIN2HDFConfig(object):
-    #TODO this should not be part of wavecal
-    template = ('{x} {y}\n'
-                '{datadir}\n'
-                '{starttime}\n'
-                '{inttime}\n'
-                '{beamdir}\n'
-                '1\n'
-                '{outdir}')
-
-    def __init__(self, file, datadir='./', beamdir = './', starttime = None, inttime = None,
-                 outdir = './', x=140, y=145):
-        self.file = file
-        self.datadir = datadir
-        self.starttime = starttime
-        self.inttime = inttime
-        self.beamdir = beamdir
-        self.outdir = outdir
-        self.x = x
-        self.y = y
-
-    def write(self, file=None):
-        with open(file if isinstance(file, str) else self.file, 'w') as wavefile:
-            wavefile.write(BIN2HDFConfig.template.format(datadir=self.datadir, starttime=self.starttime,
-                                                  inttime=self.inttime, beamdir=self.beamdir,
-                                                  outdir=self.outdir,x=self.x,y=self.y))
-
-    def load(self):
-        raise NotImplementedError
-
-
 class WaveCalConfig(object):
     def __init__(self, file='default.cfg', cal_file_name = 'calsol_default.h5'):
 
@@ -2694,7 +2663,7 @@ if __name__ == '__main__':
         for wave, startt, intt in zip(config.wavelengths, config.startTimes, config.expTimes):
             wavepath = '{}{}nm.txt'.format(config.h5directory, wave)
             b2h_configs.append(bin2hdf.Bin2HdfConfig(datadir=config.dataDir,
-                                                     beamdir=config.beamDir, outdir=config.h5directory,
+                                                     beamfile=config.beamDir, outdir=config.h5directory,
                                                      starttime=startt, inttime=intt, x=config.xpix,
                                                      y=config.ypix, writeto=wavepath))
 
