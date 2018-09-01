@@ -181,6 +181,9 @@ class subWindow(QMainWindow):
             
             
             t1 = time.time()
+            
+            #it's WAY faster to not specify start/stop wavelengths. If that cut isn't 
+            #necessary, don't specify those keywords. 
             if wvlStart==self.minLambda and wvlStop==self.maxLambda:
                 photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value())
             elif wvlStart==self.minLambda:
@@ -190,7 +193,8 @@ class subWindow(QMainWindow):
             else:
                 photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart=self.spinbox_startLambda.value(),wvlStop=self.spinbox_stopLambda.value())
             t2 = time.time()
-            print('timer: ', t2 - t1)
+            
+            print('foo timer: ', t2 - t1)
         
         return photonList
             
@@ -563,7 +567,12 @@ class mainWindow(QMainWindow):
             #clear the axes
             self.ax1.clear()  
             
-            temp = self.a.getPixelCountImage(firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(),applyWeight=False,flagToUse = 0,wvlStart=self.spinbox_startLambda.value(), wvlStop=self.spinbox_stopLambda.value())
+            if self.spinbox_integrationTime.value()==self.spinbox_integrationTime.maximum():
+                integrationTime = -1
+            else:
+                integrationTime = self.spinbox_integrationTime.value()
+            
+            temp = self.a.getPixelCountImage(firstSec = self.spinbox_startTime.value(), integrationTime=integrationTime,applyWeight=False,flagToUse = 0,wvlStart=self.spinbox_startLambda.value(), wvlStop=self.spinbox_stopLambda.value())
             self.rawCountsImage = np.transpose(temp['image'])
             
             self.image = self.rawCountsImage
