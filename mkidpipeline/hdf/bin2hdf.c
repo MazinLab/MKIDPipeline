@@ -3,7 +3,7 @@
  *  h5 file.
  *
  * compiled with this command
- /usr/local/hdf5/bin/h5cc -shlib -pthread -g -o Bin2HDFfast Bin2HDFfast.c
+ /usr/local/hdf5/bin/h5cc -shlib -pthread -g -o bin2hdf bin2hdf.c
  *************************************************************************************************/
 
 #include <stdio.h>

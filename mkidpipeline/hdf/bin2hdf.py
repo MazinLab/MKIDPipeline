@@ -3,6 +3,7 @@ import tempfile
 import subprocess
 import os
 import tables
+import time
 import numpy as np
 from multiprocessing.pool import Pool
 from mkidcore.headers import ObsHeader
@@ -54,17 +55,26 @@ def makehdf(cfgORcfgs, maxprocs=2, polltime=.1, executable_path=''):
         while len(procs) >= nproc:
             #TODO consider repalcing with https://gist.github.com/bgreenlee/1402841
             for i, proc in enumerate(procs):
-                out, err = proc.communicate(timeout=polltime)
-                getLogger(__name__ + '.bin2hdf_{}'.format(i)).info(out)
-                getLogger(__name__ + '.bin2hdf_{}'.format(i)).error(err)
+                try:
+                    out, err = proc.communicate(timeout=polltime)
+                    # TODO fix formatting before uncommenting
+                    # if out:
+                    #     getLogger(__name__ + '.bin2hdf_{}'.format(i)).info(out)
+                    if err:
+                        getLogger(__name__ + '.bin2hdf_{}'.format(i)).error(err)
+                except subprocess.TimeoutExpired:
+                    pass
             procs = list(filter(lambda p: p.poll() is None, procs))
+    for p in procs:
+        p.kill()
+
 
     # Postprocess the h5 files
     ncore = min(nproc, len(cfgs))
     getLogger(__name__).info('Postprocessing {} H5 files using {} cores'.format(len(cfgs), ncore))
     if nproc > 1 and len(cfgs) > 1:
         pool = Pool(ncore)
-        pool.apply(postprocess, cfgs)
+        pool.map(postprocess, cfgs)
     else:
         for c in cfgs:
             postprocess(c)
@@ -85,8 +95,10 @@ def makehdf(cfgORcfgs, maxprocs=2, polltime=.1, executable_path=''):
 
 def postprocess(cfg):
     add_header(cfg)
+    time.sleep(.1)
     if cfg.starttime < 1518222559:
         fix_timestamp_bug(cfg.h5file)
+    time.sleep(.1)
     # Prior to Ben's speedup of bin2hdf.c the consolidatePhotonTablesCmd step would need to be here
     index_hdf(cfg)
 
@@ -156,6 +168,7 @@ def fix_timestamp_bug(file):
             assert len(photonTable) == len(timeList), 'Timestamp list does not match length of photon list!'
             photonTable.modify_column(column=correctedTimeList, colname='Time')
             photonTable.flush()
+    hfile.close()
 
 
 def add_header(cfg, wvlBinStart=700, wvlBinEnd=1500, energyBinWidth=0.1):
@@ -204,7 +217,7 @@ class Bin2HdfConfig(object):
 
     @property
     def h5file(self):
-        return os.path.join(self.outdir, self.starttime + '.h5')
+        return os.path.join(self.outdir, str(self.starttime) + '.h5')
 
     def write(self, file):
         with open(file, 'w') as wavefile:
