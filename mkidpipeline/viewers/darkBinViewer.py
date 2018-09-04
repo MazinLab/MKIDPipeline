@@ -17,6 +17,15 @@ The inputs to run the code as main are:
     start timestamp [format=1527666447]
     end timestamp [format=1527675719]
 
+Urgent: Currently, the GUI functions in this code are not working.
+    part of this problem is that KD separated the GUI functions into
+    a new class. More code needs to be added to pass the results of
+    QuickStack into the new QuickStackGUI. On top of that, the GUI
+    itself is not functioning properly. Most of this is from an
+    incomplete update of a legacy version of the code to Python3.
+
+Problem: basePath is hard coded. Should ask for location
+
 Problem: method loadBadPixMask uses hard-coded bad pixel mask
     the location of the bad pixel mask is directly specified, does not
     search or ask for user input
@@ -47,6 +56,17 @@ imageShape = {'nRows':125,'nCols':80}
 startT = time()
 
 class QuickStack(QtWidgets.QMainWindow):
+    '''
+    This class is meant to load and parse a small timestream of data
+    from a file. It no longer has methods in it that create a GUI
+    to display those images. It does do some image analysis, like
+    applying the beam map and dark frame.
+
+    The parser is in this class, which is very slow as of 8/30/18.
+    KD is going to try to change this, but will make the bulk of
+    the changes in parsePacketDump.py, which is located in the
+    pipeline/utils repository (I think).
+    '''
     def __init__(self, run, date,startTstamp, endTstamp):
         
         self.dataPath = basePath+str(run)+'/'+str(date)+'/'
@@ -73,17 +93,9 @@ class QuickStack(QtWidgets.QMainWindow):
         #self.getObsImage()
 
     def show(self):
+        '''This might need to get moved down to the GUI stuff'''
         super(DarkQuick,self).show()
         self.app.exec_()
-
-
-    def applyDark(self):
-        if not self.checkbox_applyDark.isChecked():
-            self.subtractDark = False
-        else:
-            if self.darkLoaded==False:
-                self.generateDarkFrame()
-            self.subtractDark = True
 
     def generateDarkFrame(self):
         tgenDark = time()
@@ -129,6 +141,14 @@ class QuickStack(QtWidgets.QMainWindow):
         print("Time to Parse Data is %f" %(tendParse-tstartParse))
         self.darkLoaded = True
 
+    def applyDark(self):
+        if not self.checkbox_applyDark.isChecked():
+            self.subtractDark = False
+        else:
+            if self.darkLoaded == False:
+                self.generateDarkFrame()
+            self.subtractDark = True
+
     def loadBadPixMask(self):
         #hard coded for now. Should supply bad pix mask in gui menu and load it there
 
@@ -148,7 +168,6 @@ class QuickStack(QtWidgets.QMainWindow):
         hpmPath = '/mnt/kids/mnt/data0/CalibrationFiles/darkHotPixMasks/20170410/1491894755.npz'
 
         self.badPixMask = dhpm.loadMask(hpmPath)
-
 
 
     def loadImageStack(self):
@@ -177,9 +196,9 @@ class QuickStack(QtWidgets.QMainWindow):
                 words = np.array(struct.unpack('>{:d}Q'.format(nWords), data),dtype=object)
 
                 Tstartparse = time()
-                parseDict = parsePacketData(words,verbose=False)
+                parseDict = parsePacketData(words,verbose=True)
                 Tendparse = time()
-                print("finished parsing i= %i, parsing took %f sec" %(ts,Tendparse-Tstartparse))
+                print("i= %i, parsing took %f sec" %(ts,Tendparse-Tstartparse))
 
                 photonTimes = np.array(parseDict['photonTimestamps'])
                 phasesDeg = np.array(parseDict['phasesDeg'])
@@ -206,8 +225,8 @@ class QuickStack(QtWidgets.QMainWindow):
                 
                 
             except (IOError, ValueError) as e:
-                import mkidcore.corelog as clog
-                clog.getLogger('BinViewer').error('Help', exc_info=True)
+                #import mkidcore.corelog as clog
+                #clog.getLogger('BinViewer').error('Help', exc_info=True)
                 print(e)
                 image = np.zeros((imageShape['nRows'], imageShape['nCols']),dtype=np.uint16)  
                 
@@ -272,6 +291,7 @@ class QuickStackGUI(QtWidgets.QDialog):
     '''
     created by KD on 8/30/18
     I pulled everything I thought was GUI related into a new class.
+    Need to figure out how to assign self to the output from QuickStack
     '''
     def __init__(self, parent=None):
             self.app = QtWidgets.QApplication([])
