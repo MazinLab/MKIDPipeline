@@ -43,7 +43,6 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/MazinLab/MKIDPipeline",
     packages=setuptools.find_packages(),
-    scripts=["./mkidpipeline/hdf/bin2hdf.py"],
     classifiers=(
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
