@@ -52,8 +52,8 @@ def makehdf(cfgORcfgs, maxprocs=2, polltime=.1, executable_path=''):
         procs.append(psutil.Popen((os.path.join(executable_path,'bin2hdf'),tfile.name),
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                   shell=False, cwd=None, env=None, creationflags=0))
-        while len(procs) >= nproc:
-            #TODO consider repalcing with https://gist.github.com/bgreenlee/1402841
+        while len(procs) >= 1:
+            #TODO consider replacing with https://gist.github.com/bgreenlee/1402841
             for i, proc in enumerate(procs):
                 try:
                     out, err = proc.communicate(timeout=polltime)
@@ -67,7 +67,6 @@ def makehdf(cfgORcfgs, maxprocs=2, polltime=.1, executable_path=''):
             procs = list(filter(lambda p: p.poll() is None, procs))
     for p in procs:
         p.kill()
-
 
     # Postprocess the h5 files
     ncore = min(nproc, len(cfgs))
@@ -204,7 +203,7 @@ def add_header(cfg, wvlBinStart=700, wvlBinEnd=1500, energyBinWidth=0.1):
 @yaml_object(yaml)
 class Bin2HdfConfig(object):
     def __init__(self, datadir='./', beamfile='./default.bmap', starttime=None, inttime=None,
-                 outdir='./', x=140, y=145, writeto=None):
+                 outdir='./', x=140, y=146, writeto=None):
         self.datadir = datadir
         self.starttime = starttime
         self.inttime = inttime
