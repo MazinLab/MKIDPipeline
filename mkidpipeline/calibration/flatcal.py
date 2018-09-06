@@ -1,4 +1,4 @@
-#!/bin/python
+#!/bin/env python3
 """
 Author: Isabel Lipartito        Date:Dec 4, 2017
 Opens a twilight flat h5 and breaks it into INTTIME (5 second suggested) blocks.
@@ -13,24 +13,33 @@ Per pixel:  plots of weights vs wavelength next to twilight spectrum OR
             plots of weights vs wavelength, twilight spectrum, next to wavecal solution
             (has _WavelengthCompare_ in the name)
 """
+import argparse
 import ast
+import atexit
 import os
+import time
+import warnings
 from configparser import ConfigParser
 from typing import Any, Union
+from datetime import datetime
+
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import tables
 from PyPDF2 import PdfFileMerger, PdfFileReader
+
 from matplotlib.backends.backend_pdf import PdfPages
 from progressbar import Bar, ETA, Percentage, ProgressBar, Timer
 from mkidpipeline.calibration import wavecalplots
 from mkidcore.headers  import FlatCalSoln_Description
 from mkidpipeline.hdf.darkObsFile import ObsFile
+import mkidcore.corelog as pipelinelog
 from mkidcore.corelog import getLogger
+from mkidpipeline.hdf import bin2hdf
 np.seterr(divide='ignore', invalid='ignore')
 
-class FlatCalConfig:
+class FlatCal(object):
     """
     Opens flat file using parameters from the param file, sets wavelength binnning parameters, and calculates flat
     weights for flat file.  Writes these weights to a h5 file and plots weights both by pixel
@@ -40,7 +49,6 @@ class FlatCalConfig:
         """
         Reads in the param file and opens appropriate flat file.  Sets wavelength binning parameters.
         """
-        # define the configuration file path
         self.config_file = DEFAULT_CONFIG_FILE if config_file == 'default.cfg' else config_file
         assert os.path.isfile(self.config_file), \
             self.config_file + " is not a valid configuration file"
@@ -88,11 +96,18 @@ class FlatCalConfig:
             self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (', Timer(), ') ', ETA(), ' '],
                                     max_value=4 * len(range(0, self.expTime, self.intTime))).start()
             self.pbar_iter = 0
+
+        self.checksections()
+        self.checktypes()
+
     def checksections(self):
         """
         Checks the variables loaded in from the configuration file for type and
         consistencey.
         """
+        section = "{0} must be a configuration section"
+        param = "{0} must be a parameter in the configuration file '{1}' section"
+
         assert 'Data' in self.config.sections(), section.format('Data')
         assert 'flatPath' in self.config['Data'].keys(), \
             param.format('flatPath', 'Data')
@@ -124,6 +139,7 @@ class FlatCalConfig:
             param.format('save_plots', 'Output')
         assert 'logging' in self.config['Output'], \
             param.format('logging', 'Output')
+
     def checktypes(self):
             # type check parameters
         if self.flatPath != '':
@@ -155,11 +171,21 @@ class FlatCalConfig:
         assert type(self.save_plots) is bool, "Save Plots indicator must be a bool"
         assert type(self.logging) is bool, "logging parameter must be a boolean"
 
-class FlatCal:
+    def hdfexist(self):
+        fqps = [os.path.join(self.h5directory, file_) for file_ in self.file_names]
+        return all(map(os.path.isfile,fqps))
+
+    def _computeHDFnames(self):
+        self.file_names = ['%d' % st + '.h5' for st in self.startTimes]
+
+    def enforceselfconsistency(self):
+        self._computeHDFnames()
+
     def makeCalibration(self):
         self.loadFlatSpectra()
         self.checkCountRates()
         self.calculateWeights()
+
     def loadFlatSpectra(self):
         """
         Reads the flat data into a spectral cube whose dimensions are determined
@@ -286,7 +312,7 @@ class FlatCal:
             self.flatWeights = np.divide(self.flatWeights, wvlWeightMedians)
             self.flatWeightsforplot = np.ma.sum(self.flatWeights, axis=-1)
             self.indexweights = iCube
-            flatcal.writeWeights()
+            self.writeWeights()
             if self.verbose:
                 self.pbar_iter += 1
                 self.pbar.update(self.pbar_iter)
@@ -294,8 +320,8 @@ class FlatCal:
                 self.indexplot = iCube
                 if iCube == 0 or iCube == int((self.expTime / self.intTime) / 2) or iCube == (
                         int(self.expTime / self.intTime) - 1):
-                    flatcal.plotWeightsWvlSlices()
-                    flatcal.plotWeightsByPixelWvlCompare()
+                    self.plotWeightsWvlSlices()
+                    self.plotWeightsByPixelWvlCompare()
 
     def plotWeightsByPixelWvlCompare(self):
         """
@@ -761,9 +787,31 @@ def summaryPlot(calsolnName, save_plot=False):
 
 if __name__ == '__main__':
     pipelinelog.setup_logging()
+
     log = getLogger('FlatCal')
+
     timestamp = datetime.utcnow().timestamp()
+
     parser = argparse.ArgumentParser(description='MKID Flat Calibration Utility')
     parser.add_argument('cfgfile', type=str, help='The config file')
-    config = FlatCalConfig(args.cfgfile, cal_file_name='calsol_{}.h5'.format(timestamp))
-    FlatCal(config, filelog=flog).makeCalibration()
+    parser.add_argument('--vet', action='store_true', dest='vetonly', default=False,
+                        help='Only verify config file')
+    parser.add_argument('--h5', action='store_true', dest='h5only', default=False,
+                        help='Only make h5 files')
+    parser.add_argument('--forceh5', action='store_true', dest='forcehdf', default=False,
+                        help='Force HDF creation')
+    parser.add_argument('--nolog', action='store_true', dest='nolog', default=False,
+                        help='Disable logging')
+    args = parser.parse_args()
+
+    if args.nolog:
+        flog = None
+    else:
+        flog = pipelinelog.createFileLog('FlatCal.logfile',
+                                         os.path.join(os.getcwd(),
+                                                      '{:.0f}.log'.format(timestamp)))
+
+    atexit.register(lambda x:print('Execution took {:.0f}s'.format(time.time()-x)), time.time())
+
+    args = parser.parse_args()
+    FlatCal(args.cfgfile, cal_file_name='calsol_{}.h5'.format(timestamp)).makeCalibration()
