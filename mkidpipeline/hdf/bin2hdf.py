@@ -52,7 +52,7 @@ def makehdf(cfgORcfgs, maxprocs=2, polltime=.1, executable_path=''):
         procs.append(psutil.Popen((os.path.join(executable_path,'bin2hdf'),tfile.name),
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                   shell=False, cwd=None, env=None, creationflags=0))
-        while len(procs) >= 1:
+        while len(procs) >= nproc:
             #TODO consider replacing with https://gist.github.com/bgreenlee/1402841
             for i, proc in enumerate(procs):
                 try:
@@ -65,8 +65,21 @@ def makehdf(cfgORcfgs, maxprocs=2, polltime=.1, executable_path=''):
                 except subprocess.TimeoutExpired:
                     pass
             procs = list(filter(lambda p: p.poll() is None, procs))
-    for p in procs:
-        p.kill()
+
+
+    while len(procs):
+        #TODO consider repalcing with https://gist.github.com/bgreenlee/1402841
+        for i, proc in enumerate(procs):
+            try:
+                out, err = proc.communicate(timeout=polltime)
+                # TODO fix formatting before uncommenting
+                # if out:
+                #     getLogger(__name__ + '.bin2hdf_{}'.format(i)).info(out)
+                if err:
+                    getLogger(__name__ + '.bin2hdf_{}'.format(i)).error(err)
+            except subprocess.TimeoutExpired:
+                pass
+        procs = list(filter(lambda p: p.poll() is None, procs))
 
     # Postprocess the h5 files
     ncore = min(nproc, len(cfgs))
