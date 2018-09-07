@@ -534,10 +534,11 @@ class Solution(object):
 
         return histogram_fit
 
+    @property
     def histogram_function_signature(self):
         """Prints the signature for the function used to fit the phase histograms"""
         self._check_header_loaded()
-        print(inspect.getsource(fitModels(self._model_name)).strip("\n"))
+        return inspect.getsource(fitModels(self._model_name)).strip("\n")
 
     def has_good_histogram_solution(self, wavelength=None, pixel=None, res_id=None):
         """Returns True if the resonator has a good histogram fit at the specified
