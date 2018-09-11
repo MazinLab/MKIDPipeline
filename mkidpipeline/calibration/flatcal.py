@@ -30,13 +30,17 @@ import tables
 from PyPDF2 import PdfFileMerger, PdfFileReader
 
 from matplotlib.backends.backend_pdf import PdfPages
-from progressbar import Bar, ETA, Percentage, ProgressBar, Timer
-from mkidpipeline.calibration import wavecalplots
+from mkidpipeline.calibration import wavecal
 from mkidcore.headers  import FlatCalSoln_Description
 from mkidpipeline.hdf.darkObsFile import ObsFile
 import mkidcore.corelog as pipelinelog
 from mkidcore.corelog import getLogger
 from mkidpipeline.hdf import bin2hdf
+
+DEFAULT_CONFIG_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                                                   'Params', 'default.cfg')
+BIN2HDF_DEFAULT_PATH = '/mnt/data0/DarknessPipeline/RawDataProcessing'
+
 np.seterr(divide='ignore', invalid='ignore')
 
 class FlatCal(object):
@@ -58,9 +62,14 @@ class FlatCal(object):
         # check the configuration file format and load the parameters
         self.checksections()
         self.wvlCalFile = ast.literal_eval(self.config['Data']['wvlCalFile'])
-        self.flatPath = ast.literal_eval(self.config['Data']['flatPath'])
+        self.h5directory = ast.literal_eval(self.config['Data']['h5directory'])
         self.intTime = ast.literal_eval(self.config['Data']['intTime'])
         self.expTime = ast.literal_eval(self.config['Data']['expTime'])
+        self.dataDir = ast.literal_eval(self.config['Data']['dataDir'])
+        self.beamDir = ast.literal_eval(self.config['Data']['beamDir'])
+        self.startTime = ast.literal_eval(self.config['Data']['startTime'])
+        self.xpix = ast.literal_eval(self.config['Data']['xpix'])
+        self.ypix = ast.literal_eval(self.config['Data']['ypix'])
         self.deadtime = ast.literal_eval(self.config['Instrument']['deadtime'])
         self.energyBinWidth = ast.literal_eval(self.config['Instrument']['energyBinWidth'])
         self.wvlStart = ast.literal_eval(self.config['Instrument']['wvlStart'])
@@ -69,8 +78,9 @@ class FlatCal(object):
         self.fractionOfChunksToTrim = ast.literal_eval(self.config['Calibration']['fractionOfChunksToTrim'])
         self.verbose = ast.literal_eval(self.config['Output']['verbose'])
         self.logging = ast.literal_eval(self.config['Output']['logging'])
-        self.calSolnPath = ast.literal_eval(self.config['Output']['calSolnPath'])
+        self.out_directory = ast.literal_eval(self.config['Output']['out_directory'])
         self.save_plots = ast.literal_eval(self.config['Output']['save_plots'])
+
         if self.save_plots:
             answer = self._query("Save Plots flag set to 'yes', this will add ~30 min to the code.  "
                                  "Are you sure you want to save plots?", yes_or_no=True)
@@ -78,25 +88,12 @@ class FlatCal(object):
                 self.save_plots = False
                 print('Setting save_plots parameter to FALSE')
         self.timeSpacingCut = None
+
         # check the parameter formats
         self.checktypes()
-        self.obsList = [ObsFile(self.flatPath)]
-        self.flatCalFileName = self.calSolnPath + 'flatcalsoln.h5'
-        self.out_directory = self.calSolnPath
-        # get beammap from first obs
-        self.beamImage = self.obsList[0].beamImage
-        self.wvlFlags = self.obsList[0].beamFlagImage
-        self.nxpix = self.obsList[0].nXPix
-        self.nypix = self.obsList[0].nYPix
-        self.wvlBinEdges = ObsFile.makeWvlBins(self.energyBinWidth, self.wvlStart, self.wvlStop)
-        # wvlBinEdges includes both lower and upper limits, so number of bins is 1 less than number of edges
-        self.nWvlBins = len(self.wvlBinEdges) - 1
+
         if self.verbose:
             print('Computing Factors for FlatCal')
-            self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (', Timer(), ') ', ETA(), ' '],
-                                    max_value=4 * len(range(0, self.expTime, self.intTime))).start()
-            self.pbar_iter = 0
-
         self.checksections()
         self.checktypes()
 
@@ -109,8 +106,14 @@ class FlatCal(object):
         param = "{0} must be a parameter in the configuration file '{1}' section"
 
         assert 'Data' in self.config.sections(), section.format('Data')
-        assert 'flatPath' in self.config['Data'].keys(), \
-            param.format('flatPath', 'Data')
+        assert 'h5directory' in self.config['Data'].keys(), \
+            param.format('h5directory', 'Data')
+        assert 'startTime' in self.config['Data'].keys(), \
+            param.format('startTimes', 'Data')
+        assert 'dataDir' in self.config['Data'].keys(), \
+            param.format('dataDir', 'Data')
+        assert 'beamDir' in self.config['Data'].keys(), \
+            param.format('beamDir', 'Data')
         assert 'wvlCalFile' in self.config['Data'].keys(), \
             param.format('wvlCalFile', 'Data')
         assert 'intTime' in self.config['Data'].keys(), \
@@ -131,8 +134,8 @@ class FlatCal(object):
             param.format('countRateCutoff', 'Calibration')
         assert 'fractionOfChunksToTrim' in self.config['Calibration'], \
             param.format('fractionOfChunksToTrim', 'Calibration')
-        assert 'calSolnPath' in self.config['Output'].keys(), \
-            param.format('calSolnPath', 'Output')
+        assert 'out_directory' in self.config['Output'].keys(), \
+            param.format('out_directory', 'Output')
         assert 'verbose' in self.config['Output'].keys(), \
             param.format('verbose', 'Output')
         assert 'save_plots' in self.config['Output'].keys(), \
@@ -142,15 +145,19 @@ class FlatCal(object):
 
     def checktypes(self):
             # type check parameters
-        if self.flatPath != '':
-            assert type(self.flatPath) is str, "Flat Path parameter must be a string."
-            assert os.path.exists(self.flatPath), "Please confirm the Flat File path provided is correct"
-        if self.calSolnPath != '':
-            assert type(self.calSolnPath) is str, "Cal Solution Path parameter must be a string."
+        if self.h5directory != '':
+            assert type(self.h5directory) is str, "Flat Path parameter must be a string."
+            assert os.path.exists(self.h5directory), "Please confirm the Flat File path provided is correct"
+        if self.out_directory != '':
+            assert type(self.out_directory) is str, "Cal Solution Path parameter must be a string."
         if self.wvlCalFile != '':
             assert type(self.wvlCalFile) is str, "WaveCal Solution Path parameter must be a string."
         assert type(self.intTime) is int, "integration time parameter must be an integer"
         assert type(self.expTime) is int, "Exposure time parameter must be an integer"
+        assert type(self.startTime) is int, "Start time parameter must be an integer."
+
+        assert type(self.dataDir) is str, "Data directory parameter must be a string"
+        assert type(self.beamDir) is str, "Beam directory parameter must be a string"
         if type(self.deadtime) is int:
             self.deadtime = float(self.deadtime)
         assert type(self.deadtime) is float, "Dead time parameter must be an integer or float"
@@ -172,16 +179,26 @@ class FlatCal(object):
         assert type(self.logging) is bool, "logging parameter must be a boolean"
 
     def hdfexist(self):
-        fqps = [os.path.join(self.h5directory, file_) for file_ in self.file_names]
-        return all(map(os.path.isfile,fqps))
+        return all(map(os.path.isfile,self.h5directory))
 
     def _computeHDFnames(self):
-        self.file_names = ['%d' % st + '.h5' for st in self.startTimes]
+        self.file_name = ['%d' % st + '.h5' for st in self.startTime]
 
     def enforceselfconsistency(self):
         self._computeHDFnames()
 
     def makeCalibration(self):
+
+        self.obs = ObsFile(self.h5directory)
+        self.flatCalFileName = self.out_directory + cal_file_name
+        self.beamImage = self.obs.beamImage
+        self.wvlFlags = self.obs.beamFlagImage
+        self.xpix = self.obs.nXPix
+        self.ypix = self.obs.nYPix
+        self.wvlBinEdges = ObsFile.makeWvlBins(self.energyBinWidth, self.wvlStart, self.wvlStop)
+        # wvlBinEdges includes both lower and upper limits, so number of bins is 1 less than number of edges
+        self.nWvlBins = len(self.wvlBinEdges) - 1
+
         self.loadFlatSpectra()
         self.checkCountRates()
         self.calculateWeights()
@@ -196,37 +213,31 @@ class FlatCal(object):
         self.frames = []
         self.spectralCubes = []
         self.cubeEffIntTimes = []
-        for iObs, obs in enumerate(self.obsList):
-            for firstSec in range(0, self.expTime, self.intTime):
-                cubeDict = obs.getSpectralCube(firstSec=firstSec, integrationTime=self.intTime, applySpecWeight=False,
+        for firstSec in range(0, self.expTime, self.intTime):
+            #for each time chunk
+            cubeDict = self.obs.getSpectralCube(firstSec=firstSec, integrationTime=self.intTime, applySpecWeight=False,
                                                applyTPFWeight=False, wvlBinEdges=self.wvlBinEdges, energyBinWidth=None,
                                                timeSpacingCut=self.timeSpacingCut)
-                cube = np.array(cubeDict['cube'], dtype=np.double)
-                if self.verbose:
-                    self.pbar_iter += 1
-                    self.pbar.update(self.pbar_iter)
-                effIntTime = cubeDict['effIntTime']
-                # add third dimension for broadcasting
-                effIntTime3d = np.reshape(effIntTime, np.shape(effIntTime) + (1,))
-                cube /= effIntTime3d
-                cube[np.isnan(cube)] = 0
-                rawFrameDict = obs.getPixelCountImage(firstSec=firstSec, integrationTime=self.intTime,
+            cube = np.array(cubeDict['cube'], dtype=np.double)
+            effIntTime = cubeDict['effIntTime']
+            # add third dimension for broadcasting
+            effIntTime3d = np.reshape(effIntTime, np.shape(effIntTime) + (1,))
+            cube /= effIntTime3d
+            cube[np.isnan(cube)] = 0
+            rawFrameDict = obs.getPixelCountImage(firstSec=firstSec, integrationTime=self.intTime,
                                                       scaleByEffInt=True)
-                if self.verbose:
-                    self.pbar_iter += 1
-                    self.pbar.update(self.pbar_iter)
-                rawFrame = np.array(rawFrameDict['image'], dtype=np.double)
-                rawFrame /= rawFrameDict['effIntTimes']
-                nonlinearFactors = 1. / (1. - rawFrame * self.deadtime)
-                nonlinearFactors[np.isnan(nonlinearFactors)] = 0.
-                frame = np.sum(cube, axis=2)  # in counts per sec
-                frame = frame * nonlinearFactors
-                nonlinearFactors = np.reshape(nonlinearFactors, np.shape(nonlinearFactors) + (1,))
-                cube = cube * nonlinearFactors
-                self.frames.append(frame)
-                self.spectralCubes.append(cube)
-                self.cubeEffIntTimes.append(effIntTime3d)
-            obs.file.close()
+            rawFrame = np.array(rawFrameDict['image'], dtype=np.double)
+            rawFrame /= rawFrameDict['effIntTimes']
+            nonlinearFactors = 1. / (1. - rawFrame * self.deadtime)
+            nonlinearFactors[np.isnan(nonlinearFactors)] = 0.
+            frame = np.sum(cube, axis=2)  # in counts per sec
+            frame = frame * nonlinearFactors
+            nonlinearFactors = np.reshape(nonlinearFactors, np.shape(nonlinearFactors) + (1,))
+            cube = cube * nonlinearFactors
+            self.frames.append(frame)
+            self.spectralCubes.append(cube)
+            self.cubeEffIntTimes.append(effIntTime3d)
+            self.obs.file.close()
         self.spectralCubes = np.array(self.spectralCubes)
         self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
         self.countCubes = self.cubeEffIntTimes * self.spectralCubes
@@ -241,9 +252,6 @@ class FlatCal(object):
                                        if boolIncludeFrame == True])
         self.frames = [frame for frame, boolIncludeFrame in zip(self.frames, boolIncludeFrames)
                        if boolIncludeFrame == True]
-        if self.verbose:
-            self.pbar_iter += 1
-            self.pbar.update(self.pbar_iter)
 
     def calculateWeights(self):
         """
@@ -251,100 +259,109 @@ class FlatCal(object):
         Trim the beginning and end off the sorted weights for each wvl for each pixel, to exclude extremes from averages
         """
         self.flatWeightsList = []
+        cubeWeightsList = []
+        self.averageSpectra = []
+        deltaWeightsList = []
         for iCube, cube in enumerate(self.spectralCubes):
-            cubeWeightsList = []
-            self.averageSpectra = []
-            deltaWeightsList = []
             effIntTime = self.cubeEffIntTimes[iCube]
             # for each time chunk
             wvlAverages = np.zeros(self.nWvlBins)
-            spectra2d = np.reshape(cube, [self.nxpix * self.nypix, self.nWvlBins])
-            print('Shape Spectra2d', np.shape(spectra2d))
+            spectra2d = np.reshape(cube, [self.xpix * self.ypix, self.nWvlBins])
             for iWvl in range(self.nWvlBins):
                 wvlSlice = spectra2d[:, iWvl]
                 goodPixelWvlSlice = np.array(wvlSlice[wvlSlice != 0])
                 # dead pixels need to be taken out before calculating averages
                 wvlAverages[iWvl] = np.median(goodPixelWvlSlice)
             weights = np.divide(wvlAverages, cube)
-            print('Shape Weights', np.shape(weights))
             weights[weights == 0] = np.nan
             weights[weights == np.inf] = np.nan
             cubeWeightsList.append(weights)
+
+            """
+            To get uncertainty in weight:
+            Assuming negligible uncertainty in medians compared to single pixel spectra,
+            then deltaWeight=weight*deltaSpectrum/Spectrum
+            deltaWeight=weight*deltaRawCounts/RawCounts
+            with deltaRawCounts=sqrt(RawCounts)#Assuming Poisson noise
+            deltaWeight=weight/sqrt(RawCounts)
+            but 'cube' is in units cps, not raw counts so multiply by effIntTime before sqrt
+            """
+
             deltaWeights = weights / np.sqrt(effIntTime * cube)
             deltaWeightsList.append(deltaWeights)
             self.averageSpectra.append(wvlAverages)
-            cubeWeights = np.array(cubeWeightsList)
-            deltaCubeWeights = np.array(deltaWeightsList)
-            cubeWeightsMask = np.isnan(cubeWeights)
-            self.maskedCubeWeights = np.ma.array(cubeWeights, mask=cubeWeightsMask, fill_value=1.)
-            self.maskedCubeDeltaWeights = np.ma.array(deltaCubeWeights, mask=cubeWeightsMask)
-            # sort maskedCubeWeights and rearange spectral cubes the same way
+        cubeWeights = np.array(cubeWeightsList)
+        deltaCubeWeights = np.array(deltaWeightsList)
+        cubeWeightsMask = np.isnan(cubeWeights)
+        self.maskedCubeWeights = np.ma.array(cubeWeights, mask=cubeWeightsMask, fill_value=1.)
+        nCubes = np.shape(self.maskedCubeWeights)[0]
+        self.maskedCubeDeltaWeights = np.ma.array(deltaCubeWeights, mask=cubeWeightsMask)
+
+        # sort maskedCubeWeights and rearrange spectral cubes the same way
+
+        if self.fractionOfChunksToTrim and nCubes > 1:
             sortedIndices = np.ma.argsort(self.maskedCubeWeights, axis=0)
             identityIndices = np.ma.indices(np.shape(self.maskedCubeWeights))
-            sortedWeights = self.maskedCubeWeights[
-                sortedIndices, identityIndices[1], identityIndices[2], identityIndices[3]]
-            countCubesReordered = self.countCubes[
-                sortedIndices, identityIndices[1], identityIndices[2], identityIndices[3]]
-            cubeDeltaWeightsReordered = self.maskedCubeDeltaWeights[
-                sortedIndices, identityIndices[1], identityIndices[2], identityIndices[3]]
-            nCubes = np.shape(self.maskedCubeWeights)[0]
-            trimmedWeights = sortedWeights[
-                             self.fractionOfChunksToTrim * nCubes:(1 - self.fractionOfChunksToTrim) * nCubes, :, :, :]
-            trimmedCountCubesReordered = countCubesReordered[self.fractionOfChunksToTrim * nCubes:(
-                                                                                                          1 - self.fractionOfChunksToTrim) * nCubes,
-                                         :, :, :]
+            sortedWeights = self.maskedCubeWeights[sortedIndices, identityIndices[1], identityIndices[2], identityIndices[3]]
+            countCubesReordered = self.countCubes[sortedIndices, identityIndices[1], identityIndices[2], identityIndices[3]]
+            cubeDeltaWeightsReordered = self.maskedCubeDeltaWeights[sortedIndices, identityIndices[1], identityIndices[2], identityIndices[3]]
+            trimmedWeights = sortedWeights[self.fractionOfChunksToTrim * nCubes:(1 - self.fractionOfChunksToTrim) * nCubes, :, :, :]
+            trimmedCountCubesReordered = countCubesReordered[self.fractionOfChunksToTrim * nCubes:(1 - self.fractionOfChunksToTrim) * nCubes,:, :, :]
+            trimmedCubeDeltaWeightsReordered = cubeDeltaWeightsReordered[self.fractionOfChunksToTrim * nCubes:(1 - self.fractionOfChunksToTrim) * nCubes,:, :, :]
             self.totalCube = np.ma.sum(trimmedCountCubesReordered, axis=0)
             self.totalFrame = np.ma.sum(self.totalCube, axis=-1)
-            trimmedCubeDeltaWeightsReordered = cubeDeltaWeightsReordered[self.fractionOfChunksToTrim * nCubes:(
-                                                                                                                      1 - self.fractionOfChunksToTrim) * nCubes,
-                                               :, :, :]
-            """
-            Uncertainty in weighted average is sqrt(1/sum(averagingWeights))
-            Normalize weights at each wavelength bin
-            """
-            self.flatWeights, summedAveragingWeights = np.ma.average(trimmedWeights, axis=0,
-                                                                     weights=trimmedCubeDeltaWeightsReordered ** -2.,
-                                                                     returned=True)
-            self.countCubesToSave = np.ma.average(trimmedCountCubesReordered, axis=0)
-            self.deltaFlatWeights = np.sqrt(summedAveragingWeights ** -1.)
-            self.flatFlags = self.flatWeights.mask
-            wvlWeightMedians = np.ma.median(np.reshape(self.flatWeights, (-1, self.nWvlBins)), axis=0)
-            self.flatWeights = np.divide(self.flatWeights, wvlWeightMedians)
-            self.flatWeightsforplot = np.ma.sum(self.flatWeights, axis=-1)
-            self.indexweights = iCube
-            self.writeWeights()
-            if self.verbose:
-                self.pbar_iter += 1
-                self.pbar.update(self.pbar_iter)
-            if self.save_plots:
-                self.indexplot = iCube
-                if iCube == 0 or iCube == int((self.expTime / self.intTime) / 2) or iCube == (
-                        int(self.expTime / self.intTime) - 1):
-                    self.plotWeightsWvlSlices()
-                    self.plotWeightsByPixelWvlCompare()
+            self.flatWeights, summedAveragingWeights = np.ma.average(trimmedWeights, axis=0,weights=trimmedCubeDeltaWeightsReordered ** -2.,returned=True)
+            self.countCubesToSave = np.ma.sum(trimmedCountCubesReordered, axis=0)
+        else:
+            self.totalCube = np.ma.sum(self.countCubes, axis=0)
+            self.totalFrame = np.ma.sum(self.totalCube, axis=-1)
+            self.flatWeights, summedAveragingWeights = np.ma.average(self.maskedCubeWeights, axis=0,weights=self.maskedCubeDeltaWeights ** -2., returned=True)
+            self.countCubesToSave = np.ma.sum(self.countCubes, axis=0)
+
+        """
+        Uncertainty in weighted average is sqrt(1/sum(averagingWeights))
+        Normalize weights at each wavelength bin
+        """
+
+        self.deltaFlatWeights = np.sqrt(summedAveragingWeights ** -1.)
+        self.flatFlags = self.flatWeights.mask
+        wvlWeightMedians = np.ma.median(np.reshape(self.flatWeights, (-1, self.nWvlBins)), axis=0)
+        self.flatWeights = np.divide(self.flatWeights, wvlWeightMedians)
+        self.flatWeightsforplot = np.ma.sum(self.flatWeights, axis=-1)
+        self.writeWeights()
+        if self.save_plots:
+            self.plotWeightsWvlSlices()
+            self.plotWeightsByPixelWvlCompare()
+
+    def makeh5(self):
+
+        flatpath = '{}{}flat.txt'.format(self.h5directory, 'flat')
+        b2h_config=bin2hdf.Bin2HdfConfig(datadir=self.dataDir,
+                                                     beamfile=self.beamDir, outdir=self.h5directory,
+                                                     starttime=self.startTime, inttime=self.intTime, x=self.xpix,
+                                                     y=self.ypix, writeto=flatpath)
+
+        print('MAKING H5')
+
+        bin2hdf.makehdf(b2h_config, maxprocs=1)
 
     def plotWeightsByPixelWvlCompare(self):
         """
         Plot weights of each wavelength bin for every single pixel
-                Makes a plot of wavelength vs weights, twilight spectrum, and wavecal solution for each pixel
+        Makes a plot of wavelength vs weights, twilight spectrum, and wavecal solution for each pixel
         """
         if not self.save_plots:
             return
         if self.save_plots:
-            self.plotName = 'WavelengthCompare_'
+            self.plotName = 'WavelengthCompare_{}'.format(timestamp)
             self._setupPlots()
         # path to your wavecal solution file
-        file_nameWvlCal = self.wvlCalFile
-        if self.verbose:
-            print('plotting weights by pixel at ', self.pdfFullPath)
-            self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (', Timer(), ') ', ETA(), ' '],
-                                    max_value=self.nxpix).start()
-            self.pbar_iter = 0
+        wavesol=wavecal.Solution(self.wvlCalFile)
         matplotlib.rcParams['font.size'] = 4
         wvls = self.wvlBinEdges[0:-1]
         nCubes = len(self.maskedCubeWeights)
-        for iRow in range(self.nxpix):
-            for iCol in range(self.nypix):
+        for iRow in range(self.xpix):
+            for iCol in range(self.ypix):
                 weights = self.flatWeights[iRow, iCol, :]
                 deltaWeights = self.deltaFlatWeights[iRow, iCol, :]
                 if not weights.mask.all():
@@ -361,7 +378,7 @@ class FlatCal(object):
                     ax.set_ylabel('weight')
                     ax.set_xlabel(r'$\lambda$ ($\AA$)')
                     if self.iPlot % self.nPlotsPerPage == self.nPlotsPerPage - 1 or (
-                            iRow == self.nxpix - 1 and iCol == self.nypix - 1):
+                            iRow == self.xpix - 1 and iCol == self.ypix - 1):
                         pdf = PdfPages(os.path.join(self.out_directory, 'temp.pdf'))
                         pdf.savefig(self.fig)
                     self.iPlot += 1
@@ -376,7 +393,7 @@ class FlatCal(object):
                     ax.set_title('p %d,%d' % (iRow, iCol))
                     ax.set_xlabel(r'$\lambda$ ($\AA$)')
                     if self.iPlot % self.nPlotsPerPage == self.nPlotsPerPage - 1 or (
-                            iRow == self.nxpix - 1 and iCol == self.nypix - 1):
+                            iRow == self.xpix - 1 and iCol == self.ypix - 1):
                         pdf = PdfPages(os.path.join(self.out_directory, 'temp.pdf'))
                         pdf.savefig(self.fig)
                     self.iPlot += 1
@@ -387,10 +404,13 @@ class FlatCal(object):
                     ax.set_ylim(.5, 2.)
                     for iCube in range(nCubes):
                         my_pixel = [iRow, iCol]
-                        ax = wavecalplots.plotEnergySolution(file_nameWvlCal, pixel=my_pixel, axis=ax)
+                        wavesol.plot_energy_solution(pixel=my_pixel, axis=ax)
+                        ##if ax is None:
+                          ##  ax.plot(wvls, cubeWeights.data*0.0, label='failed wavecal %d' % iCube, alpha=.7,
+                            ##        color=matplotlib.cm.Paired((iCube + 1.) / nCubes))
                     ax.set_title('p %d,%d' % (iRow, iCol))
                     if self.iPlot % self.nPlotsPerPage == self.nPlotsPerPage - 1 or (
-                            iRow == self.nxpix - 1 and iCol == self.nypix - 1):
+                            iRow == self.xpix - 1 and iCol == self.ypix - 1):
                         pdf = PdfPages(os.path.join(self.out_directory, 'temp.pdf'))
                         pdf.savefig(self.fig)
                         pdf.close()
@@ -398,26 +418,16 @@ class FlatCal(object):
                         self.saved = True
                         plt.close('all')
                     self.iPlot += 1
-            if self.verbose:
-                self.pbar_iter += 1
-                self.pbar.update(self.pbar_iter)
         self._closePlots()
-        if self.verbose:
-            self.pbar.finish()
 
     def plotWeightsWvlSlices(self):
         """
         Plot weights in images of a single wavelength bin (wavelength-sliced images)
         """
-        self.plotName = 'WvlSlices_'
+        self.plotName = 'WvlSlices_{}'.format(timestamp)
         self._setupPlots()
         matplotlib.rcParams['font.size'] = 4
         wvls = self.wvlBinEdges[0:-1]
-        if self.verbose:
-            print('plotting weights in wavelength sliced images')
-            self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (', Timer(), ') ', ETA(), ' '],
-                                    max_value=len(wvls)).start()
-            self.pbar_iter = 0
         for iWvl, wvl in enumerate(wvls):
             if self.iPlot % self.nPlotsPerPage == 0:
                 self.fig = plt.figure(figsize=(10, 10), dpi=100)
@@ -448,12 +458,7 @@ class FlatCal(object):
                 self.saved = True
                 plt.close('all')
             self.iPlot += 1
-            if self.verbose:
-                self.pbar_iter += 1
-                self.pbar.update(self.pbar_iter)
         self._closePlots()
-        if self.verbose:
-            self.pbar.finish()
 
     def plotMaskWvlSlices(self):
         """
@@ -462,16 +467,13 @@ class FlatCal(object):
         if not self.save_plots:
             return
         if self.save_plots:
-            self.plotName = 'MaskWvlSlices_'
+            self.plotName = 'MaskWvlSlices_{}'.format(timestamp)
             self._setupPlots()
         matplotlib.rcParams['font.size'] = 4
         wvls = self.wvlBinEdges[0:-1]
         if self.verbose:
             print(self.pdfFullPath)
             print('plotting mask in wavelength sliced images')
-            self.pbar = ProgressBar(widgets=[Percentage(), Bar(), '  (', Timer(), ') ', ETA(), ' '],
-                                    max_value=len(wvls)).start()
-            self.pbar_iter = 0
         for iWvl, wvl in enumerate(wvls):
             if self.iPlot % self.nPlotsPerPage == 0:
                 self.fig = plt.figure(figsize=(10, 10), dpi=100)
@@ -494,34 +496,22 @@ class FlatCal(object):
                 plt.close('all')
             self.iPlot += 1
         self._closePlots()
-        if self.verbose:
-            self.pbar.finish()
 
     def writeWeights(self):
         """
         Writes an h5 file to put calculated flat cal factors in
         """
-        if os.path.isabs(self.flatCalFileName) == True:
-            fullFlatCalFileName = self.flatCalFileName
-            baseh5path = fullFlatCalFileName.split('.h5')
-            fullFlatCalFileName = baseh5path[0] + str(self.indexweights + 1) + '.h5'
-        else:
-            scratchDir = os.getenv('MKID_PROC_PATH')
-            flatDir = os.path.join(scratchDir, 'flatCalSolnFiles')
-            fullFlatCalFileName = os.path.join(flatDir, self.flatCalFileName)
-            baseh5path = fullFlatCalFileName.split('.h5')
-            fullFlatCalFileName = baseh5path[0] + str(self.indexweights + 1) + '.h5'
-        if not os.path.exists(fullFlatCalFileName) and self.calSolnPath == '':
-            os.makedirs(fullFlatCalFileName)
+        if not os.path.exists(self.flatCalFileName):
+            os.makedirs(self.flatCalFileName)
         try:
-            flatCalFile = tables.open_file(fullFlatCalFileName, mode='w')
+            flatCalFile = tables.open_file(self.flatCalFileName, mode='w')
         except:
-            print('Error: Couldn\'t create flat cal file, ', fullFlatCalFileName)
+            print('Error: Couldn\'t create flat cal file, ', self.flatCalFileName)
             return
         header = flatCalFile.create_group(flatCalFile.root, 'header', 'Calibration information')
         tables.Array(header, 'beamMap', obj=self.beamImage)
-        tables.Array(header, 'nxpix', obj=self.nxpix)
-        tables.Array(header, 'nypix', obj=self.nypix)
+        tables.Array(header, 'xpix', obj=self.xpix)
+        tables.Array(header, 'ypix', obj=self.ypix)
         calgroup = flatCalFile.create_group(flatCalFile.root, 'flatcal',
                                             'Table of flat calibration weights by pixel and wavelength')
         tables.Array(calgroup, 'weights', obj=self.flatWeights.data,
@@ -534,8 +524,8 @@ class FlatCal(object):
                      title='Wavelength bin edges corresponding to third dimension of weights array')
         descriptionDict = FlatCalSoln_Description(self.nWvlBins)
         caltable = flatCalFile.create_table(calgroup, 'calsoln', descriptionDict, title='Flat Cal Table')
-        for iRow in range(self.nxpix):
-            for iCol in range(self.nypix):
+        for iRow in range(self.xpix):
+            for iCol in range(self.ypix):
                 weights = self.flatWeights[iRow, iCol, :]
                 spectrum = self.countCubesToSave[iRow, iCol, :]
                 deltaWeights = self.deltaFlatWeights[iRow, iCol, :]
@@ -554,11 +544,8 @@ class FlatCal(object):
                 entry.append()
         flatCalFile.flush()
         flatCalFile.close()
-        # close progress bar
         if self.verbose:
-            self.pbar.finish()
-        if self.verbose:
-            print('wrote to', fullFlatCalFileName)
+            print('wrote to', self.flatCalFileName)
 
     def _setupPlots(self):
         """
@@ -568,14 +555,14 @@ class FlatCal(object):
         self.nPlotsPerCol = 4
         self.nPlotsPerPage = self.nPlotsPerRow * self.nPlotsPerCol
         self.iPlot = 0
-        self.pdfFullPath = self.calSolnPath + self.plotName + str(self.indexplot + 1) + '.pdf'
+        self.pdfFullPath = self.calSolnPath + self.plotName +'_'+ '.pdf'
         if os.path.isfile(self.pdfFullPath):
             answer = self._query("{0} already exists. Overwrite?".format(self.pdfFullPath), yes_or_no=True)
             if answer is False:
                 answer = self._query("Provide a new file name (type exit to quit):")
                 if answer == 'exit':
                     raise UserError("User doesn't want to overwrite the plot file " + "... exiting")
-                self.pdfFullPath = self.calSolnPath + str(answer) + str(self.indexplot + 1) + '.pdf'
+                self.pdfFullPath = self.calSolnPath + str(answer) + '.pdf'
                 print(self.pdfFullPath)
             else:
                 os.remove(self.pdfFullPath)
@@ -662,6 +649,7 @@ def plotSinglePixelSolution(calsolnName, file_nameWvlCal, res_id=None, pixel=[],
         save_plot:  Should a plot be saved?  If FALSE, the plot will be displayed.
         If TRUE, the plot will be saved to a pdf in the current working directory
         """
+    wavesol = wavecal.Solution(self.wvlCalFile)
     assert os.path.exists(calsolnName), "{0} does not exist".format(calsolnName)
     flat_cal = tables.open_file(calsolnName, mode='r')
     calsoln = flat_cal.root.flatcal.calsoln.read()
@@ -710,7 +698,7 @@ def plotSinglePixelSolution(calsolnName, file_nameWvlCal, res_id=None, pixel=[],
     ax = fig.add_subplot(3, 1, 3)
     ax.set_ylim(.5, 2.)
     my_pixel = [row, column]
-    ax = wavecalplots.plotEnergySolution(file_nameWvlCal, pixel=my_pixel, axis=ax)
+    ax = wavesol.plot_energy_solution(pixel=my_pixel, axis=ax)
     if not save_plot:
         plt.show()
     else:
@@ -727,14 +715,14 @@ def summaryPlot(calsolnName, save_plot=False):
     calsoln = flat_cal.root.flatcal.calsoln.read()
     weightArrPerPixel = flat_cal.root.flatcal.weights.read()
     beamImage = flat_cal.root.header.beamMap.read()
-    nXPix = flat_cal.root.header.nxpix.read()
-    nYPix = flat_cal.root.header.nypix.read()
+    xpix = flat_cal.root.header.xpix.read()
+    ypix = flat_cal.root.header.ypix.read()
     wavelengths = flat_cal.root.flatcal.wavelengthBins.read()
-    meanWeightList = np.zeros((nXPix, nYPix))
-    meanSpecList = np.zeros((nXPix, nYPix))
+    meanWeightList = np.zeros((xpix, ypix))
+    meanSpecList = np.zeros((xpix, ypix))
     fig = plt.figure(figsize=(10, 10), dpi=100)
-    for iRow in range(nXPix):
-        for iCol in range(nYPix):
+    for iRow in range(xpix):
+        for iCol in range(ypix):
             res_id = beamImage[iRow][iCol]
             index = np.where(res_id == np.array(calsoln['resid']))
             weights = calsoln['weights'][index]
@@ -814,4 +802,17 @@ if __name__ == '__main__':
     atexit.register(lambda x:print('Execution took {:.0f}s'.format(time.time()-x)), time.time())
 
     args = parser.parse_args()
-    FlatCal(args.cfgfile, cal_file_name='calsol_{}.h5'.format(timestamp)).makeCalibration()
+
+
+    flatboy=FlatCal(args.cfgfile, cal_file_name='calsol_{}.h5'.format(timestamp))
+    print(flatboy)
+
+    if not flatboy.hdfexist():
+        flatboy.makeh5()
+
+    if args.h5only:
+        exit()
+
+    else:
+
+        flatboy.makeCalibration()
