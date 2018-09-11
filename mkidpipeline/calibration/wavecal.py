@@ -11,6 +11,8 @@ from configparser import ConfigParser
 from datetime import datetime
 import inspect
 
+import matplotlib
+matplotlib.use('QT5Agg')
 import lmfit as lm
 import numpy as np
 import tables as tb
