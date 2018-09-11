@@ -159,6 +159,53 @@ def index_hdf(cfg):
     photonTable.flush()
     hfile.close()
 
+"""
+def fix_timestamp_bug(file):   #TODO:  This still doesn't work, I was trying to grab the photonList for a single RESID
+    noResIDFlag = 2 ** 32 - 1
+    hfile = tables.open_file(file, mode='a')
+    beamMap = hfile.root.BeamMap.Map.read()
+    imShape = np.shape(beamMap)
+    photonTable = hfile.get_node('/Photons/PhotonTable/')
+    photonList = photonTable.read()
+
+    resIDDiffs = np.diff(photonList['ResID'])
+    print(resIDDiffs)
+    if (np.any(resIDDiffs < 0)):
+        warnings.warn('Photon list not sorted by ResID! This could take a while...')
+        photonList = np.sort(photonList, order='ResID',
+                                   kind='mergsort')  # mergesort is stable, so time order will be preserved
+        resIDDiffs = np.diff(photonList['ResID'])
+
+    resIDBoundaryInds = np.where(resIDDiffs > 0)[
+                            0] + 1  # indices in masterPhotonList where ResID changes; ie marks boundaries between pixel tables
+    resIDBoundaryInds = np.insert(resIDBoundaryInds, 0, 0)
+    resIDList = photonList['ResID'][resIDBoundaryInds]
+    resIDBoundaryInds = np.append(resIDBoundaryInds, len(photonList['ResID']))
+    correctedTimeListMaster=[]
+    for x in range(imShape[0]):
+        for y in range(imShape[1]):
+            print('Correcting pixel', x, y)
+            resID = beamMap[x, y]
+            if resID == noResIDFlag:
+                getLogger(__name__).info('Table not found for pixel', x, ',', y)
+                continue
+
+            resIDInd = np.where(resIDList == resID)[0]
+            resIDInd = resIDInd[0]
+            photonList_resID = photonList[resIDBoundaryInds[resIDInd]:resIDBoundaryInds[resIDInd + 1]]
+            #print(photonList_resID)
+            timeList = photonList_resID['Time']
+            #print(timeList)
+            correctedTimeList = _correct_timestamps(timeList)
+
+            assert len(photonList_resID) == len(timeList), 'Timestamp list does not match length of photon list!'
+            correctedTimeListMaster.append(correctedTimeList)
+    assert len(photonList) == len(correctedTimeListMaster), 'Timestamp list does not match length of photon list!'
+    correctedTimeListMaster=np.array(correctedTimeListMaster).flatten()
+    photonTable.modify_column(column=correctedTimeListMaster, colname='Time')
+    photonTable.flush()
+    hfile.close()
+"""
 
 def fix_timestamp_bug(file):
     noResIDFlag = 2 ** 32 - 1
@@ -167,7 +214,7 @@ def fix_timestamp_bug(file):
     imShape = np.shape(beamMap)
     for x in range(imShape[0]):
         for y in range(imShape[1]):
-            # print('Correcting pixel', x, y, ', resID =', obsfl.beamImage[x,y])
+            print('Correcting pixel', x, y)
             resID = beamMap[x, y]
             if resID == noResIDFlag:
                 getLogger(__name__).info('Table not found for pixel', x, ',', y)
