@@ -209,12 +209,16 @@ def binMRlogL(n, Ic, Is):
         Ic: Coherent portion of MR [cts/bin]
         Is: Speckle portion of MR [cts/bin]
     OUTPUTS:
-        [float] the Log likelihood. 
+        [float] the Log likelihood of the entire light curve.
     '''
     if Ic<=0 or Is<=0:
-        print('Ic or Is are <= zero. Ic, Is = {:g}, {:g}'.format(Ic,Is))
+        # print('Ic or Is are <= zero. Ic, Is = {:g}, {:g}'.format(Ic,Is))
         lnL = -np.inf
         return lnL
+
+    type_n = type(n)
+    if type_n==float or type_n==int: #len(n) will break if n is not a list or numpy array and only an int or float
+        n=[n]
     
     N = len(n)
     lnL = np.zeros(N) 
@@ -254,12 +258,24 @@ def binMRlogL(n, Ic, Is):
 #    return lnL
 
 
-# v4. eval_laguerre can accept numpy arrays! Another factor of ~9 in speed. 
+# v4. eval_laguerre can accept numpy arrays! Another factor of ~9 in speed.
     k = -Ic/(Is**2 + Is)
     tmp = np.log(eval_laguerre(n,k))
     tmp -= k
     lnL = N*(np.log(1./(Is+1))  - Ic/Is) + np.sum(tmp) + np.sum(n)*np.log(Is/(1.+Is))
-#    junk = (np.log(1./(Is+1))  - Ic/Is) + tmp + n*np.log(Is/(1.+Is))
+
+
+
+#v5. We can make a lookup table, so that eval_laguerre is called only once per each unique value in the lightcurve n.
+
+    #Turns out that this is slower than v4 by 1.5 to 3x
+    # k = -Ic / (Is ** 2 + Is)
+    # lut = np.zeros(np.amax(n)+1)
+    # lut[np.unique(n)] = np.log(eval_laguerre(np.unique(n),k))
+    # tmp = lut[n]
+    # tmp -= k
+    # lnL2 = N*(np.log(1./(Is+1))  - Ic/Is) + np.sum(tmp) + np.sum(n)*np.log(Is/(1.+Is))
+
     
     return lnL
 
@@ -331,8 +347,18 @@ def loglike_planet_blurredMR(n,Ic,Is,Ir):
 
     There may be many unused elements in the lut, especially when the bin size
     is large and the average number of photons per bin becomes large.
+
+    I'll also create some lookup tables for the poisson distribution and for the
+    MR distribution, so that we're not calling those functions more than we need
+    to.
     """
 
+    #make lookup tables for poisson and binMRlogL
+    # Ic, Is, and Ir are constant inside this function
+    plut = poisson.pmf(np.arange(max(n)+1),Ir)
+    mlut = np.zeros(len(plut))
+    for ii in range(len(mlut)):
+        mlut[ii] = np.exp(binMRlogL(ii,Ic,Is))  #binMRlogL returns only one number, not an array
         
     #make a lookup table
     lutSize = int(max(n))+1
@@ -340,8 +366,9 @@ def loglike_planet_blurredMR(n,Ic,Is,Ir):
     inds = np.unique(n).astype(int) #get the indexes we will use in the lookup table.
     for ii in inds:
         for mm in np.arange(ii+1):  #convolve the binned MR likelihood with a poisson
-            lut[ii] += pssn(mm,Ir)*binMR_like(np.array([ii-mm]), Ic, Is)[0]
-
+            # lut[ii] += pssn(mm,Ir)*binMR_like(np.array([ii-mm]), Ic, Is)[0]
+            # lut[ii] += poisson.pmf(mm,Ir)*np.exp(binMRlogL(np.array([ii-mm]), Ic, Is))
+            lut[ii] += plut[mm]*mlut[ii-mm]
     loglut = np.zeros(lutSize)
     loglut[lut!=0] = np.log(lut[lut!=0])  #calculate the log of the lut array, but not
                                         #  on elements where lut = 0. We're not using them
@@ -513,7 +540,7 @@ def binMRlogL_hessian(n,Ic,Is):
 
 
 
-def logLMap(n, Ic_list, Is_list, effExpTime,IcPlusIs = False):
+def logLMap(n, Ic_list, Is_list, effExpTime,IcPlusIs = False,Ir_guess=0):
     """
     makes a map of the MR log likelihood function over the range of Ic, Is
 
@@ -528,6 +555,7 @@ def logLMap(n, Ic_list, Is_list, effExpTime,IcPlusIs = False):
     """
     Ic_list_countsperbin = Ic_list * effExpTime  # convert from cps to counts/bin
     Is_list_countsperbin = Is_list * effExpTime
+    Ir_countsperbin = Ir_guess*effExpTime
 
     im = np.zeros((len(Is_list), len(Ic_list)))
 
@@ -541,7 +569,7 @@ def logLMap(n, Ic_list, Is_list, effExpTime,IcPlusIs = False):
                 tmp = Ic
 
             # lnL = binMRlogL(n, tmp, Is)
-            lnL = loglike_planet_blurredMR(n,tmp,Is,.3)[0]
+            lnL = loglike_planet_blurredMR(n,tmp,Is,Ir_countsperbin)[0]
             im[j,i] = lnL
         print('Ic,Is = ', Ic / effExpTime, Is / effExpTime)
 
