@@ -5,28 +5,6 @@ from setuptools.command.install import install
 from setuptools.command.develop import develop
 import subprocess
 
-with open("README.md", "r") as fh:
-    long_description = fh.read()
-
-setuptools.setup(
-    name="mkidpipeline",
-    version="0.0.1",
-    author="MazinLab",
-    author_email="mazinlab@ucsb.edu",
-    description="An UVOIR MKID Data Reduction Package",
-    long_description=long_description,
-    long_description_content_type="text/markdown",
-    url="https://github.com/MazinLab/MKIDPipeline",
-    packages=setuptools.find_packages(),
-    classifiers=(
-        "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: MIT License",
-        "Operating System :: POSIX",
-        "Development Status :: 1 - Planning",
-        "Intended Audience :: Science/Research"
-    ),
-)
-
 #pip install -e git+http://github.com/mazinlab/mkidpipeline.git@develop#egg=mkidpipeline
 
 
@@ -52,6 +30,8 @@ class CustomDevelop(develop, object):
         compile_and_install_software()
         super(CustomDevelop,self).run()
 
+with open("README.md", "r") as fh:
+    long_description = fh.read()
 
 setuptools.setup(
     name="mkidpipeline",
@@ -72,6 +52,3 @@ setuptools.setup(
     ),
     cmdclass={'install': CustomInstall,'develop': CustomDevelop}
 )
-
-
-

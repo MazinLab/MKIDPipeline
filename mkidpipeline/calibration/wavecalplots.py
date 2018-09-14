@@ -858,6 +858,10 @@ def loadFrequencyFile(config_file, verbose=True):
             print('Warning: no frequency files could be loaded')
         return np.ones((1, 2)) * -1
     freqs = np.vstack(freqs)
+    if np.unique(freqs[:, 0]).size != freqs[:, 0].size:
+        message = ("There are duplicate resids in the frequency files. " +
+                   "Check the templarconfig.cfg")
+        warnings.warn(message)
     return freqs
 
 

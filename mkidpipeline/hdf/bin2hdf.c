@@ -646,6 +646,7 @@ int main(int argc, char *argv[])
 
     // Close up
     H5Gclose(gid_beammap);
+    H5Fflush(file_id, H5F_SCOPE_GLOBAL);
     H5Fclose(file_id);
 
      // free photon tables for every resid
