@@ -209,12 +209,16 @@ def binMRlogL(n, Ic, Is):
         Ic: Coherent portion of MR [cts/bin]
         Is: Speckle portion of MR [cts/bin]
     OUTPUTS:
-        [float] the Log likelihood. 
+        [float] the Log likelihood of the entire light curve.
     '''
     if Ic<=0 or Is<=0:
-        print('Ic or Is are <= zero. Ic, Is = {:g}, {:g}'.format(Ic,Is))
+        # print('Ic or Is are <= zero. Ic, Is = {:g}, {:g}'.format(Ic,Is))
         lnL = -np.inf
         return lnL
+
+    type_n = type(n)
+    if type_n==float or type_n==int: #len(n) will break if n is not a list or numpy array and only an int or float
+        n=[n]
     
     N = len(n)
     lnL = np.zeros(N) 
@@ -254,12 +258,24 @@ def binMRlogL(n, Ic, Is):
 #    return lnL
 
 
-# v4. eval_laguerre can accept numpy arrays! Another factor of ~9 in speed. 
+# v4. eval_laguerre can accept numpy arrays! Another factor of ~9 in speed.
     k = -Ic/(Is**2 + Is)
     tmp = np.log(eval_laguerre(n,k))
     tmp -= k
     lnL = N*(np.log(1./(Is+1))  - Ic/Is) + np.sum(tmp) + np.sum(n)*np.log(Is/(1.+Is))
-#    junk = (np.log(1./(Is+1))  - Ic/Is) + tmp + n*np.log(Is/(1.+Is))
+
+
+
+#v5. We can make a lookup table, so that eval_laguerre is called only once per each unique value in the lightcurve n.
+
+    #Turns out that this is slower than v4 by 1.5 to 3x
+    # k = -Ic / (Is ** 2 + Is)
+    # lut = np.zeros(np.amax(n)+1)
+    # lut[np.unique(n)] = np.log(eval_laguerre(np.unique(n),k))
+    # tmp = lut[n]
+    # tmp -= k
+    # lnL2 = N*(np.log(1./(Is+1))  - Ic/Is) + np.sum(tmp) + np.sum(n)*np.log(Is/(1.+Is))
+
     
     return lnL
 
@@ -274,7 +290,8 @@ def binMR_like(n, Ic, Is):
         Ic: Coherent portion of MR [cts/bin]
         Is: Speckle portion of MR [cts/bin]
     OUTPUTS:
-         the likelihood. 
+         - the likelihood of the entire light curve
+         - an array with one likelihoood value for each element of the light curve array
     '''
 #    k = -Ic/(Is**2 + Is)
 #    like = (1+1/Is)**-n/(1+Is)*np.exp(-Ic/Is-k)*eval_laguerre(n,k)
@@ -286,10 +303,10 @@ def binMR_like(n, Ic, Is):
 #        like[ii] = np.exp(binMRlogL(n[ii:ii+1],Ic,Is))
     
     if Ic<=0 or Is<=0:
-        print('Ic or Is are <= zero. Ic, Is = {:g}, {:g}'.format(Ic,Is))
+        # print('Ic or Is are <= zero. Ic, Is = {:g}, {:g}'.format(Ic,Is))
         like = 0.
         likeArray = np.zeros(len(n))
-        return like
+        return like, likeArray
     
     k = -Ic/(Is**2 + Is)
     tmp = np.log(eval_laguerre(n,k))
@@ -319,73 +336,49 @@ def loglike_planet_blurredMR(n,Ic,Is,Ir):
     
     This might break if you give it values of Ic Is Ir that are too big. mpmath
     might give complex answers when calling the mpmath.log(tiny number)
+
+    The light curve is an array of integers, where each element is the number of
+    photons recorded in that bin. There will be many repeated numbers in this
+    light curve. We can reduce computation time by calculating the likelihood for
+    each of the unique values in the light curve one time each. I'll store these
+    values in a lookup table (lut), where the index is the number of counts in a
+    particular bin. For example, the likelihood of receiving 4 counts in a bin
+    can be accessed from the lookup table via lut[4].
+
+    There may be many unused elements in the lut, especially when the bin size
+    is large and the average number of photons per bin becomes large.
+
+    I'll also create some lookup tables for the poisson distribution and for the
+    MR distribution, so that we're not calling those functions more than we need
+    to.
     """
-#    if Ir>3:
-#        maxx = int(5*Ir)
-#        tmp = np.arange(maxx)
-#        cpd = poisson.cdf(tmp,Ir)
-#        mm = tmp[np.where(cpd<.99999)]
-#
-#    else:
-#        maxx = 15
-#        tmp = np.arange(maxx)
-#        cpd = poisson.cdf(tmp,Ir)
-#        mm = tmp[np.where(cpd<.99999)]
-    
-    like = np.zeros(len(n))
-    
 
-
-#    t1 = time.time()
-#    for ii in range(len(n)):
-#        for mm in range(int(n[ii])+1):  #make sure it executes at least 1 time
-#            like[ii] += pssn(mm,Ir)*binMR_like(np.array([n[ii]-mm]), Ic, Is)[0]
-#    
-#    t2 = time.time()
-#    
-#    logL=0
-#    for jj in [mp.log(ii) for ii in like]:
-#        logL +=jj
-#        
-#    t3 = time.time()
-    
-            
-        
-        
+    #make lookup tables for poisson and binMRlogL
+    # Ic, Is, and Ir are constant inside this function
+    plut = poisson.pmf(np.arange(max(n)+1),Ir)
+    mlut = np.zeros(len(plut))
+    for ii in range(len(mlut)):
+        mlut[ii] = np.exp(binMRlogL(ii,Ic,Is))  #binMRlogL returns only one number, not an array
         
     #make a lookup table
     lutSize = int(max(n))+1
     lut = np.zeros(lutSize)
-    loglut = np.zeros(lutSize)
-    inds = np.unique(n).astype(int)
+    inds = np.unique(n).astype(int) #get the indexes we will use in the lookup table.
     for ii in inds:
-        for mm in np.arange(ii+1):
-            lut[ii] += pssn(mm,Ir)*binMR_like(np.array([ii-mm]), Ic, Is)[0]    
-    loglut = np.log(lut)
-    like2 = lut[n]
-#    print('\n\nlut = ',lut,'\n\n')
-    
-#    logL2=0
-#    for jj in [mpmath.log(ii) for ii in like2]:
-#        logL2 +=jj
-#    logL2 = np.float(logL2)
-        
-    logL3 = np.sum(loglut[n])
-    
-#    t4 = time.time()
-#    print('foo = ', t2-t1)
-#    print('foo = ', t3-t2)
-#    print('foo = ', t4-t3)
+        for mm in np.arange(ii+1):  #convolve the binned MR likelihood with a poisson
+            # lut[ii] += pssn(mm,Ir)*binMR_like(np.array([ii-mm]), Ic, Is)[0]
+            # lut[ii] += poisson.pmf(mm,Ir)*np.exp(binMRlogL(np.array([ii-mm]), Ic, Is))
+            lut[ii] += plut[mm]*mlut[ii-mm]
+    loglut = np.zeros(lutSize)
+    loglut[lut!=0] = np.log(lut[lut!=0])  #calculate the log of the lut array, but not
+                                        #  on elements where lut = 0. We're not using them
+                                        #  anyway
 
-#    logL = np.sum(np.log(like))
-#    plt.legend()
-    
-#    print('\n\ntmp: ',tmp)
-#    print('cpd: ',cpd)
-#    print('mm: ',mm)
+    likeArray = lut[n]  #this is an array with one likelihood value for each element in the light curve array
 
-#    return logL, like, logL2, like2
-    return logL3, like2
+    loglike = np.sum(loglut[n])
+
+    return loglike, likeArray
 
 
 def negloglike_planet_blurredMR(p,n):
@@ -547,7 +540,7 @@ def binMRlogL_hessian(n,Ic,Is):
 
 
 
-def logLMap(n, Ic_list, Is_list, effExpTime,IcPlusIs = False):
+def logLMap(n, Ic_list, Is_list, effExpTime,IcPlusIs = False,Ir_guess=0):
     """
     makes a map of the MR log likelihood function over the range of Ic, Is
 
@@ -562,6 +555,7 @@ def logLMap(n, Ic_list, Is_list, effExpTime,IcPlusIs = False):
     """
     Ic_list_countsperbin = Ic_list * effExpTime  # convert from cps to counts/bin
     Is_list_countsperbin = Is_list * effExpTime
+    Ir_countsperbin = Ir_guess*effExpTime
 
     im = np.zeros((len(Is_list), len(Ic_list)))
 
@@ -569,13 +563,22 @@ def logLMap(n, Ic_list, Is_list, effExpTime,IcPlusIs = False):
         for i, Ic in enumerate(Ic_list_countsperbin):
             if IcPlusIs == True:
                 tmp = Ic - Is
+                if tmp < 0:
+                    continue
             else:
                 tmp = Ic
 
-#            lnL = binMRlogL(n, tmp, Is)
-            lnL = loglike_planet_blurredMR(n,tmp,Is,.8)[0]
+            # lnL = binMRlogL(n, tmp, Is)
+            lnL = loglike_planet_blurredMR(n,tmp,Is,Ir_countsperbin)[0]
             im[j,i] = lnL
         print('Ic,Is = ', Ic / effExpTime, Is / effExpTime)
+
+    # if there were parts of im where the loglikelihood wasn't calculated,
+    # for example if Ic or Is were less than zero, then set those parts
+    # of im to a value less than the maximum so that the maximum still
+    # stands out
+    im[im==0] = np.amax(im[im!=0])-8
+
 
     Ic_ind, Is_ind = np.unravel_index(im.argmax(), im.shape)
     print('Max at (' + str(Ic_ind) + ', ' + str(Is_ind) + ')')
