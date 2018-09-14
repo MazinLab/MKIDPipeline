@@ -63,6 +63,7 @@ class FlatCal(object):
         self.checksections()
         self.wvlCalFile = ast.literal_eval(self.config['Data']['wvlCalFile'])
         self.h5directory = ast.literal_eval(self.config['Data']['h5directory'])
+        self.file_name = ast.literal_eval(self.config['Data']['file_name'])
         self.intTime = ast.literal_eval(self.config['Data']['intTime'])
         self.expTime = ast.literal_eval(self.config['Data']['expTime'])
         self.dataDir = ast.literal_eval(self.config['Data']['dataDir'])
@@ -80,7 +81,7 @@ class FlatCal(object):
         self.logging = ast.literal_eval(self.config['Output']['logging'])
         self.out_directory = ast.literal_eval(self.config['Output']['out_directory'])
         self.save_plots = ast.literal_eval(self.config['Output']['save_plots'])
-
+        self.cal_file_name=cal_file_name
         if self.save_plots:
             answer = self._query("Save Plots flag set to 'yes', this will add ~30 min to the code.  "
                                  "Are you sure you want to save plots?", yes_or_no=True)
@@ -108,6 +109,8 @@ class FlatCal(object):
         assert 'Data' in self.config.sections(), section.format('Data')
         assert 'h5directory' in self.config['Data'].keys(), \
             param.format('h5directory', 'Data')
+        assert 'file_name' in self.config['Data'].keys(), \
+            param.format('file_name', 'Data')
         assert 'startTime' in self.config['Data'].keys(), \
             param.format('startTimes', 'Data')
         assert 'dataDir' in self.config['Data'].keys(), \
@@ -157,6 +160,7 @@ class FlatCal(object):
         assert type(self.startTime) is int, "Start time parameter must be an integer."
 
         assert type(self.dataDir) is str, "Data directory parameter must be a string"
+        assert type(self.file_name) is str, "File Name parameter must be a string"
         assert type(self.beamDir) is str, "Beam directory parameter must be a string"
         if type(self.deadtime) is int:
             self.deadtime = float(self.deadtime)
@@ -179,18 +183,13 @@ class FlatCal(object):
         assert type(self.logging) is bool, "logging parameter must be a boolean"
 
     def hdfexist(self):
-        return all(map(os.path.isfile,self.h5directory))
-
-    def _computeHDFnames(self):
-        self.file_name = ['%d' % st + '.h5' for st in self.startTime]
-
-    def enforceselfconsistency(self):
-        self._computeHDFnames()
+        print(os.path.isfile(self.h5directory+self.file_name))
+        return(os.path.isfile(self.h5directory+self.file_name))
 
     def makeCalibration(self):
 
         self.obs = ObsFile(self.h5directory)
-        self.flatCalFileName = self.out_directory + cal_file_name
+        self.flatCalFileName = self.out_directory + self.cal_file_name
         self.beamImage = self.obs.beamImage
         self.wvlFlags = self.obs.beamFlagImage
         self.xpix = self.obs.nXPix
@@ -224,7 +223,7 @@ class FlatCal(object):
             effIntTime3d = np.reshape(effIntTime, np.shape(effIntTime) + (1,))
             cube /= effIntTime3d
             cube[np.isnan(cube)] = 0
-            rawFrameDict = obs.getPixelCountImage(firstSec=firstSec, integrationTime=self.intTime,
+            rawFrameDict = self.obs.getPixelCountImage(firstSec=firstSec, integrationTime=self.intTime,
                                                       scaleByEffInt=True)
             rawFrame = np.array(rawFrameDict['image'], dtype=np.double)
             rawFrame /= rawFrameDict['effIntTimes']
@@ -335,7 +334,7 @@ class FlatCal(object):
 
     def makeh5(self):
 
-        flatpath = '{}{}flat.txt'.format(self.h5directory, 'flat')
+        flatpath = '{}{}.txt'.format(self.h5directory, 'flat')
         b2h_config=bin2hdf.Bin2HdfConfig(datadir=self.dataDir,
                                                      beamfile=self.beamDir, outdir=self.h5directory,
                                                      starttime=self.startTime, inttime=self.intTime, x=self.xpix,
@@ -344,6 +343,10 @@ class FlatCal(object):
         print('MAKING H5')
 
         bin2hdf.makehdf(b2h_config, maxprocs=1)
+        self.h5directory=self.h5directory+str(self.startTime)+'.h5'
+        print('applying Wavecal to ' + self.h5directory)
+        obsfile = ObsFile(self.h5directory, mode='write')
+        #ObsFile.applyWaveCal(obsfile, self.wvlCalFile)
 
     def plotWeightsByPixelWvlCompare(self):
         """
@@ -501,8 +504,8 @@ class FlatCal(object):
         """
         Writes an h5 file to put calculated flat cal factors in
         """
-        if not os.path.exists(self.flatCalFileName):
-            os.makedirs(self.flatCalFileName)
+        if not os.path.exists(self.out_directory):
+            os.makedirs(self.out_directory)
         try:
             flatCalFile = tables.open_file(self.flatCalFileName, mode='w')
         except:
@@ -804,15 +807,17 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
 
-    flatboy=FlatCal(args.cfgfile, cal_file_name='calsol_{}.h5'.format(timestamp))
-    print(flatboy)
+    flatobject=FlatCal(args.cfgfile, cal_file_name='calsol_{}.h5'.format(timestamp))
 
-    if not flatboy.hdfexist():
-        flatboy.makeh5()
+    if not flatobject.hdfexist():
+        flatobject.makeh5()
+
+    else:
+        flatobject.h5directory=flatobject.h5directory+flatobject.file_name
 
     if args.h5only:
         exit()
 
     else:
 
-        flatboy.makeCalibration()
+        flatobject.makeCalibration()
