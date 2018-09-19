@@ -5,23 +5,25 @@ Author: Matt Strader        Date: July 20, 2016
 import os
 import sys
 
-# from matplotlib.backends.qt_compat import QtCore
-# from matplotlib.backends.qt_compat import QtGui
+from matplotlib.backends.qt_compat import QtCore, QtGui, QtWidgets, is_pyqt5
+if is_pyqt5():
+    from matplotlib.backends.backend_qt5agg import (
+        FigureCanvas, NavigationToolbar2QT as NavigationToolbar)
+else:
+    from matplotlib.backends.backend_qt4agg import (
+        FigureCanvas, NavigationToolbar2QT as NavigationToolbar)
+
 import matplotlib
 import numpy as np
-from PyQt5 import QtCore, QtGui
-
-matplotlib.rcParams['backend.qt4']='PyQt4'
-from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 # import HotPix.darkHotPixMask as dhpm
 
 
 basePath = '/mnt/data0/ScienceDataIMGs/'
-imageShape = {'nRows':125,'nCols':80}
+imageShape = {'nRows':140,'nCols':146}
 
 
-class DarkQuick(QtGui.QMainWindow):
+class DarkQuick(QtWidgets.QMainWindow):
     def __init__(self, run, date,startTstamp, endTstamp):
 
         self.dataPath = basePath+str(run)+'/'+str(date)+'/'
@@ -40,7 +42,7 @@ class DarkQuick(QtGui.QMainWindow):
         self.darkStart = 0
         self.darkEnd = 0
 
-        self.app = QtGui.QApplication([])
+        self.app = QtWidgets.QApplication([])
         self.app.setStyle('plastique')
         super(DarkQuick,self).__init__()
         self.setWindowTitle('Darkness Image Viewer')
@@ -76,29 +78,29 @@ class DarkQuick(QtGui.QMainWindow):
         newPlotId = len(self.plotWindows)
         plotWindow = PlotWindow(parent=self,plotId=newPlotId,selectedPixels=self.arrayImageWidget.selectedPixels)
         self.plotWindows.append(plotWindow)
-        self.connect(self.arrayImageWidget,QtCore.SIGNAL('newPixelSelection(PyQt_PyObject)'), plotWindow.newPixelSelection)
+        self.arrayImageWidget.newPixelSelection.connect(plotWindow.newPixelSelection)
 
         plotWindow.show()
 
     def createWidgets(self):
-        self.mainFrame = QtGui.QWidget()
+        self.mainFrame = QtWidgets.QWidget()
 
-        self.label_startTstamp = QtGui.QLabel(str(self.startTstamp))
-        self.label_endTstamp = QtGui.QLabel(str(self.endTstamp))
-        self.lineEdit_currentTstamp = QtGui.QLineEdit(str(self.startTstamp+self.currentImageIndex))
+        self.label_startTstamp = QtWidgets.QLabel(str(self.startTstamp))
+        self.label_endTstamp = QtWidgets.QLabel(str(self.endTstamp))
+        self.lineEdit_currentTstamp = QtWidgets.QLineEdit(str(self.startTstamp+self.currentImageIndex))
 
 
-        self.checkbox_applyDark = QtGui.QCheckBox('Subtract Dark')
-        self.button_generateDark = QtGui.QPushButton('Generate Dark')
+        self.checkbox_applyDark = QtWidgets.QCheckBox('Subtract Dark')
+        self.button_generateDark = QtWidgets.QPushButton('Generate Dark')
         self.checkbox_applyDark.setChecked(False)
-        self.lineEdit_darkStart = QtGui.QLineEdit(str(self.darkStart))
-        self.lineEdit_darkEnd = QtGui.QLineEdit(str(self.darkEnd))
+        self.lineEdit_darkStart = QtWidgets.QLineEdit(str(self.darkStart))
+        self.lineEdit_darkEnd = QtWidgets.QLineEdit(str(self.darkEnd))
 
         self.arrayImageWidget = ArrayImageWidget(parent=self,hoverCall=self.hoverCanvas)
-        self.button_jumpToBeginning = QtGui.QPushButton('|<')
-        self.button_jumpToEnd = QtGui.QPushButton('>|')
-        self.button_incrementBack = QtGui.QPushButton('<')
-        self.button_incrementForward = QtGui.QPushButton('>')
+        self.button_jumpToBeginning = QtWidgets.QPushButton('|<')
+        self.button_jumpToEnd = QtWidgets.QPushButton('>|')
+        self.button_incrementBack = QtWidgets.QPushButton('<')
+        self.button_incrementForward = QtWidgets.QPushButton('>')
 
         self.button_jumpToBeginning.setMaximumWidth(30)
         self.button_jumpToEnd.setMaximumWidth(30)
@@ -107,7 +109,7 @@ class DarkQuick(QtGui.QMainWindow):
 
 
         # Create the navigation toolbar, tied to the canvas
-        #self.canvasToolbar = NavigationToolbar(self.canvas, self.mainFrame)
+        # self.canvasToolbar = NavigationToolbar(self.canvas, self.mainFrame)
 
     def arrangeMainFrame(self):
 
@@ -125,7 +127,7 @@ class DarkQuick(QtGui.QMainWindow):
         self.setCentralWidget(self.mainFrame)
 
     def createStatusBar(self):
-        self.statusText = QtGui.QLabel("Click Pixels")
+        self.statusText = QtWidgets.QLabel("Click Pixels")
         self.statusBar().addWidget(self.statusText, 1)
 
     def createMenu(self):
@@ -148,14 +150,13 @@ class DarkQuick(QtGui.QMainWindow):
         addActions(self.helpMenu, (aboutAction,))
 
     def connectControls(self):
-        self.connect(self.button_jumpToBeginning,QtCore.SIGNAL('clicked()'), self.jumpToBeginning)
-        self.connect(self.button_jumpToEnd,QtCore.SIGNAL('clicked()'), self.jumpToEnd)
-        self.connect(self.button_incrementForward,QtCore.SIGNAL('clicked()'), self.incrementForward)
-        self.connect(self.button_incrementBack,QtCore.SIGNAL('clicked()'), self.incrementBack)
-        self.connect(self.lineEdit_currentTstamp,QtCore.SIGNAL('editingFinished()'),self.jumpToTstamp)
-        self.connect(self.checkbox_applyDark,QtCore.SIGNAL('stateChanged(int)'),self.applyDark)
-        self.connect(self.button_generateDark,QtCore.SIGNAL('clicked()'), self.generateDarkFrame)
-
+        self.button_jumpToBeginning.clicked.connect(self.jumpToBeginning)
+        self.button_jumpToEnd.clicked.connect(self.jumpToEnd)
+        self.button_incrementForward.clicked.connect(self.incrementForward)
+        self.button_incrementBack.clicked.connect(self.incrementBack)
+        self.lineEdit_currentTstamp.editingFinished.connect(self.jumpToTstamp)
+        self.checkbox_applyDark.stateChanged.connect(self.applyDark)
+        self.button_generateDark.clicked.connect(self.generateDarkFrame)
     def addClickFunc(self,clickFunc):
         self.arrayImageWidget.addClickFunc(clickFunc)
 
@@ -346,7 +347,7 @@ class DarkQuick(QtGui.QMainWindow):
 
 
 
-class ModelessWindow(QtGui.QDialog):
+class ModelessWindow(QtWidgets.QDialog):
     def __init__(self,parent=None):
         super(ModelessWindow,self).__init__(parent=parent)
         self.parent=parent
@@ -363,7 +364,7 @@ class ModelessWindow(QtGui.QDialog):
     def initUI(self):
         pass
 
-class PlotWindow(QtGui.QDialog):
+class PlotWindow(QtWidgets.QDialog):
     def __init__(self,parent=None,plotId=0,selectedPixels=[]):
         super(PlotWindow,self).__init__(parent=parent)
         self.parent=parent
@@ -379,22 +380,22 @@ class PlotWindow(QtGui.QDialog):
 
     def initUI(self):
         #first gui controls that apply to all modes
-#        self.checkbox_trackSelection = QtGui.QCheckBox('Plot selected pixel(s)',self)
+#        self.checkbox_trackSelection = QtWidgets.QCheckBox('Plot selected pixel(s)',self)
 #        self.checkbox_trackSelection.setChecked(True)
 
-#        self.checkbox_trackTimes = QtGui.QCheckBox('Use main window times',self)
+#        self.checkbox_trackTimes = QtWidgets.QCheckBox('Use main window times',self)
 #        self.checkbox_trackTimes.setChecked(True)
 #        self.connect(self.checkbox_trackTimes,QtCore.SIGNAL('stateChanged(int)'),self.changeTrackTimes)
 
-        self.checkbox_clearPlot = QtGui.QCheckBox('Clear axes before plotting',self)
+        self.checkbox_clearPlot = QtWidgets.QCheckBox('Clear axes before plotting',self)
         self.checkbox_clearPlot.setChecked(True)
 
-        self.button_drawPlot = QtGui.QPushButton('Plot',self)
-        self.connect(self.button_drawPlot,QtCore.SIGNAL('clicked()'), self.updatePlot)
+        self.button_drawPlot = QtWidgets.QPushButton('Plot',self)
+        self.button_drawPlot.clicked.connect(self.updatePlot)
         self.dpi = 100
         self.fig = Figure((10.0, 3.0), dpi=self.dpi)
         self.canvas = FigureCanvas(self.fig)
-        #self.canvasToolbar = NavigationToolbar(self.canvas, self)
+        self.canvasToolbar = NavigationToolbar(self.canvas, self)
         self.axes = self.fig.add_subplot(111)
         self.fig.subplots_adjust(left=0.07,right=.93,top=.93,bottom=0.15)
         self.axes.tick_params(axis='both', which='major', labelsize=8)
@@ -408,27 +409,27 @@ class PlotWindow(QtGui.QDialog):
         self.selecting = False
         self.lastPlotType = None
 
-        #self.combobox_plotType = QtGui.QComboBox(self)
+        #self.combobox_plotType = QtWidgets.QComboBox(self)
         self.plotTypeStrs = ['Light Curve']
         #self.combobox_plotType.addItems(self.plotTypeStrs)
         #self.connect(self.combobox_plotType,QtCore.SIGNAL('activated(QString)'), self.changePlotType)
 
 
         #light curve controls
-#        self.textbox_intTime = QtGui.QLineEdit('1')
+#        self.textbox_intTime = QtWidgets.QLineEdit('1')
 #        self.textbox_intTime.setFixedWidth(50)
 #
 #        lightCurveControlsBox = layoutBox('H',['Int Time',self.textbox_intTime,'s',1.])
-#        self.lightCurveControlsGroup = QtGui.QGroupBox('Light Curve Controls',parent=self)
+#        self.lightCurveControlsGroup = QtWidgets.QGroupBox('Light Curve Controls',parent=self)
 #        self.lightCurveControlsGroup.setLayout(lightCurveControlsBox)
 
 
         #time controls
-#        self.textbox_startTime = QtGui.QLineEdit('0')
+#        self.textbox_startTime = QtWidgets.QLineEdit('0')
 #        self.textbox_startTime.setFixedWidth(50)
-#        self.textbox_endTime = QtGui.QLineEdit(str(len(self.parent.imageStack)))
+#        self.textbox_endTime = QtWidgets.QLineEdit(str(len(self.parent.imageStack)))
 #        self.textbox_endTime.setFixedWidth(50)
-#        self.timesGroup = QtGui.QGroupBox('',parent=self)
+#        self.timesGroup = QtWidgets.QGroupBox('',parent=self)
 #        timesBox = layoutBox('H',['Start Time',self.textbox_startTime,'s',1.,'End Time',self.textbox_endTime,'s',10.])
 #        self.timesGroup.setLayout(timesBox)
 #        self.timesGroup.setVisible(False)
@@ -468,7 +469,7 @@ class PlotWindow(QtGui.QDialog):
 
 
 
-    def newPixelSelection(self,selectedPixels):
+    def newPixelSelection(self, selectedPixels):
         self.selectedPixels = selectedPixels
         self.updatePlot()
 
@@ -482,7 +483,7 @@ class PlotWindow(QtGui.QDialog):
 
     def plotLightCurve(self,getRaw=False):
         for col,row in self.selectedPixels:
-            self.lightCurve = self.parent.imageStack[:,row,col]
+            self.lightCurve = self.parent.imageStack[:,int(row), int(col)]
 
         self.axes.plot(self.parent.timestampList, self.lightCurve)
         x_formatter = matplotlib.ticker.ScalarFormatter(useOffset=False)
@@ -494,12 +495,12 @@ class PlotWindow(QtGui.QDialog):
 
 class ImageParamsWindow(ModelessWindow):
     def initUI(self):
-        self.combobox_cmap = QtGui.QComboBox(self)
+        self.combobox_cmap = QtWidgets.QComboBox(self)
         self.cmapStrs = ['hot','gray','jet','gnuplot2','Paired']
         self.combobox_cmap.addItems(self.cmapStrs)
 
         plotArrayBox = layoutBox('V',[self.combobox_cmap])
-        plotArrayGroup = QtGui.QGroupBox('plotArray parameters',self)
+        plotArrayGroup = QtWidgets.QGroupBox('plotArray parameters',self)
         plotArrayGroup.setLayout(plotArrayBox)
 
         mainBox = layoutBox('V',[plotArrayGroup])
@@ -520,7 +521,8 @@ class ImageParamsWindow(ModelessWindow):
         outDict['plotParams'] = plotParamsDict
         return outDict
 
-class ArrayImageWidget(QtGui.QWidget):
+class ArrayImageWidget(QtWidgets.QWidget):
+    newPixelSelection = QtCore.pyqtSignal(object)
     def __init__(self,parent=None,hoverCall=None):
         super(ArrayImageWidget,self).__init__(parent=parent)
         self.parent=parent
@@ -621,8 +623,7 @@ class ArrayImageWidget(QtGui.QWidget):
         self.clickFuncs.append(clickFunc)
 
     def emitNewSelection(self):
-        self.emit(QtCore.SIGNAL('newPixelSelection(PyQt_PyObject)'),self.selectedPixels)
-
+        self.newPixelSelection.emit(self.selectedPixels)
     def clickCanvas(self,event):
         if event.inaxes is self.axes:
             col = round(event.xdata)
@@ -645,14 +646,14 @@ class ArrayImageWidget(QtGui.QWidget):
             currentClim = self.fig.cbar.mappable.get_clim()
             currentRange = currentClim[1]-currentClim[0]
             if event.button == 'up':
-                if QtGui.QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
+                if QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
                     newClim = (currentClim[0]+increment*currentRange,currentClim[1])
-                elif QtGui.QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
+                elif QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
                     newClim = (currentClim[0],currentClim[1]+increment*currentRange)
             if event.button == 'down':
-                if QtGui.QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
+                if QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
                     newClim = (currentClim[0]-increment*currentRange,currentClim[1])
-                elif QtGui.QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
+                elif QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
                     newClim = (currentClim[0],currentClim[1]-increment*currentRange)
             self.fig.cbar.mappable.set_clim(newClim)
             self.fig.canvas.draw()
@@ -667,14 +668,14 @@ class ArrayImageWidget(QtGui.QWidget):
             clickedValue = lower+fraction*currentRange
             extrapolatedValue = lower+event.ydata*currentRange
             if event.button == 1:
-                if QtGui.QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
+                if QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
                     newClim = (clickedValue,upper)
-                elif QtGui.QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
+                elif QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
                     newClim = (lower,clickedValue)
             if event.button == 3:
-                if QtGui.QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
+                if QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.ControlModifier:
                     newClim = ((lower-fraction*upper)/(1.-fraction),upper)
-                elif QtGui.QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
+                elif QtWidgets.QApplication.keyboardModifiers()==QtCore.Qt.NoModifier:
                     newClim = (lower,lower+currentRange/fraction)
             self.fig.cbar.mappable.set_clim(newClim)
             self.fig.canvas.draw()
@@ -698,8 +699,8 @@ def addActions(target, actions):
 
 def createAction(  gui, text, slot=None, shortcut=None,
                     icon=None, tip=None, checkable=False,
-                    signal="triggered()"):
-    action = QtGui.QAction(text, gui)
+                    signal="triggered"):
+    action = QtWidgets.QAction(text, gui)
     if icon is not None:
         action.setIcon(QIcon(":/%s.png" % icon))
     if shortcut is not None:
@@ -708,16 +709,16 @@ def createAction(  gui, text, slot=None, shortcut=None,
         action.setToolTip(tip)
         action.setStatusTip(tip)
     if slot is not None:
-        gui.connect(action, QtCore.SIGNAL(signal), slot)
+        getattr(action, signal).connect(slot)
     if checkable:
         action.setCheckable(True)
     return action
 
 def layoutBox(type,elements):
     if type == 'vertical' or type == 'V':
-        box = QtGui.QVBoxLayout()
+        box = QtWidgets.QVBoxLayout()
     elif type == 'horizontal' or type == 'H':
-        box = QtGui.QHBoxLayout()
+        box = QtWidgets.QHBoxLayout()
     else:
         raise TypeError('type should be one of [\'vertical\',\'horizontal\',\'V\',\'H\']')
 
@@ -732,7 +733,7 @@ def layoutBox(type,elements):
                     box.addStretch(element)
                 except:
                     try:
-                        label = QtGui.QLabel(element)
+                        label = QtWidgets.QLabel(element)
                         box.addWidget(label)
                         #label.adjustSize()
                     except:
