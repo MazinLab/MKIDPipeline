@@ -8,22 +8,9 @@ The code is basic. It reads a bin file, turns the bits in the packet into arrays
 */
 #include <stdio.h>
 #include <stdlib.h>
-//#include <string.h>
 #include <unistd.h>
 #include <stdint.h>
 #include <sys/types.h>
-//#include <sys/socket.h>
-//#include <netinet/in.h>
-//#include <netdb.h>
-//#include <sys/time.h>
-//#include <signal.h>
-//#include <time.h>
-//#include <errno.h>
-//#include <pthread.h>
-//#include <semaphore.h>
-//#include <fcntl.h>
-#include <sys/stat.h>
-//#include <math.h>
 
 struct datapacket {
     int baseline:17;
@@ -48,13 +35,12 @@ long parsebin(const char *fName, unsigned long max_len,
     the arrays are populated with the first max_len-1 records and the last record.
     If there are errors (e.g. file not found) return appropriate error numbers as - return values.
     */
-    unsigned long i=0,out_i=0, j, k, pcount=0;
-    FILE *fp;
+    unsigned long out_i=0, pcount=0;
+	FILE *fp;
 	struct stat st;
-	long fSize;
-	long rd;
+	long fSizerd;
 	uint64_t *data;
-	uint64_t swp,swp1,firstHeader,pstart,curtime=0, curroach=0;
+	uint64_t swp,swp1,firstHeader,pstart,curtime=0,curroach=0;
 	struct hdrpacket *hdr;
 	struct datapacket *photondata;
 	char packet[808*16];
@@ -66,30 +52,30 @@ long parsebin(const char *fName, unsigned long max_len,
 	data = (uint64_t *) malloc(fSize);
     fp = fopen(fName, "rb");
     rd = fread( data, 1, fSize, fp);
-    if( rd != fSize) printf("Didn't read the entire file %s\n",fName); 
+    if( rd != fSize) printf("Didn't read the entire file %s\n",fName);
     fclose(fp);
 
     //if not open
     if (rd < 0 ) return -1;
 
 	// Find the first header packet
-	for( j=0; j<fSize/8; j++) {
-		swp = *((uint64_t *) (&data[j]));
+	for(unsigned long i=0; i<fSize/8; i++) {
+		swp = *((uint64_t *) (&data[i]));
 		swp1 = __bswap_64(swp);
 		hdr = (struct hdrpacket *) (&swp1);
 		if (hdr->start == 0b11111111) {
-			firstHeader = j;
-			pstart = j;
+			firstHeader = i;
+			pstart = i;
 			curtime = hdr->timestamp;
 			curroach = hdr->roach;
 			if( firstHeader != 0 ) printf("First header at %ld\n",firstHeader);
 			break;
 		}
 	}
-	
+
 	// New approach - do it all in this function
-    for( k=firstHeader+1; k<fSize/8; k++) {
-        swp = *((uint64_t *) (&data[k]));
+    for(unsigned long i=firstHeader+1; i<fSize/8; i++) {
+        swp = *((uint64_t *) (&data[i]));
         swp1 = __bswap_64(swp);
         hdr = (struct hdrpacket *) (&swp1);
         if (hdr->start == 0b11111111) {        // found new packet header - update timestamp and curroach
@@ -97,15 +83,15 @@ long parsebin(const char *fName, unsigned long max_len,
 			curroach = hdr->roach;
 		}
 		else {
-			if(pcount >= max_len) break; 	// don't fill array if number of photons is greater than max_len
+		    out_i = pcount >= max_len ? max_len-1: pcount;
 			photondata = (struct datapacket *) (&swp1);
-			baseline[pcount] = photondata->baseline;
-			wavelength[pcount] = photondata->wvl;
-			timestamp[pcount] = photondata->timestamp + curtime;
-			ycoord[pcount] = photondata->ycoord;
-			xcoord[pcount] = photondata->xcoord;
-			roach[pcount] = curroach;
-			pcount++;			
+			baseline[out_i] = photondata->baseline;
+			wavelength[out_i] = photondata->wvl;
+			timestamp[out_i] = photondata->timestamp + curtime;
+			ycoord[out_i] = photondata->ycoord;
+			xcoord[out_i] = photondata->xcoord;
+			roach[out_i] = curroach;
+			pcount++;
 		}
 
 	}
@@ -115,4 +101,3 @@ long parsebin(const char *fName, unsigned long max_len,
 
     return pcount;
 }
-
