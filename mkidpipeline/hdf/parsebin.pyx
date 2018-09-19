@@ -8,15 +8,16 @@ cdef extern from "binlib.h":
                   double* a1, double *a2, double* a3);
 
 def parse(file, n=0):
-    n = max(os.stat(file).st_size/64, n)
+    n = max(os.stat(file).st_size/8, n)
     a1 = np.empty(n, dtype=np.float64)
     a2 = np.empty(n, dtype=np.float64)
 
     r = parsebin(file.encode('UTF-8'), n,
-                 <double*> np.PyArray_DATA(a1), <double*> np.PyArray_DATA(a1))
+                 <double*> np.PyArray_DATA(a1),
+                 <double*> np.PyArray_DATA(a1))
 
-    if r<0:
+    if r>n:
         return parse(file,abs(r))
 
-    ret = np.array([a1,a2], dtype=[('x', float), ('y', int)])
+    ret = np.array([a1[:r],a2[:r]], dtype=[('x', float), ('y', int)])
     return ret.view(np.recarray)
