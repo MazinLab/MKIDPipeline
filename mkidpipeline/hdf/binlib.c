@@ -10,6 +10,7 @@ The code is basic. It reads a bin file, turns the bits in the packet into arrays
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 
 struct datapacket {
@@ -38,7 +39,7 @@ long parsebin(const char *fName, unsigned long max_len,
     unsigned long out_i=0, pcount=0;
 	FILE *fp;
 	struct stat st;
-	long fSizerd;
+	long fSize,rd;
 	uint64_t *data;
 	uint64_t swp,swp1,firstHeader,pstart,curtime=0,curroach=0;
 	struct hdrpacket *hdr;
