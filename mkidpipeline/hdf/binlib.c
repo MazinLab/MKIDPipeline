@@ -22,7 +22,7 @@ The code is basic. It reads a bin file, turns the bits in the packet into arrays
 //#include <pthread.h>
 //#include <semaphore.h>
 //#include <fcntl.h>
-//#include <sys/stat.h>
+#include <sys/stat.h>
 //#include <math.h>
 
 struct datapacket {
@@ -50,8 +50,8 @@ long parsebin(const char *fName, unsigned long max_len,
     */
     unsigned long i=0,out_i=0, j, k, pcount=0;
     FILE *fp;
-	//struct stat st;
-	//long fSize;
+	struct stat st;
+	long fSize;
 	long rd;
 	uint64_t *data;
 	uint64_t swp,swp1,firstHeader,pstart,curtime=0, curroach=0;
@@ -60,21 +60,20 @@ long parsebin(const char *fName, unsigned long max_len,
 	char packet[808*16];
 
     //open up file
-	//stat(fName, &st);
-	//fSize = st.st_size;
-	//printf("\nReading %s - %ld bytes\n",fName,fSize);
-	data = (uint64_t *) malloc(max_len*8);
+	stat(fName, &st);
+	fSize = st.st_size;
+	printf("\nReading %s - %ld bytes\n",fName,fSize);
+	data = (uint64_t *) malloc(fSize);
     fp = fopen(fName, "rb");
-    rd = fread( data, 1, max_len*8, fp);
-    if( rd != max_len) printf("Didn't read the entire file %s\n",fName);
+    rd = fread( data, 1, fSize, fp);
+    if( rd != fSize) printf("Didn't read the entire file %s\n",fName); 
     fclose(fp);
 
     //if not open
-    if (rd < 0 )
-        return -1;
+    if (rd < 0 ) return -1;
 
 	// Find the first header packet
-	for( j=0; j<max_len; j++) {
+	for( j=0; j<fSize/8; j++) {
 		swp = *((uint64_t *) (&data[j]));
 		swp1 = __bswap_64(swp);
 		hdr = (struct hdrpacket *) (&swp1);
@@ -87,9 +86,9 @@ long parsebin(const char *fName, unsigned long max_len,
 			break;
 		}
 	}
-
+	
 	// New approach - do it all in this function
-    for( k=firstHeader+1; k<max_len; k++) {
+    for( k=firstHeader+1; k<fSize/8; k++) {
         swp = *((uint64_t *) (&data[k]));
         swp1 = __bswap_64(swp);
         hdr = (struct hdrpacket *) (&swp1);
@@ -98,6 +97,7 @@ long parsebin(const char *fName, unsigned long max_len,
 			curroach = hdr->roach;
 		}
 		else {
+			if(pcount >= max_len) break; 	// don't fill array if number of photons is greater than max_len
 			photondata = (struct datapacket *) (&swp1);
 			baseline[pcount] = photondata->baseline;
 			wavelength[pcount] = photondata->wvl;
@@ -105,7 +105,7 @@ long parsebin(const char *fName, unsigned long max_len,
 			ycoord[pcount] = photondata->ycoord;
 			xcoord[pcount] = photondata->xcoord;
 			roach[pcount] = curroach;
-			pcount++;
+			pcount++;			
 		}
 
 	}
@@ -115,3 +115,4 @@ long parsebin(const char *fName, unsigned long max_len,
 
     return pcount;
 }
+
