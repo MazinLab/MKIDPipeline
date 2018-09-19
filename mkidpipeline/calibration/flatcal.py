@@ -346,7 +346,7 @@ class FlatCal(object):
         self.h5directory=self.h5directory+str(self.startTime)+'.h5'
         print('applying Wavecal to ' + self.h5directory)
         obsfile = ObsFile(self.h5directory, mode='write')
-        #ObsFile.applyWaveCal(obsfile, self.wvlCalFile)
+        ObsFile.applyWaveCal(obsfile, self.wvlCalFile)
 
     def plotWeightsByPixelWvlCompare(self):
         """
