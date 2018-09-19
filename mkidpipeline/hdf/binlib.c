@@ -40,7 +40,7 @@ struct hdrpacket {
     unsigned int start:8;
 }__attribute__((packed));;
 
-long parsebin(const char *file, unsigned long max_len,
+long parsebin(const char *fName, unsigned long max_len,
                        int* baseline, int* wavelength, unsigned long* timestamp,
                        unsigned int* ycoord, unsigned int* xcoord, unsigned int* roach) {
     /*
@@ -49,8 +49,7 @@ long parsebin(const char *file, unsigned long max_len,
     If there are errors (e.g. file not found) return appropriate error numbers as - return values.
     */
     unsigned long i=0,out_i=0, j, k, pcount=0;
-    bool more_recs=true;
-	FILE *fp;
+    FILE *fp;
 	//struct stat st;
 	//long fSize;
 	long rd;
@@ -67,11 +66,12 @@ long parsebin(const char *file, unsigned long max_len,
 	data = (uint64_t *) malloc(max_len*8);
     fp = fopen(fName, "rb");
     rd = fread( data, 1, max_len*8, fp);
-    if( rd != fSize) printf("Didn't read the entire file %s\n",fName);
+    if( rd != max_len) printf("Didn't read the entire file %s\n",fName);
     fclose(fp);
 
     //if not open
-    if (rd < 0 ) then return -1;
+    if (rd < 0 )
+        return -1;
 
 	// Find the first header packet
 	for( j=0; j<max_len; j++) {
