@@ -2,6 +2,9 @@
 File:      parsePacketDump.py
 Author:    Matt Strader
 
+
+KD Comments Sept 2018
+    Seems to be a QXcbConnection error when running main() as verbose
 """
 
 import os
@@ -14,10 +17,14 @@ import numpy as np
 from mkidpipeline.utils import binTools
 from mkidpipeline.utils.arrayPopup import plotArray
 
+# For debugging
+from time import time
+
 nRows = 125
 nCols = 80
 
 def parsePacketData(words,verbose=False):
+    STinp=time()
 
     nWords = len(words)
 
@@ -38,9 +45,11 @@ def parsePacketData(words,verbose=False):
         ax.set_title('frame size')
         print(np.max(np.diff(headerIdx)),'max frame size')
 
-    fakeIdx = np.where(words == fakePhotonWord)[0]
-    if verbose:
-        print(len(fakeIdx),'fake photons')
+    # Unused variables...so removed KD 2018
+    #fakeIdx = np.where(words == fakePhotonWord)[0]
+    #if verbose:
+        #print(len(fakeIdx),'fake photons')
+    #Tfinishedwheres = time()
 
     #header format: 8 bits all ones, 8 bits roach num, 12 bits frame num, ufix36_1 bit timestamp
     nBitsHdrTstamp = 36
@@ -48,7 +57,7 @@ def parsePacketData(words,verbose=False):
     nBitsHdrNum = 12
     nBitsHdrRoach = 8
 
-    roachNumMask = binTools.bitmask(nBitsHdrRoach)
+    roachNumMask = binTools.bitmask(nBitsHdrRoach) # Returns an int, here 255 returns:int('1'*nBits,2)
     roachNums = (headers >> (nBitsHdrNum+nBitsHdrTstamp)) & roachNumMask
     roachList = np.unique(roachNums)
     if verbose:
@@ -57,6 +66,7 @@ def parsePacketData(words,verbose=False):
     frameNumMask = binTools.bitmask(nBitsHdrNum)
     frameNums = (headers >> nBitsHdrTstamp) & frameNumMask
     frameNumDiff = np.diff(frameNums)
+    TfinishedRoachbins = time()
 
     #for roach in roachList:
     #    frameNumsByRoach.append(frameNums[roachNums==roach])
@@ -68,10 +78,10 @@ def parsePacketData(words,verbose=False):
         ax.set_title('frame nums')
         print(nMissedFrames,'missed frames')
 
-
     realIdx = np.where(np.logical_and(firstBytes != headerFirstByte, words != fakePhotonWord))[0]
     realPhotons = words[realIdx]
     nRealPhotons = len(realPhotons)
+
     if verbose:
         print(nRealPhotons,'real photons parsed')
     #photon format: 20 bits id, 9 bits ts, fix18_15 phase, fix17_14 base
@@ -97,7 +107,10 @@ def parsePacketData(words,verbose=False):
     #realIdx = realIdx[selectMask]
     #realPhotons = realPhotons[selectMask]
 
+    tstartssort = time()
     photonsHeaderIdx = np.searchsorted(headerIdx,realIdx)-1
+    tendssort = time()
+    print("searchsortes took %f sec" % (tendssort - tstartssort))
 
     photonsHeader = headers[photonsHeaderIdx]
     #now get the timestamp from this
@@ -133,27 +146,36 @@ def parsePacketData(words,verbose=False):
     return {'basesDeg':basesDeg,'phasesDeg':phasesDeg,'photonTimestamps':photonTimestamps,'pixelIds':pixelIds,'photons':realPhotons,'headers':headers,'roachNums':roachNums,'image':image,'xCoords':xCoords,'yCoords':yCoords}
 
 if __name__=='__main__':
+    startT = time()
+
     if len(sys.argv) > 1:
         path = sys.argv[1]
     else:
         path = 'photonDump.bin'
 
     pathTstamp = os.path.splitext(os.path.basename(path))[0]
-    with open(path,'rb') as dumpFile:
-        data = dumpFile.read()
+    try:
+        with open(path,'rb') as dumpFile:
+            data = dumpFile.read()
+    except (IOError, ValueError) as e:
+        print(e)
+        exit(1)
 
     nBytes = len(data)
-    nWords = nBytes/8 #64 bit words
+    nWords = nBytes//8 #64 bit words
     #break into 64 bit words
     words = np.array(struct.unpack('>{:d}Q'.format(nWords), data),dtype=object)
 
-    parseDict = parsePacketData(words,verbose=True)
+    STparse = time()
+    parseDict = parsePacketData(words,verbose=False)
+    ETparse = time()
+    print("parsing took %f sec" % (ETparse - STparse))
 
     phasesDeg = parseDict['phasesDeg']
     basesDeg = parseDict['basesDeg']
     pixelIds = parseDict['pixelIds']
     image = parseDict['image']
-
+'''
     #selPixelId = 0#(1<<10)+23
     selPixelId = (30<<10)+46
     print('selected pixel',selPixelId)
@@ -174,3 +196,4 @@ if __name__=='__main__':
 
 
     plt.show()
+'''
