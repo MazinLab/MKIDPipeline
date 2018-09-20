@@ -4,6 +4,7 @@ import os
 from setuptools.command.install import install
 from setuptools.command.develop import develop
 import subprocess
+import numpy
 
 #pip install -e git+http://github.com/mazinlab/mkidpipeline.git@develop#egg=mkidpipeline
 
@@ -11,11 +12,10 @@ from setuptools.extension import Extension
 from Cython.Build import cythonize
 
 parsebin_extension = Extension(
-    name="parsebin",
-    sources=["parsebin.pyx"],
-    libraries=["binlib"],
-    library_dirs=["lib"], #TODO figure this out
-    include_dirs=["lib"]
+    name="mkidpipeline.hdf.parsebin",
+    sources=["mkidpipeline/hdf/parsebin.pyx","mkidpipeline/hdf/binlib.c"],
+    library_dirs=["mkidpipeline/hdf"], # Location of .o file
+    include_dirs=["mkidpipeline/hdf",numpy.get_include()] # Location of the .h file
 )
 
 def compile_and_install_software():
