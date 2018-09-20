@@ -28,7 +28,7 @@ struct hdrpacket {
     unsigned int start:8;
 }__attribute__((packed));;
 
-long parsebin(const char *fName, unsigned long max_len,
+long cparsebin(const char *fName, unsigned long max_len,
                        int* baseline, int* wavelength, unsigned long* timestamp,
                        unsigned int* ycoord, unsigned int* xcoord, unsigned int* roach) {
     /*
