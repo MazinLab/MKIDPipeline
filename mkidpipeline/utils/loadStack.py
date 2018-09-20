@@ -11,7 +11,7 @@ Utilities for loading sets of image stacks from either .IMG or .bin files
 """
 
 
-def loadIMGStack(dataDir, start, stop, nCols=80, nRows=125, verbose=True):
+def loadIMGStack(dataDir, start, stop, ny=80, nx=125, verbose=True):
     useImg = True
     frameTimes = np.arange(start, stop + 1)
     frames = []
@@ -36,11 +36,11 @@ def loadIMGStack(dataDir, start, stop, nCols=80, nRows=125, verbose=True):
                 if verbose:
                     print(imagePath)
                 image = np.fromfile(open(imagePath, mode='rb'), dtype=np.uint16)
-                image = np.transpose(np.reshape(image, (nCols, nRows)))
+                image = np.reshape(image, (ny, nx))
 
         except (IOError, ValueError):
             print("Failed to load ", imagePath)
-            image = np.zeros((nRows, nCols), dtype=np.uint16)
+            image = np.zeros((ny, nx), dtype=np.uint16)
         frames.append(image)
     stack = np.array(frames)
     return stack
