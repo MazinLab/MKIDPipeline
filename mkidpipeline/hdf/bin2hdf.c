@@ -94,7 +94,7 @@ int ParseConfig(int argc, char *argv[], char *Path, int *FirstFile, int *nFiles,
 
     // check nFiles
     printf("nFiles = %d\n",*nFiles);
-    if( *nFiles < 1 || *nfiles > 1800) return 0; // limiting number of files to 30 minutes
+    if( *nFiles < 1 || *nFiles > 1800) return 0; // limiting number of files to 30 minutes
 
     return 1;
 }
