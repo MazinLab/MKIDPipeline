@@ -3,7 +3,7 @@
  *  h5 file.
  *
  * compiled with this command
- /usr/local/hdf5/bin/h5cc -shlib -pthread -g -o bin2hdf bin2hdf.c
+ /usr/local/hdf5/bin/h5cc -shlib -pthread -O3 -g -o bin2hdf bin2hdf.c
  *************************************************************************************************/
 
 #include <stdio.h>
@@ -22,7 +22,6 @@
 #include <errno.h>
 #include <pthread.h>
 #include <semaphore.h>
-#include <signal.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <math.h>
@@ -511,6 +510,12 @@ int main(int argc, char *argv[])
         // if there is any unparsed data left save it to do in next loop iteration
         //printf("k=%ld,fSize/8=%ld \n",k,fSize/8); fflush(stdout);
 
+        // save image array to hdf5
+        for( j=0; j < beamCols*beamRows; j++ ) {
+            smimage[j] =  (unsigned char) (image[j%beamCols][j/beamCols]/10);
+            if( smimage[j] > 2499 ) smimage[j] = 0;
+        }
+
         sprintf(imname,"/Images/%ld",i+FirstFile);
         H5IMmake_image_8bit( file_id, imname, (hsize_t)beamCols, (hsize_t)beamRows, smimage );
         for(j=0; j<beamCols; j++)
@@ -532,20 +537,6 @@ int main(int argc, char *argv[])
     sprintf(tname,"/Photons/PhotonTable");
     H5TBmake_table( "Photon Data", file_id, tname, NFIELD, 0, dst_size, field_names, dst_offset, field_type,chunk_size, fill_data, compress, &p1);
 
-    // save photon tables to hdf5
-    /*  This saves in [row,col] order
-    nPhot=0;
-    for(j=0; j < beamCols; j++) {
-	    for(k=0; k < beamRows; k++) {
-			if( BeamMap[j][k] == beamMapInitVal ) continue;
-			if( ptablect[j][k] == 0 ) continue;
-			//printf("%s %ld\n", ResIdString[j][k], ptablect[j][k]);
-			//printf("%d %d %s %ld\n", j, k, ResIdString[j][k], ptablect[j][k]); fflush(stdout);
-			H5TBappend_records(file_id, tname, ptablect[j][k], dst_size, dst_offset, dst_sizes, ptable[j][k] );
-			nPhot +=  ptablect[j][k];
-		}
-	}*/
-
     // save in resID order
     for(j=0; j < beamCols*beamRows; j++) {
             x = DiskBeamMap[j][2];
@@ -557,87 +548,6 @@ int main(int argc, char *argv[])
 			H5TBappend_records(file_id, tname, ptablect[x][y], dst_size, dst_offset, dst_sizes, ptable[x][y] );
 			nPhot +=  ptablect[x][y];
 	}
-
-
-    // below here is old code
-/*
-    for(i=0; i < nFiles; i++) {
-        olddata = (char *) data[i];
-        pstart = 0;
-        pcount = 0;
-        nPhot = 0;
-        for(j=0; j<beamCols; j++)
-            memset(ptablect[j],0,sizeof(uint32_t)*beamRows); // zero out the count table
-
-        printf("File %ld: ",i);
-
-        // .bin may not always start with a header packet, so search until we find the first header
-        for( j=0; j<dSize[i]/8; j++) {
-            swp = *((uint64_t *) (&olddata[j*8]));
-            swp1 = __bswap_64(swp);
-            hdr = (struct hdrpacket *) (&swp1);
-            if (hdr->start == 0b11111111) {
-                firstHeader = j;
-                pstart = j;
-                if( firstHeader != 0 ) printf("First header at %ld\n",firstHeader);
-                break;
-            }
-        }
-
-        // reformat all the packets into memory then dump to disk for speed
-        for( j=firstHeader+1; j<dSize[i]/8; j++) {
-
-            swp = *((uint64_t *) (&olddata[j*8]));
-            swp1 = __bswap_64(swp);
-            hdr = (struct hdrpacket *) (&swp1);
-
-            if (hdr->start == 0b11111111) {        // found new packet header!
-                // fill packet and parse
-                //printf("Found next header at %d\n",j*8); fflush(stdout);
-                memmove(packet,&olddata[pstart],j*8 - pstart);
-                pcount++;
-                // parse into image
-                ParsePacket(image, packet, j*8 - pstart, frame, beamCols, beamRows);
-                // add to HDF5 file
-                AddPacket(packet,j*8-pstart,file_id,dst_size,dst_offset,dst_sizes,tsOffs,FirstFile,i,BeamMap,&nPhot,BeamFlag,mapflag,ResIdString,ptable,ptablect,beamCols,beamRows);
-		        pstart = j*8;   // move start location for next packet
-		        if( pcount%1000 == 0 ) printf("."); fflush(stdout);
-            }
-        }
-
-        //printf("\nSorting photon tables...\n");
-        //SortPhotonTables(ptable, ptablect);
-
-        // save photon tables to hdf5
-        for(j=0; j < beamCols; j++) {
-			for(k=0; k < beamRows; k++) {
-				if( BeamMap[j][k] == beamMapInitVal ) continue;
-				if( ptablect[j][k] == 0 ) continue;
-				//printf("%s %ld\n", ResIdString[j][k], ptablect[j][k]);
-				//printf("%d %d %s %ld\n", j, k, ResIdString[j][k], ptablect[j][k]); fflush(stdout);
-				H5TBappend_records(file_id, ResIdString[j][k], ptablect[j][k], dst_size, dst_offset, dst_sizes, ptable[j][k] );
-				nPhot +=  ptablect[j][k];
-			}
-		}
-
-		printf("|"); fflush(stdout);
-
-        // save image array to hdf5
-        for( j=0; j < beamCols*beamRows; j++ ) {
-            smimage[j] =  (unsigned char) (image[j%beamCols][j/beamCols]/10);
-            if( smimage[j] > 2499 ) smimage[j] = 0;
-        }
-
-        sprintf(imname,"/Images/%ld",i+FirstFile);
-        H5IMmake_image_8bit( file_id, imname, (hsize_t)beamCols, (hsize_t)beamRows, smimage );
-        for(j=0; j<beamCols; j++)
-            memset(image[j], 0, beamRows*sizeof(uint16_t));
-
-        printf(" %ld packets, %ld photons. %ld photons/packet.\n",pcount,nPhot,nPhot/pcount);
-        tPhot += nPhot;
-    }
-
-    */
 
     H5Gclose(gid_photons);
 
@@ -681,6 +591,7 @@ int main(int argc, char *argv[])
     free(toWriteBeamMap);
     free(toWriteBeamFlag);
     free(DiskBeamMap);
+    free(smimage);
 
     free(yearStartTime);
 
