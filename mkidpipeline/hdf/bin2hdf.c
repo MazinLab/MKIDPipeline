@@ -25,6 +25,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <math.h>
+#include <dirent.h>
 #include "hdf5.h"
 #include "hdf5_hl.h"
 
@@ -82,6 +83,19 @@ int ParseConfig(int argc, char *argv[], char *Path, int *FirstFile, int *nFiles,
     fscanf(fp,"%d\n",mapflag);
     fscanf(fp,"%s",outputDir);
     fclose(fp);
+
+    // check for valid range for rows and columns
+    if( *beamCols < 80 || *beamCols > 150) return 0;
+    if( *beamRows < 125 || *beamRows > 146) return 0;
+
+    // check whether Path exists
+    DIR* dir = opendir(Path);
+    if (ENOENT == errno) return 0;
+
+    // check nFiles
+    printf("nFiles = %d\n",*nFiles);
+    if( *nFiles < 1 || *nfiles > 1800) return 0; // limiting number of files to 30 minutes
+
     return 1;
 }
 
