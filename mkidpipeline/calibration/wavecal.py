@@ -2251,25 +2251,34 @@ class WaveCal:
                 else:
                     raise ValueError('{0} is not a valid fit type'.format(fit_type))
                 if output.success:
+                    if hasattr(output, 'covar') and (output.covar is False or
+                                                     output.covar is None):
+                        pcov = np.zeros((3, 3))
+                    if not hasattr(output, 'covar'):
+                        pcov = np.zeros((3, 3))
                     p = output.params.valuesdict()
                     if fit_type == 'linear':
                         popt = (0, p['b'], p['c'])
-                        if output.covar is not False and output.covar is not None:
+                        if hasattr(output, 'covar') and (output.covar is not False and
+                                                         output.covar is not None):
                             pcov = np.insert(np.insert(output.covar, 0, [0, 0],
                                                        axis=1), 0, [0, 0, 0], axis=0)
                     elif fit_type == 'linear_zero':
                         popt = (0, p['b'], 0)
-                        if output.covar is not False and output.covar is not None:
+                        if hasattr(output, 'covar') and (output.covar is not False and
+                                                         output.covar is not None):
                             cov = np.ndarray.flatten(np.array(output.covar))[0]
                             pcov = np.array([[0, 0, 0], [0, cov, 0], [0, 0, 0]])
                     else:
                         popt = (p['a'], p['b'], p['c'])
-                        pcov = output.covar
+                        if hasattr(output, 'covar') and (output.covar is not False and
+                                                         output.covar is not None):
+                            pcov = output.covar
                     fit_result = (popt, pcov)
                 else:
-                    self._log.info('({0}, {1}): '.format(row, column) + output.message)
                     if self.cfg.logging:
-                        fit_result = (False, False) #TODO is this an indendation error
+                        self._log.info('({0}, {1}): '.format(row, column) + output.message)
+                    fit_result = (False, False)
 
             except (Exception, Warning) as error:
                 # shouldn't have any exceptions or warnings
