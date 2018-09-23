@@ -36,7 +36,7 @@ def loadIMGStack(dataDir, start, stop, ny=80, nx=125, verbose=True):
                 if verbose:
                     print(imagePath)
                 image = np.fromfile(open(imagePath, mode='rb'), dtype=np.uint16)
-                image = np.reshape(image, (ny, nx))
+                image = np.transpose(np.reshape(image, (nx, ny)))
 
         except (IOError, ValueError):
             print("Failed to load ", imagePath)
