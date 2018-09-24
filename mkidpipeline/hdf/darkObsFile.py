@@ -54,6 +54,8 @@ modifyHeaderEntry(self, headerTitle, headerValue)
 import glob
 import os
 import warnings
+import time
+from datetime import datetime
 
 import astropy.constants
 import matplotlib
@@ -65,6 +67,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from regions import CirclePixelRegion, PixCoord
 
 from mkidcore.pixelflags import h5FileFlags
+from PyPDF2 import PdfFileMerger, PdfFileReader
 
 
 class ObsFile:
@@ -1008,7 +1011,7 @@ class ObsFile:
         """
         self.__applyColWeight(resID, weightArr, 'NoiseWeight')
 
-    def applyFlatCal(self, calSolnPath,verbose=False):
+    def applyFlatCal(self, calsolFile,save_plots=False):
         """
         Applies a flat calibration to the "SpecWeight" column of a single pixel.
 
@@ -1029,91 +1032,103 @@ class ObsFile:
              with average weights overplotted to a pdf for pixels which have a successful FlatCal.
              Written to the calSolnPath+'FlatCalSolnPlotsPerPixel.pdf'
         """
-        baseh5path=calSolnPath.split('.h5')
-        flatList=glob.glob(baseh5path[0]+'*.h5')     
-        assert os.path.exists(flatList[0]), "{0} does not exist".format(flatList[0])  
+        timestamp = datetime.utcnow().timestamp()
+        baseh5path=calsolFile.split('.h5')
+        assert os.path.exists(calsolFile), "{0} does not exist".format(calsolFile)
         assert not self.info['isSpecCalibrated'], \
                "the data is already Flat calibrated"
-        pdfFullPath = baseh5path[0]+'FlatCalSolnPlotsPerPixel.pdf'
+        pdfFullPath = baseh5path[0]+'flatcalsolnplots_{}.pdf'.format(timestamp)
         pp = PdfPages(pdfFullPath)
         nPlotsPerRow = 2
         nPlotsPerCol = 4
         nPlotsPerPage = nPlotsPerRow*nPlotsPerCol
         iPlot = 0 
-        matplotlib.rcParams['font.size'] = 4 
+        matplotlib.rcParams['font.size'] = 4
+        flat_cal = tables.open_file(calsolFile, mode='r')
+        calsoln = flat_cal.root.flatcal.calsoln.read()
+        bins = np.array(flat_cal.root.flatcal.wavelengthBins.read()).flatten()
+        minwavelength = bins[0]
+        maxwavelength = bins[len(bins)-1]
+        heads=np.arange(0,minwavelength,100)
+        tails=np.arange(maxwavelength+100,maxwavelength+600,100)
+        headsweight=np.zeros(len(heads))+1
+        tailsweight=np.zeros(len(tails)+1)+1
+        bins=np.append(np.append(heads,bins),tails)
+
         for (row, column), resID in np.ndenumerate(self.beamImage):
+            index = np.where(resID == np.array(calsoln['resid']))
+            if len(index[0]) == 1 and (calsoln['flag'][index] == 0):
                 photon_list = self.getPixelPhotonList(row, column)
                 phases = photon_list['Wavelength']
-                calarray=[]
-                weightarray=[]
-                weightarrayUncertainty=[]
-                minwavelength=700
-                maxwavelength=1500
-                heads=np.arange(0,700,100)
-                tails=np.arange(1600,2100,100)
-                headsweight=np.array([0,0,0,0,0,0,0])+1
-                tailsweight=np.array([0,0,0,0,0,0])+1
-                for FlatCalFile in flatList:
-                      flat_cal = tables.open_file(FlatCalFile, mode='r')
-                      calsoln = flat_cal.root.flatcal.calsoln.read()
-                      bins=np.array(flat_cal.root.flatcal.wavelengthBins.read())
-                      bins=bins.flatten()
-                      bins=np.append(heads,bins)
-                      bins=np.append(bins,tails)
-                      index = np.where(resID == np.array(calsoln['resid']))
-                      #if len(index[0]) == 1 and (calsoln['flag'][index] == 0):
-                      if len(index[0]) == 1 and not self.pixelIsBad(row, column):
-                           print('resID', resID, 'row', row, 'column', column)
-                           weights = calsoln['weights'][index]
-                           print(weights)
-                           weightFlags=calsoln['weightFlags'][index]
-                           weightUncertainties=calsoln['weightUncertainties'][index]
+                weights = calsoln['weights'][index]
+                weightUncertainties=calsoln['weightUncertainties'][index]
 
-                           weights=np.array(weights)
-                           weights=weights.flatten()
-                           weightsheads=np.zeros(len(heads))+1
-                           weightstails=np.zeros(len(tails)+1)+1
-                           weights=np.append(weightsheads,weights)
-                           weights=np.append(weights,weightstails)
-                           weightarray.append(weights)
+                weights=np.array(weights).flatten()
+                print('len weights', len(weights))
+                weights=np.append((headsweight,weights), tailsweight)
 
-                           weightUncertainties=np.array(weightUncertainties)
-                           weightUncertainties=weightUncertainties.flatten()
-                           weightUncertainties=np.append(headsweight,weightUncertainties)
-                           weightUncertainties=np.append(weightUncertainties,tailsweight)
-                           weightarrayUncertainty.append(weightUncertainties)
+                weightUncertainties=np.array(weightUncertainties)
+                weightUncertainties=np.append((headsweight,weightUncertainties), tailsweight)
+                print('len bins', len(bins))
+                print('len weights', len(weights))
 
-                           weightfxncoeffs10=np.polyfit(bins,weights,10)
-                           weightfxn10=np.poly1d(weightfxncoeffs10)
+                weightfxncoeffs10=np.polyfit(bins,weights,10)
+                weightfxn10=np.poly1d(weightfxncoeffs10)
 
-                           weightArr=weightfxn10(phases)                    
-                           weightArr[np.where(phases < minwavelength)]=0.0
-                           weightArr[np.where(phases > maxwavelength)]=0.0
-                           calarray.append(weightArr)       
-                           
-                if calarray and calarray[0].all:
-                     calweights = np.average(calarray,axis=0)
-                     self.applySpecWeight(resID=resID, weightArr=calweights)
-                     if verbose:
-                        print('CALWEIGHTS', calweights)
-                        print('resID', resID, 'row', row, 'column', column)
-                        if iPlot % nPlotsPerPage == 0:
-                           fig = plt.figure(figsize=(10,10),dpi=100)
-                        ax = fig.add_subplot(nPlotsPerCol,nPlotsPerRow,iPlot%nPlotsPerPage+1)
-                        ax.set_ylim(0,5)
-                        ax.set_xlim(minwavelength,maxwavelength)
-                        for i in range(len(weightarray)):
-                            ax.plot(bins,weightarray[i],'-',label='weights')
-                            ax.errorbar(bins,weightarray[i],yerr=weightarrayUncertainty[i],label='weights')
-                        ax.plot(phases, calweights, '.', markersize=5)
-                        ax.set_title('p %d,%d'%(row,column))
-                        ax.set_ylabel('weight')
-                        #ax.set_xlabel(r'$\lambda$ ($\AA$)')
+                weightArr=weightfxn10(phases)
+                weightArr[np.where(phases < minwavelength)]=0.0
+                weightArr[np.where(phases > maxwavelength)]=0.0
+                self.applySpecWeight(resID=resID, weightArr=weightArr)
 
-                        if iPlot%nPlotsPerPage == nPlotsPerPage-1 or (row == self.nXPix-1 and column == self.nYPix-1):
-                           pp.savefig(fig)
-                        iPlot += 1
-        pp.close()
+                if save_plots:
+                    if iPlot % nPlotsPerPage == 0:
+                        fig = plt.figure(figsize=(10,10),dpi=100)
+                    ax = fig.add_subplot(nPlotsPerCol,nPlotsPerRow,iPlot%nPlotsPerPage+1)
+                    ax.set_ylim(0,5)
+                    ax.set_xlim(minwavelength,maxwavelength)
+                    ax.plot(bins,weights,'-',label='weights')
+                    ax.errorbar(bins,weights,yerr=weightUncertainties,label='weights')
+                    ax.plot(phases, weightArr, '.', markersize=5)
+                    ax.set_title('p %d,%d'%(row,column))
+                    ax.set_ylabel('weight')
+
+                    if iPlot%nPlotsPerPage == nPlotsPerPage-1 or (row == self.nXPix-1 and column == self.nYPix-1):
+                        pdf = PdfPages(os.path.join(baseh5path[0], 'temp.pdf'))
+                        pdf.savefig(fig)
+                        pdf.close()
+
+                        temp_file = os.path.join(baseh5path[0], 'temp.pdf')
+
+                        if os.path.isfile(pdfFullPath):
+                            merger = PdfFileMerger()
+                            merger.append(PdfFileReader(open(pdfFullPath, 'rb')))
+                            merger.append(PdfFileReader(open(temp_file, 'rb')))
+                            merger.write(pdfFullPath)
+                            merger.close()
+                            os.remove(temp_file)
+                        else:
+                            os.rename(temp_file, pdfFullPath)
+                        saved = True
+                        plt.close('all')
+                    iPlot += 1
+        if not saved:
+            pdf = PdfPages(os.path.join(baseh5path[0], 'temp.pdf'))
+            pdf.savefig(fig)
+            pdf.close()
+            temp_file = os.path.join(baseh5path[0], 'temp.pdf')
+
+            if os.path.isfile(pdfFullPath):
+                merger = PdfFileMerger()
+                merger.append(PdfFileReader(open(pdfFullPath, 'rb')))
+                merger.append(PdfFileReader(open(temp_file, 'rb')))
+                merger.write(pdfFullPath)
+                merger.close()
+                os.remove(temp_file)
+            else:
+                os.rename(temp_file, pdfFullPath)
+
+        plt.close('all')
+
         self.modifyHeaderEntry(headerTitle='isSpecCalibrated', headerValue=True)
 
     def applyFlag(self, xCoord, yCoord, flag):
