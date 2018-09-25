@@ -32,7 +32,6 @@ $ python setup.py build_ext --inplace
 import os
 import numpy as np
 cimport numpy as np
-import pandas as pd
 
 
 ###############################################################################
