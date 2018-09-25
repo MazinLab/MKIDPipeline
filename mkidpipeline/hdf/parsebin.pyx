@@ -59,7 +59,6 @@ def parse(file, n=0):
     roachnum = np.empty(n, dtype=np.uint32)
 
     # Calling parsebin from binlib.c
-
     # npackets is the number of photons processed by binlib.c
     npackets = cparsebin(file.encode('UTF-8'), n,
                  <int*>np.PyArray_DATA(baseline),
@@ -83,12 +82,8 @@ def parse(file, n=0):
     # What this does is only grab the elements of the arrays that are real valued
     # This essentially clips the data since we declared it to be as long as the .bin
     #  file, but some of those lines were headers, which are now empty in the returned arrays
-    ret = {'baseline':baseline[:npackets],
-           'phase':wavelength[:npackets],
-           'tstamp':timestamp[:npackets],
-           'y':y[:npackets],
-           'x':x[:npackets],
-           'roach':roachnum[:npackets]}
-    ret = pd.DataFrame(ret) # using pandas dataframes because the internet told me it would be faster
+    square = list(zip(baseline[:npackets],wavelength[:npackets],timestamp[:npackets],y[:npackets],x[:npackets],roachnum[:npackets]))
+    ret = np.array(square, dtype=[('base', int),('phase', int), ('tstamp', np.float64),('y', int), ('x', int),('roach', int)])
+    ret = ret.view(np.recarray)
 
     return ret
