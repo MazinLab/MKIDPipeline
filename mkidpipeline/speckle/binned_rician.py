@@ -330,75 +330,44 @@ def loglike_planet_blurredMR(n,Ic,Is,Ir,n_unique = None):
         Ic - [counts/bin]
         Is - [counts/bin]
         Ir - [counts/bin]
-        n_unique - optional argument to speed things up. If passed, n_unique = np.unique(n)
+        n_unique - optional argument to speed things up.
+                    If passed, n_unique = np.unique(n)
     OUTPUTS:
         loglike - the log likelihood of the entire light curve
-        likeArray - an array with likelihood values corresponding to every element of the light curve array. Has the same length as the light curve array.
+        likeArray - an array with likelihood values corresponding to every element of
+                    the light curve array. Has the same length as the light curve array.
 
     """
-
-
-    # t1 = time.time()
-
     if n_unique is None:
-        inds = np.unique(n).astype(int) #get the indexes we will use in the lookup table.  #TODO move np.unique outside of this function
+        inds = np.unique(n).astype(int) # get the indexes we will use in the lookup table.
     else:
         inds = n_unique
-    # t2 = time.time()
 
-    #make a lookup table
+    # make a lookup table
     lutSize = int(np.amax(inds))+1
     lut = np.zeros(lutSize)
-    # t3 = time.time()
 
-    #make lookup tables for poisson and binMRlogL
+    # make lookup tables for poisson and binMRlogL
     # Ic, Is, and Ir are constant inside this function
     plut = poisson.pmf(np.arange(lutSize),Ir)
-    # t4 = time.time()
-
-    # mlut = np.zeros(lutSize)
-    # t5 = time.time()
-    # for ii in range(lutSize):
-    #     mlut[ii] = np.exp(binMRlogL(ii,Ic,Is))  #binMRlogL returns only one number, not an array
-    # print('lutSize is: ',lutSize)
-    # print('Ic,Is are: ', Ic,Is)
-    # print('\n\nnp.exp(binMRlogL(np.arange(lutSize),Ic,Is)) is :',binMRlogL(np.arange(lutSize),Ic,Is))
     mlut = np.exp(binMRlogL(np.arange(lutSize),Ic,Is)[1])
 
-    # t6 = time.time()
     for ii in inds:
-        for mm in np.arange(ii+1):  #convolve the binned MR likelihood with a poisson
+        for mm in np.arange(ii+1):  # convolve the binned MR likelihood with a poisson
             lut[ii] += plut[mm]*mlut[ii-mm]
 
-    # print(lut)
-    # t7 = time.time()
     loglut = np.zeros(lutSize)
-    loglut[lut!=0] = np.log(lut[lut!=0])  #calculate the log of the lut array, but not
-                                        #  on elements where lut = 0. We're not using them
-                                        #  anyway
+    loglut[lut!=0] = np.log(lut[lut!=0])  # calculate the log of the lut array, but not
+                                        # on elements where lut = 0. We're not using them
+                                        # anyway
 
-    # t8 = time.time()
-    likeArray = lut[n]  #this is an array with one likelihood value for each element in the light curve array
+    likeArray = lut[n]  # this is an array with one likelihood value for each element in the light curve array
 
-    # t9 = time.time()
     loglike = np.sum(loglut[n])
-    # t10 = time.time()
-
-
-    # print('t2 - t1: ', t2 - t1)
-    # print('t3 - t2: ', t3 - t2)
-    # print('t4 - t3: ', t4 - t3)
-    # print('t5 - t4: ', t5 - t4)
-    # print('t6 - t5: ', t6 - t5)
-    # print('t7 - t6: ', t7 - t6)
-    # print('t8 - t7: ', t8 - t7)
-    # print('t9 - t8: ', t9 - t8)
-    # print('t10 - t9: ', t10 - t9)
-
-
-
 
     return loglike, likeArray
+
+
 
 
 def negloglike_planet_blurredMR(p,n):
