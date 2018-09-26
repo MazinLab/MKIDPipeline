@@ -79,7 +79,11 @@ def getLightCurve(photonTimeStamps,startTime =0,stopTime =10,effExpTime=.01):
     time to make a light curve.
     
     INPUTS:
-        photonTimeStamps - 1d numpy array with units of microseconds
+        photonTimeStamps - 1d numpy array with units of seconds
+        startTime -     ignore the photonTimeStamps before startTime. [seconds]
+        stopTime -      ignore the photonTimeStamps after stopTime. [seconds]
+        effExpTime -    bin size of the light curver. [seconds]
+        #TODO: finish documenting the input arguments. Clear up the units- they are different for different inputs.
     OUTPUTS:
         lightCurveIntensityCounts - array with units of counts. Float.
         lightCurveIntensity - array with units of counts/sec. Float.
@@ -87,7 +91,7 @@ def getLightCurve(photonTimeStamps,startTime =0,stopTime =10,effExpTime=.01):
     """
     histBinEdges = np.arange(startTime,stopTime,effExpTime)
     
-    hist,_ = np.histogram(photonTimeStamps/10**6,bins=histBinEdges) #if histBinEdges has N elements, hist has N-1
+    hist,_ = np.histogram(photonTimeStamps,bins=histBinEdges) #if histBinEdges has N elements, hist has N-1
     lightCurveIntensityCounts = hist  #units are photon counts
     lightCurveIntensity = 1.*hist/effExpTime  #units are counts/sec
     lightCurveTimes = histBinEdges[:-1] + 1.0*effExpTime/2
@@ -330,75 +334,44 @@ def loglike_planet_blurredMR(n,Ic,Is,Ir,n_unique = None):
         Ic - [counts/bin]
         Is - [counts/bin]
         Ir - [counts/bin]
-        n_unique - optional argument to speed things up. If passed, n_unique = np.unique(n)
+        n_unique - optional argument to speed things up.
+                    If passed, n_unique = np.unique(n)
     OUTPUTS:
         loglike - the log likelihood of the entire light curve
-        likeArray - an array with likelihood values corresponding to every element of the light curve array. Has the same length as the light curve array.
+        likeArray - an array with likelihood values corresponding to every element of
+                    the light curve array. Has the same length as the light curve array.
 
     """
-
-
-    # t1 = time.time()
-
     if n_unique is None:
-        inds = np.unique(n).astype(int) #get the indexes we will use in the lookup table.  #TODO move np.unique outside of this function
+        inds = np.unique(n).astype(int) # get the indexes we will use in the lookup table.
     else:
         inds = n_unique
-    # t2 = time.time()
 
-    #make a lookup table
+    # make a lookup table
     lutSize = int(np.amax(inds))+1
     lut = np.zeros(lutSize)
-    # t3 = time.time()
 
-    #make lookup tables for poisson and binMRlogL
+    # make lookup tables for poisson and binMRlogL
     # Ic, Is, and Ir are constant inside this function
     plut = poisson.pmf(np.arange(lutSize),Ir)
-    # t4 = time.time()
-
-    # mlut = np.zeros(lutSize)
-    # t5 = time.time()
-    # for ii in range(lutSize):
-    #     mlut[ii] = np.exp(binMRlogL(ii,Ic,Is))  #binMRlogL returns only one number, not an array
-    # print('lutSize is: ',lutSize)
-    # print('Ic,Is are: ', Ic,Is)
-    # print('\n\nnp.exp(binMRlogL(np.arange(lutSize),Ic,Is)) is :',binMRlogL(np.arange(lutSize),Ic,Is))
     mlut = np.exp(binMRlogL(np.arange(lutSize),Ic,Is)[1])
 
-    # t6 = time.time()
     for ii in inds:
-        for mm in np.arange(ii+1):  #convolve the binned MR likelihood with a poisson
+        for mm in np.arange(ii+1):  # convolve the binned MR likelihood with a poisson
             lut[ii] += plut[mm]*mlut[ii-mm]
 
-    # print(lut)
-    # t7 = time.time()
     loglut = np.zeros(lutSize)
-    loglut[lut!=0] = np.log(lut[lut!=0])  #calculate the log of the lut array, but not
-                                        #  on elements where lut = 0. We're not using them
-                                        #  anyway
+    loglut[lut!=0] = np.log(lut[lut!=0])  # calculate the log of the lut array, but not
+                                        # on elements where lut = 0. We're not using them
+                                        # anyway
 
-    # t8 = time.time()
-    likeArray = lut[n]  #this is an array with one likelihood value for each element in the light curve array
+    likeArray = lut[n]  # this is an array with one likelihood value for each element in the light curve array
 
-    # t9 = time.time()
     loglike = np.sum(loglut[n])
-    # t10 = time.time()
-
-
-    # print('t2 - t1: ', t2 - t1)
-    # print('t3 - t2: ', t3 - t2)
-    # print('t4 - t3: ', t4 - t3)
-    # print('t5 - t4: ', t5 - t4)
-    # print('t6 - t5: ', t6 - t5)
-    # print('t7 - t6: ', t7 - t6)
-    # print('t8 - t7: ', t8 - t7)
-    # print('t9 - t8: ', t9 - t8)
-    # print('t10 - t9: ', t10 - t9)
-
-
-
 
     return loglike, likeArray
+
+
 
 
 def negloglike_planet_blurredMR(p,n):
@@ -566,6 +539,16 @@ def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_guess=0,sparse_ma
         n - light curve [counts/bin]
         x_list - list of x-axis values [photons/second]. Could be either Ic (IcPlusIs = False) or Ic + Is (IcPlusIs = True)
         Is_list - list of Is values to map [photons/second]
+        effExpTime - the bin size of the light curve. [seconds]
+        IcPlusIs - bool flag indicating whether the x axis of the plots should be
+                    Ic or Ic+Is
+        Ir_guess - The value to be used for Ir when calculating the log likelihood.
+                    i.e. the Ir at which we're slicing the log-likelihood function.
+        sparse_map - bool flag specifying whether to map out only a subsection of the
+                    map in order to save time. Might cause maps to cut off if
+                    the log like function is very long in one direction compared to the
+                    other
+        bin_free - bool flag specifying whether to use a bin-free log likelihood.
     OUTPUTS:
         X - meshgrid of x coords
         Y - meshgrid of y coords
@@ -576,178 +559,101 @@ def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_guess=0,sparse_ma
     Is_list_countsperbin = Is_list * effExpTime
     Ir_countsperbin = Ir_guess*effExpTime
 
-    print('\n\nIs_list_countsperbin',Is_list_countsperbin)
-
-
+    im = np.zeros((len(x_list), len(Is_list))) #initialize an empty image
+    n_unique = np.unique(n).astype(int)  # get the indexes we will use in the lookup table.
 
     if sparse_map:
-        thresh = 10
-
         # Find the location of the maximum likelihood.
         # Then we'll use that as a starting point for making maps.
         mu, var = get_muVar(n)  # mu, var have same units as light curve
-        guessIcIs = np.array(muVar_to_IcIs(mu, var, effExpTime)) * effExpTime  # this will be the guess for the optimize.minimize
-        p0 = (guessIcIs[0],guessIcIs[1],np.sum(guessIcIs)/10)   #units are [counts/bin]
+        guessIcIs = np.array(
+            muVar_to_IcIs(mu, var, effExpTime)) * effExpTime  # this will be the guess for the optimize.minimize
+        p0 = (guessIcIs[0], guessIcIs[1], np.sum(guessIcIs) / 10)  # units are [counts/bin]
         p1 = optimize.minimize(negloglike_planet_blurredMR, p0, n,
-                                bounds=((0.001, np.inf), (0.001, np.inf), (.001, np.inf))).x #units are [cts/bin]
-        print('p0 is ', p0,'\n\n')
-        print('p1 is ', p1, '\n\n')
+                               bounds=((0.001, np.inf), (0.001, np.inf), (.001, np.inf))).x  # units are [cts/bin]
 
 
-        #check if the estimate of the max-likelihood location from optimize.minimize is within the plot window.
-        if p1[0]+p1[1]>x_list_countsperbin[0] and p1[0]+p1[1]<x_list_countsperbin[-1] and p1[1]>Is_list_countsperbin[0] and p1[1]<Is_list_countsperbin[-1]:
 
-            # units of p1 should be counts/bin
-            lnLmax = loglike_planet_blurredMR(n,p1[0],p1[1],p1[2])[0]
+    # check if the estimate of the max-likelihood location from optimize.minimize is within the plot window. If not, then just map out the full space.
+    if sparse_map and x_list_countsperbin[0] < p1[0]+p1[1]<x_list_countsperbin[-1] and Is_list_countsperbin[0] < p1[1]<Is_list_countsperbin[-1]:
+        thresh = 10
 
-            x_radius = 0.1*(p1[0] + p1[1])
-            y_radius = 0.1*p1[1]
+        # units of p1 should be counts/bin
+        lnLmax = loglike_planet_blurredMR(n,p1[0],p1[1],p1[2])[0]
 
-            # figure out a good step size
-            for ii in range(100):
-                print('x_radius is: ', x_radius)
-                lnL = loglike_planet_blurredMR(n,p1[0]+x_radius,p1[1],p1[2])[0]
-                diff = lnLmax - lnL
-                print('\nlnL is: ', lnL)
-                print('lnLmax is: ', lnLmax)
-                print('diff is: ', diff)
+        #do a spiral around p1. When we find that all the new values of a row or column
+        # don't meet the threshold, then stop.
 
-                if diff < 0:
-                    lnLmax = lnL
-                    p1[0] +=x_radius
-                elif diff > thresh:
-                    x_radius/=2.
-                elif diff > .5 and diff <= thresh:
-                    a = diff/x_radius**2 # a is positive
-                    x_radius = np.sqrt(thresh/a)
-                    break
-                else:
-                    x_radius*=2.
-                if ii==99:
-                    print('couldnt find a good x_radius')
-                    print('x_radius is: ', x_radius)
+        #first, snap the values of p1 to the grid passed to logLMap
+        y_offset = np.argmin(np.abs(p1[1] - Is_list_countsperbin))
+        x_offset = np.argmin(np.abs(p1[0] + p1[1] - x_list_countsperbin))
 
-            # set up the x limits in the plot
-            # check that x_radius won't take us below Ic + Is = 0
-            if x_radius>p1[0]+p1[1]:
-                x_min = 1
+        #now do the spiral starting at p1. Keep track of the maximum log likelihood.
+        dx = 0
+        dy = -1
+        n_xpoints = len(x_list)
+        n_ypoints = len(Is_list)
+        x = 0
+        y = 0
+        x_max = 0
+
+        same_count = 0  #count for moving in the same direction
+
+        lnl_list = np.array([])
+        for i in 4*np.arange(n_xpoints*n_ypoints):
+            if 0  < (x + x_offset) < n_xpoints  and 0 < (y + y_offset) < n_ypoints:
+                Is = Is_list_countsperbin[y + y_offset]
+                Ic = x_list_countsperbin[x+x_offset] - Is
+                if Ic < 0:
+                    continue
+                lnL = loglike_planet_blurredMR(n,Ic,Is,Ir_countsperbin,n_unique=n_unique)[0]
+                im[y + y_offset, x + x_offset] = lnL
+                lnl_list = np.append(lnl_list,lnL)
+                lnLmax = np.amax(lnl_list)
+            if x == y or (x < 0 and x == -y) or (x > 0 and x == 1 - y):
+                dx, dy = -dy, dx
+                same_count = 0
             else:
-                x_min = p1[0]+p1[1] - x_radius      #[counts/bin]
-            x_max = p1[0]+p1[1] + x_radius          #[counts/bin]
-
-
-
-            for jj in range(100): #TODO: fix this to deal with IcPlusIs==False
-                # print('y_radius is: ', y_radius)
-                # print('checking Ic, Is,Ic+Is = ',p1[0] - y_radius,p1[1] + y_radius,p1[0]+p1[1])
-                lnL = loglike_planet_blurredMR(n, p1[0] - y_radius, p1[1] + y_radius, p1[2])[0]
-                diff = lnLmax - lnL
-                # print('\nlnL is: ', lnL)
-                # print('lnLmax is: ', lnLmax)
-                # print('diff is: ', diff)
-                if diff < 0:
-                    lnLmax = lnL
-                    p1[0] -= y_radius
-                    p1[1] += y_radius
-                elif diff > thresh:
-                    y_radius/=2.
-                elif diff > .5 and diff <= thresh:
-                    a = diff/y_radius**2 # a is positive
-                    y_radius = np.sqrt(thresh/a)
-                    break
-                else:
-                    y_radius*=2.
-                if jj==99:
-                    print('couldnt find a good y_radius')
-
-
-            # set up the y limits in the plot
-            # check that y_radius won't take us below Is = 0
-            if y_radius > Is_list[-1]:
-                y_radius = Is_list[-1]
-            elif y_radius > p1[1]:
-                y_min = 1
-            else:
-                y_min = p1[1] - y_radius        #[counts/bin]
-            y_max = p1[1] + y_radius            #[counts/bin]
-
-
-        else:
-            print('\nLocation of maximum likelihood estimated by optimize.minimize was outside of the range of Ic,Is values specified for the plots.\n')
-            x_min = np.amin(x_list_countsperbin)
-            x_max = np.amax(x_list_countsperbin)
-            y_min = np.amin(Is_list_countsperbin)
-            y_max = np.amax(Is_list_countsperbin)
-
+                same_count+=1
+            if same_count > 5 and np.all(lnl_list[-4*2*x_max:] < (lnLmax - thresh)):
+                break
+            x, y = x + dx, y + dy
+            if x>x_max:
+                x_max = x
 
 
     else:
-        x_min=np.amin(x_list_countsperbin)
-        x_max = np.amax(x_list_countsperbin)
-        y_min = np.amin(Is_list_countsperbin)
-        y_max = np.amax(Is_list_countsperbin)
+        if sparse_map and not x_list_countsperbin[0] < p1[0]+p1[1]<x_list_countsperbin[-1] and Is_list_countsperbin[0] < p1[1]<Is_list_countsperbin[-1]:
+            print('\nLocation of maximum likelihood estimated by optimize.minimize was outside of the range of Ic,Is values specified for the plots.\n')
 
-
-
-    print('\n\nx_min: ', x_min)
-    print('\n\nx_max: ', x_max)
-    print('\n\ny_min: ', y_min)
-    print('\n\ny_max: ', y_max)
-
-
-
-
-    im = np.zeros((len(x_list), len(Is_list)))
-
-    n_unique = np.unique(n).astype(int) #get the indexes we will use in the lookup table.
-
-    for j, Is in enumerate(Is_list_countsperbin):
-        print('Is,y_min,y_max: ', Is, y_min, y_max)
-        print('got to place 0\n')
-        if Is < y_min or Is > y_max:
-            continue
-        for i, x in enumerate(x_list_countsperbin):
-            print('x,x_min,x_max: ', x, x_min, x_max)
-            print('got to place 1\n')
-            if x < x_min or x > x_max:
-                continue
-            print('got to place 2\n')
-            if IcPlusIs == True:
-                Ic = x - Is
-                print('got to place 3\n')
-                print('Ic is: ', Ic)
-                print('x is: ', x)
-                print('Is is: ', Is,'\n')
-                if Ic < 0:
-                    continue
-                print('got to place 4\n')
-            else:
-                Ic = x
-                print('got to place 5\n')
-
-            # lnL = binMRlogL(n, tmp, Is)[0]
-            print('got to place 6\n')
-            lnL = loglike_planet_blurredMR(n,Ic,Is,Ir_countsperbin,n_unique=n_unique)[0]
-            print('lnL is: ' , lnL)
-            im[j,i] = lnL
-        # print('Ic,Is = ', Ic / effExpTime, Is / effExpTime)
+        for j, Is in enumerate(Is_list_countsperbin):
+            for i, x in enumerate(x_list_countsperbin):
+                if IcPlusIs == True:
+                    Ic = x - Is
+                    if Ic < 0:
+                        continue
+                else:
+                    Ic = x
+                # lnL = binMRlogL(n, tmp, Is)[0]
+                lnL = loglike_planet_blurredMR(n,Ic,Is,Ir_countsperbin,n_unique=n_unique)[0]
+                im[j,i] = lnL
+            # print('Ic,Is = ', Ic / effExpTime, Is / effExpTime)
 
     # if there were parts of im where the loglikelihood wasn't calculated,
     # for example if Ic or Is were less than zero, then set those parts
     # of im to a value less than the maximum so that the maximum still
     # stands out
-    print('\n\nim is: ',im)
+    # print('\n\nim is: ',im)
     im[im==0] = np.amax(im[im!=0])-8
 
 
     Ic_ind, Is_ind = np.unravel_index(im.argmax(), im.shape)
-    print('Max at (' + str(Ic_ind) + ', ' + str(Is_ind) + ')')
-    print("Ic=" + str(x_list[Ic_ind]) + ", Is=" + str(Is_list[Is_ind]))
-    print(im[Ic_ind, Is_ind])
+    # print('Max at (' + str(Ic_ind) + ', ' + str(Is_ind) + ')')
+    # print("Ic=" + str(x_list[Ic_ind]) + ", Is=" + str(Is_list[Is_ind]))
+    # print(im[Ic_ind, Is_ind])
 
     X, Y = np.meshgrid(x_list, Is_list)
     sigmaLevels = np.array([8.36, 4.78, 2.1])
-    levels = np.amax(im) - sigmaLevels
 
     return X,Y,im
 
@@ -883,7 +789,7 @@ if __name__ == "__main__":
         effExpTime = 0.01 #second
 
         
-        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts/1e6,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         if 0:
             plt.figure(1)
             plt.plot(lightCurveTimes,lightCurveIntensityCounts)
@@ -960,7 +866,7 @@ if __name__ == "__main__":
         NdownSampleArray = np.array([])
         
         for effExpTime in effExpTimeArray:
-            lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+            lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts/1e6,ts[0]/1e6,ts[-1]/1e6,effExpTime)
             
 
             if 0:
@@ -1087,7 +993,7 @@ if __name__ == "__main__":
         Plot the log likelihood vs Is while keeping Ic constant. 
         '''
         effExpTime = 0.01 #second
-        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts/1e6,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         
         Ic = 100.
         Is = np.linspace(30,300,11)
@@ -1122,7 +1028,7 @@ if __name__ == "__main__":
     if 0:
         
         effExpTime = .01
-        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts/1e6,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         
         
         print("Mapping...")
@@ -1158,7 +1064,7 @@ if __name__ == "__main__":
         
     if 0:
         effExpTime = .01
-        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts/1e6,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         
         print("Calling scipy.optimize.minimize to find Ic,Is...")
         
@@ -1189,7 +1095,7 @@ if __name__ == "__main__":
         """
         
         effExpTime = .001
-        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts/1e6,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         
         
         print("Mapping...")
@@ -1203,7 +1109,7 @@ if __name__ == "__main__":
      
         
         effExpTime = .01
-        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts/1e6,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         
         
         print("Mapping...")
