@@ -278,12 +278,20 @@ class Calibrator(object):
         # make histograms for each pixel in pixels
         for pixel in pixels:
             x_ind, y_ind = pixel[0], pixel[1]
-            histogram_models = self.fit_array[y_ind, x_ind]['histogram']
+            histogram_models = self.solution[y_ind, x_ind]['histogram']
             for index, wavelength in enumerate(wavelengths):
                 # load the data
                 photon_list = obs_files[index].getPixelPhotonList(x_ind, y_ind)
                 if photon_list.size == 0:
                     message = "({}, {}) : {} nm : there are no photons"
+                    file_log.debug(message.format(x_ind, y_ind, wavelength))
+                    break
+                # remove hot pixels
+                rate = (len(photon_list['Wavelength']) /
+                        (max(photon_list['Time']) - min(photon_list['Time']))) * 1e6
+                if rate > 1800:
+                    message = ("({}, {}) : {} nm : removed for being too hot "
+                               "(>1800 cps)")
                     file_log.debug(message.format(x_ind, y_ind, wavelength))
                     break
                 # remove photons too close together in time
@@ -314,9 +322,15 @@ class Calibrator(object):
     def fit_phase_histogram(self, pixels=()):
         for pixel in pixels:
             for wavelength_index, wavelength in enumerate(self.cfg.wavelengths):
-                model = self.fit_array[pixel]['histogram'][wavelength_index]
+                model = self.solution[pixel]['histogram'][wavelength_index]
                 for fit_index in range(self.histogram_fit_attempts):
-                    guess = self._histogram_guess(fit_index, wavelength_index, wavelength)
+                    # get a rough guess from the model
+                    guess = model.guess(fit_index)
+                    # if there are any good fits intelligently guess the signal_center
+                    # and set the other parameters equal to the average of those in the
+                    # good fits
+                    guess = self._update_guess(guess, fit_index, wavelength_index,
+                                               wavelength)
                     model.fit(guess)
                     if model.has_good_solution():
                         break
@@ -324,10 +338,10 @@ class Calibrator(object):
     def fit_phase_energy_curve(self, pixels=()):
         for pixel in pixels:
             guess = self._phase_energy_guess()
-            self.fit_array[pixel]['calibration'].fit(guess)
+            self.solution[pixel]['calibration'].fit(guess)
 
     def save(self):
-        np.savez(self.cfg.solution_name, solution=self.fit_array, configuration=self.cfg)
+        np.savez(self.cfg.solution_name, solution=self.solution, configuration=self.cfg)
 
     def _parse_wavelengths(self, wavelengths):
         if wavelengths is None:
@@ -391,6 +405,12 @@ class Calibrator(object):
             pixels = np.array([[x, y] for x in x_pixels for y in y_pixels])
         return pixels
 
+    def _update_guess(self, guess, fit_index, wavelength_index, wavelength):
+        """If there are any good fits for this pixel intelligently guess the
+        signal_center parameter and set the other parameters equal to the average of
+        those in the good fits"""
+
+        return guess
 
 class Solution(object):
     """Solution class for the wavelength calibration. Initialize with either the file_name
@@ -420,7 +440,6 @@ class Solution(object):
         empty = (results == np.array([None]))
         if empty.any():
             for index, entry in np.ndenumerate(results):
-                print(index, empty.shape)
                 if empty[index]:
                     histogram_models = [self.histogram_model_list[0]()
                                         for _ in range(len(self.cfg.wavelengths))]
@@ -456,7 +475,7 @@ if __name__ == "__main__":
     # set up logging
     if not args.quiet and config.logging:
         log_directory = os.path.join(config.out_directory, 'logs')
-        log_file = os.path.join(log_directory, '{}.log'.format(timestamp))
+        log_file = os.path.join(log_directory, '{:.0f}.log'.format(timestamp))
         log_format = '%(asctime)s : %(funcName)s : %(levelname)s : %(message)s'
         file_log = pipelinelog.create_log('mkidpipeline.calibration.wavecal.file_log',
                                           logfile=log_file, console=False,
