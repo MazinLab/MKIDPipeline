@@ -79,7 +79,11 @@ def getLightCurve(photonTimeStamps,startTime =0,stopTime =10,effExpTime=.01):
     time to make a light curve.
     
     INPUTS:
-        photonTimeStamps - 1d numpy array with units of microseconds
+        photonTimeStamps - 1d numpy array with units of seconds
+        startTime -     ignore the photonTimeStamps before startTime. [seconds]
+        stopTime -      ignore the photonTimeStamps after stopTime. [seconds]
+        effExpTime -    bin size of the light curver. [seconds]
+        #TODO: finish documenting the input arguments. Clear up the units- they are different for different inputs.
     OUTPUTS:
         lightCurveIntensityCounts - array with units of counts. Float.
         lightCurveIntensity - array with units of counts/sec. Float.
@@ -87,7 +91,7 @@ def getLightCurve(photonTimeStamps,startTime =0,stopTime =10,effExpTime=.01):
     """
     histBinEdges = np.arange(startTime,stopTime,effExpTime)
     
-    hist,_ = np.histogram(photonTimeStamps/10**6,bins=histBinEdges) #if histBinEdges has N elements, hist has N-1
+    hist,_ = np.histogram(photonTimeStamps,bins=histBinEdges) #if histBinEdges has N elements, hist has N-1
     lightCurveIntensityCounts = hist  #units are photon counts
     lightCurveIntensity = 1.*hist/effExpTime  #units are counts/sec
     lightCurveTimes = histBinEdges[:-1] + 1.0*effExpTime/2
@@ -535,6 +539,16 @@ def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_guess=0,sparse_ma
         n - light curve [counts/bin]
         x_list - list of x-axis values [photons/second]. Could be either Ic (IcPlusIs = False) or Ic + Is (IcPlusIs = True)
         Is_list - list of Is values to map [photons/second]
+        effExpTime - the bin size of the light curve. [seconds]
+        IcPlusIs - bool flag indicating whether the x axis of the plots should be
+                    Ic or Ic+Is
+        Ir_guess - The value to be used for Ir when calculating the log likelihood.
+                    i.e. the Ir at which we're slicing the log-likelihood function.
+        sparse_map - bool flag specifying whether to map out only a subsection of the
+                    map in order to save time. Might cause maps to cut off if
+                    the log like function is very long in one direction compared to the
+                    other
+        bin_free - bool flag specifying whether to use a bin-free log likelihood.
     OUTPUTS:
         X - meshgrid of x coords
         Y - meshgrid of y coords
@@ -634,13 +648,12 @@ def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_guess=0,sparse_ma
 
 
     Ic_ind, Is_ind = np.unravel_index(im.argmax(), im.shape)
-    print('Max at (' + str(Ic_ind) + ', ' + str(Is_ind) + ')')
-    print("Ic=" + str(x_list[Ic_ind]) + ", Is=" + str(Is_list[Is_ind]))
-    print(im[Ic_ind, Is_ind])
+    # print('Max at (' + str(Ic_ind) + ', ' + str(Is_ind) + ')')
+    # print("Ic=" + str(x_list[Ic_ind]) + ", Is=" + str(Is_list[Is_ind]))
+    # print(im[Ic_ind, Is_ind])
 
     X, Y = np.meshgrid(x_list, Is_list)
     sigmaLevels = np.array([8.36, 4.78, 2.1])
-    levels = np.amax(im) - sigmaLevels
 
     return X,Y,im
 
@@ -776,7 +789,7 @@ if __name__ == "__main__":
         effExpTime = 0.01 #second
 
         
-        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts/1e6,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         if 0:
             plt.figure(1)
             plt.plot(lightCurveTimes,lightCurveIntensityCounts)
@@ -853,7 +866,7 @@ if __name__ == "__main__":
         NdownSampleArray = np.array([])
         
         for effExpTime in effExpTimeArray:
-            lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+            lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts/1e6,ts[0]/1e6,ts[-1]/1e6,effExpTime)
             
 
             if 0:
@@ -980,7 +993,7 @@ if __name__ == "__main__":
         Plot the log likelihood vs Is while keeping Ic constant. 
         '''
         effExpTime = 0.01 #second
-        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts/1e6,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         
         Ic = 100.
         Is = np.linspace(30,300,11)
@@ -1015,7 +1028,7 @@ if __name__ == "__main__":
     if 0:
         
         effExpTime = .01
-        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts/1e6,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         
         
         print("Mapping...")
@@ -1051,7 +1064,7 @@ if __name__ == "__main__":
         
     if 0:
         effExpTime = .01
-        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts/1e6,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         
         print("Calling scipy.optimize.minimize to find Ic,Is...")
         
@@ -1082,7 +1095,7 @@ if __name__ == "__main__":
         """
         
         effExpTime = .001
-        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts/1e6,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         
         
         print("Mapping...")
@@ -1096,7 +1109,7 @@ if __name__ == "__main__":
      
         
         effExpTime = .01
-        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts/1e6,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         
         
         print("Mapping...")
