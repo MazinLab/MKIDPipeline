@@ -25,6 +25,7 @@ from scipy.special import eval_laguerre, eval_genlaguerre, factorial
 from scipy import optimize
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy.stats import poisson
+import mkidpipeline.speckle.optimize_IcIsIr as binfree
 
 import time
 
@@ -83,11 +84,11 @@ def getLightCurve(photonTimeStamps,startTime =0,stopTime =10,effExpTime=.01):
         startTime -     ignore the photonTimeStamps before startTime. [seconds]
         stopTime -      ignore the photonTimeStamps after stopTime. [seconds]
         effExpTime -    bin size of the light curver. [seconds]
-        #TODO: finish documenting the input arguments. Clear up the units- they are different for different inputs.
     OUTPUTS:
-        lightCurveIntensityCounts - array with units of counts. Float.
+        lightCurveIntensityCounts - array with units of counts/bin. Float.
         lightCurveIntensity - array with units of counts/sec. Float.
-        lightCurveTimes - array with times corresponding to the bin centers of the light curve. Float.
+        lightCurveTimes - array with times corresponding to the bin
+                            centers of the light curve. Float.
     """
     histBinEdges = np.arange(startTime,stopTime,effExpTime)
     
@@ -244,8 +245,8 @@ def binMRlogL(n, Ic, Is):
         print('lnL is np.nan!!!!!\n')
         return lnL,np.zeros(N)
 
-    k = -Ic/(Is**2 + Is)
-    tmp = np.log(eval_laguerre(n,k))
+    k = -Ic/(Is**2 + Is) #TODO: deal with situation when laguerre() evaluates to inf
+    tmp = np.log(eval_laguerre(n,k)) # eval_laguerre(100,k) = inf when Ic = 514, Is = 1
     tmp -= k
     a = np.log(1./(Is+1)) - Ic/Is
     c = np.log(Is/(1.+Is))
@@ -353,14 +354,16 @@ def loglike_planet_blurredMR(n,Ic,Is,Ir,n_unique = None):
 
     # make lookup tables for poisson and binMRlogL
     # Ic, Is, and Ir are constant inside this function
-    plut = poisson.pmf(np.arange(lutSize),Ir)
     mlut = np.exp(binMRlogL(np.arange(lutSize),Ic,Is)[1])
+    plut = poisson.pmf(np.arange(lutSize), Ir)
 
     for ii in inds:
         for mm in np.arange(ii+1):  # convolve the binned MR likelihood with a poisson
             lut[ii] += plut[mm]*mlut[ii-mm]
 
-    loglut = np.zeros(lutSize)
+    loglut = np.zeros(lutSize)  # initialize the array for storing log likelihood values
+    # lut[np.isnan(lut)] = 0  # if an element of lut is nan or inf, then ignore it.
+    # lut[np.isinf(lut)] = 0
     loglut[lut!=0] = np.log(lut[lut!=0])  # calculate the log of the lut array, but not
                                         # on elements where lut = 0. We're not using them
                                         # anyway
@@ -369,6 +372,14 @@ def loglike_planet_blurredMR(n,Ic,Is,Ir,n_unique = None):
 
     loglike = np.sum(loglut[n])
 
+    # if np.isnan(loglike):
+    #     print('\n==============================================\nloglike is: ', loglike)
+    #     print('\n==============================================\nlikeArray is: ', likeArray)
+    #     print('\n==============================================\nlut is: ', lut)
+    #     print('\n==============================================\nmlut is: ', mlut)
+    #     print('\n==============================================\nplut is: ', plut)
+    #     print('\n==============================================\nbinMRlogL(np.arange(lutSize),Ic,Is)[1]',binMRlogL(np.arange(lutSize),Ic,Is)[1])
+    #     print('Ic,Is = ', Ic,Is)
     return loglike, likeArray
 
 
@@ -531,7 +542,7 @@ def binMRlogL_hessian(n,Ic,Is):
 
 
 
-def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_guess=0,sparse_map=False):
+def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_guess=0,sparse_map=False, bin_free = False, t = np.array([])):
     """
     makes a map of the MR log likelihood function over the range of Ic, Is
 
@@ -549,6 +560,7 @@ def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_guess=0,sparse_ma
                     the log like function is very long in one direction compared to the
                     other
         bin_free - bool flag specifying whether to use a bin-free log likelihood.
+        t - array of photon timestamps. Ignored if not doing a bin-free map. [microseconds]
     OUTPUTS:
         X - meshgrid of x coords
         Y - meshgrid of y coords
@@ -561,6 +573,9 @@ def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_guess=0,sparse_ma
 
     im = np.zeros((len(x_list), len(Is_list))) #initialize an empty image
     n_unique = np.unique(n).astype(int)  # get the indexes we will use in the lookup table.
+    if len(t)>0:
+        dt = (t[1:] - t[:-1])*1e-6
+        deadtime_us = 0
 
     if sparse_map:
         # Find the location of the maximum likelihood.
@@ -575,7 +590,8 @@ def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_guess=0,sparse_ma
 
 
     # check if the estimate of the max-likelihood location from optimize.minimize is within the plot window. If not, then just map out the full space.
-    if sparse_map and x_list_countsperbin[0] < p1[0]+p1[1]<x_list_countsperbin[-1] and Is_list_countsperbin[0] < p1[1]<Is_list_countsperbin[-1]:
+    if sparse_map and x_list_countsperbin[0] < p1[0]+p1[1]<x_list_countsperbin[-1] and Is_list_countsperbin[0] < p1[1]<Is_list_countsperbin[-1] and not bin_free:
+        #TODO: make this work for bin-free
         thresh = 10
 
         # units of p1 should be counts/bin
@@ -634,10 +650,17 @@ def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_guess=0,sparse_ma
                         continue
                 else:
                     Ic = x
-                # lnL = binMRlogL(n, tmp, Is)[0]
-                lnL = loglike_planet_blurredMR(n,Ic,Is,Ir_countsperbin,n_unique=n_unique)[0]
+                if bin_free:
+                    # call bin free loglike method
+                    p = [Ic/effExpTime,Is/effExpTime,Ir_guess]
+                    # print('\n',p,'\n')
+                    lnL = -binfree.loglike(p,dt,deadtime_us)
+                else:
+                    # call binned loglike method
+                    # lnL = binMRlogL(n, tmp, Is)[0]
+                    lnL = loglike_planet_blurredMR(n,Ic,Is,Ir_countsperbin,n_unique=n_unique)[0]
                 im[j,i] = lnL
-            # print('Ic,Is = ', Ic / effExpTime, Is / effExpTime)
+                # print('Ic+Is, Is, Ir_guess = ', (Ic+Is), Is, Ir_countsperbin)
 
     # if there were parts of im where the loglikelihood wasn't calculated,
     # for example if Ic or Is were less than zero, then set those parts
