@@ -233,7 +233,7 @@ if __name__ == "__main__":
     #####################################################################
 
     deadtime_us = deadtime*1e-6
-    dt_us = (t[1:] - t[:-1])*1e-6
+    dt_us = (t[1:] - t[:-1])*1e-6  # units of dt_us are seconds, not microseconds. CB 20180926
     I = 1/np.mean(dt_us)
 
     if do_Ir:
