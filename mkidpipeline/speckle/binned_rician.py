@@ -542,7 +542,7 @@ def binMRlogL_hessian(n,Ic,Is):
 
 
 
-def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_guess=0,sparse_map=False, bin_free = False, t = np.array([])):
+def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_slice=0,sparse_map=False, bin_free = False, t = np.array([])):
     """
     makes a map of the MR log likelihood function over the range of Ic, Is
 
@@ -553,7 +553,7 @@ def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_guess=0,sparse_ma
         effExpTime - the bin size of the light curve. [seconds]
         IcPlusIs - bool flag indicating whether the x axis of the plots should be
                     Ic or Ic+Is
-        Ir_guess - The value to be used for Ir when calculating the log likelihood.
+        Ir_slice - The value to be used for Ir when calculating the log likelihood.
                     i.e. the Ir at which we're slicing the log-likelihood function.
         sparse_map - bool flag specifying whether to map out only a subsection of the
                     map in order to save time. Might cause maps to cut off if
@@ -569,7 +569,7 @@ def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_guess=0,sparse_ma
 
     x_list_countsperbin = x_list * effExpTime  # convert from cps to counts/bin
     Is_list_countsperbin = Is_list * effExpTime
-    Ir_countsperbin = Ir_guess*effExpTime
+    Ir_countsperbin = Ir_slice*effExpTime
 
     im = np.zeros((len(x_list), len(Is_list))) #initialize an empty image
     n_unique = np.unique(n).astype(int)  # get the indexes we will use in the lookup table.
@@ -652,7 +652,7 @@ def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_guess=0,sparse_ma
                     Ic = x
                 if bin_free:
                     # call bin free loglike method
-                    p = [Ic/effExpTime,Is/effExpTime,Ir_guess]
+                    p = [Ic/effExpTime,Is/effExpTime,Ir_slice]
                     # print('\n',p,'\n')
                     lnL = -binfree.loglike(p,dt,deadtime_us)
                 else:
@@ -660,7 +660,7 @@ def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_guess=0,sparse_ma
                     # lnL = binMRlogL(n, tmp, Is)[0]
                     lnL = loglike_planet_blurredMR(n,Ic,Is,Ir_countsperbin,n_unique=n_unique)[0]
                 im[j,i] = lnL
-                # print('Ic+Is, Is, Ir_guess = ', (Ic+Is), Is, Ir_countsperbin)
+                # print('Ic+Is, Is, Ir_slice = ', (Ic+Is), Is, Ir_countsperbin)
 
     # if there were parts of im where the loglikelihood wasn't calculated,
     # for example if Ic or Is were less than zero, then set those parts
