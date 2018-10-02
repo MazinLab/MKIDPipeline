@@ -646,7 +646,7 @@ def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_slice=0,sparse_ma
             for i, x in enumerate(x_list_countsperbin):
                 if IcPlusIs == True:
                     Ic = x - Is
-                    if Ic < 0:
+                    if Ic < 0.000001:
                         continue
                 else:
                     Ic = x
