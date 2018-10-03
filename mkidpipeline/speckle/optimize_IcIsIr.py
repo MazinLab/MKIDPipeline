@@ -9,14 +9,14 @@ import matplotlib.cm as cm
 from matplotlib import rc
 import matplotlib.ticker as ticker
 
-def loglike(p, dt, deadtime=0):
+def loglike(p, dt, deadtime=0, Ir_slice = 0):
 
     Ic = p[0]
     Is = p[1]
     if len(p) > 2:
         Ir = p[2]
     else:
-        Ir = 0
+        Ir = Ir_slice
 
     ###################################################################
     # Intensity should be strictly positive, and each Ic, Is, Ir
@@ -62,11 +62,11 @@ def loglike(p, dt, deadtime=0):
     else:
         return 1e100
 
-def _jacobean(p, dt, deadtime=0):
+def _jacobean(p, dt, deadtime=0, Ir_slice = 0):
     if len(p) > 2:
         return -1*jacobean(p[0], p[1], p[2], dt, deadtime)
     else:
-        return -1*jacobean(p[0], p[1], 0, dt, deadtime)[:2]
+        return -1*jacobean(p[0], p[1], Ir_slice, dt, deadtime)[:2]
 
 def jacobean(Ic, Is, Ir, dt, deadtime=0):
 
@@ -105,11 +105,11 @@ def jacobean(Ic, Is, Ir, dt, deadtime=0):
 
     return np.asarray([d_Ic, d_Is, d_Ir])
 
-def _hessian(p, dt, deadtime=0):
+def _hessian(p, dt, deadtime=0, Ir_slice = 0):
     if len(p) > 2:
         return -1*hessian(p[0], p[1], p[2], dt, deadtime)
     else:
-        return -1*hessian(p[0], p[1], 0, dt, deadtime)[:2, :2]
+        return -1*hessian(p[0], p[1], Ir_slice, dt, deadtime)[:2, :2]
 
 def hessian(Ic, Is, Ir, dt, deadtime=0):
     
@@ -233,7 +233,7 @@ if __name__ == "__main__":
     #####################################################################
 
     deadtime_us = deadtime*1e-6
-    dt_us = (t[1:] - t[:-1])*1e-6
+    dt_us = (t[1:] - t[:-1])*1e-6  # units of dt_us are seconds, not microseconds. CB 20180926
     I = 1/np.mean(dt_us)
 
     if do_Ir:
