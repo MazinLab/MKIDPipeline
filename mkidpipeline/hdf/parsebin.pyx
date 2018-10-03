@@ -59,7 +59,7 @@ cdef extern from "binlib.h":
 #####################################
 
 def parse(file,_n=0):
-    # Creating pointers to memory bocks that the .c code will fill
+    # Creating pointers to memory bocks that the binlib.c code will fill
     n = int(max(os.stat(file).st_size/8, _n))
     baseline   = np.empty(n, dtype=np.int)
     wavelength = np.empty(n, dtype=np.int)
@@ -69,7 +69,7 @@ def parse(file,_n=0):
     roachnum = np.empty(n, dtype=np.uint32)
 
     # Calling parsebin from binlib.c
-    # npackets is the number of photons processed by binlib.c
+    # npackets is the number of real+fake photons processed by binlib.c
     npackets = cparsebin(file.encode('UTF-8'), n,
                  <int*>np.PyArray_DATA(baseline),
                  <int*>np.PyArray_DATA(wavelength),
@@ -81,7 +81,7 @@ def parse(file,_n=0):
     #r = cparsebin(file.encode('UTF-8'), n, &baseline[0], &wavelength[0], &timestamp[0],&y[0], &x[0], &roachnum[0])
 
     # Raising Errors
-    if npackets>_n:
+    if npackets>n:
         return parse(file,abs(npackets))
     elif npackets<0:
         errors = {-1:'Data not found'}

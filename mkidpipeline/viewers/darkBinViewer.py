@@ -185,18 +185,13 @@ class QuickStack(QtWidgets.QMainWindow):
         for iTs,ts in enumerate(timestampList):
             print(ts)
             try:
+                print("now im trying")
                 imagePath = os.path.join(self.dataPath,str(ts)+'.bin')
-                #print(imagePath)
-                with open(imagePath,'rb') as dumpFile:
-                    data = dumpFile.read()
-                #nBytes = len(data)
-                #nWords = nBytes//8 #64 bit words
-
-                #break into 64 bit words
-                #words = np.array(struct.unpack('>{:d}Q'.format(nWords), data),dtype=object)
 
                 # Calling new parse file
+                print("hey just before the parse call")
                 parseDict = parse(imagePath, 10)
+                print("parsing in loadstack try")
 
                 photonTimes = parseDict.tstamp
                 phasesDeg = parseDict.phase
