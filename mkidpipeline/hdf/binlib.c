@@ -83,8 +83,8 @@ long cparsebin(const char *fName, unsigned long max_len,
 			curtime = hdr->timestamp;
 			curroach = hdr->roach;
 		}
-		else {
-		    out_i = pcount >= max_len ? max_len-1: pcount;
+		else {                              // must be data. Save as photondata struct
+		    out_i = pcount >= max_len ? max_len: pcount;
 			photondata = (struct datapacket *) (&swp1);
 			baseline[out_i] = photondata->baseline;
 			wavelength[out_i] = photondata->wvl;

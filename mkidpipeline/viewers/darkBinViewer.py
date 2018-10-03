@@ -13,9 +13,9 @@ It assumes that the user has access to the /mnt/data0/ directory
 Assumes inputs are file tree pathname to data location
 The inputs to run the code as main are:
     run [format=PAL2018a]
-    date [format= 20180528]
-    start timestamp [format=1527666447]
-    end timestamp [format=1527675719]
+    date [format= 20180529]
+    start timestamp [format=1527666547]
+    end timestamp [format=15276666550]
 
 Urgent: Currently, the GUI functions in this code are not working.
     part of this problem is that KD separated the GUI functions into
@@ -44,7 +44,6 @@ from PyQt5 import QtCore, QtWidgets
 
 0# KD added
 from time import time
-#from mkidpipeline.utils.parsePacketDump import parsePacketData
 
 
 matplotlib.use('Qt5agg')
@@ -52,7 +51,11 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from mkidpipeline.hotpix import darkHotPixMask as dhpm
 
-basePath = '/mnt/kids/'
+# Path to the Directory where the Observing runs are located (where are the PAL201* directories?)
+basePath = '/mnt/kids/ScienceData/'
+
+# Defining the Size of an Image
+# needs to be updated if changed between runs/instruments
 imageShape = {'nRows':125,'nCols':80}
 
 startT = time()
@@ -84,14 +87,14 @@ class QuickStack(QtWidgets.QMainWindow):
         self.darkEnd = 0
 
         self.badPixMask = None
-        self.beammap=None
+        self.beammap = None
         #self.applyBeammap()
         self.loadBadPixMask()
 
         #self.applyBeammap()
         if self.subtractDark:
             self.generateDarkFrame()        
-        self.loadImageStack()
+        self.loadImageStack(startTstamp,endTstamp)
         #self.getObsImage()
 
     def show(self):
@@ -100,6 +103,7 @@ class QuickStack(QtWidgets.QMainWindow):
         self.app.exec_()
 
     def generateDarkFrame(self):
+        print("dark frame")
         tgenDark = time()
         self.darkStart = int(self.lineEdit_darkStart.text())
         self.darkEnd = int(self.lineEdit_darkEnd.text())
@@ -112,16 +116,7 @@ class QuickStack(QtWidgets.QMainWindow):
                 with open(imagePath,'rb') as dumpFile:
                     data = dumpFile.read()
 
-                nBytes = len(data)
-                nWords = nBytes/8 #64 bit words
-                
-                #break into 64 bit words
-                words = np.array(struct.unpack('>{:d}Q'.format(nWords), data),dtype=object)
-                #tstartParse = time()
-                parseDict = parsePacketData(words,verbose=False)
-                #tendParse = time()
-                image = parseDict['image']
-                
+
                 if self.beammap is not None:
                     newImage = np.zeros(image.shape)
                     for y in range(len(newImage)):
@@ -140,7 +135,7 @@ class QuickStack(QtWidgets.QMainWindow):
         self.darkStack = np.array(darkFrames)
         self.darkFrame = np.median(self.darkStack, axis=0)
         print("Generated median dark frame from timestamps %i to %i"%(self.darkStart, self.darkEnd))
-        print("Time to Parse Data is %f" %(tendParse-tstartParse))
+        #print("Time to Parse Data is %f" %(tendParse-tstartParse))
         self.darkLoaded = True
 
     def applyDark(self):
@@ -167,15 +162,17 @@ class QuickStack(QtWidgets.QMainWindow):
         #hpmPath = '/mnt/data0/CalibrationFiles/darkHotPixMasks/20170410/1491894755.npz'
 
         # There isn't one for 2018, so use this one
-        hpmPath = '/mnt/kids/mnt/data0/CalibrationFiles/darkHotPixMasks/20170410/1491894755.npz'
+        hpmPath = '/mnt/kids/CalibrationFiles/darkHotPixMasks/20170410/1491894755.npz'
 
         self.badPixMask = dhpm.loadMask(hpmPath)
 
 
-    def loadImageStack(self):
+    def loadImageStack(self,startTstamp,endTstamp):
         #print("Im using loadImageStack from the class DarkQuick")
-        self.timestampList = np.arange(self.startTstamp,self.endTstamp+1)
-        
+        #self.timestampList = np.arange(self.startTstamp,self.endTstamp+1)
+        timestampList = np.arange(startTstamp, endTstamp + 1)
+        print("loadImageStack")
+
         images = []
         self.photonTstamps = np.array([])
         self.photonPhases = np.array([])
@@ -185,32 +182,35 @@ class QuickStack(QtWidgets.QMainWindow):
         self.photonPixelIDs = np.array([])
         
         
-        for iTs,ts in enumerate(self.timestampList):
+        for iTs,ts in enumerate(timestampList):
+            print(ts)
             try:
                 imagePath = os.path.join(self.dataPath,str(ts)+'.bin')
                 #print(imagePath)
                 with open(imagePath,'rb') as dumpFile:
                     data = dumpFile.read()
-                nBytes = len(data)
-                nWords = nBytes//8 #64 bit words
+                #nBytes = len(data)
+                #nWords = nBytes//8 #64 bit words
 
                 #break into 64 bit words
-                words = np.array(struct.unpack('>{:d}Q'.format(nWords), data),dtype=object)
+                #words = np.array(struct.unpack('>{:d}Q'.format(nWords), data),dtype=object)
 
-                Tstartparse = time()
-                #parseDict = parsePacketData(words,verbose=True)
-                parseDict = parsePacketCy(words, verbose=True)
-                Tendparse = time()
-                print("i= %i, parsing took %f sec" %(ts,Tendparse-Tstartparse))
+                # Calling new parse file
+                parseDict = parse(imagePath, 10)
 
-                photonTimes = np.array(parseDict['photonTimestamps'])
-                phasesDeg = np.array(parseDict['phasesDeg'])
-                basesDeg = np.array(parseDict['basesDeg'])
-                xCoords = np.array(parseDict['xCoords'])
-                yCoords = np.array(parseDict['yCoords'])
-                pixelIds = np.array(parseDict['pixelIds'])
-                image = parseDict['image']
+                photonTimes = parseDict.tstamp
+                phasesDeg = parseDict.phase
+                basesDeg = parseDict.base
+                xCoords = parseDict.x
+                yCoords = parseDict.y
+                roach = parseDict.roach
 
+                # Need to make data cube here with phase bins
+                image = np.zeros((imageShape['nRows'], imageShape['nCols']), dtype=np.uint16)
+                for x, y in np.array(list(zip(xCoords, yCoords))):
+                    image[y, x] += 1
+                # image = np.zeros((self.nRows, self.nCols))
+                # image = parseDict['image']
            
                 if self.beammap is not None:
                     newImage = np.zeros(image.shape)
@@ -238,10 +238,10 @@ class QuickStack(QtWidgets.QMainWindow):
             self.photonBases = np.append(self.photonBases,basesDeg)
             self.photonXs = np.append(self.photonXs,xCoords)
             self.photonYs = np.append(self.photonYs,yCoords)
-            self.photonPixelIDs = np.append(self.photonPixelIDs, pixelIds)
+            #self.photonPixelIDs = np.append(self.photonPixelIDs, pixelIds)
             images.append(image)
             
-        self.imageStack = np.array(images)
+        #self.imageStack = np.array(images)
         tImStack = time()
         print("loadImageStack completed in %f sec" %(tImStack-startT))
 
@@ -1100,7 +1100,7 @@ def plotHist(ax,histBinEdges,hist,**kwargs):
 
 if __name__ == "__main__":
     import pyximport; pyximport.install()
-    from mkidpipeline.utils.parsePacketCy import parsePacketData
+    from mkidpipeline.hdf.parsebin import parse
 
     kwargs = {}
     if len(sys.argv) != 5:
