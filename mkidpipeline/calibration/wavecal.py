@@ -1,6 +1,7 @@
 #!/bin/env python3
 import os
 import ast
+import sys
 import atexit
 import argparse
 import numpy as np
@@ -14,7 +15,6 @@ from mkidpipeline.hdf.darkObsFile import ObsFile
 import mkidpipeline.calibration.wavecal_models as models
 
 log = pipelinelog.getLogger('mkidpipeline.calibration.wavecal', setup=False)
-file_log = pipelinelog.getLogger('mkidpipeline.calibration.wavecal.file_log', setup=False)
 
 
 class Configuration(object):
@@ -157,8 +157,8 @@ class Configuration(object):
                                          for wavelength in self.wavelengths])
         except ValueError:
             raise AssertionError(message)
-        message = ("histogram_model_names parameter must be a list of subclasses in "
-                   "wavecal_models.py of PartialLinearModel from wavecal_models.py")
+        message = ("histogram_model_names parameter must be a list of subclasses of "
+                   "PartialLinearModel and be in wavecal_models.py")
         assert isinstance(self.histogram_model_names, list), message
         for model in self.histogram_model_names:
             assert issubclass(getattr(models, model), models.PartialLinearModel), message
@@ -166,8 +166,8 @@ class Configuration(object):
             self.bin_width = float(self.bin_width)
         except ValueError:
             raise AssertionError("bin_width parameter must be an integer or float")
-        message = ("calibration_model_names parameter must be a list of subclasses in "
-                   "wavecal_models.py of XErrorsModel from wavecal_models.py")
+        message = ("calibration_model_names parameter must be a list of subclasses of "
+                   "XErrorsModel and be in wavecal_models.py")
         assert isinstance(self.calibration_model_names, list), message
         for model in self.calibration_model_names:
             assert issubclass(getattr(models, model), models.XErrorsModel), message
@@ -246,22 +246,27 @@ class Calibrator(object):
         self.cfg = configuration
 
         # initialize fit array
-        solution = np.empty((self.cfg.y_pixels, self.cfg.x_pixels), dtype=object)
-        self.solution = Solution(solution=solution, configuration=self.cfg)
+        fit_array = np.empty((self.cfg.y_pixels, self.cfg.x_pixels), dtype=object)
+        self.solution = Solution(fit_array=fit_array, configuration=self.cfg)
         self.cpu_count = None
 
-    def run(self, pixels=(), parallel=True):
+    def run(self, pixels=(), parallel=True, save=True):
         try:
             if parallel:
                 pass
             else:
+                log.info("Computing phase histograms")
                 self.make_phase_histogram(pixels=pixels)
+                log.info("Fitting phase histograms")
                 self.fit_phase_histogram(pixels=pixels)
+                log.info("Fitting phase-energy relationship")
                 self.fit_phase_energy_curve(pixels=pixels)
-            self.save()
+            if save:
+                log.info("Saving solution")
+                self.solution.save()
             if self.cfg.summary_plot:
-                sol = Solution(solution=self.solution, configuration=self.cfg)
-                sol.plot_summary()
+                log.info("Making summary plot")
+                self.solution.plot_summary()
         except KeyboardInterrupt:
             log.info(os.linesep + "Keyboard shutdown requested ... exiting")
 
@@ -275,10 +280,9 @@ class Calibrator(object):
         for index in wavelength_indices:
             file_name = os.path.join(self.cfg.h5_directory, self.cfg.h5_file_names[index])
             obs_files.append(ObsFile(file_name))
-        # make histograms for each pixel in pixels
+        # make histograms for each pixel in pixels and wavelength in wavelengths
         for pixel in pixels:
             x_ind, y_ind = pixel[0], pixel[1]
-            histogram_models = self.solution[y_ind, x_ind]['histogram']
             for index, wavelength in enumerate(wavelengths):
                 # load the data
                 photon_list = obs_files[index].getPixelPhotonList(x_ind, y_ind)
@@ -312,12 +316,15 @@ class Calibrator(object):
                 # make histogram
                 centers, counts = self._histogram(phase_list)
                 # assign x, y and variance data to the fit model
+                histogram_models = self.solution[y_ind, x_ind]['histogram']
                 model = histogram_models[wavelength_indices[index]]
                 model.x = centers
                 model.y = counts
                 # gaussian mle for the variance of poisson distributed data
                 # https://doi.org/10.1016/S0168-9002(00)00756-7
                 model.variance = np.sqrt(counts**2 + 0.25) - 0.5
+                message = "({}, {}) : {} nm : histogram successfully computed"
+                file_log.debug(message.format(x_ind, y_ind, wavelength))
 
     def fit_phase_histogram(self, pixels=()):
         for pixel in pixels:
@@ -339,9 +346,6 @@ class Calibrator(object):
         for pixel in pixels:
             guess = self._phase_energy_guess()
             self.solution[pixel]['calibration'].fit(guess)
-
-    def save(self):
-        np.savez(self.cfg.solution_name, solution=self.solution, configuration=self.cfg)
 
     def _parse_wavelengths(self, wavelengths):
         if wavelengths is None:
@@ -376,7 +380,7 @@ class Calibrator(object):
         centers = None
         counts = None
         # make histogram
-        while max_count < 400 and update < 2:
+        while max_count < 400 and update < 3:
             # update bin_width
             bin_width = self.cfg.bin_width * (2 ** update)
 
@@ -412,20 +416,19 @@ class Calibrator(object):
 
         return guess
 
+
 class Solution(object):
     """Solution class for the wavelength calibration. Initialize with either the file_name
-    argument or both the solution and configuration arguments."""
-    def __init__(self, file_name=None, solution=None, configuration=None):
+    argument or both the fit_array and configuration arguments."""
+    def __init__(self, file_path=None, fit_array=None, configuration=None):
         # load in solution and configuration objects
         if solution is not None and configuration is not None:
-            self._solution = solution
+            self._fit_array = fit_array
             self.cfg = configuration
-        elif file_name is not None:
-            npz_file = np.load(file_name)
-            self._solution = npz_file['solution']
-            self.cfg = npz_file['configuration']
+        elif file_path is not None:
+            self.load(file_path)
         else:
-            message = ('provide either a file_name or both the solution and '
+            message = ('provide either a file_path or both the fit_array and '
                        'configuration arguments')
             raise ValueError(message)
 
@@ -436,18 +439,31 @@ class Solution(object):
                                        enumerate(self.cfg.calibration_model_names)]
 
     def __getitem__(self, values):
-        results = self._solution[values]
+        results = self._fit_array[values]
         empty = (results == np.array([None]))
         if empty.any():
             for index, entry in np.ndenumerate(results):
                 if empty[index]:
                     histogram_models = [self.histogram_model_list[0]()
                                         for _ in range(len(self.cfg.wavelengths))]
-                    calibration_models = self.calibration_model_list[0]()
-                    self._solution[index] = {'histogram': histogram_models,
-                                             'calibration': calibration_models}
-            results = self._solution[values]
+                    calibration_model = self.calibration_model_list[0]()
+                    self._fit_array[index] = {'histogram': histogram_models,
+                                              'calibration': calibration_model}
+            results = self._fit_array[values]
         return results
+
+    def save(self):
+        np.savez(self.cfg.solution_name, fit_array=self._fit_array,
+                 configuration=self.cfg)
+
+    def load(self, file_path):
+        try:
+            npz_file = np.load(file_path)
+            self._fit_array = npz_file['solution']
+            self.cfg = npz_file['configuration']
+        except (OSError, KeyError):
+            message = "Failed to interpret '{}' as a wavecal solution object"
+            raise OSError(message.format(file_path))
 
 
 if __name__ == "__main__":
@@ -477,13 +493,16 @@ if __name__ == "__main__":
         log_directory = os.path.join(config.out_directory, 'logs')
         log_file = os.path.join(log_directory, '{:.0f}.log'.format(timestamp))
         log_format = '%(asctime)s : %(funcName)s : %(levelname)s : %(message)s'
-        file_log = pipelinelog.create_log('mkidpipeline.calibration.wavecal.file_log',
-                                          logfile=log_file, console=False,
-                                          fmt=log_format)
+        log = pipelinelog.create_log('mkidpipeline.calibration.wavecal.file_log',
+                                     logfile=log_file, console=False, fmt=log_format,
+                                     level="DEBUG")
     if not args.quiet and config.verbose:
         log_format = "%(funcName)s : %(message)s"
-        log = pipelinelog.create_log('mkidpipeline.calibration.wavecal', console=True,
-                                     fmt=log_format)
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(logging.Formatter(fmt))
+        handler.setLevel('INFO')
+        log.addHandler(handler)
+
     # print execution time on exit
     atexit.register(lambda x: print('Execution took {:.2f} minutes'
                                     .format((datetime.utcnow().timestamp() - x) / 60)),
