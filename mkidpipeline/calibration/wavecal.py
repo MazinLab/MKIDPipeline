@@ -46,6 +46,8 @@ class Configuration(object):
         self.histogram_model_names = ast.literal_eval(
             self.config['Fit']['histogram_model_names'])
         self.bin_width = ast.literal_eval(self.config['Fit']['bin_width'])
+        self.histogram_fit_attempts = ast.literal_eval(
+            self.config['Fit']['histogram_fit_attempts'])
         self.calibration_model_names = ast.literal_eval(
             self.config['Fit']['calibration_model_names'])
         self.dt = ast.literal_eval(self.config['Fit']['dt'])
@@ -108,6 +110,8 @@ class Configuration(object):
             param.format('histogram_model_names', 'Fit')
         assert 'bin_width' in self.config['Fit'].keys(), \
             param.format('bin_width', 'Fit')
+        assert 'histogram_fit_attempts' in self.config['Fit'].keys(), \
+            param.format('histogram_fit_attempts', 'Fit')
         assert 'calibration_model_names' in self.config['Fit'].keys(), \
             param.format('calibration_model_names', 'Fit')
         assert 'dt' in self.config['Fit'].keys(), \
@@ -166,6 +170,8 @@ class Configuration(object):
             self.bin_width = float(self.bin_width)
         except ValueError:
             raise AssertionError("bin_width parameter must be an integer or float")
+        assert isinstance(self.histogram_fit_attempts, int), \
+            "histogram_fit_attempts parameter must be an integer"
         message = ("calibration_model_names parameter must be a list of subclasses of "
                    "XErrorsModel and be in wavecal_models.py")
         assert isinstance(self.calibration_model_names, list), message
@@ -226,6 +232,8 @@ class Configuration(object):
                     'histogram_model_names = {}'.format(self.histogram_model_names) +
                     os.linesep +
                     'bin_width = {}'.format(self.bin_width) + os.linesep +
+                    'histogram_fit_attempts = {}'.format(self.histogram_fit_attempts) +
+                    os.linesep +
                     'calibration_model_names = {}'.format(self.calibration_model_names) +
                     os.linesep +
                     'dt = {}'.format(self.dt) + os.linesep +
@@ -245,10 +253,24 @@ class Calibrator(object):
         # save configuration
         self.cfg = configuration
 
+        # get beam map
+        obs_files = []
+        for index, _ in enumerate(self.cfg.wavelengths):
+            file_name = os.path.join(self.cfg.h5_directory,
+                                     self.cfg.h5_file_names[index])
+            obs_files.append(ObsFile(file_name))
+            message = "The beam map does not match the array dimensions"
+            assert (obs_files[-1].beamImage.shape ==
+                    (self.cfg.x_pixels, self.cfg.y_pixels)), message
+        beam_map = obs_files[0].beamImage.copy()
+        del obs_files
+
         # initialize fit array
-        fit_array = np.empty((self.cfg.y_pixels, self.cfg.x_pixels), dtype=object)
-        self.solution = Solution(fit_array=fit_array, configuration=self.cfg)
+        fit_array = np.empty((self.cfg.x_pixels, self.cfg.y_pixels), dtype=object)
+        self.solution = Solution(fit_array=fit_array, configuration=self.cfg,
+                                 beam_map=beam_map)
         self.cpu_count = None
+
 
     def run(self, pixels=(), parallel=True, save=True):
         try:
@@ -280,6 +302,7 @@ class Calibrator(object):
         for index in wavelength_indices:
             file_name = os.path.join(self.cfg.h5_directory, self.cfg.h5_file_names[index])
             obs_files.append(ObsFile(file_name))
+
         # make histograms for each pixel in pixels and wavelength in wavelengths
         for pixel in pixels:
             x_ind, y_ind = pixel[0], pixel[1]
@@ -288,35 +311,35 @@ class Calibrator(object):
                 photon_list = obs_files[index].getPixelPhotonList(x_ind, y_ind)
                 if photon_list.size == 0:
                     message = "({}, {}) : {} nm : there are no photons"
-                    file_log.debug(message.format(x_ind, y_ind, wavelength))
-                    break
+                    log.debug(message.format(x_ind, y_ind, wavelength))
+                    continue
                 # remove hot pixels
                 rate = (len(photon_list['Wavelength']) /
                         (max(photon_list['Time']) - min(photon_list['Time']))) * 1e6
-                if rate > 1800:
+                if rate > 2000:
                     message = ("({}, {}) : {} nm : removed for being too hot "
-                               "(>1800 cps)")
-                    file_log.debug(message.format(x_ind, y_ind, wavelength))
-                    break
+                               "({:.2f} > 2000 cps)")
+                    log.debug(message.format(x_ind, y_ind, wavelength, rate))
+                    continue
                 # remove photons too close together in time
                 photon_list = self._remove_tail_riding_photons(photon_list)
                 if photon_list.size == 0:
                     message = ("({}, {}) : {} nm : all the photons were removed after "
                                "the arrival time cut")
-                    file_log.debug(message.format(x_ind, y_ind, wavelength))
-                    break
+                    log.debug(message.format(x_ind, y_ind, wavelength))
+                    continue
                 # remove photons with positive peak heights
                 phase_list = photon_list['Wavelength']
                 phase_list = phase_list[phase_list < 0]
                 if phase_list.size == 0:
                     message = ("({}, {}) : {} nm : all the photons were removed after "
                                "the negative phase only cut")
-                    file_log.debug(message.format(x_ind, y_ind, wavelength))
-                    break
+                    log.debug(message.format(x_ind, y_ind, wavelength))
+                    continue
                 # make histogram
                 centers, counts = self._histogram(phase_list)
                 # assign x, y and variance data to the fit model
-                histogram_models = self.solution[y_ind, x_ind]['histogram']
+                histogram_models = self.solution[x_ind, y_ind]['histogram']
                 model = histogram_models[wavelength_indices[index]]
                 model.x = centers
                 model.y = counts
@@ -324,28 +347,90 @@ class Calibrator(object):
                 # https://doi.org/10.1016/S0168-9002(00)00756-7
                 model.variance = np.sqrt(counts**2 + 0.25) - 0.5
                 message = "({}, {}) : {} nm : histogram successfully computed"
-                file_log.debug(message.format(x_ind, y_ind, wavelength))
+                log.debug(message.format(x_ind, y_ind, wavelength))
 
     def fit_phase_histogram(self, pixels=()):
+        pixels = self._check_pixel_inputs(pixels)
         for pixel in pixels:
+            x_ind, y_ind = pixel[0], pixel[1]
+            model_list = self.solution[x_ind, y_ind]['histogram']
+            # fit the histograms of the higher energy data sets first and use good
+            # fits to inform the guesses to the lower energy data sets
             for wavelength_index, wavelength in enumerate(self.cfg.wavelengths):
-                model = self.solution[pixel]['histogram'][wavelength_index]
-                for fit_index in range(self.histogram_fit_attempts):
-                    # get a rough guess from the model
-                    guess = model.guess(fit_index)
+                model = model_list[wavelength_index]
+                if model.x is None or model.y is None:
+                    message = ("({}, {}) : {} nm : histogram fit failed because there is "
+                               "no data")
+                    log.debug(message.format(x_ind, y_ind, wavelength))
+                    continue
+                # try models in order specified in the config file
+                for histogram_model in self.solution.histogram_model_list:
+                    # update the model if needed
+                    if not isinstance(model, histogram_model):
+                        model = self._update_model(wavelength_index, model_list,
+                                                   histogram_model)
                     # if there are any good fits intelligently guess the signal_center
-                    # and set the other parameters equal to the average of those in the
-                    # good fits
-                    guess = self._update_guess(guess, fit_index, wavelength_index,
-                                               wavelength)
-                    model.fit(guess)
-                    if model.has_good_solution():
-                        break
+                    # parameter and set the other parameters equal to the average of those
+                    # in the good fits
+                    good_solutions = [model.has_good_solution() for model in model_list]
+                    if np.any(good_solutions):
+                        guess = self._guess(pixel, wavelength_index, good_solutions)
+                        model.fit(guess)
+                        # if the fit worked continue with the next wavelength
+                        if model.has_good_solution():
+                            message = ("({}, {}) : {} nm : histogram fit successful with "
+                                       "computed guess and model {}")
+                            log.debug(message.format(x_ind, y_ind, wavelength,
+                                                     type(model).__name__))
+                            break
+                    # try a guess based on the model if the intelligent guess didn't work
+                    for fit_index in range(self.cfg.histogram_fit_attempts):
+                        guess = model.guess(fit_index)
+                        model.fit(guess)
+                        if model.has_good_solution():
+                            message = ("({}, {}) : {} nm : histogram fit successful with "
+                                       "guess number {} and model {}")
+                            log.debug(message.format(x_ind, y_ind, wavelength, fit_index,
+                                                     type(model).__name__))
+                            break
+                    else:
+                        # didn't find a good fit and trying another model
+                        # print(type(model).__name__, model.fit_result.model.func.__qualname__, model.fit_result.redchi,
+                        #       model.fit_result.chisqr, model.fit_result.aic)
+                        continue
+                    # found a good fit and going to next wavelength
+                    break
+                else:
+                    message = "({}, {}) : {} nm : histogram fit failed with all models"
+                    log.debug(message.format(x_ind, y_ind, wavelength))
+
+            # recheck fits that didn't work with better guesses if there exist
+            # lower energy fits that did
+            good_solutions = [model.has_good_solution() for model in model_list]
+            for wavelength_index, wavelength in enumerate(self.cfg.wavelengths):
+                model = model_list[wavelength_index]
+                if model.x is None or model.y is None:
+                    continue
+                if model.has_good_solution():
+                    continue
+                if np.any(good_solutions[wavelength_index + 1:]):
+                    for histogram_model in self.solution.histogram_model_list:
+                        if not isinstance(model, histogram_model):
+                            model = self._update_model(wavelength_index, model_list,
+                                                       histogram_model)
+                        guess = self._guess(pixel, wavelength_index, good_solutions)
+                        model.fit(guess)
+                        if model.has_good_solution():
+                            message = ("({}, {}) : {} nm : histogram fit recomputed and"
+                                       "successful with model {}")
+                            log.debug(message.format(x_ind, y_ind, wavelength,
+                                                     type(model).__name__))
+                            break
 
     def fit_phase_energy_curve(self, pixels=()):
         for pixel in pixels:
             guess = self._phase_energy_guess()
-            self.solution[pixel]['calibration'].fit(guess)
+            self.solution[pixel[0], pixel[1]]['calibration'].fit(guess)
 
     def _parse_wavelengths(self, wavelengths):
         if wavelengths is None:
@@ -401,7 +486,7 @@ class Calibrator(object):
     def _check_pixel_inputs(self, pixels):
         if pixels:
             pixels = np.atleast_2d(np.array(pixels))
-            if not np.issubdtype(pixels.dtype, np.integer):
+            if not np.issubdtype(pixels.dtype, np.integer) or pixels.shape[1] != 2:
                 raise ValueError("pixels must be a list of pairs of integers")
         else:
             x_pixels = range(self.cfg.x_pixels)
@@ -409,10 +494,90 @@ class Calibrator(object):
             pixels = np.array([[x, y] for x in x_pixels for y in y_pixels])
         return pixels
 
-    def _update_guess(self, guess, fit_index, wavelength_index, wavelength):
+    @staticmethod
+    def _update_model(wavelength_index, model_list, histogram_model):
+        # save old data
+        x = model_list[wavelength_index].x
+        y = model_list[wavelength_index].y
+        variance = model_list[wavelength_index].variance
+        best_fit_result = model_list[wavelength_index].best_fit_result
+        # swap model
+        model_list[wavelength_index] = histogram_model()
+        # set new data
+        model_list[wavelength_index].x = x
+        model_list[wavelength_index].y = y
+        model_list[wavelength_index].variance = variance
+        model_list[wavelength_index].best_fit_result = best_fit_result
+        return model_list[wavelength_index]
+
+    def _guess(self, pixel, wavelength_index, good_solutions):
         """If there are any good fits for this pixel intelligently guess the
         signal_center parameter and set the other parameters equal to the average of
         those in the good fits"""
+        # get initial guess
+        histogram_models = self.solution[pixel[0], pixel[1]]['histogram']
+        wavelengths = self.cfg.wavelengths
+        model = histogram_models[wavelength_index]
+        guess = model.guess()
+        # get index of closest shorter wavelength good solution
+        shorter_index = None
+        for index, good in enumerate(good_solutions[:wavelength_index]):
+            if good:
+                shorter_index = index
+        # get index of closest longer wavelength good solution
+        longer_index = None
+        for index, good in enumerate(good_solutions[wavelength_index + 1:]):
+            if good:
+                longer_index = wavelength_index + 1 + index
+                break
+        # get data from shorter fit
+        if shorter_index is not None:
+            shorter_model = histogram_models[shorter_index]
+            shorter_params = shorter_model.best_fit_result.params
+            shorter_center = (shorter_params['signal_center'].value *
+                              wavelengths[shorter_index] / wavelengths[wavelength_index])
+            shorter_guesses = {}
+            if isinstance(shorter_model, type(model)):
+                for parameter in shorter_params.values():
+                    if parameter.name != "signal_center":
+                        shorter_guesses.update({parameter.name: parameter.value})
+        else:
+            shorter_center = None
+            shorter_guesses = {}
+        # get data from longer fit
+        if longer_index is not None:
+            longer_model = histogram_models[longer_index]
+            longer_params = longer_model.best_fit_result.params
+            longer_center = (longer_params['signal_center'].value *
+                             wavelengths[longer_index] / wavelengths[wavelength_index])
+            longer_guesses = {}
+            if isinstance(longer_model, type(model)):
+                for parameter in longer_params.values():
+                    if parameter.name != "signal_center":
+                        longer_guesses.update({parameter.name: parameter.value})
+        else:
+            longer_center = None
+            longer_guesses = {}
+        if shorter_index is None and longer_index is None:
+            raise RuntimeError("There were no good solutions to base a fit guess on.")
+
+        # set center parameter
+        if shorter_center is not None and longer_center is not None:
+            guess['signal_center'].set(value=np.mean([shorter_center, longer_center]))
+        elif shorter_center is not None:
+            guess['signal_center'].set(value=shorter_center)
+        elif longer_center is not None:
+            guess['signal_center'].set(value=longer_center)
+        # set other parameters
+        for parameter in guess.values():
+            name = parameter.name
+            if name in shorter_guesses.keys() and name in longer_guesses.keys():
+                guess[name].set(value=np.mean([longer_guesses[name],
+                                               shorter_guesses[name]]))
+            elif name in shorter_guesses.keys():
+                guess[name].set(value=shorter_guesses[name])
+            elif name in longer_guesses.keys():
+                guess[name].set(value=longer_guesses[name])
 
         return guess
 
@@ -420,11 +585,12 @@ class Calibrator(object):
 class Solution(object):
     """Solution class for the wavelength calibration. Initialize with either the file_name
     argument or both the fit_array and configuration arguments."""
-    def __init__(self, file_path=None, fit_array=None, configuration=None):
+    def __init__(self, file_path=None, fit_array=None, configuration=None, beam_map=None):
         # load in solution and configuration objects
-        if solution is not None and configuration is not None:
+        if fit_array is not None and configuration is not None and beam_map is not None:
             self._fit_array = fit_array
             self.cfg = configuration
+            self.beam_map = beam_map
         elif file_path is not None:
             self.load(file_path)
         else:
@@ -440,27 +606,35 @@ class Solution(object):
 
     def __getitem__(self, values):
         results = self._fit_array[values]
-        empty = (results == np.array([None]))
-        if empty.any():
-            for index, entry in np.ndenumerate(results):
-                if empty[index]:
-                    histogram_models = [self.histogram_model_list[0]()
-                                        for _ in range(len(self.cfg.wavelengths))]
-                    calibration_model = self.calibration_model_list[0]()
-                    self._fit_array[index] = {'histogram': histogram_models,
-                                              'calibration': calibration_model}
-            results = self._fit_array[values]
-        return results
+        if isinstance(results, np.ndarray):
+            empty = (results == np.array([None]))
+            if empty.any():
+                for index, entry in np.ndenumerate(results):
+                    if empty[index]:
+                        histogram_models = [self.histogram_model_list[0]()
+                                            for _ in range(len(self.cfg.wavelengths))]
+                        calibration_model = self.calibration_model_list[0]()
+                        results[index] = {'histogram': histogram_models,
+                                          'calibration': calibration_model}
+        else:
+            if results is None:
+                histogram_models = [self.histogram_model_list[0]()
+                                    for _ in range(len(self.cfg.wavelengths))]
+                calibration_model = self.calibration_model_list[0]()
+                self._fit_array[values] = {'histogram': histogram_models,
+                                           'calibration': calibration_model}
+        return self._fit_array[values]
 
     def save(self):
         np.savez(self.cfg.solution_name, fit_array=self._fit_array,
-                 configuration=self.cfg)
+                 configuration=self.cfg, beam_map=self.beam_map)
 
     def load(self, file_path):
         try:
             npz_file = np.load(file_path)
             self._fit_array = npz_file['solution']
             self.cfg = npz_file['configuration']
+            self.beam_map = npz_file['beam_map']
         except (OSError, KeyError):
             message = "Failed to interpret '{}' as a wavecal solution object"
             raise OSError(message.format(file_path))
@@ -493,7 +667,7 @@ if __name__ == "__main__":
         log_directory = os.path.join(config.out_directory, 'logs')
         log_file = os.path.join(log_directory, '{:.0f}.log'.format(timestamp))
         log_format = '%(asctime)s : %(funcName)s : %(levelname)s : %(message)s'
-        log = pipelinelog.create_log('mkidpipeline.calibration.wavecal.file_log',
+        log = pipelinelog.create_log('mkidpipeline.calibration.wavecal',
                                      logfile=log_file, console=False, fmt=log_format,
                                      level="DEBUG")
     if not args.quiet and config.verbose:
