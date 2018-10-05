@@ -154,14 +154,15 @@ body {font-family: Arial;}
             </div>
 
 <div class="tab">
- <a href ="/database"><button class="tablinks" onclick="openData(event, 'Home')">Home</button></a>
-  <button class="tablinks" onclick="openData(event, 'Targets')" id="defaultOpen">Targets</button>
-  <a href ="/runbuttons"><button class="tablinks" onclick="openData(event, 'Runs')">Runs</button></a>
-  <a href ="/datebuttons"><button class="tablinks" onclick="openData(event, 'Dates')">Dates</button></a>
-   <a href ="/calbuttons"><button class="tablinks" onclick="openData(event, 'Calibrations')">Calibrations</button></a>
-   <a href ="/datarecorder"><button class="tablinks" onclick="openData(event, 'Add New Data')">Add New Data</button></a>
-   <a href ="/calrecorder"><button class="tablinks" onclick="openData(event, 'Add New Cals')">Add New Cals</button></a>
-   <div class="search-container">
+   <a href ="/database"> <button class="tablinks" onclick="openData(event, 'Home')">Home</button></a>
+ <a href ="/targetbuttons"> <button class="tablinks" onclick="openData(event, 'Targets')">Targets</button></a>
+   <a href ="/runbuttons"><button class="tablinks" onclick="openData(event, 'Runs')">Runs</button></a>
+  <a href ="/datebuttons"> <button class="tablinks" onclick="openData(event, 'Dates')">Dates</button></a>
+    <a href ="/calbuttons"><button class="tablinks" onclick="openData(event, 'Calibrations')">Calibrations</button></a>
+       <button class="tablinks" onclick="openData(event, 'Add New Data')" id="defaultOpen">Add New Data</button>
+       <a href ="/calrecorder"><button class="tablinks" onclick="openData(event, 'Add New Cals')">Add New Cals</button></a>
+
+    <div class="search-container">
             <form action="/action_page.php">
               <input type="text" placeholder="Search..." name="search" size = 30px>
               <button type="submit">Submit<i class=fa fa-search></i></button>
@@ -170,40 +171,60 @@ body {font-family: Arial;}
 </div>
 <div id="Home" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
- </div>
-
+ 
+</div>
+<div id = "data">
 <div id="Targets" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
- <a href ="/targetbuttons"><img src="/static/backbutton.png" alt="backbutton" height="42" width="42"></a>
-  <p class="solid">
-    
-    {% for elem in data %}
-    <table>
-     {%for key in ["Target", "Type", "J mag", "Sunset Date(s)", "Seeing (AO)", "Filters", "Time Windows", "Nearby Laser Cals", "Important Notes", "Number of Dithers", "AO Saved State", "BIN File Range", "Simbad Webpage"] %}
-        <tr> <th> {{key}}:</th><td> {{elem[key] | safe}} </td></tr>
-     {%endfor%}
-     </table>
-  <hr>
-  {% endfor %}
-</table>
-</p>
 
 
  
+ 
+
+</div>
+
+     
 </div>
 
 <div id="Runs" class="tabcontent">
- 
+  <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
+  
+
 </div>
+
 <div id="Dates" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
- 
+
+
+</div>
   <div id="Calibrations" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
-  <h4>Calibrations</h4>
  
 </div>
+
+ <div id="Add New Data" class="tabcontent">
+  <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
+ 
+   <form method = 'POST'>
+  Please Type the File Name of what you would like to add Data to (e.g. MEC2018B): 
+  <input type ='text' name = 'FileName'> <br /> <br />
+  Target: <input type ='text' name = 'Target'> <br />
+   Type: <input type ='text' name = 'Type'> <br />
+   J mag: <input type ='text' name = 'J mag'> <br />
+   Sunset Date(s):<input type ='text' name = 'Sunset Date(s)'> <br />
+   Seeing (AO):<input type ='text' name = 'Seeing (AO)'> <br />
+   Filters: <input type ='text' name = 'Filters'> <br />
+   Time Windows:<input type ='text' name = 'Time Windows'> <br />
+   Nearby Laser Cals: <input type ='text' name = 'Nearby Laser Cals'> <br />
+   Important Notes: <input type ='text' name = 'Important Notes'> <br />
+   Number of Dithers: <input type ='text' name = 'Number of Dithers'> <br />
+   AO Saved State: <input type ='text' name = 'AO Saved State'> <br />
+   BIN File Range: <input type ='text' name = 'BIN File Range'> <br />
+   Simbad Webpage: <input type ='text' name = 'Simbad Webpage'> <br />
+  <input type = 'submit'>
+ </form>
 </div>
+
 
 <script>
   function openData(evt, infoName) {

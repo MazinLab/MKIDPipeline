@@ -11,7 +11,8 @@
    "Important Notes": "Could not see anything reasonable",
    "Number of Dithers": "2",
    "AO Saved State": "",
-   "BIN File Range": "None"
+   "BIN File Range": "None",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?protocol=html&Ident=HD080546' target='_blank'> Click Here! </a>"
  },
  {
    "Target": "HR8799",
@@ -25,7 +26,8 @@
    "Important Notes": "",
    "Number of Dithers": "13",
    "AO Saved State": "",
-   "BIN File Range": "1479865740 to 1479895090"
+   "BIN File Range": "1479865740 to 1479895090",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?Ident=HR+8799' target='_blank'> Click Here! </a>"
  },
  {
    "Target": "Eps Eridani",
@@ -39,7 +41,8 @@
    "Important Notes": "",
    "Number of Dithers": "7",
    "AO Saved State": "",
-   "BIN File Range": "1479896900 to 1479895090"
+   "BIN File Range": "1479896900 to 1479895090",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-id?protocol=html&Ident=eps%20Eridani' target='_blank'> Click Here! </a>"
 
  },
  {
@@ -54,13 +57,14 @@
    "Important Notes": "",
    "Number of Dithers": "1",
    "AO Saved State": "",
-   "BIN File Range": "1479895095 to 1479899523"
+   "BIN File Range": "1479895095 to 1479899523",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-basic?Ident=HIP029655&submit=SIMBAD+search' target='_blank'> Click Here! </a>"
  },
  {
    "Target": "SAO42642",
    "Type": "Binary Star System",
    "J mag": "3.2",
-   "Sunset Date(s)": "201611122",
+   "Sunset Date(s)": "20161122",
    "Seeing (AO)": "",
    "Filters": "J Band, OD 0.5; J Band OD Open",
    "Time Windows": "3:12-6:19",
@@ -68,6 +72,7 @@
    "Important Notes": "",
    "Number of Dithers": "4",
    "AO Saved State": "",
-   "BIN File Range": "1479899580 to 1479910714"
+   "BIN File Range": "1479899580 to 1479910714",
+   "Simbad Webpage": "<a href = 'http://simbad.u-strasbg.fr/simbad/sim-basic?Ident=10+Ursae+Majoris&submit=SIMBAD+search' target='_blank'> Click Here! </a>"
  }
 ]

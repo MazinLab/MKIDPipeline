@@ -154,14 +154,14 @@ body {font-family: Arial;}
             </div>
 
 <div class="tab">
- <a href ="/database"><button class="tablinks" onclick="openData(event, 'Home')">Home</button></a>
-  <button class="tablinks" onclick="openData(event, 'Targets')" id="defaultOpen">Targets</button>
+<a href ="/database"><button class="tablinks" onclick="openData(event, 'Home')">Home</button></a>
+  <a href ="/targetbuttons"><button class="tablinks" onclick="openData(event, 'Targets')">Targets</button></a>
   <a href ="/runbuttons"><button class="tablinks" onclick="openData(event, 'Runs')">Runs</button></a>
-  <a href ="/datebuttons"><button class="tablinks" onclick="openData(event, 'Dates')">Dates</button></a>
-   <a href ="/calbuttons"><button class="tablinks" onclick="openData(event, 'Calibrations')">Calibrations</button></a>
-   <a href ="/datarecorder"><button class="tablinks" onclick="openData(event, 'Add New Data')">Add New Data</button></a>
-   <a href ="/calrecorder"><button class="tablinks" onclick="openData(event, 'Add New Cals')">Add New Cals</button></a>
-   <div class="search-container">
+  <a href ="/datebuttons"><button class="tablinks" onclick="openData(event, 'Dates')" >Dates</button></a>
+  <button class="tablinks" onclick="openData(event, 'Calibrations')" id="defaultOpen">Calibrations</button>
+  <a href ="/datarecorder"><button class="tablinks" onclick="openData(event, 'Add New Data')">Add New Data</button></a>
+  <a href ="/calrecorder"><button class="tablinks" onclick="openData(event, 'Add New Cals')">Add New Cals</button></a>
+    <div class="search-container">
             <form action="/action_page.php">
               <input type="text" placeholder="Search..." name="search" size = 30px>
               <button type="submit">Submit<i class=fa fa-search></i></button>
@@ -174,22 +174,9 @@ body {font-family: Arial;}
 
 <div id="Targets" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
- <a href ="/targetbuttons"><img src="/static/backbutton.png" alt="backbutton" height="42" width="42"></a>
-  <p class="solid">
-    
-    {% for elem in data %}
-    <table>
-     {%for key in ["Target", "Type", "J mag", "Sunset Date(s)", "Seeing (AO)", "Filters", "Time Windows", "Nearby Laser Cals", "Important Notes", "Number of Dithers", "AO Saved State", "BIN File Range", "Simbad Webpage"] %}
-        <tr> <th> {{key}}:</th><td> {{elem[key] | safe}} </td></tr>
-     {%endfor%}
-     </table>
-  <hr>
-  {% endfor %}
-</table>
-</p>
+  <h3>Targets</h3>
 
-
- 
+     
 </div>
 
 <div id="Runs" class="tabcontent">
@@ -197,13 +184,36 @@ body {font-family: Arial;}
 </div>
 <div id="Dates" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
- 
+
+  
+
+</div>
   <div id="Calibrations" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
   <h4>Calibrations</h4>
+
+   <form action="/calibrationfinder" method="POST">
+   
+      {%for elem in data%}
+     
+        <button class="buttony button1" value="{{elem}}" input type="submit" name="submit">{{elem}}</button>
+      
+      
+      {%endfor %}
  
-</div>
-</div>
+ 
+
+  </form>
+<h5> Click <a href = "https://www.epochconverter.com/"  target="_blank">HERE</a> for the Unix Timestamp Website converter!</h5>
+</form>
+<br /> <br />
+ <b>Create a New Cal File</b><br/> (type 'WaveCals_Year, A or B and DO NOT create a run with an existing file. That will overwrite the JSON!!) - e.g. WaveCals_2018B:<br/>
+
+<form method = 'POST'>
+<input type ='text' name = 'newCalFile'>
+<input type = 'submit'>
+  </form>
+
 
 <script>
   function openData(evt, infoName) {

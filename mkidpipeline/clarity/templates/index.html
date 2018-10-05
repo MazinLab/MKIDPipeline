@@ -154,14 +154,12 @@ body {font-family: Arial;}
             </div>
 
 <div class="tab">
- <a href ="/database"><button class="tablinks" onclick="openData(event, 'Home')">Home</button></a>
-  <button class="tablinks" onclick="openData(event, 'Targets')" id="defaultOpen">Targets</button>
-  <a href ="/runbuttons"><button class="tablinks" onclick="openData(event, 'Runs')">Runs</button></a>
-  <a href ="/datebuttons"><button class="tablinks" onclick="openData(event, 'Dates')">Dates</button></a>
-   <a href ="/calbuttons"><button class="tablinks" onclick="openData(event, 'Calibrations')">Calibrations</button></a>
-   <a href ="/datarecorder"><button class="tablinks" onclick="openData(event, 'Add New Data')">Add New Data</button></a>
-   <a href ="/calrecorder"><button class="tablinks" onclick="openData(event, 'Add New Cals')">Add New Cals</button></a>
-   <div class="search-container">
+  <button class="tablinks" onclick="openData(event, 'Home')" id="defaultOpen">Home</button>
+  <button class="tablinks" onclick="openData(event, 'Targets')">Targets</button>
+  <button class="tablinks" onclick="openData(event, 'Runs')">Runs</button>
+  <button class="tablinks" onclick="openData(event, 'Dates')">Dates</button>
+   <button class="tablinks" onclick="openData(event, 'Calibrations')">Calibrations</button>
+    <div class="search-container">
             <form action="/action_page.php">
               <input type="text" placeholder="Search..." name="search" size = 30px>
               <button type="submit">Submit<i class=fa fa-search></i></button>
@@ -170,40 +168,51 @@ body {font-family: Arial;}
 </div>
 <div id="Home" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
- </div>
+  <h3>Home</h3>
+Please log in:
+  <form method = 'POST'>
+  <input type ='text' name = 'username'>
+  <input type ='password' name = 'password'>
+  <input type = 'submit'>
+ </form>
+  <p> The Mazin Lab is a University of California, Santa Barbara astrophysics laboratory that uses MKIDS technology to detect stars and exoplanets. This website is the database for all the stars, runs and dates of observation. The official lab website and more information on staff can be found <a href = "https://web.physics.ucsb.edu/~bmazin/">here</a>.</p>
+  <p>The "Targets" section allows you to search for any target from the last four Palomar DARKNESS runs. The "Runs" tab allows you to find all information on a specific run (i.e. 2017A): targets, nearby laser cal times, etc. The "Dates" tab allows you to find information on a specific date. The "Calibrations" tab allows you to find information on Calibration times, dates, targets and bands for each run. You may also search any of these on the Search Bar.</p>
+  <p>Right now, what you will find here is information for the DARKNESS runs, which happened at the Palomar Observatory. The Database is currently being developed by undergraduate student Clarissa Do O, with help from Isabel Lipartito and Jonathan Guiang.</p>
 
+  
+</div>
+<div id = "data">
 <div id="Targets" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
- <a href ="/targetbuttons"><img src="/static/backbutton.png" alt="backbutton" height="42" width="42"></a>
-  <p class="solid">
-    
-    {% for elem in data %}
-    <table>
-     {%for key in ["Target", "Type", "J mag", "Sunset Date(s)", "Seeing (AO)", "Filters", "Time Windows", "Nearby Laser Cals", "Important Notes", "Number of Dithers", "AO Saved State", "BIN File Range", "Simbad Webpage"] %}
-        <tr> <th> {{key}}:</th><td> {{elem[key] | safe}} </td></tr>
-     {%endfor%}
-     </table>
-  <hr>
-  {% endfor %}
-</table>
-</p>
+  <h2>Targets</h2>
+<p>Please log in to have access to this page!</p>
+</div>
 
-
- 
+     
 </div>
 
 <div id="Runs" class="tabcontent">
- 
+  <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
+  <h2>Runs</h2>
+<p>Please log in to have access to this page!</p>
 </div>
+
 <div id="Dates" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
- 
+  <h2>Dates</h2>
+<p>Please log in to have access to this page!</p>
+</div>
   <div id="Calibrations" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
-  <h4>Calibrations</h4>
- 
+  <h2>Calibrations</h2>
+ <p>Please log in to have access to this page!</p>
 </div>
+ <div id="Add New Data" class="tabcontent">
+  <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
+  <h5>Add New Data</h5>
+ <p>Please log in to have access to this page!</p>
 </div>
+
 
 <script>
   function openData(evt, infoName) {

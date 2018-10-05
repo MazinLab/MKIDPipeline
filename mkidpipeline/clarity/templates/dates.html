@@ -154,11 +154,13 @@ body {font-family: Arial;}
             </div>
 
 <div class="tab">
-<a href ="http://0.0.0.0:3000/"><button class="tablinks" onclick="openData(event, 'Home')">Home</button></a>
-  <a href ="http://0.0.0.0:3000/"><button class="tablinks" onclick="openData(event, 'Targets')">Targets</button></a>
-  <a href ="http://0.0.0.0:3000/"><button class="tablinks" onclick="openData(event, 'Runs')">Runs</button></a>
+<a href ="/database"><button class="tablinks" onclick="openData(event, 'Home')">Home</button></a>
+  <a href ="/targetbuttons"><button class="tablinks" onclick="openData(event, 'Targets')">Targets</button></a>
+  <a href ="/runbuttons"><button class="tablinks" onclick="openData(event, 'Runs')">Runs</button></a>
   <button class="tablinks" onclick="openData(event, 'Dates')" id="defaultOpen">Dates</button>
-   <a href ="http://0.0.0.0:3000/"><button class="tablinks" onclick="openData(event, 'Calibrations')">Calibrations</button></a>
+   <a href ="/calbuttons"><button class="tablinks" onclick="openData(event, 'Calibrations')">Calibrations</button></a>
+   <a href ="/datarecorder"><button class="tablinks" onclick="openData(event, 'Add New Data')">Add New Data</button></a>
+   <a href ="/calrecorder"><button class="tablinks" onclick="openData(event, 'Add New Cals')">Add New Cals</button></a>
     <div class="search-container">
             <form action="/action_page.php">
               <input type="text" placeholder="Search..." name="search" size = 30px>
@@ -182,13 +184,19 @@ body {font-family: Arial;}
 </div>
 <div id="Dates" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
-
-{% for elem in data %}
-      {%for key in elem%} 
-       <b> {{key}}{{": " }}<p>&nbsp;&nbsp;&nbsp;&nbsp;</b>{{elem[key]}}</p>
-      {%endfor%}
-     {{"------------------------------------------------------------------------------------------------------------------------"}} <br>
+   <a href ="/datebuttons"><img src="/static/backbutton.png" alt="backbutton" height="42" width="42"></a>
+  <p class="solid">
+    
+    {% for elem in data %}
+    <table>
+     {%for key in ["Target", "Type", "J mag", "Sunset Date(s)", "Seeing (AO)", "Filters", "Time Windows", "Nearby Laser Cals", "Important Notes", "Number of Dithers", "AO Saved State", "BIN File Range", "Simbad Webpage"] %}
+        <tr> <th> {{key}}:</th><td> {{elem[key] | safe}} </td></tr>
+     {%endfor%}
+     </table>
+  <hr>
   {% endfor %}
+</table>
+</p>
 
   <div id="Calibrations" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>

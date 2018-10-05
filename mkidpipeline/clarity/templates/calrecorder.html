@@ -5,25 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="shortcut icon"  href="https://png.icons8.com/ios/80/000000/planet-filled.png"/>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
-  <script type="text/javascript" src="{{ url_for('static', filename='database.js') }}"></script>
+ 
 <style>
 
 li:hover { cursor: pointer; }
 
 
 .content {
-	  	width: 300px;
-	    border: 2px solid rgb(150, 0, 250);
-	    padding: 20px;
-	    overflow: hidden;
-	}
+      width: 300px;
+      border: 2px solid rgb(150, 0, 250);
+      padding: 20px;
+      overflow: hidden;
+  }
 
 .content img {
-	    margin-right: 25px;
-	    float: left;
-		cursor: pointer;
-	}
-	
+      margin-right: 25px;
+      float: left;
+    cursor: pointer;
+  }
+  
 body {font-family: Arial;}
 .tab .search-container {
   float:right;
@@ -96,7 +96,7 @@ body {font-family: Arial;}
 
 .jumbotron-billboard .galaxy {
             margin-bottom: 0px;
-            opacity: 0.35;
+            opacity: 0.6;
             color: #fff;
             background: #000 url("/static/stars.png") center center;
             width: 100%;
@@ -145,20 +145,23 @@ body {font-family: Arial;}
    <div class="jumbotron jumbotron-billboard">
 
             <div class="galaxy"></div>
-	<div class="content">
-	   <img src="https://png.icons8.com/ios/80/000000/planet-filled.png"/ alt="" >
-	    <h3 style="font-size: 100%;">CLARITY</h3>
-	    <p>Welcome to Clarity, the Mazin Lab Database</p>
-	</div>​
-			</div>
+  <div class="content">
+     <img src="https://png.icons8.com/ios/80/000000/planet-filled.png"/ alt="" >
+      <h3 style="font-size: 100%;">CLARITY</h3>
+      <p>Welcome to Clarity, the Mazin Lab Database</p>
+  </div>​
+      </div>
             </div>
 
 <div class="tab">
-  <button class="tablinks" onclick="openData(event, 'Home')" id="defaultOpen">Home</button>
-  <button class="tablinks" onclick="openData(event, 'Targets')">Targets</button>
-  <button class="tablinks" onclick="openData(event, 'Runs')">Runs</button>
-  <button class="tablinks" onclick="openData(event, 'Dates')">Dates</button>
-   <button class="tablinks" onclick="openData(event, 'Calibrations')">Calibrations</button>
+   <a href ="/database"> <button class="tablinks" onclick="openData(event, 'Home')">Home</button></a>
+ <a href ="/targetbuttons"> <button class="tablinks" onclick="openData(event, 'Targets')">Targets</button></a>
+   <a href ="/runbuttons"><button class="tablinks" onclick="openData(event, 'Runs')">Runs</button></a>
+  <a href ="/datebuttons"> <button class="tablinks" onclick="openData(event, 'Dates')">Dates</button></a>
+    <a href ="/calbuttons"><button class="tablinks" onclick="openData(event, 'Calibrations')">Calibrations</button></a>
+    <a href ="/datarecorder"><button class="tablinks" onclick="openData(event, 'Add New Data')">Add New Data</button></a>
+       <button class="tablinks" onclick="openData(event, 'Add New Cals')" id="defaultOpen">Add New Cals</button>
+
     <div class="search-container">
             <form action="/action_page.php">
               <input type="text" placeholder="Search..." name="search" size = 30px>
@@ -168,49 +171,15 @@ body {font-family: Arial;}
 </div>
 <div id="Home" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
-  <h3>Home</h3>
-  <p> The Mazin Lab is a University of California, Santa Barbara astrophysics laboratory that uses MKIDS technology to detect stars and exoplanets. This website is the database for all the stars, runs and dates of observation. The official lab website and more information on staff can be found <a href = "https://web.physics.ucsb.edu/~bmazin/">here</a>.</p>
-  <p>The "Targets" section allows you to search for any target from the last four Palomar DARKNESS runs. The "Runs" tab allows you to find all information on a specific run (i.e. 2017A): targets, nearby laser cal times, etc. The "Dates" tab allows you to find information on a specific date. The "Calibrations" tab allows you to find information on Calibration times, dates, targets and bands for each run. You may also search any of these on the Search Bar.</p>
-  <p>Right now, what you will find here is information for the DARKNESS runs, which happened at the Palomar Observatory. The Database is currently being developed by undergraduate student Clarissa Do O, with help from Isabel Lipartito and Jonathan Guiang.</p>
-
-  
+ 
 </div>
 <div id = "data">
 <div id="Targets" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
-  <h3>Targets</h3>
 
 
-
-  <ul>
-     <li><a href="#">SAO61424</a></li>
-      <li><a href="#">HR8799</a></li>
-      <li><a href="#">Eps Eridani</a></li>
-     <li> <a href="#">SAO78135 (Propus)</a></li>
-      <li><a href="#">SAO42642</a></li>
-      <li><a href="#">SAO82875</a></li>
-      <li><a href="#">HD77407</a></li>
-      <li><a href="#">SAO100725</a></li>
-      <li> <a href="#">Tau Boo</a></li>
-      <li><a href="#">Candidate 1</a></li>
-      <li><a href="#">HD114174</a></li>
-     <li> <a href="#">SAO65921</a></li>
-     <li> <a href="#">SAO65890</a></li>
-      <li><a href="#">HD91782</a></li>
-     <li> <a href="#">HD148112</a></li>
-      <li><a href="#">SAO83893</a></li>
-     <li> <a href="#">SAO90440 (32 Peg)</a></li>
-      <li><a href="#">SAO90717</a></li>
-      <li><a href="#">SAO108402</a></li>
-     <li> <a href="#">SAO54058 (Delta And)</a></li>
-     <li> <a href="#">SAO112345 (HD32297)</a></li>
-      <li><a href="#">SAO 37734 (Gamma And)</a></li>
-      <li><a href="#">SAO44531</a></li>
-      <li><a href="#">Vega</a></li>
-     <li> <a href="#">Omega Her</a></li>
-      <li><a href="#">SAO47913</a></li>
-      <li><a href="#">White Light</a></li>
-    </ul>
+ 
+ 
 
 </div>
 
@@ -219,57 +188,40 @@ body {font-family: Arial;}
 
 <div id="Runs" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
-  <h4>Runs</h4>
-  <ul>
-	 <u><font color = "blue"><li id="2016B">2016B</li></font></u>
-	<u><font color = "blue"><li id="2017A">2017A</li></font></u>
-  <u><font color = "blue"><li id="2017B">2017B</li></font></u>
-    <u><font color = "blue"><li id="2018A">2018A</li></font></u>
-    			<form action="/finder" method="get">
-    <button class="buttony button1">HR8799</button>
-
-</form>
-
-
-  </ul> 
+  
 
 </div>
 
 <div id="Dates" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
-  <h5>Dates</h>
-  <ul>
-	  <li>November 21st, 2016</li>
-	  <li>November 22nd, 2016</li>
-	  <li>April 7th, 2017</li>
-	  <li>April 8th, 2017</li>
-	  <li>April 9th, 2017</li>
-	  <li>April 10th, 2017</li>
-	  <li>October 3rd, 2017</li>
-	  <li>October 4th, 2017</li>
-	  <li>October 5th, 2017</li>
-	  <li>October 6th, 2017</li>
-	  <li>May 23rd, 2018</li>
-	  <li>May 24th, 2018</li>
-	  <li>May 27th, 2018</li>
-	  <li>May 28th, 2018</li>
-	  <li>May 29th, 2018</li>
-	  <li>May 30th, 2018</li>
-	  
-  </ul>
+
+
 </div>
   <div id="Calibrations" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
-  <h4>Calibrations</h4>
- <p>
-  <ul>
-   <li id="16BCals">2016B Calibrations</li>
-   <li id="17ACals">2017A Calibrations</li>
-   <li id="17BCals">2017B Calibrations</li>
-   <li id="18ACals">2018A Calibrations</li>
-  </ul> 
-</p>
+ 
 </div>
+
+ <div id="Add New Data" class="tabcontent">
+  </div>
+  <div id="Add New Cals" class="tabcontent"> 
+  <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>
+ <form method = 'POST'>
+    Please Type the File Name of where you would like to add Data to (e.g. WaveCals_2018BMEC): 
+  <input type ='text' name = 'File_Name'> <br /> <br />
+  Target: <input type ='text' name = 'calTarget'> <br />
+   Run: <input type ='text' name = 'Run'> <br />
+   Time: <input type ='text' name = 'Time'> <br />
+   808nm: <input type ='text' name = '808nm'> <br />
+   904 nm:<input type ='text' name = '904 nm'> <br />
+   920 nm: <input type ='text' name = '920 nm''> <br />
+   980 nm <input type ='text' name = '980 nm'> <br />
+   1120 nm: <input type ='text' name = '1120 nm'> <br />
+   Rethresholding range: <input type ='text' name = 'Rethresholding range'> <br />
+  <input type = 'submit'>
+ </form>
+</div>
+
 
 <script>
   function openData(evt, infoName) {
