@@ -187,16 +187,13 @@ body {font-family: Arial;}
   <h3> Dates </h3>
     <form action="/datefinder" method="POST">
     
-
       {%for elem in data%}
-    
         <button class="buttony button1" value="{{elem}}" input type="submit" name="submit">{{elem}}</button>
-      
-      
       {%endfor %}
   </form>
  
  
+
 </form>
   <div id="Calibrations" class="tabcontent">
   <span onclick="this.parentElement.style.display='none'" class="topright">&times</span>

@@ -6,6 +6,10 @@ from pathlib import Path
 from datetime import datetime
 
 
+def saveFile(name, newlist):
+    with open(name + '.json', 'w') as outfile:
+        json.dump(newlist, outfile, indent=4, separators=(',', ': '))
+
 app = Flask(__name__)
 app.debug = True
 app.config['JSON_SORT_KEYS'] = False
@@ -28,16 +32,15 @@ def loadCalFile(name):
     with open('/Users/clarissardoo/Desktop/Clarity/MKIDPipeline/mkidpipeline/clarity/calfiles/' + name + '.json', 'r') as infile:
         return json.load(infile)
 
-
-
 @app.route('/', methods = ['GET', 'POST'])
 def index():
     if request.method == 'POST':
         session.pop('user', None)
         userlist = ['clarissardoo']
-        if request.form['password'] == 'mkidsecure':
-                if request.form['username'] in userlist:
-                    session['user'] = request.form['username']
+
+        if request.form['password'] == 'password':
+            if request.form['username'] in userlist:
+                session['user'] = request.form['username']
         return redirect(url_for('database'))
     return render_template('index.html')
 
@@ -129,7 +132,6 @@ def runbuttons():
 @app.route('/datebuttons')
 def datebuttons():
     if g.user:
-
         data = []
         prettyData = []
         jsonfiles = glob('/Users/clarissardoo/Desktop/Clarity/MKIDPipeline/mkidpipeline/clarity/datafiles/*.json')
@@ -147,11 +149,7 @@ def datebuttons():
                 newformat = datetimeobject.strftime('%B-%d-%Y')
                 prettyData.append(newformat)
 
-
         return render_template("datebuttons.html", data = set(data))
-
-
-        #return render_template('datebuttons.html')
     return redirect(url_for('index'))
 
 
@@ -175,7 +173,6 @@ def calbuttons():
         return render_template("calbuttons.html", data = set(data))
 
     return redirect(url_for('index'))
-
 
 @app.before_request
 def before_request():
@@ -228,12 +225,11 @@ def calibrationfinder():
         data = []
         for recordYear in jsonfiles:
             with open(recordYear) as datarunner:
-                    data1 = json.load(datarunner)
+                data1 = json.load(datarunner)
             for elem in data1:
                 if elem.get("Target") == request.form['submit']:
                     data.append(elem)   
         return render_template("cals.html", data = data)
-
 
 
 @app.route('/datefinder', methods=['POST'])
@@ -243,7 +239,7 @@ def datefinder():
         data = []
         for recordYear in jsonfiles:
             with open(recordYear) as datarunner:
-                    data1 = json.load(datarunner)
+                data1 = json.load(datarunner)
             for elem in data1:
                 date = request.form['submit']
                 if date in elem.get("Sunset Date(s)"):
