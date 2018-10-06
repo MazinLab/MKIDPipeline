@@ -271,7 +271,6 @@ class Calibrator(object):
                                  beam_map=beam_map)
         self.cpu_count = None
 
-
     def run(self, pixels=(), parallel=True, save=True):
         try:
             if parallel:
@@ -357,6 +356,8 @@ class Calibrator(object):
             # fit the histograms of the higher energy data sets first and use good
             # fits to inform the guesses to the lower energy data sets
             for wavelength_index, wavelength in enumerate(self.cfg.wavelengths):
+                message = "({}, {}) : {} nm : beginning histogram fitting"
+                log.debug(message.format(x_ind, y_ind, wavelength))
                 model = model_list[wavelength_index]
                 if model.x is None or model.y is None:
                     message = ("({}, {}) : {} nm : histogram fit failed because there is "
@@ -364,6 +365,7 @@ class Calibrator(object):
                     log.debug(message.format(x_ind, y_ind, wavelength))
                     continue
                 # try models in order specified in the config file
+                tried_models = []
                 for histogram_model in self.solution.histogram_model_list:
                     # update the model if needed
                     if not isinstance(model, histogram_model):
@@ -378,34 +380,33 @@ class Calibrator(object):
                         model.fit(guess)
                         # if the fit worked continue with the next wavelength
                         if model.has_good_solution():
+                            tried_models.append(model.copy())
                             message = ("({}, {}) : {} nm : histogram fit successful with "
                                        "computed guess and model {}")
                             log.debug(message.format(x_ind, y_ind, wavelength,
                                                      type(model).__name__))
-                            break
+                            continue
                     # try a guess based on the model if the intelligent guess didn't work
                     for fit_index in range(self.cfg.histogram_fit_attempts):
                         guess = model.guess(fit_index)
                         model.fit(guess)
                         if model.has_good_solution():
+                            tried_models.append(model.copy())
                             message = ("({}, {}) : {} nm : histogram fit successful with "
                                        "guess number {} and model {}")
                             log.debug(message.format(x_ind, y_ind, wavelength, fit_index,
                                                      type(model).__name__))
                             break
                     else:
-                        # didn't find a good fit and trying another model
-                        # print(type(model).__name__, model.fit_result.model.func.__qualname__, model.fit_result.redchi,
-                        #       model.fit_result.chisqr, model.fit_result.aic)
+                        # trying next model since no good fit was found
+                        tried_models.append(model.copy())
                         continue
-                    # found a good fit and going to next wavelength
-                    break
-                else:
-                    message = "({}, {}) : {} nm : histogram fit failed with all models"
-                    log.debug(message.format(x_ind, y_ind, wavelength))
+                # find model with the best fit and save that one
+                self._assign_best_model(model_list, tried_models, wavelength_index,
+                                        x_ind, y_ind)
 
             # recheck fits that didn't work with better guesses if there exist
-            # lower energy fits that did
+            # lower energy fits that did work
             good_solutions = [model.has_good_solution() for model in model_list]
             for wavelength_index, wavelength in enumerate(self.cfg.wavelengths):
                 model = model_list[wavelength_index]
@@ -414,6 +415,7 @@ class Calibrator(object):
                 if model.has_good_solution():
                     continue
                 if np.any(good_solutions[wavelength_index + 1:]):
+                    tried_models = []
                     for histogram_model in self.solution.histogram_model_list:
                         if not isinstance(model, histogram_model):
                             model = self._update_model(wavelength_index, model_list,
@@ -421,11 +423,15 @@ class Calibrator(object):
                         guess = self._guess(pixel, wavelength_index, good_solutions)
                         model.fit(guess)
                         if model.has_good_solution():
-                            message = ("({}, {}) : {} nm : histogram fit recomputed and"
+                            message = ("({}, {}) : {} nm : histogram fit recomputed and "
                                        "successful with model {}")
                             log.debug(message.format(x_ind, y_ind, wavelength,
                                                      type(model).__name__))
-                            break
+                        tried_models.append(model.copy())
+                    else:
+                        # find the model with the best bad fit and save that one
+                        self._assign_best_model(model_list, tried_models,
+                                                wavelength_index, x_ind, y_ind)
 
     def fit_phase_energy_curve(self, pixels=()):
         for pixel in pixels:
@@ -500,14 +506,12 @@ class Calibrator(object):
         x = model_list[wavelength_index].x
         y = model_list[wavelength_index].y
         variance = model_list[wavelength_index].variance
-        best_fit_result = model_list[wavelength_index].best_fit_result
         # swap model
         model_list[wavelength_index] = histogram_model()
         # set new data
         model_list[wavelength_index].x = x
         model_list[wavelength_index].y = y
         model_list[wavelength_index].variance = variance
-        model_list[wavelength_index].best_fit_result = best_fit_result
         return model_list[wavelength_index]
 
     def _guess(self, pixel, wavelength_index, good_solutions):
@@ -580,6 +584,27 @@ class Calibrator(object):
                 guess[name].set(value=longer_guesses[name])
 
         return guess
+
+    def _assign_best_model(self, model_list, tried_models, wavelength_index, x_ind,
+                           y_ind):
+        wavelength = self.cfg.wavelengths[wavelength_index]
+        best_model = tried_models[0]
+        for model in tried_models[1:]:
+            lower_aic = model.best_fit_result.aic < best_model.best_fit_result.aic
+            good_fit = model.has_good_solution()
+            if lower_aic and good_fit:
+                best_model = model
+        model_list[wavelength_index] = best_model
+
+        if best_model.has_good_solution():
+            message = ("({}, {}) : {} nm : histogram model '{}' chosen as "
+                       "the best successful fit")
+            log.debug(message.format(x_ind, y_ind, wavelength,
+                                     type(best_model).__name__))
+        else:
+            message = ("({}, {}) : {} nm : histogram fit failed with all "
+                       "models")
+            log.debug(message.format(x_ind, y_ind, wavelength))
 
 
 class Solution(object):

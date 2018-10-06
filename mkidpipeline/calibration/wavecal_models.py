@@ -1,3 +1,4 @@
+import copy
 import inspect
 import numpy as np
 import lmfit as lm
@@ -140,8 +141,7 @@ class PartialLinearModel(object):
         self.used_last_fit = None
 
     def fit(self, guess):
-        if self.x is None or self.y is None:
-            raise RuntimeError("A fit for this model has not been computed yet")
+        self._check_data()
         self.initial_guess = guess.copy()
         keep = (self.y != 0)
         x = self.x[keep]
@@ -187,7 +187,7 @@ class PartialLinearModel(object):
 
         # save the data in best_fit_result if it is better than previous fits
         self.used_last_fit = (self.best_fit_result is None or
-                              self.fit_result.aic < self.best_fit_result.aic)
+                              self.fit_result.chisqr < self.best_fit_result.chisqr)
         if self.used_last_fit:
             self.best_fit_result = self.fit_result
             self.best_fit_result_guess = self.initial_guess
@@ -209,8 +209,7 @@ class PartialLinearModel(object):
 
     def plot(self, axis=None, legend=True, title=True, x_label=True, y_label=True,
              best_fit=True):
-        if self.best_fit_result is None:
-            raise RuntimeError("No fit has been computed for this model")
+        self._check_fit()
         if best_fit:
             fit_result = self.best_fit_result
         else:
@@ -264,9 +263,9 @@ class PartialLinearModel(object):
 
         # bad fit to data
         p = self.best_fit_result.params.valuesdict()
-        # p_value = chi2.sf(self.best_fit_result.chisqr,
-        #                   self.best_fit_result.nfree)
-        high_chi2 = self.best_fit_result.redchi > 60
+        # p_value = chi2.sf(*self.chi2())
+        chi_squared, df = self.chi2()
+        high_chi2 = chi_squared / df > 30
         no_errors = not self.best_fit_result.errorbars
         max_phase = np.min([-10, np.max(self.x) * 1.2])
         min_phase = np.min(self.x)
@@ -280,6 +279,31 @@ class PartialLinearModel(object):
 
     def guess(self, index=0):
         raise NotImplementedError
+
+    def copy(self):
+        return copy.deepcopy(self)
+
+    def chi2(self):
+        """chi squared +/- 2 sigma from the signal_peak and degrees of freedom"""
+        self._check_fit()
+        p = self.best_fit_result.params.valuesdict()
+        center = p['signal_center']
+        sigma = p['signal_sigma']
+        left = center - 2 * sigma
+        right = center + 2 * sigma
+        x = self.x[self.y != 0]
+        logic = np.logical_and(x > left, x < right)
+        chi2 = np.sum(self.best_fit_result.residual[logic]**2)
+        df = np.sum(logic) - self.best_fit_result.nvarys
+        return chi2, df
+
+    def _check_fit(self):
+        if self.best_fit_result is None:
+            raise RuntimeError("No fit has been computed for this model")
+
+    def _check_data(self):
+        if self.x is None or self.y is None:
+            raise RuntimeError("data for this model has not been computed yet")
 
 
 class GaussianAndExponential(PartialLinearModel):
@@ -317,7 +341,6 @@ class GaussianAndExponential(PartialLinearModel):
                                              p['signal_sigma'])
         e = p['trigger_amplitude'] * exponential(p['signal_center'], p['trigger_tail'])
         swamped_peak = g < 2 * e
-
         success = not swamped_peak
         return success
 
