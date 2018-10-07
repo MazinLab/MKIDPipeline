@@ -293,9 +293,9 @@ class PartialLinearModel(object):
         right = center + 2 * sigma
         x = self.x[self.y != 0]
         logic = np.logical_and(x > left, x < right)
-        chi2 = np.sum(self.best_fit_result.residual[logic]**2)
+        chi_squared = np.sum(self.best_fit_result.residual[logic]**2)
         df = np.sum(logic) - self.best_fit_result.nvarys
-        return chi2, df
+        return chi_squared, df
 
     def _check_fit(self):
         if self.best_fit_result is None:
@@ -707,12 +707,18 @@ class XErrorsModel(object):
 
     self.x, self.y, and self.variance must be defined by the user before fitting."""
     def __init__(self):
+        self.initial_guess = None
+        self.used_last_fit = None
+        self.best_fit_result = None
+        self.best_fit_result_guess = None
         self.fit_result = None
         self.x = None
         self.y = None
         self.variance = None
 
     def fit(self, guess):
+        self._check_data()
+        self.initial_guess = guess.copy()
         scale = True
         variance = self.variance
         if self.variance is None:
@@ -722,18 +728,61 @@ class XErrorsModel(object):
         self.fit_result = lm.minimize(self.chi_squared, guess, args=arguments,
                                       scale_covar=scale)
 
+        # save the data in best_fit_result if it is better than previous fits
+        self.used_last_fit = (self.best_fit_result is None or
+                              self.fit_result.chisqr < self.best_fit_result.chisqr)
+        if self.used_last_fit:
+            self.best_fit_result = self.fit_result
+            self.best_fit_result_guess = self.initial_guess
+
     @staticmethod
     def chi_squared(parameters, x, y, variance, f, dfdx):
         return (f(x, parameters) - y) / (dfdx(x, parameters) * np.sqrt(variance))
 
-    def plot(self):
-        pass
+    def plot(self, axis=None, title=True, x_label=True, y_label=True, best_fit=True):
+        self._check_fit()
+        if best_fit:
+            fit_result = self.best_fit_result
+        else:
+            fit_result = self.fit_result
+
+        if axis is None:
+            _, axis = plt.subplots()
+
+        axis.errorbar(self.x, self.y, xerr=np.sqrt(self.variance), linestyle='--',
+                      marker='o', markersize=5, markeredgecolor='black',
+                      markeredgewidth=0.5, ecolor='black', capsize=3, elinewidth=0.5)
+        y_limit = [0.95 * min(self.y), max(self.y) * 1.05]
+        axis.set_ylim(y_limit)
+        x_limit = [1.05 * min(self.x - np.sqrt(self.variance)),
+                   0.92 * max(self.x + np.sqrt(self.variance))]
+        axis.set_xlim(x_limit)
+        xx = np.linspace(x_limit[0], x_limit[1], 1000)
+        axis.plot(xx, self.fit_function(xx, fit_result.params), color='orange')
+
+        if x_label:
+            axis.set_xlabel('phase [degrees]')
+        if y_label:
+            axis.set_ylabel('energy [eV]')
+        if title:
+            axis.set_title('Model: {}'.format(type(self).__name__))
 
     def has_good_solution(self):
         return self.fit_result.success
 
     def guess(self):
         raise NotImplementedError
+
+    def copy(self):
+        return copy.deepcopy(self)
+
+    def _check_data(self):
+        if self.x is None or self.y is None:
+            raise RuntimeError("data for this model has not been computed yet")
+
+    def _check_fit(self):
+        if self.best_fit_result is None:
+            raise RuntimeError("No fit has been computed for this model")
 
 
 class Quadratic(XErrorsModel):
@@ -751,7 +800,7 @@ class Quadratic(XErrorsModel):
         return self.fit_result.success
 
     def guess(self):
-        poly = np.polyfit(x, y, 2)
+        poly = np.polyfit(self.x, self.y, 2)
         parameters = lm.Parameters()
         parameters.add('c0', value=poly[2])
         parameters.add('c1', value=poly[1])
@@ -774,7 +823,7 @@ class Linear(XErrorsModel):
         return self.fit_result.success
 
     def guess(self):
-        poly = np.polyfit(x, y, 1)
+        poly = np.polyfit(self.x, self.y, 1)
         parameters = lm.Parameters()
         parameters.add('c0', value=poly[1])
         parameters.add('c1', value=poly[0])

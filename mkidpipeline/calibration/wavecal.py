@@ -7,6 +7,7 @@ import argparse
 import numpy as np
 import multiprocessing as mp
 from datetime import datetime
+from astropy.constants import c, h
 from six.moves.configparser import ConfigParser
 
 from mkidpipeline.hdf import bin2hdf
@@ -356,21 +357,21 @@ class Calibrator(object):
             # fit the histograms of the higher energy data sets first and use good
             # fits to inform the guesses to the lower energy data sets
             for wavelength_index, wavelength in enumerate(self.cfg.wavelengths):
-                message = "({}, {}) : {} nm : beginning histogram fitting"
-                log.debug(message.format(x_ind, y_ind, wavelength))
                 model = model_list[wavelength_index]
                 if model.x is None or model.y is None:
                     message = ("({}, {}) : {} nm : histogram fit failed because there is "
                                "no data")
                     log.debug(message.format(x_ind, y_ind, wavelength))
                     continue
+                message = "({}, {}) : {} nm : beginning histogram fitting"
+                log.debug(message.format(x_ind, y_ind, wavelength))
                 # try models in order specified in the config file
                 tried_models = []
                 for histogram_model in self.solution.histogram_model_list:
                     # update the model if needed
                     if not isinstance(model, histogram_model):
-                        model = self._update_model(wavelength_index, model_list,
-                                                   histogram_model)
+                        model = self._update_histogram_model(wavelength_index,
+                                                             histogram_model, pixel)
                     # if there are any good fits intelligently guess the signal_center
                     # parameter and set the other parameters equal to the average of those
                     # in the good fits
@@ -402,8 +403,8 @@ class Calibrator(object):
                         tried_models.append(model.copy())
                         continue
                 # find model with the best fit and save that one
-                self._assign_best_model(model_list, tried_models, wavelength_index,
-                                        x_ind, y_ind)
+                self._assign_best_histogram_model(model_list, tried_models,
+                                                  wavelength_index, pixel)
 
             # recheck fits that didn't work with better guesses if there exist
             # lower energy fits that did work
@@ -418,8 +419,8 @@ class Calibrator(object):
                     tried_models = []
                     for histogram_model in self.solution.histogram_model_list:
                         if not isinstance(model, histogram_model):
-                            model = self._update_model(wavelength_index, model_list,
-                                                       histogram_model)
+                            model = self._update_histogram_model(wavelength_index,
+                                                                 histogram_model, pixel)
                         guess = self._guess(pixel, wavelength_index, good_solutions)
                         model.fit(guess)
                         if model.has_good_solution():
@@ -430,13 +431,50 @@ class Calibrator(object):
                         tried_models.append(model.copy())
                     else:
                         # find the model with the best bad fit and save that one
-                        self._assign_best_model(model_list, tried_models,
-                                                wavelength_index, x_ind, y_ind)
+                        self._assign_best_histogram_model(model_list, tried_models,
+                                                          wavelength_index, pixel)
 
     def fit_phase_energy_curve(self, pixels=()):
         for pixel in pixels:
-            guess = self._phase_energy_guess()
-            self.solution[pixel[0], pixel[1]]['calibration'].fit(guess)
+            x_ind, y_ind = pixel[0], pixel[1]
+            model = self.solution[x_ind, y_ind]['calibration']
+            # get data from histogram fits
+            histogram_models = self.solution[x_ind, y_ind]['histogram']
+            phases, variance, energies = [], [], []
+            for wavelength_index, histogram_model in enumerate(histogram_models):
+                if histogram_model.has_good_solution:
+                    phases.append(histogram_model.signal_center)
+                    variance.append(histogram_model.signal_center_standard_error**2)
+                    energies.append(h.to('eV s').value * c.to('nm/s').value /
+                                    self.cfg.wavelengths[wavelength_index])
+            # give data to model
+            if variance:
+                model.x = np.array(phases)
+                model.y = np.array(energies)
+                model.variance = np.array(variance)
+
+            # don't fit if there's not enough data
+            if len(variance) < 3:
+                message = "({}, {}) : {} data points is not enough to make a calibration"
+                log.debug(message.format(x_ind, y_ind, len(variance)))
+                continue
+
+            # TODO monotonicity cut
+
+            # fit the data
+            message = "({}, {}) : beginning phase-energy calibration fitting"
+            log.debug(message.format(x_ind, y_ind))
+            tried_models = []
+            for calibration_model in self.solution.calibration_model_list:
+                # update the model if needed
+                if not isinstance(model, calibration_model):
+                    model = self._update_calibration_model(calibration_model, pixel)
+                guess = model.guess()
+                model.fit(guess)
+                tried_models.append(model.copy())
+
+            # find model with the best fit and save that one
+            self._assign_best_calibration_model(tried_models, pixel)
 
     def _parse_wavelengths(self, wavelengths):
         if wavelengths is None:
@@ -500,8 +538,8 @@ class Calibrator(object):
             pixels = np.array([[x, y] for x in x_pixels for y in y_pixels])
         return pixels
 
-    @staticmethod
-    def _update_model(wavelength_index, model_list, histogram_model):
+    def _update_histogram_model(self, wavelength_index, histogram_model, pixel):
+        model_list = self.solution[pixel[0], pixel[1]]['histogram']
         # save old data
         x = model_list[wavelength_index].x
         y = model_list[wavelength_index].y
@@ -513,6 +551,19 @@ class Calibrator(object):
         model_list[wavelength_index].y = y
         model_list[wavelength_index].variance = variance
         return model_list[wavelength_index]
+
+    def _update_calibration_model(self, calibration_model, pixel):
+        # save old data
+        x = self.solution[pixel[0], pixel[1]]['calibration'].x
+        y = self.solution[pixel[0], pixel[1]]['calibration'].y
+        variance = self.solution[pixel[0], pixel[1]]['calibration'].variance
+        # swap model
+        self.solution[pixel[0], pixel[1]]['calibration'] = calibration_model()
+        # set new data
+        self.solution[pixel[0], pixel[1]]['calibration'].x = x
+        self.solution[pixel[0], pixel[1]]['calibration'].y = y
+        self.solution[pixel[0], pixel[1]]['calibration'].variance = variance
+        return self.solution[pixel[0], pixel[1]]['calibration']
 
     def _guess(self, pixel, wavelength_index, good_solutions):
         """If there are any good fits for this pixel intelligently guess the
@@ -585,26 +636,52 @@ class Calibrator(object):
 
         return guess
 
-    def _assign_best_model(self, model_list, tried_models, wavelength_index, x_ind,
-                           y_ind):
+    def _assign_best_histogram_model(self, model_list, tried_models, wavelength_index,
+                                     pixel):
         wavelength = self.cfg.wavelengths[wavelength_index]
+        x_ind, y_ind = pixel[0], pixel[1]
         best_model = tried_models[0]
+        lowest_aic_model = tried_models[0]
         for model in tried_models[1:]:
             lower_aic = model.best_fit_result.aic < best_model.best_fit_result.aic
             good_fit = model.has_good_solution()
             if lower_aic and good_fit:
                 best_model = model
-        model_list[wavelength_index] = best_model
+            if lower_aic:
+                lowest_aic_model = model
 
         if best_model.has_good_solution():
+            model_list[wavelength_index] = best_model
             message = ("({}, {}) : {} nm : histogram model '{}' chosen as "
                        "the best successful fit")
             log.debug(message.format(x_ind, y_ind, wavelength,
                                      type(best_model).__name__))
         else:
+            model_list[wavelength_index] = lowest_aic_model
             message = ("({}, {}) : {} nm : histogram fit failed with all "
                        "models")
             log.debug(message.format(x_ind, y_ind, wavelength))
+
+    def _assign_best_calibration_model(self, tried_models, pixel):
+        x_ind, y_ind = pixel[0], pixel[1]
+        best_model = tried_models[0]
+        lowest_aic_model = tried_models[0]
+        for model in tried_models[1:]:
+            lower_aic = model.best_fit_result.aic < best_model.best_fit_result.aic
+            good_fit = model.has_good_solution()
+            if lower_aic and good_fit:
+                best_model = model
+            if lower_aic:
+                lowest_aic_model = model
+        if best_model.has_good_solution():
+            self.solution[x_ind, y_ind]['calibration'] = best_model
+            message = ("({}, {}) : energy-phase calibration model '{}' chosen as "
+                       "the best successful fit")
+            log.debug(message.format(x_ind, y_ind, type(best_model).__name__))
+        else:
+            self.solution[x_ind, y_ind]['calibration'] = lowest_aic_model
+            message = "({}, {}) : energy-phase calibration fit failed with all models"
+            log.debug(message.format(x_ind, y_ind))
 
 
 class Solution(object):
