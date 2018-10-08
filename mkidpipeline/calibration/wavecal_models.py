@@ -1,3 +1,4 @@
+import os
 import copy
 import inspect
 import numpy as np
@@ -7,6 +8,8 @@ import scipy.optimize as opt
 from scipy.stats import chi2
 from matplotlib import pyplot as plt
 from scipy.special import erfc, erfcx
+
+from mkidcore.pixelflags import waveCal as flag_dict
 
 
 def switch_centers(partial_linear_model):
@@ -85,6 +88,14 @@ def exponential(x, rate):
     return np.exp(rate * x)
 
 
+def plot_text(axis, flag, color):
+    x_limits = axis.get_xlim()
+    y_limits = axis.get_ylim()
+    dx, dy = np.diff(x_limits), np.diff(y_limits)
+    axis.text(x_limits[0] + 0.01 * dx, y_limits[1] - 0.01 * dy,
+              flag_dict[flag], color=color, ha='left', va='top')
+
+
 class PartialLinearModel(object):
     """Base model class for fitting a linear combination of multiple functions to data.
     The linearity of the coefficients multiplying each function is used to reduce the
@@ -126,7 +137,9 @@ class PartialLinearModel(object):
 
     self.x, self.y and self.variance must be defined by the user before fitting.
     """
-    def __init__(self):
+    def __init__(self, pixel=None, res_id=None):
+        self.pixel = pixel
+        self.res_id = res_id
         self._reduced_model = lm.Model(self.reduced_fit_function,
                                        independent_vars=['x', 'y', 'variance'])
         self._full_model = lm.Model(self.full_fit_function, independent_vars=['x'])
@@ -139,6 +152,7 @@ class PartialLinearModel(object):
         self.best_fit_result = None
         self.best_fit_result_guess = None
         self.used_last_fit = None
+        self.flag = None
 
     def fit(self, guess):
         self._check_data()
@@ -194,13 +208,12 @@ class PartialLinearModel(object):
 
     @property
     def signal_center(self):
-        if self.best_fit_result is None:
-            message = "A fit for this model has not been computed yet"
-            raise RuntimeError(message)
+        self._check_fit()
         return self.best_fit_result.params['signal_center'].value
 
     @property
     def signal_center_standard_error(self):
+        self._check_fit()
         if not self.best_fit_result.errorbars:
             message = ("The best fit for this model isn't good enough to have computed"
                        "errors on its parameters")
@@ -208,28 +221,60 @@ class PartialLinearModel(object):
         return self.best_fit_result.params['signal_center'].stderr
 
     def plot(self, axis=None, legend=True, title=True, x_label=True, y_label=True,
-             best_fit=True):
-        self._check_fit()
+             best_fit=True, text=True):
+        # set up plot basics
+        if axis is None:
+            if legend:
+                size = (8.4, 4.8)
+            else:
+                size = (6.4, 4.8)
+            fig, axis = plt.subplots(figsize=size)
+        if self.has_good_solution():
+            color = "green"
+            label = "fit accepted"
+        else:
+            color = "red"
+            label = "fit rejected"
+        if x_label:
+            axis.set_xlabel('phase [degrees]')
+        if title:
+            axis.set_title(("Model '{}'" + os.linesep + "Pixel {} : ResID {}")
+                           .format(type(self).__name__, self.pixel, self.res_id))
+
+        # no data
+        if self.x is None or self.y is None:
+            if text:
+                plot_text(axis, self.flag, color)
+            if y_label:
+                axis.set_ylabel('counts')
+            return axis
+
+        # plot data
+        cycle = self._cycler()
+        difference = np.diff(self.x)
+        widths = np.hstack([difference[0], difference])
+        axis.bar(self.x, self.y, widths)
+        if y_label:
+            axis.set_ylabel('counts per {:.1f} degrees'.format(np.mean(widths)))
+
+        # no fit
+        if self.best_fit_result is None:
+            if text:
+                plot_text(axis, self.flag, color)
+            return axis
+
+        # choose fit to plot
         if best_fit:
             fit_result = self.best_fit_result
         else:
             fit_result = self.fit_result
-        cycle = self._cycler()
-        if axis is None:
-            fig, axis = plt.subplots()
-        difference = np.diff(self.x)
-        widths = np.hstack([difference[0], difference])
-        axis.bar(self.x, self.y, widths)
+
+        # plot fit
         xx = np.linspace(self.x.min(), self.x.max(), 1000)
         yy = fit_result.eval(x=xx)
-        if self.has_good_solution():
-            axis.plot(xx, yy, color='green', label='fit accepted', zorder=3)
-        else:
-            axis.plot(xx, yy, color='red', label='fit rejected', zorder=3)
-
+        axis.plot(xx, yy, color=color, label=label, zorder=3)
         all_parameters = self._full_model.make_params()
         reduced_parameters = self._reduced_model.make_params()
-
         amplitude_names = []
         for parameter_name in all_parameters.keys():
             if parameter_name not in reduced_parameters:
@@ -242,14 +287,17 @@ class PartialLinearModel(object):
             axis.plot(xx, fit_result.eval(fit_parameters, x=xx),
                       color=next(cycle)['color'], linestyle='--',
                       label=amplitude_name)
+
+        # make legend
         if legend:
-            axis.legend()
-        if x_label:
-            axis.set_xlabel('phase [degrees]')
-        if y_label:
-            axis.set_ylabel('counts per {:.1f} degrees'.format(np.mean(widths)))
-        if title:
-            axis.set_title('Model: {}'.format(type(self).__name__))
+            axis.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+            plt.tight_layout()
+
+        # add text
+        if text:
+            plot_text(axis, self.flag, color)
+
+        return axis
 
     def has_good_solution(self):
         # no fit
@@ -299,11 +347,11 @@ class PartialLinearModel(object):
 
     def _check_fit(self):
         if self.best_fit_result is None:
-            raise RuntimeError("No fit has been computed for this model")
+            raise RuntimeError("A fit for this model has not been computed")
 
     def _check_data(self):
         if self.x is None or self.y is None:
-            raise RuntimeError("data for this model has not been computed yet")
+            raise RuntimeError("Data for this model has not been computed yet")
 
 
 class GaussianAndExponential(PartialLinearModel):
@@ -706,7 +754,9 @@ class XErrorsModel(object):
     check of the solution which is model dependent.
 
     self.x, self.y, and self.variance must be defined by the user before fitting."""
-    def __init__(self):
+    def __init__(self, pixel=None, res_id=None):
+        self.pixel = pixel
+        self.res_id = res_id
         self.initial_guess = None
         self.used_last_fit = None
         self.best_fit_result = None
@@ -715,6 +765,7 @@ class XErrorsModel(object):
         self.x = None
         self.y = None
         self.variance = None
+        self.flag = None
 
     def fit(self, guess):
         self._check_data()
@@ -739,33 +790,63 @@ class XErrorsModel(object):
     def chi_squared(parameters, x, y, variance, f, dfdx):
         return (f(x, parameters) - y) / (dfdx(x, parameters) * np.sqrt(variance))
 
-    def plot(self, axis=None, title=True, x_label=True, y_label=True, best_fit=True):
-        self._check_fit()
-        if best_fit:
-            fit_result = self.best_fit_result
-        else:
-            fit_result = self.fit_result
-
+    def plot(self, axis=None, legend=True, title=True, x_label=True, y_label=True,
+             best_fit=True, text=True):
+        # set up plot basics
         if axis is None:
-            _, axis = plt.subplots()
-
-        axis.errorbar(self.x, self.y, xerr=np.sqrt(self.variance), linestyle='--',
-                      marker='o', markersize=5, markeredgecolor='black',
-                      markeredgewidth=0.5, ecolor='black', capsize=3, elinewidth=0.5)
-        y_limit = [0.95 * min(self.y), max(self.y) * 1.05]
-        axis.set_ylim(y_limit)
-        x_limit = [1.05 * min(self.x - np.sqrt(self.variance)),
-                   0.92 * max(self.x + np.sqrt(self.variance))]
-        axis.set_xlim(x_limit)
-        xx = np.linspace(x_limit[0], x_limit[1], 1000)
-        axis.plot(xx, self.fit_function(xx, fit_result.params), color='orange')
-
+            fig, axis = plt.subplots()
+        if self.has_good_solution():
+            color = "green"
+            label = "fit accepted"
+        else:
+            color = "red"
+            label = "fit rejected"
         if x_label:
             axis.set_xlabel('phase [degrees]')
         if y_label:
             axis.set_ylabel('energy [eV]')
         if title:
-            axis.set_title('Model: {}'.format(type(self).__name__))
+            axis.set_title(("Model '{}'" + os.linesep + "Pixel {} : ResID {}")
+                           .format(type(self).__name__, self.pixel, self.res_id))
+
+        # no data
+        if self.x is None or self.y is None:
+            if text:
+                plot_text(axis, self.flag, color)
+            return axis
+
+        # plot data
+        axis.errorbar(self.x, self.y, xerr=np.sqrt(self.variance), linestyle='--',
+                      marker='o', markersize=5, markeredgecolor='black',
+                      markeredgewidth=0.5, ecolor='black', capsize=3, elinewidth=0.5)
+
+        # no fit
+        if self.best_fit_result is None:
+            if text:
+                plot_text(axis, self.flag, color)
+            return axis
+
+        # choose fit to plot
+        if best_fit:
+            fit_result = self.best_fit_result
+        else:
+            fit_result = self.fit_result
+
+        # plot fit
+        y_limit = [0.9 * min(self.y), max(self.y) * 1.1]
+        axis.set_ylim(y_limit)
+        x_limit = [1.05 * min(self.x - np.sqrt(self.variance)),
+                   0.95 * max(self.x + np.sqrt(self.variance))]
+        axis.set_xlim(x_limit)
+        xx = np.linspace(x_limit[0], x_limit[1], 1000)
+        axis.plot(xx, self.fit_function(xx, fit_result.params), color=color, label=label)
+
+        if text:
+            plot_text(axis, self.flag, color)
+        if legend:
+            axis.legend(loc="lower left")
+
+
 
     def has_good_solution(self):
         return self.fit_result.success
@@ -778,7 +859,7 @@ class XErrorsModel(object):
 
     def _check_data(self):
         if self.x is None or self.y is None:
-            raise RuntimeError("data for this model has not been computed yet")
+            raise RuntimeError("Data for this model has not been computed yet")
 
     def _check_fit(self):
         if self.best_fit_result is None:
