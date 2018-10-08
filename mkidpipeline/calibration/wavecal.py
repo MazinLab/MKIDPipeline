@@ -775,8 +775,8 @@ class Solution(object):
     def load(self, file_path):
         try:
             npz_file = np.load(file_path)
-            self._fit_array = npz_file['solution']
-            self.cfg = npz_file['configuration']
+            self._fit_array = npz_file['fit_array']
+            self.cfg = npz_file['configuration'].item()
             self.beam_map = npz_file['beam_map']
         except (OSError, KeyError):
             message = "Failed to interpret '{}' as a wavecal solution object"
