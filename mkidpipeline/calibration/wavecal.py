@@ -281,7 +281,7 @@ class Calibrator(object):
                 self.make_phase_histogram(pixels=pixels)
                 log.info("Fitting phase histograms")
                 self.fit_phase_histogram(pixels=pixels)
-                log.info("Fitting phase-energy relationship")
+                log.info("Fitting phase-energy calibration")
                 self.fit_phase_energy_curve(pixels=pixels)
             if save:
                 log.info("Saving solution")
@@ -306,10 +306,13 @@ class Calibrator(object):
         # make histograms for each pixel in pixels and wavelength in wavelengths
         for pixel in pixels:
             x_ind, y_ind = pixel[0], pixel[1]
+            histogram_models = self.solution[x_ind, y_ind]['histogram']
             for index, wavelength in enumerate(wavelengths):
+                model = histogram_models[wavelength_indices[index]]
                 # load the data
                 photon_list = obs_files[index].getPixelPhotonList(x_ind, y_ind)
                 if photon_list.size == 0:
+                    model.flag = 1
                     message = "({}, {}) : {} nm : there are no photons"
                     log.debug(message.format(x_ind, y_ind, wavelength))
                     continue
@@ -317,6 +320,7 @@ class Calibrator(object):
                 rate = (len(photon_list['Wavelength']) /
                         (max(photon_list['Time']) - min(photon_list['Time']))) * 1e6
                 if rate > 2000:
+                    model.flag = 2
                     message = ("({}, {}) : {} nm : removed for being too hot "
                                "({:.2f} > 2000 cps)")
                     log.debug(message.format(x_ind, y_ind, wavelength, rate))
@@ -324,6 +328,7 @@ class Calibrator(object):
                 # remove photons too close together in time
                 photon_list = self._remove_tail_riding_photons(photon_list)
                 if photon_list.size == 0:
+                    model.flag = 3
                     message = ("({}, {}) : {} nm : all the photons were removed after "
                                "the arrival time cut")
                     log.debug(message.format(x_ind, y_ind, wavelength))
@@ -332,6 +337,7 @@ class Calibrator(object):
                 phase_list = photon_list['Wavelength']
                 phase_list = phase_list[phase_list < 0]
                 if phase_list.size == 0:
+                    model.flag = 4
                     message = ("({}, {}) : {} nm : all the photons were removed after "
                                "the negative phase only cut")
                     log.debug(message.format(x_ind, y_ind, wavelength))
@@ -339,8 +345,6 @@ class Calibrator(object):
                 # make histogram
                 centers, counts = self._histogram(phase_list)
                 # assign x, y and variance data to the fit model
-                histogram_models = self.solution[x_ind, y_ind]['histogram']
-                model = histogram_models[wavelength_indices[index]]
                 model.x = centers
                 model.y = counts
                 # gaussian mle for the variance of poisson distributed data
@@ -383,7 +387,7 @@ class Calibrator(object):
                         if model.has_good_solution():
                             tried_models.append(model.copy())
                             message = ("({}, {}) : {} nm : histogram fit successful with "
-                                       "computed guess and model {}")
+                                       "computed guess and model '{}'")
                             log.debug(message.format(x_ind, y_ind, wavelength,
                                                      type(model).__name__))
                             continue
@@ -394,7 +398,7 @@ class Calibrator(object):
                         if model.has_good_solution():
                             tried_models.append(model.copy())
                             message = ("({}, {}) : {} nm : histogram fit successful with "
-                                       "guess number {} and model {}")
+                                       "guess number {} and model '{}'")
                             log.debug(message.format(x_ind, y_ind, wavelength, fit_index,
                                                      type(model).__name__))
                             break
@@ -425,7 +429,7 @@ class Calibrator(object):
                         model.fit(guess)
                         if model.has_good_solution():
                             message = ("({}, {}) : {} nm : histogram fit recomputed and "
-                                       "successful with model {}")
+                                       "successful with model '{}'")
                             log.debug(message.format(x_ind, y_ind, wavelength,
                                                      type(model).__name__))
                         tried_models.append(model.copy())
@@ -455,11 +459,18 @@ class Calibrator(object):
 
             # don't fit if there's not enough data
             if len(variance) < 3:
+                model.flag = 11
                 message = "({}, {}) : {} data points is not enough to make a calibration"
                 log.debug(message.format(x_ind, y_ind, len(variance)))
                 continue
 
-            # TODO monotonicity cut
+            diff = np.diff(phases)
+            sigma = np.sqrt(variance)
+            if (diff < -4 * (sigma[:-1] + sigma[1:])).any():
+                model.flag = 12
+                message = ("({}, {}) : fitted phase values are not monotonic enough "
+                           "to make a calibration")
+                log.debug(message.format(x_ind, y_ind))
 
             # fit the data
             message = "({}, {}) : beginning phase-energy calibration fitting"
@@ -472,6 +483,10 @@ class Calibrator(object):
                 guess = model.guess()
                 model.fit(guess)
                 tried_models.append(model.copy())
+                if model.has_good_solution():
+                    message = ("({}, {}) : phase-energy calibration fit successful with "
+                               "model '{}'")
+                    log.debug(message.format(x_ind, y_ind, type(model).__name__))
 
             # find model with the best fit and save that one
             self._assign_best_calibration_model(tried_models, pixel)
@@ -544,8 +559,10 @@ class Calibrator(object):
         x = model_list[wavelength_index].x
         y = model_list[wavelength_index].y
         variance = model_list[wavelength_index].variance
+        pixel = model_list[wavelength_index].pixel
+        res_id = model_list[wavelength_index].res_id
         # swap model
-        model_list[wavelength_index] = histogram_model()
+        model_list[wavelength_index] = histogram_model(pixel=pixel, res_id=res_id)
         # set new data
         model_list[wavelength_index].x = x
         model_list[wavelength_index].y = y
@@ -557,8 +574,11 @@ class Calibrator(object):
         x = self.solution[pixel[0], pixel[1]]['calibration'].x
         y = self.solution[pixel[0], pixel[1]]['calibration'].y
         variance = self.solution[pixel[0], pixel[1]]['calibration'].variance
+        pixel = self.solution[pixel[0], pixel[1]]['calibration'].pixel
+        res_id = self.solution[pixel[0], pixel[1]]['calibration'].res_id
         # swap model
-        self.solution[pixel[0], pixel[1]]['calibration'] = calibration_model()
+        self.solution[pixel[0], pixel[1]]['calibration'] = calibration_model(
+            pixel=pixel, res_id=res_id)
         # set new data
         self.solution[pixel[0], pixel[1]]['calibration'].x = x
         self.solution[pixel[0], pixel[1]]['calibration'].y = y
@@ -651,12 +671,17 @@ class Calibrator(object):
                 lowest_aic_model = model
 
         if best_model.has_good_solution():
+            best_model.flag = 0
             model_list[wavelength_index] = best_model
             message = ("({}, {}) : {} nm : histogram model '{}' chosen as "
                        "the best successful fit")
             log.debug(message.format(x_ind, y_ind, wavelength,
                                      type(best_model).__name__))
         else:
+            if not lowest_aic_model.best_fit_result.success:
+                lowest_aic_model.flag = 5  # did not converge
+            else:
+                lowest_aic_model.flag = 6  # converged but failed validation
             model_list[wavelength_index] = lowest_aic_model
             message = ("({}, {}) : {} nm : histogram fit failed with all "
                        "models")
@@ -674,11 +699,16 @@ class Calibrator(object):
             if lower_aic:
                 lowest_aic_model = model
         if best_model.has_good_solution():
+            best_model.flag = 10
             self.solution[x_ind, y_ind]['calibration'] = best_model
             message = ("({}, {}) : energy-phase calibration model '{}' chosen as "
                        "the best successful fit")
             log.debug(message.format(x_ind, y_ind, type(best_model).__name__))
         else:
+            if not lowest_aic_model.best_fit_result.success:
+                lowest_aic_model.flag = 13  # did not converge
+            else:
+                lowest_aic_model.flag = 14  # converged but failed validation
             self.solution[x_ind, y_ind]['calibration'] = lowest_aic_model
             message = "({}, {}) : energy-phase calibration fit failed with all models"
             log.debug(message.format(x_ind, y_ind))
@@ -713,16 +743,27 @@ class Solution(object):
             if empty.any():
                 for index, entry in np.ndenumerate(results):
                     if empty[index]:
-                        histogram_models = [self.histogram_model_list[0]()
+                        res_id = self.beam_map[values][index]
+                        start0 = values[0].start if values[0].start is not None else 0
+                        start1 = values[1].start if values[1].start is not None else 0
+                        step0 = values[0].step if values[0].step is not None else 1
+                        step1 = values[1].step if values[1].step is not None else 1
+                        pixel = (index[0] * step0 + start0, index[1] * step1 + start1)
+                        histogram_models = [self.histogram_model_list[0](pixel=pixel,
+                                                                         res_id=res_id)
                                             for _ in range(len(self.cfg.wavelengths))]
-                        calibration_model = self.calibration_model_list[0]()
+                        calibration_model = self.calibration_model_list[0](pixel=index,
+                                                                           res_id=res_id)
                         results[index] = {'histogram': histogram_models,
                                           'calibration': calibration_model}
         else:
             if results is None:
-                histogram_models = [self.histogram_model_list[0]()
+                res_id = self.beam_map[values]
+                histogram_models = [self.histogram_model_list[0](pixel=values,
+                                                                 res_id=res_id)
                                     for _ in range(len(self.cfg.wavelengths))]
-                calibration_model = self.calibration_model_list[0]()
+                calibration_model = self.calibration_model_list[0](pixel=values,
+                                                                   res_id=res_id)
                 self._fit_array[values] = {'histogram': histogram_models,
                                            'calibration': calibration_model}
         return self._fit_array[values]
