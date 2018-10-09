@@ -819,8 +819,7 @@ def rebin2D(a, ysize, xsize):
     """
     
     yfactor, xfactor = numpy.asarray(a.shape) / numpy.array([ysize, xsize])
-    return a.reshape(ysize, yfactor, xsize, xfactor,).mean(1).mean(2)
-
+    return a.reshape(ysize, int(yfactor), xsize, int(xfactor),).mean(1).mean(2)
 
 def replaceNaN(inputarray, mode='mean', boxsize=3, iterate=True):
     """
