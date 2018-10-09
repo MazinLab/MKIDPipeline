@@ -1,4 +1,4 @@
-'''
+"""
 parsebin.pyx
 Created by KD and JB Sept 2018
 
@@ -38,12 +38,12 @@ which containes the information to make(compile) the cythonized file.
 (in current repository, in .../MKIDPipeline dir)
 $ python setup.py build_ext --inplace
 
-'''
+"""
 
 import os
 import numpy as np
 cimport numpy as np
-
+from time import time
 
 ###############################################################################
 # Cythonized .h file
@@ -59,6 +59,7 @@ cdef extern from "binlib.h":
 #####################################
 
 def parse(file,_n=0):
+
     # Creating pointers to memory bocks that the binlib.c code will fill
     n = int(max(os.stat(file).st_size/8, _n))
     baseline   = np.empty(n, dtype=np.int)
@@ -77,7 +78,7 @@ def parse(file,_n=0):
                  <unsigned int*>np.PyArray_DATA(y),
                  <unsigned int*>np.PyArray_DATA(x),
                  <unsigned int*>np.PyArray_DATA(roachnum))
-    print("number of photons = {}".format(npackets))
+    #print("number of parsed photons = {}".format(npackets))
     #r = cparsebin(file.encode('UTF-8'), n, &baseline[0], &wavelength[0], &timestamp[0],&y[0], &x[0], &roachnum[0])
 
     # Raising Errors
@@ -91,13 +92,17 @@ def parse(file,_n=0):
     # What this does is only grab the elements of the arrays that are real valued
     # This essentially clips the data since we declared it to be as long as the .bin
     #  file, but some of those lines were headers, which are now empty in the returned arrays
-    square = list(zip(baseline[:npackets],wavelength[:npackets],timestamp[:npackets],y[:npackets],x[:npackets],roachnum[:npackets]))
-    parsed = np.array(square, dtype=[('base', int),('phase', int), ('tstamp', np.float64),('y', int), ('x', int),('roach', int)])
-    parsed = parsed.view(np.recarray)
+    #  We also combine the arrays into a single struct. It's a for loop, but its actually a fast one
+    dt  = np.dtype([('baseline', int),('phase', int), ('tstamp', np.float64),('y', int), ('x', int),('roach', int)])
+    cdef p = np.zeros(npackets,dtype=dt)
+    for name, x in zip(dt.names, [baseline[:npackets],wavelength[:npackets],
+                                  timestamp[:npackets],y[:npackets],x[:npackets],roachnum[:npackets]]):
+        p[name] = x
+    p = p.view(np.recarray)
 
     # Remove Fake Photons
     #   fake photons translate to x=511 when you read the bitvalues as numbers
     #   we just throw them away since they aren't useful to anybody
-    ret = np.delete(parsed,(parsed.x==511).nonzero())
+    ret = np.delete(p,(p.x==511).nonzero())
 
     return ret

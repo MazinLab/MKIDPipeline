@@ -171,42 +171,43 @@ class QuickStack(QtWidgets.QMainWindow):
         #print("Im using loadImageStack from the class DarkQuick")
         #self.timestampList = np.arange(self.startTstamp,self.endTstamp+1)
         timestampList = np.arange(startTstamp, endTstamp + 1)
-        print("loadImageStack")
 
         images = []
+        '''
         self.photonTstamps = np.array([])
         self.photonPhases = np.array([])
         self.photonBases = np.array([])
         self.photonXs = np.array([])
         self.photonYs = np.array([])
         self.photonPixelIDs = np.array([])
-        
+        '''
+        stamps = np.array([])
+        phases = np.array([])
+        bases = np.array([])
+        xCoords = np.array([])
+        yCoords = np.array([])
+        roaches = np.array([])
         
         for iTs,ts in enumerate(timestampList):
-            print(ts)
+            #print(ts)
             try:
-                print("now im trying")
                 imagePath = os.path.join(self.dataPath,str(ts)+'.bin')
 
                 # Calling new parse file
-                print("hey just before the parse call")
+                pstartT = time()
                 parseDict = parse(imagePath, 10)
-                print("parsing in loadstack try")
+                pendT = time()
+                print("Parsing file {} took {} seconds".format(ts,pendT-pstartT))
 
-                photonTimes = parseDict.tstamp
-                phasesDeg = parseDict.phase
-                basesDeg = parseDict.base
-                xCoords = parseDict.x
-                yCoords = parseDict.y
-                roach = parseDict.roach
+
 
                 # Need to make data cube here with phase bins
                 image = np.zeros((imageShape['nRows'], imageShape['nCols']), dtype=np.uint16)
-                for x, y in np.array(list(zip(xCoords, yCoords))):
+                for x, y in np.array(list(zip(parseDict.x, parseDict.y))):
                     image[y, x] += 1
                 # image = np.zeros((self.nRows, self.nCols))
                 # image = parseDict['image']
-           
+                '''
                 if self.beammap is not None:
                     newImage = np.zeros(image.shape)
                     for y in range(len(newImage)):
@@ -220,25 +221,33 @@ class QuickStack(QtWidgets.QMainWindow):
                             #    print '('+str(x)+', '+str(y)+') --> 0'
                             #    newImage[y,x]=0
                     image = newImage
-                
+                '''
                 
             except (IOError, ValueError) as e:
                 #import mkidcore.corelog as clog
                 #clog.getLogger('BinViewer').error('Help', exc_info=True)
                 print(e)
-                image = np.zeros((imageShape['nRows'], imageShape['nCols']),dtype=np.uint16)  
-                
+                image = np.zeros((imageShape['nRows'], imageShape['nCols']),dtype=np.uint16)
+
+
+            stamps = np.append(stamps,parseDict.tstamp)
+            phases = np.append(phases,parseDict.phase)
+            #bases = np.append(bases,parseDict.base)
+            xCoords = np.append(xCoords,parseDict.x)
+            yCoords = np.append(yCoords,parseDict.y)
+            '''    
             self.photonTstamps = np.append(self.photonTstamps,photonTimes)
             self.photonPhases = np.append(self.photonPhases,phasesDeg)
             self.photonBases = np.append(self.photonBases,basesDeg)
             self.photonXs = np.append(self.photonXs,xCoords)
             self.photonYs = np.append(self.photonYs,yCoords)
             #self.photonPixelIDs = np.append(self.photonPixelIDs, pixelIds)
+            '''
             images.append(image)
             
         #self.imageStack = np.array(images)
         tImStack = time()
-        print("loadImageStack completed in %f sec" %(tImStack-startT))
+        print("loadImageStack parsed {} files in {} sec".format(iTs+1,tImStack-startT))
 
     def applyBeammap(self):
         #from addPixID import getPixelIdentificationInfo
@@ -284,13 +293,17 @@ class QuickStack(QtWidgets.QMainWindow):
         self.plotArray(self.image,**paramsDict['plotParams'])
         print(self.currentImageIndex)
 
-
+#####################################################################################################
+#####################################################################################################
+#####################################################################################################
+#####################################################################################################
+'''
 class QuickStackGUI(QtWidgets.QDialog):
-    '''
+    #
     created by KD on 8/30/18
     I pulled everything I thought was GUI related into a new class.
     Need to figure out how to assign self to the output from QuickStack
-    '''
+    #
     def __init__(self, parent=None):
             self.app = QtWidgets.QApplication([])
             self.app.setStyle('plastique')
@@ -1092,7 +1105,7 @@ def layoutBox(type,elements):
 def plotHist(ax,histBinEdges,hist,**kwargs):
     ax.plot(histBinEdges,np.append(hist,hist[-1]),drawstyle='steps-post',**kwargs)
 
-
+'''
 if __name__ == "__main__":
     import pyximport; pyximport.install()
     from mkidpipeline.hdf.parsebin import parse
