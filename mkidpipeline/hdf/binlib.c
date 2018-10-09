@@ -49,7 +49,7 @@ long cparsebin(const char *fName, unsigned long max_len,
     //open up file
 	stat(fName, &st);
 	fSize = st.st_size;
-	printf("\nReading %s - %ld bytes\n",fName,fSize);
+	//printf("\nReading %s - %ld bytes\n",fName,fSize);
 	data = (uint64_t *) malloc(fSize);
     fp = fopen(fName, "rb");
     rd = fread( data, 1, fSize, fp);
