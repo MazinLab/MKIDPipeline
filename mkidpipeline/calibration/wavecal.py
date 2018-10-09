@@ -9,6 +9,7 @@ import multiprocessing as mp
 from datetime import datetime
 from astropy.constants import c, h
 from six.moves.configparser import ConfigParser
+from progressbar import Bar, ETA, Percentage, ProgressBar, Timer
 
 from mkidpipeline.hdf import bin2hdf
 import mkidcore.corelog as pipelinelog
@@ -270,45 +271,54 @@ class Calibrator(object):
         fit_array = np.empty((self.cfg.x_pixels, self.cfg.y_pixels), dtype=object)
         self.solution = Solution(fit_array=fit_array, configuration=self.cfg,
                                  beam_map=beam_map)
-        self.cpu_count = None
+        self.progress = None
+        self.progress_iteration = None
 
-    def run(self, pixels=(), parallel=True, save=True):
+    def run(self, pixels=None, wavelengths=None, verbose=True, parallel=True, save=True,
+            plot=True):
+        pixels = self._parse_pixels(pixels)
         try:
-            if parallel:
-                pass
-            else:
-                log.info("Computing phase histograms")
-                self.make_phase_histogram(pixels=pixels)
-                log.info("Fitting phase histograms")
-                self.fit_phase_histogram(pixels=pixels)
-                log.info("Fitting phase-energy calibration")
-                self.fit_phase_energy_curve(pixels=pixels)
+            log.info("Computing phase histograms")
+            self._run("make_phase_histogram", pixels=pixels, wavelengths=wavelengths,
+                      parallel=parallel, verbose=verbose, h5_safe=True)
+            log.info("Fitting phase histograms")
+            self._run("fit_phase_histogram", pixels=pixels, wavelengths=wavelengths,
+                      parallel=parallel, verbose=verbose)
+            log.info("Fitting phase-energy calibration")
+            self._run("fit_phase_energy_curve", pixels=pixels, wavelengths=wavelengths,
+                      parallel=parallel, verbose=verbose)
+
             if save:
                 log.info("Saving solution")
                 self.solution.save()
-            if self.cfg.summary_plot:
+
+            if plot:
                 log.info("Making summary plot")
                 self.solution.plot_summary()
         except KeyboardInterrupt:
             log.info(os.linesep + "Keyboard shutdown requested ... exiting")
 
-    def make_phase_histogram(self, pixels=(), wavelengths=None):
-        pixels = self._check_pixel_inputs(pixels)
-        # grab the wavelength indices referenced to the config file and
-        # check wavelengths parameter
-        wavelength_indices, wavelengths = self._parse_wavelengths(wavelengths)
+    def make_phase_histogram(self, pixels=None, wavelengths=None, verbose=True):
+        # check inputs and setup progress bar
+        pixels, wavelength_indices, wavelengths = self._setup(pixels, wavelengths,
+                                                              verbose)
         # make ObsFiles
         obs_files = []
         for index in wavelength_indices:
             file_name = os.path.join(self.cfg.h5_directory, self.cfg.h5_file_names[index])
             obs_files.append(ObsFile(file_name))
-
         # make histograms for each pixel in pixels and wavelength in wavelengths
         for pixel in pixels:
+            # update progress bar
+            self._update_progress(pixels, verbose=verbose)
+            # histogram get models
             x_ind, y_ind = pixel[0], pixel[1]
             histogram_models = self.solution[x_ind, y_ind]['histogram']
             for index, wavelength in enumerate(wavelengths):
                 model = histogram_models[wavelength_indices[index]]
+                # flag the model as modified from the default conditions
+                # used for parallel computation
+                model.modified = True
                 # load the data
                 photon_list = obs_files[index].getPixelPhotonList(x_ind, y_ind)
                 if photon_list.size == 0:
@@ -352,16 +362,30 @@ class Calibrator(object):
                 model.variance = np.sqrt(counts**2 + 0.25) - 0.5
                 message = "({}, {}) : {} nm : histogram successfully computed"
                 log.debug(message.format(x_ind, y_ind, wavelength))
+        # update progress bar
+        self._update_progress(pixels, finish=True, verbose=verbose)
 
-    def fit_phase_histogram(self, pixels=()):
-        pixels = self._check_pixel_inputs(pixels)
+        # close all observation files
+        for obs_file in obs_files:
+            obs_file.file.close()
+
+    def fit_phase_histogram(self, pixels=None, wavelengths=None, verbose=True):
+        # check inputs and setup progress bar
+        pixels, wavelength_indices, wavelengths = self._setup(pixels, wavelengths,
+                                                              verbose)
+        # fit histograms for each pixel in pixels and wavelength in wavelengths
         for pixel in pixels:
+            # update progress bar
+            self._update_progress(pixels, verbose=verbose)
             x_ind, y_ind = pixel[0], pixel[1]
             model_list = self.solution[x_ind, y_ind]['histogram']
             # fit the histograms of the higher energy data sets first and use good
             # fits to inform the guesses to the lower energy data sets
-            for wavelength_index, wavelength in enumerate(self.cfg.wavelengths):
-                model = model_list[wavelength_index]
+            for index, wavelength in enumerate(wavelengths):
+                model = model_list[wavelength_indices[index]]
+                # flag the model as modified from the default conditions
+                # used for parallel computation
+                model.modified = True
                 if model.x is None or model.y is None:
                     message = ("({}, {}) : {} nm : histogram fit failed because there is "
                                "no data")
@@ -374,14 +398,15 @@ class Calibrator(object):
                 for histogram_model in self.solution.histogram_model_list:
                     # update the model if needed
                     if not isinstance(model, histogram_model):
-                        model = self._update_histogram_model(wavelength_index,
+                        model = self._update_histogram_model(wavelength_indices[index],
                                                              histogram_model, pixel)
                     # if there are any good fits intelligently guess the signal_center
                     # parameter and set the other parameters equal to the average of those
                     # in the good fits
                     good_solutions = [model.has_good_solution() for model in model_list]
                     if np.any(good_solutions):
-                        guess = self._guess(pixel, wavelength_index, good_solutions)
+                        guess = self._guess(pixel, wavelength_indices[index],
+                                            good_solutions)
                         model.fit(guess)
                         # if the fit worked continue with the next wavelength
                         if model.has_good_solution():
@@ -408,24 +433,25 @@ class Calibrator(object):
                         continue
                 # find model with the best fit and save that one
                 self._assign_best_histogram_model(model_list, tried_models,
-                                                  wavelength_index, pixel)
+                                                  wavelength_indices[index], pixel)
 
             # recheck fits that didn't work with better guesses if there exist
             # lower energy fits that did work
             good_solutions = [model.has_good_solution() for model in model_list]
-            for wavelength_index, wavelength in enumerate(self.cfg.wavelengths):
-                model = model_list[wavelength_index]
+            for index, wavelength in enumerate(wavelengths):
+                model = model_list[wavelength_indices[index]]
                 if model.x is None or model.y is None:
                     continue
                 if model.has_good_solution():
                     continue
-                if np.any(good_solutions[wavelength_index + 1:]):
+                if np.any(good_solutions[wavelength_indices[index] + 1:]):
                     tried_models = []
                     for histogram_model in self.solution.histogram_model_list:
                         if not isinstance(model, histogram_model):
-                            model = self._update_histogram_model(wavelength_index,
-                                                                 histogram_model, pixel)
-                        guess = self._guess(pixel, wavelength_index, good_solutions)
+                            model = self._update_histogram_model(
+                                wavelength_indices[index], histogram_model, pixel)
+                        guess = self._guess(pixel, wavelength_indices[index],
+                                            good_solutions)
                         model.fit(guess)
                         if model.has_good_solution():
                             message = ("({}, {}) : {} nm : histogram fit recomputed and "
@@ -435,22 +461,30 @@ class Calibrator(object):
                         tried_models.append(model.copy())
                     else:
                         # find the model with the best bad fit and save that one
-                        self._assign_best_histogram_model(model_list, tried_models,
-                                                          wavelength_index, pixel)
+                        self._assign_best_histogram_model(
+                            model_list, tried_models, wavelength_indices[index], pixel)
+        # update progress bar
+        self._update_progress(pixels, finish=True, verbose=verbose)
 
-    def fit_phase_energy_curve(self, pixels=()):
+    def fit_phase_energy_curve(self, pixels=None, wavelengths=None, verbose=True):
+        # check inputs and setup progress bar
+        pixels, wavelength_indices, wavelengths = self._setup(pixels, wavelengths,
+                                                              verbose)
         for pixel in pixels:
+            # update progress bar
+            self._update_progress(pixels, verbose=verbose)
             x_ind, y_ind = pixel[0], pixel[1]
             model = self.solution[x_ind, y_ind]['calibration']
             # get data from histogram fits
             histogram_models = self.solution[x_ind, y_ind]['histogram']
             phases, variance, energies = [], [], []
-            for wavelength_index, histogram_model in enumerate(histogram_models):
+            for index, wavelength in enumerate(wavelengths):
+                histogram_model = histogram_models[wavelength_indices[index]]
                 if histogram_model.has_good_solution:
                     phases.append(histogram_model.signal_center)
                     variance.append(histogram_model.signal_center_standard_error**2)
                     energies.append(h.to('eV s').value * c.to('nm/s').value /
-                                    self.cfg.wavelengths[wavelength_index])
+                                    wavelength)
             # give data to model
             if variance:
                 model.x = np.array(phases)
@@ -490,6 +524,79 @@ class Calibrator(object):
 
             # find model with the best fit and save that one
             self._assign_best_calibration_model(tried_models, pixel)
+        # update progress bar
+        self._update_progress(pixels, finish=True, verbose=verbose)
+
+    def _run(self, method, pixels=(), wavelengths=None, verbose=True, parallel=True,
+             h5_safe=False):
+        if parallel:
+            self._parallel(method, pixels=pixels, wavelengths=wavelengths,
+                           verbose=verbose, h5_safe=h5_safe)
+        else:
+            getattr(self, method)(pixels=pixels, wavelengths=wavelengths, verbose=verbose)
+
+    def _parallel(self, method, pixels=None, wavelengths=None, verbose=True,
+                  h5_safe=False):
+        # set up progress bar
+        self._update_progress(pixels, initialize=True, verbose=verbose)
+
+        # configure number of processes
+        worker_list = []
+        if h5_safe:
+            cpu_count = np.min([len(self.cfg.wavelengths), np.ceil(mp.cpu_count() / 2)])
+            cpu_count = cpu_count.astype(int)
+        else:
+            cpu_count = np.ceil(mp.cpu_count() / 2).astype(int)
+
+        # make input and output queues
+        output_queue = mp.Queue()
+        input_queues = []
+        if h5_safe:
+            for _ in range(cpu_count):
+                input_queues.append(mp.Queue())
+        else:
+            input_queues.append(mp.Queue())
+        queue_length = len(input_queues)
+
+        # make workers to process the data
+        for index in range(cpu_count):
+            worker_list.append(Worker(self.cfg, method,
+                                      input_queues[index % queue_length], output_queue))
+
+        # assign data to workers
+        if h5_safe:
+            fit_array_list = []
+            for pixel in pixels:
+                fit_array_list.append(self.solution[pixel[0], pixel[1]])
+            for wavelength_index, wavelength in enumerate(wavelengths):
+                kwargs = {"pixels": pixels, "wavelengths": wavelength,
+                          "fit_array_list": fit_array_list}
+                input_queues[wavelength_index % queue_length].put(kwargs)
+
+            for queue in input_queues:
+                queue.put({"stop": True})
+
+
+        else:
+            for index, pixel in pixels:
+                fit_array_list = [self.solution[pixel[0], pixel[1]]]
+                kwargs = {"pixels": pixels, "wavelengths": wavelengths,
+                          "fit_array_list": fit_array_list}
+                input_queues[0].put(kwargs)
+
+        # collect data from workers
+        pass
+
+    def _parse_pixels(self, pixels):
+        if pixels is not None:
+            pixels = np.atleast_2d(np.array(pixels))
+            if not np.issubdtype(pixels.dtype, np.integer) or pixels.shape[1] != 2:
+                raise ValueError("pixels must be a list of pairs of integers")
+        else:
+            x_pixels = range(self.cfg.x_pixels)
+            y_pixels = range(self.cfg.y_pixels)
+            pixels = np.array([[x, y] for x in x_pixels for y in y_pixels])
+        return pixels
 
     def _parse_wavelengths(self, wavelengths):
         if wavelengths is None:
@@ -541,17 +648,6 @@ class Calibrator(object):
             update += 1
 
         return centers, counts
-
-    def _check_pixel_inputs(self, pixels):
-        if pixels:
-            pixels = np.atleast_2d(np.array(pixels))
-            if not np.issubdtype(pixels.dtype, np.integer) or pixels.shape[1] != 2:
-                raise ValueError("pixels must be a list of pairs of integers")
-        else:
-            x_pixels = range(self.cfg.x_pixels)
-            y_pixels = range(self.cfg.y_pixels)
-            pixels = np.array([[x, y] for x in x_pixels for y in y_pixels])
-        return pixels
 
     def _update_histogram_model(self, wavelength_index, histogram_model, pixel):
         model_list = self.solution[pixel[0], pixel[1]]['histogram']
@@ -713,6 +809,69 @@ class Calibrator(object):
             message = "({}, {}) : energy-phase calibration fit failed with all models"
             log.debug(message.format(x_ind, y_ind))
 
+    def _update_progress(self, pixels, initialize=False, finish=False, verbose=True):
+        if verbose:
+            if initialize:
+                self.progress = ProgressBar(widgets=[Percentage(), Bar(), '  (', Timer(),
+                                                     ') ', ETA(), ' '],
+                                            max_value=len(pixels)).start()
+                self.progress_iteration = -1
+            elif finish:
+                self.progress_iteration += 1
+                self.progress.update(self.progress_iteration)
+                self.progress.finish()
+            else:
+                self.progress_iteration += 1
+                self.progress.update(self.progress_iteration)
+
+    def _setup(self, pixels, wavelengths, verbose):
+        # check inputs
+        pixels = self._parse_pixels(pixels)
+        wavelength_indices, wavelengths = self._parse_wavelengths(wavelengths)
+        # set up progress bar
+        self._update_progress(pixels, initialize=True, verbose=verbose)
+        return pixels, wavelength_indices, wavelengths
+
+
+class Worker(mp.Process):
+    """Worker class for running the wavelength calibration in parallel"""
+    def __init__(self, configuration, method, input_queue, output_queue):
+        super(Worker, self).__init__()
+        self.calibrator = Calibrator(configuration)
+        self.method = method
+        self.input_queue = input_queue
+        self.output_queue = output_queue
+        self.start()
+
+    def run(self):
+        try:
+            calibrator = Calibrator(self.cfg)
+            while True:
+                # get next bit of data to analyze
+                kwargs = self.input_queue.get()
+                # check for stopping condition
+                stop = kwargs.pop("stop", False)
+                if stop:
+                    break
+                # get fit_array_element to overload
+                fit_array_list = kwargs.pop("fit_array_list", None)
+                pixels = kwargs.pop("pixels")
+                wavelengths = kwargs.pop("wavelengths")
+                if fit_array_list is not None:
+                    for index, pixel in enumerate(pixels):
+                        pixel = tuple(pixel)
+                        self.calibrator.solution[pixel] = fit_array_list[index]
+
+                getattr(self.calibrator, self.method)(verbose=False, pixels=pixels,
+                                                      wavelengths=wavelengths)
+                for index, pixel in enumerate(pixels):
+                    fit_array_list[index] = self.calibrator.solution[pixel[0], pixel[1]]
+                self.output_queue.put({"pixels": pixels, "wavelengths": wavelengths,
+                                       "fit_array_list": fit_array_list})
+
+        except KeyboardInterrupt:
+            pass
+
 
 class Solution(object):
     """Solution class for the wavelength calibration. Initialize with either the file_name
@@ -736,37 +895,41 @@ class Solution(object):
         self.calibration_model_list = [getattr(models, name) for _, name in
                                        enumerate(self.cfg.calibration_model_names)]
 
-    def __getitem__(self, values):
-        results = self._fit_array[values]
+    def __getitem__(self, item):
+        results = self._fit_array[item]
         if isinstance(results, np.ndarray):
             empty = (results == np.array([None]))
             if empty.any():
-                for index, entry in np.ndenumerate(results):
-                    if empty[index]:
-                        res_id = self.beam_map[values][index]
-                        start0 = values[0].start if values[0].start is not None else 0
-                        start1 = values[1].start if values[1].start is not None else 0
-                        step0 = values[0].step if values[0].step is not None else 1
-                        step1 = values[1].step if values[1].step is not None else 1
-                        pixel = (index[0] * step0 + start0, index[1] * step1 + start1)
+                for item, entry in np.ndenumerate(results):
+                    if empty[item]:
+                        res_id = self.beam_map[item][item]
+                        start0 = item[0].start if item[0].start is not None else 0
+                        start1 = item[1].start if item[1].start is not None else 0
+                        step0 = item[0].step if item[0].step is not None else 1
+                        step1 = item[1].step if item[1].step is not None else 1
+                        pixel = (item[0] * step0 + start0, item[1] * step1 + start1)
                         histogram_models = [self.histogram_model_list[0](pixel=pixel,
                                                                          res_id=res_id)
                                             for _ in range(len(self.cfg.wavelengths))]
-                        calibration_model = self.calibration_model_list[0](pixel=index,
+                        calibration_model = self.calibration_model_list[0](pixel=item,
                                                                            res_id=res_id)
-                        results[index] = {'histogram': histogram_models,
+                        results[item] = {'histogram': histogram_models,
                                           'calibration': calibration_model}
         else:
             if results is None:
-                res_id = self.beam_map[values]
-                histogram_models = [self.histogram_model_list[0](pixel=values,
+                res_id = self.beam_map[item]
+                histogram_models = [self.histogram_model_list[0](pixel=item,
                                                                  res_id=res_id)
                                     for _ in range(len(self.cfg.wavelengths))]
-                calibration_model = self.calibration_model_list[0](pixel=values,
+                calibration_model = self.calibration_model_list[0](pixel=item,
                                                                    res_id=res_id)
-                self._fit_array[values] = {'histogram': histogram_models,
+                self._fit_array[item] = {'histogram': histogram_models,
                                            'calibration': calibration_model}
-        return self._fit_array[values]
+        return self._fit_array[item]
+
+    def __setitem__(self, key, value):
+        self._fit_array[key] = value
+
 
     def save(self):
         np.savez(self.cfg.solution_name, fit_array=self._fit_array,
@@ -845,4 +1008,5 @@ if __name__ == "__main__":
         exit()
 
     # run the wavelength calibration
-    Calibrator(config).run(parallel=config.parallel)
+    Calibrator(config).run(parallel=config.parallel, plot=config.summary_plot,
+                           verbose=config.verbose)

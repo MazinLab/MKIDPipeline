@@ -152,7 +152,8 @@ class PartialLinearModel(object):
         self.best_fit_result = None
         self.best_fit_result_guess = None
         self.used_last_fit = None
-        self.flag = None
+        self.flag = None  # flag for wavecal computation condition
+        self.modified = None  # flag for parallel computation by the wavecal code
 
     def fit(self, guess):
         self._check_data()
@@ -765,7 +766,9 @@ class XErrorsModel(object):
         self.x = None
         self.y = None
         self.variance = None
-        self.flag = None
+        self.flag = None  # flag for wavecal computation condition
+        self.modified = None  # flag for parallel computation by the wavecal code
+
 
     def fit(self, guess):
         self._check_data()
