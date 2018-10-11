@@ -62,11 +62,11 @@ def parse(file,_n=0):
 
     # Creating pointers to memory bocks that the binlib.c code will fill
     n = int(max(os.stat(file).st_size/8, _n))
-    baseline   = np.empty(n, dtype=np.int)
-    wavelength = np.empty(n, dtype=np.int)
+    baseline   = np.empty(n, dtype=int)
+    wavelength = np.empty(n, dtype=np.float32)
     timestamp  = np.empty(n, dtype=np.uint64)
-    y = np.empty(n, dtype=np.uint32)
-    x = np.empty(n, dtype=np.uint32)
+    y = np.empty(n, dtype=np.int)
+    x = np.empty(n, dtype=np.int)
     roachnum = np.empty(n, dtype=np.uint32)
 
     # Calling parsebin from binlib.c
@@ -93,7 +93,7 @@ def parse(file,_n=0):
     # This essentially clips the data since we declared it to be as long as the .bin
     #  file, but some of those lines were headers, which are now empty in the returned arrays
     #  We also combine the arrays into a single struct. It's a for loop, but its actually a fast one
-    dt  = np.dtype([('baseline', int),('phase', int), ('tstamp', np.float64),('y', int), ('x', int),('roach', int)])
+    dt  = np.dtype([('baseline', int),('phase', np.float32), ('tstamp', np.float64),('y', int), ('x', int),('roach', int)])
     cdef p = np.zeros(npackets,dtype=dt)
     for name, x in zip(dt.names, [baseline[:npackets],wavelength[:npackets],
                                   timestamp[:npackets],y[:npackets],x[:npackets],roachnum[:npackets]]):
