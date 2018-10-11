@@ -12,6 +12,7 @@ The code is basic. It reads a bin file, turns the bits in the packet into arrays
 #include <stdint.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#define RAD2DEG 57.2957795131
 
 struct datapacket {
     int baseline:17;
@@ -29,7 +30,7 @@ struct hdrpacket {
 }__attribute__((packed));;
 
 long cparsebin(const char *fName, unsigned long max_len,
-                       int* baseline, int* wavelength, unsigned long* timestamp,
+                       int* baseline, float* wavelength, unsigned long* timestamp,
                        unsigned int* ycoord, unsigned int* xcoord, unsigned int* roach) {
     /*
     The function returns the number of packet in the file. If the file turns out to have more packets than max_len,
@@ -87,7 +88,7 @@ long cparsebin(const char *fName, unsigned long max_len,
 		    out_i = pcount >= max_len ? max_len: pcount;
 			photondata = (struct datapacket *) (&swp1);
 			baseline[out_i] = photondata->baseline;
-			wavelength[out_i] = photondata->wvl;
+			wavelength[out_i] = photondata->wvl *RAD2DEG/32768.0;
 			timestamp[out_i] = photondata->timestamp + curtime;
 			ycoord[out_i] = photondata->ycoord;
 			xcoord[out_i] = photondata->xcoord;
@@ -96,7 +97,7 @@ long cparsebin(const char *fName, unsigned long max_len,
 		}
 
 	}
-
+    //wavelength = ((float) data->wvl)*RAD2DEG/32768.0;
     //close up file
 	free(data);
 
