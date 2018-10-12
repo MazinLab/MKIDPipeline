@@ -88,7 +88,7 @@ long cparsebin(const char *fName, unsigned long max_len,
 		    out_i = pcount >= max_len ? max_len: pcount;
 			photondata = (struct datapacket *) (&swp1);
 			baseline[out_i] = photondata->baseline;
-			wavelength[out_i] = photondata->wvl *RAD2DEG/32768.0;
+			wavelength[out_i] = photondata->wvl*RAD2DEG/32768.0;
 			timestamp[out_i] = photondata->timestamp + curtime;
 			ycoord[out_i] = photondata->ycoord;
 			xcoord[out_i] = photondata->xcoord;
