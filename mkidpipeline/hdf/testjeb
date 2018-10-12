@@ -1,0 +1,28 @@
+import numpy as np
+n=100
+baseline   = np.ones(n, dtype= int)
+wavelength = np.ones(n, dtype= np.float32)
+timestamp  = np.ones(n, dtype = np.double)
+y = np.empty(n, dtype=int)
+x = np.empty(n, dtype=np.uint32)
+roachnum = np.empty(n, dtype=np.uint32)
+r=77
+
+al=[baseline[:r],wavelength[:r],timestamp[:r],y[:r],x[:r],roachnum[:r]]
+f = np.array(al, dtype=[('baseline', np.int),('phase', np.int),('tstamp', np.uint64), ('y', np.uint32), ('x', np.uint32),('roach', np.uint32)])
+f=f.view(np.recarray)
+
+al2=list(zip(baseline[:r],wavelength[:r],timestamp[:r],y[:r],x[:r],roachnum[:r]))
+f2 = np.array(al2, dtype=[('baseline', int),('phase', int),('tstamp', np.float), ('y', int), ('x', int),('roach', int)])
+f2=f2.view(np.recarray)
+
+print(f.x.shape,f2.x.shape)
+
+a = [1,2,3,4]
+b = [14,24,34,44]
+c = [1.,2.,3.,4.,]
+d = [-1,-2,-3,-4]
+
+y = list(zip([a,b,c,d]))
+x = np.array(y, dtype=[('first', int), ('second', int), ('third', np.float32), ('fourth', np.uint16)])
+z = x.view(np.recarray)
