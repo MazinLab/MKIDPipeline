@@ -20,7 +20,7 @@ from matplotlib.figure import Figure
 
 
 basePath = '/mnt/data0/ScienceDataIMGs/'
-imageShape = {'nRows':140,'nCols':146}
+imageShape = {'nRows':146,'nCols':140}
 
 
 class DarkQuick(QtWidgets.QMainWindow):
