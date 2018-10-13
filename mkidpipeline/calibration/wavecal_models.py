@@ -9,7 +9,7 @@ from scipy.stats import chi2
 from matplotlib import pyplot as plt
 from scipy.special import erfc, erfcx
 
-from mkidcore.pixelflags import waveCal as flag_dict
+from mkidcore import pixelflags
 
 
 def switch_centers(partial_linear_model):
@@ -20,9 +20,19 @@ def switch_centers(partial_linear_model):
     new_guess['background_center'] = parameters['signal_center']
     new_guess['background_sigma'] = parameters['signal_sigma']
     partial_linear_model.fit(new_guess)
-    p = partial_linear_model.best_fit_result.params.valuesdict()
+    p = partial_linear_model.best_fit_result.params
     success = p['signal_center'] < p['background_center']
     return success
+
+
+def add_fwhm(guess):
+    # TODO: add gaussian independent fwhm calculation
+    if "positive_half_max" not in guess.keys():
+        guess.add("positive_half_max", expr="signal_center + 2.355 * signal_sigma / 2")
+    if "negative_half_max" not in guess.keys():
+        guess.add("negative_half_max", expr="signal_center - 2.355 * signal_sigma / 2")
+
+    return guess
 
 
 def find_amplitudes(x, y, model_functions, args, variance=None):
@@ -88,12 +98,14 @@ def exponential(x, rate):
     return np.exp(rate * x)
 
 
-def plot_text(axis, flag, color):
-    x_limits = axis.get_xlim()
-    y_limits = axis.get_ylim()
+def plot_text(axes, flag, color):
+    if flag is None:
+        return
+    x_limits = axes.get_xlim()
+    y_limits = axes.get_ylim()
     dx, dy = np.diff(x_limits), np.diff(y_limits)
-    axis.text(x_limits[0] + 0.01 * dx, y_limits[1] - 0.01 * dy,
-              flag_dict[flag], color=color, ha='left', va='top')
+    axes.text(x_limits[0] + 0.01 * dx, y_limits[1] - 0.01 * dy,
+              pixelflags.waveCal[flag], color=color, ha='left', va='top')
 
 
 class PartialLinearModel(object):
@@ -151,12 +163,15 @@ class PartialLinearModel(object):
         self.variance = None
         self.best_fit_result = None
         self.best_fit_result_guess = None
+        self.best_fit_result_good = None
         self.used_last_fit = None
         self.flag = None  # flag for wavecal computation condition
-        self.modified = None  # flag for parallel computation by the wavecal code
+        self.phm = None  # positive half width half max
+        self.nhm = None  # negative half width half max
 
     def fit(self, guess):
         self._check_data()
+        guess = add_fwhm(guess)
         self.initial_guess = guess.copy()
         keep = (self.y != 0)
         x = self.x[keep]
@@ -206,6 +221,10 @@ class PartialLinearModel(object):
         if self.used_last_fit:
             self.best_fit_result = self.fit_result
             self.best_fit_result_guess = self.initial_guess
+            self.phm = self.fit_result.params['positive_half_max'].value
+            self.nhm = self.fit_result.params['negative_half_max'].value
+            self.best_fit_result_good = None
+            self.best_fit_result_good = self.has_good_solution()
 
     @property
     def signal_center(self):
@@ -221,15 +240,15 @@ class PartialLinearModel(object):
             raise RuntimeError(message)
         return self.best_fit_result.params['signal_center'].stderr
 
-    def plot(self, axis=None, legend=True, title=True, x_label=True, y_label=True,
+    def plot(self, axes=None, legend=True, title=True, x_label=True, y_label=True,
              best_fit=True, text=True):
         # set up plot basics
-        if axis is None:
-            if legend:
+        if axes is None:
+            if legend and self.best_fit_result is not None:
                 size = (8.4, 4.8)
             else:
                 size = (6.4, 4.8)
-            fig, axis = plt.subplots(figsize=size)
+            fig, axes = plt.subplots(figsize=size)
         if self.has_good_solution():
             color = "green"
             label = "fit accepted"
@@ -237,32 +256,33 @@ class PartialLinearModel(object):
             color = "red"
             label = "fit rejected"
         if x_label:
-            axis.set_xlabel('phase [degrees]')
+            axes.set_xlabel('phase [degrees]')
         if title:
-            axis.set_title(("Model '{}'" + os.linesep + "Pixel {} : ResID {}")
-                           .format(type(self).__name__, self.pixel, self.res_id))
+            axes.set_title(("Model '{}'" + os.linesep + "Pixel ({}, {}) : ResID {}")
+                           .format(type(self).__name__, self.pixel[0], self.pixel[1],
+                                   self.res_id))
 
         # no data
         if self.x is None or self.y is None:
             if text:
-                plot_text(axis, self.flag, color)
+                plot_text(axes, self.flag, color)
             if y_label:
-                axis.set_ylabel('counts')
-            return axis
+                axes.set_ylabel('counts')
+            return axes
 
         # plot data
         cycle = self._cycler()
         difference = np.diff(self.x)
         widths = np.hstack([difference[0], difference])
-        axis.bar(self.x, self.y, widths)
+        axes.bar(self.x, self.y, widths)
         if y_label:
-            axis.set_ylabel('counts per {:.1f} degrees'.format(np.mean(widths)))
+            axes.set_ylabel('counts per {:.1f} degrees'.format(np.mean(widths)))
 
         # no fit
         if self.best_fit_result is None:
             if text:
-                plot_text(axis, self.flag, color)
-            return axis
+                plot_text(axes, self.flag, color)
+            return axes
 
         # choose fit to plot
         if best_fit:
@@ -273,7 +293,7 @@ class PartialLinearModel(object):
         # plot fit
         xx = np.linspace(self.x.min(), self.x.max(), 1000)
         yy = fit_result.eval(x=xx)
-        axis.plot(xx, yy, color=color, label=label, zorder=3)
+        axes.plot(xx, yy, color=color, label=label, zorder=3)
         all_parameters = self._full_model.make_params()
         reduced_parameters = self._reduced_model.make_params()
         amplitude_names = []
@@ -285,20 +305,20 @@ class PartialLinearModel(object):
             for parameter_name in amplitude_names:
                 if parameter_name != amplitude_name:
                     fit_parameters[parameter_name].value = 0
-            axis.plot(xx, fit_result.eval(fit_parameters, x=xx),
+            axes.plot(xx, fit_result.eval(fit_parameters, x=xx),
                       color=next(cycle)['color'], linestyle='--',
                       label=amplitude_name)
 
         # make legend
         if legend:
-            axis.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+            axes.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
             plt.tight_layout()
 
         # add text
         if text:
-            plot_text(axis, self.flag, color)
+            plot_text(axes, self.flag, color)
 
-        return axis
+        return axes
 
     def has_good_solution(self):
         # no fit
@@ -311,10 +331,10 @@ class PartialLinearModel(object):
             return success
 
         # bad fit to data
-        p = self.best_fit_result.params.valuesdict()
+        p = self.best_fit_result.params
         # p_value = chi2.sf(*self.chi2())
         chi_squared, df = self.chi2()
-        high_chi2 = chi_squared / df > 30
+        high_chi2 = chi_squared / df > 100
         no_errors = not self.best_fit_result.errorbars
         max_phase = np.min([-10, np.max(self.x) * 1.2])
         min_phase = np.min(self.x)
@@ -335,9 +355,9 @@ class PartialLinearModel(object):
     def chi2(self):
         """chi squared +/- 2 sigma from the signal_peak and degrees of freedom"""
         self._check_fit()
-        p = self.best_fit_result.params.valuesdict()
-        center = p['signal_center']
-        sigma = p['signal_sigma']
+        p = self.best_fit_result.params
+        center = p['signal_center'].value
+        sigma = p['signal_sigma'].value
         left = center - 2 * sigma
         right = center + 2 * sigma
         x = self.x[self.y != 0]
@@ -381,14 +401,18 @@ class GaussianAndExponential(PartialLinearModel):
         return result
 
     def has_good_solution(self):
+        if self.best_fit_result_good is not None:
+            return self.best_fit_result_good
         success = super(__class__, self).has_good_solution()
         if not success:
             return success
-        p = self.best_fit_result.params.valuesdict()
+        p = self.best_fit_result.params
 
-        g = p['signal_amplitude'] * gaussian(p['signal_center'], p['signal_center'],
-                                             p['signal_sigma'])
-        e = p['trigger_amplitude'] * exponential(p['signal_center'], p['trigger_tail'])
+        g = p['signal_amplitude'].value * gaussian(p['signal_center'].value,
+                                                   p['signal_center'].value,
+                                                   p['signal_sigma'].value)
+        e = p['trigger_amplitude'].value * exponential(p['signal_center'].value,
+                                                       p['trigger_tail'].value)
         swamped_peak = g < 2 * e
         success = not swamped_peak
         return success
@@ -451,21 +475,24 @@ class GaussianAndGaussian(PartialLinearModel):
         return result
 
     def has_good_solution(self):
+        if self.best_fit_result_good is not None:
+            return self.best_fit_result_good
         success = super(__class__, self).has_good_solution()
         if not success:
             return success
-        p = self.best_fit_result.params.valuesdict()
+        p = self.best_fit_result.params
         # switch center and background if fit backwards
         if p['signal_center'] > p['background_center']:
             success = switch_centers(self)
             if not success:
                 return success
 
-        g = p['signal_amplitude'] * gaussian(p['signal_center'], p['signal_center'],
-                                             p['signal_sigma'])
-        g2 = p['background_amplitude'] * gaussian(p['signal_center'],
-                                                  p['background_center'],
-                                                  p['background_sigma'])
+        g = p['signal_amplitude'].value * gaussian(p['signal_center'].value,
+                                                   p['signal_center'].value,
+                                                   p['signal_sigma'].value)
+        g2 = p['background_amplitude'].value * gaussian(p['signal_center'].value,
+                                                        p['background_center'].value,
+                                                        p['background_sigma'].value)
         swamped_peak = g < 2 * g2
         large_background_sigma = (p['background_sigma'] >
                                   (np.max(self.x) - np.min(self.x)) / 4)
@@ -550,22 +577,26 @@ class GaussianAndGaussianExponential(PartialLinearModel):
         return result
 
     def has_good_solution(self):
+        if self.best_fit_result_good is not None:
+            return self.best_fit_result_good
         success = super(__class__, self).has_good_solution()
         if not success:
             return success
-        p = self.best_fit_result.params.valuesdict()
+        p = self.best_fit_result.params
         # switch center and background if fit backwards
         if p['signal_center'] > p['background_center']:
             success = switch_centers(self)
             if not success:
                 return success
 
-        g = p['signal_amplitude'] * gaussian(p['signal_center'], p['signal_center'],
-                                             p['signal_sigma'])
-        e = p['trigger_amplitude'] * exponential(p['signal_center'], p['trigger_tail'])
-        g2 = p['background_amplitude'] * gaussian(p['signal_center'],
-                                                  p['background_center'],
-                                                  p['background_sigma'])
+        g = p['signal_amplitude'].value * gaussian(p['signal_center'].value,
+                                                   p['signal_center'].value,
+                                                   p['signal_sigma'].value)
+        e = p['trigger_amplitude'].value * exponential(p['signal_center'].value,
+                                                       p['trigger_tail'].value)
+        g2 = p['background_amplitude'].value * gaussian(p['signal_center'].value,
+                                                        p['background_center'].value,
+                                                        p['background_sigma'].value)
         swamped_peak = g < 2 * (g2 + e)
         large_background_sigma = (p['background_sigma'] >
                                   (np.max(self.x) - np.min(self.x)) / 4)
@@ -622,7 +653,8 @@ class GaussianAndGaussianExponential(PartialLinearModel):
 
 
 class SkewedGaussianAndGaussianExponential(PartialLinearModel):
-    """Gaussian signal plus gaussian background"""
+    """Gaussian signal plus gaussian background. Do not use. Doesn't compute energy
+     resolution correctly"""
     @staticmethod
     def full_fit_function(x, signal_amplitude, signal_center, signal_sigma, signal_gamma,
                           background_amplitude, background_center, background_sigma,
@@ -655,22 +687,26 @@ class SkewedGaussianAndGaussianExponential(PartialLinearModel):
         return result
 
     def has_good_solution(self):
+        if self.best_fit_result_good is not None:
+            return self.best_fit_result_good
         success = super(__class__, self).has_good_solution()
         if not success:
             return success
-        p = self.best_fit_result.params.valuesdict()
+        p = self.best_fit_result.params
         # switch center and background if fit backwards
         if p['signal_center'] > p['background_center']:
             success = switch_centers(self)
             if not success:
                 return success
 
-        g = p['signal_amplitude'] * gaussian(p['signal_center'], p['signal_center'],
-                                             p['signal_sigma'])
-        e = p['trigger_amplitude'] * exponential(p['signal_center'], p['trigger_tail'])
-        g2 = p['background_amplitude'] * gaussian(p['signal_center'],
-                                                  p['background_center'],
-                                                  p['background_sigma'])
+        g = p['signal_amplitude'].value * gaussian(p['signal_center'].value,
+                                                   p['signal_center'].value,
+                                                   p['signal_sigma'].value)
+        e = p['trigger_amplitude'].value * exponential(p['signal_center'].value,
+                                                       p['trigger_tail'].value)
+        g2 = p['background_amplitude'].value * gaussian(p['signal_center'].value,
+                                                        p['background_center'].value,
+                                                        p['background_sigma'].value)
         swamped_peak = g < 2 * (g2 + e)
         large_background_sigma = (p['background_sigma'] >
                                   (np.max(self.x) - np.min(self.x)) / 4)
@@ -739,14 +775,12 @@ class XErrorsModel(object):
     The following is an example outline:
 
     @staticmethod
-    def fit_function(x, parameters):
-        p = parameters.valuesdict()
-        return p['c2'] * x**2 + p['c1'] * x + p['c0']
+    def fit_function(x, p):
+        return p['c2'].value * x**2 + p['c1'] .value* x + p['c0'].value
 
     @staticmethod
-    def dfdx(x, parameters):
-        p = parameters.valuesdict()
-        return 2 * p['c2'] * x + p['c1']
+    def dfdx(x, p):
+        return 2 * p['c2'].value * x + p['c1'].value
 
     The guess method should be overwritten to provide a reasonable guess for the fitting
     routine based on self.x, self.y, and self.variance.
@@ -762,13 +796,14 @@ class XErrorsModel(object):
         self.used_last_fit = None
         self.best_fit_result = None
         self.best_fit_result_guess = None
+        self.best_fit_result_good = None
         self.fit_result = None
         self.x = None
         self.y = None
         self.variance = None
+        self.min_x = None
+        self.max_x = None
         self.flag = None  # flag for wavecal computation condition
-        self.modified = None  # flag for parallel computation by the wavecal code
-
 
     def fit(self, guess):
         self._check_data()
@@ -788,16 +823,23 @@ class XErrorsModel(object):
         if self.used_last_fit:
             self.best_fit_result = self.fit_result
             self.best_fit_result_guess = self.initial_guess
+            self.best_fit_result_good = None
+            self.best_fit_result_good = self.has_good_solution()
+
+
+    def calibration_function(self, x):
+        self._check_fit()
+        return self.fit_function(x, self.best_fit_result.params)
 
     @staticmethod
     def chi_squared(parameters, x, y, variance, f, dfdx):
         return (f(x, parameters) - y) / (dfdx(x, parameters) * np.sqrt(variance))
 
-    def plot(self, axis=None, legend=True, title=True, x_label=True, y_label=True,
+    def plot(self, axes=None, legend=True, title=True, x_label=True, y_label=True,
              best_fit=True, text=True):
         # set up plot basics
-        if axis is None:
-            fig, axis = plt.subplots()
+        if axes is None:
+            fig, axes = plt.subplots()
         if self.has_good_solution():
             color = "green"
             label = "fit accepted"
@@ -805,29 +847,30 @@ class XErrorsModel(object):
             color = "red"
             label = "fit rejected"
         if x_label:
-            axis.set_xlabel('phase [degrees]')
+            axes.set_xlabel('phase [degrees]')
         if y_label:
-            axis.set_ylabel('energy [eV]')
+            axes.set_ylabel('energy [eV]')
         if title:
-            axis.set_title(("Model '{}'" + os.linesep + "Pixel {} : ResID {}")
-                           .format(type(self).__name__, self.pixel, self.res_id))
+            axes.set_title(("Model '{}'" + os.linesep + "Pixel ({}, {}) : ResID {}")
+                           .format(type(self).__name__, self.pixel[0], self.pixel[1],
+                                   self.res_id))
 
         # no data
         if self.x is None or self.y is None:
             if text:
-                plot_text(axis, self.flag, color)
-            return axis
+                plot_text(axes, self.flag, color)
+            return axes
 
         # plot data
-        axis.errorbar(self.x, self.y, xerr=np.sqrt(self.variance), linestyle='--',
+        axes.errorbar(self.x, self.y, xerr=np.sqrt(self.variance), linestyle='--',
                       marker='o', markersize=5, markeredgecolor='black',
                       markeredgewidth=0.5, ecolor='black', capsize=3, elinewidth=0.5)
 
         # no fit
         if self.best_fit_result is None:
             if text:
-                plot_text(axis, self.flag, color)
-            return axis
+                plot_text(axes, self.flag, color)
+            return axes
 
         # choose fit to plot
         if best_fit:
@@ -836,23 +879,27 @@ class XErrorsModel(object):
             fit_result = self.fit_result
 
         # plot fit
-        y_limit = [0.9 * min(self.y), max(self.y) * 1.1]
-        axis.set_ylim(y_limit)
         x_limit = [1.05 * min(self.x - np.sqrt(self.variance)),
                    0.95 * max(self.x + np.sqrt(self.variance))]
-        axis.set_xlim(x_limit)
+        axes.set_xlim(x_limit)
         xx = np.linspace(x_limit[0], x_limit[1], 1000)
-        axis.plot(xx, self.fit_function(xx, fit_result.params), color=color, label=label)
+        yy = self.fit_function(xx, fit_result.params)
+        axes.plot(xx, self.fit_function(xx, fit_result.params), color=color, label=label)
+
+        y_limit = [0.95 * min(yy), max(yy) * 1.05]
+        axes.set_ylim(y_limit)
 
         if text:
-            plot_text(axis, self.flag, color)
+            plot_text(axes, self.flag, color)
         if legend:
-            axis.legend(loc="lower left")
+            axes.legend(loc="lower left")
 
-
+        return axes
 
     def has_good_solution(self):
-        return self.fit_result.success
+        if self.best_fit_result is None:
+            return False
+        return self.best_fit_result.success
 
     def guess(self):
         raise NotImplementedError
@@ -871,17 +918,34 @@ class XErrorsModel(object):
 
 class Quadratic(XErrorsModel):
     @staticmethod
-    def fit_function(x, parameters):
-        p = parameters.valuesdict()
-        return p['c2'] * x**2 + p['c1'] * x + p['c0']
+    def fit_function(x, p):
+        return p['c2'].value * x**2 + p['c1'].value * x + p['c0'].value
 
     @staticmethod
-    def dfdx(x, parameters):
-        p = parameters.valuesdict()
-        return 2 * p['c2'] * x + p['c1']
+    def dfdx(x, p):
+        return 2 * p['c2'].value * x + p['c1'].value
 
     def has_good_solution(self):
-        return self.fit_result.success
+        if self.best_fit_result_good is not None:
+            return self.best_fit_result_good
+        success = super(__class__, self).has_good_solution()
+        if not success:
+            return success
+
+        p = self.best_fit_result.params
+        vertex = - p['c1'].value / (2 * p['c2'].value)
+        min_slope = 2 * p['c2'].value * self.min_x + p['c1'].value
+        max_slope = 2 * p['c2'].value * self.max_x + p['c1'].value
+        min_value = self.fit_function(self.min_x, self.best_fit_result.params)
+        max_value = self.fit_function(self.max_x, self.best_fit_result.params)
+
+        vertex_in_data = self.min_x < vertex < self.max_x
+        positive_slope = min_slope > 0 or max_slope > 0
+        negative_data = min_value < 0 or max_value < 0
+
+        success = not (vertex_in_data or positive_slope or negative_data)
+
+        return success
 
     def guess(self):
         poly = np.polyfit(self.x, self.y, 2)
@@ -894,17 +958,25 @@ class Quadratic(XErrorsModel):
 
 class Linear(XErrorsModel):
     @staticmethod
-    def fit_function(x, parameters):
-        p = parameters.valuesdict()
-        return p['c1'] * x + p['c0']
+    def fit_function(x, p):
+        return p['c1'].value * x + p['c0'].value
 
     @staticmethod
-    def dfdx(_, parameters):
-        p = parameters.valuesdict()
-        return p['c1']
+    def dfdx(_, p):
+        return p['c1'].value
 
     def has_good_solution(self):
-        return self.fit_result.success
+        if self.best_fit_result_good is not None:
+            return self.best_fit_result_good
+        success = super(__class__, self).has_good_solution()
+        if not success:
+            return success
+        p = self.best_fit_result.params
+        positive_slope = p['c1'] > 0
+        negative_energy = (self.max_x > -p['c0'].value / p['c1'].value and
+                           not positive_slope)
+        success = not (positive_slope or negative_energy)
+        return success
 
     def guess(self):
         poly = np.polyfit(self.x, self.y, 1)
