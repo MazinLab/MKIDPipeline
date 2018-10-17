@@ -1,15 +1,29 @@
 import os
 import copy
 import inspect
+import warnings
 import numpy as np
 import lmfit as lm
 from cycler import cycler
 import scipy.optimize as opt
 from scipy.stats import chi2
+from inspect import signature
 from matplotlib import pyplot as plt
 from scipy.special import erfc, erfcx
 
 from mkidcore import pixelflags
+import mkidcore.corelog as pipelinelog
+
+
+log = pipelinelog.getLogger('mkidpipeline.calibration.wavecal_models', setup=False)
+
+
+def port_model_result(model, parameters, fit_result):
+    model_result = copy.deepcopy(fit_result)
+    model_result.model = model
+    model_result.params = parameters
+    model_result.nvarys = len(signature(model_result.model.func).parameters) - 1
+    return model_result
 
 
 def switch_centers(partial_linear_model):
@@ -36,7 +50,7 @@ def add_fwhm(guess):
 
 
 def find_amplitudes(x, y, model_functions, args, variance=None):
-    if variance is None or not np.any(variance):
+    if variance is None:
         variance = np.ones(y.shape)
     # make coefficient matrix
     a = np.vstack([model(x, *args[index]) / np.sqrt(variance)
@@ -46,6 +60,7 @@ def find_amplitudes(x, y, model_functions, args, variance=None):
 
     # solve for amplitudes enforcing positive values
     amplitudes, _ = opt.nnls(a, b)
+    amplitudes[amplitudes > 1e100] = 1e100  # prevent overflows
 
     return amplitudes
 
@@ -168,29 +183,39 @@ class PartialLinearModel(object):
         self.flag = None  # flag for wavecal computation condition
         self.phm = None  # positive half width half max
         self.nhm = None  # negative half width half max
+        self.max_parameters = 10
+        if len(signature(self._full_model.func).parameters) - 1 > self.max_parameters:
+            message = "no more than {} parameters are allowed in the full_fit_function"
+            raise SyntaxError(message.format(self.max_parameters))
 
     def fit(self, guess):
         self._check_data()
         guess = add_fwhm(guess)
         self.initial_guess = guess.copy()
+        good_fit = True
+        overflow = False
         keep = (self.y != 0)
         x = self.x[keep]
         y = self.y[keep]
         variance = self.variance
         if variance is not None:
             variance = variance[keep]
-
         try:
-            # solve the reduced weighted least squares optimization
-            if variance is None:
-                fit_result = self._reduced_model.fit(y, params=guess, x=x, y=y,
-                                                     variance=[],
-                                                     scale_covar=True)
-            else:
-                fit_result = self._reduced_model.fit(y, params=guess, x=x, y=y,
-                                                     variance=variance,
-                                                     weights=1 / np.sqrt(variance),
-                                                     scale_covar=False)
+            with warnings.catch_warnings():
+                # suppress warning when fits sample bad parts of the parameter space
+                # warnings.simplefilter("ignore", category=RuntimeWarning)
+                # solve the reduced weighted least squares optimization
+                if variance is None:
+                    fit_result = self._reduced_model.fit(y, params=guess, x=x, y=y,
+                                                         variance=[],
+                                                         scale_covar=True,
+                                                         nan_policy='propagate')
+                else:
+                    fit_result = self._reduced_model.fit(y, params=guess, x=x, y=y,
+                                                         variance=variance,
+                                                         weights=1 / np.sqrt(variance),
+                                                         scale_covar=False,
+                                                         nan_policy='propagate')
             # find the linear amplitude coefficients
             amplitudes = self._reduced_model.eval(fit_result.params, x=x, y=y,
                                                   variance=variance,
@@ -201,23 +226,42 @@ class PartialLinearModel(object):
             # create a new guess with the least squares solution
             guess = fit_result.params.copy()
             guess.add_many(*[amplitudes[key] for key in amplitudes.keys()])
+            # check if the model converged by temporarily swapping in the fit_result
+            old_best_fit = copy.deepcopy(self.best_fit_result)
+            self.best_fit_result = port_model_result(self._full_model, guess, fit_result)
+            good_fit = self.has_good_solution()
+            # replace if we will be refitting or if both the old fit exists and if the
+            # old fit has a better chi2
+            if not good_fit:
+                self.fit_result = self.best_fit_result
+            if good_fit or (old_best_fit is not None and
+                            old_best_fit.chisqr < self.best_fit_result.chisqr):
+                self.best_fit_result = old_best_fit
 
-        except (NotImplementedError, AttributeError):
+        except (NotImplementedError, AttributeError) as error:
             # skip if reduced_fit_function is not implemented
+            log.warning(error)
             pass
 
         # solve the full system to get the full covariance matrix
-        if variance is None:
-            self.fit_result = self._full_model.fit(y, params=guess, x=x,
-                                                   scale_covar=True)
-        else:
-            self.fit_result = self._full_model.fit(y, params=guess, x=x,
-                                                   weights=1 / np.sqrt(variance),
-                                                   scale_covar=False)
+        if good_fit:
+            with warnings.catch_warnings():
+                # suppress warning when fits sample bad parts of the parameter space
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                if variance is None:
+                    self.fit_result = self._full_model.fit(y, params=guess, x=x,
+                                                           scale_covar=True,
+                                                           nan_policy='propagate')
+                else:
+                    self.fit_result = self._full_model.fit(y, params=guess, x=x,
+                                                           weights=1 / np.sqrt(variance),
+                                                           scale_covar=False,
+                                                           nan_policy='propagate')
 
         # save the data in best_fit_result if it is better than previous fits
-        self.used_last_fit = (self.best_fit_result is None or
-                              self.fit_result.chisqr < self.best_fit_result.chisqr)
+        self.used_last_fit = good_fit and (self.best_fit_result is None or
+                                           self.fit_result.chisqr <
+                                           self.best_fit_result.chisqr)
         if self.used_last_fit:
             self.best_fit_result = self.fit_result
             self.best_fit_result_guess = self.initial_guess
@@ -230,6 +274,11 @@ class PartialLinearModel(object):
     def signal_center(self):
         self._check_fit()
         return self.best_fit_result.params['signal_center'].value
+
+    @property
+    def signal_sigma(self):
+        self._check_fit()
+        return self.best_fit_result.params['signal_sigma'].value
 
     @property
     def signal_center_standard_error(self):
@@ -259,8 +308,8 @@ class PartialLinearModel(object):
             axes.set_xlabel('phase [degrees]')
         if title:
             axes.set_title(("Model '{}'" + os.linesep + "Pixel ({}, {}) : ResID {}")
-                           .format(type(self).__name__, self.pixel[0], self.pixel[1],
-                                   self.res_id))
+                           .format(type(self).__name__, self.pixel[0],
+                                   self.pixel[1],  self.res_id))
 
         # no data
         if self.x is None or self.y is None:
@@ -332,11 +381,12 @@ class PartialLinearModel(object):
 
         # bad fit to data
         p = self.best_fit_result.params
+        # TODO: chi2 > 200 is a bit ridiculous. Need better models to use the p_value
         # p_value = chi2.sf(*self.chi2())
         chi_squared, df = self.chi2()
-        high_chi2 = chi_squared / df > 100
+        high_chi2 = chi_squared / df > 200
         no_errors = not self.best_fit_result.errorbars
-        max_phase = np.min([-10, np.max(self.x) * 1.2])
+        max_phase = np.min([-10, np.max(self.x) * 1.7])
         min_phase = np.min(self.x)
         out_of_bounds_peak = (p['signal_center'] > max_phase or
                               p['signal_center'] < min_phase)
@@ -363,7 +413,7 @@ class PartialLinearModel(object):
         x = self.x[self.y != 0]
         logic = np.logical_and(x > left, x < right)
         chi_squared = np.sum(self.best_fit_result.residual[logic]**2)
-        df = np.sum(logic) - self.best_fit_result.nvarys
+        df = np.max([1, np.sum(logic) - self.best_fit_result.nvarys])
         return chi_squared, df
 
     def _check_fit(self):
@@ -414,7 +464,8 @@ class GaussianAndExponential(PartialLinearModel):
         e = p['trigger_amplitude'].value * exponential(p['signal_center'].value,
                                                        p['trigger_tail'].value)
         swamped_peak = g < 2 * e
-        success = not swamped_peak
+        small_amplitude = g < 100
+        success = not (swamped_peak or small_amplitude)
         return success
 
     def guess(self, index=0):
@@ -442,7 +493,7 @@ class GaussianAndExponential(PartialLinearModel):
             signal_sigma = 10
             sigma_min = 0.1
             trigger_tail = 0.1
-        parameters.add('signal_center', value=signal_center, min=-np.inf,
+        parameters.add('signal_center', value=signal_center, min=np.min(self.x),
                        max=np.max(self.x))
         parameters.add('signal_sigma', value=signal_sigma, min=sigma_min, max=np.inf)
         parameters.add('trigger_tail', value=trigger_tail, min=0, max=np.inf)
@@ -496,7 +547,8 @@ class GaussianAndGaussian(PartialLinearModel):
         swamped_peak = g < 2 * g2
         large_background_sigma = (p['background_sigma'] >
                                   (np.max(self.x) - np.min(self.x)) / 4)
-        success = not (swamped_peak or large_background_sigma)
+        small_amplitude = g < 100
+        success = not (swamped_peak or large_background_sigma or small_amplitude)
 
         return success
 
@@ -534,7 +586,7 @@ class GaussianAndGaussian(PartialLinearModel):
             background_center = np.min([-40, np.max(self.x)])
             background_sigma = 20
             background_sigma_min = 2
-        parameters.add('signal_center', value=signal_center, min=-np.inf,
+        parameters.add('signal_center', value=signal_center, min=np.min(self.x),
                        max=np.max(self.x))
         parameters.add('signal_sigma', value=signal_sigma, min=sigma_min, max=np.inf)
         parameters.add('background_center', value=background_center, min=-np.inf, max=0)
@@ -600,7 +652,8 @@ class GaussianAndGaussianExponential(PartialLinearModel):
         swamped_peak = g < 2 * (g2 + e)
         large_background_sigma = (p['background_sigma'] >
                                   (np.max(self.x) - np.min(self.x)) / 4)
-        success = not (swamped_peak or large_background_sigma)
+        small_amplitude = g < 100
+        success = not (swamped_peak or large_background_sigma or small_amplitude)
 
         return success
 
@@ -642,10 +695,11 @@ class GaussianAndGaussianExponential(PartialLinearModel):
             background_sigma = 20
             background_sigma_min = 2
             trigger_tail = 0.1
-        parameters.add('signal_center', value=signal_center, min=-np.inf,
+        parameters.add('signal_center', value=signal_center, min=np.min(self.x),
                        max=np.max(self.x))
         parameters.add('signal_sigma', value=signal_sigma, min=sigma_min, max=np.inf)
-        parameters.add('background_center', value=background_center, min=-np.inf, max=0)
+        parameters.add('background_center', value=background_center, min=np.min(self.x),
+                       max=0)
         parameters.add('background_sigma', value=background_sigma,
                        min=background_sigma_min, max=np.inf)
         parameters.add('trigger_tail', value=trigger_tail, min=0, max=np.inf)
@@ -710,7 +764,8 @@ class SkewedGaussianAndGaussianExponential(PartialLinearModel):
         swamped_peak = g < 2 * (g2 + e)
         large_background_sigma = (p['background_sigma'] >
                                   (np.max(self.x) - np.min(self.x)) / 4)
-        success = not (swamped_peak or large_background_sigma)
+        small_amplitude = g < 100
+        success = not (swamped_peak or large_background_sigma or small_amplitude)
 
         return success
 
@@ -755,11 +810,12 @@ class SkewedGaussianAndGaussianExponential(PartialLinearModel):
             background_sigma = 20
             background_sigma_min = 2
             trigger_tail = 0.05
-        parameters.add('signal_center', value=signal_center, min=-np.inf,
+        parameters.add('signal_center', value=signal_center, min=np.min(self.x),
                        max=np.max(self.x))
         parameters.add('signal_sigma', value=signal_sigma, min=sigma_min, max=np.inf)
         parameters.add('signal_gamma', value=signal_gamma, min=0)
-        parameters.add('background_center', value=background_center, min=-np.inf, max=0)
+        parameters.add('background_center', value=background_center, min=np.min(self.x),
+                       max=0)
         parameters.add('background_sigma', value=background_sigma,
                        min=background_sigma_min, max=np.inf)
         parameters.add('trigger_tail', value=trigger_tail, min=0, max=np.inf)
@@ -825,7 +881,6 @@ class XErrorsModel(object):
             self.best_fit_result_guess = self.initial_guess
             self.best_fit_result_good = None
             self.best_fit_result_good = self.has_good_solution()
-
 
     def calibration_function(self, x):
         self._check_fit()
