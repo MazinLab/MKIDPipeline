@@ -11,6 +11,7 @@ import progressbar as pb
 import multiprocessing as mp
 from datetime import datetime
 from astropy.constants import c, h
+from distutils.spawn import find_executable
 from six.moves.configparser import ConfigParser
 import matplotlib
 from matplotlib import gridspec
@@ -22,7 +23,7 @@ from mpl_toolkits.axes_grid1 import axes_size, make_axes_locatable
 from mkidpipeline.hdf import bin2hdf
 import mkidcore.corelog as pipelinelog
 from mkidpipeline.hdf.darkObsFile import ObsFile
-import mkidpipeline.calibration.wavecal_models as models
+import mkidpipeline.calibration.wavecal_models as wm
 
 
 log = pipelinelog.getLogger('mkidpipeline.calibration.wavecal', setup=False)
@@ -30,7 +31,8 @@ log = pipelinelog.getLogger('mkidpipeline.calibration.wavecal', setup=False)
 
 def setup_logging(configuration, time_stamp=None):
     """
-    Set up logging for the wavelength calibration module.
+    Set up logging for the wavelength calibration module for running from the command
+    line.
 
     Args:
         configuration: wavelength calibration Configuration object
@@ -43,7 +45,7 @@ def setup_logging(configuration, time_stamp=None):
     if time_stamp is None:
         time_stamp = int(datetime.utcnow().timestamp())
     if configuration.verbose:
-        log_format = "%(message)s"
+        log_format = "%(levelname)s : %(message)s"
         wavecal_log = pipelinelog.create_log(wavecal_name, console=True, fmt=log_format,
                                              level="INFO")
         wavecal_models_log = pipelinelog.create_log(models_name, console=True,
@@ -209,7 +211,7 @@ class Configuration(object):
                    "PartialLinearModel and be in wavecal_models.py")
         assert isinstance(self.histogram_model_names, list), message
         for model in self.histogram_model_names:
-            assert issubclass(getattr(models, model), models.PartialLinearModel), message
+            assert issubclass(getattr(wm, model), wm.PartialLinearModel), message
         try:
             self.bin_width = float(self.bin_width)
         except ValueError:
@@ -220,7 +222,7 @@ class Configuration(object):
                    "XErrorsModel and be in wavecal_models.py")
         assert isinstance(self.calibration_model_names, list), message
         for model in self.calibration_model_names:
-            assert issubclass(getattr(models, model), models.XErrorsModel), message
+            assert issubclass(getattr(wm, model), wm.XErrorsModel), message
         try:
             self.dt = float(self.dt)
         except ValueError:
@@ -367,9 +369,8 @@ class Calibrator(object):
             if save:
                 self.solution.save()
             if plot:
-                # TODO: doesn't save from ipython
                 save_name = self.cfg.solution_name.split(".")[0] + ".pdf"
-                self.solution.plot_summary(save_name=None)
+                self.solution.plot_summary(save_name=save_name)
         except KeyboardInterrupt:
             log.info("Keyboard shutdown requested ... exiting")
 
@@ -393,6 +394,7 @@ class Calibrator(object):
         try:
             # make ObsFiles
             for wavelength in wavelengths:
+                # wavelengths might be unordered, so we get the right order of h5 files
                 index = np.where(wavelength == self.cfg.wavelengths)[0].squeeze()
                 file_name = os.path.join(self.cfg.h5_directory,
                                          self.cfg.h5_file_names[index])
@@ -404,9 +406,9 @@ class Calibrator(object):
                     # update progress bar
                     self._update_progress(verbose=verbose)
                     # histogram get models
-                    histogram_models = self.solution[pixel[0], pixel[1]]['histograms']
+                    models = self.solution.histogram_models(wavelengths, pixel=pixel)
                     for index, wavelength in enumerate(wavelengths):
-                        model = histogram_models[wavelength == self.cfg.wavelengths][0]
+                        model = models[index]
                         # load the data
                         photon_list = obs_files[index].getPixelPhotonList(*pixel)
                         if photon_list.size < 2:
@@ -489,11 +491,11 @@ class Calibrator(object):
             try:
                 # update progress bar
                 self._update_progress(verbose=verbose)
-                model_list = self.solution[pixel[0], pixel[1]]['histograms']
+                models = self.solution.histogram_models(wavelengths, pixel=pixel)
                 # fit the histograms of the higher energy data sets first and use good
                 # fits to inform the guesses to the lower energy data sets
                 for index, wavelength in enumerate(wavelengths):
-                    model = model_list[wavelength == self.cfg.wavelengths][0]
+                    model = models[index]
                     if model.x is None or model.y is None:
                         message = ("({}, {}) : {} nm : histogram fit failed because "
                                    "there is no data")
@@ -520,10 +522,12 @@ class Calibrator(object):
                         # if there are any good fits intelligently guess the signal_center
                         # parameter and set the other parameters equal to the average of
                         # those in the good fits
-                        good_solutions = [model.has_good_solution()
-                                          for model in model_list]
+                        good_solutions = self.solution.has_good_histogram_solutions(
+                            pixel=pixel)
+                        wavelength_index = np.where(
+                            wavelength == self.cfg.wavelengths)[0].squeeze()
                         if np.any(good_solutions):
-                            guess = self._guess(pixel, wavelength, good_solutions)
+                            guess = self._guess(pixel, wavelength_index, good_solutions)
                             model.fit(guess)
                             # if the fit worked continue with the next wavelength
                             if model.has_good_solution():
@@ -549,14 +553,13 @@ class Calibrator(object):
                             tried_models.append(model.copy())
                             continue
                     # find model with the best fit and save that one
-                    self._assign_best_histogram_model(model_list, tried_models,
-                                                      wavelength, pixel)
+                    self._assign_best_histogram_model(tried_models, wavelength, pixel)
 
                 # recheck fits that didn't work with better guesses if there exist
                 # lower energy fits that did work
-                good_solutions = [model.has_good_solution() for model in model_list]
+                good_solutions = self.solution.has_good_histogram_solutions(pixel=pixel)
                 for index, wavelength in enumerate(wavelengths):
-                    model = model_list[wavelength == self.cfg.wavelengths][0]
+                    model = models[index]
                     if model.x is None or model.y is None:
                         continue
                     if model.has_good_solution():
@@ -570,7 +573,7 @@ class Calibrator(object):
                                 model = self._update_histogram_model(wavelength,
                                                                      histogram_model,
                                                                      pixel)
-                            guess = self._guess(pixel, wavelength, good_solutions)
+                            guess = self._guess(pixel, wavelength_index, good_solutions)
                             model.fit(guess)
                             if model.has_good_solution():
                                 message = ("({}, {}) : {} nm : histogram fit recomputed "
@@ -581,8 +584,8 @@ class Calibrator(object):
                             tried_models.append(model.copy())
                         else:
                             # find the model with the best bad fit and save that one
-                            self._assign_best_histogram_model(
-                                model_list, tried_models, wavelength, pixel)
+                            self._assign_best_histogram_model(tried_models, wavelength,
+                                                              pixel)
             except KeyboardInterrupt:
                 raise KeyboardInterrupt
             except Exception as error:
@@ -615,19 +618,19 @@ class Calibrator(object):
             try:
                 # update progress bar
                 self._update_progress(verbose=verbose)
-                model = self.solution[pixel[0], pixel[1]]['calibration']
+                model = self.solution.calibration_model(pixel=pixel)
                 # get data from histogram fits
-                histogram_models = self.solution[pixel[0], pixel[1]]['histograms']
+                histogram_models = self.solution.histogram_models(wavelengths, pixel)
+                good = self.solution.has_good_histogram_solutions(wavelengths, pixel)
                 phases, variance, energies, sigmas = [], [], [], []
                 for index, wavelength in enumerate(wavelengths):
-                    logic = (wavelength == self.cfg.wavelengths)
-                    histogram_model = histogram_models[logic][0]
-                    if histogram_model.has_good_solution():
-                        phases.append(histogram_model.signal_center)
-                        variance.append(histogram_model.signal_center_standard_error**2)
+                    if good[index]:
+                        histogram_model = histogram_models[index]
+                        phases.append(histogram_model.signal_center.value)
+                        variance.append(histogram_model.signal_center.stderr**2)
                         energies.append(h.to('eV s').value * c.to('nm/s').value /
                                         wavelength)
-                        sigmas.append(histogram_model.signal_sigma)
+                        sigmas.append(histogram_model.signal_sigma.value)
                 # give data to model
                 if variance:
                     model.x = np.array(phases)
@@ -796,51 +799,52 @@ class Calibrator(object):
 
         return centers, counts
 
-    def _update_histogram_model(self, wavelength, histogram_model, pixel):
-        model_list = self.solution[pixel[0], pixel[1]]['histograms']
-        logic = (wavelength == self.cfg.wavelengths)
+    def _update_histogram_model(self, wavelength, histogram_model_class, pixel):
+        model = self.solution.histogram_models(wavelength, pixel)[0]
         # save old data
-        x = model_list[logic][0].x
-        y = model_list[logic][0].y
-        variance = model_list[logic][0].variance
-        saved_pixel = model_list[logic][0].pixel
-        res_id = model_list[logic][0].res_id
+        x = model.x
+        y = model.y
+        variance = model.variance
+        saved_pixel = model.pixel
+        res_id = model.res_id
         # swap model
-        model_list[logic][0] = histogram_model(pixel=saved_pixel, res_id=res_id)
+        model = histogram_model_class(pixel=saved_pixel, res_id=res_id)
+        self.solution.set_histogram_models(model, wavelength, pixel)
         # set new data
-        model_list[logic][0].x = x
-        model_list[logic][0].y = y
-        model_list[logic][0].variance = variance
-        return model_list[logic][0]
+        model.x = x
+        model.y = y
+        model.variance = variance
+        return model
 
-    def _update_calibration_model(self, calibration_model, pixel):
+    def _update_calibration_model(self, calibration_model_class, pixel):
         # save old data
-        x = self.solution[pixel[0], pixel[1]]['calibration'].x
-        y = self.solution[pixel[0], pixel[1]]['calibration'].y
-        variance = self.solution[pixel[0], pixel[1]]['calibration'].variance
-        saved_pixel = self.solution[pixel[0], pixel[1]]['calibration'].pixel
-        res_id = self.solution[pixel[0], pixel[1]]['calibration'].res_id
-        min_x = self.solution[pixel[0], pixel[1]]['calibration'].min_x
-        max_x = self.solution[pixel[0], pixel[1]]['calibration'].max_x
+        model = self.solution.calibration_model(pixel=pixel)
+        x = model.x
+        y = model.y
+        variance = model.variance
+        saved_pixel = model.pixel
+        res_id = model.res_id
+        min_x = model.min_x
+        max_x = model.max_x
         # swap model
-        self.solution[pixel[0], pixel[1]]['calibration'] = \
-            calibration_model(pixel=saved_pixel, res_id=res_id)
+        model = calibration_model_class(pixel=saved_pixel, res_id=res_id)
+        self.solution.set_calibration_model(model, pixel=pixel)
         # set new data
-        self.solution[pixel[0], pixel[1]]['calibration'].x = x
-        self.solution[pixel[0], pixel[1]]['calibration'].y = y
-        self.solution[pixel[0], pixel[1]]['calibration'].variance = variance
-        self.solution[pixel[0], pixel[1]]['calibration'].min_x = min_x
-        self.solution[pixel[0], pixel[1]]['calibration'].max_x = max_x
-        return self.solution[pixel[0], pixel[1]]['calibration']
+        model.x = x
+        model.y = y
+        model.variance = variance
+        model.min_x = min_x
+        model.max_x = max_x
+        return model
 
-    def _guess(self, pixel, wavelength, good_solutions):
+    def _guess(self, pixel, wavelength_index, good_solutions):
         """If there are any good fits for this pixel intelligently guess the
         signal_center parameter and set the other parameters equal to the average of
-        those in the good fits"""
+        those in the good fits."""
         # get initial guess
-        histogram_models = self.solution[pixel[0], pixel[1]]['histograms']
         wavelengths = self.cfg.wavelengths
-        wavelength_index = np.where((wavelength == wavelengths))[0].squeeze()
+        histogram_models = self.solution.histogram_models(pixel=pixel)
+        parameters = self.solution.histogram_parameters(pixel=pixel)
         model = histogram_models[wavelength_index]
         guess = model.guess()
         # get index of closest shorter wavelength good solution
@@ -857,13 +861,13 @@ class Calibrator(object):
         # get data from shorter fit
         if shorter_index is not None:
             shorter_model = histogram_models[shorter_index]
-            shorter_params = shorter_model.best_fit_result.params
-            shorter_center = (shorter_params['signal_center'].value *
+            shorter_params = parameters[shorter_index]
+            shorter_center = (shorter_model.signal_center.value *
                               wavelengths[shorter_index] / wavelengths[wavelength_index])
             shorter_guesses = {}
             if isinstance(shorter_model, type(model)):
                 for parameter in shorter_params.values():
-                    if parameter.name != "signal_center":
+                    if parameter.name != shorter_model.signal_center.name:
                         shorter_guesses.update({parameter.name: parameter.value})
         else:
             shorter_center = None
@@ -871,13 +875,13 @@ class Calibrator(object):
         # get data from longer fit
         if longer_index is not None:
             longer_model = histogram_models[longer_index]
-            longer_params = longer_model.best_fit_result.params
-            longer_center = (longer_params['signal_center'].value *
+            longer_params = parameters[longer_index]
+            longer_center = (longer_model.signal_center.value *
                              wavelengths[longer_index] / wavelengths[wavelength_index])
             longer_guesses = {}
             if isinstance(longer_model, type(model)):
                 for parameter in longer_params.values():
-                    if parameter.name != "signal_center":
+                    if parameter.name != longer_model.signal_center.name:
                         longer_guesses.update({parameter.name: parameter.value})
         else:
             longer_center = None
@@ -888,11 +892,12 @@ class Calibrator(object):
 
         # set center parameter
         if shorter_center is not None and longer_center is not None:
-            guess['signal_center'].set(value=np.mean([shorter_center, longer_center]))
+            guess[model.signal_center.name].set(
+                value=np.mean([shorter_center, longer_center]))
         elif shorter_center is not None:
-            guess['signal_center'].set(value=shorter_center)
+            guess[model.signal_center.name].set(value=shorter_center)
         elif longer_center is not None:
-            guess['signal_center'].set(value=longer_center)
+            guess[model.signal_center.name].set(value=longer_center)
         # set other parameters
         for parameter in guess.values():
             name = parameter.name
@@ -906,8 +911,7 @@ class Calibrator(object):
 
         return guess
 
-    def _assign_best_histogram_model(self, model_list, tried_models, wavelength, pixel):
-        logic = (wavelength == self.cfg.wavelengths)
+    def _assign_best_histogram_model(self, tried_models, wavelength, pixel):
         best_model = tried_models[0]
         lowest_aic_model = tried_models[0]
         for model in tried_models[1:]:
@@ -920,7 +924,7 @@ class Calibrator(object):
 
         if best_model.has_good_solution():
             best_model.flag = 0
-            model_list[logic][0] = best_model
+            self.solution.set_histogram_models(best_model, wavelength, pixel=pixel)
             message = ("({}, {}) : {} nm : histogram model '{}' chosen as "
                        "the best successful fit")
             log.debug(message.format(pixel[0], pixel[1], wavelength,
@@ -930,7 +934,7 @@ class Calibrator(object):
                 lowest_aic_model.flag = 6  # did not converge
             else:
                 lowest_aic_model.flag = 7  # converged but failed validation
-            model_list[logic][0] = lowest_aic_model
+            self.solution.set_histogram_models(lowest_aic_model, wavelength, pixel=pixel)
             message = ("({}, {}) : {} nm : histogram fit failed with all "
                        "models")
             log.debug(message.format(pixel[0], pixel[1], wavelength))
@@ -947,7 +951,7 @@ class Calibrator(object):
                 lowest_aic_model = model
         if best_model.has_good_solution():
             best_model.flag = 10
-            self.solution[pixel[0], pixel[1]]['calibration'] = best_model
+            self.solution.set_calibration_model(best_model, pixel=pixel)
             message = ("({}, {}) : energy-phase calibration model '{}' chosen as "
                        "the best successful fit")
             log.debug(message.format(pixel[0], pixel[1], type(best_model).__name__))
@@ -956,7 +960,7 @@ class Calibrator(object):
                 lowest_aic_model.flag = 13  # did not converge
             else:
                 lowest_aic_model.flag = 14  # converged but failed validation
-            self.solution[pixel[0], pixel[1]]['calibration'] = lowest_aic_model
+            self.solution.set_calibration_model(lowest_aic_model, pixel=pixel)
             message = "({}, {}) : energy-phase calibration fit failed with all models"
             log.debug(message.format(pixel[0], pixel[1]))
 
@@ -1134,9 +1138,9 @@ class Solution(object):
             raise ValueError(message)
 
         # load in fitting models
-        self.histogram_model_list = [getattr(models, name) for _, name in
+        self.histogram_model_list = [getattr(wm, name) for _, name in
                                      enumerate(self.cfg.histogram_model_names)]
-        self.calibration_model_list = [getattr(models, name) for _, name in
+        self.calibration_model_list = [getattr(wm, name) for _, name in
                                        enumerate(self.cfg.calibration_model_names)]
 
         self._parse = True
@@ -1149,6 +1153,7 @@ class Solution(object):
         self._reverse_beam_map = np.zeros((2, res_ids.size), dtype=int)
         indices = np.searchsorted(res_ids, lookup_table[0, :])
         self._reverse_beam_map[:, indices] = lookup_table[1:, :]
+        self._type = np.vectorize(type, otypes=[str])
 
     def __getitem__(self, key):
         results = np.atleast_2d(self._fit_array[key])
@@ -1185,8 +1190,8 @@ class Solution(object):
         self._fit_array[key] = value
 
     def save(self, save_name=None):
-        # TODO: saving and loading is slow: only save parts needed to recreate solution
         """Save the solution to a file whose name is determined by the configuration."""
+        # TODO: saving and loading is slow: only save parts needed to recreate solution
         if save_name is None:
             save_path = os.path.join(self.cfg.out_directory, self.cfg.solution_name)
         else:
@@ -1245,14 +1250,15 @@ class Solution(object):
         wavelengths = self._parse_wavelengths(wavelengths)
         self._parse = False
         resolving_powers = np.zeros((len(wavelengths),))
+        good = self.has_good_histogram_solutions(wavelengths, pixel=pixel)
         if self.has_good_calibration_solution(pixel=pixel):
             calibration_function = self.calibration_function(pixel=pixel)
+            models = self.histogram_models(wavelengths, pixel=pixel)
             for index, wavelength in enumerate(wavelengths):
-                if self.has_good_histogram_solution(wavelength, pixel=pixel):
-                    model = self.histogram_model(wavelength, pixel=pixel)
-                    fwhm = (calibration_function(model.nhm) -
-                            calibration_function(model.phm))
-                    energy = calibration_function(model.signal_center)
+                if good[index]:
+                    fwhm = (calibration_function(models[index].nhm) -
+                            calibration_function(models[index].phm))
+                    energy = calibration_function(models[index].signal_center.value)
                     resolving_powers[index] = energy / fwhm
                 else:
                     resolving_powers[index] = np.nan
@@ -1345,11 +1351,12 @@ class Solution(object):
         wavelengths = self._parse_wavelengths(wavelengths)
         self._parse = False
         responses = np.zeros((len(wavelengths),))
+        good = self.has_good_histogram_solutions(wavelengths, pixel=pixel)
         if self.has_good_calibration_solution(pixel=pixel):
+            models = self.histogram_models(wavelengths, pixel=pixel)
             for index, wavelength in enumerate(wavelengths):
-                if self.has_good_histogram_solution(wavelength, pixel=pixel):
-                    model = self.histogram_model(wavelength, pixel=pixel)
-                    responses[index] = model.signal_center
+                if good[index]:
+                    responses[index] = models[index].signal_center.value
                 else:
                     responses[index] = np.nan
         else:
@@ -1396,6 +1403,12 @@ class Solution(object):
 
         return responses, res_ids
 
+    def set_calibration_model(self, model, pixel=None, res_id=None):
+        """Set the calibration model to model for the specified resonator."""
+        pixel, _ = self._parse_resonators(pixel, res_id)
+        model = self._parse_models(model, 'calibration')[0]
+        self[pixel[0], pixel[1]]['calibration'] = model
+
     def calibration_model(self, pixel=None, res_id=None):
         """Returns the model used for the calibration fit for a particular resonator."""
         pixel, _ = self._parse_resonators(pixel, res_id)
@@ -1417,7 +1430,7 @@ class Solution(object):
 
     def calibration_function(self, pixel=None, res_id=None):
         """Returns a function of one argument that converts phase to fitted energy for a
-         particular resonator."""
+        particular resonator."""
         pixel, _ = self._parse_resonators(pixel, res_id)
         model = self.calibration_model(pixel=pixel)
 
@@ -1447,85 +1460,104 @@ class Solution(object):
         model = self.calibration_model(pixel=pixel)
         return model.flag
 
-    def histogram_model(self, wavelength, pixel=None, res_id=None):
-        """Returns the model used for the histogram fit for a particular resonator and
-        wavelength."""
+    def set_histogram_models(self, models, wavelengths=None, pixel=None, res_id=None):
+        """Set the histogram models to models for a particular resonator at the specified
+        wavelengths."""
         pixel, _ = self._parse_resonators(pixel, res_id)
-        wavelength = self._parse_wavelengths(wavelength)
-        logic = (wavelength == self.cfg.wavelengths)
-        return self[pixel[0], pixel[1]]['histograms'][logic][0]
+        wavelengths = self._parse_wavelengths(wavelengths)
+        models = self._parse_models(models, 'histograms', wavelengths=wavelengths)
+        logic = (wavelengths == self.cfg.wavelengths)
+        self[pixel[0], pixel[1]]['histograms'][logic] = models
 
-    def histogram_parameters(self, wavelength, pixel=None, res_id=None):
-        """Returns the fit parameters for the histogram solution for a particular
-        resonator and wavelength."""
+    def histogram_models(self, wavelengths=None, pixel=None, res_id=None):
+        """Returns a numpy array of models used for the histogram fit for a particular
+        resonator at the specified wavelengths wavelength."""
         pixel, _ = self._parse_resonators(pixel, res_id)
-        wavelength = self._parse_wavelengths(wavelength)
-        model = self.histogram_model(wavelength[0], pixel=pixel)
-        return model.best_fit_result.params
+        wavelengths = self._parse_wavelengths(wavelengths)
+        logic = (wavelengths == self.cfg.wavelengths)
+        models = self[pixel[0], pixel[1]]['histograms'][logic]
+        return models
 
-    def histogram_model_name(self, wavelength, pixel=None, res_id=None):
-        """Returns the name of the model used for the histogram fit for a particular
-        resonator and wavelength."""
+    def histogram_parameters(self, wavelengths=None, pixel=None, res_id=None):
+        """Returns a numpy array of the fit parameters for the histogram solutions for a
+        particular resonator."""
         pixel, _ = self._parse_resonators(pixel, res_id)
-        wavelength = self._parse_wavelengths(wavelength)
-        model = self.histogram_model(wavelength[0], pixel=pixel)
-        return type(model).__name__
+        wavelengths = self._parse_wavelengths(wavelengths)
+        models = self.histogram_models(wavelengths, pixel=pixel)
+        parameters = np.array([model.best_fit_result.params
+                               if model.best_fit_result is not None else None
+                               for model in models], dtype=object)
+        return parameters
 
-    def histogram_function(self, wavelength, pixel, res_id):
-        """Returns a function of one argument that converts phase to fitted histogram
-         counts for a particular resonator and wavelength."""
+    def histogram_model_names(self, wavelengths=None, pixel=None, res_id=None):
+        """Returns a numpy array of the names of the models used for the histogram fits
+        for a particular resonator at the specified wavelengths."""
         pixel, _ = self._parse_resonators(pixel, res_id)
-        wavelength = self._parse_wavelengths(wavelength)
-        parameters = self.histogram_parameters(wavelength[0], pixel=pixel)
-        model = self.histogram_model(wavelength[0], pixel=pixel)
-        lmfit_model = model.best_fit_result.model
+        wavelengths = self._parse_wavelengths(wavelengths)
+        models = self.histogram_models(wavelengths, pixel=pixel)
+        names = np.array([type(model).__name__ for model in models])
+        return names
 
-        def fit(x):
-            return lmfit_model.eval(parameters, x=x)
-        return fit
-
-    def histogram(self, wavelength, pixel=None, res_id=None):
-        """Returns a tuple of the histogram bin centers and counts for a particular
-        resonator and wavelength."""
+    def histogram_functions(self, wavelengths=None, pixel=None, res_id=None):
+        """Returns a numpy array of functions of one argument that convert phase to fitted
+        histogram counts for a particular resonator at the specified wavelengths."""
         pixel, _ = self._parse_resonators(pixel, res_id)
-        wavelength = self._parse_wavelengths(wavelength)
-        model = self.histogram_model(wavelength[0], pixel=pixel)
-        return model.x, model.y
+        wavelengths = self._parse_wavelengths(wavelengths)
+        models = self.histogram_models(wavelengths, pixel=pixel)
+        functions = np.array([model.histogram_function for model in models])
+        return functions
 
-    def has_good_histogram_solution(self, wavelength, pixel=None, res_id=None):
-        """Returns True if the resonator as a good histogram fit. Returns False otherwise.
+    def histograms(self, wavelengths=None, pixel=None, res_id=None):
+        """Returns a numpy array of histogram tuples (bin centers, counts) for a
+        particular resonator at the specified wavelengths."""
+        pixel, _ = self._parse_resonators(pixel, res_id)
+        wavelengths = self._parse_wavelengths(wavelengths)
+        models = self.histogram_models(wavelengths, pixel=pixel)
+        data = np.empty(models.shape, dtype=object)
+        for index, model in enumerate(models):
+            data[index] = (model.x, model.y)
+        return data
+
+    def has_good_histogram_solutions(self, wavelengths=None, pixel=None, res_id=None):
+        """Returns a boolean numpy array. Each element is True if the resonator has a good
+        histogram fit and False otherwise for the corresponding wavelength.
         """
         pixel, _ = self._parse_resonators(pixel, res_id)
-        wavelength = self._parse_wavelengths(wavelength)
         if not isinstance(self._fit_array[pixel[0], pixel[1]][0], dict):
             return False
-        model = self.histogram_model(wavelength, pixel=pixel)
-        return model.has_good_solution()
+        models = self.histogram_models(wavelengths, pixel=pixel)
+        good = np.array([model.has_good_solution() for model in models])
+        return good
 
-    def has_data(self, wavelength, pixel=None, res_id=None):
-        """Returns True if the resonator has histogram data computed for it. Returns False
-        otherwise."""
+    def has_data(self, wavelengths=None, pixel=None, res_id=None):
+        """Returns a boolean numpy array. Each element is True if the resonator has
+        histogram data computed for it and False otherwise for the corresponding
+        wavelength."""
         pixel, _ = self._parse_resonators(pixel, res_id)
-        wavelength = self._parse_wavelengths(wavelength)
+        wavelengths = self._parse_wavelengths(wavelengths)
         if not isinstance(self._fit_array[pixel[0], pixel[1]][0], dict):
             return False
-        model = self.histogram_model(wavelength, pixel=pixel)
-        return model.x is not None and model.y is not None
+        models = self.histogram_models(wavelengths, pixel=pixel)
+        data = np.array([model.x is not None and model.y is not None for model in models])
+        return data
 
-    def histogram_flag(self, wavelength, pixel=None, res_id=None):
-        """Returns the numeric flag corresponding to the histogram fit condition for a
-        particular resonator and wavelength."""
+    def histogram_flags(self, wavelengths=None, pixel=None, res_id=None):
+        """Returns a numpy array of numeric flags corresponding to the histogram fit
+        condition for a particular resonator at the specified wavelengths."""
         pixel, _ = self._parse_resonators(pixel, res_id)
-        wavelength = self._parse_wavelengths(wavelength)
-        model = self.histogram_model(wavelength[0], pixel=pixel)
-        return model.flag
+        wavelengths = self._parse_wavelengths(wavelengths)
+        models = self.histogram_models(wavelengths, pixel=pixel)
+        flags = np.array([model.flag for model in models])
+        return flags
 
-    def bin_width(self, wavelength, pixel=None, res_id=None):
-        """Returns the histogram bin width for a particular resonator and wavelength."""
+    def bin_widths(self, wavelengths=None, pixel=None, res_id=None):
+        """Returns a numpy array of the histogram bin widths for a particular resonator at
+        a the specified wavelengths."""
         pixel, _ = self._parse_resonators(pixel, res_id)
-        wavelength = self._parse_wavelengths(wavelength)
-        model = self.histogram_model(wavelength[0], pixel=pixel)
-        return np.abs(np.diff(model.x))[0]
+        wavelengths = self._parse_wavelengths(wavelengths)
+        models = self.histogram_models(wavelengths, pixel=pixel)
+        widths = np.array([np.abs(np.diff(model.x))[0] for model in models])
+        return widths
 
     def plot_calibration(self, axes=None, pixel=None, res_id=None, r_text=True,
                          **model_kwargs):
@@ -1597,10 +1629,10 @@ class Solution(object):
         message = "plotting phase response histogram for pixel ({}, {})"
         log.debug(message.format(pixel[0][0], pixel[1][0]))
         wavelengths = self._parse_wavelengths(wavelengths)
+        models = self.histogram_models(wavelengths, pixel=pixel)
         # just output the model plot if only one wavelength requested
         if wavelengths.size == 1:
-            model = self.histogram_model(wavelengths, pixel=pixel)
-            return model.plot(axes=axes, **model_kwargs)
+            return models[0].plot(axes=axes, **model_kwargs)
 
         # determine geometry
         share_x = False
@@ -1641,8 +1673,7 @@ class Solution(object):
             linear_index = np.ravel_multi_index(index, dims=axes_grid.shape)
             if linear_index >= len(wavelengths):
                 continue
-            model = self.histogram_model(wavelengths[linear_index], pixel=pixel)
-            axes = model.plot(axes=axes, **model_kwargs)
+            axes = models[linear_index].plot(axes=axes, **model_kwargs)
             axes.text(0, 1, "{} nm".format(wavelengths[linear_index]),
                       ha='left', va='top')
 
@@ -1955,7 +1986,7 @@ class Solution(object):
             if wavelength == 0:
                 title = "Wavelength Calibrated Pixels"
             else:
-                title = "{} nm".format(wavelength)
+                title = "Wavelength is {} nm".format(wavelength)
             axes.set_title(title)
             return axes, None
 
@@ -2018,7 +2049,7 @@ class Solution(object):
         return axes, indexer
 
     def plot_summary(self, axes=None, feedline=None, save_name=None,
-                     resolution_images=True):
+                     resolution_images=True, use_latex=True):
         """
         Plot a summary of the wavelength calibration solution object.
 
@@ -2032,20 +2063,38 @@ class Solution(object):
             resolution_images: boolean which determines if additional resolution_image
                                plots should be appended to the pdf. The figure axes for
                                these plots are appended to the returned axes array.
+            use_latex: a boolean turning on or off latex compilation. Text will not print
+                       nicely without a latex install.
         Returns:
-            axes: an array of Axes objects
+            axes: an array of Axes objects if no save name is provided
+        Notes:
+            If save_name is not provided the matplotlib.rcParams will remain changed to
+            use latex formatting until the python session has closed. They can be reset
+            using 'matplotlib.rcParams.update(matplotlib.rcParamsDefault)', but doing so
+            will break the ability to show the summary plot.
+
+            The code may still not use latex even if use_latex is True if it is determined
+            that the latex distribution is not compatible. However, the code may not be
+            able to determine latex compatibility in all cases, so set use_latex=False if
+            you know that latex compilation will not work on your system.
         """
         log.debug("making summary plot")
-        # reversibly configure matplotlib rc
+        # reversibly configure matplotlib rc if we can use latex
+        tex_installed = (find_executable('latex') is not None and
+                         find_executable('dvipng') is not None and
+                         find_executable('ghostscript') is not None)
+        if not tex_installed:
+            log.warning("latex not configured to work with matplotlib")
+        use_latex = use_latex and tex_installed
         old_rc = matplotlib.rcParams.copy()
-        matplotlib.rc('text', usetex=True)
-        matplotlib.rc('text.latex', unicode=True)
-        matplotlib.rc('text.latex',
-                      preamble=(r"\usepackage{array}"
-                                r"\renewcommand{\arraystretch}{1.15}"
-                                r"\setlength{\parindent}{0cm}"
-                                r"\usepackage[T1]{fontenc}"  # escape underscores for file
-                                r"\catcode`\_=12"))          # names correctly
+        if use_latex:
+            matplotlib.rc('text', usetex=True)
+            matplotlib.rc('text.latex', unicode=True)
+            preamble = (r"\usepackage{array}"  # for raggedright tables
+                        r"\renewcommand{\arraystretch}{1.15}"  # table spacing increase
+                        r"\setlength{\parindent}{0cm}"  # no paragraph indent
+                        r"\catcode`\_=12")  # escape underscores for file names
+            matplotlib.rc('text.latex', preamble=preamble)
 
         # setup subplots
         figure_size = (8.5, 11)
@@ -2081,13 +2130,15 @@ class Solution(object):
             name = self.calibration_model_name(res_id=res_id)
             calibration_names.append(name)
             good_wavelengths = 0
-            for wavelength in self.cfg.wavelengths:
-                if self.has_data(wavelength, res_id=res_id):
+            good_solutions = self.has_good_histogram_solutions(res_id=res_id)
+            names = self.histogram_model_names(res_id=res_id)
+            has_data = self.has_data(res_id=res_id)
+            for index, wavelength in enumerate(self.cfg.wavelengths):
+                if has_data[index]:
                     photosensitive += 1
-                if self.has_good_histogram_solution(wavelength, res_id=res_id):
+                if good_solutions[index]:
                     good_wavelengths += 1
-                    name = self.histogram_model_name(wavelength, res_id=res_id)
-                    histogram_names.append(name)
+                    histogram_names.append(names[index])
             if good_wavelengths == len(self.cfg.wavelengths):
                 completely_successful += 1
         histogram_success = len(histogram_names)
@@ -2143,7 +2194,8 @@ class Solution(object):
         text = histogram_table + calibration_table + info
         x_limit = axes_list[3].get_xlim()
         y_limit = axes_list[3].get_ylim()
-        axes_list[3].text(x_limit[0], y_limit[1], text, va="top", ha="left")
+        axes_list[3].text(x_limit[0], y_limit[1], text, va="top",
+                          ha="left", wrap=True)
         # turn off axes on the right side of the page
         axes_list[3].set_axis_off()
         # add title
@@ -2165,14 +2217,36 @@ class Solution(object):
                                                      r=r, res_ids=res_ids_r)
                 axes_list = np.append(axes_list, axes)
                 figures.append(figure)
-        # reset the old matplotlib rc parameters
-        matplotlib.rcParams = old_rc
         # save the plots
         if save_name is not None:
             file_path = os.path.join(self.cfg.out_directory, save_name)
             with PdfPages(file_path) as pdf:
                 for figure in figures:
-                    pdf.savefig(figure)
+                    try:
+                        pdf.savefig(figure)
+                    except (KeyError, RuntimeError, FileNotFoundError) as error:
+                        # fall back to use_latex=False if the figure save fails
+                        if isinstance(error, KeyError):
+                            message = ("Latex is missing a font. Falling back to"
+                                       "use_latex=False. Check the matplotlib log for "
+                                       "details.")
+                        else:
+                            message = ("Latex generated an exception. Falling back to "
+                                       "use_latex=False.")
+                        log.warning(message)
+                        matplotlib.rcParams.update(old_rc)
+                        axes_list = self.plot_summary(feedline=feedline,
+                                                      save_name=save_name,
+                                                      resolution_images=resolution_images,
+                                                      use_latex=False)
+                        return axes_list
+
+            # if saving close all figures and reset the rcParams
+            for axes in axes_list:
+                plt.close(axes.figure)
+            matplotlib.rcParams.update(old_rc)
+            # don't return the axes since they no longer will plot
+            return
         return axes_list
 
     @staticmethod
@@ -2280,6 +2354,27 @@ class Solution(object):
             raise ValueError("wavelengths must be unique")
         return wavelengths
 
+    def _parse_models(self, models, model_type, wavelengths=None):
+        if not isinstance(models, (list, tuple, np.ndarray)):
+            models = np.array([models])
+        elif not isinstance(models, np.ndarray):
+            models = np.array(models)
+
+        if model_type == 'calibration':
+            model_list = self.calibration_model_list
+        elif model_type == 'histograms':
+            model_list = self.histogram_model_list
+            if wavelengths is not None:
+                message = ("models parameter must be the same length as the wavelengths "
+                           "parameter")
+                assert len(models) == len(wavelengths), message
+        else:
+            message = "model_type must be either 'calibration' or 'histogram' not {}"
+            raise ValueError(message.format(model_type))
+        message = "models parameter has an invalid model type: {}"
+        assert not np.isin(self._type(models), model_list).any(), message.format(models)
+        return models
+
     @staticmethod
     def _plot_color_bar(axes, wavelengths):
         z = [[0, 0], [0, 0]]
@@ -2338,7 +2433,6 @@ if __name__ == "__main__":
         bin2hdf.makehdf(b2h_configs, maxprocs=min(args.n_cpu, mp.cpu_count()))
     if args.h5_only:
         exit()
-
     # run the wavelength calibration
     Calibrator(config).run(parallel=config.parallel, plot=config.summary_plot,
                            verbose=config.verbose)

@@ -794,43 +794,32 @@ class ObsFile:
         """
         raise NotImplementedError
 
-
     def applyWaveCal(self, file_name):
         """
         loads the wavelength cal coefficients from a given file and applies them to the
         wavelengths table for each pixel. ObsFile must be loaded in write mode.
         """
+        from mkidpipeline.calibration import wavecal
         # check file_name and status of obsFile
         assert not self.info['isWvlCalibrated'], \
             "the data is already wavelength calibrated"
-        assert os.path.exists(file_name), "{0} does not exist".format(file_name)
-        wave_cal = tables.open_file(file_name, mode='r')
-
-        self.photonTable.autoindex = False # Don't reindex everytime we change column
-
-        try:
-            # appy waveCal
-            calsoln = wave_cal.root.wavecal.calsoln.read()
-            for (row, column), resID in np.ndenumerate(self.beamImage):
-                index = np.where(resID == np.array(calsoln['resid']))
-                if len(index[0]) == 1 and (calsoln['wave_flag'][index] == 4 or
-                                           calsoln['wave_flag'][index] == 5):
-                    poly = calsoln['polyfit'][index]
-                    photon_list = self.getPixelPhotonList(row, column)
-                    phases = photon_list['Wavelength']
-                    poly = np.array(poly)
-                    poly = poly.flatten()
-                    energies = np.polyval(poly, phases)
-                    wavelengths = self.h * self.c / energies * 1e9  # wavelengths in nm
-                    self.updateWavelengths(row, column, wavelengths)
-                else:
-                    self.applyFlag(row, column, 0b00000010)  # failed waveCal
-            self.modifyHeaderEntry(headerTitle='isWvlCalibrated', headerValue=True)
-            self.modifyHeaderEntry(headerTitle='wvlCalFile',headerValue=str.encode(file_name))
-        finally:
-            self.photonTable.reindex_dirty() # recompute "dirty" wavelength index
-            self.photonTable.autoindex = True # turn on autoindexing 
-            wave_cal.close()
+        solution = wavecal.Solution(file_name)
+        self.photonTable.autoindex = False # Don't reindex every time we change column
+        # apply waveCal
+        for (row, column), resID in np.ndenumerate(self.beamImage):
+            if solution.has_good_calibration_solution(pixel=(row, column)):
+                calibration = solution.calibration_function(pixel=(row, column))
+                photon_list = self.getPixelPhotonList(row, column)
+                phases = photon_list['Wavelength']
+                energies = calibration(phases)
+                wavelengths = self.h * self.c / energies * 1e9  # wavelengths in nm
+                self.updateWavelengths(row, column, wavelengths)
+            else:
+                self.applyFlag(row, column, 0b00000010)  # failed waveCal
+        self.modifyHeaderEntry(headerTitle='isWvlCalibrated', headerValue=True)
+        self.modifyHeaderEntry(headerTitle='wvlCalFile',headerValue=str.encode(file_name))
+        self.photonTable.reindex_dirty() # recompute "dirty" wavelength index
+        self.photonTable.autoindex = True # turn on auto-indexing
 
 
     @staticmethod

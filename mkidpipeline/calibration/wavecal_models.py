@@ -193,7 +193,6 @@ class PartialLinearModel(object):
         guess = add_fwhm(guess)
         self.initial_guess = guess.copy()
         good_fit = True
-        overflow = False
         keep = (self.y != 0)
         x = self.x[keep]
         y = self.y[keep]
@@ -270,15 +269,29 @@ class PartialLinearModel(object):
             self.best_fit_result_good = None
             self.best_fit_result_good = self.has_good_solution()
 
+    def histogram_function(self, x):
+        self._check_fit()
+        return self._full_model.eval(self.best_fit_result.params, x=x)
+
     @property
     def signal_center(self):
-        self._check_fit()
-        return self.best_fit_result.params['signal_center'].value
+        try:
+            self._check_fit()
+            return self.best_fit_result.params['signal_center']
+        except RuntimeError:
+            # catch for when there is no good fit so we can at least return a parameter
+            # object with the same name
+            return lm.Parameter('signal_center')
 
     @property
     def signal_sigma(self):
-        self._check_fit()
-        return self.best_fit_result.params['signal_sigma'].value
+        try:
+            self._check_fit()
+            return self.best_fit_result.params['signal_sigma']
+        except RuntimeError:
+            # catch for when there is no good fit so we can at least return a parameter
+            # object with the same name
+            return lm.Parameter('signal_sigma')
 
     @property
     def signal_center_standard_error(self):
