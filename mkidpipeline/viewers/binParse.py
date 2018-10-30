@@ -17,6 +17,7 @@ data cubes are sequenced by phase (pix value is total # counts per phase bin).
 import numpy as np
 import os
 import sys
+from mkidpipeline.hdf.parsebin import parse
 import matplotlib.pyplot as plt
 
 from time import time
@@ -24,20 +25,76 @@ from time import time
 
 # Defining the Size of an Image
 # needs to be updated if changed between runs/instruments
-image_shape = {'nrows':125,'ncols':80}
+#image_shape = {'nrows':125,'ncols':80}
 
 #####################################################################################################
 #####################################################################################################
-class ParseSingleBin:
+
+################
+# Definitions
+################
+
+def obs_list(basepath,tstampStart,tstampEnd):
+    '''
+    Make a list of files to parse given a start and end time
+
+    Inputs:
+     basepath: path to the obs files eg: /mnt/data0/ScienceData/PAL218a/052918/
+     tstampStart: second (UTC) that you want to start the file
+     tstampEnd: second (UTC) that you want to end the file
+
+    :return: a list of file names
+    '''
+    obs_list = []
+    msec_list = np.arange(tstampStart, tstampEnd + 1) # millisecond list
+
+    for nbin in enumerate(msec_list):
+        obs_list.append(os.path.join(basepath,str(nbin[1])+'.bin'))
+
+    return obs_list
+
+def _makephasecube(xs,ys,phs, img_shape,range,d_phase):
     """
-    Parse a Single .bin File
-    Assume basePath points to data directory
+    makes a data cube of a single .bin file with phase as 3rd axis, broken up by bin range
 
-    input: a single file, full path name specified
+    We assume that the range of data is from -360 0, which seems to be the case from parsed data
+    The unfortunate part about this is that for the most part we ignore other data when making
+     the phase cube. So we don't keep any info from the baseline, roachnum, etc.
+
+
+    Inputs:
+            phase_dx- size of a single phase bin for axis3 of the data cube, in units of deg
+
+    Output: data cube with attributes:
+    """
+    phs_bins = np.linspace(range[0],range[1],int((range[1]-range[0])/d_phase))
+    phs_cube = np.zeros((img_shape[0], img_shape[1], phs_bins.shape[0]))
+    stcube = time()
+
+    for i,value in enumerate(phs_bins):
+        this_phsbin = np.logical_and(phs>value,phs<value+d_phase).nonzero()
+        for x,y in zip(xs[this_phsbin[0]],ys[this_phsbin[0]]):
+            phs_cube[y,x,i] += 1
+    etcube = time()
+    print("Making phase cube of single bin file took {} seconds".format(etcube-stcube))
+    return phs_cube
+
+#####################################################################################################
+#####################################################################################################
+################
+# Classes
+################
+
+class ParseBin:
+    """
+    Parse a .bin File and return photon list
+
+    input: list of obs file names, full path specified
+            could be returned by obs_list in module definitions
 
     output: a numpy object
         Attributes:
-        .name = input file name
+        .obs_files = input file name
         .tstamp = list of photon arrival times (info from header+photon .5ms time)
         .phase = list of phases (not yet wavelength cal-ed)
         .baseline = list of baselines
@@ -45,143 +102,83 @@ class ParseSingleBin:
         .x = list of x coordinates
         .y = list of y coordinates
 
-
     """
-    def __init__(self,binf):
-        from mkidpipeline.hdf.parsebin import parse
+    def __init__(self,files):
+        self.obs_files = files
 
-        try:
-            # Calling new parse file
-            pstartT = time()
-            parsef = parse(binf, 10)
-            pendT = time()
-            print("Parsing file {} took {} seconds".format(binf, pendT - pstartT))
+        self.x = np.empty(0, dtype=np.int)
+        self.y = np.empty(0, dtype=np.int)
+        self.tstamp = np.empty(0, dtype=np.uint64)
+        self.baseline = np.empty(0, dtype=np.uint64)
+        self.phase = np.empty(0, dtype=np.float32)
+        self.roach = np.empty(0, dtype=np.int)
+        self.nphotons = np.empty(0, dtype=np.int)
+        tic = time()
 
-            self.x_location = parsef.x
-            self.y_location = parsef.y
-            self.tstamp = parsef.tstamp
-            self.baseline = parsef.baseline
-            self.phase = parsef.phase
-            self.roach_num = parsef.roach
-            self.fname = binf
-            self.fsize = parsef.x.shape
+        for f in files:
+            try:
+                # Calling new parse file
+                parsef = parse(f)
 
-        except (IOError, ValueError) as e:
-            # import mkidcore.corelog as clog
-            # clog.getLogger('BinViewer').error('Help', exc_info=True)
-            print(e)
+                self.x = np.append(self.x,parsef.x)
+                self.y = np.append(self.y,parsef.y)
+                self.tstamp = np.append(self.tstamp,parsef.tstamp)
+                self.baseline = np.append(self.baseline,parsef.baseline)
+                self.phase = np.append(self.phase,parsef.phase)
+                self.roach = np.append(self.roach,parsef.roach)
+
+                self.nphotons = np.append(self.nphotons,parsef.x.shape)
+
+            except (IOError, ValueError) as e:
+                # import mkidcore.corelog as clog
+                # clog.getLogger('BinViewer').error('Help', exc_info=True)
+                print(e)
+
+        self.total_photons = int(sum(self.nphotons))
+        toc = time()
+        print("Parsing {} photons in {} files took {} seconds".format(self.total_photons,len(files), toc - tic))
+
+    ###################################
+    # Make Image
+    ###################################
+    def image(self,shape):
+        """
+        makes a single image from the data in the single bin file
+        calls ParseSingleBin
+
+        This code makes an image of the parsed file. The image is a greyscaled
+        image where the pixel value is equal to the number of photon hits per
+        pixel in the given .bin file.
+
+        shape is a tuple with the size of the image [x,y]
+        """
+        self.shape = shape
+
+        tic = time()
+        ret = np.zeros(shape, dtype=np.uint16)
+        for x, y in zip(self.x, self.y):
+            ret[y,x] += 1
+        toc = time()
+        print("Time to make image with {} photons is {} seconds".format(self.total_photons,toc-tic))
+        return ret
+
+    ###################################
+    # Make Image
+    ###################################
+
+    def phasecube(self, shape,range, dx):
+        self.shape = (shape,(range[1]-range[0])/dx)
+        self.phs_size = dx
+        return _makephasecube(self.x, self.y, self.phase, shape,range, dx)
+
 
 #####################################################################################################
 #####################################################################################################
 
-class SingleBinImage:
-    """
-    makes a single image from the data in the single bin file
-    calls ParseSingleBin
-
-    This code makes an image of the parsed file. The image is a greyscaled
-    image where the pixel value is equal to the number of photon hits per
-    pixel in the given .bin file.
-
-    There is an option to plot the image as a callable method. It does not
-    automatically plot itself.
-
-
-    Inputs: full bin filename
-            image_shape- as a dict, with format:
-                image_shape = {'nrows':125,'ncols':80}
-
-
-    Output:
-        Attributes:
-            .fname = string, full file name from input
-            .nphotons = number of photons in the file (length of parsed file)
-            .img_shape = as a dict, with format:
-                        image_shape = {'nrows':xx,'ncols':yy}
-            .img  = 2D image file
-                    no phase information is saved in the image.
-
-        Methods:
-        Plotting methods are written to be called on the object after it has been created, ie:
-                test_img = SingleBinImage(binf, img_shape)
-                test_img.plot_img()
-        .plot_img()
-            Plots a 2D image of the bin file, where the value at each x,y position is the
-             total number of photon counts during the timespan of the .bin file
-
-    """
-    def __init__(self,binf,image_shape):
-        parsed = ParseSingleBin(binf)
-        self.fname = parsed.fname
-        self.nphotons = parsed.fsize
-        self.img_shape = image_shape
-
-        self.image = np.zeros((image_shape['nrows'], image_shape['ncols']), dtype=np.uint16)
-        for x, y in np.array(list(zip(parsed.x_location, parsed.y_location))):
-            self.image[y, x] += 1
-
-    def plot_img(self):
-        import matplotlib.pyplot as plt
-        fig, ax = plt.subplots()
-        im = ax.imshow(self.image)
-        plt.show()
 
 #####################################################################################################
 #####################################################################################################
 
-class SingleBinPhaseCube:
-    """
-    makes a data cube of a single .bin file with phase as 3rd axis, broken up by bin range
-    Calls ParseSingleBin
-
-    We assume that the range of data is from -360 0, which seems to be the case from parsed data
-    The unfortunate part about this is that for the most part we ignore other data when making
-     the phase cube. So we don't keep any info from the baseline, roachnum, etc.
-
-    There is an option to plot the image as a callable method. It does not
-     automatically plot itself.
-
-    Inputs: single bin file-full path name
-            image_shape- as a dict, with format:
-                image_shape = {'nrows':125,'ncols':80}
-            phase_dx- size of a single phase bin for axis3 of the data cube, in units of deg
-
-    Output: data cube with attributes:
-        .fname = string, full file name from input
-        .nphotons = number of photons in the file (length of parsed file)
-        .img_shape =image_shape- as a dict, with format:
-                    image_shape = {'nrows':125,'ncols':80}
-        .dx = the phasebin size, in degrees
-        .cube
-
-        Methods
-        Plotting methods are written to be called on the object after it has been created, ie:
-                cube1 = SingleBinPhaseCube(binf, img_shape,dx)
-                cube1.plot_sometype(inputs)
-        .plot_phase_spec(x,y)
-            Plots a histogram of the phase spectra at given x,y position
-        .plot_img(dx)
-            Plots 2D image of phase dx, where dx is a bin number, not the actual phase range
-
-    """
-    def __init__(self,binf,image_shape,phase_dx):
-        parsed = ParseSingleBin(binf)
-        self.fname = parsed.fname
-        self.nphotons = parsed.fsize
-        self.img_shape = image_shape
-        self.dx = phase_dx
-
-        phs_range = np.linspace(-360,0,int(360/phase_dx))
-        phs_cube = np.zeros((image_shape['nrows'], image_shape['ncols'], phs_range.shape[0]))
-        stcube = time()
-
-        for i,value in enumerate(phs_range):
-            this_phsbin = np.logical_and(parsed.phase>value,parsed.phase<value+phase_dx).nonzero()
-            for x,y in np.array(list(zip(parsed.x_location[this_phsbin[0]],parsed.y_location[this_phsbin[0]]))):
-                phs_cube[y,x,i] += 1
-        etcube = time()
-        print("Making phase cube of single bin file took {} seconds".format(etcube-stcube))
-        self.cube = phs_cube
 
     def plot_phs_spec(self,x,y):
         import matplotlib.pyplot as plt
@@ -209,89 +206,11 @@ class SingleBinPhaseCube:
             print("input phase bin out of range\n")
             print("Number of phase bins ={}".format(phsbin_middles.shape))
 
-#####################################################################################################
-#####################################################################################################
-class ParseStack:
-    """
-    load & parse a stack of .bin files
-    Assume basePath points to data directory
-
-    input: the **kwargs from running the code
-        basepath run date tstampStart tstampEnd
-
-
-    output: a big-ass photon list
-        .fname = list of input file names
-        .stacked_fsize = list of file sizes (# of photons) of each .bin file
-        .tstamp = list of photon arrival times (info from header+photon .5ms time)
-        .phase = list of phases (not yet wavelength cal-ed)
-        .baseline = list of baselines
-        .roach_num = list of roach #s
-        .x = list of x coordinates
-        .y = list of y coordinates
-
-
-    """
-    def __init__(self,basepath,run,date,tstampStart,tstampEnd):
-        run_path = os.path.join(basepath, str(run), str(date))
-        #run_path = os.path.join(run_path, str(date))
-        msec_list = np.arange(tstampStart, tstampEnd + 1) # millisecond list
-
-        self.x_location = []
-        self.y_location = []
-        self.tstamp = []
-        self.baseline = []
-        self.phase = []
-        self.roach_num =[]
-        self.fname = []
-        self.stacked_fsize = [] # a list of the sizes of the bin files in the stack.
-                                # Useful if you wanted to break the stack into individual images again
-
-        for nbin in enumerate(msec_list):
-            print(nbin)
-            this_bin = os.path.join(run_path,str(nbin[1])+'.bin')
-            print(this_bin)
-            new = ParseSingleBin(this_bin)
-
-            self.x_location = np.append(self.x_location,new.x_location)
-            self.y_location = np.append(self.y_location,new.y_location)
-            self.tstamp = np.append(self.tstamp,new.tstamp)
-            self.phase = np.append(self.phase,new.phase)
-            self.baseline = np.append(self.baseline,new.baseline)
-            self.roach_num = np.append(self.roach_num,new.roach_num)
-            self.fname = np.append(self.fname,new.fname)
-            self.stacked_fsize = np.append(self.stacked_fsize,new.fsize)
 
 #####################################################################################################
 #####################################################################################################
-class BinStackPhaseCube:
-    def __init__(self,image_shape,phase_dx,basepath,run,date,tstampStart,tstampEnd):
-        # Parse the Stack
-        parsed = ParseStack(basepath,run,date,tstampStart,tstampEnd)
 
-        # Assigning info from ParseStack
-        self.fnames = parsed.fname
-        self.stack_sizes = parsed.stacked_fsize
-        self.img_shape = image_shape
 
-        # Total Number of Photons in Stack
-        nphotons = 0
-        for i in range(1,parsed.stacked_fsize.shape[0]):
-            nphotons = nphotons+parsed.stacked_fsize[i]
-        self.nphotons = nphotons
-
-        # Creating Data Cube
-        phs_range = np.linspace(-360,0,int(360/phase_dx))
-        phs_cube = np.zeros((image_shape['nrows'], image_shape['ncols'], phs_range.shape[0]))
-        stcube = time()
-
-        for i,value in enumerate(phs_range):
-            this_phsbin = np.logical_and(parsed.phase>value,parsed.phase<value+phase_dx).nonzero()
-            for x,y in np.array(list(zip(parsed.x_location[this_phsbin[0]],parsed.y_location[this_phsbin[0]]))):
-                phs_cube[y,x,i] += 1
-        etcube = time()
-        print("Making phase cube of {} stacked files took {} seconds".format((tstampEnd-tstampStart),(etcube-stcube)))
-        self.cube = phs_cube
 
 
     def plot_phs_spec(self,x,y):
@@ -315,29 +234,30 @@ class BinStackPhaseCube:
 
 if __name__ == "__main__":
     kwargs = {}
-    if len(sys.argv) != 6:
-        print('Usage: {} basepath run date tstampStart tstampEnd'.format(sys.argv[0]))
+    if len(sys.argv) != 4:
+        print('Usage: {} basepath tstampStart tstampEnd'.format(sys.argv[0]))
         exit(0)
     else:
         kwargs['basepath'] = str(sys.argv[1])
-        kwargs['run'] = str(sys.argv[2])
-        kwargs['date'] = int(sys.argv[3])
-        kwargs['tstampStart'] = int(sys.argv[4])
-        kwargs['tstampEnd'] = int(sys.argv[5])
+        kwargs['tstampStart'] = int(sys.argv[2])
+        kwargs['tstampEnd'] = int(sys.argv[3])
 
 
-    data_path = kwargs['basepath'] + '/' + kwargs['run'] + '/' + str(kwargs['date']) + '/'
-    first_file = data_path + str(kwargs['tstampStart']) + '.bin'
-    test_single_parse = ParseSingleBin(first_file)
-    #test_parse = ParseStack(**kwargs)
+    fnames = obs_list(**kwargs)
+    test1 = ParseBin(fnames)
+    img_shape = [125,80]
+    #timg = test1.image(img_shape)
+    #fig, ax = plt.subplots()
+    #im = ax.imshow(timg)
+    #plt.show()
 
-    test_img = SingleBinImage(first_file,image_shape)
-    test_img.plot_img()
-    #SingleBinImage.plot_img(test_img)
+    phase_binsize = 2
+    phs_range = [-250,-200]
+    test_cube = test1.phasecube(img_shape,phs_range,phase_binsize)
 
-    test_cube = SingleBinPhaseCube(first_file,image_shape,5)
-    test_cube.plot_phs_img(70)
-    test_cube.plot_phs_spec(50,20)
+    fig, ax = plt.subplots()
+    phsbin_midpts = np.linspace(phs_range[0], phs_range[1], int((phs_range[1]-phs_range[0]) / phase_binsize)) + (phase_binsize) / 2
+    spec = test_cube[60, 62, :]
+    plt.bar(phsbin_midpts, spec, width=phase_binsize)
+    plt.show()
 
-    #testParse = ParseSingleBin(firstFile)
-    #test_cube_stack = BinStackPhaseCube(image_shape,5,**kwargs)
