@@ -46,6 +46,7 @@ import scipy.ndimage.filters as spfilters
 
 from mkidpipeline.hdf.darkObsFile import ObsFile
 from mkidpipeline.utils import utils
+from mkidpipeline.utils.plottingTools import plot_array
 import mkidcore.corelog as pipelinelog
 from mkidcore.corelog import getLogger
 from matplotlib.backends.backend_pdf import PdfPages
@@ -266,7 +267,7 @@ def quick_check_img (image=None, sigma=None, max_cut=2450, cold_mask=False):
     return {'bad_mask': bad_mask, 'image': raw_image}
 
 
-def quick_check_stack(stack=None, len_stack=None, sigma=None, max_cut=2450, cold_mask=False):
+def quick_check_stack(stack=None, len_stack=None, sigma=None, max_cut=2450, cold_mask=False, verbose=False):
     """
     Finds the hot and dead pixels in a stack of images
     Same procedure as quick_check except this procedure operates on a STACK of images (again, NOT robust!!)
@@ -302,6 +303,8 @@ def quick_check_stack(stack=None, len_stack=None, sigma=None, max_cut=2450, cold
 
     for i in range(len_stack):
         raw_image = stack[:,:,i]
+
+        if verbose and i==0
 
         # initial masking, flag dead pixels (counts < 0.01) and flag anything with cps > maxCut as hot
         bad_mask = np.zeros_like(raw_image)
@@ -417,17 +420,16 @@ def find_bad_pixels(input_filename=None, obsfile=None, time_step=1, start_time=0
     write_bad_pixels(bad_pixel_mask, obsfile)
 
 
-def write_bad_pixels(bad_pixel_mask, obsfile):
+def write_bad_pixels(bad_pixel_mask= None, obsfile= None):
     """
     Write the output hot-pixel time masks table to an .h5 file. Called by
     find_bad_pixels().
 
     Required Input:
     :param bad_pixel_mask:    A 2D array of integers of the same shape as the input image, denoting locations
-                              of bad pixels and the reason they are bad
-    OR
+                              of bad pixels and the reason they were flagged
 
-    OUTPUTS:
+    :return:
     Writes a 'bad pixel table' to an output h5 file titled 'badpixmask_--timestamp--.h5'.
 
     """
@@ -451,6 +453,71 @@ def write_bad_pixels(bad_pixel_mask, obsfile):
 
     badpix_file.flush()
     badpix_file.close()
+
+
+def quick_save_mask(mask= None, out_directory= None):
+    """
+     Write bad pixel mask to desired output directory
+
+     :param mask:  Bad pixel array from quick_check_img
+                   OR bad pixel stack from quick_check_stack
+     :param out_directory:  Output directory that the bad pixel mask should be written
+
+     :return:
+     Saves .npz file in output directory titled 'badpixmask_--timestamp--.npz'
+
+    """
+    badpix_file_name = 'badpixmask_{}'.format(timestamp)
+    mask_name = os.path.join(out_directory, badpix_file_name)
+
+    np.savez(mask_name, mask=mask)
+
+    return
+
+def quick_load_mask(file_path= None):
+    """
+    Load and return a mask
+
+    :param file_path:  Path and name of the file containing the mask (np or npz file)
+
+    :return:
+    Mask or stack of masks
+    """
+    mask_file = np.load(file_path)
+    mask = mask_file['mask']
+    mask_file.close()
+    return mask
+
+
+def quick_plot_mask(mask= None, image=None, title=None):
+    """
+    Plot a mask or masked image for quick viewing
+
+    Required Input:
+    :param mask:  Np array containing mask
+
+    Other Input:
+    :param title:  Title of the plot.  If no title is provided, the default title 'Bad Pixel Mask' will be used
+    :param image:  Np array containing raw image.  If no image is provided, just the mask will be plotted
+
+    :return:
+    Display a plot of the mask or masked image for quick inspection
+    """
+    if not title:
+        title='Bad Pixel Mask'
+
+    #If image is provided, mask the bad pixels for plotting
+    if image:
+        image[np.where(mask > 0)]== np.NaN
+        image_to_plot=image
+    else:
+        image_to_plot=mask
+    try:
+        plot_array(image_to_plot, title=title)
+    except:
+        plt.matshow(image_to_plot)
+        plt.show()
+
 
 
 if __name__ == "__main__":

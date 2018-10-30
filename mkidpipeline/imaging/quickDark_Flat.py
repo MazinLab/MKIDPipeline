@@ -35,7 +35,7 @@ import numpy as np
 
 import mkidpipeline.hotpix.darkHotPixMask as dhpm
 import mkidpipeline.utils.irUtils as irUtils
-from mkidpipeline.utils.arrayPopup import plotArray
+from mkidpipeline.utils.plottingTools import plot_array
 from mkidpipeline.utils.loadStack import loadBINStack, loadIMGStack
 from mkidpipeline.utils.readDict import readDict
 
@@ -78,7 +78,7 @@ def makeDark(stackForDark=None, outPutFileName=None,verbose=True):
         dark = irUtils.medianStack(stackForDark)
         print("Making dark hot pixel mask")
         if verbose:
-            plotArray(dark,title='Dark',origin='upper')
+            plot_array(dark,title='Dark',origin='upper')
     except:
         print("####    Error with the stack of dark. makeDark takes a list of array of arrays to make the dark   ####")
         sys.exit(0)
@@ -124,7 +124,7 @@ def makeFlat(flatStack=None, dark=None, outPutFileName=None, badPixelMask=None, 
         sys.exit(0)
     
     if verbose:
-        plotArray(flat,title='NotdarkSubFlat')
+        plot_array(flat,title='NotdarkSubFlat')
     
     if darkSpan[0]!='0':
         #dark subtract the flat
@@ -150,14 +150,14 @@ def makeFlat(flatStack=None, dark=None, outPutFileName=None, badPixelMask=None, 
          print("Applying bad pixel mask")
          croppedFrame[badPixelMask!=0] = np.nan
     if verbose:
-        plotArray(croppedFrame,title='Cropped flat frame') #Plot the cropped flat frame
+        plot_array(croppedFrame,title='Cropped flat frame') #Plot the cropped flat frame
     med = np.nanmedian(croppedFrame.flatten())
     print('median', med)
     
     flatSub[flatSub==0]=1
     weights = med/flatSub #calculate the weights by dividing the median by the dark-subtracted flat frame
     if verbose: 
-        plotArray(weights,title='Weights') #Plot the weights
+        plot_array(weights,title='Weights') #Plot the weights
    
     try: 
         np.savez(outPutFileName,weights = weights,flat=flatSub)

@@ -10,7 +10,7 @@ import sys
 import numpy as np
 from astropy.io import fits as pyfits
 
-from mkidpipeline.utils.arrayPopup import plotArray
+from mkidpipeline.utils.plottingTools import plot_array
 
 beammap = '/mnt/data0/Darkness/20160722/filledBeammap20160722.txt'
 verbose = True
@@ -97,8 +97,5 @@ if __name__ == "__main__":
         path = outpath+medianFile
         writeFits(mf, path)
         if verbose:
-            plotArray(image=mf)
-            #form = PopUp(showMe=False,title='B')
-            #form.plotArray(np.arange(9).reshape(3,3))
-            #form.show()
+            plot_array(mf, origin='upper')
 

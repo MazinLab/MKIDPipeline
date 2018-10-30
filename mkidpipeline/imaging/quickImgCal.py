@@ -46,7 +46,7 @@ import numpy as np
 
 import mkidpipeline.hotpix.darkHotPixMask as dhpm
 import mkidpipeline.utils.irUtils as irUtils
-from mkidpipeline.utils.arrayPopup import plotArray
+from mkidpipeline.utils.plottingTools import plot_array
 from mkidpipeline.utils.loadStack import loadBINStack, loadIMGStack
 from mkidpipeline.utils.readDict import readDict
 
@@ -123,7 +123,7 @@ else:
 
 #Apply the hot pixel mask and plot the hot pixel masked dark frame
 dark[np.where(darkHPM==1)]=np.nan
-plotArray(dark,title='Dark',origin='upper')
+plot_array(dark,title='Dark',origin='upper')
 
 #load flat frames
 if flatSpan[0]!='0':
@@ -133,7 +133,7 @@ if flatSpan[0]!='0':
     else:
         flatStack = loadBINStack(dataDir, flatSpan[0], flatSpan[1], nCols=numCols, nRows=numRows)
     flat = irUtils.medianStack(flatStack)
-    plotArray(flat,title='NotdarkSubFlat')
+    plot_array(flat,title='NotdarkSubFlat')
     #dark subtract the flat
     flatSub=flat-dark
     flatSub[np.where(flatSub < 0.0)]=np.nan
@@ -168,13 +168,13 @@ badXCoords = np.delete(badXCoords, outOfBoundsInds)
 badYCoords = np.delete(badYCoords, outOfBoundsInds)
 croppedFrame[badYCoords, badXCoords] = np.nan
 
-plotArray(croppedFrame,title='Cropped flat frame') #Plot the cropped flat frame
+plot_array(croppedFrame,title='Cropped flat frame') #Plot the cropped flat frame
 
 med = np.nanmedian(croppedFrame.flatten())
 print(med)
 weights = med/flatSub #calculate the weights by dividing the median by the dark-subtracted flat frame
 
-plotArray(weights,title='Weights') #Plot the weights
+plot_array(weights,title='Weights') #Plot the weights
 
 hpFN='darkHPM_'+target+'.npz'  #Save the hot pixel mask into the output directory
 hpPath = os.path.join(outPath,hpFN)
