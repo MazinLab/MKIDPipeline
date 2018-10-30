@@ -17,7 +17,7 @@ import sys
 
 import numpy as np
 from mkidpipeline.hdf.darkObsFile import ObsFile as obs
-from mkidpipeline.utils.arrayPopup import plotArray
+from mkidpipeline.utils.plottingTools import plot_array
 from configparser import ConfigParser
 from mkidpipeline.utils import irUtils
 
@@ -115,13 +115,13 @@ for i in range(nPos):
 
        #plot an example of the UNmasked image for inspection
         if i==0:
-            plotArray(processedIm,title='Dither Pos %i'%i,origin='upper',vmin=0)
+            plot_array(processedIm,title='Dither Pos %i'%i,origin='upper',vmin=0)
         #cut out cold/dead pixels
         processedIm[np.where(processedIm>=2400)]=np.nan
 
         #plot an example of the masked image for inspection
         if i==0:
-            plotArray(processedIm,title='Dither Pos %i ColdPix Masked'%i,origin='upper',vmin=0)
+            plot_array(processedIm,title='Dither Pos %i ColdPix Masked'%i,origin='upper',vmin=0)
 
         #pad frame with margin for shifting and stacking
         paddedFrame = irUtils.embedInLargerArray(processedIm,frameSize=padFraction)
@@ -148,6 +148,6 @@ shiftedFrames = np.array(ditherFrames)
 #take median stack of all shifted frames
 finalImage = irUtils.medianStack(shiftedFrames)
 
-plotArray(finalImage,title='final',origin='upper')
+plot_array(finalImage,title='final',origin='upper')
 outfile=h5dir+outfileName+'AlignedWaveCal'
 np.save(outfile, finalImage)

@@ -33,7 +33,7 @@ import numpy as np
 
 import mkidpipeline.utils.irUtils as irUtils
 import mkidpipeline.utils.utils as utils
-from mkidpipeline.utils.arrayPopup import plotArray
+from mkidpipeline.utils.plottingTools import plot_array
 from mkidpipeline.utils.loadStack import loadIMGStack
 
 #ultimately want the path to be flexible: use .bin files if they exist,
@@ -56,7 +56,7 @@ def makeDHPMask(stack=None, outputFileName=None, verbose=False, sigma=3, maxCut=
 
     if verbose:
         try:
-            plotArray(medStack,title='Median Dark Stack')
+            plot_array(medStack,title='Median Dark Stack')
         except:
             plt.matshow(medStack)
             plt.show()
@@ -67,7 +67,7 @@ def makeDHPMask(stack=None, outputFileName=None, verbose=False, sigma=3, maxCut=
 
     if verbose:
         try:
-            plotArray(mask, title='cps>%i == 1'%maxCut)
+            plot_array(mask, title='cps>%i == 1'%maxCut)
         except:
             plt.matshow(mask)
             plt.show()
@@ -76,7 +76,7 @@ def makeDHPMask(stack=None, outputFileName=None, verbose=False, sigma=3, maxCut=
     medStack[np.where(medStack==0)]=np.nan
     if verbose:
         try:
-            plotArray(medStack, title='Median Stack with mask 1')
+            plot_array(medStack, title='Median Stack with mask 1')
         except:
             plt.matshow(medStack)
             plt.show()
@@ -97,7 +97,7 @@ def makeDHPMask(stack=None, outputFileName=None, verbose=False, sigma=3, maxCut=
 
     if verbose:
         try:
-            plotArray(mask2, title='cps>mean+%i-sigma == 1'%sigma)
+            plot_array(mask2, title='cps>mean+%i-sigma == 1'%sigma)
         except:
             plt.matshow(mask2)
             plt.show()
@@ -105,7 +105,7 @@ def makeDHPMask(stack=None, outputFileName=None, verbose=False, sigma=3, maxCut=
     medStack[np.where(mask2==1)]=np.nan
     if verbose:
         try:
-            plotArray(medStack, title='Median Stack with mask 2')
+            plot_array(medStack, title='Median Stack with mask 2')
         except:
             plt.matshow(medStack)
             plt.show()
@@ -120,7 +120,7 @@ def makeDHPMask(stack=None, outputFileName=None, verbose=False, sigma=3, maxCut=
 
     if verbose:
         try:
-            plotArray(finalMask, title='Final mask')
+            plot_array(finalMask, title='Final mask')
         except:
             plt.matshow(finalMask)
             plt.show()
@@ -151,7 +151,7 @@ def makeMask(run=None, date=None, basePath=None,startTimeStamp=None, stopTimeSta
 
     if verbose:
         try:
-            plotArray(medStack,title='Median Dark Stack')
+            plot_array(medStack,title='Median Dark Stack')
         except:
             plt.matshow(medStack)
             plt.show()
@@ -162,7 +162,7 @@ def makeMask(run=None, date=None, basePath=None,startTimeStamp=None, stopTimeSta
 
     if verbose:
         try:
-            plotArray(mask, title='cps>%i == 1'%maxCut)
+            plot_array(mask, title='cps>%i == 1'%maxCut)
         except:
             plt.matshow(mask)
             plt.show()
@@ -171,7 +171,7 @@ def makeMask(run=None, date=None, basePath=None,startTimeStamp=None, stopTimeSta
     medStack[np.where(medStack==0)]=np.nan
     if verbose:
         try:
-            plotArray(medStack, title='Median Stack with mask 1')
+            plot_array(medStack, title='Median Stack with mask 1')
         except:
             plt.matshow(medStack)
             plt.show()
@@ -186,7 +186,7 @@ def makeMask(run=None, date=None, basePath=None,startTimeStamp=None, stopTimeSta
 
     if verbose:
         try:
-            plotArray(mask2, title='cps>mean+%i-sigma == 1'%sigma)
+            plot_array(mask2, title='cps>mean+%i-sigma == 1'%sigma)
         except:
             plt.matshow(mask2)
             plt.show()
@@ -194,7 +194,7 @@ def makeMask(run=None, date=None, basePath=None,startTimeStamp=None, stopTimeSta
     medStack[np.where(mask2==1)]=np.nan
     if verbose:
         try:
-            plotArray(medStack, title='Median Stack with mask 2')
+            plot_array(medStack, title='Median Stack with mask 2')
         except:
             plt.matshow(medStack)
             plt.show()
@@ -209,7 +209,7 @@ def makeMask(run=None, date=None, basePath=None,startTimeStamp=None, stopTimeSta
 
     if verbose:
         try:
-            plotArray(finalMask, title='Final mask')
+            plot_array(finalMask, title='Final mask')
         except:
             plt.matshow(finalMask)
             plt.show()
@@ -244,7 +244,7 @@ def loadMask(path):
 
 def plotMask(mask):
     try:
-        plotArray(mask, title='hp Mask')
+        plot_array(mask, title='hp Mask')
     except:
         plt.matshow(mask)
         plt.show()
