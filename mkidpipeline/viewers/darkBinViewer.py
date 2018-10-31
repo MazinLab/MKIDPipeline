@@ -20,7 +20,7 @@ matplotlib.use('Qt5agg')
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from mkidpipeline.utils.parsePacketDump import parsePacketData
-from mkidpipeline.hotpix import darkHotPixMask as dhpm
+import mkidpipeline.hotpix.generatebadpixmask as gbpm
 
 basePath = '/mnt/data0/ScienceData/'
 imageShape = {'nRows':125,'nCols':80}
@@ -230,7 +230,7 @@ class DarkQuick(QtWidgets.QMainWindow):
 
         #20170410 HD91782 bad pixel mask
         hpmPath = '/mnt/data0/CalibrationFiles/darkHotPixMasks/20170410/1491894755.npz'
-        self.badPixMask = dhpm.loadMask(hpmPath)
+        self.badPixMask = gbpm.quick_load_mask(hpmPath)
 
     def loadImageStack(self):
     

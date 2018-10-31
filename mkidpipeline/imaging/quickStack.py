@@ -26,7 +26,7 @@ import matplotlib.pyplot as plt
 from mkidpipeline.utils.plottingTools import plot_array
 from mkidpipeline.utils.readDict import readDict
 
-import mkidpipeline.hotpix.darkHotPixMask as dhpm
+import mkidpipeline.hotpix.generatebadpixmask as gbpm
 
 import image_registration as ir
 from mkidpipeline.utils.loadStack import loadIMGStack, loadBINStack
@@ -164,15 +164,18 @@ centroidsY=[]
 if doHPM:
 
    print("Making HPM")
-   darkHPMImg = dhpm.makeMask(basePath=imgDir,startTimeStamp=darkSpanImg[0],     
-   stopTimeStamp=darkSpanImg[1], coldCut=True, maxCut=maxCut,sigma=sigma,manualArray=None)
+
+   dark_stack_img = loadIMGStack(dataDir=dataDir, start=darkSpanImg[0], stop=darkSpanImg[1])
+   len_dark_stack_img = int(darkSpanImg[1] - darkSpanImg[0])
+   darkHPMImg = gbpm.quick_check_stack(stack=dark_stack_img, len_stack=len_dark_stack_img)
    hpFN='darkHPMImg_'+target+'.npz'  #Save the hot pixel mask into the output directory
    hpPath = os.path.join(outputDir,hpFN)
    np.savez(hpPath,darkHPMImg = darkHPMImg)
    plot_array(darkHPMImg, title='Hot Pixel Mask Image', origin='upper')
 
-   darkHPMFlat = dhpm.makeMask(basePath=imgDir,startTimeStamp=darkSpanFlat[0],    
-   stopTimeStamp=darkSpanFlat[1], coldCut=True, maxCut=maxCut,sigma=sigma,manualArray=None)
+   dark_stack_flat = loadIMGStack(dataDir=dataDir, start=darkSpanFlat[0], stop=darkSpanFlat[1])
+   len_dark_stack_flat = int(darkSpanFlat[1] - darkSpanFlat[0])
+   darkHPMFlat = gbpm.quick_check_stack(stack=dark_stack_flat, len_stack=len_dark_stack_flat)
    hpFN='darkHPMFlat_'+target+'.npz'  #Save the hot pixel mask into the output directory
    hpPath = os.path.join(outputDir,hpFN)
    np.savez(hpPath,darkHPMFlat = darkHPMFlat)
