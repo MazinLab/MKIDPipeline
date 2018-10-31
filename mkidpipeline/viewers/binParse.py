@@ -26,7 +26,7 @@ from time import time
 #####################################################################################################
 
 ################
-# Definitions
+# Module Methods
 ################
 
 
@@ -67,6 +67,7 @@ def _makephasecube(xs, ys, phs, img_shape, range, d_phase, vb):
         print("Time to make phase cube is {:4.2f} seconds".format(toc - tic))
     return phs_cube
 
+
 def _makeimage(xs, ys, img_shape, vb):
     """See documentation in ParseBin.image() for best info"""
     tic = time()
@@ -80,6 +81,7 @@ def _makeimage(xs, ys, img_shape, vb):
 
 #####################################################################################################
 #####################################################################################################
+
 ################
 # Classes
 ################
@@ -183,7 +185,6 @@ class ParseBin:
     ###################################
     # Make Phase Cube
     ###################################
-
     def phasecube(self, range, dx):
         """
         makes a data cube of a single .bin file with phase as 3rd axis
@@ -225,27 +226,7 @@ class ParseBin:
 
 #####################################################################################################
 #####################################################################################################
-
-
-#####################################################################################################
-#####################################################################################################
-
-
-    def plot_phs_spec(self,x,y):
-        import matplotlib.pyplot as plt
-
-        phsbin_midpts = np.linspace(-360,0,int(360/self.dx))+(self.dx)/2
-        spec = self.cube[x,y,:]
-        print(str(spec))
-        plt.bar(phsbin_midpts,spec,width=self.dx)
-        plt.show()
-
-
-
-
-#####################################################################################################
-#####################################################################################################
-
+# Main
 #####################################################################################################
 #####################################################################################################
 
@@ -259,20 +240,25 @@ if __name__ == "__main__":
         kwargs['tstampStart'] = int(sys.argv[2])
         kwargs['tstampEnd'] = int(sys.argv[3])
 
-
+    # Make Obs list from **kwargs
     fnames = obs_list(**kwargs)
-    img_shape = (125, 80)
 
+    # Test Settings
+    img_shape = (125, 80)
+    phase_binsize = 2
+    phs_range = (-250, -200)
+
+    # Testing the Code
     test1 = ParseBin(fnames, img_shape, Verbose=True)
     timg = test1.image()
+    test_cube = test1.phasecube(phs_range, phase_binsize)
+
+    # Plot Test Image
     fig, ax = plt.subplots()
     im = ax.imshow(timg)
     plt.show()
 
-    phase_binsize = 2
-    phs_range = (-250,-200)
-    test_cube = test1.phasecube(phs_range,phase_binsize)
-
+    # Plotting Test Phase Cube
     fig, ax = plt.subplots()
     phsbin_midpts = np.linspace(phs_range[0], phs_range[1], int((phs_range[1]-phs_range[0]) / phase_binsize)) + (phase_binsize) / 2
     spec = test_cube[30, 62, :]
