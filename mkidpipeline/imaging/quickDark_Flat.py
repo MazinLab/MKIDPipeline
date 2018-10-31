@@ -33,7 +33,7 @@ import sys
 
 import numpy as np
 
-import mkidpipeline.hotpix.darkHotPixMask as dhpm
+import mkidpipeline.hotpix.generatebadpixmask as gbpm
 import mkidpipeline.utils.irUtils as irUtils
 from mkidpipeline.utils.plottingTools import plot_array
 from mkidpipeline.utils.loadStack import loadBINStack, loadIMGStack
@@ -58,7 +58,9 @@ def makeHPM(configFileName):
     
     if darkSpan[0]!='0':
         print("Making dark hot pixel mask")
-        darkHPM = dhpm.makeMask(run=run, date=date, basePath=outputDir,startTimeStamp=darkSpan[0], stopTimeStamp=darkSpan[1], coldCut=False, manualArray=None)
+        dark_stack = loadIMGStack(dataDir=dataDir, start=darkSpan[0], stop=darkSpan[1])
+        len_dark_stack=int(darkSpan[1]-darkSpan[0])
+        darkHPM = gbpm.quick_check_stack(stack=dark_stack, len_stack=len_dark_stack)
         hpFN='darkHPM_'+target+'.npz'  #Save the hot pixel mask into the output directory
         runOutDir = os.path.join(outputDir,run)
         outPath = os.path.join(runOutDir,date)

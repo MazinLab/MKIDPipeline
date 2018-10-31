@@ -44,7 +44,7 @@ import sys
 
 import numpy as np
 
-import mkidpipeline.hotpix.darkHotPixMask as dhpm
+import mkidpipeline.hotpix.generatebadpixmask as gbpm
 import mkidpipeline.utils.irUtils as irUtils
 from mkidpipeline.utils.plottingTools import plot_array
 from mkidpipeline.utils.loadStack import loadBINStack, loadIMGStack
@@ -117,7 +117,7 @@ else:
 
 #if dark frames are provided, generate a hot pixel mask using SR Meeker's darkHotPixMask.py
 if darkSpan[0]!='0':
-    darkHPM = dhpm.makeMask(run=run, date=date, basePath=dataDir,startTimeStamp=darkSpan[0], stopTimeStamp=darkSpan[1], coldCut=False, manualArray=None)
+    darkHPM = gbpm.quick_check_img(image=dark)['bad_mask']
 else:
     print("Failed to generate dark mask. Turning off hot pixel masking")
 

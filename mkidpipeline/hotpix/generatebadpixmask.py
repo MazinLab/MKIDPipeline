@@ -203,7 +203,7 @@ def check_interval(image=None, fwhm=2.5, box_size=5, nsigma_hot=4.0, max_iter=5,
 #TODO print-> logging
 
 
-def quick_check_img (image=None, sigma=None, max_cut=2450, cold_mask=False):
+def quick_check_img (image=None, sigma=5, max_cut=2450, cold_mask=False):
     """
     NOTE:  This is a quick routine for masking hot pixels in .img files and the like, NOT robust
             OK to use for bad pixel masking for pretty-picture-generation or quicklook
