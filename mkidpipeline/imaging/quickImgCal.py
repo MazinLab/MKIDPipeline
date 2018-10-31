@@ -115,7 +115,7 @@ else:
     print("No dark provided")
     dark = np.zeros((numRows, numCols),dtype=int)
 
-#if dark frames are provided, generate a hot pixel mask using SR Meeker's darkHotPixMask.py
+#if dark frames are provided, generate a hot pixel mask using generatebadpixmask.py
 if darkSpan[0]!='0':
     darkHPM = gbpm.quick_check_img(image=dark)['bad_mask']
 else:
