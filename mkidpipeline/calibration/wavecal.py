@@ -1674,8 +1674,16 @@ class Solution(object):
             if linear_index >= len(wavelengths):
                 continue
             axes = models[linear_index].plot(axes=axes, **model_kwargs)
-            axes.text(0, 1, "{} nm".format(wavelengths[linear_index]),
-                      ha='left', va='top')
+            if model_kwargs['text']:
+                position = 0.08
+            else:
+                position = 0.01
+            x_limit = axes.get_xlim()
+            y_limit = axes.get_ylim()
+            dx = x_limit[1] - x_limit[0]
+            dy = y_limit[1] - y_limit[0]
+            axes.text(x_limit[0] + 0.01 * dx, y_limit[1] - position * dy,
+                      "{} nm".format(wavelengths[linear_index]), ha='left', va='top')
 
         # add figure labels
         rect = [.02, .05, .98, .95]
