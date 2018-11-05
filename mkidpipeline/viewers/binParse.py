@@ -107,11 +107,11 @@ class ParseBin:
         .tstamp = list of photon arrival times (info from header+photon .5ms time)
         .phase = list of phases (not yet wavelength cal-ed)
         .baseline = list of baselines
-        .roach_num = list of roach #s
+        .roach = list of roach #s
         .x = list of x coordinates
         .y = list of y coordinates
-        .nphotons = number of photons in each of the .bin files sent into the list
-        .total_photons = total number of photons in the list
+        .obs_nphotons = number of photons in each of the .bin files sent into the list
+        .tot_photons = total number of photons in the list
 
     """
     def __init__(self, files, pix_shape=None, Verbose=False):
@@ -126,7 +126,7 @@ class ParseBin:
         self.baseline = np.empty(0, dtype=np.uint64)
         self.phase = np.empty(0, dtype=np.float32)
         self.roach = np.empty(0, dtype=np.int)
-        self.nphotons = np.empty(0, dtype=np.int)
+        self.obs_nphotons = np.empty(0, dtype=np.int)
         tic = time()
 
         # Parsing the Files and Appending to Photon List
@@ -144,7 +144,7 @@ class ParseBin:
                 self.phase = np.append(self.phase, parsef.phase)
                 self.roach = np.append(self.roach, parsef.roach)
 
-                self.nphotons = np.append(self.nphotons,parsef.x.shape)
+                self.obs_nphotons = np.append(self.obs_nphotons,parsef.x.shape)
 
 
             except (IOError, ValueError) as e:
@@ -153,13 +153,13 @@ class ParseBin:
                 print(e)
 
         # Finding Total Number of Photons in the List
-        self.total_photons = int(sum(self.nphotons))
-        if self.total_photons != self.x.shape[0]:
+        self.tot_photons = int(sum(self.obs_nphotons))
+        if self.tot_photons != self.x.shape[0]:
             raise ValueError('Error calculating total photons: Check for fake photons')
 
         toc = time()
         if Verbose is True:
-            print("Parsing {} photons in {} files took {:4.2f} seconds".format(self.total_photons,len(files), toc - tic))
+            print("Parsing {} photons in {} files took {:4.2f} seconds".format(self.tot_photons,len(files), toc - tic))
 
     ###################################
     # Make Image
@@ -168,8 +168,7 @@ class ParseBin:
         """
         makes a single image from the data in the photon list of the given range of .bin files
 
-        Inputs:
-            shape is a tuple with the size of the image eg. [125,80]
+        Inputs: None (just self)
 
         Returns:
             2D numpy array of 16 bit integers.
