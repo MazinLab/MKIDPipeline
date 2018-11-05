@@ -19,6 +19,8 @@ import os
 import sys
 from mkidpipeline.hdf.parsebin import parse
 import matplotlib.pyplot as plt
+from mkidcore.corelog import getLogger
+import mkidcore.corelog
 
 from time import time
 
@@ -119,6 +121,9 @@ class ParseBin:
         self.obs_files = files
         self.pix_shape = pix_shape
         self.vb = Verbose
+        self._icube=None
+        self._pcube=None
+        self._pcube_meta=None
 
         self.x = np.empty(0, dtype=np.int)
         self.y = np.empty(0, dtype=np.int)
@@ -179,7 +184,9 @@ class ParseBin:
         if self.pix_shape is None:
             raise ValueError("Cannot make image if pix_shape unspecified at class instance")
 
-        return _makeimage(self.x, self.y, self.pix_shape, self.vb)
+        if self._icube is None:
+            self._icube = _makeimage(self.x, self.y, self.pix_shape, self.vb)
+        return self._icube
 
     ###################################
     # Make Phase Cube
@@ -207,7 +214,10 @@ class ParseBin:
         if self.pix_shape is None:
             raise ValueError("Cannot make phase cube if pix_shape unspecified at class instance")
 
-        return _makephasecube(self.x, self.y, self.phase, self.pix_shape, range, dx, self.vb)
+        if self._pcube is None or self._pcube_meta!=(range, dx):
+            self._pcube = _makephasecube(self.x, self.y, self.phase, self.pix_shape, range, dx, self.vb)
+            self._pcube_meta = (range, dx)
+        return self._pcube
 
     ###################################
     # Reshape
@@ -221,6 +231,8 @@ class ParseBin:
         """
         if newshape[0] < self.x.max() or newshape[1] < self.x.max():
             raise ValueError('Bad shape')
+        self._pcube=None
+        self._icube=None
         self.pix_shape = newshape
 
 #####################################################################################################
@@ -230,6 +242,9 @@ class ParseBin:
 #####################################################################################################
 
 if __name__ == "__main__":
+
+    mkidcore.corelog.create_log('binparse', console=True, propagate=False,
+                       fmt='%(levelname)s %(message)s', level=mkidcore.corelog.DEBUG)
     kwargs = {}
     if len(sys.argv) != 4:
         print('Usage: {} basepath tstampStart tstampEnd'.format(sys.argv[0]))
