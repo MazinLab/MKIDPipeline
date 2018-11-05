@@ -16,13 +16,12 @@ data cubes are sequenced by phase (pix value is total # counts per phase bin).
 
 import numpy as np
 import os
-import sys
 from mkidpipeline.hdf.parsebin import parse
 import matplotlib.pyplot as plt
 from mkidcore.corelog import getLogger
 import mkidcore.corelog
-
-from time import time
+import argparse
+import time
 
 #####################################################################################################
 #####################################################################################################
@@ -33,7 +32,7 @@ from time import time
 
 
 def obs_list(basepath, tstampStart, tstampEnd):
-    '''
+    """
     Make a list of files to parse given a start and end time
 
     Inputs:
@@ -42,43 +41,37 @@ def obs_list(basepath, tstampStart, tstampEnd):
      tstampEnd: second (UTC) that you want to end the file
 
     :return: a list of file names
-    '''
-    obs_list = []
-    msec_list = np.arange(tstampStart, tstampEnd + 1)  # millisecond list
-
-    for nbin in enumerate(msec_list):
-        obs_list.append(os.path.join(basepath, str(nbin[1])+'.bin'))
-
-    return obs_list
+    """
+    return [os.path.join(basepath, str(msec)+'.bin') for msec in range(tstampStart, tstampEnd + 1)]
 
 
-def _makephasecube(xs, ys, phs, img_shape, range, d_phase, vb):
+def _makephasecube(xs, ys, phs, img_shape, range, d_phase, verbose=False):
     """See documentation in ParseBin.phasecube() for best info"""
     # Declaring Data Cube
     phs_bins = np.linspace(range[0], range[1], int((range[1]-range[0])/d_phase))  # use linspace to avoid floating errors, as with eg. arange
     phs_cube = np.zeros((img_shape[0], img_shape[1], phs_bins.shape[0]))
 
     # Looping to Create Data Cube
-    tic = time()
-    for i,value in enumerate(phs_bins):
-        this_phsbin = np.logical_and(phs>value, phs<value+d_phase).nonzero()
-        for x,y in zip(xs[this_phsbin[0]], ys[this_phsbin[0]]):
-            phs_cube[y, x, i] += 1
-    toc = time()
-    if vb is True:
-        print("Time to make phase cube is {:4.2f} seconds".format(toc - tic))
+    tic = time.time()
+    for i, value in enumerate(phs_bins):
+        mask = (value < phs) & (phs < value+d_phase)
+        np.add.at(phs_cube[:, :, i], (ys[mask], xs[mask]), 1)
+
+    toc = time.time()
+    if verbose:
+        getLogger('binparse').debug("Time to make phase cube is {:4.2f} seconds".format(toc - tic))
+
     return phs_cube
 
 
-def _makeimage(xs, ys, img_shape, vb):
+def _makeimage(xs, ys, img_shape, verbose=False):
     """See documentation in ParseBin.image() for best info"""
-    tic = time()
-    ret = np.zeros((img_shape[0], img_shape[1]))
-    for x, y in zip(xs, ys):
-        ret[y, x] += 1
-    toc = time()
-    if vb is True:
-        print("Time to make image is {:4.2f} seconds".format( toc - tic))
+    tic = time.time()
+    ret = np.zeros(tuple(img_shape))
+    np.add.at(ret, (ys, xs), 1)
+    toc = time.time()
+    if verbose:
+        getLogger('binparse').debug("Time to make image is {:4.2f} seconds".format( toc - tic))
     return ret
 
 #####################################################################################################
@@ -89,7 +82,7 @@ def _makeimage(xs, ys, img_shape, vb):
 ################
 
 
-class ParseBin:
+class ParsedBin(object):
     """
     Parse a .bin File and return photon list
 
@@ -116,14 +109,15 @@ class ParseBin:
         .tot_photons = total number of photons in the list
 
     """
-    def __init__(self, files, pix_shape=None, Verbose=False):
+    def __init__(self, files, pix_shape=None, verbose=False):
         # Saving List of File Names
         self.obs_files = files
         self.pix_shape = pix_shape
-        self.vb = Verbose
-        self._icube=None
-        self._pcube=None
-        self._pcube_meta=None
+
+        self.vb = verbose
+        self._icube = None
+        self._pcube = None
+        self._pcube_meta = None
 
         self.x = np.empty(0, dtype=np.int)
         self.y = np.empty(0, dtype=np.int)
@@ -132,11 +126,12 @@ class ParseBin:
         self.phase = np.empty(0, dtype=np.float32)
         self.roach = np.empty(0, dtype=np.int)
         self.obs_nphotons = np.empty(0, dtype=np.int)
-        tic = time()
+        tic = time.time()
 
         # Parsing the Files and Appending to Photon List
         # Calls the file parsebin.pyx. If errors, first try making sure parsebin.pyx has been compiled
         #  Documentation in the .pyx file can help do this
+
         for f in files:
             try:
                 # Calling new parse file
@@ -151,19 +146,16 @@ class ParseBin:
 
                 self.obs_nphotons = np.append(self.obs_nphotons,parsef.x.shape)
 
-
             except (IOError, ValueError) as e:
-                # import mkidcore.corelog as clog
-                # clog.getLogger('BinViewer').error('Help', exc_info=True)
-                print(e)
+                getLogger('binparse').error('Help', exc_info=True)
 
         # Finding Total Number of Photons in the List
         self.tot_photons = int(sum(self.obs_nphotons))
         if self.tot_photons != self.x.shape[0]:
-            raise ValueError('Error calculating total photons: Check for fake photons')
+            raise RuntimeWarning('Error calculating total photons: Check for fake photons')
 
-        toc = time()
-        if Verbose is True:
+        toc = time.time()
+        if verbose is True:
             print("Parsing {} photons in {} files took {:4.2f} seconds".format(self.tot_photons,len(files), toc - tic))
 
     ###################################
@@ -231,8 +223,8 @@ class ParseBin:
         """
         if newshape[0] < self.x.max() or newshape[1] < self.x.max():
             raise ValueError('Bad shape')
-        self._pcube=None
-        self._icube=None
+        self._pcube = None
+        self._icube = None
         self.pix_shape = newshape
 
 #####################################################################################################
@@ -245,17 +237,15 @@ if __name__ == "__main__":
 
     mkidcore.corelog.create_log('binparse', console=True, propagate=False,
                        fmt='%(levelname)s %(message)s', level=mkidcore.corelog.DEBUG)
-    kwargs = {}
-    if len(sys.argv) != 4:
-        print('Usage: {} basepath tstampStart tstampEnd'.format(sys.argv[0]))
-        exit(0)
-    else:
-        kwargs['basepath'] = str(sys.argv[1])
-        kwargs['tstampStart'] = int(sys.argv[2])
-        kwargs['tstampEnd'] = int(sys.argv[3])
 
-    # Make Obs list from **kwargs
-    fnames = obs_list(**kwargs)
+    parser = argparse.ArgumentParser(description='MKID Python Binfile Parser')
+    parser.add_argument('basepath', type=str, help='The base path')
+    parser.add_argument('starttime', type=float, dest='start', help='Starting timestamp')
+    parser.add_argument('endtime', type=float, dest='end', help='Ending timestamp (inclusive)')
+    args = parser.parse_args()
+
+    # Make Obs list
+    fnames = obs_list(args.basepath, args.start, args.end)
 
     # Test Settings
     img_shape = (125, 80)
@@ -263,7 +253,7 @@ if __name__ == "__main__":
     phs_range = (-250, -200)
 
     # Testing the Code
-    test1 = ParseBin(fnames, img_shape, Verbose=True)
+    test1 = ParsedBin(fnames, img_shape, verbose=True)
     timg = test1.image()
     test_cube = test1.phasecube(phs_range, phase_binsize)
 
