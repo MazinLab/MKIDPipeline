@@ -26,9 +26,9 @@ import time
 #####################################################################################################
 #####################################################################################################
 
-################
-# Module Methods
-################
+##################
+# Module Functions
+##################
 
 
 def obs_list(basepath, tstampStart, tstampEnd):
@@ -115,6 +115,8 @@ class ParsedBin(object):
         self.pix_shape = pix_shape
 
         self.vb = verbose
+
+        # Allocating Memory
         self._icube = None
         self._pcube = None
         self._pcube_meta = None
@@ -147,7 +149,7 @@ class ParsedBin(object):
                 self.obs_nphotons = np.append(self.obs_nphotons,parsef.x.shape)
 
             except (IOError, ValueError) as e:
-                getLogger('binparse').error('Help', exc_info=True)
+                getLogger('binparse').error('Could not open file', exc_info=True)
 
         # Finding Total Number of Photons in the List
         self.tot_photons = int(sum(self.obs_nphotons))
@@ -155,8 +157,10 @@ class ParsedBin(object):
             raise RuntimeWarning('Error calculating total photons: Check for fake photons')
 
         toc = time.time()
-        if verbose is True:
-            print("Parsing {} photons in {} files took {:4.2f} seconds".format(self.tot_photons,len(files), toc - tic))
+        if verbose:
+            msg = ("Parsing {} photons in {} "
+                   "files took {:4.2f} seconds").format(self.tot_photons,len(files), toc - tic)
+            getLogger('binparse').debug(msg)
 
     ###################################
     # Make Image
@@ -206,7 +210,7 @@ class ParsedBin(object):
         if self.pix_shape is None:
             raise ValueError("Cannot make phase cube if pix_shape unspecified at class instance")
 
-        if self._pcube is None or self._pcube_meta!=(range, dx):
+        if self._pcube is None or self._pcube_meta != (range, dx):
             self._pcube = _makephasecube(self.x, self.y, self.phase, self.pix_shape, range, dx, self.vb)
             self._pcube_meta = (range, dx)
         return self._pcube
@@ -219,7 +223,10 @@ class ParsedBin(object):
         Allows us to reshape the array to new pix_shape without re-parsing the data.
         After you use it, you would need to re-make the .image and .phasecubes. This
         is another way of saying this changes the class instance but not the method
-        output
+        output.
+
+        If you reshape, you still need to re-call the .image() and .phasecube(range,d_phase)
+        methods to take effect.
         """
         if newshape[0] < self.x.max() or newshape[1] < self.x.max():
             raise ValueError('Bad shape')
@@ -235,9 +242,11 @@ class ParsedBin(object):
 
 if __name__ == "__main__":
 
+    # Setting format of the logger
     mkidcore.corelog.create_log('binparse', console=True, propagate=False,
                        fmt='%(levelname)s %(message)s', level=mkidcore.corelog.DEBUG)
 
+    # Assigning Keyword Arguments
     parser = argparse.ArgumentParser(description='MKID Python Binfile Parser')
     parser.add_argument('basepath', type=str, help='The base path')
     parser.add_argument('starttime', type=float, dest='start', help='Starting timestamp')
