@@ -42,7 +42,7 @@ def obs_list(basepath, tstampStart, tstampEnd):
 
     :return: a list of file names
     """
-    return [os.path.join(basepath, str(msec)+'.bin') for msec in range(tstampStart, tstampEnd + 1)]
+    return [os.path.join(basepath, str(int(msec)) + '.bin') for msec in range(tstampStart, tstampEnd + 1)]
 
 
 def _makephasecube(xs, ys, phs, img_shape, range, d_phase, verbose=False):
@@ -187,7 +187,7 @@ class ParsedBin(object):
     ###################################
     # Make Phase Cube
     ###################################
-    def phasecube(self, range, dx):
+    def phasecube(self, range, dp):
         """
         makes a data cube of a single .bin file with phase as 3rd axis
 
@@ -197,7 +197,7 @@ class ParsedBin(object):
 
         Inputs:
             range = tuple of range of phases to bin, in degrees eg. (-360,0)
-            d_phase = size of a single phase bin for axis3 of the data cube, in units of deg eg. 5
+            dp = size of a single phase bin for axis3 of the data cube, in units of deg eg. 5
 
         Output:
             .shape = 3D shape of the cube
@@ -210,9 +210,10 @@ class ParsedBin(object):
         if self.pix_shape is None:
             raise ValueError("Cannot make phase cube if pix_shape unspecified at class instance")
 
-        if self._pcube is None or self._pcube_meta != (range, dx):
-            self._pcube = _makephasecube(self.x, self.y, self.phase, self.pix_shape, range, dx, self.vb)
-            self._pcube_meta = (range, dx)
+        if self._pcube is None or self._pcube_meta != (range, dp):
+            self._pcube = _makephasecube(self.x, self.y, self.phase, self.pix_shape, range, dp, self.vb)
+            self._pcube_meta = (range, dp)
+
         return self._pcube
 
     ###################################
@@ -248,13 +249,13 @@ if __name__ == "__main__":
 
     # Assigning Keyword Arguments
     parser = argparse.ArgumentParser(description='MKID Python Binfile Parser')
-    parser.add_argument('basepath', type=str, help='The base path')
-    parser.add_argument('starttime', type=float, dest='start', help='Starting timestamp')
-    parser.add_argument('endtime', type=float, dest='end', help='Ending timestamp (inclusive)')
+    parser.add_argument('basepath', type=str, help='Full path to obs files')
+    parser.add_argument('starttime', type=int, help='Starting timestamp')
+    parser.add_argument('endtime', type=int, help='Ending timestamp (inclusive)')
     args = parser.parse_args()
 
     # Make Obs list
-    fnames = obs_list(args.basepath, args.start, args.end)
+    fnames = obs_list(args.basepath, args.starttime, args.endtime)
 
     # Test Settings
     img_shape = (125, 80)
