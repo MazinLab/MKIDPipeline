@@ -52,7 +52,9 @@ from mkidcore.corelog import getLogger
 from matplotlib.backends.backend_pdf import PdfPages
 
 
-def check_interval(image=None, fwhm=2.5, box_size=5, nsigma_hot=4.0, max_iter=5,
+
+
+def check_interval(image, fwhm=2.5, box_size=5, nsigma_hot=4.0, max_iter=5,
                    use_local_stdev=False, bkgd_percentile=50.0):
     """
     Robust!  NOTE:  This is the routine that should be used for observational data in the complete pipeline.
@@ -329,7 +331,7 @@ def quick_check_stack(stack=None, len_stack=None, sigma=None, max_cut=2450, cold
     return {'bad_mask_stack': bad_mask_stack, 'stack': stack}
 
 
-def find_bad_pixels(input_filename=None, obsfile=None, time_step=1, start_time=0, end_time= -1, fwhm=2.5,
+def find_bad_pixels(obs, time_step=1, start_time=0, end_time= -1, fwhm=2.5,
                     box_size=5, nsigma_hot=4.0, weighted=False, flux_weighted=False, max_iter=5,
                     use_local_stdev=False, use_raw_counts=True, bkgd_percentile=50.0):
     """
@@ -375,8 +377,7 @@ def find_bad_pixels(input_filename=None, obsfile=None, time_step=1, start_time=0
             3 = Dead Pixel
     """
 
-    if obsfile is None:
-        obsfile = ObsFile.ObsFile(input_filename)
+     obsfile = ObsFile.ObsFile(obs)
 
     #A few defaults that will be used in the absence of parameter file or
     #arguments provided by the caller.
