@@ -15,17 +15,44 @@ New PtSi devices do not seem to display hot pixel behavior from the same mechani
 old TiN devices. As such, the full time masking technique used in the ARCONS pipeline
 may not be necessary. Bad pixels largely remain "bad" with little switching behavior.
 
-Main routines of interest are:
+Functions available for use:
 
 -------------
-find_bad_pixels:  currently the main routine. Takes an obs. file (or input h5 file) as input and generates
-                  a separate bad pixel h5 file named '--timestamp--_badpixmask.h5'
+find_bad_pixels:  The main routine. Takes an obs. file  as input and writes a bad pixel mask as a table into the obsfile
+                  The routine by which hot, dead, and cold pixels are identified can be swapped out for one of four options
+                  Algorithms differ in how they flag hot pixels but they all are able to flag dead pixels
 
-quick_check:    creates a 2D bad pixel mask for a given time interval within a given
+                  Bad Pixel Masking Via Image Arrays --> Best for wavelength calibrated + flat-fielded arrays
+                    a.  hpm_flux_threshold:  Established PSF-comparison method to find hot pixels
+                    b.  hpm_laplacian:  New method to find hot pixels using a Laplacian filter
+                    c.  cps_cut_image:  Basic hot pixel search using a count-per-second threshold (not robust)
+
+                  Bad Pixel Masking via Time Streams --> Best for uncalibrated obs data or calibration data
+
+-------------
+Functions for .img data:
+
+cps_cut_img:    Creates a 2D bad pixel mask for a given time interval within a given
                 exposure using a count-per-second threshold routine.  USE THIS FOR DATA VIEWING/QUICK CHECKS
 
-check_interval: creates a 2D bad pixel mask for a given time interval within a given
-                exposure using a robust PSF-comparison method.  USE THIS FOR DATA REDUCTION
+cps_cut_stack:  Creates a 2D bad pixel mask for a given time interval within a given
+                exposure using a count-per-second threshold routine.  USE THIS FOR DATA VIEWING/QUICK CHECKS
+
+save_mask_array:  Write bad pixel mask to desired output directory
+
+load_mask_array:  Load and return a mask
+
+plot_mask_array:  Plot a mask or masked image for viewing
+
+-------------
+Functions for obs data:
+
+hpm_flux_threshold: Creates a 2D bad pixel mask for a given time interval within a given
+                    exposure using a robust PSF-comparison method.  USE THIS FOR DATA REDUCTION
+
+hpm_laplacian:  Creates a 2D bad pixel mask for a given time interval within a given exposure using a Laplacian filter
+                based on approximate second derivatives.
+                Untested on MKID data so far, but it worked on CHARIS data injected with fake hot pixels
 
 -------------
 
@@ -48,13 +75,35 @@ from mkidpipeline.hdf.darkObsFile import ObsFile
 from mkidpipeline.utils import utils
 from mkidpipeline.utils.plottingTools import plot_array
 import mkidcore.corelog as pipelinelog
-from mkidcore.corelog import getLogger
-from matplotlib.backends.backend_pdf import PdfPages
+
+log = pipelinelog.getLogger('mkidpipeline.calibration.hotpix')
+
+def setup_logging(configuration, time_stamp=None):
+    """
+    Set up logging for the hot pixel masking module for running from the command line.
+
+    Args:
+        time_stamp: utc time stamp to name the log file
+        configuration: wavelength calibration Configuration object
+    """
+    hotpix_name = 'mkidpipeline.calibration.hotpix'
+    hotpix_log = pipelinelog.getLogger(hotpix_name)
+    if time_stamp is None:
+        time_stamp = int(datetime.utcnow().timestamp())
+    if configuration.verbose:
+        log_format = "%(levelname)s : %(message)s"
+        hotpix_log = pipelinelog.create_log(hotpix_name, console=True, fmt=log_format,
+                                             level="INFO")
+    if configuration.logging:
+        log_directory = os.path.join(configuration.out_directory, 'logs')
+        log_file = os.path.join(log_directory, '{:.0f}.log'.format(time_stamp))
+        log_format = '%(asctime)s : %(funcName)s : %(levelname)s : %(message)s'
+        hotpix_log = pipelinelog.create_log(hotpix_name, logfile=log_file,
+                                             console=False, fmt=log_format, level="DEBUG")
+    return hotpix_log
 
 
-
-
-def check_interval(image, fwhm=2.5, box_size=5, nsigma_hot=4.0, max_iter=5,
+def hpm_flux_threshold(image, fwhm=2.5, box_size=5, nsigma_hot=4.0, max_iter=5,
                    use_local_stdev=False, bkgd_percentile=50.0):
     """
     Robust!  NOTE:  This is the routine that should be used for observational data in the complete pipeline.
@@ -135,20 +184,22 @@ def check_interval(image, fwhm=2.5, box_size=5, nsigma_hot=4.0, max_iter=5,
 
     # In the case that *all* the pixels are dead, return a bad_mask where all the pixels are flagged as DEAD
     if np.sum(raw_image[np.where(np.isfinite(raw_image))]) <= 0:
-        print('Entire image consists of dead pixels')
+        log.info('Entire image consists of dead pixels')
         bad_mask=dead_mask*3
         hot_mask=numpy.zeros_like(bad_mask, dtype=bool)
         dead_mask=numpy.ones_like(bad_mask, dtype=bool)
     else:
         for iteration in range(max_iter):
-            print('Iteration: ', iteration)
+            log.info('Iteration: '.format(iteration))
+            print('Iteration', iteration)
             # Remove all the NaNs in an image and calculate a median filtered image
             # each pixel takes the median of itself and the surrounding box_size x box_size box.
-            nan_fixed_image = utils.replaceNaN(raw_image, mode='mean', box_size=box_size)
+            nan_fixed_image = utils.replaceNaN(raw_image, mode='mean', boxsize=box_size)
             assert np.all(np.isfinite(nan_fixed_image))
             median_filter_image = spfilters.median_filter(nan_fixed_image, box_size, mode='mirror')
 
             overall_median = np.median(raw_image[~np.isnan(raw_image)])
+            print('overall_median', overall_median)
             overall_bkgd = np.percentile(raw_image[~np.isnan(raw_image)], bkgd_percentile)
 
             # Estimate the background std. dev.
@@ -165,10 +216,10 @@ def check_interval(image, fwhm=2.5, box_size=5, nsigma_hot=4.0, max_iter=5,
             #        flux > max_ratio*median - background*(max_ratio-1)
             # If the threshold is *lower* than the background, then set it equal to the background level instead
             # (a pixel below the background level is unlikely to be hot!)
-            print('overall_median: ', overall_median)
-            print('overall_bkgd: ', overall_bkgd)
-            print('overall_bkgd_sigma: ', overall_bkgd_sigma)
-            print('max_ratio: ', max_ratio)
+            log.info('overall_median: '.format(overall_median))
+            log.info('overall_bkgd: '.format(overall_bkgd))
+            log.info('overall_bkgd_sigma: '.format(overall_bkgd_sigma))
+            log.info('max_ratio: '.format(max_ratio))
             threshold = np.maximum((max_ratio * median_filter_image - (max_ratio - 1.) * overall_bkgd), overall_bkgd)
             difference_image = raw_image - threshold
 
@@ -177,6 +228,7 @@ def check_interval(image, fwhm=2.5, box_size=5, nsigma_hot=4.0, max_iter=5,
             if use_local_stdev is False:
                 difference_image_error = np.sqrt(threshold + overall_bkgd_sigma ** 2)  # Note threshold = sqrt(threshold)**2
             else:
+            #use the local (robust) standard deviation within the moving box
                 difference_image_error = standard_filter_image
 
             # Any pixel that has a peak/median ratio more than nSigma above the maximum ratio should be flagged as hot:
@@ -202,18 +254,59 @@ def check_interval(image, fwhm=2.5, box_size=5, nsigma_hot=4.0, max_iter=5,
             'median_filter_image': median_filter_image, 'max_ratio': max_ratio, 'difference_image': difference_image,
             'difference_image_error': difference_image_error, 'num_iter': iteration + 1}
 
-#TODO print-> logging
+def hpm_laplacian(image, box_size=5, nsigma_hot=4.0):
+
+    raw_image = np.copy(image)
+
+    # Assume everything with 0 counts is a dead pixel, turn dead pixel values into NaNs
+    dead_mask = raw_image < 0.01
+    raw_image[dead_mask] = np.nan
+
+    # Initialise a mask for hot pixels (all False)
+    hot_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
+
+    nan_fixed_image = utils.replaceNaN(raw_image, mode='mean', boxsize=box_size)
+    assert np.all(np.isfinite(nan_fixed_image))
+
+    # In the case that *all* the pixels are dead, return a bad_mask where all the pixels are flagged as DEAD
+    if np.sum(raw_image[np.where(np.isfinite(raw_image))]) <= 0:
+        log.info('Entire image consists of dead pixels')
+        bad_mask=dead_mask*3
+        hot_mask=numpy.zeros_like(bad_mask, dtype=bool)
+        dead_mask=numpy.ones_like(bad_mask, dtype=bool)
+    else:
+        laplacian_filter_image = spfilters.laplace(nan_fixed_image)
+        threshold_laplace = -(np.std(laplacian_filter_image) + nsigma_hot * np.std(laplacian_filter_image))
+        hot_pix=np.where(laplacian_filter_image<threshold_laplace)
+        hot_pix_x=hot_pix[0]
+        hot_pix_y=hot_pix[1]
+
+        for i in np.arange(len(hot_pix_x)):
+            pix_center=laplacian_filter_image[hot_pix_x[i],hot_pix_y[i]]
+            pix_up = laplacian_filter_image[hot_pix_x[i], hot_pix_y[i]+1]
+            pix_down = laplacian_filter_image[hot_pix_x[i], hot_pix_y[i]-1]
+            pix_left = laplacian_filter_image[hot_pix_x[i]-1, hot_pix_y[i]]
+            pix_right = laplacian_filter_image[hot_pix_x[i]+1, hot_pix_y[i]]
+            if pix_up > 0 and pix_down > 0 and pix_left > 0  and pix_right > 0:
+                hot_mask[hot_pix_x[i], hot_pix_y[i]]=True
+
+        dead_mask_return=dead_mask*3
+        hot_mask_return=hot_mask*1
+        bad_mask=dead_mask_return+hot_mask_return
+
+    return {'bad_mask': bad_mask, 'dead_mask': dead_mask, 'hot_mask': hot_mask,  'image': raw_image,
+            'laplacian_filter_image': laplacian_filter_image}
 
 
-def quick_check_img (image=None, sigma=5, max_cut=2450, cold_mask=False):
+def cps_cut_img (image=None, sigma=5, max_cut=2450, cold_mask=False):
     """
-    NOTE:  This is a quick routine for masking hot pixels in .img files and the like, NOT robust
+    NOTE:  This is a routine for masking hot pixels in .img files and the like, NOT robust
             OK to use for bad pixel masking for pretty-picture-generation or quicklook
     Finds the hot and dead pixels in a for a 2D input array.
     Input can be a stack, in that case, the median image will be generated
     First order:  masks everything with a count level higher than the max cut
                   If the pixel has counts less than 0.01, then the pixel is flagged as DEAD
-    Second order: maks everythng with a count level higher than the mean count rate + sigma*st. dev
+    Second order: masks everything with a count level higher than the mean count rate + sigma*st. dev
     If cold_mask=True, third cut where everything with a count level less than mean count rate - sigma*stdev
 
     The HOT and DEAD masks are combined into a single BAD mask at the end
@@ -269,10 +362,10 @@ def quick_check_img (image=None, sigma=5, max_cut=2450, cold_mask=False):
     return {'bad_mask': bad_mask, 'image': raw_image}
 
 
-def quick_check_stack(stack=None, len_stack=None, sigma=None, max_cut=2450, cold_mask=False, verbose=False):
+def cps_cut_stack(stack=None, len_stack=None, sigma=None, max_cut=2450, cold_mask=False, verbose=False):
     """
     Finds the hot and dead pixels in a stack of images
-    Same procedure as quick_check except this procedure operates on a STACK of images (again, NOT robust!!)
+    Same procedure as cps_check_img except this procedure operates on a STACK of images (again, NOT robust!!)
 
     Required Input:
     :param stack:           A 3D array of (nx, ny, len_stack)
@@ -306,8 +399,6 @@ def quick_check_stack(stack=None, len_stack=None, sigma=None, max_cut=2450, cold
     for i in range(len_stack):
         raw_image = stack[:,:,i]
 
-        if verbose and i==0
-
         # initial masking, flag dead pixels (counts < 0.01) and flag anything with cps > maxCut as hot
         bad_mask = np.zeros_like(raw_image)
         bad_mask[np.where(raw_image<=0.01)]=3
@@ -331,7 +422,7 @@ def quick_check_stack(stack=None, len_stack=None, sigma=None, max_cut=2450, cold
     return {'bad_mask_stack': bad_mask_stack, 'stack': stack}
 
 
-def find_bad_pixels(obs, time_step=1, start_time=0, end_time= -1, fwhm=2.5,
+def find_bad_pixels(obsfile, time_step=30, start_time=0, end_time= -1, fwhm=2.5,
                     box_size=5, nsigma_hot=4.0, weighted=False, flux_weighted=False, max_iter=5,
                     use_local_stdev=False, use_raw_counts=True, bkgd_percentile=50.0):
     """
@@ -342,9 +433,7 @@ def find_bad_pixels(obs, time_step=1, start_time=0, end_time= -1, fwhm=2.5,
     The HOT and DEAD masks are combined into a single BAD mask at the end
 
     Required Input:
-    :param input_filename:    string, pathname of input observation file.
-    OR
-    :param obsfile:           user can pass an obsfile instance here
+    :param obsfile:           user passes an obsfile instance here
     :param start_time         Scalar Integer.  Timestamp at which to begin bad pixel masking, default = 0
     :param end_time           Scalar Integer.  Timestamp at which to finish bad pixel masking, defailt = -1
                                                (run to the end of the file)
@@ -376,9 +465,6 @@ def find_bad_pixels(obs, time_step=1, start_time=0, end_time= -1, fwhm=2.5,
             2 = Cold Pixel
             3 = Dead Pixel
     """
-
-     obsfile = ObsFile.ObsFile(obs)
-
     #A few defaults that will be used in the absence of parameter file or
     #arguments provided by the caller.
     if time_step is None: time_step = 1
@@ -403,10 +489,10 @@ def find_bad_pixels(obs, time_step=1, start_time=0, end_time= -1, fwhm=2.5,
 
     #Generate a stack of bad pixel mask, one for each time step
     for i, each_time in enumerate(step_starts):
-        print('Processing time slice: ', str(each_time) + ' - ' + str(each_time + time_step) + 's')
+        log.info('Processing time slice: '.format(str(each_time)) + ' - ' + str(each_time + time_step) + 's')
         raw_image_dict = obsfile.getPixelCountImage(firstSec=each_time, integrationTime=time_step, weighted=weighted,
                                                     fluxWeighted=flux_weighted, getRawCount=use_raw_counts)
-        bad_pixel_solution = check_interval(image=raw_image_dict['image'], fwhm=fwhm, box_size=box_size, nsigma_hot=nsigma_hot,
+        bad_pixel_solution = hpm_flux_threshold(image=raw_image_dict['image'], fwhm=fwhm, box_size=box_size, nsigma_hot=nsigma_hot,
                                             max_iter=max_iter, use_local_stdev=use_local_stdev, bkgd_percentile=bkgd_percentile)
         dead_masks[:,:,i] = bad_pixel_solution['dead_mask']
         hot_masks[:, :, i] = bad_pixel_solution['hot_mask']
@@ -418,50 +504,15 @@ def find_bad_pixels(obs, time_step=1, start_time=0, end_time= -1, fwhm=2.5,
 
     #Write it all out to the .h5 file
 
-    write_bad_pixels(bad_pixel_mask, obsfile)
+    obsfile.write_bad_pixels(obsfile, bad_pixel_mask)
 
 
-def write_bad_pixels(bad_pixel_mask= None, obsfile= None):
-    """
-    Write the output hot-pixel time masks table to an .h5 file. Called by
-    find_bad_pixels().
-
-    Required Input:
-    :param bad_pixel_mask:    A 2D array of integers of the same shape as the input image, denoting locations
-                              of bad pixels and the reason they were flagged
-
-    :return:
-    Writes a 'bad pixel table' to an output h5 file titled 'badpixmask_--timestamp--.h5'.
-
-    """
-    timestamp = datetime.utcnow().timestamp()
-    badpix_file_name = 'badpixmask_{}.h5'.format(timestamp)
-
-    try:
-        badpix_file = tables.open_file(badpix_file_name, mode='w')
-    except:
-        print('Error: Couldn\'t create badpix file, ', badpix_file_name)
-        return
-    header = badpix_file.create_group(badpix_file.root, 'header', 'Bad Pixel Map information')
-    tables.Array(header, 'beamMap', obj=obsfile.beamImage)
-    tables.Array(header, 'xpix', obj=obsfile.xpix)
-    tables.Array(header, 'ypix', obj=obsfile.ypix)
-
-    badpixmask = badpix_file.create_group(badpix_file.root, 'badpixmap',
-                                        'Bad Pixel Map')
-    tables.Array(badpixmask, 'badpixmap', obj=bad_pixel_mask,
-                 title='Bad Pixel Mask')
-
-    badpix_file.flush()
-    badpix_file.close()
-
-
-def quick_save_mask(mask= None, out_directory= None):
+def save_mask_array(mask= None, out_directory= None):
     """
      Write bad pixel mask to desired output directory
 
-     :param mask:  Bad pixel array from quick_check_img
-                   OR bad pixel stack from quick_check_stack
+     :param mask:  Bad pixel array from cps_check_img
+                   OR bad pixel stack from cps_check_stack
      :param out_directory:  Output directory that the bad pixel mask should be written
 
      :return:
@@ -475,7 +526,7 @@ def quick_save_mask(mask= None, out_directory= None):
 
     return
 
-def quick_load_mask(file_path= None):
+def load_mask_array(file_path= None):
     """
     Load and return a mask
 
@@ -490,9 +541,9 @@ def quick_load_mask(file_path= None):
     return mask
 
 
-def quick_plot_mask(mask= None, image=None, title=None):
+def plot_mask_array(mask= None, image=None, title=None):
     """
-    Plot a mask or masked image for quick viewing
+    Plot a mask or masked image for viewing
 
     Required Input:
     :param mask:  Np array containing mask
@@ -502,7 +553,7 @@ def quick_plot_mask(mask= None, image=None, title=None):
     :param image:  Np array containing raw image.  If no image is provided, just the mask will be plotted
 
     :return:
-    Display a plot of the mask or masked image for quick inspection
+    Display a plot of the mask or masked image for inspection
     """
     if not title:
         title='Bad Pixel Mask'
@@ -522,13 +573,14 @@ def quick_plot_mask(mask= None, image=None, title=None):
 
 
 if __name__ == "__main__":
+    timestamp = int(datetime.utcnow().timestamp())
     # read in command line arguments
     parser = argparse.ArgumentParser(description='MKID Bad Pixel Masking Utility')
     parser.add_argument('--quiet', action='store_true', dest='quiet',
                         help='Disable logging')
 
     if not args.quiet:
-        pass
+        setup_logging(config, timestamp)
 
 
 
