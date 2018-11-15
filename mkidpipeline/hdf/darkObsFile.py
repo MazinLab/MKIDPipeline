@@ -787,6 +787,25 @@ class ObsFile:
         """
         raise NotImplementedError
 
+    def write_bad_pixels(self, bad_pixel_mask):
+        """
+        Write the output hot-pixel time masks table to the obs file
+
+        Required Input:
+        :param bad_pixel_mask:    A 2D array of integers of the same shape as the input image, denoting locations
+                                  of bad pixels and the reason they were flagged
+
+        :return:
+        Writes a 'bad pixel table' to an output h5 file titled 'badpixmask_--timestamp--.h5'.
+
+        """
+        badpixmask = self.create_group(self.root, 'badpixmap', 'Bad Pixel Map')
+        tables.Array(badpixmask, 'badpixmap', obj=bad_pixel_mask,
+                     title='Bad Pixel Mask')
+
+        self.flush()
+        self.close()
+
     def loadBestWvlCalFile(self,master=True):
         """
         Searchs the waveCalSolnFiles directory tree for the best wavecal to apply to this obsfile.
@@ -1053,13 +1072,10 @@ class ObsFile:
                 weightUncertainties=calsoln['weightUncertainties'][index]
 
                 weights=np.array(weights).flatten()
-                print('len weights', len(weights))
                 weights=np.append((headsweight,weights), tailsweight)
 
                 weightUncertainties=np.array(weightUncertainties)
                 weightUncertainties=np.append((headsweight,weightUncertainties), tailsweight)
-                print('len bins', len(bins))
-                print('len weights', len(weights))
 
                 weightfxncoeffs10=np.polyfit(bins,weights,10)
                 weightfxn10=np.poly1d(weightfxncoeffs10)
