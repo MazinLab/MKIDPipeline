@@ -158,6 +158,7 @@ def muVar_to_IcIs(mu,var,effExpTime):
     INPUTS:
         mu - the mean count rate. [counts/bin]
         var - the variance of the count rate [counts/bin]
+        effExpTime - the bin size in seconds
     OUTPUTs:
         Ic - counts/sec
         Is - counts/sec
@@ -220,19 +221,22 @@ def fitBlurredMR(bins,intensityHist,effExpTime, **kwargs):
 def binMRlogL(n, Ic, Is):
     '''
     Given a light curve, calculate the Log likelihood that
-    its intensity distribution follows a blurred modified Rician with Ic, Is. 
+    its intensity distribution follows a blurred modified Rician with Ic, Is.
+
+    "Blurred" means that it's not a pure MR, rather a Poisson sampling of an MR.
     
     INPUTS:
         n: 1d array containing the (binned) intensity as a function of time, i.e. a lightcurve [counts/bin]. Bin size must be fixed. 
         Ic: Coherent portion of MR [cts/bin]
         Is: Speckle portion of MR [cts/bin]
     OUTPUTS:
-        [float] the Log likelihood of the entire light curve.
+        lnL: [float] the Log likelihood of the entire light curve.
+        lnL_array: an array where each index corresponds to the log likelihood of each element of the light curve array.
     '''
 
     type_n = type(n)
-    if type_n==float or type_n==int: #len(n) will break if n is not a list or numpy array and only an int or float
-        n=[n]
+    if type_n==float or type_n==int:  # len(n) will break if n is not a numpy array and only an int or float
+        n=np.array([n])
 
     N = len(n)
     if Ic<=0 or Is<=0:
@@ -240,13 +244,14 @@ def binMRlogL(n, Ic, Is):
         lnL = -np.inf
         return lnL, np.zeros(N)
 
-    if 1./(Is+1)<=0 or Is/(1.+Is) <=0:
-        lnL = np.nan
-        print('lnL is np.nan!!!!!\n')
-        return lnL,np.zeros(N)
-
-    k = -Ic/(Is**2 + Is) #TODO: deal with situation when laguerre() evaluates to inf
+    k = -Ic/(Is**2 + Is) 
     tmp = np.log(eval_laguerre(n,k)) # eval_laguerre(100,k) = inf when Ic = 514, Is = 1
+
+    # if elements in tmp are np.inf, then go through them and fix with mpmath.
+    tmp2 = n[np.isinf(tmp)]
+    for ii in tmp2:
+        tmp[ii] = float(mpmath.log(mpmath.laguerre(int(ii), 0, k)))
+
     tmp -= k
     a = np.log(1./(Is+1)) - Ic/Is
     c = np.log(Is/(1.+Is))
@@ -356,6 +361,13 @@ def loglike_planet_blurredMR(n,Ic,Is,Ir,n_unique = None):
     # Ic, Is, and Ir are constant inside this function
     mlut = np.exp(binMRlogL(np.arange(lutSize),Ic,Is)[1])
     plut = poisson.pmf(np.arange(lutSize), Ir)
+
+    if np.isinf(np.sum(mlut)):
+        print('lutSize is: ',lutSize,'\n')
+        print('Ic, Is, Ir are: ', Ic, Is, Ir,'\n')
+        print('\n\nmlut is: ',mlut)
+        # print('binMRlogL is: ', binMRlogL(np.arange(lutSize),Ic,Is)[1])
+    # print('\n\nplut is: ',plut)
 
     for ii in inds:
         for mm in np.arange(ii+1):  # convolve the binned MR likelihood with a poisson
@@ -795,7 +807,7 @@ if __name__ == "__main__":
 #        Ic, Is, Ttot, tau = [300., 30., 300., .1] # [Ic, Is] = cps, [Ttot, tau] = sec
 #        ts = genphotonlist(Ic, Is, Ttot, tau)
         
-        Ic, Is, Ir, Ttot, tau = [300., 30., 80, 300., .1] # [Ic, Is] = cps, [Ttot, tau] = sec
+        Ic, Is, Ir, Ttot, tau = [300., 30., 0, 30., .1] # [Ic, Is] = cps, [Ttot, tau] = sec
         ts = genphotonlist(Ic, Is, Ir, Ttot, tau)
         
         print("\nPhoton list parameters:\n Ic, Is, Ir, Ttot, tau = [{:g}, {:g}, {:g}, {:g}, {:g}]".format(Ic, Is, Ir, Ttot, tau))
@@ -809,9 +821,9 @@ if __name__ == "__main__":
         """
         Make a plot showing a histogram fit.
         """
-        effExpTime = 0.01 #second
+        effExpTime = .0001 #second
 
-        
+
         lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts/1e6,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         if 0:
             plt.figure(1)
@@ -820,33 +832,33 @@ if __name__ == "__main__":
             plt.ylabel('counts')
             plt.title('light curve')
             plt.show()
-        
+
         intensityHist, bins = histogramLC(lightCurveIntensityCounts)
-        plt.figure(2)
+        fig2 = plt.figure(2)
         plt.bar(bins,intensityHist)
         plt.xlabel('intensity [counts/bin]')
         plt.ylabel('frequency')
-        plt.title('intensity histogram. Effective exposure time = {:.4f}'.format(effExpTime))
-        
-        
+        plt.title('intensity histogram. Effective exposure time = {:g}'.format(effExpTime))
+
+
         Ic_est,Is_est,covMatrix = fitBlurredMR(bins,intensityHist,effExpTime)
-        
+
         print('\nIc and Is from curve_fit are: ',Ic_est,'  ',Is_est, ' counts/sec')
-        
+
         #calculate the error on Ic and Is using the covariance matrix returned by curve_fit
         perr = np.sqrt(np.diag(covMatrix))/effExpTime #1 sigma errors, assuming the likelihood function is gaussian.
-        
-        
-        mu = np.mean(lightCurveIntensityCounts)
-        var = np.var(lightCurveIntensityCounts)  
-    
 
-        plt.plot(bins,blurredMR(np.arange(len(bins)),Ic_est*effExpTime,Is_est*effExpTime),'.-k',label = r'blurred MR from curve_fit. Ic,Is = {:.2f} $\pm$ {:.2f}, {:.2f} $\pm$ {:.2f}'.format(Ic_est,perr[0],Is_est,perr[1]))
-        plt.plot(bins,blurredMR(np.arange(len(bins)),Ic*effExpTime,Is*effExpTime),'.-b',label = 'blurred MR from actual Ic and Is. Ic,Is = {:.2f}, {:.2f}'.format(Ic,Is))
-#        plt.plot(bins,modifiedRician(np.arange(len(bins)),Ic_est*effExpTime,Is_est*effExpTime),'.-r',label = 'pure MR  Ic,Is = {:.2f}, {:.2f}'.format(Ic,Is))
-        
-        
-        
+
+        mu = np.mean(lightCurveIntensityCounts)
+        var = np.var(lightCurveIntensityCounts)
+
+
+        plt.plot(bins,blurredMR(np.arange(len(bins)),Ic_est*effExpTime,Is_est*effExpTime),'.-k',label = r'MR fit. Ic,Is = {:.2f} $\pm$ {:.2f}, {:.2f} $\pm$ {:.2f}'.format(Ic_est,perr[0],Is_est,perr[1]))
+        # plt.plot(bins,blurredMR(np.arange(len(bins)),Ic*effExpTime,Is*effExpTime),'.-b',label = 'blurred MR from actual Ic and Is. Ic,Is = {:.2f}, {:.2f}'.format(Ic,Is))
+        #        plt.plot(bins,modifiedRician(np.arange(len(bins)),Ic_est*effExpTime,Is_est*effExpTime),'.-r',label = 'pure MR  Ic,Is = {:.2f}, {:.2f}'.format(Ic,Is))
+
+
+
         ''''
         try:
             IIc = np.sqrt(mu**2 - var + mu)  #intensity per bin. 
@@ -861,17 +873,19 @@ if __name__ == "__main__":
             plt.plot(bins,blurredMR(np.arange(len(bins)),IIc*effExpTime,IIs*effExpTime),'.-c',label = 'blurredMR from mean and variance Ic,Is = {:.2f}, {:.2f}'.format(IIc,IIs))
             
         '''
-        
+
         try:
             IIc,IIs = muVar_to_IcIs(mu,var,effExpTime)
         except:
             print('unable to get Ic and Is from mean and variance.')
         else:
-            plt.plot(bins,blurredMR(np.arange(len(bins)),IIc*effExpTime,IIs*effExpTime),'.-c',label = 'blurredMR from mean and variance Ic,Is = {:.2f}, {:.2f}'.format(IIc,IIs))
-            
-    
+            pass
+            # plt.plot(bins,blurredMR(np.arange(len(bins)),IIc*effExpTime,IIs*effExpTime),'.-c',label = 'blurredMR from mean and variance Ic,Is = {:.2f}, {:.2f}'.format(IIc,IIs))
+
+
         plt.legend()
-        
+        fig2.show()
+
         
         
     if 0:
