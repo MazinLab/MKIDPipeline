@@ -246,7 +246,7 @@ def MRlogL_sandwichCov(Ic, Is, Ir, dt, deadtime=0):
     return np.matmul(np.matmul(h_cov, opg_cov_inv),h_cov)
 
 
-def MRlogL(Ic, Is, Ir=0., dt, deadtime=0.):
+def MRlogL(Ic, Is, Ir, dt, deadtime=0.):
     """
     Given an array of photon interarrival times, calculate the Log likelihood that
     those photons follow a modified Rician Intensity probability distribution with Ic, Is. 
