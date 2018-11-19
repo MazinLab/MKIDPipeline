@@ -28,6 +28,7 @@ find_bad_pixels:  The main routine. Takes an obs. file  as input and writes a ba
                     c.  cps_cut_image:  Basic hot pixel search using a count-per-second threshold (not robust)
 
                   Bad Pixel Masking via Time Streams --> Best for uncalibrated obs data or calibration data
+                    a.  hpm_poisson_dist:
 
 -------------
 Functions for .img data:
@@ -70,6 +71,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import scipy.ndimage.filters as spfilters
+from mkidpipeline.speckle.binned_rician import *
+from scipy.stats import poisson
 
 from mkidpipeline.hdf.darkObsFile import ObsFile
 from mkidpipeline.utils import utils
@@ -106,7 +109,7 @@ def setup_logging(configuration, time_stamp=None):
 def hpm_flux_threshold(image, fwhm=2.5, box_size=5, nsigma_hot=4.0, max_iter=5,
                    use_local_stdev=False, bkgd_percentile=50.0):
     """
-    Robust!  NOTE:  This is the routine that should be used for observational data in the complete pipeline.
+    Robust!  NOTE:  This is a routine that was ported over from the ARCONS pipeline.
     Finds the hot and dead pixels in a for a 2D input array.
     Compares the ratio of flux in each pixel to the median of the flux in an
     enclosing box. If the ratio is too high -- i.e. the flux is too tightly
@@ -183,7 +186,7 @@ def hpm_flux_threshold(image, fwhm=2.5, box_size=5, nsigma_hot=4.0, max_iter=5,
     iteration = -1
 
     # In the case that *all* the pixels are dead, return a bad_mask where all the pixels are flagged as DEAD
-    if np.sum(raw_image[np.where(np.isfinite(raw_image))]) <= 0:
+    if raw_image[np.isfinite(raw_image)].sum() <= 0:
         log.info('Entire image consists of dead pixels')
         bad_mask=dead_mask*3
         hot_mask=numpy.zeros_like(bad_mask, dtype=bool)
@@ -204,9 +207,8 @@ def hpm_flux_threshold(image, fwhm=2.5, box_size=5, nsigma_hot=4.0, max_iter=5,
 
             # Estimate the background std. dev.
             standard_filter_image = utils.nearestNrobustSigmaFilter(raw_image, n=box_size ** 2 - 1)
-            overall_bkgd_sigma = np.median(standard_filter_image[np.isfinite(standard_filter_image)])
+            overall_bkgd_sigma = max(.01, np.median(standard_filter_image[np.isfinite(standard_filter_image)]))
             standard_filter_image[np.where(standard_filter_image < 1.)] = 1.
-            if overall_bkgd_sigma < 0.01: overall_bkgd_sigma = 0.01  # Just so it's not 0
 
             # Calculate difference between flux in each pixel and max_ratio * the median in the enclosing box.
             # Also calculate the error that would exist in a measurement of a pixel that *was* at the peak of a real PSF
@@ -255,6 +257,31 @@ def hpm_flux_threshold(image, fwhm=2.5, box_size=5, nsigma_hot=4.0, max_iter=5,
             'difference_image_error': difference_image_error, 'num_iter': iteration + 1}
 
 def hpm_laplacian(image, box_size=5, nsigma_hot=4.0):
+    """
+    Required Input:
+    :param image:           A 2D image array of photon counts.
+
+    Other Input:
+    :param box_size:           Scalar integer. Size box used for replacing the NaNs in the region surrounding each dead or NaN pixel.
+    :param nsigma_hot:         Scalar float. If the flux ratio for a pixel is (nsigma_hot x expected error)
+                                             above the max expected given the PSF FWHM, then flag it as hot.
+    :return:
+    A dictionary containing the result and various diagnostics. Keys are:
+
+    'bad_mask': the main output. Contains a 2D array of integers of the same shape as the input image, where:
+        0 = Good pixel
+        1 = Hot pixel
+        2 = Cold Pixel
+        3 = Dead Pixel
+    'dead_mask': 2D array of Bools of the same shape as the input image, where:
+                True = Dead Pixel
+                False = Not Dead Pixel
+    'hot_mask': 2D array of Bools of the same shape as the input image, where:
+                True = Hot Pixel
+                False = Not Hot Pixel
+    'image': 2D array containing the input image
+    'laplacian_filter_image': The median-filtered image
+    """
 
     raw_image = np.copy(image)
 
@@ -296,6 +323,45 @@ def hpm_laplacian(image, box_size=5, nsigma_hot=4.0):
 
     return {'bad_mask': bad_mask, 'dead_mask': dead_mask, 'hot_mask': hot_mask,  'image': raw_image,
             'laplacian_filter_image': laplacian_filter_image}
+
+def hpm_poisson_dist(obsfile):
+    """
+    :param obsfile:
+    :return:
+    """
+    xpix = obsfile.nXPix
+    ypix = obsfile.nYPix
+
+    for iRow in range(xpix):
+        for iCol in range(ypix):
+            times = obsfile.getPixelPhotonList(iRow, iCol)
+            times = times['Time']
+            lc = getLightCurve(times, startTime=0, stopTime=600000000, effExpTime=1000000)
+            lc2 = lc[2] / 1000000
+            lc0 = lc[0]
+
+            hist = histogramLC(lc0)
+            lam = np.sum(hist[0] * hist[1]) / np.sum(hist[0])
+
+            poissondist = poisson.pmf(hist[1], lam) * np.sum(hist[0])
+            chisq = np.sum(((hist[0] - poissondist) ** 2.0) / poissondist)
+            print(chisq)
+
+
+def stddev_bias_corr(n):
+    if n == 1:
+        corr = 1.0
+    else:
+        lut = [0.7978845608, 0.8862269255, 0.9213177319, 0.9399856030, 0.9515328619,
+               0.9593687891, 0.9650304561, 0.9693106998, 0.9726592741, 1.0]
+        lut_ndx = max(min(n - 2, len(lut) - 1), 0)
+        print(lut_ndx)
+
+        corr = lut[lut_ndx]
+        print(corr)
+
+    return 1.0 / corr
+
 
 
 def cps_cut_img (image=None, sigma=5, max_cut=2450, cold_mask=False):
@@ -350,14 +416,14 @@ def cps_cut_img (image=None, sigma=5, max_cut=2450, cold_mask=False):
     with warnings.catch_warnings():
         # nan values will give an unnecessary RuntimeWarning
         warnings.simplefilter("ignore", category=RuntimeWarning)
-        bad_mask[np.where(raw_image>=np.nanmean(raw_image)+sigma*np.nanstd(raw_image))]=1
+        bad_mask[np.where(raw_image>=np.nanmedian(raw_image)+sigma*np.nanstd(raw_image))]=1
 
     #if coldCut is true, also mask cps < mean-sigma*std
     if cold_mask==True:
         with warnings.catch_warnings():
             # nan values will give an unnecessary RuntimeWarning
             warnings.simplefilter("ignore", category=RuntimeWarning)
-            bad_mask[np.where(raw_image<=np.nanmean(raw_image)-sigma*np.nanstd(raw_image))]=1
+            bad_mask[np.where(raw_image<=np.nanmedian(raw_image)-sigma*np.nanstd(raw_image))]=1
 
     return {'bad_mask': bad_mask, 'image': raw_image}
 
