@@ -159,6 +159,8 @@ def hpm_flux_threshold(image, fwhm=2.5, box_size=5, nsigma_hot=4.0, max_iter=5,
     'difference_image_error': the expected error in the difference calculation.
     'num_iter': number of iterations performed.
     """
+    if max_iter is None: max_iter = 5
+    if use_local_stdev is None: use_local_stdev = False
 
     raw_image = np.copy(image)
 
@@ -256,6 +258,130 @@ def hpm_flux_threshold(image, fwhm=2.5, box_size=5, nsigma_hot=4.0, max_iter=5,
             'median_filter_image': median_filter_image, 'max_ratio': max_ratio, 'difference_image': difference_image,
             'difference_image_error': difference_image_error, 'num_iter': iteration + 1}
 
+
+def hpm_median_movingbox(image, box_size=5, nsigma_hot=4.0, max_iter=5):
+    """
+    New routine, developed to serve as a generic hot pixel masking method
+    Finds the hot and dead pixels in a for a 2D input array.
+
+    Passes a box_size by box_size moving box over the entire array and checks if the pixel at the center of that window
+    has counts higher than the median plus nsigma_hot times the standard deviation of the pixels in that window
+
+    If the pixel has counts less than 0.01, then the pixel is flagged as DEAD
+
+    Dead pixels are excluded from the standard deviation calculation and the standard deviation is corrected for small
+    sample sizes as per the function stddev_bias_corr(n)
+
+    The HOT and DEAD masks are combined into a single BAD mask at the end
+
+    Required Input:
+    :param image:           A 2D image array of photon counts.
+
+    Other Input:
+    :param box_size:           Scalar integer. Size box used for calculating median counts in the region surrounding each pixel.
+    :param nsigma_hot:         Scalar float. If the flux ratio for a pixel is nsigma_hot x standard deviation within the moving box
+                                             above the max expected given the PSF FWHM, then flag it as hot.
+    :param max_iter:           Scalar integer. Maximum number of iterations allowed.
+
+    :return:
+    A dictionary containing the result and various diagnostics. Keys are:
+
+    'bad_mask': the main output. Contains a 2D array of integers of the same shape as the input image, where:
+            0 = Good pixel
+            1 = Hot pixel
+            2 = Cold Pixel
+            3 = Dead Pixel
+    'dead_mask': 2D array of Bools of the same shape as the input image, where:
+                True = Dead Pixel
+                False = Not Dead Pixel
+    'hot_mask': 2D array of Bools of the same shape as the input image, where:
+                True = Hot Pixel
+                False = Not Hot Pixel
+    'image': 2D array containing the input image
+    'median_filter_image': The median-filtered image
+    'num_iter': number of iterations performed.
+    """
+    if max_iter is None: max_iter = 5
+
+    raw_image = np.copy(image)
+
+    # Assume everything with 0 counts is a dead pixel, turn dead pixel values into NaNs
+    dead_mask = raw_image < 0.01
+    raw_image[dead_mask] = np.nan
+
+    # Initialise a mask for hot pixels (all False) for comparison on each iteration.
+    initial_hot_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
+    hot_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
+
+    # Initialise some arrays with NaNs in case they don't get filled out during the iteration
+    median_filter_image = np.zeros_like(raw_image)
+    median_filter_image.fill(np.nan)
+    iteration = -1
+
+    # In the case that *all* the pixels are dead, return a bad_mask where all the pixels are flagged as DEAD
+    if raw_image[np.isfinite(raw_image)].sum() <= 0:
+        log.info('Entire image consists of dead pixels')
+        bad_mask=dead_mask*3
+        hot_mask=numpy.zeros_like(bad_mask, dtype=bool)
+        dead_mask=numpy.ones_like(bad_mask, dtype=bool)
+    else:
+        for iteration in range(max_iter):
+            log.info('Iteration: '.format(iteration))
+            print('Iteration', iteration)
+            # Remove all the NaNs in an image and calculate a median filtered image
+            # each pixel takes the median of itself and the surrounding box_size x box_size box.
+            nan_fixed_image = utils.replaceNaN(raw_image, mode='mean', boxsize=box_size)
+            assert np.all(np.isfinite(nan_fixed_image))
+            median_filter_image = spfilters.median_filter(nan_fixed_image, box_size, mode='mirror')
+            standard_filter_image=spfilters.generic_filter(raw_image, calc_stdev, box_size, mode='mirror')
+
+            threshold = median_filter_image + (nsigma_hot*standard_filter_image)
+
+            # Any pixel that has a count level more than nSigma above the median should be flagged as hot:
+            # True = bad pixel; False = good pixel.
+            hot_mask = (median_filter_image > threshold) | initial_hot_mask
+
+            # If no change between between this and the last iteration then stop iterating
+            if np.all(hot_mask == initial_hot_mask): break
+
+            # Otherwise update 'initial_hot_mask' and set all detected bad pixels to NaN for the next iteration
+            initial_hot_mask = np.copy(hot_mask)
+            raw_image[hot_mask] = np.nan
+
+        # Finished with loop, make sure a pixel is not simultaneously hot and dead
+        assert np.all(hot_mask & dead_mask == False)
+
+        # Convert bools into 0s and 1s, use correct bad pix flags
+        dead_mask_return=dead_mask*3
+        hot_mask_return=hot_mask*1
+        bad_mask=dead_mask_return+hot_mask_return
+
+    return {'bad_mask': bad_mask, 'dead_mask': dead_mask, 'hot_mask': hot_mask,  'image': raw_image,
+            'median_filter_image': median_filter_image, 'num_iter': iteration + 1}
+
+
+def calc_stdev(x):
+    xClean = x[~numpy.isnan(x)]
+    n = len(xClean)
+    if numpy.size(xClean) > 1 and xClean.min() != xClean.max():
+        return scipy.stats.tstd(xClean)*stddev_bias_corr(n)
+    #Otherwise...
+    return numpy.nan
+
+def stddev_bias_corr(n):
+        if n == 1:
+            corr = 1.0
+        else:
+            lut = [0.7978845608, 0.8862269255, 0.9213177319, 0.9399856030, 0.9515328619,
+                   0.9593687891, 0.9650304561, 0.9693106998, 0.9726592741, 1.0]
+            lut_ndx = max(min(n - 2, len(lut) - 1), 0)
+            print(lut_ndx)
+
+            corr = lut[lut_ndx]
+            print(corr)
+
+        return 1.0 / corr
+
 def hpm_laplacian(image, box_size=5, nsigma_hot=4.0):
     """
     Required Input:
@@ -348,23 +474,8 @@ def hpm_poisson_dist(obsfile):
             print(chisq)
 
 
-def stddev_bias_corr(n):
-    if n == 1:
-        corr = 1.0
-    else:
-        lut = [0.7978845608, 0.8862269255, 0.9213177319, 0.9399856030, 0.9515328619,
-               0.9593687891, 0.9650304561, 0.9693106998, 0.9726592741, 1.0]
-        lut_ndx = max(min(n - 2, len(lut) - 1), 0)
-        print(lut_ndx)
 
-        corr = lut[lut_ndx]
-        print(corr)
-
-    return 1.0 / corr
-
-
-
-def cps_cut_img (image=None, sigma=5, max_cut=2450, cold_mask=False):
+def cps_cut_img (image, sigma=5, max_cut=2450, cold_mask=False):
     """
     NOTE:  This is a routine for masking hot pixels in .img files and the like, NOT robust
             OK to use for bad pixel masking for pretty-picture-generation or quicklook
@@ -428,7 +539,7 @@ def cps_cut_img (image=None, sigma=5, max_cut=2450, cold_mask=False):
     return {'bad_mask': bad_mask, 'image': raw_image}
 
 
-def cps_cut_stack(stack=None, len_stack=None, sigma=None, max_cut=2450, cold_mask=False, verbose=False):
+def cps_cut_stack(stack, len_stack, sigma=4, max_cut=2450, cold_mask=False, verbose=False):
     """
     Finds the hot and dead pixels in a stack of images
     Same procedure as cps_check_img except this procedure operates on a STACK of images (again, NOT robust!!)
@@ -487,42 +598,36 @@ def cps_cut_stack(stack=None, len_stack=None, sigma=None, max_cut=2450, cold_mas
 
     return {'bad_mask_stack': bad_mask_stack, 'stack': stack}
 
+def getanumber2(method, extradiv=3, *args, **kwargs):
+	number=method(*args, **kwargs)
+	number=number/extradiv
+	return(number)
 
-def find_bad_pixels(obsfile, time_step=30, start_time=0, end_time= -1, fwhm=2.5,
-                    box_size=5, nsigma_hot=4.0, weighted=False, flux_weighted=False, max_iter=5,
-                    use_local_stdev=False, use_raw_counts=True, bkgd_percentile=50.0):
+
+def find_bad_pixels(obsfile, hpcutmethod, time_step=30, start_time=0, end_time= -1, **hpcutargs, **hpcutkwargs):
     """
     This routine is the main code entry point of the bad pixel masking code.
     Takes an obs. file as input and writes a 'bad pixel table' to that h5 file where each entry is an indicator of
     whether the pixel was good, dead, hot, or cold.  Defaults should be somewhat reasonable for a typical on-sky image.
+    HPCut method is interchangeable with any of the methods listed here.
 
     The HOT and DEAD masks are combined into a single BAD mask at the end
 
     Required Input:
     :param obsfile:           user passes an obsfile instance here
     :param start_time         Scalar Integer.  Timestamp at which to begin bad pixel masking, default = 0
-    :param end_time           Scalar Integer.  Timestamp at which to finish bad pixel masking, defailt = -1
+    :param end_time           Scalar Integer.  Timestamp at which to finish bad pixel masking, default = -1
                                                (run to the end of the file)
     :param time_step          Scalar Integer.  Number of seconds to do the bad pixel masking over (should be an integer
-                                               number of steps through the obsfile
+                                               number of steps through the obsfile), default = 30
+    :param hpcutmethod        String.          Method to use to detect hot pixels.  Options are:
+                                               hpm_median_movingbox
+                                               hpm_flux_threshold
+                                               hpm_laplacian
+                                               cps_cut_img
 
     Other Input:
-    :param fwhm:               Scalar float. Estimated full-width-half-max of the PSF (in pixels).
-    :param box_size:           Scalar integer. Size box used for calculating median flux in the region surrounding each pixel.
-    :param nsigma_hot:         Scalar float. If the flux ratio for a pixel is (nsigma_hot x expected error)
-                                             above the max expected given the PSF FWHM, then flag it as hot.
-    :param weighted            Boolean, set to True to use flat cal weights (see obsFile.getPixelCountImage() )
-    :param flux_weighted       Boolean, if True, flux cal weights are applied (also see obsfile.getPixelCountImage() )
-    :param max_iter:           Scalar integer. Maximum number of iterations allowed.
-    :param use_local_stdev:    Bool.  If True, use the local (robust) standard deviation within the
-                                      moving box for the sigma value in the hot pixel thresholding
-                                      instead of Poisson statistics. Mainly intended for situations where
-                                      you know there is no astrophysical source in the image (e.g. flatfields,
-                                      laser calibrations), where you can also set fwhm=np.inf
-    :param bkgd_percentile:    Scalar Integer.  Percentile level (in %) in image to use as an estimate of the background.
-                                                In an ideal world, this will be 50% (i.e., the median of the image).
-                                                For raw images, however, there is often a gradient across the field,
-                                                in which case it's sensible to use something lower than 50%.
+    Appropriate args and kwargs that go into the chosen hpcut function
 
     :return:
     Writes a 'bad pixel table' to an output h5 file titled 'badpixmask_--timestamp--.h5' where:
@@ -531,13 +636,17 @@ def find_bad_pixels(obsfile, time_step=30, start_time=0, end_time= -1, fwhm=2.5,
             2 = Cold Pixel
             3 = Dead Pixel
     """
-    #A few defaults that will be used in the absence of parameter file or
-    #arguments provided by the caller.
-    if time_step is None: time_step = 1
+    #A few defaults that will be used in the absence of parameter file or arguments provided by the caller.
+    if time_step is None: time_step = 30
     if start_time is None: start_time = 0
     if end_time is None: pass
-    if max_iter is None: max_ter = 5
-    if use_local_stdev is None: use_local_stdev = False
+
+    #Some arguments necessary to be passed into getPixelCountImage
+    if self.info['isSpecCalibrated']:  applyWeight = True
+    else:  applyWeight = False
+    if method==cps_cut_img: scaleByEffInt = True
+    else:  scaleByEffInt = False
+    applyTPFWeight=False #Change once we write the noise calibration
 
     exp_time = obsfile.getFromHeader('exptime')
     if end_time < 0: end_time = exp_time
@@ -556,10 +665,9 @@ def find_bad_pixels(obsfile, time_step=30, start_time=0, end_time= -1, fwhm=2.5,
     #Generate a stack of bad pixel mask, one for each time step
     for i, each_time in enumerate(step_starts):
         log.info('Processing time slice: '.format(str(each_time)) + ' - ' + str(each_time + time_step) + 's')
-        raw_image_dict = obsfile.getPixelCountImage(firstSec=each_time, integrationTime=time_step, weighted=weighted,
-                                                    fluxWeighted=flux_weighted, getRawCount=use_raw_counts)
-        bad_pixel_solution = hpm_flux_threshold(image=raw_image_dict['image'], fwhm=fwhm, box_size=box_size, nsigma_hot=nsigma_hot,
-                                            max_iter=max_iter, use_local_stdev=use_local_stdev, bkgd_percentile=bkgd_percentile)
+        raw_image_dict = obsfile.getPixelCountImage(firstSec=each_time, integrationTime=time_step, applyWeight=applyWeight,
+                                                    applyTPFWeight=applyTPFWeight, scaleByEffInt=scaleByEffInt)
+        bad_pixel_solution = hpcutmethod(image = raw_image_dict['image'], *hpcutargs, **hpcutkwargs)
         dead_masks[:,:,i] = bad_pixel_solution['dead_mask']
         hot_masks[:, :, i] = bad_pixel_solution['hot_mask']
 
@@ -568,7 +676,7 @@ def find_bad_pixels(obsfile, time_step=30, start_time=0, end_time= -1, fwhm=2.5,
     hot_pixel_mask = np.sum(hot_masks, axis=-1)/nsteps
     bad_pixel_mask=dead_pixel_mask + hot_pixel_mask
 
-    #Write it all out to the .h5 file
+    #Write it all out to the obs file
 
     obsfile.write_bad_pixels(obsfile, bad_pixel_mask)
 
