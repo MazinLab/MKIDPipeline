@@ -87,7 +87,7 @@ class FlatCal(object):
                                  "Are you sure you want to save plots?", yes_or_no=True)
             if answer is False:
                 self.save_plots = False
-                flog.info('Setting save_plots parameter to FALSE')
+                ##flog.info('Setting save_plots parameter to FALSE')
         self.timeSpacingCut = None
 
         self.checktypes()
@@ -96,7 +96,7 @@ class FlatCal(object):
             print('Computing Factors for FlatCal')
         self.checksections()
         self.checktypes()
-        flog.info('Computing Factors for FlatCal')
+        ##flog.info('Computing Factors for FlatCal')
 
     def checksections(self):
         """
@@ -241,7 +241,7 @@ class FlatCal(object):
             self.frames.append(frame)
             self.spectralCubes.append(cube)
             self.cubeEffIntTimes.append(effIntTime3d)
-            flog.info('Loaded Flat Spectra for seconds {} to {}'.format(int(firstSec), int(firstSec) + int(self.intTime)))
+            ##flog.info('Loaded Flat Spectra for seconds {} to {}'.format(int(firstSec), int(firstSec) + int(self.intTime)))
         self.obs.file.close()
         self.spectralCubes = np.array(self.spectralCubes)
         self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
@@ -336,12 +336,12 @@ class FlatCal(object):
         self.writeWeights()
         if self.save_plots:
             self.plotWeightsWvlSlices()
-            flog.info('Plotted Weights by Wvl Slices at WvlSlices_{}'.format(timestamp))
+            ##flog.info('Plotted Weights by Wvl Slices at WvlSlices_{}'.format(timestamp))
             self.plotWeightsByPixelWvlCompare()
-            flog.info('Plotted Weights by Pixel against the Wavelength Solution at WavelengthCompare_{}'.format(timestamp))
+            ##flog.info('Plotted Weights by Pixel against the Wavelength Solution at WavelengthCompare_{}'.format(timestamp))
         if self.summary_plot:
             self.makeSummary()
-            flog.info('Made Summary Plot')
+            ##flog.info('Made Summary Plot')
 
     def makeh5(self):
 
@@ -352,13 +352,13 @@ class FlatCal(object):
                                                      y=self.ypix, writeto=flatpath)
         if self.verbose:
             print('Making h5')
-        flog.info('Made h5 file at {}.h5'.format(self.startTime))
+        ##flog.info('Made h5 file at {}.h5'.format(self.startTime))
 
         bin2hdf.makehdf(b2h_config, maxprocs=1)
         self.h5directory=self.h5directory+str(self.startTime)+'.h5'
         if self.verbose:
             print('applying Wavecal to ' + self.h5directory)
-        flog.info('Applied Wavecal {} to {}.h5'.format(self.wvlCalFile, self.startTime))
+        ##flog.info('Applied Wavecal {} to {}.h5'.format(self.wvlCalFile, self.startTime))
         obsfile = ObsFile(self.h5directory, mode='write')
         ObsFile.applyWaveCal(obsfile, self.wvlCalFile)
 
@@ -519,8 +519,7 @@ class FlatCal(object):
         try:
             flatCalFile = tables.open_file(self.flatCalFileName, mode='w')
         except:
-            print('Error: Couldn\'t create flat cal file, ', self.flatCalFileName)
-            flog.info('Error: Couldn\'t create flat cal file,{} ', self.flatCalFileName)
+            ##flog.info('Error: Couldn\'t create flat cal file,{} ', self.flatCalFileName)
             return
         header = flatCalFile.create_group(flatCalFile.root, 'header', 'Calibration information')
         tables.Array(header, 'beamMap', obj=self.beamImage)
@@ -560,7 +559,7 @@ class FlatCal(object):
         flatCalFile.close()
         if self.verbose:
             print('wrote to', self.flatCalFileName)
-        flog.info("Wrote to {}".format(self.flatCalFileName))
+        ##flog.info("Wrote to {}".format(self.flatCalFileName))
 
     def makeSummary(self):
         summaryPlot(calsolnName=self.flatCalFileName, save_plot=True)
@@ -735,14 +734,12 @@ if __name__ == '__main__':
                         help='Only make h5 files')
     parser.add_argument('--forceh5', action='store_true', dest='forcehdf', default=False,
                         help='Force HDF creation')
-    parser.add_argument('--nolog', action='store_true', dest='nolog', default=False,
+    parser.add_argument('--quiet', action='store_true', dest='quiet',
                         help='Disable logging')
     args = parser.parse_args()
 
-    if args.nolog:
-        flog = None
-    else:
-        flog = pipelinelog.createFileLog('FlatCal.logfile',
+    if not args.quiet:
+        flog = pipelinelog.setup_logging('FlatCal.logfile',
                                          os.path.join(os.getcwd(),
                                                       '{:.0f}.log'.format(timestamp)))
 
