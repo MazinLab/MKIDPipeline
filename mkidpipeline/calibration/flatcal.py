@@ -33,8 +33,8 @@ from matplotlib.backends.backend_pdf import PdfPages
 from mkidpipeline.calibration import wavecal
 from mkidcore.headers  import FlatCalSoln_Description
 from mkidpipeline.hdf.darkObsFile import ObsFile
-import mkidcore.corelog as pipelinelog
 from mkidcore.corelog import getLogger
+import mkidcore.corelog
 from mkidpipeline.hdf import bin2hdf
 
 DEFAULT_CONFIG_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)),
@@ -48,7 +48,7 @@ class FlatCal(object):
     weights for flat file.  Writes these weights to a h5 file and plots weights both by pixel
     and in wavelength-sliced images.
     """
-    def __init__(self, config_file='default.cfg', cal_file_name = 'calsol_default.h5', filelog=None):
+    def __init__(self, config_file='default.cfg', cal_file_name = 'calsol_default.h5'):
         """
         Reads in the param file and opens appropriate flat file.  Sets wavelength binning parameters.
         """
@@ -76,7 +76,6 @@ class FlatCal(object):
         self.wvlStop = ast.literal_eval(self.config['Instrument']['wvlStop'])
         self.countRateCutoff = ast.literal_eval(self.config['Calibration']['countRateCutoff'])
         self.fractionOfChunksToTrim = ast.literal_eval(self.config['Calibration']['fractionOfChunksToTrim'])
-        self.verbose = ast.literal_eval(self.config['Output']['verbose'])
         self.logging = ast.literal_eval(self.config['Output']['logging'])
         self.out_directory = ast.literal_eval(self.config['Output']['out_directory'])
         self.save_plots = ast.literal_eval(self.config['Output']['save_plots'])
@@ -87,21 +86,17 @@ class FlatCal(object):
                                  "Are you sure you want to save plots?", yes_or_no=True)
             if answer is False:
                 self.save_plots = False
-                ##flog.info('Setting save_plots parameter to FALSE')
+                getLogger('flatcalib').info("Setting save_plots parameter to FALSE")
         self.timeSpacingCut = None
 
         self.checktypes()
-
-        if self.verbose:
-            print('Computing Factors for FlatCal')
         self.checksections()
         self.checktypes()
-        ##flog.info('Computing Factors for FlatCal')
+        getLogger('flatcalib').info("Computing Factors for FlatCal")
 
     def checksections(self):
         """
-        Checks the variables loaded in from the configuration file for type and
-        consistencey.
+        Checks the variables loaded in from the configuration file for type and consistency.
         """
         section = "{0} must be a configuration section"
         param = "{0} must be a parameter in the configuration file '{1}' section"
@@ -139,8 +134,6 @@ class FlatCal(object):
             param.format('fractionOfChunksToTrim', 'Calibration')
         assert 'out_directory' in self.config['Output'].keys(), \
             param.format('out_directory', 'Output')
-        assert 'verbose' in self.config['Output'].keys(), \
-            param.format('verbose', 'Output')
         assert 'save_plots' in self.config['Output'].keys(), \
             param.format('save_plots', 'Output')
         assert 'summary_plot' in self.config['Output'].keys(), \
@@ -182,7 +175,6 @@ class FlatCal(object):
             self.countRateCutoff = float(self.countRateCutoff)
         assert type(self.countRateCutoff) is float, "Count Rate Cutoff must be an integer or float"
         assert type(self.fractionOfChunksToTrim) is int, "Fraction of Chunks to Trim must be an integer"
-        assert type(self.verbose) is bool, "Verbose indicator must be a bool"
         assert type(self.save_plots) is bool, "Save Plots indicator must be a bool"
         assert type(self.summary_plot) is bool, "Save Summary Plot indicator must be a bool"
         assert type(self.logging) is bool, "logging parameter must be a boolean"
@@ -241,7 +233,7 @@ class FlatCal(object):
             self.frames.append(frame)
             self.spectralCubes.append(cube)
             self.cubeEffIntTimes.append(effIntTime3d)
-            ##flog.info('Loaded Flat Spectra for seconds {} to {}'.format(int(firstSec), int(firstSec) + int(self.intTime)))
+            getLogger('flatcalib').info('Loaded Flat Spectra for seconds {} to {}'.format(int(firstSec), int(firstSec) + int(self.intTime)))
         self.obs.file.close()
         self.spectralCubes = np.array(self.spectralCubes)
         self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
@@ -336,12 +328,12 @@ class FlatCal(object):
         self.writeWeights()
         if self.save_plots:
             self.plotWeightsWvlSlices()
-            ##flog.info('Plotted Weights by Wvl Slices at WvlSlices_{}'.format(timestamp))
+            getLogger('flatcalib').info('Plotted Weights by Wvl Slices at WvlSlices_{}'.format(timestamp))
             self.plotWeightsByPixelWvlCompare()
-            ##flog.info('Plotted Weights by Pixel against the Wavelength Solution at WavelengthCompare_{}'.format(timestamp))
+            getLogger('flatcalib').info('Plotted Weights by Pixel against the Wavelength Solution at WavelengthCompare_{}'.format(timestamp))
         if self.summary_plot:
             self.makeSummary()
-            ##flog.info('Made Summary Plot')
+            getLogger('flatcalib').info('Made Summary Plot')
 
     def makeh5(self):
 
@@ -350,15 +342,11 @@ class FlatCal(object):
                                                      beamfile=self.beamDir, outdir=self.h5directory,
                                                      starttime=self.startTime, inttime=self.expTime, x=self.xpix,
                                                      y=self.ypix, writeto=flatpath)
-        if self.verbose:
-            print('Making h5')
-        ##flog.info('Made h5 file at {}.h5'.format(self.startTime))
+        getLogger('flatcalib').info('Made h5 file at {}.h5'.format(self.startTime))
 
         bin2hdf.makehdf(b2h_config, maxprocs=1)
         self.h5directory=self.h5directory+str(self.startTime)+'.h5'
-        if self.verbose:
-            print('applying Wavecal to ' + self.h5directory)
-        ##flog.info('Applied Wavecal {} to {}.h5'.format(self.wvlCalFile, self.startTime))
+        getLogger('flatcalib').info('Applied Wavecal {} to {}.h5'.format(self.wvlCalFile, self.startTime))
         obsfile = ObsFile(self.h5directory, mode='write')
         ObsFile.applyWaveCal(obsfile, self.wvlCalFile)
 
@@ -485,8 +473,6 @@ class FlatCal(object):
             self._setupPlots()
         matplotlib.rcParams['font.size'] = 4
         wvls = self.wvlBinEdges[0:-1]
-        if self.verbose:
-            print('plotting mask in wavelength sliced images')
         for iWvl, wvl in enumerate(wvls):
             if self.iPlot % self.nPlotsPerPage == 0:
                 self.fig = plt.figure(figsize=(10, 10), dpi=100)
@@ -519,7 +505,7 @@ class FlatCal(object):
         try:
             flatCalFile = tables.open_file(self.flatCalFileName, mode='w')
         except:
-            ##flog.info('Error: Couldn\'t create flat cal file,{} ', self.flatCalFileName)
+            getLogger('flatcalib').info('Error: Couldn\'t create flat cal file,{} ', self.flatCalFileName)
             return
         header = flatCalFile.create_group(flatCalFile.root, 'header', 'Calibration information')
         tables.Array(header, 'beamMap', obj=self.beamImage)
@@ -557,9 +543,7 @@ class FlatCal(object):
                 entry.append()
         flatCalFile.flush()
         flatCalFile.close()
-        if self.verbose:
-            print('wrote to', self.flatCalFileName)
-        ##flog.info("Wrote to {}".format(self.flatCalFileName))
+        getLogger('flatcalib').info("Wrote to {}".format(self.flatCalFileName))
 
     def makeSummary(self):
         summaryPlot(calsolnName=self.flatCalFileName, save_plot=True)
@@ -720,9 +704,6 @@ def summaryPlot(calsolnName, save_plot=False):
         pdf.close()
 
 if __name__ == '__main__':
-    pipelinelog.setup_logging()
-
-    log = getLogger('FlatCal')
 
     timestamp = datetime.utcnow().timestamp()
 
@@ -739,16 +720,15 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if not args.quiet:
-        flog = pipelinelog.setup_logging('FlatCal.logfile',
-                                         os.path.join(os.getcwd(),
-                                                      '{:.0f}.log'.format(timestamp)))
+        mkidcore.corelog.create_log('flatcalib', logfile='flatcalib_{}.log'.format(timestamp), console=False, propagate=False,
+                                    fmt='%(levelname)s %(message)s', level=mkidcore.corelog.INFO)
 
     atexit.register(lambda x:print('Execution took {:.0f}s'.format(time.time()-x)), time.time())
 
     args = parser.parse_args()
 
 
-    flatobject=FlatCal(args.cfgfile, cal_file_name='calsol_{}.h5'.format(timestamp), filelog=flog)
+    flatobject=FlatCal(args.cfgfile, cal_file_name='calsol_{}.h5'.format(timestamp))
 
     if not flatobject.hdfexist():
         flatobject.makeh5()
