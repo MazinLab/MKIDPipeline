@@ -77,33 +77,8 @@ from scipy.stats import poisson
 from mkidpipeline.hdf.darkObsFile import ObsFile
 from mkidpipeline.utils import utils
 from mkidpipeline.utils.plottingTools import plot_array
-import mkidcore.corelog as pipelinelog
-
-log = pipelinelog.getLogger('mkidpipeline.calibration.hotpix')
-
-def setup_logging(configuration, time_stamp=None):
-    """
-    Set up logging for the hot pixel masking module for running from the command line.
-
-    Args:
-        time_stamp: utc time stamp to name the log file
-        configuration: wavelength calibration Configuration object
-    """
-    hotpix_name = 'mkidpipeline.calibration.hotpix'
-    hotpix_log = pipelinelog.getLogger(hotpix_name)
-    if time_stamp is None:
-        time_stamp = int(datetime.utcnow().timestamp())
-    if configuration.verbose:
-        log_format = "%(levelname)s : %(message)s"
-        hotpix_log = pipelinelog.create_log(hotpix_name, console=True, fmt=log_format,
-                                             level="INFO")
-    if configuration.logging:
-        log_directory = os.path.join(configuration.out_directory, 'logs')
-        log_file = os.path.join(log_directory, '{:.0f}.log'.format(time_stamp))
-        log_format = '%(asctime)s : %(funcName)s : %(levelname)s : %(message)s'
-        hotpix_log = pipelinelog.create_log(hotpix_name, logfile=log_file,
-                                             console=False, fmt=log_format, level="DEBUG")
-    return hotpix_log
+from mkidcore.corelog import getLogger
+import mkidcore.corelog
 
 
 def hpm_flux_threshold(image, fwhm=2.5, box_size=5, nsigma_hot=4.0, max_iter=5,
@@ -754,7 +729,8 @@ if __name__ == "__main__":
                         help='Disable logging')
 
     if not args.quiet:
-        setup_logging(config, timestamp)
+        mkidcore.corelog.create_log('badpix', logfile='badpix_{}.log'.format(timestamp), console=False, propagate=False,
+                                    fmt='%(levelname)s %(message)s', level=mkidcore.corelog.INFO)
 
 
 
