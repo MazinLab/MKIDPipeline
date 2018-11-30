@@ -164,14 +164,13 @@ def hpm_flux_threshold(image, fwhm=2.5, box_size=5, nsigma_hot=4.0, max_iter=5,
 
     # In the case that *all* the pixels are dead, return a bad_mask where all the pixels are flagged as DEAD
     if raw_image[np.isfinite(raw_image)].sum() <= 0:
-        log.info('Entire image consists of dead pixels')
+        getLogger(__name__).info('Entire image consists of dead pixels')
         bad_mask=dead_mask*3
         hot_mask=numpy.zeros_like(bad_mask, dtype=bool)
         dead_mask=numpy.ones_like(bad_mask, dtype=bool)
     else:
         for iteration in range(max_iter):
             log.info('Iteration: '.format(iteration))
-            print('Iteration', iteration)
             # Remove all the NaNs in an image and calculate a median filtered image
             # each pixel takes the median of itself and the surrounding box_size x box_size box.
             nan_fixed_image = utils.replaceNaN(raw_image, mode='mean', boxsize=box_size)
@@ -179,7 +178,6 @@ def hpm_flux_threshold(image, fwhm=2.5, box_size=5, nsigma_hot=4.0, max_iter=5,
             median_filter_image = spfilters.median_filter(nan_fixed_image, box_size, mode='mirror')
 
             overall_median = np.median(raw_image[~np.isnan(raw_image)])
-            print('overall_median', overall_median)
             overall_bkgd = np.percentile(raw_image[~np.isnan(raw_image)], bkgd_percentile)
 
             # Estimate the background std. dev.
@@ -195,10 +193,10 @@ def hpm_flux_threshold(image, fwhm=2.5, box_size=5, nsigma_hot=4.0, max_iter=5,
             #        flux > max_ratio*median - background*(max_ratio-1)
             # If the threshold is *lower* than the background, then set it equal to the background level instead
             # (a pixel below the background level is unlikely to be hot!)
-            log.info('overall_median: '.format(overall_median))
-            log.info('overall_bkgd: '.format(overall_bkgd))
-            log.info('overall_bkgd_sigma: '.format(overall_bkgd_sigma))
-            log.info('max_ratio: '.format(max_ratio))
+            getLogger(__name__).info('overall_median: '.format(overall_median))
+            getLogger(__name__).info('overall_bkgd: '.format(overall_bkgd))
+            getLogger(__name__).info('overall_bkgd_sigma: '.format(overall_bkgd_sigma))
+            getLogger(__name__).info('max_ratio: '.format(max_ratio))
             threshold = np.maximum((max_ratio * median_filter_image - (max_ratio - 1.) * overall_bkgd), overall_bkgd)
             difference_image = raw_image - threshold
 
@@ -295,14 +293,13 @@ def hpm_median_movingbox(image, box_size=5, nsigma_hot=4.0, max_iter=5):
 
     # In the case that *all* the pixels are dead, return a bad_mask where all the pixels are flagged as DEAD
     if raw_image[np.isfinite(raw_image)].sum() <= 0:
-        log.info('Entire image consists of dead pixels')
+        getLogger(__name__).info('Entire image consists of dead pixels')
         bad_mask=dead_mask*3
         hot_mask=numpy.zeros_like(bad_mask, dtype=bool)
         dead_mask=numpy.ones_like(bad_mask, dtype=bool)
     else:
         for iteration in range(max_iter):
-            log.info('Iteration: '.format(iteration))
-            print('Iteration', iteration)
+            getLogger(__name__).info('Iteration: '.format(iteration))
             # Remove all the NaNs in an image and calculate a median filtered image
             # each pixel takes the median of itself and the surrounding box_size x box_size box.
             nan_fixed_image = utils.replaceNaN(raw_image, mode='mean', boxsize=box_size)
@@ -398,7 +395,7 @@ def hpm_laplacian(image, box_size=5, nsigma_hot=4.0):
 
     # In the case that *all* the pixels are dead, return a bad_mask where all the pixels are flagged as DEAD
     if np.sum(raw_image[np.where(np.isfinite(raw_image))]) <= 0:
-        log.info('Entire image consists of dead pixels')
+        getLogger(__name__).info('Entire image consists of dead pixels')
         bad_mask=dead_mask*3
         hot_mask=numpy.zeros_like(bad_mask, dtype=bool)
         dead_mask=numpy.ones_like(bad_mask, dtype=bool)
@@ -639,7 +636,7 @@ def find_bad_pixels(obsfile, hpcutmethod, time_step=30, start_time=0, end_time= 
 
     #Generate a stack of bad pixel mask, one for each time step
     for i, each_time in enumerate(step_starts):
-        log.info('Processing time slice: '.format(str(each_time)) + ' - ' + str(each_time + time_step) + 's')
+        getLogger(__name__).info('Processing time slice: '.format(str(each_time)) + ' - ' + str(each_time + time_step) + 's')
         raw_image_dict = obsfile.getPixelCountImage(firstSec=each_time, integrationTime=time_step, applyWeight=applyWeight,
                                                     applyTPFWeight=applyTPFWeight, scaleByEffInt=scaleByEffInt)
         bad_pixel_solution = hpcutmethod(image = raw_image_dict['image'], *hpcutargs, **hpcutkwargs)
