@@ -86,13 +86,13 @@ class FlatCal(object):
                                  "Are you sure you want to save plots?", yes_or_no=True)
             if answer is False:
                 self.save_plots = False
-                getLogger('flatcalib').info("Setting save_plots parameter to FALSE")
+                getLogger(__name__).info("Setting save_plots parameter to FALSE")
         self.timeSpacingCut = None
 
         self.checktypes()
         self.checksections()
         self.checktypes()
-        getLogger('flatcalib').info("Computing Factors for FlatCal")
+        getLogger(__name__).info("Computing Factors for FlatCal")
 
     def checksections(self):
         """
@@ -233,7 +233,7 @@ class FlatCal(object):
             self.frames.append(frame)
             self.spectralCubes.append(cube)
             self.cubeEffIntTimes.append(effIntTime3d)
-            getLogger('flatcalib').info('Loaded Flat Spectra for seconds {} to {}'.format(int(firstSec), int(firstSec) + int(self.intTime)))
+            getLogger(__name__).info('Loaded Flat Spectra for seconds {} to {}'.format(int(firstSec), int(firstSec) + int(self.intTime)))
         self.obs.file.close()
         self.spectralCubes = np.array(self.spectralCubes)
         self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
@@ -328,12 +328,12 @@ class FlatCal(object):
         self.writeWeights()
         if self.save_plots:
             self.plotWeightsWvlSlices()
-            getLogger('flatcalib').info('Plotted Weights by Wvl Slices at WvlSlices_{}'.format(timestamp))
+            getLogger(__name__).info('Plotted Weights by Wvl Slices at WvlSlices_{}'.format(timestamp))
             self.plotWeightsByPixelWvlCompare()
-            getLogger('flatcalib').info('Plotted Weights by Pixel against the Wavelength Solution at WavelengthCompare_{}'.format(timestamp))
+            getLogger(__name__).info('Plotted Weights by Pixel against the Wavelength Solution at WavelengthCompare_{}'.format(timestamp))
         if self.summary_plot:
             self.makeSummary()
-            getLogger('flatcalib').info('Made Summary Plot')
+            getLogger(__name__).info('Made Summary Plot')
 
     def makeh5(self):
 
@@ -342,11 +342,11 @@ class FlatCal(object):
                                                      beamfile=self.beamDir, outdir=self.h5directory,
                                                      starttime=self.startTime, inttime=self.expTime, x=self.xpix,
                                                      y=self.ypix, writeto=flatpath)
-        getLogger('flatcalib').info('Made h5 file at {}.h5'.format(self.startTime))
+        getLogger(__name__).info('Made h5 file at {}.h5'.format(self.startTime))
 
         bin2hdf.makehdf(b2h_config, maxprocs=1)
         self.h5directory=self.h5directory+str(self.startTime)+'.h5'
-        getLogger('flatcalib').info('Applied Wavecal {} to {}.h5'.format(self.wvlCalFile, self.startTime))
+        getLogger(__name__).info('Applied Wavecal {} to {}.h5'.format(self.wvlCalFile, self.startTime))
         obsfile = ObsFile(self.h5directory, mode='write')
         ObsFile.applyWaveCal(obsfile, self.wvlCalFile)
 
@@ -505,7 +505,7 @@ class FlatCal(object):
         try:
             flatCalFile = tables.open_file(self.flatCalFileName, mode='w')
         except:
-            getLogger('flatcalib').info('Error: Couldn\'t create flat cal file,{} ', self.flatCalFileName)
+            getLogger(__name__).info('Error: Couldn\'t create flat cal file,{} ', self.flatCalFileName)
             return
         header = flatCalFile.create_group(flatCalFile.root, 'header', 'Calibration information')
         tables.Array(header, 'beamMap', obj=self.beamImage)
@@ -543,7 +543,7 @@ class FlatCal(object):
                 entry.append()
         flatCalFile.flush()
         flatCalFile.close()
-        getLogger('flatcalib').info("Wrote to {}".format(self.flatCalFileName))
+        getLogger(__name__).info("Wrote to {}".format(self.flatCalFileName))
 
     def makeSummary(self):
         summaryPlot(calsolnName=self.flatCalFileName, save_plot=True)
