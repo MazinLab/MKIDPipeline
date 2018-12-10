@@ -31,8 +31,7 @@ Detect Cosmic rays and attach flag/correct
 
 Detect Hot Pixels and attach flag
 Detect Cold pixels and attach flag
-
-find_bad_pixels
+badpix.find_bad_pixels
 
 Perform spectrophotometric calibration
 
