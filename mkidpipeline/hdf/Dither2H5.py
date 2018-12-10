@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+#TODO TDF. No unique functionality.
+
 """
 Created on Tue Jan  9 09:45:42 2018
 
@@ -57,6 +59,12 @@ print('Data collection started on ' + value.strftime('%Y-%m-%d %H:%M:%S'))
 
 wd = os.getcwd()
 for i in range(nPos):
-    print( 'Position ' + str(i) + '/'  + str(nPos) + ': ' + str(int(startTimes[i])+bufferTime) + ' to ' + str(int(stopTimes[i])-bufferTime) )
-    b2h_config=bin2hdf.Bin2HdfConfig(datadir=binPath, beamfile=beamFile, outdir=outPath, starttime=(int(startTimes[i])+bufferTime), inttime=((int(stopTimes[i])-bufferTime) - (int(startTimes[i])+bufferTime)), x=XPIX, y=YPIX, writeto=None)
+    print( 'Position ' + str(i) + '/'  + str(nPos) + ': ' +
+           str(int(startTimes[i])+bufferTime) + ' to ' +
+           str(int(stopTimes[i])-bufferTime) )
+    b2h_config=bin2hdf.Bin2HdfConfig(datadir=binPath, beamfile=beamFile, outdir=outPath,
+                                     starttime=(int(startTimes[i])+bufferTime),
+                                     inttime=((int(stopTimes[i])-bufferTime) -
+                                              (int(startTimes[i])+bufferTime)),
+                                     x=XPIX, y=YPIX, writeto=None)
     bin2hdf.makehdf(b2h_config, maxprocs=1)

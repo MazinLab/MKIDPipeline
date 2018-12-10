@@ -22,7 +22,7 @@ from mpl_toolkits.axes_grid1 import axes_size, make_axes_locatable
 
 from mkidpipeline.hdf import bin2hdf
 import mkidcore.corelog as pipelinelog
-from mkidpipeline.hdf.darkObsFile import ObsFile
+from mkidpipeline.hdf.photontable import ObsFile
 import mkidpipeline.calibration.wavecal_models as wm
 
 

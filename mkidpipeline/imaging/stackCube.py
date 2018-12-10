@@ -19,7 +19,7 @@ import glob
 import sys
 
 import mkidpipeline.utils.irUtils as irUtils
-from mkidpipeline.hdf.darkObsFile import ObsFile as darkObsFile
+from mkidpipeline.hdf.photontable import ObsFile as darkObsFile
 from mkidpipeline.utils.FileName import FileName
 # from matplotlib.backends.backend_qt4agg import NavigationToolbar2QTAgg as NavigationToolbar
 # import mpfit

@@ -23,7 +23,7 @@ import sys,os
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import pyqtSignal
-from mkidpipeline.hdf.darkObsFile import ObsFile
+from mkidpipeline.hdf.photontable import ObsFile
 from scipy.optimize import curve_fit
 import os.path
 from mkidpipeline.utils import pdfs

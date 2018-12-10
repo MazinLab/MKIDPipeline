@@ -18,7 +18,6 @@ import ast
 import atexit
 import os
 import time
-import warnings
 from configparser import ConfigParser
 from typing import Any, Union
 from datetime import datetime
@@ -32,7 +31,7 @@ from PyPDF2 import PdfFileMerger, PdfFileReader
 from matplotlib.backends.backend_pdf import PdfPages
 from mkidpipeline.calibration import wavecal
 from mkidcore.headers  import FlatCalSoln_Description
-from mkidpipeline.hdf.darkObsFile import ObsFile
+from mkidpipeline.hdf.photontable import ObsFile
 from mkidcore.corelog import getLogger
 import mkidcore.corelog
 from mkidpipeline.hdf import bin2hdf
