@@ -74,7 +74,7 @@ import scipy.ndimage.filters as spfilters
 from mkidpipeline.speckle.binned_rician import *
 from scipy.stats import poisson
 
-from mkidpipeline.hdf.darkObsFile import ObsFile
+from mkidpipeline.hdf.photontable import ObsFile
 from mkidpipeline.utils import utils
 from mkidpipeline.utils.plottingTools import plot_array
 from mkidcore.corelog import getLogger
@@ -569,12 +569,6 @@ def cps_cut_stack(stack, len_stack, sigma=4, max_cut=2450, cold_mask=False, verb
     bad_mask_stack[:,:,i] = bad_mask
 
     return {'bad_mask_stack': bad_mask_stack, 'stack': stack}
-
-def getanumber2(method, extradiv=3, *args, **kwargs):
-	number=method(*args, **kwargs)
-	number=number/extradiv
-	return(number)
-
 
 def find_bad_pixels(obsfile, hpcutmethod, time_step=30, start_time=0, end_time= -1, **hpcutargs, **hpcutkwargs):
     """

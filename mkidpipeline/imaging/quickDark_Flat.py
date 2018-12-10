@@ -33,7 +33,7 @@ import sys
 
 import numpy as np
 
-import mkidpipeline.hotpix.generatebadpixmask as gbpm
+import mkidpipeline.hotpix.badpix as gbpm
 import mkidpipeline.utils.irUtils as irUtils
 from mkidpipeline.utils.plottingTools import plot_array
 from mkidpipeline.utils.loadStack import loadBINStack, loadIMGStack

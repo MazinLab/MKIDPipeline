@@ -14,7 +14,7 @@ import numpy as np
 from scipy.optimize import minimize
 from statsmodels.base.model import GenericLikelihoodModel
 
-from mkidpipeline.hdf.darkObsFile import ObsFile
+from mkidpipeline.hdf.photontable import ObsFile
 from mkidpipeline.speckle.genphotonlist_IcIsIr import genphotonlist
 
 

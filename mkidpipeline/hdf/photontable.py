@@ -68,9 +68,10 @@ from regions import CirclePixelRegion, PixCoord
 
 from mkidcore.pixelflags import h5FileFlags
 from PyPDF2 import PdfFileMerger, PdfFileReader
+from mkidpipeline.calibration import wavecal
 
 
-class ObsFile:
+class ObsFile(object):
     h = astropy.constants.h.to('eV s').value  #4.135668e-15 #eV s
     c = astropy.constants.c.to('m/s').value   #'2.998e8 #m/s
     nCalCoeffs = 3
@@ -140,11 +141,7 @@ class ObsFile:
         """
         Opens file and loads obs file attributes and beammap
         """
-        if self.mode=='read':
-            mode = 'r'
-        elif self.mode=='write':
-            mode = 'a'
-            
+        mode = 'a' if self.mode=='write' else 'r'
             
         self.fileName = os.path.basename(fileName)
         self.fullFileName = fileName
@@ -166,7 +163,9 @@ class ObsFile:
         self.info = self.header[0] #header is a table with one row
 
         # get important cal params
-        self.defaultWvlBins = ObsFile.makeWvlBins(self.getFromHeader('energyBinWidth'), self.getFromHeader('wvlBinStart'), self.getFromHeader('wvlBinEnd'))
+        self.defaultWvlBins = ObsFile.makeWvlBins(self.getFromHeader('energyBinWidth'),
+                                                  self.getFromHeader('wvlBinStart'),
+                                                  self.getFromHeader('wvlBinEnd'))
         self.ticksPerSec = int(1.0 / self.tickDuration)
         self.intervalAll = interval[0.0, (1.0 / self.tickDuration) - 1]
 
@@ -802,26 +801,18 @@ class ObsFile:
         badpixmask = self.create_group(self.root, 'badpixmap', 'Bad Pixel Map')
         tables.Array(badpixmask, 'badpixmap', obj=bad_pixel_mask,
                      title='Bad Pixel Mask')
-
         self.flush()
         self.close()
-
-    def loadBestWvlCalFile(self,master=True):
-        """
-        Searchs the waveCalSolnFiles directory tree for the best wavecal to apply to this obsfile.
-        if master==True then it first looks for a master wavecal solution
-        """
-        raise NotImplementedError
 
     def applyWaveCal(self, file_name):
         """
         loads the wavelength cal coefficients from a given file and applies them to the
         wavelengths table for each pixel. ObsFile must be loaded in write mode.
         """
-        from mkidpipeline.calibration import wavecal
         # check file_name and status of obsFile
-        assert not self.info['isWvlCalibrated'], \
-            "the data is already wavelength calibrated"
+        if self.info['isWvlCalibrated']:
+            getLogger(__name__).info('Data already calibrated using {}'.format(self.info['wvlCalFile']))
+            return
         solution = wavecal.Solution(file_name)
         self.photonTable.autoindex = False # Don't reindex every time we change column
         # apply waveCal
@@ -1077,12 +1068,9 @@ class ObsFile:
                 weightUncertainties=np.array(weightUncertainties)
                 weightUncertainties=np.append((headsweight,weightUncertainties), tailsweight)
 
-                weightfxncoeffs10=np.polyfit(bins,weights,10)
-                weightfxn10=np.poly1d(weightfxncoeffs10)
-
-                weightArr=weightfxn10(phases)
-                weightArr[np.where(phases < minwavelength)]=0.0
-                weightArr[np.where(phases > maxwavelength)]=0.0
+                weightArr=np.poly1d(np.polyfit(bins,weights,10))(phases)
+                weightArr[phases < minwavelength]=0.0
+                weightArr[phases > maxwavelength]=0.0
                 self.applySpecWeight(resID=resID, weightArr=weightArr)
 
                 if save_plots:

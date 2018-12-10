@@ -1,5 +1,5 @@
-def ask_for( key ):
-    s = input( "readDict: enter value for '%s': " % key )
+def ask_for(key):
+    s = input("ReadDict: enter value for '%s': " % key)
     try:
         val = eval(s)
     except NameError:
@@ -7,28 +7,29 @@ def ask_for( key ):
         val = s
     return val
 
-class readDict( dict ):
 
-    def __init__( self, ask = False):
+class readDict(dict):
+
+    def __init__(self, ask=False):
         """
         @param ask if the dict doesn't have an entry for a key, ask for the associated value and assign
         """
         dict.__init__(self)
         self.ask = ask
 
-    def __getitem__( self, key ):
+    def __getitem__(self, key):
         if key not in self:
             if self.ask:
-                print("readDict: parameter '%s' not found" % key)
-                val = ask_for( key )
-                print("readDict: setting '%s' = %s" % (key,repr(val)))
-                dict.__setitem__( self, key, val )
+                print("ReadDict: parameter '%s' not found" % key)
+                val = ask_for(key)
+                print("ReadDict: setting '%s' = %s" % (key, repr(val)))
+                dict.__setitem__(self, key, val)
             else:
                 return None
-        return dict.__getitem__( self, key )
+        return dict.__getitem__(self, key)
 
-    def read_from_file( self, filename ):
-        f = open( filename )
+    def read_from_file(self, filename):
+        f = open(filename)
         old = ''
         for line in f:
             line = line.strip()
@@ -38,24 +39,24 @@ class readDict( dict ):
             line = s[0]
             s = line.split('\\')
             if len(s) > 1:
-                #old = string.join([old, s[0]]) string.join depricated in p3 - replace
+                # old = string.join([old, s[0]]) string.join depricated in p3 - replace
                 old.join(s[0])
                 continue
             else:
-                #line = string.join([old, s[0]])
+                # line = string.join([old, s[0]])
                 old = ''
             for i in range(len(line)):
-                if line[i]!=' ':
+                if line[i] != ' ':
                     line = line[i:]
                     break
-            exec(line)
+            exec (line)
             s = line.split('=')
             if len(s) != 2:
                 print("Error parsing line:")
                 print(line)
                 continue
             key = s[0].strip()
-            val = eval(s[1].strip()) # XXX:make safer
+            val = eval(s[1].strip())  # XXX:make safer
             self[key] = val
         f.close()
 
