@@ -67,8 +67,12 @@ from matplotlib.backends.backend_pdf import PdfPages
 from regions import CirclePixelRegion, PixCoord
 
 from mkidcore.pixelflags import h5FileFlags
+import mkidcore.pixelflags as pixelfalgs
 from PyPDF2 import PdfFileMerger, PdfFileReader
 from mkidpipeline.calibration import wavecal
+
+
+TBRERROR = RuntimeError('Function needs to be reviewed')
 
 
 class ObsFile(object):
@@ -135,7 +139,6 @@ class ObsFile(object):
             self.hotPixFile.close()
         except:
             pass
-
 
     def loadFile(self, fileName):
         """
@@ -310,8 +313,6 @@ class ObsFile(object):
 
         return photonLists
 
-
-
     def getPixelCount(self, *args, applyWeight=True, applyTPFWeight=True, applyTimeMask=False, **kwargs):
         """
         Returns the number of photons received in a single pixel from firstSec to firstSec + integrationTime
@@ -409,7 +410,7 @@ class ObsFile(object):
 
 
     def getPixelCountImage(self, firstSec=0, integrationTime= -1, wvlStart=None,wvlStop=None,
-                                 applyWeight=True, applyTPFWeight=True, applyTimeMask=False, 
+                                 applyWeight=True, applyTPFWeight=True,
                                  scaleByEffInt=False, flagToUse=0):
         """
         Returns an image of pixel counts over the entire array between firstSec and firstSec + integrationTime. Can specify calibration weights to apply as
@@ -453,21 +454,9 @@ class ObsFile(object):
         else:
             totInt = integrationTime
         effIntTimes = np.zeros((self.nXPix, self.nYPix), dtype=np.float64)  #default is zero for bad pixel
-        #effIntTimes.fill(np.nan)   #Just in case an element doesn't get filled for some reason.
         countImage = np.zeros((self.nXPix, self.nYPix), dtype=np.float64)
         countImage.fill(np.nan)     #default count value is np.nan if it's a bad pixel
-        #rawCounts.fill(np.nan)   #Just in case an element doesn't get filled for some reason.
-        
-        #if integrationTime==-1:
-        #    integrationTime = self.getFromHeader('expTime')-firstSec
-        #startTs = firstSec*1.e6
-        #endTs = startTs + integrationTime*1.e6
-        #if wvlRange is None:
-        #    photonList = self.photonTable.read_where('((Time >= startTs) & (Time < endTs))')
-        #else:
-        #    startWvl = wvlRange[0]
-        #    endWvl = wvlRange[1]
-        #    photonList = self.photonTable.read_where('(Wavelength >= startWvl) & (Wavelength < endWvl) & (Time >= startTs) & (Time < endTs)')
+
         startTime = int(firstSec*self.ticksPerSec) #convert to us
         query='(Time >= startTime)'
         if integrationTime!=-1:
@@ -486,7 +475,7 @@ class ObsFile(object):
         photonList = self.photonTable.read_where(query)
 
         resIDDiffs = np.diff(photonList['ResID'])
-        if(np.any(resIDDiffs<0)):
+        if np.any(resIDDiffs < 0):
             warnings.warn('Photon list not sorted by ResID! This could take a while...')
             photonList = np.sort(photonList, order='ResID', kind='mergsort') #mergesort is stable, so time order will be preserved
             resIDDiffs = np.diff(photonList['ResID'])
@@ -499,11 +488,11 @@ class ObsFile(object):
         for xCoord in range(self.nXPix): 
             for yCoord in range(self.nYPix): 
                 flag = self.beamFlagImage[xCoord, yCoord]
-                if(self.beamImage[xCoord, yCoord]!=self.noResIDFlag and (flag|flagToUse)==flagToUse):
+                if self.beamImage[xCoord, yCoord]!=self.noResIDFlag and (flag | flagToUse)==flagToUse:
                     effIntTimes[xCoord, yCoord] = totInt
                     countImage[xCoord, yCoord] = 0
                     resIDInd = np.where(resIDList==self.beamImage[xCoord, yCoord])[0]
-                    if(np.shape(resIDInd)[0]>0):
+                    if np.shape(resIDInd)[0]>0:
                         resIDInd = resIDInd[0]
                         if applyWeight==False and applyTPFWeight==False:
                             countImage[xCoord, yCoord] = resIDBoundaryInds[resIDInd+1] - resIDBoundaryInds[resIDInd]
@@ -514,23 +503,11 @@ class ObsFile(object):
                             if applyTPFWeight:
                                 weights *= photonList['NoiseWeight'][resIDBoundaryInds[resIDInd]:resIDBoundaryInds[resIDInd+1]] 
                             countImage[xCoord, yCoord] = np.sum(weights)
-
-        #for i,resID in enumerate(resIDList):
-        #    coords = np.where(self.beamFlagImage==resID)
-        #    xCoord = coords[0][0]
-        #    yCoord = coords[1][0]
-        #    flag = self.beamFlagImage[coords]
-        #    if (flag|flagToUse)==flag:
-        #        if applyWeight==False and applyTPFWeight==False:
-                    
                 
         if scaleByEffInt:
             countImage *= (totInt / effIntTimes)
 
-        #if getEffInt is True:
-        return{'image':countImage, 'effIntTimes':effIntTimes}
-        #else:
-        #    return secImg
+        return {'image':countImage, 'effIntTimes':effIntTimes}
 
     def getCircularAperturePhotonList(self, centerXCoord, centerYCoord, radius, 
                                       firstSec=0, integrationTime=-1, wvlStart=None,
@@ -683,7 +660,7 @@ class ObsFile(object):
         emptyPhotonList = self.photonTable.read_where('Time<0')
         
         resIDDiffs = np.diff(masterPhotonList['ResID'])
-        if(np.any(resIDDiffs<0)):
+        if np.any(resIDDiffs < 0):
             warnings.warn('Photon list not sorted by ResID! This could take a while...')
             masterPhotonList = np.sort(masterPhotonList, order='ResID', kind='mergsort') #mergesort is stable, so time order will be preserved
             resIDDiffs = np.diff(masterPhotonList['ResID'])
@@ -698,7 +675,7 @@ class ObsFile(object):
                 resID = self.beamImage[xCoord, yCoord]
                 flag = self.beamFlagImage[xCoord, yCoord]
                 resIDInd = np.where(resIDList==resID)[0]
-                if(np.shape(resIDInd)[0]>0 and (flag|flagToUse)==flagToUse):
+                if np.shape(resIDInd)[0]>0 and (flag | flagToUse)==flagToUse:
                     resIDInd = resIDInd[0]
                     photonList = masterPhotonList[resIDBoundaryInds[resIDInd]:resIDBoundaryInds[resIDInd+1]]
                 else:
@@ -866,7 +843,7 @@ class ObsFile(object):
         """
         # first special case:  inter masks out everything so return zero-length
         # numpy arrays
-        if (inter == self.intervalAll):
+        if inter == self.intervalAll:
             filteredTimestamps = np.arange(0)
             otherLists = [np.arange(0) for list in otherListsToFilter]
         else:
@@ -917,7 +894,6 @@ class ObsFile(object):
         self.hotPixIsApplied = True
         if len(reasons)>0:
             self.hotPixTimeMask.set_mask(reasons)
-            #self.hotPixTimeMask.mask = [self.hotPixTimeMask.reasonEnum[reason] for reason in reasons]
 
     def updateWavelengths(self, xCoord, yCoord, wvlCalArr):
         """
@@ -933,6 +909,7 @@ class ObsFile(object):
             Array of calibrated wavelengths. Replaces "Wavelength" column of this pixel's
             photon list.
         """
+        raise TBRERROR
         resID = self.beamImage[xCoord][yCoord]
         if self.mode!='write':
             raise Exception("Must open file in write mode to do this!")
@@ -1010,7 +987,7 @@ class ObsFile(object):
         """
         self.__applyColWeight(resID, weightArr, 'NoiseWeight')
 
-    def applyFlatCal(self, calsolFile,save_plots=False):
+    def applyFlatCal(self, calsolFile, save_plots=False):
         """
         Applies a flat calibration to the "SpecWeight" column of a single pixel.
 
@@ -1123,6 +1100,15 @@ class ObsFile(object):
         plt.close('all')
 
         self.modifyHeaderEntry(headerTitle='isSpecCalibrated', headerValue=True)
+
+    def flag(self, flag, xCoord=slice(None), yCoord=slice(None)):
+        """ Same as """
+        flag = np.asarray(flag)
+        pixelflags.valid(flag, error=True)
+        if not np.isscalar(flag) and self.beamFlagImage[xCoord, yCoord].shape != flag.shape:
+            raise RuntimeError('flag must be scalar or match the desired region selected by x & y coordinates')
+        self.beamFlagImage[xCoord, yCoord] |= flag
+        self.beamFlagImage.flush()
 
     def applyFlag(self, xCoord, yCoord, flag):
         """
