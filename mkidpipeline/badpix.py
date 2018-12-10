@@ -79,6 +79,7 @@ from mkidpipeline.utils import utils
 from mkidpipeline.utils.plottingTools import plot_array
 from mkidcore.corelog import getLogger
 import mkidcore.corelog
+import mkidcore.pixelflags as pixelflags
 
 
 def hpm_flux_threshold(image, fwhm=2.5, box_size=5, nsigma_hot=4.0, max_iter=5,
@@ -498,14 +499,14 @@ def cps_cut_img (image, sigma=5, max_cut=2450, cold_mask=False):
     #second round of masking, flag where cps > mean+sigma*std as hot
     with warnings.catch_warnings():
         # nan values will give an unnecessary RuntimeWarning
-        warnings.simplefilter("ignore", category=RuntimeWarning)
+        #warnings.simplefilter("ignore", category=RuntimeWarning)
         bad_mask[np.where(raw_image>=np.nanmedian(raw_image)+sigma*np.nanstd(raw_image))]=1
 
     #if coldCut is true, also mask cps < mean-sigma*std
     if cold_mask==True:
         with warnings.catch_warnings():
             # nan values will give an unnecessary RuntimeWarning
-            warnings.simplefilter("ignore", category=RuntimeWarning)
+            #warnings.simplefilter("ignore", category=RuntimeWarning)
             bad_mask[np.where(raw_image<=np.nanmedian(raw_image)-sigma*np.nanstd(raw_image))]=1
 
     return {'bad_mask': bad_mask, 'image': raw_image}
@@ -556,21 +557,22 @@ def cps_cut_stack(stack, len_stack, sigma=4, max_cut=2450, cold_mask=False, verb
         #second round of masking, flag where cps > mean+sigma*std as hot
         with warnings.catch_warnings():
             # nan values will give an unnecessary RuntimeWarning
-            warnings.simplefilter("ignore", category=RuntimeWarning)
+            #warnings.simplefilter("ignore", category=RuntimeWarning)
             bad_mask[np.where(raw_image>=np.nanmean(raw_image)+sigma*np.nanstd(raw_image))]=1
 
         #if coldCut is true, also mask cps < mean-sigma*std
         if cold_mask==True:
             with warnings.catch_warnings():
                 # nan values will give an unnecessary RuntimeWarning
-                warnings.simplefilter("ignore", category=RuntimeWarning)
+                #warnings.simplefilter("ignore", category=RuntimeWarning)
                 bad_mask[np.where(raw_image<=np.nanmean(raw_image)-sigma*np.nanstd(raw_image))]=1
 
     bad_mask_stack[:,:,i] = bad_mask
 
     return {'bad_mask_stack': bad_mask_stack, 'stack': stack}
 
-def find_bad_pixels(obsfile, hpcutmethod, time_step=30, start_time=0, end_time= -1, **hpcutargs, **hpcutkwargs):
+
+def find_bad_pixels(obsfile, method, time_step=30, start_time=0, end_time=np.inf, *cutargs, **cutkwargs):
     """
     This routine is the main code entry point of the bad pixel masking code.
     Takes an obs. file as input and writes a 'bad pixel table' to that h5 file where each entry is an indicator of
@@ -602,20 +604,10 @@ def find_bad_pixels(obsfile, hpcutmethod, time_step=30, start_time=0, end_time= 
             2 = Cold Pixel
             3 = Dead Pixel
     """
-    #A few defaults that will be used in the absence of parameter file or arguments provided by the caller.
-    if time_step is None: time_step = 30
-    if start_time is None: start_time = 0
-    if end_time is None: pass
-
     #Some arguments necessary to be passed into getPixelCountImage
-    if self.info['isSpecCalibrated']:  applyWeight = True
-    else:  applyWeight = False
-    if method==cps_cut_img: scaleByEffInt = True
-    else:  scaleByEffInt = False
-    applyTPFWeight=False #Change once we write the noise calibration
+    scaleByEffInt = method == cps_cut_img
 
-    exp_time = obsfile.getFromHeader('exptime')
-    if end_time < 0: end_time = exp_time
+    end_time = min(end_time, obsfile.getFromHeader('exptime'))
     step_starts = np.arange(start_time, end_time, time_step)  # Start time for each step (in seconds).
     step_ends = step_starts + time_step  # End time for each step
     nsteps = len(step_starts)
@@ -625,26 +617,20 @@ def find_bad_pixels(obsfile, hpcutmethod, time_step=30, start_time=0, end_time= 
     assert (np.all((step_starts >= start_time) & (step_ends <= end_time)))
 
     # Initialise stack of masks, one for each time step
-    hot_masks = np.zeros([obsfile.xpix, obsfile.ypix, nsteps], dtype=np.int8)
-    dead_masks = np.zeros([obsfile.xpix, obsfile.ypix, nsteps], dtype=np.int8)
+    hot_masks = np.zeros([obsfile.xpix, obsfile.ypix, nsteps], dtype=bool)
+    dead_masks = np.zeros([obsfile.xpix, obsfile.ypix, nsteps], dtype=bool)
 
     #Generate a stack of bad pixel mask, one for each time step
     for i, each_time in enumerate(step_starts):
-        getLogger(__name__).info('Processing time slice: '.format(str(each_time)) + ' - ' + str(each_time + time_step) + 's')
-        raw_image_dict = obsfile.getPixelCountImage(firstSec=each_time, integrationTime=time_step, applyWeight=applyWeight,
-                                                    applyTPFWeight=applyTPFWeight, scaleByEffInt=scaleByEffInt)
-        bad_pixel_solution = hpcutmethod(image = raw_image_dict['image'], *hpcutargs, **hpcutkwargs)
-        dead_masks[:,:,i] = bad_pixel_solution['dead_mask']
+        getLogger(__name__).info('Processing time slice {} - {} s'.format(each_time, each_time + time_step))
+        raw_image_dict = obsfile.getPixelCountImage(firstSec=each_time, integrationTime=time_step,
+                                                    scaleByEffInt=scaleByEffInt)
+        bad_pixel_solution = method(image = raw_image_dict['image'], *cutargs, **cutkwargs)
+        dead_masks[:, :, i] = bad_pixel_solution['dead_mask']
         hot_masks[:, :, i] = bad_pixel_solution['hot_mask']
 
-    #Combine the bad pixel masks into a master mask
-    dead_pixel_mask = (np.sum(dead_masks, axis=-1)/nsteps)*3
-    hot_pixel_mask = np.sum(hot_masks, axis=-1)/nsteps
-    bad_pixel_mask=dead_pixel_mask + hot_pixel_mask
-
-    #Write it all out to the obs file
-
-    obsfile.write_bad_pixels(obsfile, bad_pixel_mask)
+    #Combine the bad pixel masks into a master mask and write it all out to the obs file
+    obsfile.flag(dead_masks.any(axis=-1) * pixelflags.DEADPIXEL + hot_masks.any(axis=-1) * pixelflags.DEADPIXEL)
 
 
 def save_mask_array(mask= None, out_directory= None):

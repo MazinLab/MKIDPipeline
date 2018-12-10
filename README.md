@@ -34,6 +34,11 @@ must have XXX TODO so that the pipeline can determine the appropriate calibratio
 
 
 #### Overall Notes
+    inputs:
+        dithered: True|False
+        pos1: (start, stop)
+        pos2: (start, stop)
+        pos3: (start, stop)
     paths:
         data: - the raw data TLD, recursion will look thrug
         database: - a processing cache directory, calibrations, configs, etc will be retrieved/stored here
