@@ -31,7 +31,7 @@ Detect Cosmic rays and attach flag/correct
 
 Detect Hot Pixels and attach flag
 Detect Cold pixels and attach flag
-badpix.find_bad_pixels
+badpix.find_bad_pixels(obsfile, method)
 
 Perform spectrophotometric calibration
 
@@ -53,6 +53,27 @@ Attach WCS Info (This is a function of the time and beammap)
 """
 
 #TODO we need a way to retrieve templay/dashboard yml configs that were used based on timestamp
+#Todo we need a way to autofetch all the parameters for stps of the pipeline (or atleast standardize)
 
+config = 'pipe.yml'
+cfg = mkidpipeline.config.load(config)
 
+#fetch flat & wave cal for each block of data
 
+#fetch h5 containing the blocks of data
+
+table = bin2hdf.buildtable(timeslices)
+wavecals = calibration.wavecal.fetch(timeslices)
+
+#noise.cal(table)
+
+flatcals = calibration.flatcal.fetch(timeslices)
+
+table.applyWaveCal(wavecals)
+table.applyFlatCal(wavecals)
+
+#cosmic.flag(table)
+
+badpix.find_bad_pixels(table, method)
+
+#spectralcal.do(table)
