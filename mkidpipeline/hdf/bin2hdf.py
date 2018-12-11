@@ -10,6 +10,7 @@ from multiprocessing.pool import Pool
 from mkidcore.headers import ObsHeader
 from mkidcore.corelog import getLogger
 from mkidcore.config import yaml, yaml_object
+import mkidpipeline.config
 import matplotlib.pyplot as plt
 
 
@@ -268,3 +269,21 @@ class Bin2HdfConfig(object):
 
     def load(self):
         raise NotImplementedError
+
+
+def buildtable(timeranges, config=None, ncpu=1, async=False):
+    cfg = mkidpipeline.config.config if config is None else config
+
+    b2h_configs = []
+    for start_t, int_t in timeranges:
+        b2h_configs.append(Bin2HdfConfig(datadir=cfg.paths.data,
+                                         beamfile=cfg.beammap,
+                                         outdir=cfg.paths.output,
+                                         starttime=start_t, inttime=int_t,
+                                         x=cfg.beammap.nrow,
+                                         y=cfg.beammap.ncol))
+    if async:
+        #TODO spawn and return a queue
+    else:
+        return makehdf(b2h_configs, maxprocs=min(ncpu, mp.cpu_count()))
+

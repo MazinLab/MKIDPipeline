@@ -2391,6 +2391,69 @@ class Solution(object):
         plt.colorbar(c, ax=axes, label='wavelength [nm]', aspect=50)
         axes.clear()
 
+def fetch(solution_descriptors, config=None, ncpu=1, async=False, force_h5=False):
+    cfg = mkidpipeline.config.config if config is None else config
+
+    for sd in solution_descriptors:
+        sf = os.path.join(cfg.paths.database, SolutionKey(sd).filename)
+        if os.path.exists(sf):
+            #Load solution
+        else:
+            #add to pot to compute
+
+    #Spawn and compute alll necessary solutions
+
+    # x_pixels = #TODO move to beammap
+    # y_pixels = #TODO move to beammap
+    # bin_directory = cfg.paths.data
+    # start_times = [1530100392, 1530100506, 1530100622, 1530100736, 1530100850]
+    # exposure_times = [100, 100, 100, 100, 100]
+    # beam_map_path = config.beammap
+    # h5_directory = config.paths.out
+    # # file names in the same order as the wavelengths
+    # # (list of strings, use None if making the h5 files directly from the bin files)
+    # h5_file_names = None
+    # # wavelengths in nanometers (list of numbers)
+    # wavelengths = [850, 950, 1100, 1250, 1375]  #
+    #
+    # [Fit]
+    # histogram_model_names = ['GaussianAndExponential']
+    # bin_width = 2
+    # histogram_fit_attempts = 3
+    # calibration_model_names = ['Quadratic', 'Linear']
+    # dt = 500
+    # parallel = #todo number or remaining cpus
+    # [Output]
+    # out_directory = cfg.paths.work
+    # summary_plot = cfg.outputs.wavecalplots.lower() in ('all', 'summary')
+    # templar_configuration_path = cfg.templarconf
+    # verbose = True
+    # logging = True
+
+    uncomputed_solutions=[]
+
+    for each in uncomputed_solutions:
+        cfg_file = ''
+
+        config = Configuration(cfg_file, solution_name=sf)
+
+        if not config.hdf_exist() or force_h5:
+            b2h_configs = []
+            for wave, start_t, int_t in zip(config.wavelengths, config.start_times,
+                                            config.exposure_times):
+                b2h_configs.append(bin2hdf.Bin2HdfConfig(datadir=config.bin_directory,
+                                                         beamfile=config.beam_map_path,
+                                                         outdir=config.h5_directory,
+                                                         starttime=start_t, inttime=int_t,
+                                                         x=config.x_pixels,
+                                                         y=config.y_pixels))
+            bin2hdf.makehdf(b2h_configs, maxprocs=min(ncpu, mp.cpu_count()))
+
+        # run the wavelength calibration
+        Calibrator(config).run(parallel=config.parallel, plot=config.summary_plot,
+                               verbose=config.verbose)
+
+    return
 
 if __name__ == "__main__":
     timestamp = int(datetime.utcnow().timestamp())

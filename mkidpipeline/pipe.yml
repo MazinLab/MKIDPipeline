@@ -1,0 +1,38 @@
+
+inputs:
+    pos1: (0, 100)
+    pos2: (3000, 70)
+    pos3: (4100, 377)
+dithered: False
+badpix:
+  method: median
+beammap:
+  file: the_beammap.bmap
+  nrow: 140
+  ncol: 146
+
+paths:
+    data: /mnt/data0/darknessdata
+    #a processing cache directory, calibrations, configs, etc will be retrieved/stored here
+    database: ./database
+    out: ./
+    #work: (optional) can be used to specify a location for data intensive temp files
+ncpu: 3
+outputs:
+    wavecalplots: all
+    flatcalplots: all
+
+wavecal:
+    pos1:
+      - {laser: 850, time: (2100, 20)}
+      - {laser: 950, time: (2100, 20)}
+      - {laser: 1050, time: (2100, 20)}
+    pos2: pos1
+    pos3:
+      - {laser: 850, time: (2100, 20)}
+      - {laser: 950, time: (2100, 20)}
+      - {laser: 1050, time: (2100, 20)}
+
+flatcal:
+
+templarconf: the_conf.yml
