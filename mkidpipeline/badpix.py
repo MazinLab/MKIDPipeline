@@ -512,7 +512,7 @@ def cps_cut_img (image, sigma=5, max_cut=2450, cold_mask=False):
     return {'bad_mask': bad_mask, 'image': raw_image}
 
 
-def cps_cut_stack(stack, len_stack, sigma=4, max_cut=2450, cold_mask=False, verbose=False):
+def cps_cut_stack(stack, len_stack, sigma=4, max_cut=2450, cold_mask=False):
     """
     Finds the hot and dead pixels in a stack of images
     Same procedure as cps_check_img except this procedure operates on a STACK of images (again, NOT robust!!)
