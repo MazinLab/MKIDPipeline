@@ -1,10 +1,14 @@
-from mkidcore.config import load as _load
+import mkidcore.config
 
 config = None
+
+yaml = mkidcore.config.yaml
 
 
 def load(*args, **kwargs):
     global config
-    c = _load(*args, **kwargs)
+    c = mkidcore.config.load(*args, **kwargs)
     config = c
     return c
+
+

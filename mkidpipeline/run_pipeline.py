@@ -62,6 +62,7 @@ import mkidpipeline.hdf.bin2hdf as bin2hdf
 import mkidpipeline.calibration.wavecal as wavecal
 import mkidpipeline.calibration.flatcal as flatcal
 import mkidpipeline.config
+import mkidpipeline.badpix as badpix
 
 config = 'pipe.yml'
 cfg = mkidpipeline.config.load(config)
@@ -82,8 +83,13 @@ table.applyFlatCal(flatcals)
 
 #cosmic.flag(table)
 
-badpix.find_bad_pixels(table, cfg.badpix.method)
+badpix.find(table, cfg.badpix.method)
 
 #spectralcal.do(table)
 
 imagecube.form(table, wcs=cfg.fitsample.wcs)
+
+filepath = os.path.join(cfg.paths.out, FLATFNAME_TEMPLATE.format(dict(flat.header))
+flat.writeto(filepath)
+
+FLATFNAME_TEMPLATE = os.path.join('{run}','{date}','flat_{timestamp}.h5')
