@@ -1,0 +1,43 @@
+!configdict
+beammap: !bmap
+  file: /mnt/data0/MEC/20180624/finalMap_20180622.txt
+  nrows: 146
+  ncols: 140
+
+paths:
+  # directory to the folder with the bin data (string, value ignored if not making h5 files)
+  data: /mnt/data0/ScienceData/Subaru/20180626/
+  # directory to the folder with the .h5 data (string)
+  out: /mnt/data0/baileyji/scratch/wavecal/
+  database: /foo/bar
+
+wavecal: !configdict
+  # start_times in same order as wavelengths (values ignored if not making h5 files)
+  start_times: [1530100392, 1530100506, 1530100622, 1530100736, 1530100850]
+  # exposure_times in same order as wavelengths (value ignored if not making h5 files)
+  exposure_times: [100, 100, 100, 100, 100]
+  # wavelengths in nanometers (list of numbers)
+  wavelengths: [850, 950, 1100, 1250, 1375]
+  summary_plot: True
+  fit: !configdict
+    # model types from wavecal_models.py to attempt to fit to the phase peak histograms
+    # (list of strings)
+    histogram_model_names: ['GaussianAndExponential']
+    # minimum bin width for the phase histogram. Larger widths will be used for low photon
+    # count pixels (number)
+    bin_width: 2
+    # how many times should the code try to fit each histogram model before giving up
+    histogram_fit_attempts: 3
+    # model types from wavecal_models.py to attempt to fit to the phase-energy relationship
+    # (list of strings)
+    calibration_model_names: ['Quadratic', 'Linear']
+    # ignore photons which arrive this many microseconds from another photon (number)
+    dt: 500
+    # do the fitting using more than one core (True/False)
+    parallel: True
+
+templar:
+  file: "/mnt/data0/MEC/20180626/templarconf.cfg"
+
+
+

@@ -572,7 +572,7 @@ def cps_cut_stack(stack, len_stack, sigma=4, max_cut=2450, cold_mask=False):
     return {'bad_mask_stack': bad_mask_stack, 'stack': stack}
 
 
-def find_bad_pixels(obsfile, method, time_step=30, start_time=0, end_time=np.inf, *cutargs, **cutkwargs):
+def find(obsfile, method, time_step=30, start_time=0, end_time=np.inf, *cutargs, **cutkwargs):
     """
     This routine is the main code entry point of the bad pixel masking code.
     Takes an obs. file as input and writes a 'bad pixel table' to that h5 file where each entry is an indicator of

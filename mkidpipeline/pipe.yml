@@ -3,9 +3,12 @@ inputs:
     pos1: (0, 100)
     pos2: (3000, 70)
     pos3: (4100, 377)
+
 dithered: False
+
 badpix:
   method: median
+
 beammap:
   file: the_beammap.bmap
   nrow: 140
@@ -17,21 +20,40 @@ paths:
     database: ./database
     out: ./
     #work: (optional) can be used to specify a location for data intensive temp files
+
 ncpu: 3
 outputs:
     wavecalplots: all
     flatcalplots: all
 
-wavecal:
+wavecals:
     pos1:
-      - {laser: 850, time: (2100, 20)}
-      - {laser: 950, time: (2100, 20)}
-      - {laser: 1050, time: (2100, 20)}
+      start_times: [1530100392, 1530100506, 1530100622, 1530100736, 1530100850]
+      exposure_times: [100, 100, 100, 100, 100]
+      wavelengths: [850, 950, 1100, 1250, 1375]
+
     pos2: pos1
+    pos4: wavecal_solutionfile.npz
     pos3:
-      - {laser: 850, time: (2100, 20)}
-      - {laser: 950, time: (2100, 20)}
-      - {laser: 1050, time: (2100, 20)}
+      start_times: [1530100392, 1530100506, 1530100622, 1530100736, 1530100850]
+      exposure_times: [100, 100, 100, 100, 100]
+      wavelengths: [850, 950, 1100, 1250, 1375]
+      fit: !configdict
+        # model types from wavecal_models.py to attempt to fit to the phase peak histograms
+        # (list of strings)
+        histogram_model_names: ['GaussianAndExponential']
+        # minimum bin width for the phase histogram. Larger widths will be used for low photon
+        # count pixels (number)
+        bin_width: 2
+        # how many times should the code try to fit each histogram model before giving up
+        histogram_fit_attempts: 3
+        # model types from wavecal_models.py to attempt to fit to the phase-energy relationship
+        # (list of strings)
+        calibration_model_names: ['Quadratic', 'Linear']
+        # ignore photons which arrive this many microseconds from another photon (number)
+        dt: 500
+        # do the fitting using more than one core (True/False)
+        parallel: True
 
 flatcal:
 
