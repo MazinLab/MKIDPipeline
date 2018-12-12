@@ -24,12 +24,13 @@ from mkidpipeline.hdf import bin2hdf
 import mkidcore.corelog as pipelinelog
 from mkidpipeline.hdf.photontable import ObsFile
 import mkidpipeline.calibration.wavecal_models as wm
-
+import mkidpipeline.config
+import mkidcore.config
 
 log = pipelinelog.getLogger('mkidpipeline.calibration.wavecal', setup=False)
 
 
-def setup_logging(configuration, time_stamp=None):
+def setup_logging(tologfile='', toconsole=True, time_stamp=None):
     """
     Set up logging for the wavelength calibration module for running from the command
     line.
@@ -44,14 +45,14 @@ def setup_logging(configuration, time_stamp=None):
     wavecal_models_log = pipelinelog.getLogger(models_name, setup=False)
     if time_stamp is None:
         time_stamp = int(datetime.utcnow().timestamp())
-    if configuration.verbose:
+    if toconsole:
         log_format = "%(levelname)s : %(message)s"
         wavecal_log = pipelinelog.create_log(wavecal_name, console=True, fmt=log_format,
                                              level="INFO")
         wavecal_models_log = pipelinelog.create_log(models_name, console=True,
                                                     fmt=log_format, level="INFO")
-    if configuration.logging:
-        log_directory = os.path.join(configuration.out_directory, 'logs')
+    if tologfile:
+        log_directory = os.path.join(tologfile, 'logs')
         log_file = os.path.join(log_directory, '{:.0f}.log'.format(time_stamp))
         log_format = '%(asctime)s : %(funcName)s : %(levelname)s : %(message)s'
         wavecal_log = pipelinelog.create_log(wavecal_name, logfile=log_file,
@@ -64,227 +65,91 @@ def setup_logging(configuration, time_stamp=None):
 
 class Configuration(object):
     """Configuration class for the wavelength calibration analysis."""
-    def __init__(self, configuration_path, solution_name='solution.npz'):
-        # parse arguments
-        self.solution_name = solution_name
-        self.configuration_path = configuration_path
+    yaml_tag = u'!wavecalconfig'
 
-        assert os.path.isfile(self.configuration_path), \
-            self.configuration_path + " is not a valid configuration file"
+    def __init__(self, summary_plot=True, beammap=None, configfile=None):
+        # parse arguments
+        self.configuration_path = configfile
+
+        self.x_pixels = config.beammap.ncols
+        self.y_pixels = config.beammap.nrows
+        self.beam_map_path = config.beammap.file
+        self.h5_directory = config.paths.out
+        self.out_directory = config.paths.database
+        self.start_times = list(map(int, config.start_times))
+        self.exposure_times = list(map(int, config.exposure_times))
+        self.wavelengths = np.array(config.wavelengths, dtype=float)
+
+        #Things with defaults
+        self.histogram_model_names = list(config.wavecal.fit.histogram_model_names)
+        self.bin_width = float(config.wavecal.fit.bin_width)
+        self.histogram_fit_attempts = int(config.wavecal.fit.histogram_fit_attempts)
+        self.calibration_model_names = list(config.wavecal.fit.calibration_model_names)
+        self.dt = float(config.wavecal.fit.dt)
+        self.parallel = config.wavecal.fit.parallel
+        self.summary_plot = config.wavecal.summary_plot
+
 
         # load in the configuration file
-        self.config = ConfigParser()
-        self.config.read(self.configuration_path)
-
-        # check the configuration file format and load the parameters
-        self.check_sections()
+        config = mkidcore.config.load(self.configuration_path)
 
         # load in the parameters
-        self.x_pixels = ast.literal_eval(self.config['Data']['x_pixels'])
-        self.y_pixels = ast.literal_eval(self.config['Data']['y_pixels'])
-        self.bin_directory = ast.literal_eval(self.config['Data']['bin_directory'])
-        self.start_times = ast.literal_eval(self.config['Data']['start_times'])
-        self.exposure_times = ast.literal_eval(self.config['Data']['exposure_times'])
-        self.beam_map_path = ast.literal_eval(self.config['Data']['beam_map_path'])
-        self.h5_directory = ast.literal_eval(self.config['Data']['h5_directory'])
-        self.h5_file_names = ast.literal_eval(self.config['Data']['h5_file_names'])
-        self.wavelengths = ast.literal_eval(self.config['Data']['wavelengths'])
-        self.histogram_model_names = ast.literal_eval(
-            self.config['Fit']['histogram_model_names'])
-        self.bin_width = ast.literal_eval(self.config['Fit']['bin_width'])
-        self.histogram_fit_attempts = ast.literal_eval(
-            self.config['Fit']['histogram_fit_attempts'])
-        self.calibration_model_names = ast.literal_eval(
-            self.config['Fit']['calibration_model_names'])
-        self.dt = ast.literal_eval(self.config['Fit']['dt'])
-        self.parallel = ast.literal_eval(self.config['Fit']['parallel'])
-        self.out_directory = ast.literal_eval(self.config['Output']['out_directory'])
-        self.summary_plot = ast.literal_eval(self.config['Output']['summary_plot'])
-        self.templar_configuration_path = ast.literal_eval(
-            self.config['Output']['templar_configuration_path'])
-        self.verbose = ast.literal_eval(self.config['Output']['verbose'])
-        self.logging = ast.literal_eval(self.config['Output']['logging'])
+        self.x_pixels = config.beammap.ncols
+        self.y_pixels = config.beammap.nrows
+        self.beam_map_path = config.beammap.file
+        self.h5_directory = config.paths.out
+        self.out_directory = config.paths.database
+        self.start_times = list(map(int, config.start_times))
+        self.exposure_times = list(map(int, config.exposure_times))
+        self.wavelengths = np.array(config.wavelengths, dtype=float)
 
-        # check the parameter formats
-        self.check_parameters()
-        
-        # enforce consistency between h5 and bin file start times
-        self._config_changed = False
-        self.enforce_consistency()
+        #Things with defaults
+        self.histogram_model_names = list(config.wavecal.fit.histogram_model_names)
+        self.bin_width = float(config.wavecal.fit.bin_width)
+        self.histogram_fit_attempts = int(config.wavecal.fit.histogram_fit_attempts)
+        self.calibration_model_names = list(config.wavecal.fit.calibration_model_names)
+        self.dt = float(config.wavecal.fit.dt)
+        self.parallel = config.wavecal.fit.parallel
+        self.summary_plot = config.wavecal.summary_plot
 
-        # write new config file if enforce_consistency() updated any parameters
-        if self._config_changed:
-            while True:
-                if os.path.isfile(self.configuration_path):
-                    directory = os.path.dirname(self.configuration_path)
-                    base_name = "".join(
-                        os.path.basename(self.configuration_path).split(".")[:-1])
-                    suffix = str(os.path.basename(self.configuration_path).split(".")[-1])
-                    self.configuration_path = os.path.join(directory,
-                                                           base_name + "_new." + suffix)
-                else:
-                    break
-            self.write(self.configuration_path)
-
-    def check_sections(self):
-        """Check if all sections and parameters exist in the configuration file."""
-        section = "'{0}' must be a configuration file section"
-        param = "'{0}' must be a parameter in the '{1}' section of the configuration file"
-
-        assert 'Data' in self.config.sections(), section.format('Data')
-        assert 'x_pixels' in self.config['Data'].keys(), \
-            param.format('x_pixels', 'Data')
-        assert 'y_pixels' in self.config['Data'].keys(), \
-            param.format('y_pixels', 'Data')
-        assert 'bin_directory' in self.config['Data'].keys(), \
-            param.format('bin_directory', 'Data')
-        assert 'start_times' in self.config['Data'].keys(), \
-            param.format('start_times', 'Data')
-        assert 'exposure_times' in self.config['Data'].keys(), \
-            param.format('exposure_times', 'Data')
-        assert 'beam_map_path' in self.config['Data'].keys(), \
-            param.format('beam_map_path', 'Data')
-        assert 'h5_directory' in self.config['Data'].keys(), \
-            param.format('h5_directory', 'Data')
-        assert 'h5_file_names' in self.config['Data'].keys(), \
-            param.format('h5_file_names', 'Data')
-        assert 'wavelengths' in self.config['Data'].keys(), \
-            param.format('wavelengths', 'Data')
-
-        assert 'Fit' in self.config.sections(), section.format('Fit')
-        assert 'histogram_model_names' in self.config['Fit'].keys(), \
-            param.format('histogram_model_names', 'Fit')
-        assert 'bin_width' in self.config['Fit'].keys(), \
-            param.format('bin_width', 'Fit')
-        assert 'histogram_fit_attempts' in self.config['Fit'].keys(), \
-            param.format('histogram_fit_attempts', 'Fit')
-        assert 'calibration_model_names' in self.config['Fit'].keys(), \
-            param.format('calibration_model_names', 'Fit')
-        assert 'dt' in self.config['Fit'].keys(), \
-            param.format('dt', 'Fit')
-        assert 'parallel' in self.config['Fit'].keys(), \
-            param.format('parallel', 'Fit')
-
-        assert 'Output' in self.config.sections(), section.format('Output')
-        assert 'out_directory' in self.config['Output'], \
-            param.format('out_directory', 'Output')
-        assert 'summary_plot' in self.config['Output'], \
-            param.format('summary_plot', 'Output')
-        assert 'templar_configuration_path' in self.config['Output'], \
-            param.format('templar_configuration_path', 'Output')
-        assert 'verbose' in self.config['Output'], \
-            param.format('verbose', 'Output')
-        assert 'logging' in self.config['Output'], \
-            param.format('logging', 'Output')
-
-    def check_parameters(self):
-        """Type check configuration file parameters."""
-        assert type(self.x_pixels) is int, "x_pixels parameter must be an integer"
-        assert type(self.y_pixels) is int, "y_pixels parameter must be an integer"
-        assert os.path.isdir(self.bin_directory),\
-            "bin_directory parameter must be a string and a valid directory"
-        message = "start_times parameter must be a list of integers."
-        assert type(self.start_times) is list, message
-        for st in self.start_times:
-            assert type(st) is int, message
-        message = "exposure_times parameter must be a list of integers"
-        assert type(self.exposure_times) is list, message
-        for et in self.exposure_times:
-            assert type(et) is int, message
-        assert os.path.isfile(self.beam_map_path),\
-            "beam_map_path parameter must be a string and a valid path to a file"
-        assert os.path.isdir(self.h5_directory), \
-            "h5_directory parameter must be a string and a valid directory"
-        message = "h5_file_names parameter must be a list of strings or None."
-        assert isinstance(self.h5_file_names, (list, type(None))), message
-        if isinstance(self.h5_file_names, list):
-            for name in self.h5_file_names:
-                assert isinstance(name, str), message
-        message = "wavelengths parameter must be a list of numbers"
-        assert isinstance(self.wavelengths, (list, np.ndarray)), message
-        try:
-            self.wavelengths = np.array([float(wavelength)
-                                         for wavelength in self.wavelengths])
-        except ValueError:
-            raise AssertionError(message)
-        message = ("histogram_model_names parameter must be a list of subclasses of "
-                   "PartialLinearModel and be in wavecal_models.py")
-        assert isinstance(self.histogram_model_names, list), message
         for model in self.histogram_model_names:
-            assert issubclass(getattr(wm, model), wm.PartialLinearModel), message
-        try:
-            self.bin_width = float(self.bin_width)
-        except ValueError:
-            raise AssertionError("bin_width parameter must be an integer or float")
-        assert isinstance(self.histogram_fit_attempts, int), \
-            "histogram_fit_attempts parameter must be an integer"
-        message = ("calibration_model_names parameter must be a list of subclasses of "
-                   "XErrorsModel and be in wavecal_models.py")
-        assert isinstance(self.calibration_model_names, list), message
+            assert issubclass(getattr(wm, model), wm.PartialLinearModel), \
+                   '{} is not a subclass of wavecal_models.PartialLinearModel'.format(model)
+
         for model in self.calibration_model_names:
-            assert issubclass(getattr(wm, model), wm.XErrorsModel), message
-        try:
-            self.dt = float(self.dt)
-        except ValueError:
-            raise AssertionError("dt parameter must be an integer or float")
-        assert type(self.parallel) is bool, "parallel parameter must be a boolean"
-        assert os.path.isdir(self.out_directory), \
-            "out_directory parameter must be a string and a valid directory"
-        assert type(self.summary_plot) is bool, "summary_plot parameter must be a boolean"
-        assert os.path.isfile(self.templar_configuration_path),\
-            "templar_configuration_path parameter must be a string and a valid file path"
-        assert type(self.verbose) is bool, "verbose parameter bust be a boolean"
-        assert type(self.logging) is bool, "logging parameter must be a boolean"
+            assert issubclass(getattr(wm, model), wm.XErrorsModel), \
+                   '{} is not a subclass of wavecal_models.XErrorsModel'.format(model)
+
+        self.templar_configuration_path = config.templar.file
+
+        self._compute_hdf_names()
+        self._sort_wavelengths()
+
+    @classmethod
+    def to_yaml(cls, representer, node):
+        d = node.__dict__.copy()
+        d.pop('config')
+        d['wavelengths'] = [float(x) for x in node.wavelengths]
+        return representer.represent_mapping(cls.yaml_tag, d)
+
+    # @classmethod
+    # def from_yaml(cls, constructor, node):
+    #
+    #
+    #     d = mkidcore.config.extract_from_node('configuration_path', node)
+    #
+    #
+    #     return cls(d['configuration_path'])
 
     def hdf_exist(self):
         """Check if all hdf5 files specified exist."""
-        file_paths = [os.path.join(self.h5_directory, file_)
-                      for file_ in self.h5_file_names]
+        file_paths = [os.path.join(self.h5_directory, file_) for file_ in self.h5_file_names]
         return all(map(os.path.isfile, file_paths))
-
-    def enforce_consistency(self):
-        """Make sure a partially specified configuration is fully defined"""
-        # check to see if h5 files were specified and compute their names otherwise
-        if self.h5_file_names is None:
-            self._config_changed = True
-            self.h5_file_names = self._compute_hdf_names()
-        # check that wavelengths are in ascending order and sort otherwise
-        if (sorted(self.wavelengths) != self.wavelengths).all():
-            self._config_changed = True
-            self._sort_wavelengths()
 
     def write(self, file_):
         """Save the configuration to a file"""
         with open(file_, 'w') as f:
-            f.write('[Data]' + os.linesep +
-                    'x_pixels = {}'.format(self.x_pixels) + os.linesep +
-                    'y_pixels = {}'.format(self.y_pixels) + os.linesep +
-                    'bin_directory = "{}"'.format(self.bin_directory) + os.linesep +
-                    'start_times = {}'.format(self.start_times) + os.linesep +
-                    'exposure_times = {}'.format(self.exposure_times) + os.linesep +
-                    'beam_map_path = "{}"'.format(self.beam_map_path) + os.linesep +
-                    'h5_directory = "{}"'.format(self.h5_directory) + os.linesep +
-                    'h5_file_names = {}'.format(self.h5_file_names) + os.linesep +
-                    'wavelengths = {}'.format(list(self.wavelengths)) + os.linesep +
-                    os.linesep +
-                    '[Fit]' + os.linesep +
-                    'histogram_model_names = {}'.format(self.histogram_model_names) +
-                    os.linesep +
-                    'bin_width = {}'.format(self.bin_width) + os.linesep +
-                    'histogram_fit_attempts = {}'.format(self.histogram_fit_attempts) +
-                    os.linesep +
-                    'calibration_model_names = {}'.format(self.calibration_model_names) +
-                    os.linesep +
-                    'dt = {}'.format(self.dt) + os.linesep +
-                    'parallel = {}'.format(self.parallel) + os.linesep +
-                    os.linesep +
-                    '[Output]' + os.linesep +
-                    'out_directory = "{}"'.format(self.out_directory) + os.linesep +
-                    'summary_plot = {}'.format(self.summary_plot) + os.linesep +
-                    ('templar_configuration_path = "{}"'
-                     .format(self.templar_configuration_path)) + os.linesep +
-                    'verbose = {}'.format(self.verbose) + os.linesep +
-                    'logging = {}'.format(self.logging))
+            mkidcore.config.yaml.dump(self, f)
 
     def _compute_hdf_names(self):
         return ['%d' % st + '.h5' for st in self.start_times]
@@ -309,9 +174,10 @@ class Calibrator(object):
 
     Created by: Nicholas Zobrist, January 2018
     """
-    def __init__(self, configuration):
+    def __init__(self, configuration, solution_name='solution.npz'):
         # save configuration
         self.cfg = configuration
+        self.solution_name = solution_name
 
         # get beam map
         obs_files = []
@@ -329,7 +195,8 @@ class Calibrator(object):
         # initialize fit array
         fit_array = np.empty((self.cfg.x_pixels, self.cfg.y_pixels), dtype=object)
         self.solution = Solution(fit_array=fit_array, configuration=self.cfg,
-                                 beam_map=beam_map, beam_map_flags=beam_map_flags)
+                                 beam_map=beam_map, beam_map_flags=beam_map_flags,
+                                 solution_name=self.solution_name)
         self.progress = None
         self.progress_iteration = None
         self._acquired = 0
@@ -369,7 +236,7 @@ class Calibrator(object):
             if save:
                 self.solution.save()
             if plot:
-                save_name = self.cfg.solution_name.split(".")[0] + ".pdf"
+                save_name = self.solution_name.split(".")[0] + ".pdf"
                 self.solution.plot_summary(save_name=save_name)
         except KeyboardInterrupt:
             log.info("Keyboard shutdown requested ... exiting")
@@ -1122,7 +989,9 @@ class Solution(object):
     """Solution class for the wavelength calibration. Initialize with either the file_name
     argument or both the fit_array and configuration arguments."""
     def __init__(self, file_path=None, fit_array=None, configuration=None, beam_map=None,
-                 beam_map_flags=None):
+                 beam_map_flags=None, solution_name='solution.npz'):
+
+        self.solution_name = solution_name
         # load in solution and configuration objects
         if fit_array is not None and configuration is not None and beam_map is not None:
             self._fit_array = fit_array
@@ -1193,14 +1062,14 @@ class Solution(object):
         """Save the solution to a file whose name is determined by the configuration."""
         # TODO: saving and loading is slow: only save parts needed to recreate solution
         if save_name is None:
-            save_path = os.path.join(self.cfg.out_directory, self.cfg.solution_name)
+            save_path = os.path.join(self.cfg.out_directory, self.solution_name)
         else:
             save_path = os.path.join(self.cfg.out_directory, save_name)
         # make sure the configuration is pickleable if created from __main__
         if self.cfg.__class__.__module__ == "__main__":
             from mkidpipeline.calibration.wavecal import Configuration
             self.cfg = Configuration(self.cfg.configuration_path,
-                                     solution_name=self.cfg.solution_name)
+                                     solution_name=self.solution_name)
 
         log.info("Saving solution to {}".format(save_path))
         np.savez(save_path, fit_array=self._fit_array,
@@ -2191,7 +2060,7 @@ class Solution(object):
         calibration_table = table_title + table_begin + table + table_end
         # set up additional text
         info = (r"\textbf{Solution File Name:} \\" +
-                r"{} \\ \\ \\".format(self.cfg.solution_name))
+                r"{} \\ \\ \\".format(self.solution_name))
         info += r" \begin{tabular}{@{}>{\raggedright}p{1.5in} | p{1.5in}}"
         info += r"\textbf{ObsFile Names:} & \textbf{Wavelengths [nm]:} \\"
         for index, file_name in enumerate(self.cfg.h5_file_names):
@@ -2391,14 +2260,17 @@ class Solution(object):
         plt.colorbar(c, ax=axes, label='wavelength [nm]', aspect=50)
         axes.clear()
 
+
 def fetch(solution_descriptors, config=None, ncpu=1, async=False, force_h5=False):
     cfg = mkidpipeline.config.config if config is None else config
 
     for sd in solution_descriptors:
         sf = os.path.join(cfg.paths.database, SolutionKey(sd).filename)
         if os.path.exists(sf):
+            pass
             #Load solution
         else:
+            pass
             #add to pot to compute
 
     #Spawn and compute alll necessary solutions
@@ -2439,14 +2311,13 @@ def fetch(solution_descriptors, config=None, ncpu=1, async=False, force_h5=False
 
         if not config.hdf_exist() or force_h5:
             b2h_configs = []
-            for wave, start_t, int_t in zip(config.wavelengths, config.start_times,
-                                            config.exposure_times):
+            for wave, start_t, int_t in zip(config.wavelengths, config.start_times, config.exposure_times):
                 b2h_configs.append(bin2hdf.Bin2HdfConfig(datadir=config.bin_directory,
-                                                         beamfile=config.beam_map_path,
-                                                         outdir=config.h5_directory,
+                                                         beamfile=config.beammap.file,
+                                                         outdir=config.paths.out,
                                                          starttime=start_t, inttime=int_t,
-                                                         x=config.x_pixels,
-                                                         y=config.y_pixels))
+                                                         x=config.beammap.ncols,
+                                                         y=config.beammap.nrows))
             bin2hdf.makehdf(b2h_configs, maxprocs=min(ncpu, mp.cpu_count()))
 
         # run the wavelength calibration
@@ -2454,6 +2325,10 @@ def fetch(solution_descriptors, config=None, ncpu=1, async=False, force_h5=False
                                verbose=config.verbose)
 
     return
+
+
+mkidpipeline.config.yaml.register_class(Configuration)
+
 
 if __name__ == "__main__":
     timestamp = int(datetime.utcnow().timestamp())
@@ -2475,16 +2350,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # load the configuration file
-    config = Configuration(args.cfg_file,
-                           solution_name='wavecal_solution_{}.npz'.format(timestamp))
+    config = Configuration(args.cfg_file)
     # set up logging
     if not args.quiet:
-        setup_logging(config, timestamp)
+        setup_logging(tologfile=config.out_directory if config.logging else '',
+                      toconsole=config.verbose, time_stamp=timestamp)
 
     # print execution time on exit
-    atexit.register(lambda x: print('Execution took {:.2f} minutes'
-                                    .format((datetime.utcnow().timestamp() - x) / 60)),
-                    timestamp)
+    atexit.register(lambda: print('Execution took {:.2f} minutes'.format((datetime.utcnow().timestamp() - timestamp) / 60)))
 
     # set up bin2hdf
     if args.n_cpu == 0:
@@ -2506,4 +2379,4 @@ if __name__ == "__main__":
         exit()
     # run the wavelength calibration
     Calibrator(config).run(parallel=config.parallel, plot=config.summary_plot,
-                           verbose=config.verbose)
+                           verbose=config.verbose, solution_name='wavecal_solution_{}.npz'.format(timestamp))
