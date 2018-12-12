@@ -2,17 +2,16 @@ import psutil
 import tempfile
 import subprocess
 import os
-import sys
 import tables
 import time
 import numpy as np
 from multiprocessing.pool import Pool
+import multiprocessing as mp
+import threading
 from mkidcore.headers import ObsHeader
 from mkidcore.corelog import getLogger
 from mkidcore.config import yaml, yaml_object
 import mkidpipeline.config
-import matplotlib.pyplot as plt
-
 
 BIN2HDFCONFIGTEMPLATE = ('{x} {y}\n'
                          '{datadir}\n'
@@ -68,7 +67,6 @@ def makehdf(cfgORcfgs, maxprocs=2, polltime=.1, executable_path=''):
                 except subprocess.TimeoutExpired:
                     pass
             procs = list(filter(lambda p: p.poll() is None, procs))
-
 
     while len(procs):
         #TODO consider replacing with https://gist.github.com/bgreenlee/1402841
@@ -271,7 +269,7 @@ class Bin2HdfConfig(object):
         raise NotImplementedError
 
 
-def buildtable(timeranges, config=None, ncpu=1, async=False):
+def buildtable(timeranges, config=None, ncpu=1, asynchronous=False):
     cfg = mkidpipeline.config.config if config is None else config
 
     b2h_configs = []
@@ -282,8 +280,20 @@ def buildtable(timeranges, config=None, ncpu=1, async=False):
                                          starttime=start_t, inttime=int_t,
                                          x=cfg.beammap.nrow,
                                          y=cfg.beammap.ncol))
-    if async:
-        #TODO spawn and return a queue
+
+    if asynchronous:
+        done = threading.Event()
+
+        def do_work():
+            try:
+                makehdf(b2h_configs, maxprocs=min(ncpu, mp.cpu_count()))
+            except:
+                getLogger(__name__).error(exc_info=True)
+            finally:
+                done.set()
+        t = threading.Thread(target=do_work, name='HDF Generator')
+        t.start()
+        return done
     else:
         return makehdf(b2h_configs, maxprocs=min(ncpu, mp.cpu_count()))
 
