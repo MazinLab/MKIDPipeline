@@ -1,14 +1,13 @@
 import glob
 import math
 import os
-import string
 import sys
 
-import astropy.io.fits as pyfits  # changed from pyfits 20171023
+import astropy.io.fits as pyfits
 import matplotlib.pyplot as plt
 import numpy
 from scipy.constants import *
-from utils import smooth
+from mkidpipeline.utils import smooth
 
 
 class MKIDStd:
@@ -115,14 +114,12 @@ class MKIDStd:
         """
         fname = self.objects[name]['dataFile']
         fullFileName = os.path.join(self.this_dir,"data",fname[0])
-        if (string.count(fullFileName,"fit")):
+        if (fullFileName.count("fit")):
             a = self.loadSdssSpecFits(fullFileName)
         else:
             a = numpy.loadtxt(fullFileName)
-            
         len = int(self.objects[name]['window_len'][0])
         if len > 1:
-            #temp = smooth.smooth(a[:,1], window_len=len)[len/2:-(len/2)]
             temp = smooth.smooth(a[:,1], window_len=len)
             a[:,1] = temp[1:]
         try:
@@ -132,10 +129,10 @@ class MKIDStd:
         except ValueError:
             scale = 1
 
-        ergs = string.count(self.objects[name]['fluxUnit'][0],"ergs")
+        ergs = self.objects[name]['fluxUnit'][0].count("ergs")
         if ergs:
             a[:,1] *= (a[:,0] * self.k)
-        mag = string.count(self.objects[name]['fluxUnit'][0],"mag")
+        mag = self.objects[name]['fluxUnit'][0].count("mag")
         if mag:
             a[:,1] = \
                 (10**(-2.406/2.5))*(10**(-0.4*a[:,1]))/(a[:,0]**2) * \
@@ -210,7 +207,7 @@ class MKIDStd:
         a = self._getVegaMag(aFlux, aFilter)
         return a
 
-    def plot(self,name="all",xlog=False,ylog=True,xlim=[3000,13000],normalizeFlux=True,countsToErgs=False):
+    def plot(self,name="all",xlog=False,ylog=True,xlim=[7000,15000],normalizeFlux=True,countsToErgs=False):
         """
         Makes a png file that plots the arrays a[:,0] (wavelength) and
         a[:,1] (flux) with balmer wavelengths indicated. Individual
@@ -232,7 +229,7 @@ class MKIDStd:
         changed to ergs by setting countsToErgs=True when calling the 
         function.
         
-        By default fluxes are normalized to 1 at self.refernceWavelength
+        By default fluxes are normalized to 1 at self.referenceWavelength
         and setting normalizeFlux=False disables normalization
         
         The filename of the plot in the current working director is returned.
@@ -341,6 +338,7 @@ class MKIDStd:
         of all objects.
         """
         for name in list(self.objects.keys()):
+            print(name)
             fluxUnit = self.objects[name]['fluxUnit']
             print(name, " ", fluxUnit)
 
@@ -403,3 +401,8 @@ class MKIDStd:
                 %(points, xmin, xmax))
         sys.stdout = old_stdout
         log_file.close()
+
+if __name__ == '__main__':
+    objectName = "hiltner600"
+    std = MKIDStd()
+    a = std.load(objectName)
