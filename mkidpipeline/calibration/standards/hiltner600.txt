@@ -1,6 +1,0 @@
-dataFile = mhilt600.dat
-citation = ftp://ftp.eso.org/pub/stecf/standards/ctiostan/mhilt600.dat
-wavlengthUnit = angstrom
-fluxUnit = AB mag
-description = B1  v 10.44 B-V +0.18
-window_len = 1

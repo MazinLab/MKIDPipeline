@@ -1,6 +1,0 @@
-dataFile = mhr7596.dat
-citation = ftp://ftp.eso.org/pub/stecf/standards/ctiostan/mhr7596.dat
-wavlengthUnit = angstrom
-fluxUnit = mag
-description = V=5.62, B-V=+0.10, Spectral type: A0III
-window_len = 1

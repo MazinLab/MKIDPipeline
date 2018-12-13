@@ -1,6 +1,0 @@
-dataFile = fg60_54.dat
-citation = http://www.eso.org/sci/observing/tools/standards/spectra/g60_54.html
-wavlengthUnit = angstrom
-fluxUnit = 1e-16 ergs/cm2/s/A
-description =  V=15.81
-window_len = 1

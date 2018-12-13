@@ -1,6 +1,0 @@
-dataFile = fhz2.dat
-citation = http://www.eso.org/sci/observing/tools/standards/spectra/hz2.html
-wavlengthUnit = angstrom
-fluxUnit = 1e-16 ergs/cm2/s/A
-description =  V=13.88
-window_len = 1
