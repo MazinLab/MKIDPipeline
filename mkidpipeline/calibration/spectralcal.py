@@ -75,7 +75,19 @@ def load_relativespectrum():
     return self.flux_spectrum
 
 def load_skyspectrum():
-    pass
+    self.sky_spectra = [[[] for i in np.arange(self.nCol)] for j in np.arange(self.nRow)]
+    self.sky_effTime = [[[] for i in np.arange(self.nCol)] for j in np.arange(self.nRow)]
+    for iRow in np.arange(self.nRow):
+        for iCol in np.arange(self.nCol):
+            count = self.sky_file.getPixelCount(iRow, iCol)
+            sky_dict = self.sky_file.getPixelSpectrum(iRow, iCol, weighted=True, firstSec=0, integrationTime=-1)
+            self.sky_spectra[iRow][iCol], self.sky_effTime[iRow][iCol] = sky_dict['spectrum'], sky_dict['effIntTime']
+    self.sky_spectra = np.array(self.sky_spectra)
+    self.sky_effTime = np.array(self.sky_effTime)
+    deadtime_corr = self.get_deadtimecorrection(self.sky_file)
+    self.sky_spectra = self.sky_spectra / self.binWidths / self.sky_effTime * deadtime_corr
+    self.sky_spectrum = self.calculate_median(self.sky_spectra)  # find median of subtracted spectra across whole array
+    return self.sky_spectrum
 
 def load_stdspectrum(self, object_name="G158-100"):
     '''
