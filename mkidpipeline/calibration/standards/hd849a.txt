@@ -1,0 +1,6 @@
+dataFile = hd849a.og
+citation = http://www.ing.iac.es/Astronomy/observing/manuals/html_manuals/tech_notes/tn065-100/hd849a.og
+wavlengthUnit = Angstrom
+fluxUnit = mag
+description = type sdF 8th magnitude
+window_len = 1

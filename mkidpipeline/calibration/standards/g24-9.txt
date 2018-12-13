@@ -1,0 +1,6 @@
+dataFile = fg24_9.dat
+citation = ftp://ftp.eso.org/pub/stecf/standards/okestan/
+wavlengthUnit = angstrom
+fluxUnit = 1e-16 ergs/cm2/s/A
+description =  V=15.75
+window_len = 1

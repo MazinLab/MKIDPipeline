@@ -1,0 +1,6 @@
+dataFile = NGC1.ascii
+citation = http://tdc-www.harvard.edu/cgi-bin/arc/zpgraph?rfn=16712
+wavlengthUnit = angstrom
+fluxUnit = 2.108e9 counts/sec/angstrom/cm^2
+description = A large galaxy observed by the CfA Z-Machine V 13.65
+window_len = 31

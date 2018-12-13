@@ -1,0 +1,6 @@
+dataFile = fhz21.dat
+citation = http://www.eso.org/sci/observing/tools/standards/spectra/hz21.html
+wavlengthUnit = angstrom
+fluxUnit = 1e-16 ergs/cm2/s/A
+description =  V=14.68
+window_len = 1

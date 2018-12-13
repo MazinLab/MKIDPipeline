@@ -1,0 +1,6 @@
+dataFile = alpha_lyr_stis_005.ascii
+citation = ftp://ftp.stsci.edu/cdbs/current_calspec/alpha_lyr_stis_005.ascii
+wavlengthUnit = angstrom
+fluxUnit = ergs/sec/angstrom/cm^2
+description = Vega is a bright star and also called alphy lyr, V=0.026  B-V=0.00, Spectral Type: A0V
+window_len = 1

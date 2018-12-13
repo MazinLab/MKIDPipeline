@@ -1,0 +1,6 @@
+dataFile = sc_000820105_ZCMRa35_M2_Q4_13_1.tbl
+citation = http://irsa.ipac.caltech.edu/data/COSMOS/spectra/z-cosmos/TBL/sc_000820105_ZCMRa35_M2_Q4_13_1.tbl
+wavlengthUnit = angstrom
+fluxUnit = ergs/sec/angstrom/cm^2
+description = a galaxy
+window_len = 31

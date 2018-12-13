@@ -1,0 +1,6 @@
+dataFile = spec-1468-52999-0318.fits
+citation = SDSS
+wavlengthUnit = angstrom
+fluxUnit = 1e-17 ergs/sec/angstrom/cm^2
+description = v=19.3 sdss F type star
+window_len = 31
