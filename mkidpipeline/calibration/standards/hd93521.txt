@@ -1,0 +1,6 @@
+dataFile = mhd93521.dat
+citation = ftp://ftp.eso.org/pub/stecf/standards/okestan/fhd93521.dat
+wavlengthUnit = Angstrom
+fluxUnit = mag
+description = type 09Vp V=7.03 B-V=-0.27
+window_len = 1

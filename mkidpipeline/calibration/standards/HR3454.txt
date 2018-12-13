@@ -1,0 +1,6 @@
+dataFile = mhr3454.dat
+citation = ftp://ftp.eso.org/pub/stecf/standards/ctiostan/mhr3454.dat
+wavlengthUnit = angstrom
+fluxUnit = mag
+description = also called eta hydrae, V=4.30, B-V=-0.20, Spectral Type B3V
+window_len = 1

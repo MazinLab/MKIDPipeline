@@ -1,0 +1,6 @@
+dataFile = wd1026_453_stis_001.ascii.ascii
+citation = http://www.stsci.edu/hst/observatory/cdbs/calspec.html
+wavlengthUnit = angstrom
+fluxUnit = ergs/cm2/s/A
+description =  V=16.13
+window_len = 1

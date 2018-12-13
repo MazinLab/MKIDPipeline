@@ -1,0 +1,6 @@
+dataFile = fgd108.dat
+citation = http://www.eso.org/sci/observing/tools/standards/spectra/gd108.html
+wavlengthUnit = angstrom
+fluxUnit = 1e-16 ergs/cm2/s/A
+description =  V=13.56
+window_len = 1

@@ -1,0 +1,6 @@
+dataFile = feige66_002.ascii
+citation = ftp://ftp.stsci.edu/cdbs/current_calspec/feige66_002.ascii
+wavlengthUnit = angstrom
+fluxUnit = ergs/sec/angstrom/cm^2?
+description = Spectral Type: sdO    V=10.51  B-V=-0.29
+window_len = 1

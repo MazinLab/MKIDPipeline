@@ -1,0 +1,6 @@
+dataFile = NGC_6500_S_B_hfs1995_NED.dat
+citation = http://ned.ipac.caltech.edu/spc1/1995ApJS...98..477H/NGC_6500:S:B:hfs1995.txt
+wavlengthUnit = angstrom
+fluxUnit = ergs/sec/angstrom/cm^2
+description = a faint spiral galaxy
+window_len = 1

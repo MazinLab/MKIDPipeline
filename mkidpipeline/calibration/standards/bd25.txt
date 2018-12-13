@@ -1,0 +1,6 @@
+dataFile = bd_25d4655_002.ascii
+citation = ftp://ftp.stsci.edu/cdbs/current_calspec/bd_25d4655_002.ascii
+wavlengthUnit = angstrom
+fluxUnit = ergs/sec/angstrom/cm^2
+description = V=9.68, B-V=-0.31, Spectral type: O
+window_len = 1

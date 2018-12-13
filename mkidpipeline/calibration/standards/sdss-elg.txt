@@ -1,0 +1,6 @@
+dataFile = spSpecText-52999-1468-435.csv
+citation = SDSS
+wavlengthUnit = angstrom
+fluxUnit = 1e-17 ergs/sec/angstrom/cm^2
+description = a stellar object, g: 18.61 r: 17.99 i: 17.63
+window_len = 31
