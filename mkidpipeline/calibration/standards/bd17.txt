@@ -1,6 +1,0 @@
-dataFile = bd_17d4708_stisnic_003.ascii
-citation = ftp://ftp.stsci.edu/cdbs/current_calspec/bd_17d4708_stisnic_003.ascii
-wavlengthUnit = Angstrom
-fluxUnit = ergs/sec/angstrom/cm^2
-description = Spectral Type: sdF8    V=9.47   B-V=0.44
-window_len = 1

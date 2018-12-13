@@ -1,6 +1,0 @@
-dataFile = spSpecText-53387-2041-006.csv
-citation = SDSS
-wavlengthUnit = angstrom
-fluxUnit = 1e-17 ergs/sec/angstrom/cm^2
-description = galaxy at z=0.749, g: 17.48 r: 17.11 i: 16.94
-window_len = 31

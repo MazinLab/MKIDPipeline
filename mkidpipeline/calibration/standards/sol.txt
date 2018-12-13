@@ -1,6 +1,0 @@
-dataFile = sun_reference_stis_001.ascii
-citation = ftp://ftp.stsci.edu/cdbs/current_calspec/sun_reference_stis_001.ascii
-wavlengthUnit = angstrom
-fluxUnit = ergs/sec/angstrom/cm^2
-description = the sun, Spectral Type:G2V   V=-26.75   B-V=0.63
-window_len = 1

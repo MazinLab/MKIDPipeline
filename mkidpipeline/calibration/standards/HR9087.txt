@@ -1,6 +1,0 @@
-dataFile = mhr9087.dat
-citation = ftp://ftp.eso.org/pub/stecf/standards/ctiostan/mhr9087.dat
-wavlengthUnit = angstrom
-fluxUnit = mag
-description = 29 Piscium B7III V 5.12 B-V -0.14 
-window_len = 1

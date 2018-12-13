@@ -1,6 +1,0 @@
-dataFile = G158-100.dat
-citation = http://www.caha.es/pedraz/SSS/Oke/oke.html
-wavlengthUnit = angstrom
-fluxUnit = 1e-16 ergs/cm2/s/A
-description =  V=14.891
-window_len = 1

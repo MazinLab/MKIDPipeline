@@ -1,6 +1,0 @@
-dataFile = landolt_95_42.dat
-citation = http://arxiv.org/pdf/astro-ph/0209459.pdf
-wavlengthUnit = angstrom
-fluxUnit = mag/sec/angstrom/cm^2
-description = a landolt standard star
-window_len = 1

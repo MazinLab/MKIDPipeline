@@ -1,6 +1,0 @@
-dataFile = wd1057_719_stisnic_002.ascii.ascii
-citation = http://supernova.lbl.gov/~hsiao/psss/standards/wd1057_719.php
-wavlengthUnit = angstrom
-fluxUnit = ergs/cm2/s/A
-description =  V=14.80
-window_len = 1

@@ -1,6 +1,0 @@
-dataFile = fgd248.dat
-citation = http://www.caha.es/pedraz/SSS/Oke/oke.html
-wavlengthUnit = angstrom
-fluxUnit = 1e-16 ergs/cm2/s/A
-description =  V=15.09
-window_len = 1

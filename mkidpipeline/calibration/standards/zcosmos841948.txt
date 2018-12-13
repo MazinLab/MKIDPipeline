@@ -1,6 +1,0 @@
-dataFile = sc_000841948_ZCMRa17_M1_Q3_4_1.tbl
-citation = http://irsa.ipac.caltech.edu/data/COSMOS/spectra/z-cosmos/TBL/sc_000841948_ZCMRa17_M1_Q3_4_1.tbl
-wavlengthUnit = angstrom
-fluxUnit = ergs/sec/angstrom/cm^2
-description = a galaxy
-window_len = 31
