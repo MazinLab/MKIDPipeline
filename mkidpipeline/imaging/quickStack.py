@@ -23,10 +23,10 @@ import tables
 #from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 matplotlib.use('Qt5agg')
 import matplotlib.pyplot as plt
-from mkidpipeline.utils.arrayPopup import plotArray
+from mkidpipeline.utils.plottingTools import plot_array
 from mkidpipeline.utils.readDict import readDict
 
-import mkidpipeline.hotpix.darkHotPixMask as dhpm
+import mkidpipeline.hotpix.generatebadpixmask as gbpm
 
 import image_registration as ir
 from mkidpipeline.utils.loadStack import loadIMGStack, loadBINStack
@@ -164,19 +164,22 @@ centroidsY=[]
 if doHPM:
 
    print("Making HPM")
-   darkHPMImg = dhpm.makeMask(basePath=imgDir,startTimeStamp=darkSpanImg[0],     
-   stopTimeStamp=darkSpanImg[1], coldCut=True, maxCut=maxCut,sigma=sigma,manualArray=None)
+
+   dark_stack_img = loadIMGStack(dataDir=dataDir, start=darkSpanImg[0], stop=darkSpanImg[1])
+   len_dark_stack_img = int(darkSpanImg[1] - darkSpanImg[0])
+   darkHPMImg = gbpm.quick_check_stack(stack=dark_stack_img, len_stack=len_dark_stack_img)
    hpFN='darkHPMImg_'+target+'.npz'  #Save the hot pixel mask into the output directory
    hpPath = os.path.join(outputDir,hpFN)
    np.savez(hpPath,darkHPMImg = darkHPMImg)
-   plotArray(darkHPMImg, title='Hot Pixel Mask Image', origin='upper')
+   plot_array(darkHPMImg, title='Hot Pixel Mask Image', origin='upper')
 
-   darkHPMFlat = dhpm.makeMask(basePath=imgDir,startTimeStamp=darkSpanFlat[0],    
-   stopTimeStamp=darkSpanFlat[1], coldCut=True, maxCut=maxCut,sigma=sigma,manualArray=None)
+   dark_stack_flat = loadIMGStack(dataDir=dataDir, start=darkSpanFlat[0], stop=darkSpanFlat[1])
+   len_dark_stack_flat = int(darkSpanFlat[1] - darkSpanFlat[0])
+   darkHPMFlat = gbpm.quick_check_stack(stack=dark_stack_flat, len_stack=len_dark_stack_flat)
    hpFN='darkHPMFlat_'+target+'.npz'  #Save the hot pixel mask into the output directory
    hpPath = os.path.join(outputDir,hpFN)
    np.savez(hpPath,darkHPMFlat = darkHPMFlat)
-   plotArray(darkHPMFlat, title='Hot Pixel Mask Flat', origin='upper')
+   plot_array(darkHPMFlat, title='Hot Pixel Mask Flat', origin='upper')
 
 else:
 
@@ -195,9 +198,9 @@ if subtractDark:
    else:
       darkStackImg = loadBINStack(dataDir, darkSpanImg[0], darkSpanImg[1], nCols=numCols, nRows=numRows,verbose=False)
    darkImg = irUtils.medianStack(darkStackImg)
-   plotArray(darkImg,title='DarkImg',origin='upper')
+   plot_array(darkImg,title='DarkImg',origin='upper')
    darkImg[np.where(darkHPMImg==1)]=np.nan
-   plotArray(darkImg,title='DarkImg HP Masked',origin='upper')
+   plot_array(darkImg,title='DarkImg HP Masked',origin='upper')
    darkFN='darkImg_'+target+'.npz'  #Save the dark into the output directory
    darkPath = os.path.join(outputDir,darkFN)
    np.savez(darkPath,darkImg = darkImg)
@@ -239,12 +242,12 @@ if divideFlat:
 
    croppedFrame = np.copy(flatSub)
 
-   plotArray(flatSub, title='FLAT',origin='upper')
+   plot_array(flatSub, title='FLAT',origin='upper')
    """
    Apply SR Meeker's feedline cropping script when we calculate the flat weights
    This cropping assumes poor FL2 performance and
    poor high frequency performance, a la Faceless from 2017a,b.
-   This is a good place to play around to change crappy weights
+   This is a good place to play around to change deviant weights
    at fringes of the array.
    """
    croppedFrame = np.copy(flatSub)
@@ -266,12 +269,10 @@ if divideFlat:
    croppedFrame[badYCoords, badXCoords] = np.nan
 
    med = np.nanmean(croppedFrame.flatten())
-   print('HIIIIIIIIIIIIIIIIIIII Med', med)
    weights = med/flatSub #calculate the weights by dividing the median by the dark-subtracted flat frame
 
    med = np.nanmedian(weights.flatten())
-   print('HIIIIIIIIIIIIIIIIIIII MedWeights', med)
-   plotArray(weights,title='Weights',origin='upper') #Plot the weights
+   plot_array(weights,title='Weights',origin='upper') #Plot the weights
    flatFN='flat_'+target+'.npz'  #Save the dark-subtracted flat file and weights into the output directory
    flatPath =  os.path.join(outputDir,flatFN)
    np.savez(flatPath,weights = weights,flat=flatSub)
@@ -310,7 +311,7 @@ for i in range(nPos):
     for f in range(len(stack)):
         timeStamp = startTimes[i]+f
         if f==0 and i==0:
-               plotArray(stack[f],title='Raw Image Dither Pos %i'%i,origin='upper',vmin=0)
+               plot_array(stack[f],title='Raw Image Dither Pos %i'%i,origin='upper',vmin=0)
 
         if subtractDark == True:
             darkSubImg = stack[f]-darkImg
@@ -360,7 +361,7 @@ for i in range(nPos):
 
         #plot an example of the masked image for inspection
         if f==0 and i==0:
-            plotArray(processedIm,title='Dither Pos %i Processing Applied'%i,origin='upper',vmin=0)
+            plot_array(processedIm,title='Dither Pos %i Processing Applied'%i,origin='upper',vmin=0)
 
         #pad frame with margin for shifting and stacking
         paddedFrame = irUtils.embedInLargerArray(processedIm, frameSize=padFraction)
@@ -389,7 +390,7 @@ if fitPos==True:
     if refFile!=None and os.path.exists(refFile):
         refIm = readFITS(refFile)
         print("Loaded %s for fitting"%refFile)
-        plotArray(refIm,title='loaded reference FITS',origin='upper',vmin=0)
+        plot_array(refIm,title='loaded reference FITS',origin='upper',vmin=0)
     else:
         refIm=shiftedFrames[0]
 
@@ -412,8 +413,8 @@ if fitPos==True:
 
         if cnt==0:
 
-            plotArray(maskedRefIm, title='masked Reference', origin='upper')
-            plotArray(maskedIm, title='masked Image to be aligned', origin='upper') 
+            plot_array(maskedRefIm, title='masked Reference', origin='upper')
+            plot_array(maskedIm, title='masked Image to be aligned', origin='upper')
 
         #try using keflavich image_registation repository
         dx, dy, ex, ey = ir.chi2_shifts.chi2_shift(maskedRefIm, maskedIm, zeromean=True)#,upsample_factor='auto')
@@ -437,7 +438,7 @@ if fitPos==True:
 finalImage = irUtils.medianStack(shiftedFrames)# / 3.162277 #adjust for OD 0.5 difference between occulted/unocculted files
 print('Shape',shiftedFrames.shape)
 
-plotArray(finalImage,title='final',origin='upper')
+plot_array(finalImage,title='final',origin='upper')
 img=plt.imshow(finalImage,cmap=plt.cm.spectral)
 #cbar = plt.colorbar(format='%05.2f')
 #plt.clim(0,np.nanmedian(finalImage))

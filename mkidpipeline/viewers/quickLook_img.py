@@ -55,7 +55,7 @@ class mainWindow(QMainWindow):
         
 
     def get_nPixels(self,filename):	
-        #140 x 145 for MEC	
+        #140 x 146 for MEC
         #80 x 125 for darkness	
         	
         npixels = len(np.fromfile(open(filename, mode='rb'),dtype=np.uint16))	
@@ -65,12 +65,12 @@ class mainWindow(QMainWindow):
             nCol = 80	
             nRow = 125	
             print('\n\ncamera is DARKNESS/PICTURE-C\n\n')	
-        elif npixels == 20300:  #mec	
+        elif npixels == 20440:  #mec
             nCol = 140	
-            nRow = 145	
+            nRow = 146
             print('\n\ncamera is MEC\n\n')	
         else:	
-            raise ValueError('img does not have 10000 or 20300 pixels')	
+            raise ValueError('img does not have 10000 or 20440 pixels')
            	
         return nCol, nRow
 
@@ -567,9 +567,6 @@ class mainWindow(QMainWindow):
 
         else:
             return
-        
-        #140 x 145 for MEC
-        
         
         
         

@@ -1,10 +1,10 @@
 """
 Author: Alex Walter
 Date: Feb 22, 2018
-Last Updated: May 8, 2018
+Last Updated: Sept 19, 2018
 
 This code is for analyzing the photon arrival time statistics in a bin-free way
-to find a maximum likelihood estimate of Ic, Is. 
+to find a maximum likelihood estimate of Ic, Is in the presence of an incoherent background source Ir.
 
 For example usage, see if __name__ == "__main__": 
 """
@@ -14,34 +14,37 @@ import numpy as np
 from scipy.optimize import minimize
 from statsmodels.base.model import GenericLikelihoodModel
 
-from mkidpipeline.hdf.darkObsFile import ObsFile
-from mkidpipeline.speckle.genphotonlist import genphotonlist
+# from mkidpipeline.hdf.darkObsFile import ObsFile
+from mkidpipeline.speckle.genphotonlist_IcIsIr import genphotonlist
 
 
 class MR_SpeckleModel(GenericLikelihoodModel):
-    def __init__(self, ts):
+    def __init__(self, ts, deadtime=10.):
         """
         Class for fitting maximum likelihood
         
         INPUTS:
             ts - Photon arrival times [us]
+            deadtime - MKID deadtime after photon event [us]
         """
         dt = ts[1:] - ts[:-1]
         dt=dt[np.where(dt<1.e6)]/10.**6
         endog=np.asarray(dt, dtype=[('dt','float64')])
-        exog=np.ones(len(endog),dtype={'names':['Ic','Is'],'formats':['float64','float64']})
-        score=lambda params: MRlogL_Jacobian(dt, params[0], params[1])
-        hess=lambda params: MRlogL_Hessian(dt, params[0], params[1])
-        loglike=lambda params: MRlogL(dt, params[0], params[1])
+        exog=np.ones(len(endog),dtype={'names':['Ic','Is','Ir'],'formats':['float64','float64','float64']})
+        score=lambda params: MRlogL_Jacobian(*params, dt=dt, deadtime=deadtime)
+        hess=lambda params: MRlogL_Hessian(*params, dt=dt, deadtime=deadtime)
+        loglike=lambda params: MRlogL(*params, dt=dt, deadtime=deadtime)
+        #hess=lambda params: MRlogL_Hessian(dt, params[0], params[1])
+        #loglike=lambda params: MRlogL(dt, *params, deadtime=deadtime, inttime=inttime)
         super(MR_SpeckleModel, self).__init__(endog,exog=exog, loglike=loglike, score=score, hessian=hess)
         #super(MR_SpeckleModel, self).__init__(endog,exog=exog, loglike=loglike)
     
-    def fit(self, start_params=[1.,1.], method='powell', **kwargs):
+    def fit(self, start_params=[1.,1.,1.], method='nm', **kwargs):
         """
         Find maximum log likelihood
         
         INPUTS:
-            start_params - Initial guess for [Ic, Is] floats
+            start_params - Initial guess for [Ic, Is, Ir] floats
             method - Optimization method
             **kwargs - keywords for LikelihoodModel.fit(). 
                        See www.statsmodels.org/stable/dev/generated/statsmodels.base.model.LikelihoodModel.fit.html
@@ -51,7 +54,7 @@ class MR_SpeckleModel(GenericLikelihoodModel):
         """
         return super(MR_SpeckleModel, self).fit(start_params,method=method,**kwargs)  
 
-def MRlogL_Jacobian(dt, Ic, Is):
+def MRlogL_Jacobian(Ic, Is, Ir, dt, deadtime=0):
     """
     Calculates the Jacobian of the MR log likelihood function.
     Also called a Gradient or Fisher's Score Function. 
@@ -64,15 +67,42 @@ def MRlogL_Jacobian(dt, Ic, Is):
     OUTPUTS:
         jacobian vector [dlnL/dIc, dlnL/dIs] at Ic, Is
     """
-    #jac_Ic = -1./(1./dt+Is) + 1./(Ic+Is+dt*Is**2.)
-    #jac_Is = dt**2.*Ic/(1.+dt*Is)**2. - 3.*dt/(1.+dt*Is) + (1.+2.*dt*Is)/(Ic+Is+dt*Is**2.)
-    
-    jac_Ic = -1./(Ic+Is) - dt/(1.+dt*Is) + 2.*(Ic+2.*Is*(1.+dt*Is))/(Ic**2.+4.*Ic*Is*(1.+dt*Is)+2.*Is**2.*(1.+dt*Is)**2.)
-    jac_Is = -1./(Ic+Is) + dt**2.*Ic/(1.+dt*Is)**2. - 5.*dt/(1.+dt*Is) + 4.*(1.+2.*dt*Is)*(Ic+Is+dt*Is**2.)/(Ic**2.+4.*Ic*Is*(1.+dt*Is)+2.*Is**2.*(1.+dt*Is)**2.)
-    
-    return np.asarray([np.sum(jac_Ic), np.sum(jac_Is)])
+    ###################################################################
+    # Pre-compute combinations of variables
+    ###################################################################
 
-def MRlogL_Hessian(dt, Ic, Is):
+    u = 1./(1 + dt*Is)
+    umax = 1./(1 + deadtime*Is)
+    u2 = u*u
+    u3 = u2*u
+    u4 = u2*u2
+    sum_u = np.sum(u)
+    N = len(u)
+    denom_inv = 1/(Ic**2*u4 + 4*Ic*Is*u3 + (2*Is**2 + 2*Ir*Ic)*u2 + 2*Ir*Is*u + Ir**2)
+
+    d_Ic = 2*np.sum((Ic*u4 + 2*Is*u3 + Ir*u2)*denom_inv)
+    d_Ic += (sum_u - N)/Is
+    d_Ic -= N*umax**2/(Ic*umax**2 + Is*umax + Ir)
+    d_Ic += N*(1 - umax)/Is
+
+    d_Ir = 2*np.sum((Ic*u2 + Is*u + Ir)*denom_inv)
+    d_Ir -= np.sum(dt)
+    d_Ir += N*deadtime
+    d_Ir -= N/(Ic*umax**2 + Is*umax + Ir)
+
+    num = (4*Ic**2/Is)*u4*u + (12*Ic - 4*Ic**2/Is)*u4
+    num += (4*Is - 8*Ic + 4*Ir*Ic/Is)*u3 + (2*Ir - 4*Ir*Ic/Is)*u2
+
+    d_Is = np.sum(num*denom_inv)
+    d_Is += Ic/Is**2*(np.sum(u2) - 2*sum_u + N)
+    d_Is += (sum_u - N)/Is
+    d_Is -= N*Ic*((umax - 1)/Is)**2
+    d_Is -= N*(umax - 1)/Is
+    d_Is -= N*umax**2*(2*Ic*(umax - 1)/Is + 1)/(Ic*umax**2 + Is*umax + Ir)
+
+    return np.asarray([d_Ic, d_Is, d_Ir])
+
+def MRlogL_Hessian(Ic, Is, Ir, dt, deadtime=0):
     """
     Calculates the Hessian matrix of the MR log likelihood function.
     It's just the matrix of second partial derivitives.
@@ -85,18 +115,71 @@ def MRlogL_Hessian(dt, Ic, Is):
     OUTPUTS:
         Hessian matrix [[d2lnL/dIc2, d2lnL/dIcdIs], [d2lnL/dIsdIc, d2lnL/dIsdIs]] at Ic, Is
     """
-    #h_IcIc = np.sum(-1./(Ic+Is+dt*Is**2.)**2.)
-    #h_IsIs = np.sum(-2.*dt**3.*Ic/(1.+dt*Is)**3. + 3.*dt**2./(1.+dt*Is)**2. + (4.*dt*Ic -1.)/(Ic+Is+dt*Is**2.)**2. - 2.*dt/(Ic+Is+dt*Is**2.))
-    #h_IcIs = np.sum(dt**2./(1.+dt*Is)**2. - (1.+2.*dt*Is)/(Ic+Is+dt*Is**2.)**2.)
-    
-    h_IcIc = np.sum(1./(Ic+Is)**2. - 2.*(Ic**2.+4.*Ic*Is*(1.+dt*Is)+6.*Is**2.*(1.+dt*Is)**2.)/(Ic**2.+4.*Ic*Is*(1.+dt*Is)+2.*Is**2.*(1.+dt*Is)**2.)**2.)
-    h_IsIs = np.sum(1./(Ic+Is)**2. - 2.*dt**3.*Ic/(1.+dt*Is)**3. + 5.*dt**2./(1.+dt*Is)**2. - 8.*(Ic+2.*dt*Ic*Is)**2./(Ic**2.+4.*Ic*Is*(1.+dt*Is)+2.*Is**2.*(1.+dt*Is)**2.)**2. - (4.+8.*dt*(Is-Ic+dt*Is**2.))/(Ic**2.+4.*Ic*Is*(1.+dt*Is)+2.*Is**2.*(1.+dt*Is)**2.))
-    h_IcIs = np.sum(1./(Ic+Is)**2. + dt**2./(1.+dt*Is)**2. - 8.*(1.+2.*dt*Is)*(Ic+Is+dt*Is**2.)*(Ic+2.*Is*(1.+dt*Is))/(Ic**2.+4.*Ic*Is*(1.+dt*Is)+2.*Is**2.*(1.+dt*Is)**2.)**2. + (4.+8.*dt*Is)/(Ic**2.+4.*Ic*Is*(1.+dt*Is)+2.*Is**2.*(1.+dt*Is)**2.))
-    
-    
-    return np.asarray([[h_IcIc, h_IcIs],[h_IcIs, h_IsIs]])
+    ###################################################################
+    # Pre-compute combinations of variables
+    ###################################################################
 
-def MRlogL_opgCov(dt, Ic, Is):
+    u = 1./(1 + dt*Is)
+    umax = 1./(1 + deadtime*Is)
+    u2 = u*u
+    u3 = u2*u
+    u4 = u2*u2
+    u5 = u4*u
+    u_m_1 = u - 1.
+    u_m_1_sq = u_m_1*u_m_1
+    N = len(u)
+    
+    denom_inv = 1./((Ic**2)*u4 + (4*Ic*Is)*u3 + (2*Is**2 + 2*Ir*Ic)*u2 + (2*Ir*Is)*u + Ir**2)
+    denom2_inv = denom_inv*denom_inv
+
+    num_Ic = Ic*u4 + (2*Is)*u3 + Ir*u2
+    d_IcIc = -4*np.sum(num_Ic*num_Ic*denom2_inv)
+    d_IcIc += 2*np.sum(u4*denom_inv)
+    d_IcIc += N*(umax**2/(Ic*umax**2 + Is*umax + Ir))**2
+
+    num_Ir = Ic*u2 + Is*u + Ir
+    d_IrIr = -4*np.sum(num_Ir*num_Ir*denom2_inv)
+    d_IrIr += 2*np.sum(denom_inv)
+    d_IrIr += N/(Ic*umax**2 + Is*umax + Ir)**2
+
+    d_IcIr = -4*np.sum(num_Ir*num_Ic*denom2_inv)
+    d_IcIr += 2*np.sum(u2*denom_inv)
+    d_IcIr += N*(umax/(Ic*umax**2 + Is*umax + Ir))**2
+
+    num_Is = (4*Ic**2/Is)*u5 + (12*Ic - 4*Ic**2/Is)*u4
+    num_Is += (4*Is - 8*Ic + 4*Ir*Ic/Is)*u3 + (2*Ir - 4*Ir*Ic/Is)*u2
+
+    argsum = (u_m_1*((2.*Ic/Is)*u2 + 3.*u + Ir/Is) + u)*denom_inv
+    argsum -= ((Ic/2.)*u2 + Is*u + Ir/2.)*num_Is*denom2_inv
+    d_IcIs = 4*np.sum(u2*argsum)
+    d_IcIs  += np.sum(u_m_1_sq)/Is**2
+
+    d_IcIs -= N*((umax - 1)/Is)**2
+    d_IcIs += N*umax**4*(2*Ic*(umax - 1)/Is + 1)/(Ic*umax**2 + Is*umax + Ir)**2
+    d_IcIs -= 2*N*umax**2*(umax - 1)/Is/(Ic*umax**2 + Is*umax + Ir)
+
+    d_IrIs = np.sum(((4*Ic/Is)*u3 + (2 - 4*Ic/Is)*u2)*denom_inv)
+    d_IrIs -= 2*np.sum((Ic*u2 + Is*u + Ir)*num_Is*denom2_inv)
+    d_IrIs += N*umax**2*(2*Ic*(umax - 1)/Is + 1)/(Ic*umax**2 + Is*umax + Ir)**2
+
+    argsum = u_m_1_sq*((5*Ic**2/Is**2)*u2 + (6*Ic/Is)*u + 3*Ic*Ir/Is**2)
+    argsum += u_m_1*((6*Ic/Is)*u2 + 3*u + Ir/Is) + u
+    d_IsIs = 4*np.sum(u2*argsum*denom_inv)
+
+    d_IsIs -= np.sum(num_Is*num_Is*denom2_inv)
+    d_IsIs += 2*Ic/Is**3*np.sum(u_m_1_sq*u_m_1)
+    d_IsIs += np.sum(u_m_1_sq)/Is**2
+    d_IsIs -= 2*N*Ic*((umax - 1)/Is)**3
+    d_IsIs -= N*((umax - 1)/Is)**2
+    d_IsIs += N*(umax**2*(2*Ic*(umax - 1)/Is + 1)/(Ic*umax**2 + Is*umax + Ir))**2
+    d_IsIs -= N*(6*Ic*umax**2*(umax - 1)**2/Is**2 + 2*umax**2*(umax - 1)/Is)/(Ic*umax**2 + Is*umax + Ir)
+
+    return np.asarray([[d_IcIc, d_IcIs, d_IcIr],
+                       [d_IcIs, d_IsIs, d_IrIs],
+                       [d_IcIr, d_IrIs, d_IrIr]])
+
+
+def MRlogL_opgCov(Ic, Is, Ir, dt, deadtime=0):
     """
     Calculates the Outer Product Gradient estimate of the asymptotic covariance matrix 
     evaluated at the Maximum Likelihood Estimates for Ic, Is
@@ -111,6 +194,7 @@ def MRlogL_opgCov(dt, Ic, Is):
         covariance matrix for mle Ic, Is from opg method
         [[cov(Ic,Ic), cov(Ic,Is)], [cov(Is,Ic), cov(Is,Is)]]
     """
+    raise NotImplementedError
     grad_Ic = -1./(1./dt+Is) + 1./(Ic+Is+dt*Is**2.)
     grad_Is = dt**2.*Ic/(1.+dt*Is)**2. - 3.*dt/(1.+dt*Is) + (1.+2.*dt*Is)/(Ic+Is+dt*Is**2.)
     
@@ -121,7 +205,7 @@ def MRlogL_opgCov(dt, Ic, Is):
     
     return np.asarray([[grad_Is2, -1.*grad_IcIs],[-1.*grad_IcIs, grad_Ic2]])/(grad_Ic2*grad_Is2 - grad_IcIs**2.)
 
-def MRlogL_hessianCov(dt, Ic, Is):
+def MRlogL_hessianCov(Ic, Is, Ir, dt, deadtime=0):
     """
     Calculates the Hessian estimate of the asymptotic covariance matrix 
     evaluated at the Maximum Likelihood Estimates for Ic, Is
@@ -136,12 +220,11 @@ def MRlogL_hessianCov(dt, Ic, Is):
         covariance matrix for mle Ic, Is from Hessian method
         [[cov(Ic,Ic), cov(Ic,Is)], [cov(Is,Ic), cov(Is,Is)]]
     """
-    h=MRlogL_Hessian(dt,Ic,Is)
-    #n=1.0*len(dt)
-    
-    return -1./(h[0][0]*h[1][1] - h[0][1]**2.)*np.asarray([[h[1][1], -1.*h[0][1]],[-1.*h[1][0],h[0][0]]])
+    h=MRlogL_Hessian(Ic,Is,Ir, dt, deadtime)
+    return np.linalg.inv(-1.*h)
+    #return -1./(h[0][0]*h[1][1] - h[0][1]**2.)*np.asarray([[h[1][1], -1.*h[0][1]],[-1.*h[1][0],h[0][0]]])
 
-def MRlogL_sandwichCov(dt, Ic, Is):
+def MRlogL_sandwichCov(Ic, Is, Ir, dt, deadtime=0):
     """
     Estimates the asymptotic covariance matrix with the sandwich method
     evaluated at the Maximum Likelihood Estimates for Ic, Is
@@ -156,20 +239,14 @@ def MRlogL_sandwichCov(dt, Ic, Is):
         covariance matrix for mle Ic, Is from sandwich method
         [[cov(Ic,Ic), cov(Ic,Is)], [cov(Is,Ic), cov(Is,Is)]]
     """
-    h_cov = MRlogL_hessianCov(dt, Ic, Is)
-    
-    grad_Ic = -1./(1./dt+Is) + 1./(Ic+Is+dt*Is**2.)
-    grad_Is = dt**2.*Ic/(1.+dt*Is)**2. - 3.*dt/(1.+dt*Is) + (1.+2.*dt*Is)/(Ic+Is+dt*Is**2.)
-    
-    #n=1.0*len(dt)
-    grad_Ic2 = np.sum(grad_Ic**2.)
-    grad_Is2 = np.sum(grad_Is**2.)
-    grad_IcIs = np.sum(grad_Ic*grad_Is)
-    opg_cov_inv = np.asarray([[grad_Ic2, grad_IcIs], [grad_IcIs, grad_Is2]])
+    h_cov = MRlogL_hessianCov(Ic, Is, Ir, dt, deadtime)
+    opg_cov = MRlogL_opgCov(Ic, Is, Ir, dt, deadtime)
+    opg_cov_inv = np.linalg.inv(opg_cov)
     
     return np.matmul(np.matmul(h_cov, opg_cov_inv),h_cov)
 
-def MRlogL(dt, Ic, Is):
+
+def MRlogL(Ic, Is, Ir, dt, deadtime=0.):
     """
     Given an array of photon interarrival times, calculate the Log likelihood that
     those photons follow a modified Rician Intensity probability distribution with Ic, Is. 
@@ -178,23 +255,55 @@ def MRlogL(dt, Ic, Is):
         dt: list of inter-arrival times [seconds]
         Ic: Coherent portion of MR [1/second]
         Is: Speckle portion of MR [1/second]
+        Ir: Background companion [1/second]
+        deadtime: MKID deadtime [microseconds]
     OUTPUTS:
         [float] the Log likelihood. 
     """
+    # Intensity should be strictly positive, and each Ic, Is, Ir should be nonnegative.
+    if Ic < 0 or Is < 0 or Ir < 0 or Ic + Is + Ir == 0:
+        return -1e100 
+    deadtime*=10.**-6.  #convert to seconds
+    
+    nslice = 20
+    u = 1./(1 + dt*Is)
+    u2 = u*u
+    u3 = u2*u
+    u4 = u2*u2
+    u5 = u4*u
+    N = len(u)
+    
+    umax = 1./(1 + deadtime*Is)
+    arg_log = (Ic**2)*u5 + (4*Ic*Is)*u4 + (2*Is**2 + 2*Ir*Ic)*u3
+    if Ir > 0:
+        arg_log += (2*Ir*Is)*u2 + (Ir**2)*u
+    
+    ###################################################################
+    # Reshape the array and multiply along the short axis to reduce
+    # the number of calls to np.log.
+    ###################################################################
 
-    #lnL = -1.*dt*Ic/(1.+dt*Is) + np.log(Ic + Is + dt*Is**2.) - 3.*np.log(1.+dt*Is) + np.log(dt)
-    #lnL = -1.*dt*Ic/(1.+dt*Is) + np.log(Ic + Is + dt*Is**2.) - 3.*np.log(1.+dt*Is)     #last term ins constant
+    _n = (len(u)//nslice + 1)*nslice
+    _arg_log = np.ones(_n)
+    _arg_log[:len(u)] = arg_log
+    _arg_log = np.prod(np.reshape(_arg_log, (nslice, -1)), axis=0)
+    lnL = np.sum(np.log(_arg_log))
+
+    lnL += -Ir*np.sum(dt) + Ic/Is*np.sum(u) - N*Ic/Is
+    lnL -= N*(umax - 1)*(Ir + Ic*umax)/(Is*umax)
+    lnL -= N*np.log(Ic*umax**3 + Is*umax**2 + Ir*umax)
     
-    #lnL = -1.*dt*Ic/(1.+dt*Is) - 5.0*np.log(1.+Is*dt) + np.log(Ic**2.+4.*Ic*Is+2.*Is**2.+4.*Is**2.*(Ic+4.*Is)*dt + 2.*Is**4.*dt**2.) - np.log(Ic+Is)
-    lnL = -1.*dt*Ic/(1.+dt*Is) - 5.0*np.log(1.+Is*dt) + np.log(Ic**2.+4.*Ic*(Is+Is**2.*dt)+2.*(Is+Is**2.*dt)**2.) - np.log(Ic+Is)
-    
-    return np.sum(lnL)
+    if np.isfinite(lnL):
+        return lnL
+    else:
+        return -1e100
+
 
 def maxMRlogL(ts, Ic_guess=1., Is_guess=1., method='Powell'):
     """
     Get maximum likelihood estimate of Ic, Is given dt
     
-    It scipy.optimize.minimize to minimizes the negative log likelihood
+    It uses scipy.optimize.minimize to minimizes the negative log likelihood
     
     INPUTS:
         ts - list of photon arrival times [us]
@@ -235,7 +344,7 @@ def getPixelPhotonList(filename, xCoord, yCoord,**kwargs):
     return times
 
 
-def plotLogLMap(ts, Ic_list, Is_list):
+def plotLogLMap(ts, Ic_list, Is_list, deadtime=10, inttime=0):
     """
     plots a map of the MR log likelihood function over the range of Ic, Is
     
@@ -252,7 +361,7 @@ def plotLogLMap(ts, Ic_list, Is_list):
     im = np.zeros((len(Ic_list),len(Is_list)))
     for i, Ic in enumerate(Ic_list):
         for j, Is in enumerate(Is_list):
-            lnL = MRlogL(dt, Ic, Is)
+            lnL = MRlogL(dt, Ic, Is,deadtime=deadtime, inttime=inttime)
             im[i,j] = lnL
 
 
@@ -261,14 +370,23 @@ def plotLogLMap(ts, Ic_list, Is_list):
     print("Ic="+str(Ic_list[Ic_ind])+", Is="+str(Is_list[Is_ind]))
     print(im[Ic_ind, Is_ind])
     
-    l_90 = np.percentile(im, 90)
+    l_90 = np.percentile(im, 68)
     l_max=np.amax(im)
     l_min=np.amin(im)
     levels=np.linspace(l_90,l_max,int(len(im.flatten())*.1))
     
     plt.figure()
     plt.contourf(Ic_list, Is_list,im.T,levels=levels,extend='min')
+
     plt.plot(Ic_list[Ic_ind],Is_list[Is_ind],"xr")
+    x_lim = plt.gca().get_xlim()
+    y_lim = plt.gca().get_ylim()
+    plt.plot(np.asarray(x_lim), -1.*np.asarray(x_lim)+Ic_list[Ic_ind]+Is_list[Is_ind],'r--')
+    
+    rad = np.sqrt(Ic_list[Ic_ind]+Is_list[Is_ind])
+    circ=plt.Circle((Ic_list[Ic_ind],Is_list[Is_ind]), rad, color='r', fill=False)
+    plt.gca().add_artist(circ)
+    
     plt.xlabel('Ic [/s]')
     plt.ylabel('Is [/s]')
     plt.title('Map of log likelihood')
@@ -279,10 +397,10 @@ if __name__ == "__main__":
 
     
     print("Getting photon list: ")
-    Ic, Is, Ttot, tau, deadTime = [300., 30., 30., .1, 10.]
-    print("[Ic, Is, Ttot, tau, deadTime]: "+str([Ic, Is, Ttot, tau, deadTime]))
+    Ic, Is, Ir, Ttot, tau, deadTime = [30., 300.,0., 30., .1, 10.]
+    print("[Ic, Is, Ir, Ttot, tau, deadTime]: "+str([Ic, Is, Ir, Ttot, tau, deadTime]))
     print("\t...",end="", flush=True)
-    ts = genphotonlist(Ic, Is, Ttot, tau, deadTime)
+    ts = genphotonlist(Ic, Is, Ir, Ttot, tau, deadTime)
     print("Done.\n")
     
     #dt = ts[1:] - ts[:-1]
@@ -316,14 +434,16 @@ if __name__ == "__main__":
     
 
     print("Optimizing with StatModels...")
-    m = MR_SpeckleModel(ts)
+    m = MR_SpeckleModel(ts, deadtime=deadTime, inttime=Ttot)
     res=m.fit()
     print(res.summary())
     #print(res.params)
     #print(res.bse)
     
     print("\n#photons: "+str(len(ts)))
-    print('photons/s: '+str(len(ts)/Ttot))
+    countRate = len(ts)/Ttot
+    print('photons/s: '+str(countRate))
+    print('photons/s (deadtime corrected): '+str(countRate/(1.-countRate*deadTime*10.**-6.)))
     print('MLE Ic+Is: '+str(np.sum(res.params)))
 
 
@@ -342,9 +462,9 @@ if __name__ == "__main__":
     print('Stat Ic, Is: '+str(Ic_stat)+', '+str(Is_stat))
 
     print("Mapping...")
-    Ic_list=np.arange(280.,320.,1.)
-    Is_list=np.arange(25.,35.,1.)
-    plotLogLMap(ts, Ic_list, Is_list)
+    Ic_list=np.arange(0.,200.,1.)
+    Is_list=np.arange(100.,400.,1.)
+    plotLogLMap(ts, Ic_list, Is_list,deadtime=deadTime, inttime=Ttot)
     plt.show()
 
 

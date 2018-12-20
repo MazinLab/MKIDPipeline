@@ -3,10 +3,10 @@ From the scipy.org Cookbook (SignalSmooth)
 
 smooth the data using a window with requested size.
     
-    This method is based on the convolution of a scaled window with the signal.
+This method is based on the convolution of a scaled window with the signal.
 The signal is prepared by introducing reflected copies of the signal 
 (with the window size) in both ends so that transient parts are minimized
-in the begining and end part of the output signal.
+in the beginning and end part of the output signal.
   
 input:
        x: the input signal 
@@ -15,11 +15,6 @@ input:
             flat window will produce a moving average smoothing.
 output:
       the smoothed signal
-        
-example:
-   t=linspace(-2,2,0.1)
-   x=sin(t)+randn(len(t))*0.1
-   y=smooth(x)
   
 see also: 
     numpy.hanning, numpy.hamming, numpy.bartlett, numpy.blackman, numpy.convolve
@@ -45,12 +40,11 @@ def smooth(x,window_len=11,window='hanning'):
         raise ValueError("Window is one of 'flat', 'hanning', 'hamming', 'bartlett', 'blackman'")
 
     s=numpy.r_[x[window_len-1:0:-1],x,x[-1:-window_len:-1]]
-    #print(len(s))
     if window == 'flat': #moving average
         w=numpy.ones(window_len,'d')
     else:
         w=eval('numpy.'+window+'(window_len)')
 
     y=numpy.convolve(w/w.sum(),s,mode='valid')
-    #return y                                          ## length(output) != length(input)
-    return y[(window_len/2-1):-(window_len/2)]
+
+    return y[int((window_len/2)-1):-int((window_len/2))]
