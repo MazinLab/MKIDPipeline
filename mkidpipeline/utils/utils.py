@@ -819,8 +819,7 @@ def rebin2D(a, ysize, xsize):
     """
     
     yfactor, xfactor = numpy.asarray(a.shape) / numpy.array([ysize, xsize])
-    return a.reshape(ysize, yfactor, xsize, xfactor,).mean(1).mean(2)
-
+    return a.reshape(ysize, int(yfactor), xsize, int(xfactor),).mean(1).mean(2)
 
 def replaceNaN(inputarray, mode='mean', boxsize=3, iterate=True):
     """
@@ -1235,10 +1234,6 @@ def rebin(x,y,binedges):
     n=0
     binsize=binedges[n+1]-binedges[n]
     while start+(binsize/2.0)<stop:
-        #print start
-        #print binsize
-        #print stop
-        #print n
         rebinned[n,0] = (start+(binsize/2.0))
         ind = numpy.where((x>start) & (x<start+binsize))
         rebinned[n,1] = numpy.mean(y[ind])

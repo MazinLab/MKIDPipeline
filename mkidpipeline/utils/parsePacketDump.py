@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from mkidpipeline.utils import binTools
-from mkidpipeline.utils.arrayPopup import plotArray
+from mkidpipeline.utils.plottingTools import plot_array
 
 # For debugging
 from time import time
@@ -186,7 +186,7 @@ if __name__=='__main__':
     ax.plot(basesDeg[np.where(pixelIds==selPixelId)])
     ax.set_title('phases (deg)')
     #ax.plot(pixelIds)
-    plotArray(image,origin='upper')
+    plot_array(image, origin='upper')
 
     np.savez('/mnt/data0/test2/{}.npz'.format(pathTstamp),**parseDict)
 

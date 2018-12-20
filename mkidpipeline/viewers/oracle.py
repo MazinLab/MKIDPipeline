@@ -231,7 +231,7 @@ class timeStream(subWindow):
 #        self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = self.getLightCurve()
         
 #        t1 = time.time()
-        self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(self.photonList['Time'],self.spinbox_startTime.value(),self.spinbox_startTime.value()+self.spinbox_integrationTime.value(),self.effExpTime)
+        self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(self.photonList['Time']/1e6,self.spinbox_startTime.value(),self.spinbox_startTime.value()+self.spinbox_integrationTime.value(),self.effExpTime)
 #        t2 = time.time()
 #        print('timer: ', t2 - t1)
 
@@ -295,7 +295,7 @@ class intensityHistogram(subWindow):
         
         #self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = self.getLightCurve()
         
-        self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(self.photonList['Time'],self.spinbox_startTime.value(),self.spinbox_startTime.value()+self.spinbox_integrationTime.value(),self.effExpTime)
+        self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(self.photonList['Time']/1e6,self.spinbox_startTime.value(),self.spinbox_startTime.value()+self.spinbox_integrationTime.value(),self.effExpTime)
         
 #        self.intensityHist, self.bins = self.histogramLC(self.lightCurveIntensityCounts)
         
@@ -629,7 +629,7 @@ class mainWindow(QMainWindow):
                     effExpTime = .00001 #10 ms/1000
 
                     
-                    lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = binnedRE.getLightCurve(photonList['Time'],self.spinbox_startTime.value(),self.spinbox_startTime.value()+self.spinbox_integrationTime.value(),effExpTime)
+                    lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = binnedRE.getLightCurve(photonList['Time']/1e6,self.spinbox_startTime.value(),self.spinbox_startTime.value()+self.spinbox_integrationTime.value(),effExpTime)
                     
                     intensityHist, bins = binnedRE.histogramLC(lightCurveIntensityCounts)
                     # [self.intensityHist] = counts

@@ -33,13 +33,12 @@ from matplotlib.backends.backend_pdf import PdfPages
 from mkidpipeline.calibration import wavecal
 from mkidcore.headers  import FlatCalSoln_Description
 from mkidpipeline.hdf.darkObsFile import ObsFile
-import mkidcore.corelog as pipelinelog
 from mkidcore.corelog import getLogger
+import mkidcore.corelog
 from mkidpipeline.hdf import bin2hdf
 
 DEFAULT_CONFIG_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)),
                                                    'Params', 'default.cfg')
-BIN2HDF_DEFAULT_PATH = '/mnt/data0/DarknessPipeline/RawDataProcessing'
 
 np.seterr(divide='ignore', invalid='ignore')
 
@@ -77,31 +76,27 @@ class FlatCal(object):
         self.wvlStop = ast.literal_eval(self.config['Instrument']['wvlStop'])
         self.countRateCutoff = ast.literal_eval(self.config['Calibration']['countRateCutoff'])
         self.fractionOfChunksToTrim = ast.literal_eval(self.config['Calibration']['fractionOfChunksToTrim'])
-        self.verbose = ast.literal_eval(self.config['Output']['verbose'])
         self.logging = ast.literal_eval(self.config['Output']['logging'])
         self.out_directory = ast.literal_eval(self.config['Output']['out_directory'])
         self.save_plots = ast.literal_eval(self.config['Output']['save_plots'])
+        self.summary_plot = ast.literal_eval(self.config['Output']['summary_plot'])
         self.cal_file_name=cal_file_name
         if self.save_plots:
             answer = self._query("Save Plots flag set to 'yes', this will add ~30 min to the code.  "
                                  "Are you sure you want to save plots?", yes_or_no=True)
             if answer is False:
                 self.save_plots = False
-                print('Setting save_plots parameter to FALSE')
+                getLogger(__name__).info("Setting save_plots parameter to FALSE")
         self.timeSpacingCut = None
 
-        # check the parameter formats
         self.checktypes()
-
-        if self.verbose:
-            print('Computing Factors for FlatCal')
         self.checksections()
         self.checktypes()
+        getLogger(__name__).info("Computing Factors for FlatCal")
 
     def checksections(self):
         """
-        Checks the variables loaded in from the configuration file for type and
-        consistencey.
+        Checks the variables loaded in from the configuration file for type and consistency.
         """
         section = "{0} must be a configuration section"
         param = "{0} must be a parameter in the configuration file '{1}' section"
@@ -139,15 +134,17 @@ class FlatCal(object):
             param.format('fractionOfChunksToTrim', 'Calibration')
         assert 'out_directory' in self.config['Output'].keys(), \
             param.format('out_directory', 'Output')
-        assert 'verbose' in self.config['Output'].keys(), \
-            param.format('verbose', 'Output')
         assert 'save_plots' in self.config['Output'].keys(), \
             param.format('save_plots', 'Output')
+        assert 'summary_plot' in self.config['Output'].keys(), \
+            param.format('summary_plot', 'Output')
         assert 'logging' in self.config['Output'], \
             param.format('logging', 'Output')
 
     def checktypes(self):
-            # type check parameters
+        """
+        type check parameters
+        """
         if self.h5directory != '':
             assert type(self.h5directory) is str, "Flat Path parameter must be a string."
             assert os.path.exists(self.h5directory), "Please confirm the Flat File path provided is correct"
@@ -178,16 +175,17 @@ class FlatCal(object):
             self.countRateCutoff = float(self.countRateCutoff)
         assert type(self.countRateCutoff) is float, "Count Rate Cutoff must be an integer or float"
         assert type(self.fractionOfChunksToTrim) is int, "Fraction of Chunks to Trim must be an integer"
-        assert type(self.verbose) is bool, "Verbose indicator must be a bool"
         assert type(self.save_plots) is bool, "Save Plots indicator must be a bool"
+        assert type(self.summary_plot) is bool, "Save Summary Plot indicator must be a bool"
         assert type(self.logging) is bool, "logging parameter must be a boolean"
 
     def hdfexist(self):
-        print(os.path.isfile(self.h5directory+self.file_name))
         return(os.path.isfile(self.h5directory+self.file_name))
 
     def makeCalibration(self):
-
+        """
+        wvlBinEdges includes both lower and upper limits, so number of bins is 1 less than number of edges
+        """
         self.obs = ObsFile(self.h5directory)
         self.flatCalFileName = self.out_directory + self.cal_file_name
         self.beamImage = self.obs.beamImage
@@ -195,7 +193,6 @@ class FlatCal(object):
         self.xpix = self.obs.nXPix
         self.ypix = self.obs.nYPix
         self.wvlBinEdges = ObsFile.makeWvlBins(self.energyBinWidth, self.wvlStart, self.wvlStop)
-        # wvlBinEdges includes both lower and upper limits, so number of bins is 1 less than number of edges
         self.nWvlBins = len(self.wvlBinEdges) - 1
 
         self.loadFlatSpectra()
@@ -236,7 +233,8 @@ class FlatCal(object):
             self.frames.append(frame)
             self.spectralCubes.append(cube)
             self.cubeEffIntTimes.append(effIntTime3d)
-            self.obs.file.close()
+            getLogger(__name__).info('Loaded Flat Spectra for seconds {} to {}'.format(int(firstSec), int(firstSec) + int(self.intTime)))
+        self.obs.file.close()
         self.spectralCubes = np.array(self.spectralCubes)
         self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
         self.countCubes = self.cubeEffIntTimes * self.spectralCubes
@@ -330,23 +328,27 @@ class FlatCal(object):
         self.writeWeights()
         if self.save_plots:
             self.plotWeightsWvlSlices()
+            getLogger(__name__).info('Plotted Weights by Wvl Slices at WvlSlices_{}'.format(timestamp))
             self.plotWeightsByPixelWvlCompare()
+            getLogger(__name__).info('Plotted Weights by Pixel against the Wavelength Solution at WavelengthCompare_{}'.format(timestamp))
+        if self.summary_plot:
+            self.makeSummary()
+            getLogger(__name__).info('Made Summary Plot')
 
     def makeh5(self):
 
         flatpath = '{}{}.txt'.format(self.h5directory, 'flat')
         b2h_config=bin2hdf.Bin2HdfConfig(datadir=self.dataDir,
                                                      beamfile=self.beamDir, outdir=self.h5directory,
-                                                     starttime=self.startTime, inttime=self.intTime, x=self.xpix,
+                                                     starttime=self.startTime, inttime=self.expTime, x=self.xpix,
                                                      y=self.ypix, writeto=flatpath)
-
-        print('MAKING H5')
+        getLogger(__name__).info('Made h5 file at {}.h5'.format(self.startTime))
 
         bin2hdf.makehdf(b2h_config, maxprocs=1)
         self.h5directory=self.h5directory+str(self.startTime)+'.h5'
-        print('applying Wavecal to ' + self.h5directory)
+        getLogger(__name__).info('Applied Wavecal {} to {}.h5'.format(self.wvlCalFile, self.startTime))
         obsfile = ObsFile(self.h5directory, mode='write')
-        #ObsFile.applyWaveCal(obsfile, self.wvlCalFile)
+        ObsFile.applyWaveCal(obsfile, self.wvlCalFile)
 
     def plotWeightsByPixelWvlCompare(self):
         """
@@ -408,9 +410,6 @@ class FlatCal(object):
                     for iCube in range(nCubes):
                         my_pixel = [iRow, iCol]
                         wavesol.plot_energy_solution(pixel=my_pixel, axis=ax)
-                        ##if ax is None:
-                          ##  ax.plot(wvls, cubeWeights.data*0.0, label='failed wavecal %d' % iCube, alpha=.7,
-                            ##        color=matplotlib.cm.Paired((iCube + 1.) / nCubes))
                     ax.set_title('p %d,%d' % (iRow, iCol))
                     if self.iPlot % self.nPlotsPerPage == self.nPlotsPerPage - 1 or (
                             iRow == self.xpix - 1 and iCol == self.ypix - 1):
@@ -474,9 +473,6 @@ class FlatCal(object):
             self._setupPlots()
         matplotlib.rcParams['font.size'] = 4
         wvls = self.wvlBinEdges[0:-1]
-        if self.verbose:
-            print(self.pdfFullPath)
-            print('plotting mask in wavelength sliced images')
         for iWvl, wvl in enumerate(wvls):
             if self.iPlot % self.nPlotsPerPage == 0:
                 self.fig = plt.figure(figsize=(10, 10), dpi=100)
@@ -509,7 +505,7 @@ class FlatCal(object):
         try:
             flatCalFile = tables.open_file(self.flatCalFileName, mode='w')
         except:
-            print('Error: Couldn\'t create flat cal file, ', self.flatCalFileName)
+            getLogger(__name__).info('Error: Couldn\'t create flat cal file,{} ', self.flatCalFileName)
             return
         header = flatCalFile.create_group(flatCalFile.root, 'header', 'Calibration information')
         tables.Array(header, 'beamMap', obj=self.beamImage)
@@ -547,8 +543,10 @@ class FlatCal(object):
                 entry.append()
         flatCalFile.flush()
         flatCalFile.close()
-        if self.verbose:
-            print('wrote to', self.flatCalFileName)
+        getLogger(__name__).info("Wrote to {}".format(self.flatCalFileName))
+
+    def makeSummary(self):
+        summaryPlot(calsolnName=self.flatCalFileName, save_plot=True)
 
     def _setupPlots(self):
         """
@@ -558,24 +556,22 @@ class FlatCal(object):
         self.nPlotsPerCol = 4
         self.nPlotsPerPage = self.nPlotsPerRow * self.nPlotsPerCol
         self.iPlot = 0
-        self.pdfFullPath = self.calSolnPath + self.plotName +'_'+ '.pdf'
+        self.pdfFullPath = self.out_directory + self.plotName + '.pdf'
         if os.path.isfile(self.pdfFullPath):
             answer = self._query("{0} already exists. Overwrite?".format(self.pdfFullPath), yes_or_no=True)
             if answer is False:
                 answer = self._query("Provide a new file name (type exit to quit):")
                 if answer == 'exit':
                     raise UserError("User doesn't want to overwrite the plot file " + "... exiting")
-                self.pdfFullPath = self.calSolnPath + str(answer) + '.pdf'
-                print(self.pdfFullPath)
+                self.pdfFullPath = self.out_directory + str(answer) + '.pdf'
             else:
                 os.remove(self.pdfFullPath)
-                print(self.pdfFullPath)
 
     def _mergePlots(self):
         """
         Merge recently created temp.pdf with the main file
         """
-        temp_file = os.path.join(self.calSolnPath, 'temp.pdf')
+        temp_file = os.path.join(self.out_directory, 'temp.pdf')
         if os.path.isfile(self.pdfFullPath):
             merger = PdfFileMerger()
             merger.append(PdfFileReader(open(self.pdfFullPath, 'rb')))
@@ -640,75 +636,6 @@ class UserError(Exception):
     """
     pass
 
-def plotSinglePixelSolution(calsolnName, file_nameWvlCal, res_id=None, pixel=[], save_plot=False):
-    """
-        Plots the weights and twilight spectrum of a single pixel (can be specified through the RES ID or pixel coordinates)
-        Plots may be saved to a pdf if save_plot=True.
-        Also plots the energy solution for the pixel from Wavecal
-        calsolnName= File path and name of wavecal solution
-        res_id= RES ID of pixel (if known)
-        pixel= Coordinates of pixel (if known)
-        Note:  Either RES ID or pixel coordinates must be specified
-        save_plot:  Should a plot be saved?  If FALSE, the plot will be displayed.
-        If TRUE, the plot will be saved to a pdf in the current working directory
-        """
-    wavesol = wavecal.Solution(self.wvlCalFile)
-    assert os.path.exists(calsolnName), "{0} does not exist".format(calsolnName)
-    flat_cal = tables.open_file(calsolnName, mode='r')
-    calsoln = flat_cal.root.flatcal.calsoln.read()
-    beamImage = flat_cal.root.header.beamMap.read()
-    wavelengths = flat_cal.root.flatcal.wavelengthBins.read()
-    if len(pixel) != 2 and res_id is None:
-        flat_cal.close()
-        raise ValueError('please supply resonator location or res_id')
-    if len(pixel) == 2 and res_id is None:
-        row = pixel[0]
-        column = pixel[1]
-        res_id = beamImage[row][column]
-        index = np.where(res_id == np.array(calsoln['resid']))
-    elif res_id is not None:
-        index = np.where(res_id == np.array(calsoln['resid']))
-        if len(index[0]) != 1:
-            flat_cal.close()
-            raise ValueError("res_id must exist and be unique")
-        row = calsoln['pixel_row'][index][0]
-        column = calsoln['pixel_col'][index][0]
-    weights = calsoln['weights'][index]
-    weightFlags = calsoln['weightFlags'][index]
-    weightUncertainties = calsoln['weightUncertainties'][index]
-    spectrum = calsoln['spectrum'][index]
-    weights = np.array(weights)
-    weights = weights.flatten()
-    spectrum = np.array(spectrum)
-    spectrum = spectrum.flatten()
-    weightUncertainties = np.array(weightUncertainties)
-    weightUncertainties = weightUncertainties.flatten()
-    fig = plt.figure(figsize=(10, 15), dpi=100)
-    ax = fig.add_subplot(3, 1, 1)
-    ax.set_ylim(.5, max(weights))
-    ax.plot(wavelengths[0:len(wavelengths) - 1], weights, label='weights %d' % index, alpha=.7,
-            color=matplotlib.cm.Paired((1 + 1.) / 1))
-    ax.errorbar(wavelengths[0:len(wavelengths) - 1], weights, yerr=weightUncertainties, label='weights', color='k')
-    ax.set_title('Pixel %d,%d' % (row, column))
-    ax.set_ylabel('Weight')
-    ax.set_xlabel(r'$\lambda$ ($\AA$)')
-    ax = fig.add_subplot(3, 1, 2)
-    ax.set_ylim(.5, max(spectrum))
-    ax.plot(wavelengths[0:len(wavelengths) - 1], spectrum, label='Twilight Spectrum %d' % index, alpha=.7,
-            color=matplotlib.cm.Paired((1 + 1.) / 1))
-    ax.set_ylabel('Twilight Spectrum')
-    ax.set_xlabel(r'$\lambda$ ($\AA$)')
-    ax = fig.add_subplot(3, 1, 3)
-    ax.set_ylim(.5, 2.)
-    my_pixel = [row, column]
-    ax = wavesol.plot_energy_solution(pixel=my_pixel, axis=ax)
-    if not save_plot:
-        plt.show()
-    else:
-        pdf = PdfPages(os.path.join(os.getcwd(), str(res_id) + '.pdf'))
-        pdf.savefig(fig)
-        pdf.close()
-
 def summaryPlot(calsolnName, save_plot=False):
     """
         Writes a summary plot of the Flat Fielding
@@ -772,14 +699,11 @@ def summaryPlot(calsolnName, save_plot=False):
     if not save_plot:
         plt.show()
     else:
-        pdf = PdfPages(os.path.join(os.getcwd(), 'SummaryPlot.pdf'))
+        pdf = PdfPages(os.path.join(os.getcwd(), 'SummaryPlot_{}.pdf'.format(timestamp)))
         pdf.savefig(fig)
         pdf.close()
 
 if __name__ == '__main__':
-    pipelinelog.setup_logging()
-
-    log = getLogger('FlatCal')
 
     timestamp = datetime.utcnow().timestamp()
 
@@ -791,16 +715,13 @@ if __name__ == '__main__':
                         help='Only make h5 files')
     parser.add_argument('--forceh5', action='store_true', dest='forcehdf', default=False,
                         help='Force HDF creation')
-    parser.add_argument('--nolog', action='store_true', dest='nolog', default=False,
+    parser.add_argument('--quiet', action='store_true', dest='quiet',
                         help='Disable logging')
     args = parser.parse_args()
 
-    if args.nolog:
-        flog = None
-    else:
-        flog = pipelinelog.createFileLog('FlatCal.logfile',
-                                         os.path.join(os.getcwd(),
-                                                      '{:.0f}.log'.format(timestamp)))
+    if not args.quiet:
+        mkidcore.corelog.create_log('flatcalib', logfile='flatcalib_{}.log'.format(timestamp), console=False, propagate=False,
+                                    fmt='%(levelname)s %(message)s', level=mkidcore.corelog.INFO)
 
     atexit.register(lambda x:print('Execution took {:.0f}s'.format(time.time()-x)), time.time())
 

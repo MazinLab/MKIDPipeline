@@ -70,7 +70,7 @@ def makehdf(cfgORcfgs, maxprocs=2, polltime=.1, executable_path=''):
 
 
     while len(procs):
-        #TODO consider repalcing with https://gist.github.com/bgreenlee/1402841
+        #TODO consider replacing with https://gist.github.com/bgreenlee/1402841
         for i, proc in enumerate(procs):
             try:
                 out, err = proc.communicate(timeout=polltime)

@@ -25,6 +25,7 @@ from scipy.special import eval_laguerre, eval_genlaguerre, factorial
 from scipy import optimize
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy.stats import poisson
+import mkidpipeline.speckle.optimize_IcIsIr as binfree
 
 import time
 
@@ -56,7 +57,7 @@ def blurredMR(n,Ic,Is):
     
     n = n.astype(int)
     p = np.zeros(len(n))
-    for ii in range(len(n)):
+    for ii in range(len(n)): #TODO: change hyp1f1 to laguerre polynomial. It's way faster.
         p[ii] = 1/(Is + 1)*(1 + 1/Is)**(-n[ii])*np.exp(-Ic/Is)*hyp1f1(float(n[ii]) + 1,1,Ic/(Is**2 + Is))
     return p
 
@@ -79,15 +80,19 @@ def getLightCurve(photonTimeStamps,startTime =0,stopTime =10,effExpTime=.01):
     time to make a light curve.
     
     INPUTS:
-        photonTimeStamps - 1d numpy array with units of microseconds
+        photonTimeStamps - 1d numpy array with units of seconds
+        startTime -     ignore the photonTimeStamps before startTime. [seconds]
+        stopTime -      ignore the photonTimeStamps after stopTime. [seconds]
+        effExpTime -    bin size of the light curver. [seconds]
     OUTPUTS:
-        lightCurveIntensityCounts - array with units of counts. Float.
+        lightCurveIntensityCounts - array with units of counts/bin. Float.
         lightCurveIntensity - array with units of counts/sec. Float.
-        lightCurveTimes - array with times corresponding to the bin centers of the light curve. Float.
+        lightCurveTimes - array with times corresponding to the bin
+                            centers of the light curve. Float.
     """
     histBinEdges = np.arange(startTime,stopTime,effExpTime)
     
-    hist,_ = np.histogram(photonTimeStamps/10**6,bins=histBinEdges) #if histBinEdges has N elements, hist has N-1
+    hist,_ = np.histogram(photonTimeStamps,bins=histBinEdges) #if histBinEdges has N elements, hist has N-1
     lightCurveIntensityCounts = hist  #units are photon counts
     lightCurveIntensity = 1.*hist/effExpTime  #units are counts/sec
     lightCurveTimes = histBinEdges[:-1] + 1.0*effExpTime/2
@@ -131,6 +136,20 @@ def histogramLC(lightCurve):
     return intensityHist, bins
 
 
+def get_muVar(n):
+    """
+    given a light curve, return the mean and variance of that light curve
+    INPUTS:
+        n - light curve [units don't matter]
+
+    OUTPUTS:
+        mu - the mean value of the light curve [same units as light curve]
+        var - the variance of the light curve [same units as the light curve]
+    """
+    mu = np.mean(n)
+    var = np.var(n)
+    return mu,var
+
 
 def muVar_to_IcIs(mu,var,effExpTime):
     """
@@ -139,6 +158,7 @@ def muVar_to_IcIs(mu,var,effExpTime):
     INPUTS:
         mu - the mean count rate. [counts/bin]
         var - the variance of the count rate [counts/bin]
+        effExpTime - the bin size in seconds
     OUTPUTs:
         Ic - counts/sec
         Is - counts/sec
@@ -181,8 +201,7 @@ def fitBlurredMR(bins,intensityHist,effExpTime, **kwargs):
     
     sigma = np.sqrt(intensityHist)
     sigma[np.where(sigma==0)] = 1
-#    print('\np0 is ',p0)
-#    print('Ic_guess, Is_guess are: ',Ic_guess,Is_guess,'\n\n')
+
     try:
         popt,pcov = curve_fit(blurredMR,bins,intensityHist,p0=p0,sigma=sigma,bounds=(0,np.inf))
         #units of pcov are I^2
@@ -202,82 +221,49 @@ def fitBlurredMR(bins,intensityHist,effExpTime, **kwargs):
 def binMRlogL(n, Ic, Is):
     '''
     Given a light curve, calculate the Log likelihood that
-    its intensity distribution follows a blurred modified Rician with Ic, Is. 
+    its intensity distribution follows a blurred modified Rician with Ic, Is.
+
+    "Blurred" means that it's not a pure MR, rather a Poisson sampling of an MR.
     
     INPUTS:
         n: 1d array containing the (binned) intensity as a function of time, i.e. a lightcurve [counts/bin]. Bin size must be fixed. 
         Ic: Coherent portion of MR [cts/bin]
         Is: Speckle portion of MR [cts/bin]
     OUTPUTS:
-        [float] the Log likelihood of the entire light curve.
+        lnL: [float] the Log likelihood of the entire light curve.
+        lnL_array: an array where each index corresponds to the log likelihood of each element of the light curve array.
     '''
-    if Ic<=0 or Is<=0:
-        # print('Ic or Is are <= zero. Ic, Is = {:g}, {:g}'.format(Ic,Is))
-        lnL = -np.inf
-        return lnL
 
     type_n = type(n)
-    if type_n==float or type_n==int: #len(n) will break if n is not a list or numpy array and only an int or float
-        n=[n]
-    
+    if type_n==float or type_n==int:  # len(n) will break if n is not a numpy array and only an int or float
+        n=np.array([n])
+
     N = len(n)
-    lnL = np.zeros(N) 
-    tmp = np.zeros(N)
-    
-    if 1./(Is+1)<=0 or Is/(1.+Is) <=0:
-        lnL = np.nan
-        return lnL
-    
-    #hyp1f1 can't do numpy arrays because of its data type, which is mpf
+    if Ic<=0 or Is<=0:
+        print('Ic or Is are <= zero. Ic, Is = {:g}, {:g}'.format(Ic,Is))
+        lnL = -np.inf
+        return lnL, np.zeros(N)
 
-# v1
-##    for ii in range(len(n)): 
-##        tmp[ii] = float(hyp1f1(n[ii] + 1,1,Ic/(Is**2 + Is)))
-    
-#    tmp = np.array([float(hyp1f1(i + 1,1,Ic/(Is**2 + Is))) for i in n])
-#    lnL = np.log(1./(Is+1)) - n*np.log(1+1./Is) - Ic/Is + np.log(tmp)
-#    
-#    return np.sum(lnL)
-
-# v2, gains about a factor of 10 in speed over v1
-#    k = Ic/(Is**2 + Is)
-#    tmp = np.log([eval_laguerre(i,-k)*np.exp(k) for i in n])
-#    lnL = N*(np.log(1./(Is+1))  - 1.*Ic/Is) + np.sum(tmp) + np.sum(n)*np.log(Is/(1.+Is))
-#    
-#    return lnL
-    
-    
-# v3, another factor of ~5 in speed over v2
-    #Use scipy.special.eval_laguerre instead of the hypergeometric function because
-    #it's WAY faster. 
-#    k = Ic/(Is**2 + Is)
-#    tmp = np.log([eval_laguerre(i,-k) for i in n])
-#    tmp += k
-#    lnL = N*(np.log(1./(Is+1))  - 1.*Ic/Is) + np.sum(tmp) + np.sum(n)*np.log(Is/(1.+Is))
-#    
-#    return lnL
-
-
-# v4. eval_laguerre can accept numpy arrays! Another factor of ~9 in speed.
     k = -Ic/(Is**2 + Is)
-    tmp = np.log(eval_laguerre(n,k))
+    tmp = np.log(eval_laguerre(n,k)) # eval_laguerre(100,k) = inf when Ic = 514, Is = 1
+
+    # if elements in tmp are np.inf, then go through them and fix with mpmath.
+    tmp2 = n[np.isinf(tmp)]
+    for ii in tmp2:
+        tmp[ii] = float(mpmath.log(mpmath.laguerre(int(ii), 0, k)))
+
     tmp -= k
-    lnL = N*(np.log(1./(Is+1))  - Ic/Is) + np.sum(tmp) + np.sum(n)*np.log(Is/(1.+Is))
+    a = np.log(1./(Is+1)) - Ic/Is
+    c = np.log(Is/(1.+Is))
 
+    #old
+    # lnL = N*(np.log(1./(Is+1))  - Ic/Is) + np.sum(tmp) + np.sum(n)*np.log(Is/(1.+Is))
+    # lnL_array = np.log(1./(Is+1))  - Ic/Is + tmp + n*np.log(Is/(1.+Is))
 
+    lnL = N*a + np.sum(tmp) + np.sum(n)*c
+    lnL_array = a + tmp + n*c
 
-#v5. We can make a lookup table, so that eval_laguerre is called only once per each unique value in the lightcurve n.
-
-    #Turns out that this is slower than v4 by 1.5 to 3x
-    # k = -Ic / (Is ** 2 + Is)
-    # lut = np.zeros(np.amax(n)+1)
-    # lut[np.unique(n)] = np.log(eval_laguerre(np.unique(n),k))
-    # tmp = lut[n]
-    # tmp -= k
-    # lnL2 = N*(np.log(1./(Is+1))  - Ic/Is) + np.sum(tmp) + np.sum(n)*np.log(Is/(1.+Is))
-
-    
-    return lnL
+    return lnL,lnL_array
 
 
 def binMR_like(n, Ic, Is):
@@ -325,11 +311,8 @@ def binMR_like(n, Ic, Is):
     return like, likeArray
 
 
-def pssn(m,mu): #scipy has a module called poisson
-    return np.exp(-mu)*mu**m/factorial(m)
 
-
-def loglike_planet_blurredMR(n,Ic,Is,Ir):
+def loglike_planet_blurredMR(n,Ic,Is,Ir,n_unique = None):
     """
     Calculate the log likelihood of lightcurve that has both speckle Ic and Is,
     as well as planet light Ir.
@@ -351,34 +334,67 @@ def loglike_planet_blurredMR(n,Ic,Is,Ir):
     I'll also create some lookup tables for the poisson distribution and for the
     MR distribution, so that we're not calling those functions more than we need
     to.
+
+    INPUTS:
+        n - the light curve. [counts/bin]
+        Ic - [counts/bin]
+        Is - [counts/bin]
+        Ir - [counts/bin]
+        n_unique - optional argument to speed things up.
+                    If passed, n_unique = np.unique(n)
+    OUTPUTS:
+        loglike - the log likelihood of the entire light curve
+        likeArray - an array with likelihood values corresponding to every element of
+                    the light curve array. Has the same length as the light curve array.
+
     """
+    if n_unique is None:
+        inds = np.unique(n).astype(int) # get the indexes we will use in the lookup table.
+    else:
+        inds = n_unique
 
-    #make lookup tables for poisson and binMRlogL
-    # Ic, Is, and Ir are constant inside this function
-    plut = poisson.pmf(np.arange(max(n)+1),Ir)
-    mlut = np.zeros(len(plut))
-    for ii in range(len(mlut)):
-        mlut[ii] = np.exp(binMRlogL(ii,Ic,Is))  #binMRlogL returns only one number, not an array
-        
-    #make a lookup table
-    lutSize = int(max(n))+1
+    # make a lookup table
+    lutSize = int(np.amax(inds))+1
     lut = np.zeros(lutSize)
-    inds = np.unique(n).astype(int) #get the indexes we will use in the lookup table.
-    for ii in inds:
-        for mm in np.arange(ii+1):  #convolve the binned MR likelihood with a poisson
-            # lut[ii] += pssn(mm,Ir)*binMR_like(np.array([ii-mm]), Ic, Is)[0]
-            # lut[ii] += poisson.pmf(mm,Ir)*np.exp(binMRlogL(np.array([ii-mm]), Ic, Is))
-            lut[ii] += plut[mm]*mlut[ii-mm]
-    loglut = np.zeros(lutSize)
-    loglut[lut!=0] = np.log(lut[lut!=0])  #calculate the log of the lut array, but not
-                                        #  on elements where lut = 0. We're not using them
-                                        #  anyway
 
-    likeArray = lut[n]  #this is an array with one likelihood value for each element in the light curve array
+    # make lookup tables for poisson and binMRlogL
+    # Ic, Is, and Ir are constant inside this function
+    mlut = np.exp(binMRlogL(np.arange(lutSize),Ic,Is)[1])
+    plut = poisson.pmf(np.arange(lutSize), Ir)
+
+    if np.isinf(np.sum(mlut)):
+        print('lutSize is: ',lutSize,'\n')
+        print('Ic, Is, Ir are: ', Ic, Is, Ir,'\n')
+        print('\n\nmlut is: ',mlut)
+        # print('binMRlogL is: ', binMRlogL(np.arange(lutSize),Ic,Is)[1])
+    # print('\n\nplut is: ',plut)
+
+    for ii in inds:
+        for mm in np.arange(ii+1):  # convolve the binned MR likelihood with a poisson
+            lut[ii] += plut[mm]*mlut[ii-mm]
+
+    loglut = np.zeros(lutSize)  # initialize the array for storing log likelihood values
+    # lut[np.isnan(lut)] = 0  # if an element of lut is nan or inf, then ignore it.
+    # lut[np.isinf(lut)] = 0
+    loglut[lut!=0] = np.log(lut[lut!=0])  # calculate the log of the lut array, but not
+                                        # on elements where lut = 0. We're not using them
+                                        # anyway
+
+    likeArray = lut[n]  # this is an array with one likelihood value for each element in the light curve array
 
     loglike = np.sum(loglut[n])
 
+    # if np.isnan(loglike):
+    #     print('\n==============================================\nloglike is: ', loglike)
+    #     print('\n==============================================\nlikeArray is: ', likeArray)
+    #     print('\n==============================================\nlut is: ', lut)
+    #     print('\n==============================================\nmlut is: ', mlut)
+    #     print('\n==============================================\nplut is: ', plut)
+    #     print('\n==============================================\nbinMRlogL(np.arange(lutSize),Ic,Is)[1]',binMRlogL(np.arange(lutSize),Ic,Is)[1])
+    #     print('Ic,Is = ', Ic,Is)
     return loglike, likeArray
+
+
 
 
 def negloglike_planet_blurredMR(p,n):
@@ -402,7 +418,7 @@ def negLogLike(p,n):
     OUTPUTS:
         negative log likelihood [float]
     """
-    return -binMRlogL(n, p[0], p[1])
+    return -binMRlogL(n, p[0], p[1])[0]
 
 
 def nLogLikeJac(p,n):
@@ -532,69 +548,197 @@ def binMRlogL_hessian(n,Ic,Is):
     h_IsIs = N*(1-2*Ic+Is)*a**3 + np.sum( -c*n/Is**2*a**2  + h*c**2*p*f*l + 2*Ic*c**2*q*e*l - 2*Ic*q*d*l - h*c**2*o*f*m  )
     
     hessian = np.asarray([[h_IcIc, h_IcIs],[h_IcIs, h_IsIs]])
-    
-    
 
     return hessian
 
 
 
 
-def logLMap(n, Ic_list, Is_list, effExpTime,IcPlusIs = False,Ir_guess=0):
+def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_slice=0,sparse_map=False, bin_free = False, t = np.array([])):
     """
     makes a map of the MR log likelihood function over the range of Ic, Is
 
     INPUTS:
-        n - light curve [counts]
-        Ic_list - list of Ic values [photons/second]
-        Is_list - list
+        n - light curve [counts/bin]
+        x_list - list of x-axis values [photons/second]. Could be either Ic (IcPlusIs = False) or Ic + Is (IcPlusIs = True)
+        Is_list - list of Is values to map [photons/second]
+        effExpTime - the bin size of the light curve. [seconds]
+        IcPlusIs - bool flag indicating whether the x axis of the plots should be
+                    Ic or Ic+Is
+        Ir_slice - The value to be used for Ir when calculating the log likelihood.
+                    i.e. the Ir at which we're slicing the log-likelihood function.
+                    [counts/second]
+        sparse_map - bool flag specifying whether to map out only a subsection of the
+                    map in order to save time. Might cause maps to cut off if
+                    the log like function is very long in one direction compared to the
+                    other
+        bin_free - bool flag specifying whether to use a bin-free log likelihood.
+        t - array of photon timestamps. Ignored if not doing a bin-free map. [microseconds]
     OUTPUTS:
         X - meshgrid of x coords
         Y - meshgrid of y coords
         im - log likelihood map
     """
-    Ic_list_countsperbin = Ic_list * effExpTime  # convert from cps to counts/bin
+
+    # TODO: clean this function up, there's a lot of extra crap that doesn't work
+    x_list_countsperbin = x_list * effExpTime  # convert from cps to counts/bin
     Is_list_countsperbin = Is_list * effExpTime
-    Ir_countsperbin = Ir_guess*effExpTime
+    Ir_countsperbin = Ir_slice*effExpTime
 
-    im = np.zeros((len(Is_list), len(Ic_list)))
+    im = np.zeros((len(x_list), len(Is_list))) #initialize an empty image
+    n_unique = np.unique(n).astype(int)  # get the indexes we will use in the lookup table.
+    if len(t)>0:
+        dt = (t[1:] - t[:-1])*1e-6
+        deadtime_us = 0
 
-    for j, Is in enumerate(Is_list_countsperbin):
-        for i, Ic in enumerate(Ic_list_countsperbin):
-            if IcPlusIs == True:
-                tmp = Ic - Is
-                if tmp < 0:
+    if sparse_map:
+        # Find the location of the maximum likelihood.
+        # Then we'll use that as a starting point for making maps.
+        mu, var = get_muVar(n)  # mu, var have same units as light curve
+        guessIcIs = np.array(
+            muVar_to_IcIs(mu, var, effExpTime)) * effExpTime  # this will be the guess for the optimize.minimize
+        p0 = (guessIcIs[0], guessIcIs[1], np.sum(guessIcIs) / 10)  # units are [counts/bin]
+        p1 = optimize.minimize(negloglike_planet_blurredMR, p0, n,
+                               bounds=((0.001, np.inf), (0.001, np.inf), (.001, np.inf))).x  # units are [cts/bin]
+
+
+
+    # check if the estimate of the max-likelihood location from optimize.minimize is within the plot window. If not, then just map out the full space.
+    if sparse_map and x_list_countsperbin[0] < p1[0]+p1[1]<x_list_countsperbin[-1] and Is_list_countsperbin[0] < p1[1]<Is_list_countsperbin[-1] and not bin_free:
+        thresh = 10
+
+        # units of p1 should be counts/bin
+        lnLmax = loglike_planet_blurredMR(n,p1[0],p1[1],p1[2])[0]
+
+        #do a spiral around p1. When we find that all the new values of a row or column
+        # don't meet the threshold, then stop.
+
+        #first, snap the values of p1 to the grid passed to logLMap
+        y_offset = np.argmin(np.abs(p1[1] - Is_list_countsperbin))
+        x_offset = np.argmin(np.abs(p1[0] + p1[1] - x_list_countsperbin))
+
+        #now do the spiral starting at p1. Keep track of the maximum log likelihood.
+        dx = 0
+        dy = -1
+        n_xpoints = len(x_list)
+        n_ypoints = len(Is_list)
+        x = 0
+        y = 0
+        x_max = 0
+
+        same_count = 0  #count for moving in the same direction
+
+        lnl_list = np.array([])
+        for i in 4*np.arange(n_xpoints*n_ypoints):
+            if 0  < (x + x_offset) < n_xpoints  and 0 < (y + y_offset) < n_ypoints:
+                Is = Is_list_countsperbin[y + y_offset]
+                Ic = x_list_countsperbin[x+x_offset] - Is
+                if Ic < 0:
                     continue
+                lnL = loglike_planet_blurredMR(n,Ic,Is,Ir_countsperbin,n_unique=n_unique)[0]
+                im[y + y_offset, x + x_offset] = lnL
+                lnl_list = np.append(lnl_list,lnL)
+                lnLmax = np.amax(lnl_list)
+            if x == y or (x < 0 and x == -y) or (x > 0 and x == 1 - y):
+                dx, dy = -dy, dx
+                same_count = 0
             else:
-                tmp = Ic
+                same_count+=1
+            if same_count > 5 and np.all(lnl_list[-4*2*x_max:] < (lnLmax - thresh)):
+                break
+            x, y = x + dx, y + dy
+            if x>x_max:
+                x_max = x
 
-            # lnL = binMRlogL(n, tmp, Is)
-            lnL = loglike_planet_blurredMR(n,tmp,Is,Ir_countsperbin)[0]
-            im[j,i] = lnL
-        print('Ic,Is = ', Ic / effExpTime, Is / effExpTime)
+
+    else:
+        if sparse_map and not x_list_countsperbin[0] < p1[0]+p1[1]<x_list_countsperbin[-1] and Is_list_countsperbin[0] < p1[1]<Is_list_countsperbin[-1]:
+            print('\nLocation of maximum likelihood estimated by optimize.minimize was outside of the range of Ic,Is values specified for the plots.\n')
+
+        for j, Is in enumerate(Is_list_countsperbin):
+            for i, x in enumerate(x_list_countsperbin):
+                if IcPlusIs == True:
+                    Ic = x - Is
+                    if Ic < 0.000001:
+                        continue
+                else:
+                    Ic = x
+                if bin_free:
+                    # call bin free loglike method
+                    p = [Ic/effExpTime,Is/effExpTime,Ir_slice]
+                    # print('\n',p,'\n')
+                    lnL = -binfree.loglike(p,dt,deadtime_us)
+                else:
+                    # call binned loglike method
+                    # lnL = binMRlogL(n, tmp, Is)[0]
+                    lnL = loglike_planet_blurredMR(n,Ic,Is,Ir_countsperbin,n_unique=n_unique)[0]
+                im[j,i] = lnL
+                # print('Ic+Is, Is, Ir_slice = ', (Ic+Is), Is, Ir_countsperbin)
 
     # if there were parts of im where the loglikelihood wasn't calculated,
     # for example if Ic or Is were less than zero, then set those parts
     # of im to a value less than the maximum so that the maximum still
     # stands out
+    # print('\n\nim is: ',im)
     im[im==0] = np.amax(im[im!=0])-8
 
 
     Ic_ind, Is_ind = np.unravel_index(im.argmax(), im.shape)
-    print('Max at (' + str(Ic_ind) + ', ' + str(Is_ind) + ')')
-    print("Ic=" + str(Ic_list[Ic_ind]) + ", Is=" + str(Is_list[Is_ind]))
-    print(im[Ic_ind, Is_ind])
+    # print('Max at (' + str(Ic_ind) + ', ' + str(Is_ind) + ')')
+    # print("Ic=" + str(x_list[Ic_ind]) + ", Is=" + str(Is_list[Is_ind]))
+    # print(im[Ic_ind, Is_ind])
 
-    X, Y = np.meshgrid(Ic_list, Is_list)
+    X, Y = np.meshgrid(x_list, Is_list)
     sigmaLevels = np.array([8.36, 4.78, 2.1])
-    levels = np.amax(im) - sigmaLevels
 
     return X,Y,im
 
 
 
+def logLMap_binfree(t, x_list, Is_list, IcPlusIs = False,Ir_slice=0, deadtime_us = 0):
+    """
+    makes a map of the bin-free log likelihood function over the range of Ic, Is
 
-def plotLogLMap(n, Ic_list, Is_list, effExpTime,IcPlusIs = False):
+    INPUTS:
+        t - array of photon timestamps. Ignored if not doing a bin-free map. [microseconds]
+        x_list - list of x-axis values [photons/second]. Could be either Ic (IcPlusIs = False) or Ic + Is (IcPlusIs = True)
+        Is_list - list of Is values to map [photons/second]
+        IcPlusIs - bool flag indicating whether the x axis of the plots should be
+                    Ic or Ic+Is
+        Ir_slice - The value to be used for Ir when calculating the log likelihood.
+                    i.e. the Ir at which we're slicing the log-likelihood function. [cps]
+
+    OUTPUTS:
+        X - meshgrid of x coords
+        Y - meshgrid of y coords
+        im - log likelihood map
+    """
+
+    im = np.zeros((len(x_list), len(Is_list))) #initialize an empty image
+    dt = (t[1:] - t[:-1]) * 1e-6
+
+    for j, Is in enumerate(Is_list):
+        for i, x in enumerate(x_list):
+            if IcPlusIs == True:
+                Ic = x - Is
+                if Ic < 0.000001:
+                    continue
+            else:
+                Ic = x
+            # call bin free loglike method
+            p = [Ic, Is, Ir_slice]
+            # print('\n',p,'\n')
+            lnL = -binfree.loglike(p, dt, deadtime_us) # debugging: need to remove verbose argument
+
+            im[j, i] = lnL
+
+    X, Y = np.meshgrid(x_list, Is_list)
+
+    return X,Y,im
+
+
+
+def plotLogLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False):
     """
     plots a map of the MR log likelihood function over the range of Ic, Is
     
@@ -607,19 +751,19 @@ def plotLogLMap(n, Ic_list, Is_list, effExpTime,IcPlusIs = False):
     """
     
     
-    Ic_list_countsperbin = Ic_list*effExpTime  #convert from cps to counts/bin
+    x_list_countsperbin = x_list*effExpTime  #convert from cps to counts/bin
     Is_list_countsperbin = Is_list*effExpTime
     
-    im = np.zeros((len(Ic_list),len(Is_list)))
+    im = np.zeros((len(x_list),len(Is_list)))
             
     for j, Is in enumerate(Is_list_countsperbin):
-        for i, Ic in enumerate(Ic_list_countsperbin):
+        for i, x in enumerate(x_list_countsperbin):
             if IcPlusIs==True:
-                tmp = Ic - Is
+                Ic = x - Is
             else:
-                tmp = Ic
+                Ic = x
                 
-            lnL = binMRlogL(n, tmp, Is)
+            lnL = binMRlogL(n, Ic, Is)[0]
             im[i,j] = lnL
         print('Ic,Is = ',Ic/effExpTime,Is/effExpTime)
        
@@ -684,16 +828,90 @@ def plotLogLMap(n, Ic_list, Is_list, effExpTime,IcPlusIs = False):
     # cbar.set_label(r'ln$\mathcal{L}$ - ln$\mathcal{L}_{max}$')
 
 
-
-    
-
-    
     matplotlib.rcParams.update(oldstyle)
 
     plt.show()
 
     return X,Y,im
 
+
+
+def get_binfree_seed(ts, deadtime, Ir_zero = False):
+    """
+    INPUTS:
+    ts - photon timestamps, [microseconds]
+    deadtime - [microseconds]
+    Ir_zero - set to True if you want to find the seed in the Ir = 0 slice
+
+    OUTPUTS:
+    p0 - the seed. Will have 2 elements if Ir_zero = False and 3 elements if Ir_zero = True
+
+    """
+
+    deadtime_us = deadtime*1e-6
+    dt = (ts[1:] - ts[:-1])*1e-6 # change units to seconds
+    I = 1/np.mean(dt)
+    grid_pts = 10 # number of points on a side of a grid to find a good seed
+
+    if Ir_zero:
+        # make a course loglike map, find the maximum, use that as the seed.
+        Is_list = np.linspace(1, I, grid_pts)
+        x_list = np.linspace(1, I, grid_pts)
+        X, Y, im = logLMap_binfree(ts, x_list, Is_list, IcPlusIs = True, Ir_slice = 0, deadtime_us = deadtime_us)
+        im-=np.amax(im)
+        argmax_im = np.unravel_index(np.argmax(im, axis=None), im.shape)
+        im_max_Ic_Is = [x_list[argmax_im[1]] - Is_list[argmax_im[0]],Is_list[argmax_im[0]]] # figure out Ic & Is from map of [Is vs. Ic + Is]
+        p0 = im_max_Ic_Is
+
+    else:
+        Is_list = np.linspace(1, I, grid_pts)
+        x_list = np.linspace(1, I, grid_pts)
+        Ir_list = np.linspace(1, I, grid_pts)
+        im_cube = np.zeros(grid_pts**3).reshape(grid_pts,grid_pts,grid_pts)
+        for kk in range(grid_pts):
+            X, Y, im = logLMap_binfree(ts, x_list, Is_list, IcPlusIs = True, Ir_slice = Ir_list[kk], deadtime_us = deadtime_us)
+            im_cube[kk] = im
+
+        im_cube-=np.amax(im_cube)
+        argmax_im_cube = np.unravel_index(np.argmax(im_cube, axis=None), im_cube.shape)
+        im_cube_max_Ic_Is = [x_list[argmax_im_cube[2]] - Is_list[argmax_im_cube[1]],Is_list[argmax_im_cube[1]], Ir_list[argmax_im_cube[0]]] # figure out Ic & Is from map of [Is vs. Ic + Is]
+        p0 = im_cube_max_Ic_Is
+
+    return p0
+
+def get_binMR_seed(n, effExpTime):
+    """
+    INPUTS:
+    n - light curve, [counts/bin]
+    effExpTime - bin size [seconds]
+
+    OUTPUTS:
+    p0 - the seed. Array [Ic, Is, Ir]
+
+    """
+    # loglike_planet_blurredMR(n, Ic, Is, Ir, n_unique=None)
+
+    I = np.mean(n)/effExpTime # get the average total intensity in counts/sec
+    grid_pts = 10 # number of points on a side of a grid to find a good seed
+
+    Is_list = np.linspace(1, I, grid_pts)
+    x_list = np.linspace(1, I, grid_pts)
+    Ir_list = np.linspace(1, I, grid_pts)
+    im_cube = np.zeros(grid_pts ** 3).reshape(grid_pts, grid_pts, grid_pts)
+
+    for kk in range(grid_pts):
+        # X, Y, im = logLMap_binfree(ts, x_list, Is_list, IcPlusIs=True, Ir_slice=Ir_list[kk], deadtime_us=deadtime_us)
+        X, Y, im = logLMap(n, x_list, Is_list, effExpTime, IcPlusIs=True, Ir_slice=Ir_list[kk])
+        im_cube[kk] = im
+
+    im_cube -= np.amax(im_cube)
+    argmax_im_cube = np.unravel_index(np.argmax(im_cube, axis=None), im_cube.shape)
+    im_cube_max_Ic_Is = [x_list[argmax_im_cube[2]] - Is_list[argmax_im_cube[1]], Is_list[argmax_im_cube[1]],
+                         Ir_list[argmax_im_cube[0]]]  # figure out Ic & Is from map of [Is vs. Ic + Is]
+
+    p0 = im_cube_max_Ic_Is
+
+    return p0
 
 
 
@@ -706,7 +924,7 @@ if __name__ == "__main__":
 #        Ic, Is, Ttot, tau = [300., 30., 300., .1] # [Ic, Is] = cps, [Ttot, tau] = sec
 #        ts = genphotonlist(Ic, Is, Ttot, tau)
         
-        Ic, Is, Ir, Ttot, tau = [300., 30., 80, 300., .1] # [Ic, Is] = cps, [Ttot, tau] = sec
+        Ic, Is, Ir, Ttot, tau = [300., 30., 0, 30., .1] # [Ic, Is] = cps, [Ttot, tau] = sec
         ts = genphotonlist(Ic, Is, Ir, Ttot, tau)
         
         print("\nPhoton list parameters:\n Ic, Is, Ir, Ttot, tau = [{:g}, {:g}, {:g}, {:g}, {:g}]".format(Ic, Is, Ir, Ttot, tau))
@@ -720,10 +938,10 @@ if __name__ == "__main__":
         """
         Make a plot showing a histogram fit.
         """
-        effExpTime = 0.01 #second
+        effExpTime = .0001 #second
 
-        
-        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+
+        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts/1e6,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         if 0:
             plt.figure(1)
             plt.plot(lightCurveTimes,lightCurveIntensityCounts)
@@ -731,33 +949,33 @@ if __name__ == "__main__":
             plt.ylabel('counts')
             plt.title('light curve')
             plt.show()
-        
+
         intensityHist, bins = histogramLC(lightCurveIntensityCounts)
-        plt.figure(2)
+        fig2 = plt.figure(2)
         plt.bar(bins,intensityHist)
         plt.xlabel('intensity [counts/bin]')
         plt.ylabel('frequency')
-        plt.title('intensity histogram. Effective exposure time = {:.4f}'.format(effExpTime))
-        
-        
+        plt.title('intensity histogram. Effective exposure time = {:g}'.format(effExpTime))
+
+
         Ic_est,Is_est,covMatrix = fitBlurredMR(bins,intensityHist,effExpTime)
-        
+
         print('\nIc and Is from curve_fit are: ',Ic_est,'  ',Is_est, ' counts/sec')
-        
+
         #calculate the error on Ic and Is using the covariance matrix returned by curve_fit
         perr = np.sqrt(np.diag(covMatrix))/effExpTime #1 sigma errors, assuming the likelihood function is gaussian.
-        
-        
-        mu = np.mean(lightCurveIntensityCounts)
-        var = np.var(lightCurveIntensityCounts)  
-    
 
-        plt.plot(bins,blurredMR(np.arange(len(bins)),Ic_est*effExpTime,Is_est*effExpTime),'.-k',label = r'blurred MR from curve_fit. Ic,Is = {:.2f} $\pm$ {:.2f}, {:.2f} $\pm$ {:.2f}'.format(Ic_est,perr[0],Is_est,perr[1]))
-        plt.plot(bins,blurredMR(np.arange(len(bins)),Ic*effExpTime,Is*effExpTime),'.-b',label = 'blurred MR from actual Ic and Is. Ic,Is = {:.2f}, {:.2f}'.format(Ic,Is))
-#        plt.plot(bins,modifiedRician(np.arange(len(bins)),Ic_est*effExpTime,Is_est*effExpTime),'.-r',label = 'pure MR  Ic,Is = {:.2f}, {:.2f}'.format(Ic,Is))
-        
-        
-        
+
+        mu = np.mean(lightCurveIntensityCounts)
+        var = np.var(lightCurveIntensityCounts)
+
+
+        plt.plot(bins,blurredMR(np.arange(len(bins)),Ic_est*effExpTime,Is_est*effExpTime),'.-k',label = r'MR fit. Ic,Is = {:.2f} $\pm$ {:.2f}, {:.2f} $\pm$ {:.2f}'.format(Ic_est,perr[0],Is_est,perr[1]))
+        # plt.plot(bins,blurredMR(np.arange(len(bins)),Ic*effExpTime,Is*effExpTime),'.-b',label = 'blurred MR from actual Ic and Is. Ic,Is = {:.2f}, {:.2f}'.format(Ic,Is))
+        #        plt.plot(bins,modifiedRician(np.arange(len(bins)),Ic_est*effExpTime,Is_est*effExpTime),'.-r',label = 'pure MR  Ic,Is = {:.2f}, {:.2f}'.format(Ic,Is))
+
+
+
         ''''
         try:
             IIc = np.sqrt(mu**2 - var + mu)  #intensity per bin. 
@@ -772,17 +990,19 @@ if __name__ == "__main__":
             plt.plot(bins,blurredMR(np.arange(len(bins)),IIc*effExpTime,IIs*effExpTime),'.-c',label = 'blurredMR from mean and variance Ic,Is = {:.2f}, {:.2f}'.format(IIc,IIs))
             
         '''
-        
+
         try:
             IIc,IIs = muVar_to_IcIs(mu,var,effExpTime)
         except:
             print('unable to get Ic and Is from mean and variance.')
         else:
-            plt.plot(bins,blurredMR(np.arange(len(bins)),IIc*effExpTime,IIs*effExpTime),'.-c',label = 'blurredMR from mean and variance Ic,Is = {:.2f}, {:.2f}'.format(IIc,IIs))
-            
-    
+            pass
+            # plt.plot(bins,blurredMR(np.arange(len(bins)),IIc*effExpTime,IIs*effExpTime),'.-c',label = 'blurredMR from mean and variance Ic,Is = {:.2f}, {:.2f}'.format(IIc,IIs))
+
+
         plt.legend()
-        
+        fig2.show()
+
         
         
     if 0:
@@ -800,7 +1020,7 @@ if __name__ == "__main__":
         NdownSampleArray = np.array([])
         
         for effExpTime in effExpTimeArray:
-            lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+            lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts/1e6,ts[0]/1e6,ts[-1]/1e6,effExpTime)
             
 
             if 0:
@@ -927,13 +1147,13 @@ if __name__ == "__main__":
         Plot the log likelihood vs Is while keeping Ic constant. 
         '''
         effExpTime = 0.01 #second
-        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts/1e6,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         
         Ic = 100.
         Is = np.linspace(30,300,11)
         logLArray = np.zeros(len(Is))
         for ii in range(len(Is)):    
-            logLArray[ii] = binMRlogL(lightCurveIntensityCounts,Ic,Is[ii])
+            logLArray[ii] = binMRlogL(lightCurveIntensityCounts,Ic,Is[ii])[0]
             
         plt.plot(Is,logLArray,'b.-')
         plt.xlabel('Is')
@@ -962,7 +1182,7 @@ if __name__ == "__main__":
     if 0:
         
         effExpTime = .01
-        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts/1e6,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         
         
         print("Mapping...")
@@ -998,7 +1218,7 @@ if __name__ == "__main__":
         
     if 0:
         effExpTime = .01
-        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts/1e6,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         
         print("Calling scipy.optimize.minimize to find Ic,Is...")
         
@@ -1029,7 +1249,7 @@ if __name__ == "__main__":
         """
         
         effExpTime = .001
-        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts/1e6,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         
         
         print("Mapping...")
@@ -1043,7 +1263,7 @@ if __name__ == "__main__":
      
         
         effExpTime = .01
-        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts,ts[0]/1e6,ts[-1]/1e6,effExpTime)
+        lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = getLightCurve(ts/1e6,ts[0]/1e6,ts[-1]/1e6,effExpTime)
         
         
         print("Mapping...")

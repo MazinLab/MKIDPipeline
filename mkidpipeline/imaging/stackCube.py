@@ -23,7 +23,7 @@ from mkidpipeline.hdf.darkObsFile import ObsFile as darkObsFile
 from mkidpipeline.utils.FileName import FileName
 # from matplotlib.backends.backend_qt4agg import NavigationToolbar2QTAgg as NavigationToolbar
 # import mpfit
-from mkidpipeline.utils.arrayPopup import plotArray
+from mkidpipeline.utils.plottingTools import plot_array
 from mkidpipeline.utils.loadStack import *
 from mkidpipeline.utils.readDict import readDict
 
@@ -202,7 +202,7 @@ def stackCube(h5File,npzFile, verbose=True):
     for n in np.arange(nWvlBins):
         finalCube.append(irUtils.medianStack(cubeStack[n]))
         if verbose:
-            plotArray(finalCube[n],title="%i nm"%centers[n])
+            plot_array(finalCube[n],title="%i nm"%centers[n])
     finalCube = np.array(finalCube)
 
     return {'finalCube':finalCube,'wvls':centers, 'cubeStack':cubeStack, 'times':finalTimes}

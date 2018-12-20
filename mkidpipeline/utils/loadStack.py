@@ -11,7 +11,7 @@ Utilities for loading sets of image stacks from either .IMG or .bin files
 """
 
 
-def loadIMGStack(dataDir, start, stop, nCols=80, nRows=125, verbose=True):
+def loadIMGStack(dataDir, start, stop, ny=80, nx=125, verbose=True):
     useImg = True
     frameTimes = np.arange(start, stop + 1)
     frames = []
@@ -36,14 +36,26 @@ def loadIMGStack(dataDir, start, stop, nCols=80, nRows=125, verbose=True):
                 if verbose:
                     print(imagePath)
                 image = np.fromfile(open(imagePath, mode='rb'), dtype=np.uint16)
-                image = np.transpose(np.reshape(image, (nCols, nRows)))
+                image = np.transpose(np.reshape(image, (nx, ny)))
 
         except (IOError, ValueError):
             print("Failed to load ", imagePath)
-            image = np.zeros((nRows, nCols), dtype=np.uint16)
+            image = np.zeros((ny, nx), dtype=np.uint16)
         frames.append(image)
     stack = np.array(frames)
     return stack
+
+def loadSingleIMG(dataDir, timestamp, nx=140, ny=146):
+    try:
+        imagePath = os.path.join(dataDir, str(timestamp) + '.img')
+        image = np.fromfile(open(imagePath, mode='rb'), dtype=np.uint16)
+        image = np.transpose(np.reshape(image, (nx, ny)))
+
+    except (IOError, ValueError):
+        print("Failed to load ", imagePath)
+        image = np.zeros((ny, nx), dtype=np.uint16)
+
+    return image
 
 def loadBINStack(dataDir, start, stop, nCols=80, nRows=125):
     useImg = False
@@ -73,6 +85,21 @@ def loadBINStack(dataDir, start, stop, nCols=80, nRows=125):
         frames.append(image)
     stack = np.array(frames)
     return stack
+
+def loadSingleBIN(dataDir, timestamp, nx=140, ny=146):
+    imagePath = os.path.join(dataDir, str(timestamp) + '.bin')
+    with open(imagePath, 'rb') as dumpFile:
+        data = dumpFile.read()
+
+    nBytes = len(data)
+    nWords = nBytes / 8  # 64 bit words
+
+    # break into 64 bit words
+    words = np.array(struct.unpack('>{:d}Q'.format(nWords), data), type=object)
+    parseDict = parsePacketData(words, verbose=False)
+    image = parseDict['image']
+
+    return image
 
 
 def loadH5Stack(h5Path, verbose=True):
