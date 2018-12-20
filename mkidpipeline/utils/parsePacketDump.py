@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from mkidpipeline.utils import binTools
-from mkidpipeline.utils.plottingTools import plot_array
+from mkidpipeline.utils.arrayPopup import plotArray
 
 # For debugging
 from time import time
@@ -78,10 +78,10 @@ def parsePacketData(words,verbose=False):
         ax.set_title('frame nums')
         print(nMissedFrames,'missed frames')
 
-
     realIdx = np.where(np.logical_and(firstBytes != headerFirstByte, words != fakePhotonWord))[0]
     realPhotons = words[realIdx]
     nRealPhotons = len(realPhotons)
+
     if verbose:
         print(nRealPhotons,'real photons parsed')
     #photon format: 20 bits id, 9 bits ts, fix18_15 phase, fix17_14 base
@@ -107,7 +107,10 @@ def parsePacketData(words,verbose=False):
     #realIdx = realIdx[selectMask]
     #realPhotons = realPhotons[selectMask]
 
+    tstartssort = time()
     photonsHeaderIdx = np.searchsorted(headerIdx,realIdx)-1
+    tendssort = time()
+    print("searchsortes took %f sec" % (tendssort - tstartssort))
 
     photonsHeader = headers[photonsHeaderIdx]
     #now get the timestamp from this
@@ -156,6 +159,7 @@ if __name__=='__main__':
             data = dumpFile.read()
     except (IOError, ValueError) as e:
         print(e)
+        exit(1)
 
     nBytes = len(data)
     nWords = nBytes//8 #64 bit words
@@ -186,7 +190,7 @@ if __name__=='__main__':
     ax.plot(basesDeg[np.where(pixelIds==selPixelId)])
     ax.set_title('phases (deg)')
     #ax.plot(pixelIds)
-    plot_array(image, origin='upper')
+    plotArray(image,origin='upper')
 
     np.savez('/mnt/data0/test2/{}.npz'.format(pathTstamp),**parseDict)
 
