@@ -244,7 +244,7 @@ def binMRlogL(n, Ic, Is):
         lnL = -np.inf
         return lnL, np.zeros(N)
 
-    k = -Ic/(Is**2 + Is) 
+    k = -Ic/(Is**2 + Is)
     tmp = np.log(eval_laguerre(n,k)) # eval_laguerre(100,k) = inf when Ic = 514, Is = 1
 
     # if elements in tmp are np.inf, then go through them and fix with mpmath.
@@ -567,6 +567,7 @@ def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_slice=0,sparse_ma
                     Ic or Ic+Is
         Ir_slice - The value to be used for Ir when calculating the log likelihood.
                     i.e. the Ir at which we're slicing the log-likelihood function.
+                    [counts/second]
         sparse_map - bool flag specifying whether to map out only a subsection of the
                     map in order to save time. Might cause maps to cut off if
                     the log like function is very long in one direction compared to the
@@ -579,6 +580,7 @@ def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_slice=0,sparse_ma
         im - log likelihood map
     """
 
+    # TODO: clean this function up, there's a lot of extra crap that doesn't work
     x_list_countsperbin = x_list * effExpTime  # convert from cps to counts/bin
     Is_list_countsperbin = Is_list * effExpTime
     Ir_countsperbin = Ir_slice*effExpTime
@@ -603,7 +605,6 @@ def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_slice=0,sparse_ma
 
     # check if the estimate of the max-likelihood location from optimize.minimize is within the plot window. If not, then just map out the full space.
     if sparse_map and x_list_countsperbin[0] < p1[0]+p1[1]<x_list_countsperbin[-1] and Is_list_countsperbin[0] < p1[1]<Is_list_countsperbin[-1] and not bin_free:
-        #TODO: make this work for bin-free
         thresh = 10
 
         # units of p1 should be counts/bin
@@ -692,6 +693,48 @@ def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_slice=0,sparse_ma
 
     return X,Y,im
 
+
+
+def logLMap_binfree(t, x_list, Is_list, IcPlusIs = False,Ir_slice=0, deadtime_us = 0):
+    """
+    makes a map of the bin-free log likelihood function over the range of Ic, Is
+
+    INPUTS:
+        t - array of photon timestamps. Ignored if not doing a bin-free map. [microseconds]
+        x_list - list of x-axis values [photons/second]. Could be either Ic (IcPlusIs = False) or Ic + Is (IcPlusIs = True)
+        Is_list - list of Is values to map [photons/second]
+        IcPlusIs - bool flag indicating whether the x axis of the plots should be
+                    Ic or Ic+Is
+        Ir_slice - The value to be used for Ir when calculating the log likelihood.
+                    i.e. the Ir at which we're slicing the log-likelihood function. [cps]
+
+    OUTPUTS:
+        X - meshgrid of x coords
+        Y - meshgrid of y coords
+        im - log likelihood map
+    """
+
+    im = np.zeros((len(x_list), len(Is_list))) #initialize an empty image
+    dt = (t[1:] - t[:-1]) * 1e-6
+
+    for j, Is in enumerate(Is_list):
+        for i, x in enumerate(x_list):
+            if IcPlusIs == True:
+                Ic = x - Is
+                if Ic < 0.000001:
+                    continue
+            else:
+                Ic = x
+            # call bin free loglike method
+            p = [Ic, Is, Ir_slice]
+            # print('\n',p,'\n')
+            lnL = -binfree.loglike(p, dt, deadtime_us) # debugging: need to remove verbose argument
+
+            im[j, i] = lnL
+
+    X, Y = np.meshgrid(x_list, Is_list)
+
+    return X,Y,im
 
 
 
@@ -785,16 +828,90 @@ def plotLogLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False):
     # cbar.set_label(r'ln$\mathcal{L}$ - ln$\mathcal{L}_{max}$')
 
 
-
-    
-
-    
     matplotlib.rcParams.update(oldstyle)
 
     plt.show()
 
     return X,Y,im
 
+
+
+def get_binfree_seed(ts, deadtime, Ir_zero = False):
+    """
+    INPUTS:
+    ts - photon timestamps, [microseconds]
+    deadtime - [microseconds]
+    Ir_zero - set to True if you want to find the seed in the Ir = 0 slice
+
+    OUTPUTS:
+    p0 - the seed. Will have 2 elements if Ir_zero = False and 3 elements if Ir_zero = True
+
+    """
+
+    deadtime_us = deadtime*1e-6
+    dt = (ts[1:] - ts[:-1])*1e-6 # change units to seconds
+    I = 1/np.mean(dt)
+    grid_pts = 10 # number of points on a side of a grid to find a good seed
+
+    if Ir_zero:
+        # make a course loglike map, find the maximum, use that as the seed.
+        Is_list = np.linspace(1, I, grid_pts)
+        x_list = np.linspace(1, I, grid_pts)
+        X, Y, im = logLMap_binfree(ts, x_list, Is_list, IcPlusIs = True, Ir_slice = 0, deadtime_us = deadtime_us)
+        im-=np.amax(im)
+        argmax_im = np.unravel_index(np.argmax(im, axis=None), im.shape)
+        im_max_Ic_Is = [x_list[argmax_im[1]] - Is_list[argmax_im[0]],Is_list[argmax_im[0]]] # figure out Ic & Is from map of [Is vs. Ic + Is]
+        p0 = im_max_Ic_Is
+
+    else:
+        Is_list = np.linspace(1, I, grid_pts)
+        x_list = np.linspace(1, I, grid_pts)
+        Ir_list = np.linspace(1, I, grid_pts)
+        im_cube = np.zeros(grid_pts**3).reshape(grid_pts,grid_pts,grid_pts)
+        for kk in range(grid_pts):
+            X, Y, im = logLMap_binfree(ts, x_list, Is_list, IcPlusIs = True, Ir_slice = Ir_list[kk], deadtime_us = deadtime_us)
+            im_cube[kk] = im
+
+        im_cube-=np.amax(im_cube)
+        argmax_im_cube = np.unravel_index(np.argmax(im_cube, axis=None), im_cube.shape)
+        im_cube_max_Ic_Is = [x_list[argmax_im_cube[2]] - Is_list[argmax_im_cube[1]],Is_list[argmax_im_cube[1]], Ir_list[argmax_im_cube[0]]] # figure out Ic & Is from map of [Is vs. Ic + Is]
+        p0 = im_cube_max_Ic_Is
+
+    return p0
+
+def get_binMR_seed(n, effExpTime):
+    """
+    INPUTS:
+    n - light curve, [counts/bin]
+    effExpTime - bin size [seconds]
+
+    OUTPUTS:
+    p0 - the seed. Array [Ic, Is, Ir]
+
+    """
+    # loglike_planet_blurredMR(n, Ic, Is, Ir, n_unique=None)
+
+    I = np.mean(n)/effExpTime # get the average total intensity in counts/sec
+    grid_pts = 10 # number of points on a side of a grid to find a good seed
+
+    Is_list = np.linspace(1, I, grid_pts)
+    x_list = np.linspace(1, I, grid_pts)
+    Ir_list = np.linspace(1, I, grid_pts)
+    im_cube = np.zeros(grid_pts ** 3).reshape(grid_pts, grid_pts, grid_pts)
+
+    for kk in range(grid_pts):
+        # X, Y, im = logLMap_binfree(ts, x_list, Is_list, IcPlusIs=True, Ir_slice=Ir_list[kk], deadtime_us=deadtime_us)
+        X, Y, im = logLMap(n, x_list, Is_list, effExpTime, IcPlusIs=True, Ir_slice=Ir_list[kk])
+        im_cube[kk] = im
+
+    im_cube -= np.amax(im_cube)
+    argmax_im_cube = np.unravel_index(np.argmax(im_cube, axis=None), im_cube.shape)
+    im_cube_max_Ic_Is = [x_list[argmax_im_cube[2]] - Is_list[argmax_im_cube[1]], Is_list[argmax_im_cube[1]],
+                         Ir_list[argmax_im_cube[0]]]  # figure out Ic & Is from map of [Is vs. Ic + Is]
+
+    p0 = im_cube_max_Ic_Is
+
+    return p0
 
 
 
