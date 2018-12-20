@@ -225,9 +225,6 @@ class ParsedBin(object):
         After you use it, you would need to re-make the .image and .phasecubes. This
         is another way of saying this changes the class instance but not the method
         output.
-
-        If you reshape, you still need to re-call the .image() and .phasecube(range,d_phase)
-        methods to take effect.
         """
         if newshape[0] < self.x.max() or newshape[1] < self.x.max():
             raise ValueError('Bad shape')
@@ -268,6 +265,7 @@ if __name__ == "__main__":
     test_cube = test1.phasecube(phs_range, phase_binsize)
 
     # Plot Test Image
+
     fig, ax = plt.subplots()
     im = ax.imshow(timg)
     plt.show()
