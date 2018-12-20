@@ -14,7 +14,7 @@ import numpy as np
 from scipy.optimize import minimize
 from statsmodels.base.model import GenericLikelihoodModel
 
-from mkidpipeline.hdf.darkObsFile import ObsFile
+# from mkidpipeline.hdf.darkObsFile import ObsFile
 from mkidpipeline.speckle.genphotonlist_IcIsIr import genphotonlist
 
 
@@ -264,7 +264,6 @@ def MRlogL(Ic, Is, Ir, dt, deadtime=0.):
     if Ic < 0 or Is < 0 or Ir < 0 or Ic + Is + Ir == 0:
         return -1e100 
     deadtime*=10.**-6.  #convert to seconds
-    Ir=0.
     
     nslice = 20
     u = 1./(1 + dt*Is)
