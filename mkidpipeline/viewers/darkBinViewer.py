@@ -6,6 +6,32 @@ TODO:
         Right now images are loaded and diplayed properly from the parsed dictionary
         Need to implement appending of phases and other parsed data into full photon lists
         Speed up parsing of data packets. VERY SLOW NOW!
+
+From KD 2018:
+Currently, the code assumes you are running on Dark.
+It assumes that the user has access to the /mnt/data0/ directory
+Assumes inputs are file tree pathname to data location
+The inputs to run the code as main are:
+    run [format=PAL2018a]
+    date [format= 20180529]
+    start timestamp [format=1527666547]
+    end timestamp [format=15276666550]
+
+Urgent: Currently, the GUI functions in this code are not working.
+    part of this problem is that KD separated the GUI functions into
+    a new class. More code needs to be added to pass the results of
+    QuickStack into the new QuickStackGUI. On top of that, the GUI
+    itself is not functioning properly. Most of this is from an
+    incomplete update of a legacy version of the code to Python3.
+
+Problem: basePath is hard coded. Should ask for location
+
+Problem: method loadBadPixMask uses hard-coded bad pixel mask
+    the location of the bad pixel mask is directly specified, does not
+    search or ask for user input
+
+Problem: also hard coding beammap location? in method applyBeammap
+
 """
 
 import os
@@ -16,17 +42,36 @@ import matplotlib
 import numpy as np
 from PyQt5 import QtCore, QtWidgets
 
+0# KD added
+from time import time
+
+
 matplotlib.use('Qt5agg')
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from mkidpipeline.utils.parsePacketDump import parsePacketData
-import mkidpipeline.hotpix.generatebadpixmask as gbpm
+from mkidpipeline.hotpix import darkHotPixMask as dhpm
 
-basePath = '/mnt/data0/ScienceData/'
+# Path to the Directory where the Observing runs are located (where are the PAL201* directories?)
+basePath = '/mnt/kids/ScienceData/'
+
+# Defining the Size of an Image
+# needs to be updated if changed between runs/instruments
 imageShape = {'nRows':125,'nCols':80}
 
+startT = time()
 
-class DarkQuick(QtWidgets.QMainWindow):
+class QuickStack(QtWidgets.QMainWindow):
+    '''
+    This class is meant to load and parse a small timestream of data
+    from a file. It no longer has methods in it that create a GUI
+    to display those images. It does do some image analysis, like
+    applying the beam map and dark frame.
+
+    The parser is in this class, which is very slow as of 8/30/18.
+    KD is going to try to change this, but will make the bulk of
+    the changes in parsePacketDump.py, which is located in the
+    pipeline/utils repository (I think).
+    '''
     def __init__(self, run, date,startTstamp, endTstamp):
         
         self.dataPath = basePath+str(run)+'/'+str(date)+'/'
@@ -34,149 +79,32 @@ class DarkQuick(QtWidgets.QMainWindow):
         self.endTstamp = endTstamp
         self.imageStack = []
         self.currentImageIndex = 0
-        
+
         self.darkLoaded = False
         self.subtractDark = False
-        #temporary kludge to select dark frame time range
-        #self.darkStart = 1469342778
-        #self.darkEnd = 1469342798
-        
+
         self.darkStart = 0
         self.darkEnd = 0
-        
-        self.app = QtWidgets.QApplication([])
-        self.app.setStyle('plastique')
-        super(DarkQuick,self).__init__()
-        self.setWindowTitle('Darkness Binary Viewer')
-        self.createWidgets()
-        self.initWindows()
-        self.createMenu()
-        self.createStatusBar()
-        self.arrangeMainFrame()
-        self.connectControls()
 
         self.badPixMask = None
-        self.beammap=None
+        self.beammap = None
         #self.applyBeammap()
         self.loadBadPixMask()
 
         #self.applyBeammap()
         if self.subtractDark:
             self.generateDarkFrame()        
-        self.loadImageStack()
-        self.getObsImage()
+        self.loadImageStack(startTstamp,endTstamp)
+        #self.getObsImage()
 
     def show(self):
+        '''This might need to get moved down to the GUI stuff'''
         super(DarkQuick,self).show()
         self.app.exec_()
 
-    def initWindows(self):
-        self.imageParamsWindow = ImageParamsWindow(self)
-        self.plotWindows = []
-
-    def newPlotWindow(self):
-        newPlotId = len(self.plotWindows)
-        plotWindow = PlotWindow(parent=self,plotId=newPlotId,selectedPixels=self.arrayImageWidget.selectedPixels)
-        self.plotWindows.append(plotWindow)
-        self.arrayImageWidget.newPixelSelection(PyQt_PyObject).connect(plotWindow.newPixelSelection)
-        #self.connect(self.arrayImageWidget,QtCore.SIGNAL('newPixelSelection(PyQt_PyObject)'), plotWindow.newPixelSelection)
-        
-        plotWindow.show()
-
-    def createWidgets(self):
-        self.mainFrame = QtWidgets.QWidget()
-        
-        self.label_startTstamp = QtWidgets.QLabel(str(self.startTstamp))
-        self.label_endTstamp = QtWidgets.QLabel(str(self.endTstamp))
-        self.lineEdit_currentTstamp = QtWidgets.QLineEdit(str(self.startTstamp+self.currentImageIndex))
-        
-        self.checkbox_applyDark = QtWidgets.QCheckBox('Subtract Dark')
-        self.button_generateDark = QtWidgets.QPushButton('Generate Dark')
-        self.checkbox_applyDark.setChecked(False)
-        self.lineEdit_darkStart = QtWidgets.QLineEdit(str(self.darkStart))
-        self.lineEdit_darkEnd = QtWidgets.QLineEdit(str(self.darkEnd))
-        
-        self.arrayImageWidget = ArrayImageWidget(parent=self,hoverCall=self.hoverCanvas)
-        self.button_jumpToBeginning = QtWidgets.QPushButton('|<')
-        self.button_jumpToEnd = QtWidgets.QPushButton('>|')
-        self.button_incrementBack = QtWidgets.QPushButton('<')
-        self.button_incrementForward = QtWidgets.QPushButton('>')
-
-        self.button_jumpToBeginning.setMaximumWidth(30)
-        self.button_jumpToEnd.setMaximumWidth(30)
-        self.button_incrementBack.setMaximumWidth(30)
-        self.button_incrementForward.setMaximumWidth(30)
-
-
-        # Create the navigation toolbar, tied to the canvas
-        #self.canvasToolbar = NavigationToolbar(self.canvas, self.mainFrame)
-
-    def arrangeMainFrame(self):
-
-        canvasBox = layoutBox('V',[self.arrayImageWidget])
-        incrementControlsBox = layoutBox('H',[1,self.label_startTstamp,self.button_jumpToBeginning,
-                self.button_incrementBack,self.lineEdit_currentTstamp,
-                self.button_incrementForward,self.button_jumpToEnd,self.label_endTstamp,1])
-        darkControlsBox = layoutBox('H',[1, self.checkbox_applyDark, 'Timestamps ', self.lineEdit_darkStart,
-                ' to ',self.lineEdit_darkEnd,self.button_generateDark,1])
-
-
-        mainBox = layoutBox('V',[canvasBox,incrementControlsBox,darkControlsBox])
-
-        self.mainFrame.setLayout(mainBox)
-        self.setCentralWidget(self.mainFrame)
-  
-    def createStatusBar(self):
-        self.statusText = QtWidgets.QLabel("Click Pixels")
-        self.statusBar().addWidget(self.statusText, 1)
-        
-    def createMenu(self):        
-        self.fileMenu = self.menuBar().addMenu("&File")
-        
-        
-        quitAction = createAction(self,"&Quit", slot=self.close, 
-            shortcut="Ctrl+Q", tip="Close the application")
-        
-        self.windowsMenu = self.menuBar().addMenu("&Windows")
-        imgParamsAction = createAction(self,"Image Plot Parameters",slot=self.imageParamsWindow.show)
-        newPlotWindowAction = createAction(self,'New Plot Window',slot=self.newPlotWindow)
-
-        addActions(self.windowsMenu,(newPlotWindowAction,None,imgParamsAction))
-        
-        self.helpMenu = self.menuBar().addMenu("&Help")
-        aboutAction = createAction(self,"&About", 
-            shortcut='F1', slot=self.aboutMessage)
-        
-        addActions(self.helpMenu, (aboutAction,))
-
-    def connectControls(self):
-        self.button_jumpToBeginning.clicked.connect(self.jumpToBeginning)
-        self.button_jumpToEnd.clicked.connect(self.jumpToEnd)
-        self.button_incrementForward.clicked.connect(self.incrementForward)
-        self.button_incrementBack.clicked.connect(self.incrementBack)
-        self.lineEdit_currentTstamp.editingFinished.connect(self.jumpToTstamp)
-        self.checkbox_applyDark.stateChanged.connect(self.applyDark)
-        self.button_generateDark.clicked.connect(self.generateDarkFrame)
-        #self.connect(self.button_jumpToBeginning,QtCore.SIGNAL('clicked()'), self.jumpToBeginning)
-        #self.connect(self.button_jumpToEnd,QtCore.SIGNAL('clicked()'), self.jumpToEnd)
-        #self.connect(self.button_incrementForward,QtCore.SIGNAL('clicked()'), self.incrementForward)
-        #self.connect(self.button_incrementBack,QtCore.SIGNAL('clicked()'), self.incrementBack)
-        #self.connect(self.lineEdit_currentTstamp,QtCore.SIGNAL('editingFinished()'),self.jumpToTstamp)
-        #self.connect(self.checkbox_applyDark,QtCore.SIGNAL('stateChanged(int)'),self.applyDark)
-        #self.connect(self.button_generateDark,QtCore.SIGNAL('clicked()'), self.generateDarkFrame)
-
-    def addClickFunc(self,clickFunc):
-        self.arrayImageWidget.addClickFunc(clickFunc)
-
-    def applyDark(self):
-        if not self.checkbox_applyDark.isChecked():
-            self.subtractDark = False
-        else:
-            if self.darkLoaded==False:
-                self.generateDarkFrame()
-            self.subtractDark = True
-
     def generateDarkFrame(self):
+        print("dark frame")
+        tgenDark = time()
         self.darkStart = int(self.lineEdit_darkStart.text())
         self.darkEnd = int(self.lineEdit_darkEnd.text())
         self.darkTimes = np.arange(self.darkStart, self.darkEnd+1)
@@ -188,14 +116,7 @@ class DarkQuick(QtWidgets.QMainWindow):
                 with open(imagePath,'rb') as dumpFile:
                     data = dumpFile.read()
 
-                nBytes = len(data)
-                nWords = nBytes/8 #64 bit words
-                
-                #break into 64 bit words
-                words = np.array(struct.unpack('>{:d}Q'.format(nWords), data),dtype=object)
-                parseDict = parsePacketData(words,verbose=False)
-                image = parseDict['image']
-                
+
                 if self.beammap is not None:
                     newImage = np.zeros(image.shape)
                     for y in range(len(newImage)):
@@ -214,7 +135,16 @@ class DarkQuick(QtWidgets.QMainWindow):
         self.darkStack = np.array(darkFrames)
         self.darkFrame = np.median(self.darkStack, axis=0)
         print("Generated median dark frame from timestamps %i to %i"%(self.darkStart, self.darkEnd))
+        #print("Time to Parse Data is %f" %(tendParse-tstartParse))
         self.darkLoaded = True
+
+    def applyDark(self):
+        if not self.checkbox_applyDark.isChecked():
+            self.subtractDark = False
+        else:
+            if self.darkLoaded == False:
+                self.generateDarkFrame()
+            self.subtractDark = True
 
     def loadBadPixMask(self):
         #hard coded for now. Should supply bad pix mask in gui menu and load it there
@@ -229,45 +159,55 @@ class DarkQuick(QtWidgets.QMainWindow):
         #hpmPath = '/mnt/data0/CalibrationFiles/darkHotPixMasks/20170408/1491732000.npz'
 
         #20170410 HD91782 bad pixel mask
-        hpmPath = '/mnt/data0/CalibrationFiles/darkHotPixMasks/20170410/1491894755.npz'
-        self.badPixMask = gbpm.quick_load_mask(hpmPath)
+        #hpmPath = '/mnt/data0/CalibrationFiles/darkHotPixMasks/20170410/1491894755.npz'
 
-    def loadImageStack(self):
-    
-        self.timestampList = np.arange(self.startTstamp,self.endTstamp+1)
-        
+        # There isn't one for 2018, so use this one
+        hpmPath = '/mnt/kids/CalibrationFiles/darkHotPixMasks/20170410/1491894755.npz'
+
+        self.badPixMask = dhpm.loadMask(hpmPath)
+
+
+    def loadImageStack(self,startTstamp,endTstamp):
+        #print("Im using loadImageStack from the class DarkQuick")
+        #self.timestampList = np.arange(self.startTstamp,self.endTstamp+1)
+        timestampList = np.arange(startTstamp, endTstamp + 1)
+
         images = []
+        '''
         self.photonTstamps = np.array([])
         self.photonPhases = np.array([])
         self.photonBases = np.array([])
         self.photonXs = np.array([])
         self.photonYs = np.array([])
         self.photonPixelIDs = np.array([])
+        '''
+        stamps = np.array([])
+        phases = np.array([])
+        bases = np.array([])
+        xCoords = np.array([])
+        yCoords = np.array([])
+        roaches = np.array([])
         
-        
-        for iTs,ts in enumerate(self.timestampList):
+        for iTs,ts in enumerate(timestampList):
+            #print(ts)
             try:
                 imagePath = os.path.join(self.dataPath,str(ts)+'.bin')
-                print(imagePath)
-                with open(imagePath,'rb') as dumpFile:
-                    data = dumpFile.read()
 
-                nBytes = len(data)
-                nWords = nBytes//8 #64 bit words
-                
-                #break into 64 bit words
-                words = np.array(struct.unpack('>{:d}Q'.format(nWords), data),dtype=object)
-                parseDict = parsePacketData(words,verbose=False)
+                # Calling new parse file
+                pstartT = time()
+                parseDict = parse(imagePath, 10)
+                pendT = time()
+                print("Parsing file {} took {} seconds".format(ts,pendT-pstartT))
 
-                photonTimes = np.array(parseDict['photonTimestamps'])
-                phasesDeg = np.array(parseDict['phasesDeg'])
-                basesDeg = np.array(parseDict['basesDeg'])
-                xCoords = np.array(parseDict['xCoords'])
-                yCoords = np.array(parseDict['yCoords'])
-                pixelIds = np.array(parseDict['pixelIds'])
-                image = parseDict['image']
 
-           
+
+                # Need to make data cube here with phase bins
+                image = np.zeros((imageShape['nRows'], imageShape['nCols']), dtype=np.uint16)
+                for x, y in np.array(list(zip(parseDict.x, parseDict.y))):
+                    image[y, x] += 1
+                # image = np.zeros((self.nRows, self.nCols))
+                # image = parseDict['image']
+                '''
                 if self.beammap is not None:
                     newImage = np.zeros(image.shape)
                     for y in range(len(newImage)):
@@ -281,20 +221,33 @@ class DarkQuick(QtWidgets.QMainWindow):
                             #    print '('+str(x)+', '+str(y)+') --> 0'
                             #    newImage[y,x]=0
                     image = newImage
+                '''
                 
-                
-            except (IOError, ValueError):
-                image = np.zeros((imageShape['nRows'], imageShape['nCols']),dtype=np.uint16)  
-                
+            except (IOError, ValueError) as e:
+                #import mkidcore.corelog as clog
+                #clog.getLogger('BinViewer').error('Help', exc_info=True)
+                print(e)
+                image = np.zeros((imageShape['nRows'], imageShape['nCols']),dtype=np.uint16)
+
+
+            stamps = np.append(stamps,parseDict.tstamp)
+            phases = np.append(phases,parseDict.phase)
+            #bases = np.append(bases,parseDict.base)
+            xCoords = np.append(xCoords,parseDict.x)
+            yCoords = np.append(yCoords,parseDict.y)
+            '''    
             self.photonTstamps = np.append(self.photonTstamps,photonTimes)
             self.photonPhases = np.append(self.photonPhases,phasesDeg)
             self.photonBases = np.append(self.photonBases,basesDeg)
             self.photonXs = np.append(self.photonXs,xCoords)
             self.photonYs = np.append(self.photonYs,yCoords)
-            self.photonPixelIDs = np.append(self.photonPixelIDs, pixelIds)
+            #self.photonPixelIDs = np.append(self.photonPixelIDs, pixelIds)
+            '''
             images.append(image)
             
-        self.imageStack = np.array(images)
+        #self.imageStack = np.array(images)
+        tImStack = time()
+        print("loadImageStack parsed {} files in {} sec".format(iTs+1,tImStack-startT))
 
     def applyBeammap(self):
         #from addPixID import getPixelIdentificationInfo
@@ -340,6 +293,127 @@ class DarkQuick(QtWidgets.QMainWindow):
         self.plotArray(self.image,**paramsDict['plotParams'])
         print(self.currentImageIndex)
 
+#####################################################################################################
+#####################################################################################################
+#####################################################################################################
+#####################################################################################################
+'''
+class QuickStackGUI(QtWidgets.QDialog):
+    #
+    created by KD on 8/30/18
+    I pulled everything I thought was GUI related into a new class.
+    Need to figure out how to assign self to the output from QuickStack
+    #
+    def __init__(self, parent=None):
+            self.app = QtWidgets.QApplication([])
+            self.app.setStyle('plastique')
+                #Look into this function line:
+                #super(DarkQuick,self).__init__()
+            self.setWindowTitle('Quick Stack Binary Viewer')
+            self.createWidgets()
+            self.initWindows()
+            self.createMenu()
+            self.createStatusBar()
+            self.arrangeMainFrame()
+            self.connectControls()
+
+
+    def initWindows(self):
+        self.imageParamsWindow = ImageParamsWindow(self)
+        self.plotWindows = []
+
+    def newPlotWindow(self):
+        newPlotId = len(self.plotWindows)
+        plotWindow = PlotWindow(parent=self, plotId=newPlotId, selectedPixels=self.arrayImageWidget.selectedPixels)
+        self.plotWindows.append(plotWindow)
+        self.arrayImageWidget.newPixelSelection(PyQt_PyObject).connect(plotWindow.newPixelSelection)
+        # self.connect(self.arrayImageWidget,QtCore.SIGNAL('newPixelSelection(PyQt_PyObject)'), plotWindow.newPixelSelection)
+
+        plotWindow.show()
+
+    def createWidgets(self):
+        self.mainFrame = QtWidgets.QWidget()
+
+        self.label_startTstamp = QtWidgets.QLabel(str(self.startTstamp))
+        self.label_endTstamp = QtWidgets.QLabel(str(self.endTstamp))
+        self.lineEdit_currentTstamp = QtWidgets.QLineEdit(str(self.startTstamp + self.currentImageIndex))
+
+        self.checkbox_applyDark = QtWidgets.QCheckBox('Subtract Dark')
+        self.button_generateDark = QtWidgets.QPushButton('Generate Dark')
+        self.checkbox_applyDark.setChecked(False)
+        self.lineEdit_darkStart = QtWidgets.QLineEdit(str(self.darkStart))
+        self.lineEdit_darkEnd = QtWidgets.QLineEdit(str(self.darkEnd))
+
+        self.arrayImageWidget = ArrayImageWidget(parent=self, hoverCall=self.hoverCanvas)
+        self.button_jumpToBeginning = QtWidgets.QPushButton('|<')
+        self.button_jumpToEnd = QtWidgets.QPushButton('>|')
+        self.button_incrementBack = QtWidgets.QPushButton('<')
+        self.button_incrementForward = QtWidgets.QPushButton('>')
+
+        self.button_jumpToBeginning.setMaximumWidth(30)
+        self.button_jumpToEnd.setMaximumWidth(30)
+        self.button_incrementBack.setMaximumWidth(30)
+        self.button_incrementForward.setMaximumWidth(30)
+
+        # Create the navigation toolbar, tied to the canvas
+        # self.canvasToolbar = NavigationToolbar(self.canvas, self.mainFrame)
+
+    def arrangeMainFrame(self):
+
+        canvasBox = layoutBox('V', [self.arrayImageWidget])
+        incrementControlsBox = layoutBox('H', [1, self.label_startTstamp, self.button_jumpToBeginning,
+                                               self.button_incrementBack, self.lineEdit_currentTstamp,
+                                               self.button_incrementForward, self.button_jumpToEnd,
+                                               self.label_endTstamp, 1])
+        darkControlsBox = layoutBox('H', [1, self.checkbox_applyDark, 'Timestamps ', self.lineEdit_darkStart,
+                                          ' to ', self.lineEdit_darkEnd, self.button_generateDark, 1])
+
+        mainBox = layoutBox('V', [canvasBox, incrementControlsBox, darkControlsBox])
+
+        self.mainFrame.setLayout(mainBox)
+        self.setCentralWidget(self.mainFrame)
+
+    def createStatusBar(self):
+        self.statusText = QtWidgets.QLabel("Click Pixels")
+        self.statusBar().addWidget(self.statusText, 1)
+
+    def createMenu(self):
+        self.fileMenu = self.menuBar().addMenu("&File")
+
+        quitAction = createAction(self, "&Quit", slot=self.close,
+                                  shortcut="Ctrl+Q", tip="Close the application")
+
+        self.windowsMenu = self.menuBar().addMenu("&Windows")
+        imgParamsAction = createAction(self, "Image Plot Parameters", slot=self.imageParamsWindow.show)
+        newPlotWindowAction = createAction(self, 'New Plot Window', slot=self.newPlotWindow)
+
+        addActions(self.windowsMenu, (newPlotWindowAction, None, imgParamsAction))
+
+        self.helpMenu = self.menuBar().addMenu("&Help")
+        aboutAction = createAction(self, "&About",
+                                   shortcut='F1', slot=self.aboutMessage)
+
+        addActions(self.helpMenu, (aboutAction,))
+
+    def connectControls(self):
+        self.button_jumpToBeginning.clicked.connect(self.jumpToBeginning)
+        self.button_jumpToEnd.clicked.connect(self.jumpToEnd)
+        self.button_incrementForward.clicked.connect(self.incrementForward)
+        self.button_incrementBack.clicked.connect(self.incrementBack)
+        self.lineEdit_currentTstamp.editingFinished.connect(self.jumpToTstamp)
+        self.checkbox_applyDark.stateChanged.connect(self.applyDark)
+        self.button_generateDark.clicked.connect(self.generateDarkFrame)
+        # self.connect(self.button_jumpToBeginning,QtCore.SIGNAL('clicked()'), self.jumpToBeginning)
+        # self.connect(self.button_jumpToEnd,QtCore.SIGNAL('clicked()'), self.jumpToEnd)
+        # self.connect(self.button_incrementForward,QtCore.SIGNAL('clicked()'), self.incrementForward)
+        # self.connect(self.button_incrementBack,QtCore.SIGNAL('clicked()'), self.incrementBack)
+        # self.connect(self.lineEdit_currentTstamp,QtCore.SIGNAL('editingFinished()'),self.jumpToTstamp)
+        # self.connect(self.checkbox_applyDark,QtCore.SIGNAL('stateChanged(int)'),self.applyDark)
+        # self.connect(self.button_generateDark,QtCore.SIGNAL('clicked()'), self.generateDarkFrame)
+
+    def addClickFunc(self, clickFunc):
+        self.arrayImageWidget.addClickFunc(clickFunc)
+
     def jumpToBeginning(self):
         self.currentImageIndex = 0
         self.getObsImage()
@@ -372,14 +446,14 @@ class DarkQuick(QtWidgets.QMainWindow):
 
     def savePlot(self):
         file_choices = "PNG (*.png)|*.png"
-        
-        path = unicode(QFileDialog.getSaveFileName(self, 
-                        'Save file', '', 
+
+        path = unicode(QFileDialog.getSaveFileName(self,
+                        'Save file', '',
                         file_choices))
         if path:
             self.canvas.print_figure(path, dpi=self.dpi)
             self.statusBar().showMessage('Saved to %s' % path, 2000)
-    
+
     def aboutMessage(self):
         msg = """ Use to open and view DARKNESS .img files
         """
@@ -394,7 +468,7 @@ class DarkQuick(QtWidgets.QMainWindow):
         if row < self.arrayImageWidget.nRow and col < self.arrayImageWidget.nCol:
             self.statusText.setText('(x,y,z) = ({:d},{:d},{})'.format(col,row,self.arrayImageWidget.image[row,col]))
 
-            
+
 
 class ModelessWindow(QtWidgets.QDialog):
     def __init__(self,parent=None):
@@ -1031,8 +1105,11 @@ def layoutBox(type,elements):
 def plotHist(ax,histBinEdges,hist,**kwargs):
     ax.plot(histBinEdges,np.append(hist,hist[-1]),drawstyle='steps-post',**kwargs)
 
-
+'''
 if __name__ == "__main__":
+    import pyximport; pyximport.install()
+    from mkidpipeline.hdf.parsebin import parse
+
     kwargs = {}
     if len(sys.argv) != 5:
         print('Usage: {} run date tstampStart tstampEnd'.format(sys.argv[0]))
@@ -1043,8 +1120,10 @@ if __name__ == "__main__":
         kwargs['startTstamp'] = int(sys.argv[3])
         kwargs['endTstamp'] = int(sys.argv[4])
 
-    form = DarkQuick(**kwargs)
-    form.show()
+    form = QuickStack(**kwargs)
+    #form.show()
+    totalT = time()
+    print("Total Elapsed time is %f"%(totalT-startT))
 
 
 
