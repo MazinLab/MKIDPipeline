@@ -14,6 +14,7 @@ import time
 import mkidpipeline.speckle.genphotonlist_IcIsIr as gpl
 import mkidpipeline.speckle.binned_rician as binMR
 import mkidpipeline.speckle.optimize_IcIsIr as binfree
+import mkidpipeline.speckle.binFreeRicianEstimate as bf # alex's code
 from scipy import optimize
 import pickle
 
@@ -40,6 +41,8 @@ class photon_list(object):
         self.loglike_max_check = np.array([],dtype=bool)
         self.loglike_max_list = np.array([])
         self.loglike_true_params = -1
+        self.statsModels_result = np.array([])
+        self.logLike_statsModels = -1
 
 
         if Ic>0:
@@ -51,6 +54,7 @@ class photon_list(object):
             self.p0_cube_max()
             self.find_max_like()
             self.loglike_true_params = -binfree.loglike([Ic, Is, Ir], self.dt, self.deadtime)
+            self.do_stats_models()
 
 
     def load(self,filename):
@@ -136,3 +140,13 @@ class photon_list(object):
             plt.savefig(filename, dpi=500)
             # plt.show()
             plt.close(fig)
+
+
+    def do_stats_models(self):
+        # now use Alex's code to estimate the parameters
+        m = bf.MR_SpeckleModel(self.ts, deadtime=self.deadtime)
+        res = m.fit()
+        self.logLike_statsModels = -binfree.loglike([res.params[0], res.params[1], res.params[2]], self.dt, self.deadtime)
+
+        self.p0_list = np.append(self.p0_list, np.array([-1,-1,-1]))
+        self.p1_list = np.append(self.p1_list, np.array([res.params[0], res.params[1], res.params[2]]))
