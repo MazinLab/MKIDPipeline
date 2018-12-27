@@ -695,18 +695,19 @@ def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_slice=0,sparse_ma
 
 
 
-def logLMap_binfree(t, x_list, Is_list, IcPlusIs = False,Ir_slice=0, deadtime_us = 0):
+def logLMap_binfree(t, x_list, Is_list, IcPlusIs = False,Ir_slice=0, deadtime = 0):
     """
     makes a map of the bin-free log likelihood function over the range of Ic, Is
 
     INPUTS:
-        t - array of photon timestamps. Ignored if not doing a bin-free map. [microseconds]
+        t - array of photon timestamps. [microseconds]
         x_list - list of x-axis values [photons/second]. Could be either Ic (IcPlusIs = False) or Ic + Is (IcPlusIs = True)
         Is_list - list of Is values to map [photons/second]
         IcPlusIs - bool flag indicating whether the x axis of the plots should be
                     Ic or Ic+Is
         Ir_slice - The value to be used for Ir when calculating the log likelihood.
                     i.e. the Ir at which we're slicing the log-likelihood function. [cps]
+        deadtime - deadtime after photon arrival, set by the readout. [seconds]
 
     OUTPUTS:
         X - meshgrid of x coords
@@ -714,7 +715,7 @@ def logLMap_binfree(t, x_list, Is_list, IcPlusIs = False,Ir_slice=0, deadtime_us
         im - log likelihood map
     """
 
-    im = np.zeros((len(x_list), len(Is_list))) #initialize an empty image
+    im = np.zeros((len(Is_list), len(x_list))) #initialize an empty image
     dt = (t[1:] - t[:-1]) * 1e-6
 
     for j, Is in enumerate(Is_list):
@@ -728,13 +729,80 @@ def logLMap_binfree(t, x_list, Is_list, IcPlusIs = False,Ir_slice=0, deadtime_us
             # call bin free loglike method
             p = [Ic, Is, Ir_slice]
             # print('\n',p,'\n')
-            lnL = -binfree.loglike(p, dt, deadtime_us) # debugging: need to remove verbose argument
+            lnL = -binfree.loglike(p, dt, deadtime)
 
-            im[j, i] = lnL
+            im[j, i] = lnL # first index is for Is, second index is for x = Ic + Is
 
     X, Y = np.meshgrid(x_list, Is_list)
 
     return X,Y,im
+
+
+def logL_cube(ts, Ic_list, Is_list, Ir_list, deadtime = 0):
+    """
+    Make a data cube filled with loglike values using provided lists of Ic, Is, Ir.
+    INPUTS
+    ts - array of photon timestamps. [microseconds]
+    Ic_list -
+    Is_list -
+    Ir_list -
+    deadtime -
+
+    OUTPUTS:
+    cube - data cube. First index is for Ir, second for Is, third for Ic. IcPlusIs is always False.
+    """
+    cube = np.zeros(len(Ic_list)*len(Is_list)*len(Ir_list)).reshape(len(Ir_list),len(Is_list),len(Ic_list))
+    for ii, Ir in enumerate(Ir_list):
+        cube[ii] = logLMap_binfree(ts, Ic_list, Is_list, Ir_slice=Ir, deadtime=deadtime)[2]
+    return cube
+
+
+
+
+def logLMap_binfree_sliceIs(t, x_list, Ir_list, IcPlusIs = False,Is_slice=.1, deadtime = 0):
+    """
+    makes a map of the bin-free log likelihood function over the range of Ic+Is, Ir
+
+    INPUTS:
+        t - array of photon timestamps. [microseconds]
+        x_list - list of x-axis values [photons/second]. Could be either Ic (IcPlusIs = False) or Ic + Is (IcPlusIs = True)
+        Ir_list - list of Ir values to map [photons/second]
+        IcPlusIs - bool flag indicating whether the x axis of the plots should be
+                    Ic or Ic+Is
+        Ir_slice - The value to be used for Ir when calculating the log likelihood.
+                    i.e. the Ir at which we're slicing the log-likelihood function. [cps]
+        deadtime - deadtime after photon arrival, set by the readout. [seconds]
+
+    OUTPUTS:
+        X - meshgrid of x coords
+        Y - meshgrid of y coords
+        im - log likelihood map
+    """
+
+
+
+    im = np.zeros((len(x_list), len(Ir_list))) #initialize an empty image
+    dt = (t[1:] - t[:-1]) * 1e-6
+
+    for j, Ir in enumerate(Ir_list):
+        for i, x in enumerate(x_list):
+            if IcPlusIs == True:
+                Ic = x - Is_slice
+                if Ic < 0.000001:
+                    continue
+            else:
+                Ic = x
+            # call bin free loglike method
+            p = [Ic, Is_slice, Ir]
+            # print('\n',p,'\n')
+            lnL = -binfree.loglike(p, dt, deadtime)
+
+            im[j, i] = lnL # first index is for Is, second index is for x = Ic + Is
+
+    X, Y = np.meshgrid(x_list, Ir_list)
+
+    return X,Y,im
+
 
 
 
@@ -852,30 +920,42 @@ def get_binfree_seed(ts, deadtime, Ir_zero = False):
     dt = (ts[1:] - ts[:-1])*1e-6 # change units to seconds
     I = 1/np.mean(dt)
     grid_pts = 10 # number of points on a side of a grid to find a good seed
+    s_pts = 10
+    x_pts = 10
+    r_pts = 10
 
     if Ir_zero:
         # make a course loglike map, find the maximum, use that as the seed.
-        Is_list = np.linspace(1, I, grid_pts)
-        x_list = np.linspace(1, I, grid_pts)
-        X, Y, im = logLMap_binfree(ts, x_list, Is_list, IcPlusIs = True, Ir_slice = 0, deadtime_us = deadtime_us)
+        Is_list = np.linspace(1, I, s_pts)
+        x_list = np.linspace(1, I, x_pts)
+        X, Y, im = logLMap_binfree(ts, x_list, Is_list, IcPlusIs = False, Ir_slice = 0, deadtime_us = deadtime_us)
         im-=np.amax(im)
         argmax_im = np.unravel_index(np.argmax(im, axis=None), im.shape)
-        im_max_Ic_Is = [x_list[argmax_im[1]] - Is_list[argmax_im[0]],Is_list[argmax_im[0]]] # figure out Ic & Is from map of [Is vs. Ic + Is]
+        # im_max_Ic_Is = [x_list[argmax_im[1]] - Is_list[argmax_im[0]],Is_list[argmax_im[0]]] # figure out Ic & Is from map of [Is vs. Ic + Is]
+        im_max_Ic_Is = [x_list[argmax_im[1]], Is_list[argmax_im[0]]]
         p0 = im_max_Ic_Is
 
     else:
-        Is_list = np.linspace(1, I, grid_pts)
-        x_list = np.linspace(1, I, grid_pts)
-        Ir_list = np.linspace(1, I, grid_pts)
-        im_cube = np.zeros(grid_pts**3).reshape(grid_pts,grid_pts,grid_pts)
-        for kk in range(grid_pts):
-            X, Y, im = logLMap_binfree(ts, x_list, Is_list, IcPlusIs = True, Ir_slice = Ir_list[kk], deadtime_us = deadtime_us)
-            im_cube[kk] = im
+        Is_list = np.linspace(1, I, s_pts)
+        x_list = np.linspace(1, I, x_pts)
+        Ir_list = np.linspace(1, I, r_pts)
+        # im_cube = np.zeros(grid_pts**3).reshape(grid_pts,grid_pts,grid_pts)
+        im_cube = np.zeros(s_pts*x_pts*r_pts).reshape(r_pts, s_pts, x_pts)
+        for kk in range(r_pts):
+            im = logLMap_binfree(ts, x_list, Is_list, IcPlusIs = False, Ir_slice = Ir_list[kk], deadtime_us = deadtime_us)[2]
+            if np.amax(im) < np.amax(im_cube):
+                break
+            else:
+                im_cube[kk] = im
 
-        im_cube-=np.amax(im_cube)
+
+        # im_cube-=np.amax(im_cube)
         argmax_im_cube = np.unravel_index(np.argmax(im_cube, axis=None), im_cube.shape)
-        im_cube_max_Ic_Is = [x_list[argmax_im_cube[2]] - Is_list[argmax_im_cube[1]],Is_list[argmax_im_cube[1]], Ir_list[argmax_im_cube[0]]] # figure out Ic & Is from map of [Is vs. Ic + Is]
-        p0 = im_cube_max_Ic_Is
+        # p0 = [x_list[argmax_im_cube[2]] - Is_list[argmax_im_cube[1]],Is_list[argmax_im_cube[1]], Ir_list[argmax_im_cube[0]]] # figure out Ic & Is from map of [Is vs. Ic + Is]
+        p0 = [x_list[argmax_im_cube[2]],Is_list[argmax_im_cube[1]], Ir_list[argmax_im_cube[0]]]
+        # plt.plot(np.ravel(im_cube))
+        # plt.plot(np.argmax(im_cube, axis=None),-binfree.loglike(p0, dt, 0),'ro')
+        # plt.show()
 
     return p0
 
@@ -900,18 +980,107 @@ def get_binMR_seed(n, effExpTime):
     im_cube = np.zeros(grid_pts ** 3).reshape(grid_pts, grid_pts, grid_pts)
 
     for kk in range(grid_pts):
-        # X, Y, im = logLMap_binfree(ts, x_list, Is_list, IcPlusIs=True, Ir_slice=Ir_list[kk], deadtime_us=deadtime_us)
         X, Y, im = logLMap(n, x_list, Is_list, effExpTime, IcPlusIs=True, Ir_slice=Ir_list[kk])
         im_cube[kk] = im
 
-    im_cube -= np.amax(im_cube)
+    # im_cube -= np.amax(im_cube)
     argmax_im_cube = np.unravel_index(np.argmax(im_cube, axis=None), im_cube.shape)
-    im_cube_max_Ic_Is = [x_list[argmax_im_cube[2]] - Is_list[argmax_im_cube[1]], Is_list[argmax_im_cube[1]],
+    p0 = [x_list[argmax_im_cube[2]] - Is_list[argmax_im_cube[1]], Is_list[argmax_im_cube[1]],
                          Ir_list[argmax_im_cube[0]]]  # figure out Ic & Is from map of [Is vs. Ic + Is]
 
-    p0 = im_cube_max_Ic_Is
 
     return p0
+
+# TODO: write a function that checks whether the maximum log like matches Ic Is Ir.
+
+def check_binfree_loglike_max(ts, p1, deadtime = 0):
+    """
+    This function checks that Ic Is Ir are actually the parameters that produce the bin-free maximum
+    likelihood for the given photon list ts.
+
+    INPUTS:
+    ts - photon timestamps, units [microseconds]
+    Ic - parameter to check [/s]
+    Is - [/s]
+    Ir - [/s]
+
+    OUTPUTS:
+    bool - True if Ic Is Ir give the maximum likelihood, False if they don't.
+    """
+    # p1 = [Ic, Is, Ir]
+    dt = (ts[1:] - ts[:-1]) * 1e-6 # units are seconds
+    # given_loglike = binfree.loglike(p1, dt, deadtime=deadtime)
+
+    lowVal = .99
+    highVal = 1.01
+
+
+    # if Ir is zero
+    if p1[2] == 0 and p1[0] > 0 and p1[1] > 0:
+        logLikeArray = np.array([])
+        Is_list = np.linspace(lowVal*p1[1], highVal*p1[1], 3)
+        x_list = np.linspace(lowVal*p1[0], highVal*p1[0], 3)
+        logLikeArray = np.append(logLikeArray,logLMap_binfree(ts, x_list, Is_list, Ir_slice=0, deadtime=deadtime)[2])
+        logLikeArray = np.append(logLikeArray, logLMap_binfree(ts, x_list, Is_list, Ir_slice=1, deadtime=deadtime)[2])
+        if np.argmin(logLikeArray) == 4:
+            return True
+        else:
+            return False
+
+    elif p1[1] < .0001 and p1[2] > 0 and p1[0] > 0:
+        # if Is = 0
+        logLikeArray = np.array([])
+        Ir_list = np.linspace(lowVal*p1[2], highVal*p1[2], 3)
+        x_list = np.linspace(lowVal*p1[0], highVal*p1[0], 3)
+        logLikeArray = np.append(logLikeArray,logLMap_binfree_sliceIs(ts, x_list, Ir_list, Is_slice=0.0001, deadtime=deadtime)[2])
+        logLikeArray = np.append(logLikeArray, logLMap_binfree_sliceIs(ts, x_list, Ir_list, Is_slice=1, deadtime=deadtime)[2])
+        if np.argmin(logLikeArray) == 4:
+            return True
+        else:
+            return False
+
+    elif p1[0] <  .01 and p1[1] > 0 and p1[2] > 0:
+        # if Ic is zero (or close to zero)
+        logLikeArray = np.array([])
+        scaleArray = np.array(
+            [[0, lowVal, lowVal], [0, lowVal, 1], [0, lowVal, highVal], [0, 1, lowVal],
+             [0, 1, 1], [0, 1, highVal], [0, highVal, lowVal], [0, highVal, 1], [0, highVal, highVal]])
+        for ii in range(len(logLikeArray)):
+            IIc,IIs,IIr = scaleArray[ii] * p1
+            logLikeArray[ii] = binfree.loglike([IIc,IIs,IIr],dt,deadtime=deadtime)
+        for ii in range(len(logLikeArray)):
+            IIc, IIs, IIr = scaleArray[ii] * p1
+            logLikeArray[ii] = binfree.loglike([1, IIs, IIr], dt, deadtime=deadtime)
+        if np.argmin(logLikeArray) == 4:
+            return True
+        else:
+            return False
+
+
+
+
+    else:
+
+        logLikeArray = np.zeros(27)
+
+        scaleArray = np.array([[lowVal, lowVal, lowVal], [lowVal, lowVal, 1], [lowVal, lowVal, highVal], [lowVal, 1, lowVal], [lowVal, 1, 1], [lowVal, 1, highVal],  [lowVal, highVal, lowVal], [lowVal, highVal, 1], [lowVal, highVal, highVal] , [1, lowVal, lowVal], [1, lowVal, 1], [1, lowVal, highVal], [1, 1, lowVal], [1, 1, 1], [1, 1, highVal],  [1, highVal, lowVal], [1, highVal, 1], [1, highVal, highVal] , [highVal, lowVal, lowVal], [highVal, lowVal, 1], [highVal, lowVal, highVal], [highVal, 1, lowVal], [highVal, 1, 1], [highVal, 1, highVal],  [highVal, highVal, lowVal], [highVal, highVal, 1], [highVal, highVal, highVal]   ])
+
+
+        for ii in range(len(logLikeArray)):
+            IIc,IIs,IIr = scaleArray[ii] * p1
+            logLikeArray[ii] = binfree.loglike([IIc,IIs,IIr],dt,deadtime=deadtime)
+
+        logLikeArray -= np.amax(logLikeArray)
+        # plt.plot(np.arange(len(logLikeArray)), logLikeArray,'.-')
+        # plt.plot(13, logLikeArray[13],'ro')
+        # plt.show()
+
+        if np.argmin(logLikeArray) == 13:
+            return True
+        else:
+            return False
+
+
 
 
 
