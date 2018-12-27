@@ -38,6 +38,9 @@ class photon_list(object):
         self.p0_list = np.array([])
         self.p1_list = np.array([])
         self.loglike_max_check = np.array([],dtype=bool)
+        self.loglike_max_list = np.array([])
+        self.loglike_true_params = -1
+
 
         if Ic>0:
             self.gen_plist(Ic,Is,Ir,Ttot,tau)
@@ -47,6 +50,7 @@ class photon_list(object):
             self.find_max_like()
             self.p0_cube_max()
             self.find_max_like()
+            self.loglike_true_params = -binfree.loglike([Ic, Is, Ir], self.dt, self.deadtime)
 
 
     def load(self,filename):
@@ -86,6 +90,7 @@ class photon_list(object):
         self.p0_list = np.append(self.p0_list, self.p0)
         self.p1_list = np.append(self.p1_list, self.p1)
         self.loglike_max_check = np.append(self.loglike_max_check, binMR.check_binfree_loglike_max(self.ts, self.p1, deadtime=self.deadtime))
+        self.loglike_max_list = np.append(self.loglike_max_list,-binfree.loglike(self.p1,self.dt,self.deadtime))
 
 
     def p0_get_simple(self):
@@ -122,6 +127,11 @@ class photon_list(object):
             plt.ylabel('Is [/s]')
             plt.xlabel('Ic [/s]')
             plt.title('Ic,Is,Ir, Ttot, tau = [{:g},{:g},{:g},{:g},{:g}]      Ir slice = {:.3g}'.format(self.Ic,self.Is,self.Ir,self.Ttot,self.tau,self.Ir_list[ii]))
+
+            cb_ax = fig.add_axes([0.88, 0.1, 0.02, 0.8])  # [0.83, 0.1, 0.02, 0.8] [x0, y0, width, height]
+            cbar = fig.colorbar(img, cax=cb_ax)
+            cbar.set_label(r'ln$\mathcal{L}$ - ln$\mathcal{L}_{max}$')
+
             filename = os.path.join(path, 'ph_list_{:g}_Ir_slice_{:.3g}.png'.format(plist_number, self.Ir_list[ii]))
             plt.savefig(filename, dpi=500)
             # plt.show()
