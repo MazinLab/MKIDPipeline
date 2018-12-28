@@ -126,14 +126,17 @@ class photon_list(object):
             pass
 
         for ii in range(len(self.cube)):
-            fig = plt.figure()
-            plt.imshow(self.cube[ii] - np.amax(self.cube),extent=[np.amin(self.Ic_list), np.amax(self.Ic_list), np.amin(self.Is_list), np.amax(self.Is_list)], aspect = 'auto', origin = 'lower', cmap = 'hot_r', vmin = -8, vmax = 0, interpolation = 'spline16')
+            if np.all(self.cube[ii] < np.amax(self.cube)-8):
+                continue
+            fig, ax = plt.subplots()
+            cax = ax.imshow(self.cube[ii] - np.amax(self.cube),extent=[np.amin(self.Ic_list), np.amax(self.Ic_list), np.amin(self.Is_list), np.amax(self.Is_list)], aspect = 'auto', origin = 'lower', cmap = 'hot_r', vmin = -8, vmax = 0, interpolation = 'spline16')
             plt.ylabel('Is [/s]')
             plt.xlabel('Ic [/s]')
             plt.title('Ic,Is,Ir, Ttot, tau = [{:g},{:g},{:g},{:g},{:g}]      Ir slice = {:.3g}'.format(self.Ic,self.Is,self.Ir,self.Ttot,self.tau,self.Ir_list[ii]))
 
             cb_ax = fig.add_axes([0.88, 0.1, 0.02, 0.8])  # [0.83, 0.1, 0.02, 0.8] [x0, y0, width, height]
-            cbar = fig.colorbar(img, cax=cb_ax)
+            cbar = fig.colorbar(cax,cb_ax)
+            fig.subplots_adjust(bottom=0.12, top=0.88, left=0.1, right=0.86, wspace=0.05, hspace=0.0)
             cbar.set_label(r'ln$\mathcal{L}$ - ln$\mathcal{L}_{max}$')
 
             filename = os.path.join(path, 'ph_list_{:g}_Ir_slice_{:.3g}.png'.format(plist_number, self.Ir_list[ii]))
