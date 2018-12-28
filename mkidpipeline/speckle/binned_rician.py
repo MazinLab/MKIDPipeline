@@ -1041,14 +1041,14 @@ def check_binfree_loglike_max(ts, p1, deadtime = 0):
 
     elif p1[0] <  .01 and p1[1] > 0 and p1[2] > 0:
         # if Ic is zero (or close to zero)
-        logLikeArray = np.array([])
+        logLikeArray = np.zeros(18)
         scaleArray = np.array(
             [[0, lowVal, lowVal], [0, lowVal, 1], [0, lowVal, highVal], [0, 1, lowVal],
              [0, 1, 1], [0, 1, highVal], [0, highVal, lowVal], [0, highVal, 1], [0, highVal, highVal]])
-        for ii in range(len(logLikeArray)):
+        for ii in range(9):
             IIc,IIs,IIr = scaleArray[ii] * p1
             logLikeArray[ii] = binfree.loglike([IIc,IIs,IIr],dt,deadtime=deadtime)
-        for ii in range(len(logLikeArray)):
+        for ii in range(9):
             IIc, IIs, IIr = scaleArray[ii] * p1
             logLikeArray[ii] = binfree.loglike([1, IIs, IIr], dt, deadtime=deadtime)
         if np.argmin(logLikeArray) == 4:
