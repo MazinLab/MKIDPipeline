@@ -10,6 +10,7 @@ import numpy
 
 from setuptools.extension import Extension
 from Cython.Build import cythonize
+from Cython.Distutils import build_ext
 
 parsebin_extension = Extension(
     name="mkidpipeline.hdf.parsebin",
@@ -17,6 +18,11 @@ parsebin_extension = Extension(
     library_dirs=["mkidpipeline/hdf"], # Location of .o file
     include_dirs=["mkidpipeline/hdf",numpy.get_include()], # Location of the .h file
     extra_compile_args=["-std=c99"]
+)
+
+gen_photon_list_extension = Extension(
+    name="mkidpipeline.speckle.photonstats_utils",
+    sources=['mkidpipeline/speckle/photonstats_utils.pyx']
 )
 
 def compile_and_install_software():
@@ -58,7 +64,7 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/MazinLab/MKIDPipeline",
     packages=setuptools.find_packages(),
-    ext_modules=cythonize([parsebin_extension]),
+    ext_modules=cythonize([parsebin_extension,gen_photon_list_extension]),
     classifiers=(
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
