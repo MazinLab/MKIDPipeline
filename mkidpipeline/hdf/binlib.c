@@ -12,7 +12,21 @@ The code is basic. It reads a bin file, turns the bits in the packet into arrays
 #include <stdint.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#if HAVE_BYTESWAP_H
 #include <byteswap.h>
+#else
+#define bswap_16(value) \
+((((value) & 0xff) << 8) | ((value) >> 8))
+
+#define bswap_32(value) \
+(((uint32_t)bswap_16((uint16_t)((value) & 0xffff)) << 16) | \
+(uint32_t)bswap_16((uint16_t)((value) >> 16)))
+
+#define bswap_64(value) \
+(((uint64_t)bswap_32((uint32_t)((value) & 0xffffffff)) \
+<< 32) | \
+(uint64_t)bswap_32((uint32_t)((value) >> 32)))
+#endif
 #define RAD2DEG 57.2957795131
 
 struct datapacket {
