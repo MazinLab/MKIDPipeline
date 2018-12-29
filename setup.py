@@ -15,7 +15,8 @@ parsebin_extension = Extension(
     name="mkidpipeline.hdf.parsebin",
     sources=["mkidpipeline/hdf/parsebin.pyx","mkidpipeline/hdf/binlib.c"],
     library_dirs=["mkidpipeline/hdf"], # Location of .o file
-    include_dirs=["mkidpipeline/hdf",numpy.get_include()] # Location of the .h file
+    include_dirs=["mkidpipeline/hdf",numpy.get_include()], # Location of the .h file
+    extra_compile_args=["-std=c99"]
 )
 
 def compile_and_install_software():
