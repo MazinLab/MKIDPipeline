@@ -1,4 +1,5 @@
 #!/bin/env python3
+from __future__ import print_function
 import os
 import ast
 import sys
@@ -7,7 +8,6 @@ import logging
 import argparse
 import warnings
 import numpy as np
-import progressbar as pb
 import multiprocessing as mp
 from datetime import datetime
 from astropy.constants import c, h
@@ -22,11 +22,25 @@ from mpl_toolkits.axes_grid1 import axes_size, make_axes_locatable
 
 from mkidpipeline.hdf import bin2hdf
 import mkidcore.corelog as pipelinelog
-from mkidpipeline.hdf.darkObsFile import ObsFile
-import mkidpipeline.calibration.wavecal_models as wm
+
 
 
 log = pipelinelog.getLogger('mkidpipeline.calibration.wavecal', setup=False)
+
+try:
+    import progressbar as pb
+except Exception as err:
+    log.warning('Error importing progressbar: ' + str(err))
+
+try:
+    from mkidpipeline.hdf.darkObsFile import ObsFile
+except Exception as err:
+    log.warning('Error importing darkObsFile: ' + str(err))
+
+try:
+    import mkidpipeline.calibration.wavecal_models as wm
+except ImportError as err:
+    log.warning('Error importing wavecal_models: ' + str(err))
 
 
 def setup_logging(configuration, time_stamp=None):
