@@ -52,9 +52,8 @@ Attach WCS Info (This is a function of the time and beammap)
 
 """
 
-#TODO we need a way to retrieve templay/dashboard yml configs that were used based on timestamp
-#Todo we need a way to autofetch all the parameters for stps of the pipeline (or atleast standardize)
-
+#TODO we need a way to retrieve templar/dashboard yml configs that were used based on timestamp
+#TODO we need a way to autofetch all the parameters for steps of the pipeline (or at least standardize)
 #TODO configure wavecal logging pulling from wavecal.setup_logging as needed
 
 
@@ -64,14 +63,14 @@ import mkidpipeline.calibration.flatcal as flatcal
 import mkidpipeline.config
 import mkidpipeline.badpix as badpix
 
-config = 'pipe.yml'
-cfg = mkidpipeline.config.load(config)
+input = mkidpipeline.config.load_data_description('data.yml')
+mkidpipeline.config.configure_pipeline('pipe.yml')
 
 #fetch flat & wave cal for each block of data
 
 #fetch h5 containing the blocks of data
 
-table = bin2hdf.buildtable(cfg.inputs, async=True)
+table = bin2hdf.buildtable(input.timeranges, async=True)
 wavecals = wavecal.fetch(cfg.wavecal, async=True)
 
 #noise.calibrate(table)
