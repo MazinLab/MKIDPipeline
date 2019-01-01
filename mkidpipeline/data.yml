@@ -1,0 +1,78 @@
+!dataset
+- !wc
+  data:
+    - !ob
+      name: 850 nm
+      start: 1545542036
+      stop: 2178  #if stop is < start it is interpreted as the final digits
+      comments:
+        - dither at (0,0)
+        - Charis_pickoff = 2 (gold mirror)
+      header:
+        ND: open
+        lamp: 100
+    - !ob
+      name: 950 nm
+      start: 1545542180
+      stop: 1545542310
+      header:
+        ND: open
+        lamp: 100
+    - !ob
+      name: 1100 nm
+      start: 1545542340
+      stop: 2450
+      header:
+        ND: .5
+        lamp: 40
+    - !ob
+      name: 1250 nm
+      start: 1545542463
+      stop: 2575
+      header:
+        ND: 1
+        lamp: 40
+    - !ob
+      name: 1375 nm
+      start: 1545542578
+      duration: 297       #duration may be used instead of stop
+      header:
+        ND: 1.0
+        lamp: 40
+  processing_hints: use defaults
+- !wsoln
+  file: existing_solution_file.npz
+- !fc
+  name: 1100 nm
+  start: 1545542340
+  stop: 2450
+  header:
+    ND: .5
+    lamp: 40
+- !dither
+  name: HIP 10680
+  file: /Users/one/ucsb/mec/dithers/HD10680_1545544478_dither.log
+  comments:
+    - Beta Pic moving group
+    - No known planets or disks, but a good young target
+    - 113mas Lyot
+    - astrogrid
+  out: photonlist
+- !dither
+  name: HIP 10680
+  file: /Users/one/ucsb/mec/dithers/HD10680_1545546044_dither.log
+  comments:
+    - Beta Pic moving group
+    - No known planets or disks, but a good young target
+    - 113mas Lyot
+    - astrogrid
+  out: photonlist
+- !dither
+  name: HD22179
+  file: /Users/one/ucsb/mec/dithers/HD22179_1545548901_dither.log
+  comments:
+    - 113mas Lyot
+    - Astrogrid
+    - Faint - J=7.8
+    - 1545549968 - 1545551005,  Network error. Lost FL8a,b
+  out: cube
