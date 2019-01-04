@@ -1,0 +1,121 @@
+!configdict
+beammap: !bmap
+  file: /mnt/data0/MEC/20180624/finalMap_20180622.txt
+  nrows: 146
+  ncols: 140
+
+paths:
+  # directory to the folder with the bin data (string, value ignored if not making h5 files)
+  data: /mnt/data0/ScienceData/Subaru/20180626/
+  # directory to the folder with the .h5 data (string)
+  out: /mnt/data0/baileyji/scratch/wavecal/
+  database: /foo/bar
+
+# start_times in same order as wavelengths (values ignored if not making h5 files)
+start_times: [1530100392, 1530100506, 1530100622, 1530100736, 1530100850]
+# exposure_times in same order as wavelengths (value ignored if not making h5 files)
+exposure_times: [100, 100, 100, 100, 100]
+# wavelengths in nanometers (list of numbers)
+wavelengths: [850, 950, 1100, 1250, 1375]
+
+wavecal: !configdict
+  plots: all
+  # print fitting progress to the terminal (True/False)
+  verbose = True
+  # save fitting info to a log file stored in logs folder in out_directory (True/False)
+  logging = True
+  fit: !configdict
+    # model types from wavecal_models.py to attempt to fit to the phase peak histograms
+    # (list of strings)
+    histogram_model_names: ['GaussianAndExponential']
+    # minimum bin width for the phase histogram. Larger widths will be used for low photon
+    # count pixels (number)
+    bin_width: 2
+    # how many times should the code try to fit each histogram model before giving up
+    histogram_fit_attempts: 3
+    # model types from wavecal_models.py to attempt to fit to the phase-energy relationship
+    # (list of strings)
+    calibration_model_names: ['Quadratic', 'Linear']
+    # ignore photons which arrive this many microseconds from another photon (number)
+    dt: 500
+    # do the fitting using more than one core (True/False)
+    parallel: True
+
+templarfile: "/mnt/data0/MEC/20180626/templarconf.cfg"
+
+
+
+
+
+
+[Data]
+# This section provides the location and description of the FlatCal data being processed.
+
+#Wavecal Solution Directory Path + File (To be used in plotting)   
+wvlCalFile = '' 
+
+#Flat File path. Path to the flat file or place where the flat file and calsol should be written
+h5directory = ''
+
+# file name of the flat (string, value ignored if making h5 files or scripts)
+file_name = 'f1.h5'
+
+#Integration time to break up larger h5 files into in seconds (number) (5 sec recommended)
+#Flatcal will calculate weights over EXPTIME/INTTIME time chunks and median-average them
+intTime= 30
+
+#Total exposure time (number)   
+expTime=30
+
+# flat start time (values ignored if not making h5)
+startTime = 1530100392
+
+# xpix (integer, value ignored if not making h5)
+xpix = 140
+
+# ypix (integer, value ignored if not making h5)
+ypix = 146
+
+# directory to the folder with the bin data (string, value ignored if not making h5)
+dataDir = "/mnt/data0/ScienceData/Subaru/20180626/"
+
+# directory to the folder with the beammap (string, value ignored if not making h5)
+beamDir = "/mnt/data0/MEC/20180624/finalMap_20180622.txt"
+
+
+[Output]
+#This section provides the parameters for the flat calibration output
+
+# directory to the folder for outputs (string)
+out_directory=''
+
+# print progress to the terminal (True/False)
+verbose = True
+
+# save diagnostic plots (True/False)
+save_plots = True
+
+# save summary plot (True/False)
+summary_plot = True
+
+# Perform Logging
+logging = True
+
+instrument:
+  #This section provides information about the specific wavelength and energy parameters for this instrument
+  #deadtime (number)
+  deadtime: 0.000001
+  #Energy bin width in eV  (number)
+  energyBinWidth: 0.01
+  #Starting Wavelength in nanometers (number)
+  wvlStart: 700
+  #Final Wavelength in nanometers (number)
+  wvlStop: 1500
+
+calibration:
+  #This section provides the parameters specific to the flat calibration function
+  countRateCutoff: 20000 #Count Rate Cutoff in seconds (number)
+  fractionOfChunksToTrim: 0 #Fraction of Chunks to trim (integer)
+plots:
+  wavecal:
+  plots: summary  # summary|all  (all will add ~30 min to the process!)

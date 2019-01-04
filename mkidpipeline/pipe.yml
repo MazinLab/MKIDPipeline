@@ -2,11 +2,13 @@
 badpix: median
 
 beammap: !bmap
-  file: the_beammap.bmap
-  nrow: 140
-  ncol: 146
+  default: MEC
+#  file: MEC
+#  nrows: 140
+#  ncols: 146
 
 paths: !configdict
+    dithers: /mnt/data0/baileyji/
     data: /mnt/data0/darknessdata
     #a processing cache directory, calibrations, configs, etc will be retrieved/stored here
     database: ./database
@@ -37,4 +39,6 @@ wavecal: !configdict
 flatcal: !configdict
   plots: all
 
-templar: the_conf.yml
+templarfile: the_conf.yml
+
+verbose: True
