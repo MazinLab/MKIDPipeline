@@ -1,9 +1,11 @@
+#!/bin/env python3
 import psutil
 import tempfile
 import subprocess
 import os
 import tables
 import time
+import sys
 import numpy as np
 from multiprocessing.pool import Pool
 import multiprocessing as mp
@@ -12,6 +14,8 @@ from mkidcore.headers import ObsHeader
 from mkidcore.corelog import getLogger
 from mkidcore.config import yaml, yaml_object
 import mkidpipeline.config
+
+__DUMMY = True
 
 BIN2HDFCONFIGTEMPLATE = ('{x} {y}\n'
                          '{datadir}\n'
@@ -22,17 +26,21 @@ BIN2HDFCONFIGTEMPLATE = ('{x} {y}\n'
                          '{outdir}')
 
 
-def makehdf(cfgORcfgs, maxprocs=2, polltime=.1, executable_path=''):
+def makehdf(cfgORcfgs, maxprocs=2, polltime=.1, executable_path='', events=None):
     """
     Run b2n2hdf on the config(s). Takes a config or iterable of configs.
 
     maxprocs(2) keyword may be used to specify the maximum number of processes
     polltime(.1) sets how often processes are checked for output and output logged
+
+    events if set must be the length of the configs and each will be set wwent the process is complete
     """
     if isinstance(cfgORcfgs, (tuple, list, set)):
         cfgs = tuple(cfgORcfgs)
     else:
         cfgs = (cfgORcfgs,)
+
+    program = os.path.join(executable_path, 'bin2hdf') if not __DUMMY else __file__
 
     keepconfigs=False
 
@@ -41,19 +49,24 @@ def makehdf(cfgORcfgs, maxprocs=2, polltime=.1, executable_path=''):
 
     tfiles=[]
     for cfg in cfgs:
-        with tempfile.NamedTemporaryFile('w',suffix='.cfg', delete=False) as tfile:
+        with tempfile.NamedTemporaryFile('w', suffix='.cfg', delete=False) as tfile:
             tfile.write(BIN2HDFCONFIGTEMPLATE.format(datadir=cfg.datadir, starttime=cfg.starttime,
                                                      inttime=cfg.inttime, beamfile=cfg.beamfile,
                                                      outdir=cfg.outdir, x=cfg.x, y=cfg.y))
             tfiles.append(tfile)
 
-    things = list(zip(tfiles, cfgs))
+    if events is None:
+        events = [threading.Event() for _ in cfgs]
+
+    things = list(zip(tfiles, cfgs, events))
+    eventDict = {}
     procs = []
     while things:
-        tfile, cfg = things.pop()
-        procs.append(psutil.Popen((os.path.join(executable_path,'bin2hdf'),tfile.name),
+        tfile, cfg, event = things.pop()
+        procs.append(psutil.Popen((program, tfile.name),
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                   shell=False, cwd=None, env=None, creationflags=0))
+        eventDict[procs[0]] = event
         while len(procs) >= nproc:
             #TODO consider replacing with https://gist.github.com/bgreenlee/1402841
             for i, proc in enumerate(procs):
@@ -66,7 +79,10 @@ def makehdf(cfgORcfgs, maxprocs=2, polltime=.1, executable_path=''):
                         getLogger(__name__ + '.bin2hdf_{}'.format(i)).error(err)
                 except subprocess.TimeoutExpired:
                     pass
-            procs = list(filter(lambda p: p.poll() is None, procs))
+            gprocs = list(filter(lambda p: p.poll() is None, procs))
+            for p in (p for p in procs if p not in gprocs):
+                eventDict.pop(p).set()
+            procs = gprocs
 
     while len(procs):
         #TODO consider replacing with https://gist.github.com/bgreenlee/1402841
@@ -80,7 +96,10 @@ def makehdf(cfgORcfgs, maxprocs=2, polltime=.1, executable_path=''):
                     getLogger(__name__ + '.bin2hdf_{}'.format(i)).error(err)
             except subprocess.TimeoutExpired:
                 pass
-        procs = list(filter(lambda p: p.poll() is None, procs))
+        gprocs = list(filter(lambda p: p.poll() is None, procs))
+        for p in (p for p in procs if p not in gprocs):
+            eventDict.pop(p).set()
+        procs = gprocs
 
     # Postprocess the h5 files
     ncore = min(nproc, len(cfgs))
@@ -269,31 +288,38 @@ class Bin2HdfConfig(object):
         raise NotImplementedError
 
 
-def buildtable(timeranges, config=None, ncpu=1, asynchronous=False):
+def buildtables(timeranges, config=None, ncpu=1, asynchronous=False):
     cfg = mkidpipeline.config.config if config is None else config
 
     b2h_configs = []
-    for start_t, int_t in timeranges:
+    for start_t, end_t in timeranges:
         b2h_configs.append(Bin2HdfConfig(datadir=cfg.paths.data,
                                          beamfile=cfg.beammap,
                                          outdir=cfg.paths.output,
-                                         starttime=start_t, inttime=int_t,
+                                         starttime=start_t, inttime=end_t-start_t,
                                          x=cfg.beammap.nrow,
                                          y=cfg.beammap.ncol))
-
     if asynchronous:
-        done = threading.Event()
+        events = [threading.Event() for _ in b2h_configs]
 
         def do_work():
             try:
-                makehdf(b2h_configs, maxprocs=min(ncpu, mp.cpu_count()))
+                makehdf(b2h_configs, maxprocs=min(ncpu, mkidpipeline.config.n_cpus_available()),
+                        size_limit=size_limit, events=events)
             except:
                 getLogger(__name__).error(exc_info=True)
             finally:
-                done.set()
-        t = threading.Thread(target=do_work, name='HDF Generator')
-        t.start()
-        return done
+                for e in events:
+                    e.set()
+        threading.Thread(target=do_work, name='HDF Generator: ').start()
+        return events
     else:
         return makehdf(b2h_configs, maxprocs=min(ncpu, mp.cpu_count()))
 
+
+if __name__ == '__main__':
+    """run as a dummy for testing"""
+    print('Pretending to run bin2hdf on '+sys.argv[1])
+    with open(sys.argv[1]) as f:
+        l = f.readlines()
+    print('File contents:\n\t'+'\t'.join(l))

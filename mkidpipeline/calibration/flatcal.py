@@ -70,11 +70,15 @@ class FlatCal(object):
         self.xpix = ast.literal_eval(self.config['Data']['xpix'])
         self.ypix = ast.literal_eval(self.config['Data']['ypix'])
         self.deadtime = ast.literal_eval(self.config['Instrument']['deadtime'])
+
         self.energyBinWidth = ast.literal_eval(self.config['Instrument']['energyBinWidth'])
         self.wvlStart = ast.literal_eval(self.config['Instrument']['wvlStart'])
         self.wvlStop = ast.literal_eval(self.config['Instrument']['wvlStop'])
+
+
         self.countRateCutoff = ast.literal_eval(self.config['Calibration']['countRateCutoff'])
         self.fractionOfChunksToTrim = ast.literal_eval(self.config['Calibration']['fractionOfChunksToTrim'])
+
         self.logging = ast.literal_eval(self.config['Output']['logging'])
         self.out_directory = ast.literal_eval(self.config['Output']['out_directory'])
         self.save_plots = ast.literal_eval(self.config['Output']['save_plots'])
@@ -561,7 +565,7 @@ class FlatCal(object):
             if answer is False:
                 answer = self._query("Provide a new file name (type exit to quit):")
                 if answer == 'exit':
-                    raise UserError("User doesn't want to overwrite the plot file " + "... exiting")
+                    raise RuntimeError("User doesn't want to overwrite the plot file " + "... exiting")
                 self.pdfFullPath = self.out_directory + str(answer) + '.pdf'
             else:
                 os.remove(self.pdfFullPath)
@@ -629,11 +633,6 @@ class FlatCal(object):
             else:
                 print("Please respond with 'yes' or 'no' (or 'y' or 'n').")
 
-class UserError(Exception):
-    """
-    Custom error used to exit the flatCal program without traceback
-    """
-    pass
 
 def summaryPlot(calsolnName, save_plot=False):
     """
@@ -702,6 +701,42 @@ def summaryPlot(calsolnName, save_plot=False):
         pdf.savefig(fig)
         pdf.close()
 
+
+def fetch(solution_descriptors, config=None, ncpu=1, async=False, force_h5=False):
+    cfg = mkidpipeline.config.config if config is None else config
+
+    solutions = []
+    for sd in solution_descriptors:
+        sf = os.path.join(cfg.paths.database, sd.id+'.npz')
+        if os.path.exists(sf):
+            solutions.append(Solution(sd.id+'npz'))
+        else:
+
+            flatobject = FlatCal(args.cfgfile, cal_file_name='calsol_{}.h5'.format(timestamp))
+
+            if not flatobject.hdfexist():
+                flatobject.makeh5()
+
+            else:
+                flatobject.h5directory = flatobject.h5directory + flatobject.file_name
+
+            if args.h5only:
+                exit()
+
+            else:
+
+                flatobject.makeCalibration()
+
+    for s in solutions:
+        try:
+            s.run()
+        except AttributeError:
+            continue
+
+    return s
+
+
+
 if __name__ == '__main__':
 
     timestamp = datetime.utcnow().timestamp()
@@ -719,7 +754,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if not args.quiet:
-        mkidcore.corelog.create_log('flatcalib', logfile='flatcalib_{}.log'.format(timestamp), console=False, propagate=False,
+        mkidcore.corelog.create_log('__main__', logfile='flatcalib_{}.log'.format(timestamp), console=False,
+                                    propagate=False,
                                     fmt='%(levelname)s %(message)s', level=mkidcore.corelog.INFO)
 
     atexit.register(lambda x:print('Execution took {:.0f}s'.format(time.time()-x)), time.time())
@@ -729,8 +765,21 @@ if __name__ == '__main__':
 
     flatobject=FlatCal(args.cfgfile, cal_file_name='calsol_{}.h5'.format(timestamp))
 
-    if not flatobject.hdfexist():
+    if not (os.path.isfile(self.h5directory+self.file_name)):
         flatobject.makeh5()
+
+        flatpath = '{}{}.txt'.format(self.h5directory, 'flat')
+        b2h_config=bin2hdf.Bin2HdfConfig(datadir=self.dataDir,
+                                                     beamfile=self.beamDir, outdir=self.h5directory,
+                                                     starttime=self.startTime, inttime=self.expTime, x=self.xpix,
+                                                     y=self.ypix, writeto=flatpath)
+        getLogger(__name__).info('Made h5 file at {}.h5'.format(self.startTime))
+
+        bin2hdf.makehdf(b2h_config, maxprocs=1)
+        self.h5directory=self.h5directory+str(self.startTime)+'.h5'
+        getLogger(__name__).info('Applied Wavecal {} to {}.h5'.format(self.wvlCalFile, self.startTime))
+        obsfile = ObsFile(self.h5directory, mode='write')
+        ObsFile.applyWaveCal(obsfile, self.wvlCalFile)
 
     else:
         flatobject.h5directory=flatobject.h5directory+flatobject.file_name

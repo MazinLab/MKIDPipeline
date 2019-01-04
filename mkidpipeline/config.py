@@ -1,20 +1,34 @@
 import mkidcore.config
 import numpy as np
 import os
+import hashlib
+from datetime import datetime
+import astropy.units
+import multiprocessing as mp
+from mkidcore.corelog import getLogger
 
 config = None
 
 yaml = mkidcore.config.yaml
 
 
-def load(*args, **kwargs):
+def load_task_config(file):
+
+    global config
+
+    cfg = mkidcore.config.load(file)
+
+    cfg.beammap = config.beammap
+    cfg.paths = config.paths
+    cfg.templar = config.templar
+
+    return cfg
+
+def configure_pipeline(*args, **kwargs):
     global config
     c = mkidcore.config.load(*args, **kwargs)
     config = c
     return c
-
-
-configure_pipeline = load
 
 load_data_description = mkidcore.config.load
 
@@ -47,19 +61,14 @@ class MKIDObservingDataDescription(object):
         if stop is not None:
             self.stop = int(np.ceil(stop))
 
-        if stop < start:
-            RuntimeWarning('Stop must come after start')
+        if self.stop < self.start:
+            raise ValueError('Stop ({}) must come after start ({})'.format(self.stop,self.start))
 
         self.name = str(name)
 
     @property
     def duration(self):
         return self.stop-self.start
-
-    # @classmethod
-    # def to_yaml(cls, representer, node):
-    #     raise NotImplementedError
-    #     return representer.represent_mapping(cls.yaml_tag, dict(node))
 
 
     @classmethod
@@ -75,17 +84,35 @@ class MKIDObservingDataDescription(object):
 yaml.register_class(MKIDObservingDataDescription)
 
 
-
 class MKIDWavedataDescription(object):
     yaml_tag = u'!wc'
 
     def __init__(self, data):
         self.data = data
+        self.data.sort(key=lambda x: x.name)
 
     @property
     def timeranges(self):
         for o in self.data:
             yield o.start, o.stop
+
+    @property
+    def wavelengths(self):
+        def getnm(x):
+            try:
+                astropy.units.Unit(x.name).to('nm')
+            except astropy.units.UnitConversionError:
+                return float(x)
+        return [getnm(x.name) for x in self.data]
+
+    def __str__(self):
+        return '\n '.join("{} ({}-{})".format(x.name, x.start, x.stop) for x in self.data)
+
+    @property
+    def id(self):
+        meanstart = int(np.mean([x[0] for x in self.timeranges]))
+        hash = hashlib.sha256(str(self)).hexdigest()
+        return datetime.utcfromtimestamp(meanstart).strftime('%Y-%m-%d %H%M') + hash
 
 
 yaml.register_class(MKIDWavedataDescription)
@@ -96,6 +123,7 @@ class MKIDFlatdataDescription(MKIDObservingDataDescription):
 
     def __init__(self, data):
         self.data = data
+
 
 yaml.register_class(MKIDFlatdataDescription)
 
@@ -126,7 +154,12 @@ class MKIDObservingDither(object):
     @classmethod
     def from_yaml(cls, loader, node):
         d = mkidcore.config.extract_from_node(('file', 'name'), node)
-        return cls(d['name'], d['file'], _common=_build_common(node))
+        if not os.path.isfile(d['file']):
+            file = os.path.join(config.paths.dithers, d['file'])
+            getLogger(__name__).info('Treating {} as relative dither path.'.format(d['file']))
+        else:
+            file = d['file']
+        return cls(d['name'], file, _common=_build_common(node))
 
     @property
     def timeranges(self):
@@ -140,7 +173,7 @@ yaml.register_class(MKIDObservingDither)
 class MKIDObservingDataset(object):
     def __init__(self, yml):
         self.yml = yml
-        self.meta = load(yml)
+        self.meta = mkidcore.config.load(yml)
 
     @property
     def timeranges(self):
@@ -155,3 +188,25 @@ class MKIDObservingDataset(object):
                     pass
             except StopIteration:
                 pass
+
+    @property
+    def wavecals(self):
+        return [r for r in self.meta if isinstance(r, MKIDWavedataDescription)]
+
+    @property
+    def flatcals(self):
+        return [r for r in self.meta if isinstance(r, MKIDFlatdataDescription)]
+
+
+def load_data_description(file):
+    return MKIDObservingDataset(file)
+
+
+def n_cpus_available():
+    global config
+    mcpu = int(np.ceil(mp.cpu_count() / 2))
+    try:
+        mcpu = int(min(config.ncpu, mcpu))
+    except Exception:
+        pass
+    return mcpu

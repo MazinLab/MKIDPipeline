@@ -1,10 +1,9 @@
-!dataset
 - !wc
   data:
     - !ob
       name: 850 nm
       start: 1545542036
-      stop: 2178  #if stop is < start it is interpreted as the final digits
+      stop: 1545542178  #if stop is < start it is interpreted as the final digits
       comments:
         - dither at (0,0)
         - Charis_pickoff = 2 (gold mirror)
@@ -21,14 +20,14 @@
     - !ob
       name: 1100 nm
       start: 1545542340
-      stop: 2450
+      stop: 1545542450
       header:
         ND: .5
         lamp: 40
     - !ob
       name: 1250 nm
       start: 1545542463
-      stop: 2575
+      stop: 1545542575
       header:
         ND: 1
         lamp: 40
@@ -40,18 +39,18 @@
         ND: 1.0
         lamp: 40
   processing_hints: use defaults
-- !wsoln
-  file: existing_solution_file.npz
+#- !wsoln
+#  file: existing_solution_file.npz
 - !fc
   name: 1100 nm
   start: 1545542340
-  stop: 2450
+  stop: 1545542450
   header:
     ND: .5
     lamp: 40
 - !dither
   name: HIP 10680
-  file: /Users/one/ucsb/mec/dithers/HD10680_1545544478_dither.log
+  file: dithers/HD10680_1545544478_dither.log
   comments:
     - Beta Pic moving group
     - No known planets or disks, but a good young target
@@ -60,7 +59,7 @@
   out: photonlist
 - !dither
   name: HIP 10680
-  file: /Users/one/ucsb/mec/dithers/HD10680_1545546044_dither.log
+  file: dithers/HD10680_1545546044_dither.log
   comments:
     - Beta Pic moving group
     - No known planets or disks, but a good young target
@@ -69,7 +68,7 @@
   out: photonlist
 - !dither
   name: HD22179
-  file: /Users/one/ucsb/mec/dithers/HD22179_1545548901_dither.log
+  file: dithers/HD22179_1545548901_dither.log
   comments:
     - 113mas Lyot
     - Astrogrid

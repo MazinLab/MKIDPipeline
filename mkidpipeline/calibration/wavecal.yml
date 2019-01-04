@@ -11,14 +11,19 @@ paths:
   out: /mnt/data0/baileyji/scratch/wavecal/
   database: /foo/bar
 
+# start_times in same order as wavelengths (values ignored if not making h5 files)
+start_times: [1530100392, 1530100506, 1530100622, 1530100736, 1530100850]
+# exposure_times in same order as wavelengths (value ignored if not making h5 files)
+exposure_times: [100, 100, 100, 100, 100]
+# wavelengths in nanometers (list of numbers)
+wavelengths: [850, 950, 1100, 1250, 1375]
+
 wavecal: !configdict
-  # start_times in same order as wavelengths (values ignored if not making h5 files)
-  start_times: [1530100392, 1530100506, 1530100622, 1530100736, 1530100850]
-  # exposure_times in same order as wavelengths (value ignored if not making h5 files)
-  exposure_times: [100, 100, 100, 100, 100]
-  # wavelengths in nanometers (list of numbers)
-  wavelengths: [850, 950, 1100, 1250, 1375]
-  summary_plot: True
+  plots: all
+  # print fitting progress to the terminal (True/False)
+  verbose = True
+  # save fitting info to a log file stored in logs folder in out_directory (True/False)
+  logging = True
   fit: !configdict
     # model types from wavecal_models.py to attempt to fit to the phase peak histograms
     # (list of strings)
@@ -36,8 +41,7 @@ wavecal: !configdict
     # do the fitting using more than one core (True/False)
     parallel: True
 
-templar:
-  file: "/mnt/data0/MEC/20180626/templarconf.cfg"
+templarfile: "/mnt/data0/MEC/20180626/templarconf.cfg"
 
 
 

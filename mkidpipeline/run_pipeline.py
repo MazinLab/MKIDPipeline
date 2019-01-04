@@ -63,19 +63,24 @@ import mkidpipeline.calibration.flatcal as flatcal
 import mkidpipeline.config
 import mkidpipeline.badpix as badpix
 
-input = mkidpipeline.config.load_data_description('data.yml')
-mkidpipeline.config.configure_pipeline('pipe.yml')
+datafile = './src/mkidpipeline/mkidpipeline/data.yml'
+cfgfile = './src/mkidpipeline/mkidpipeline/pipe.yml'
+mkidpipeline.config.configure_pipeline(cfgfile)
+c = input = mkidpipeline.config.load_data_description(datafile)
 
 #fetch flat & wave cal for each block of data
 
 #fetch h5 containing the blocks of data
 
-table = bin2hdf.buildtable(input.timeranges, async=True)
-wavecals = wavecal.fetch(cfg.wavecal, async=True)
+table = bin2hdf.buildtables(input.timeranges, async=True)
+
+wavecals = wavecal.fetch(input.wavecals, async=True)
 
 #noise.calibrate(table)
 
-flatcals = flatcal.fetch(cfg.flatcal, async=True)
+flatcals = flatcal.fetch(input.flatcals, async=True)
+
+raise RuntimeError()
 
 table.applyWaveCal(wavecals)
 table.applyFlatCal(flatcals)
@@ -88,7 +93,7 @@ badpix.find(table, cfg.badpix.method)
 
 imagecube.form(table, wcs=cfg.fitsample.wcs)
 
-filepath = os.path.join(cfg.paths.out, FLATFNAME_TEMPLATE.format(dict(flat.header))
+filepath = os.path.join(cfg.paths.out, FLATFNAME_TEMPLATE.format(dict(flat.header)))
 flat.writeto(filepath)
 
 FLATFNAME_TEMPLATE = os.path.join('{run}','{date}','flat_{timestamp}.h5')
