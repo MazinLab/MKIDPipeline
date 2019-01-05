@@ -128,7 +128,7 @@ class Configuration(object):
             self.parallel = config.wavecal.fit.parallel
             self.summary_plot = config.wavecal.plots.lower() in ('all', 'summary')
 
-            self.templar_configuration_path = config.templarfile
+            self.templar_configuration_path = config.templar.file
 
         for model in self.histogram_model_names:
             assert issubclass(getattr(wm, model), wm.PartialLinearModel), \
@@ -194,7 +194,7 @@ class Calibrator(object):
         # get beam map
         obs_files = []
         for index, _ in enumerate(self.cfg.wavelengths):
-            file_name = os.path.join(self.cfg.h5_directory,
+            file_name = os.path.join(self.cfg.paths.out,
                                      self.cfg.h5_file_names[index])
             obs_files.append(ObsFile(file_name))
             message = "The beam map does not match the array dimensions"
@@ -277,7 +277,7 @@ class Calibrator(object):
             for wavelength in wavelengths:
                 # wavelengths might be unordered, so we get the right order of h5 files
                 index = np.where(wavelength == self.cfg.wavelengths)[0].squeeze()
-                file_name = os.path.join(self.cfg.h5_directory,
+                file_name = os.path.join(self.cfg.paths.out,
                                          self.cfg.h5_file_names[index])
                 obs_files.append(ObsFile(file_name))
             # make histograms for each pixel in pixels and wavelength in wavelengths
@@ -2296,9 +2296,10 @@ def fetch(solution_descriptors, config=None, ncpu=1, async=False, force_h5=False
             solutions.append(Solution(sd.id+'npz'))
         else:
             wcfg = mkidpipeline.config.load_task_config(pkg.resource_filename(__name__, 'wavecal.yml'))
-            wcfg.wavecal.start_times = [x.start for x in sd.data]
-            wcfg.wavecal.exposure_times = [x.duration for x in sd.data]
-            wcfg.wavecal.wavelengths = [w for w in sd.wavelengths]
+            wcfg.register('h5_file_names', [str(x.start)+'.h5' for x in sd.data], update=True)
+            wcfg.update('start_times', [x.start for x in sd.data])
+            wcfg.update('exposure_times', [x.duration for x in sd.data])
+            wcfg.update('wavelengths', [w for w in sd.wavelengths])
             solutions.append(Calibrator(wcfg, solution_name=sd.id+'npz'))
 
     for s in solutions:
@@ -2337,6 +2338,10 @@ if __name__ == "__main__":
 
     # load the configuration file
     config = Configuration(args.cfg_file)
+
+    config.wavecal.register('h5_file_names',
+                            [str(x.start)+'.h5' for x in config.start_times], update=False)
+
     # set up logging
     if not args.quiet:
         setup_logging(tologfile=config.out_directory if not args.quiet else '',
@@ -2344,6 +2349,7 @@ if __name__ == "__main__":
 
     # print execution time on exit
     atexit.register(lambda: print('Execution took {:.2f} minutes'.format((datetime.utcnow().timestamp() - timestamp) / 60)))
+
 
     # set up bin2hdf
     if args.n_cpu == 0:
@@ -2354,9 +2360,9 @@ if __name__ == "__main__":
         b2h_configs = []
         for wave, start_t, int_t in zip(config.wavelengths, config.start_times,
                                         config.exposure_times):
-            b2h_configs.append(bin2hdf.Bin2HdfConfig(datadir=config.bin_directory,
+            b2h_configs.append(bin2hdf.Bin2HdfConfig(datadir=config.paths.data,
                                                      beamfile=config.beam_map_path,
-                                                     outdir=config.h5_directory,
+                                                     outdir=config.out,
                                                      starttime=start_t, inttime=int_t,
                                                      x=config.x_pixels,
                                                      y=config.y_pixels))

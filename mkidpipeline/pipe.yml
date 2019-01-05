@@ -39,6 +39,7 @@ wavecal: !configdict
 flatcal: !configdict
   plots: all
 
-templarfile: the_conf.yml
+templar: !configdict
+  file: the_conf.yml
 
 verbose: True

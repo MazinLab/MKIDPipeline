@@ -1,10 +1,11 @@
 !configdict
 beammap: !bmap
-  file: /mnt/data0/MEC/20180624/finalMap_20180622.txt
-  nrows: 146
-  ncols: 140
+  default: MEC
+#  file: /mnt/data0/MEC/20180624/finalMap_20180622.txt
+#  nrows: 146
+#  ncols: 140
 
-paths:
+paths: !configdict
   # directory to the folder with the bin data (string, value ignored if not making h5 files)
   data: /mnt/data0/ScienceData/Subaru/20180626/
   # directory to the folder with the .h5 data (string)
@@ -18,12 +19,10 @@ exposure_times: [100, 100, 100, 100, 100]
 # wavelengths in nanometers (list of numbers)
 wavelengths: [850, 950, 1100, 1250, 1375]
 
+#h5_file_names: [None, None, None, None, None] (optional
+
 wavecal: !configdict
   plots: all
-  # print fitting progress to the terminal (True/False)
-  verbose = True
-  # save fitting info to a log file stored in logs folder in out_directory (True/False)
-  logging = True
   fit: !configdict
     # model types from wavecal_models.py to attempt to fit to the phase peak histograms
     # (list of strings)
@@ -41,7 +40,8 @@ wavecal: !configdict
     # do the fitting using more than one core (True/False)
     parallel: True
 
-templarfile: "/mnt/data0/MEC/20180626/templarconf.cfg"
+templar:
+  file: "templarconf.cfg"
 
 
 

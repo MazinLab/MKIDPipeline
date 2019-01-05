@@ -56,7 +56,6 @@ Attach WCS Info (This is a function of the time and beammap)
 #TODO we need a way to autofetch all the parameters for steps of the pipeline (or at least standardize)
 #TODO configure wavecal logging pulling from wavecal.setup_logging as needed
 
-
 import mkidpipeline.hdf.bin2hdf as bin2hdf
 import mkidpipeline.calibration.wavecal as wavecal
 import mkidpipeline.calibration.flatcal as flatcal
@@ -66,14 +65,13 @@ import mkidpipeline.badpix as badpix
 datafile = './src/mkidpipeline/mkidpipeline/data.yml'
 cfgfile = './src/mkidpipeline/mkidpipeline/pipe.yml'
 mkidpipeline.config.configure_pipeline(cfgfile)
+mkidpipeline.config.logtoconsole()
 c = input = mkidpipeline.config.load_data_description(datafile)
 
-#fetch flat & wave cal for each block of data
 
-#fetch h5 containing the blocks of data
-
-table = bin2hdf.buildtables(input.timeranges, async=True)
-
+# wcc = './src/mkidpipeline/mkidpipeline/calibration/wavecal.yml'
+# mkidpipeline.config.load_task_config(wcc)
+# tr,ev = bin2hdf.buildtables(input.timeranges, asynchronous=True, ncpu=4)
 wavecals = wavecal.fetch(input.wavecals, async=True)
 
 #noise.calibrate(table)
