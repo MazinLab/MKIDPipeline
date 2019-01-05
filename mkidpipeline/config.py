@@ -5,7 +5,8 @@ import hashlib
 from datetime import datetime
 import astropy.units
 import multiprocessing as mp
-from mkidcore.corelog import getLogger
+from mkidcore.corelog import getLogger, create_log
+import pkg_resources as pkg
 
 config = None
 
@@ -13,16 +14,13 @@ yaml = mkidcore.config.yaml
 
 
 def load_task_config(file):
-
     global config
-
     cfg = mkidcore.config.load(file)
-
-    cfg.beammap = config.beammap
-    cfg.paths = config.paths
-    cfg.templar = config.templar
-
+    cfg.register('beammap', config.beammap, update=True)
+    cfg.register('paths', config.paths, update=True)
+    cfg.register('templar', config.templar, update=True)
     return cfg
+
 
 def configure_pipeline(*args, **kwargs):
     global config
@@ -30,15 +28,19 @@ def configure_pipeline(*args, **kwargs):
     config = c
     return c
 
+
+configure_pipeline(pkg.resource_filename('mkidpipeline','pipe.yml'))
+
 load_data_description = mkidcore.config.load
 
 
 _COMMON_KEYS = ('comments', 'meta', 'header', 'out')
 
 
-def _build_common(yaml_node):
+def _build_common(yaml_loader, yaml_node):
     # TODO flesh out as needed
-    return {x[0].value: x[1].value for x in yaml_node.value if x[0].value.lower() in _COMMON_KEYS}
+    pairs = yaml_loader.construct_pairs(yaml_node)
+    return {k: v for k, v in pairs if k in _COMMON_KEYS}
 
 
 class MKIDObservingDataDescription(object):
@@ -70,7 +72,6 @@ class MKIDObservingDataDescription(object):
     def duration(self):
         return self.stop-self.start
 
-
     @classmethod
     def from_yaml(cls, loader, node):
         d = dict(loader.construct_pairs(node))  #WTH this one line took half a day to get right
@@ -78,7 +79,7 @@ class MKIDObservingDataDescription(object):
         start = d.pop('start', None)
         stop = d.pop('stop', None)
         duration = d.pop('duration', None)
-        return MKIDObservingDataDescription(name, start, duration=duration, stop=stop, _common=d)
+        return cls(name, start, duration=duration, stop=stop, _common=d)
 
 
 yaml.register_class(MKIDObservingDataDescription)
@@ -100,7 +101,7 @@ class MKIDWavedataDescription(object):
     def wavelengths(self):
         def getnm(x):
             try:
-                astropy.units.Unit(x.name).to('nm')
+                astropy.units.Unit(x).to('nm')
             except astropy.units.UnitConversionError:
                 return float(x)
         return [getnm(x.name) for x in self.data]
@@ -111,7 +112,7 @@ class MKIDWavedataDescription(object):
     @property
     def id(self):
         meanstart = int(np.mean([x[0] for x in self.timeranges]))
-        hash = hashlib.sha256(str(self)).hexdigest()
+        hash = hashlib.md5(str(self).encode()).hexdigest()
         return datetime.utcfromtimestamp(meanstart).strftime('%Y-%m-%d %H%M') + hash
 
 
@@ -121,8 +122,18 @@ yaml.register_class(MKIDWavedataDescription)
 class MKIDFlatdataDescription(MKIDObservingDataDescription):
     yaml_tag = u'!fc'
 
-    def __init__(self, data):
-        self.data = data
+    # def __init__(self, data):
+    #     self.data = data
+
+    # @classmethod
+    # def from_yaml(cls, loader, node):
+    #     return MKIDObservingDataDescription.from_yaml(cls, loader, node)
+    #     d = dict(loader.construct_pairs(node))  #WTH this one line took half a day to get right
+    #     name = d.pop('name')
+    #     start = d.pop('start', None)
+    #     stop = d.pop('stop', None)
+    #     duration = d.pop('duration', None)
+    #     return cls(name, start, duration=duration, stop=stop, _common=d)
 
 
 yaml.register_class(MKIDFlatdataDescription)
@@ -159,7 +170,7 @@ class MKIDObservingDither(object):
             getLogger(__name__).info('Treating {} as relative dither path.'.format(d['file']))
         else:
             file = d['file']
-        return cls(d['name'], file, _common=_build_common(node))
+        return cls(d['name'], file, _common=_build_common(loader, node))
 
     @property
     def timeranges(self):
@@ -177,7 +188,7 @@ class MKIDObservingDataset(object):
 
     @property
     def timeranges(self):
-        for x in self.yml:
+        for x in self.meta:
             try:
                 for tr in x.timeranges:
                     yield tr
@@ -210,3 +221,9 @@ def n_cpus_available():
     except Exception:
         pass
     return mcpu
+
+def logtoconsole():
+    create_log('mkidcore')
+    create_log('mkidreadout')
+    create_log('mkidpipeline')
+    create_log('__main__')
