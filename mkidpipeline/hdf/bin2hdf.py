@@ -15,8 +15,11 @@ from mkidcore.corelog import getLogger
 from mkidcore.config import yaml, yaml_object
 import mkidpipeline.config
 import pkg_resources as pkg
+from datetime import datetime
+from glob import glob
+import warnings
 
-__DUMMY = True
+__DUMMY = False
 
 BIN2HDFCONFIGTEMPLATE = ('{x} {y}\n'
                          '{datadir}\n'
@@ -25,6 +28,27 @@ BIN2HDFCONFIGTEMPLATE = ('{x} {y}\n'
                          '{beamfile}\n'
                          '1\n'
                          '{outdir}')
+
+_datadircache = {}
+
+
+def _get_dir_for_start(base, start):
+    global _datadircache
+
+    try:
+        nmin = _datadircache[base]
+    except KeyError:
+        nights_times = glob(os.path.join(base, '*', '*.bin'))
+        nights, times = np.genfromtxt(list(map(lambda s: s[len(base) + 1:-4], nights_times)),
+                                      delimiter=os.path.sep, dtype=int).T
+        nmin = {times[nights == n].min(): str(n) for n in set(nights)}
+        _datadircache[base] = nmin
+
+    keys = np.array(list(nmin))
+    try:
+        return os.path.join(base, nmin[keys[keys < start].max()])
+    except ValueError:
+        raise ValueError('No directory in {} found for start {}'.format(base, start))
 
 
 def makehdf(cfgORcfgs, maxprocs=2, polltime=.1, events=None,
@@ -51,9 +75,9 @@ def makehdf(cfgORcfgs, maxprocs=2, polltime=.1, events=None,
     events = {c:threading.Event() for c in cfgs} if events is None else {c:e for c,e in zip(cfgs,events)}
 
     for cfg, e in zip(cfgs, events):
-        tfile = tempfile.NamedTemporaryFile('w', suffix='.cfg', delete=False)
-        cfg.write(tfile)
-        tfile_dict[cfg] = tfile
+        with tempfile.NamedTemporaryFile('w', suffix='.cfg', delete=False) as tfile:
+            cfg.write(tfile)
+            tfile_dict[cfg] = tfile
 
     things = list(cfgs)
     procs = []
@@ -100,11 +124,11 @@ def makehdf(cfgORcfgs, maxprocs=2, polltime=.1, events=None,
     getLogger(__name__).info('Postprocessing {} H5 files using {} cores'.format(len(cfgs), ncore))
     if nproc > 1 and len(cfgs) > 1:
         pool = Pool(ncore)
-
-        def eventwrap(ce_tuple):
-            c, e = ce_tuple
-            postprocess(c, event=e)
-        pool.map(eventwrap, events.items())
+        #
+        # def eventwrap(ce_tuple):
+        #     c, e = ce_tuple
+        #     postprocess(c, event=e)
+        pool.map(postprocess, events.items())
     else:
         for c, e in events.items():
             postprocess(c, event=e)
@@ -124,6 +148,7 @@ def makehdf(cfgORcfgs, maxprocs=2, polltime=.1, events=None,
 
 
 def postprocess(cfg, event=None):
+    time.sleep(.1)
     add_header(cfg)
     time.sleep(.1)
     if cfg.starttime < 1518222559:
@@ -180,8 +205,9 @@ def index_hdf(cfg):
     hfile.close()
 
 
-def fix_timestamp_bug(
-        file):  # TODO:  This isn't in its final form, there is a patch to deal with the Bin2HDF bug which writes the same photonlist twice to certain resIDs
+# TODO:  This isn't in its final form, there is a patch to deal with the Bin2HDF bug
+def fix_timestamp_bug(file):
+    # which writes the same photonlist twice to certain resIDs
     noResIDFlag = 2 ** 32 - 1
     hfile = tables.open_file(file, mode='a')
     beamMap = hfile.root.BeamMap.Map.read()
@@ -190,7 +216,7 @@ def fix_timestamp_bug(
     photonList = photonTable.read()
 
     resIDDiffs = np.diff(photonList['ResID'])
-    if (np.any(resIDDiffs < 0)):
+    if np.any(resIDDiffs < 0):
         warnings.warn('Photon list not sorted by ResID! This could take a while...')
         photonList = np.sort(photonList, order='ResID',
                              kind='mergsort')  # mergesort is stable, so time order will be preserved
@@ -266,14 +292,22 @@ def add_header(cfg, wvlBinStart=700, wvlBinEnd=1500, energyBinWidth=0.1):
 @yaml_object(yaml)
 class Bin2HdfConfig(object):
     def __init__(self, datadir='./', beamfile='./default.bmap', starttime=None, inttime=None,
-                 outdir='./', x=140, y=146, writeto=None):
+                 outdir='./', x=140, y=146, writeto=None, beammap=None):
+
         self.datadir = datadir
         self.starttime = starttime
         self.inttime = inttime
+
         self.beamfile = beamfile
-        self.outdir = outdir
         self.x = x
         self.y = y
+
+        if beammap is not None:
+            self.beamfile = beammap.file
+            self.x = beammap.ncols
+            self.y = beammap.nrows
+
+        self.outdir = outdir
         if writeto is not None:
             self.write(writeto)
 
@@ -282,13 +316,19 @@ class Bin2HdfConfig(object):
         return os.path.join(self.outdir, str(self.starttime) + '.h5')
 
     def write(self, file):
+        dir = self.datadir
+        if not glob(os.path.join(dir, '*.bin')):
+            dir = os.path.join(self.datadir, datetime.utcfromtimestamp(self.starttime).strftime('%Y%m%d'))
+        else:
+            getLogger(__name__).debug('bin files found in data directory. Will not append YYYMMDD')
+
         try:
-            file.write(BIN2HDFCONFIGTEMPLATE.format(datadir=self.datadir, starttime=self.starttime,
-                                                        inttime=self.inttime, beamfile=self.beamfile,
-                                                        outdir=self.outdir, x=self.x, y=self.y))
+            file.write(BIN2HDFCONFIGTEMPLATE.format(datadir=dir, starttime=self.starttime,
+                                                    inttime=self.inttime, beamfile=self.beamfile,
+                                                    outdir=self.outdir, x=self.x, y=self.y))
         except AttributeError:
             with open(file, 'w') as wavefile:
-                wavefile.write(BIN2HDFCONFIGTEMPLATE.format(datadir=self.datadir, starttime=self.starttime,
+                wavefile.write(BIN2HDFCONFIGTEMPLATE.format(datadir=dir, starttime=self.starttime,
                                                             inttime=self.inttime, beamfile=self.beamfile,
                                                             outdir=self.outdir, x=self.x, y=self.y))
 
@@ -303,11 +343,9 @@ def buildtables(timeranges, config=None, ncpu=1, asynchronous=False):
 
     b2h_configs = []
     for start_t, end_t in timeranges:
-        b2h_configs.append(Bin2HdfConfig(datadir=cfg.paths.data, beamfile=cfg.beammap.file,
-                                         outdir=cfg.paths.out,
-                                         starttime=start_t, inttime=end_t - start_t,
-                                         x=cfg.beammap.nrows,
-                                         y=cfg.beammap.ncols))
+        b2h_configs.append(Bin2HdfConfig(datadir=_get_dir_for_start(cfg.paths.data, start_t),
+                                         beammap=cfg.beammap, outdir=cfg.paths.out,
+                                         starttime=start_t, inttime=end_t - start_t))
     if asynchronous:
         events = [threading.Event() for _ in b2h_configs]
 

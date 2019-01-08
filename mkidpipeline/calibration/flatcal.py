@@ -14,12 +14,9 @@ Per pixel:  plots of weights vs wavelength next to twilight spectrum OR
             (has _WavelengthCompare_ in the name)
 """
 import argparse
-import ast
 import atexit
 import os
 import time
-from configparser import ConfigParser
-from typing import Any, Union
 from datetime import datetime
 
 import matplotlib
@@ -35,11 +32,12 @@ from mkidpipeline.hdf.photontable import ObsFile
 from mkidcore.corelog import getLogger
 import mkidcore.corelog
 from mkidpipeline.hdf import bin2hdf
+import mkidpipeline.config
+import pkg_resources as pkg
+from mkidcore.utils import query
 
-DEFAULT_CONFIG_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                                   'Params', 'default.cfg')
+DEFAULT_CONFIG_FILE = pkg.resource_filename('mkidpipeline.calibration.flatcal', 'flatcal.yml')
 
-np.seterr(divide='ignore', invalid='ignore')
 
 class FlatCal(object):
     """
@@ -47,160 +45,105 @@ class FlatCal(object):
     weights for flat file.  Writes these weights to a h5 file and plots weights both by pixel
     and in wavelength-sliced images.
     """
-    def __init__(self, config_file='default.cfg', cal_file_name = 'calsol_default.h5'):
+    def __init__(self, config=None, cal_file_name='calsol_{start}.h5', log=True):
         """
         Reads in the param file and opens appropriate flat file.  Sets wavelength binning parameters.
         """
-        self.config_file = DEFAULT_CONFIG_FILE if config_file == 'default.cfg' else config_file
-        assert os.path.isfile(self.config_file), \
-            self.config_file + " is not a valid configuration file"
-        # check the configuration file path and read it in
-        self.config = ConfigParser()
-        self.config.read(self.config_file)
-        # check the configuration file format and load the parameters
-        self.checksections()
-        self.wvlCalFile = ast.literal_eval(self.config['Data']['wvlCalFile'])
-        self.h5directory = ast.literal_eval(self.config['Data']['h5directory'])
-        self.file_name = ast.literal_eval(self.config['Data']['file_name'])
-        self.intTime = ast.literal_eval(self.config['Data']['intTime'])
-        self.expTime = ast.literal_eval(self.config['Data']['expTime'])
-        self.dataDir = ast.literal_eval(self.config['Data']['dataDir'])
-        self.beamDir = ast.literal_eval(self.config['Data']['beamDir'])
-        self.startTime = ast.literal_eval(self.config['Data']['startTime'])
-        self.xpix = ast.literal_eval(self.config['Data']['xpix'])
-        self.ypix = ast.literal_eval(self.config['Data']['ypix'])
-        self.deadtime = ast.literal_eval(self.config['Instrument']['deadtime'])
+        self.config_file = DEFAULT_CONFIG_FILE if config is None else config
 
-        self.energyBinWidth = ast.literal_eval(self.config['Instrument']['energyBinWidth'])
-        self.wvlStart = ast.literal_eval(self.config['Instrument']['wvlStart'])
-        self.wvlStop = ast.literal_eval(self.config['Instrument']['wvlStop'])
+        self.cfg = mkidpipeline.config.load_task_config(config)
 
+        try:
+            self.wvlCalFile = self.cfg.wavesol
+            if not os.path.exists(self.wvlCalFile):
+                self.wvlCalFile = os.path.join(self.cfg.paths.database, self.wvlCalFile)
+        except KeyError:
+            getLogger(__name__).info('No wavelength solution specified. Solution must have been previously applied.')
+            self.wvlCalFile = ''
 
-        self.countRateCutoff = ast.literal_eval(self.config['Calibration']['countRateCutoff'])
-        self.fractionOfChunksToTrim = ast.literal_eval(self.config['Calibration']['fractionOfChunksToTrim'])
+        self.startTime = self.cfg.start_time
+        self.expTime = self.cfg.exposure_time
 
-        self.logging = ast.literal_eval(self.config['Output']['logging'])
-        self.out_directory = ast.literal_eval(self.config['Output']['out_directory'])
-        self.save_plots = ast.literal_eval(self.config['Output']['save_plots'])
-        self.summary_plot = ast.literal_eval(self.config['Output']['summary_plot'])
-        self.cal_file_name=cal_file_name
-        if self.save_plots:
-            answer = self._query("Save Plots flag set to 'yes', this will add ~30 min to the code.  "
-                                 "Are you sure you want to save plots?", yes_or_no=True)
-            if answer is False:
-                self.save_plots = False
-                getLogger(__name__).info("Setting save_plots parameter to FALSE")
+        self.h5file = self.cfg.get('h5file', os.path.join(self.cfg.paths.out, str(self.startTime)+'.h5'))
+
+        self.dataDir = self.cfg.paths.data
+        self.out_directory = self.cfg.paths.out
+
+        self.flatCalFileName = self.cfg.get('flatname', os.path.join(self.cfg.paths.database, cal_file_name.format(
+            start=self.startTime)))
+
+        self.intTime = self.cfg.flatcal.chunk_time
+
+        self.xpix = self.cfg.beammap.ncols
+        self.ypix = self.cfg.beammap.nrows
+        self.deadtime = self.cfg.instrument.deadtime
+
+        self.energyBinWidth = self.cfg.instrument.energyBinWidth
+        self.wvlStart = self.cfg.instrument.wvlStart
+        self.wvlStop = self.cfg.instrument.wvlStop
+
+        self.countRateCutoff = self.cfg.flatcal.countRateCutoff
+        self.fractionOfChunksToTrim = self.cfg.flatcal.fractionOfChunksToTrim
         self.timeSpacingCut = None
 
-        self.checktypes()
-        self.checksections()
-        self.checktypes()
+        self.obs = None
+        self.beamImage = None
+        self.wvlFlags = None
+        self.wvlBinEdges = None
+        self.nWvlBins = None
+
+        self.logging = log
+        self.save_plots = self.cfg.flatcal.plots.lower() == 'all'
+        self.summary_plot = self.cfg.flatcal.plots.lower() in ('all', 'summary')
+        if self.save_plots:
+            getLogger(__name__).warning("Saving debug plots, this will add ~30 min to runtime.")
+
         getLogger(__name__).info("Computing Factors for FlatCal")
 
-    def checksections(self):
-        """
-        Checks the variables loaded in from the configuration file for type and consistency.
-        """
-        section = "{0} must be a configuration section"
-        param = "{0} must be a parameter in the configuration file '{1}' section"
+        self.frames = None
+        self.spectralCubes = None
+        self.cubeEffIntTimes = None
+        self.countCubes = None
+        self.flatWeightsList = None
+        self.averageSpectra = None
+        self.maskedCubeWeights = None
+        self.maskedCubeDeltaWeights = None
+        self.totalCube = None
+        self.totalFrame = None
+        self.flatWeights = None
+        self.countCubesToSave = None
+        self.deltaFlatWeights = None
+        self.flatFlags = None
+        self.flatWeights = None
+        self.flatWeightsforplot = None
+        self.plotName = None
+        self.fig = None #TODO @Isabel lets talk about if this is really needed as a class attribute
 
-        assert 'Data' in self.config.sections(), section.format('Data')
-        assert 'h5directory' in self.config['Data'].keys(), \
-            param.format('h5directory', 'Data')
-        assert 'file_name' in self.config['Data'].keys(), \
-            param.format('file_name', 'Data')
-        assert 'startTime' in self.config['Data'].keys(), \
-            param.format('startTimes', 'Data')
-        assert 'dataDir' in self.config['Data'].keys(), \
-            param.format('dataDir', 'Data')
-        assert 'beamDir' in self.config['Data'].keys(), \
-            param.format('beamDir', 'Data')
-        assert 'wvlCalFile' in self.config['Data'].keys(), \
-            param.format('wvlCalFile', 'Data')
-        assert 'intTime' in self.config['Data'].keys(), \
-            param.format('intTime', 'Data')
-        assert 'expTime' in self.config['Data'].keys(), \
-            param.format('expTime', 'Data')
-        assert 'Instrument' in self.config.sections(), section.format('Instrument')
-        assert 'deadtime' in self.config['Instrument'].keys(), \
-            param.format('deadtime', 'Instrument')
-        assert 'energyBinWidth' in self.config['Instrument'].keys(), \
-            param.format('energyBinWidth', 'Instrument')
-        assert 'wvlStart' in self.config['Instrument'].keys(), \
-            param.format('wvlStart', 'Instrument')
-        assert 'wvlStop' in self.config['Instrument'].keys(), \
-            param.format('wvlStop', 'Instrument')
-        assert 'Calibration' in self.config.sections(), section.format('Calibration')
-        assert 'countRateCutoff' in self.config['Calibration'], \
-            param.format('countRateCutoff', 'Calibration')
-        assert 'fractionOfChunksToTrim' in self.config['Calibration'], \
-            param.format('fractionOfChunksToTrim', 'Calibration')
-        assert 'out_directory' in self.config['Output'].keys(), \
-            param.format('out_directory', 'Output')
-        assert 'save_plots' in self.config['Output'].keys(), \
-            param.format('save_plots', 'Output')
-        assert 'summary_plot' in self.config['Output'].keys(), \
-            param.format('summary_plot', 'Output')
-        assert 'logging' in self.config['Output'], \
-            param.format('logging', 'Output')
-
-    def checktypes(self):
-        """
-        type check parameters
-        """
-        if self.h5directory != '':
-            assert type(self.h5directory) is str, "Flat Path parameter must be a string."
-            assert os.path.exists(self.h5directory), "Please confirm the Flat File path provided is correct"
-        if self.out_directory != '':
-            assert type(self.out_directory) is str, "Cal Solution Path parameter must be a string."
-        if self.wvlCalFile != '':
-            assert type(self.wvlCalFile) is str, "WaveCal Solution Path parameter must be a string."
-        assert type(self.intTime) is int, "integration time parameter must be an integer"
-        assert type(self.expTime) is int, "Exposure time parameter must be an integer"
-        assert type(self.startTime) is int, "Start time parameter must be an integer."
-
-        assert type(self.dataDir) is str, "Data directory parameter must be a string"
-        assert type(self.file_name) is str, "File Name parameter must be a string"
-        assert type(self.beamDir) is str, "Beam directory parameter must be a string"
-        if type(self.deadtime) is int:
-            self.deadtime = float(self.deadtime)
-        assert type(self.deadtime) is float, "Dead time parameter must be an integer or float"
-        if type(self.energyBinWidth) is int:
-            self.energyBinWidth = float(self.energyBinWidth)
-        assert type(self.energyBinWidth) is float, "Energy Bin Width parameter must be an integer or float"
-        if type(self.wvlStart) is int:
-            self.wvlStart = float(self.wvlStart)
-        assert type(self.wvlStart) is float, "Starting Wavelength must be an integer or float"
-        if type(self.wvlStop) is int:
-            self.wvlStop = float(self.wvlStop)
-        assert type(self.wvlStop) is float, "Stopping Wavelength must be an integer or float"
-        if type(self.countRateCutoff) is int:
-            self.countRateCutoff = float(self.countRateCutoff)
-        assert type(self.countRateCutoff) is float, "Count Rate Cutoff must be an integer or float"
-        assert type(self.fractionOfChunksToTrim) is int, "Fraction of Chunks to Trim must be an integer"
-        assert type(self.save_plots) is bool, "Save Plots indicator must be a bool"
-        assert type(self.summary_plot) is bool, "Save Summary Plot indicator must be a bool"
-        assert type(self.logging) is bool, "logging parameter must be a boolean"
-
-    def hdfexist(self):
-        return(os.path.isfile(self.h5directory+self.file_name))
-
-    def makeCalibration(self):
-        """
-        wvlBinEdges includes both lower and upper limits, so number of bins is 1 less than number of edges
-        """
-        self.obs = ObsFile(self.h5directory)
-        self.flatCalFileName = self.out_directory + self.cal_file_name
+    def loadh5(self):
+        self.obs = ObsFile(self.h5file)
         self.beamImage = self.obs.beamImage
         self.wvlFlags = self.obs.beamFlagImage
         self.xpix = self.obs.nXPix
         self.ypix = self.obs.nYPix
-        self.wvlBinEdges = ObsFile.makeWvlBins(self.energyBinWidth, self.wvlStart, self.wvlStop)
-        self.nWvlBins = len(self.wvlBinEdges) - 1
+        self.wvlBinEdges = self.obs.makeWvlBins(self.energyBinWidth, self.wvlStart, self.wvlStop)
+        # wvlBinEdges includes both lower and upper limits, so number of bins is 1 less than number of edges
+        self.nWvlBins = self.wvlBinEdges.size - 1
 
+    def makeCalibration(self):
+        self.loadh5()
         self.loadFlatSpectra()
         self.checkCountRates()
         self.calculateWeights()
+        self.writeWeights()
+
+        if self.save_plots:
+            self.plotWeightsWvlSlices()
+            getLogger(__name__).info('Plotted Weights by Wvl Slices at WvlSlices_{}'.format(timestamp))
+            self.plotWeightsByPixelWvlCompare()
+            getLogger(__name__).info('Plotted Weights by Pixel against the Wavelength Solution at WavelengthCompare_{}'.format(timestamp))
+        if self.summary_plot:
+            self.makeSummary()
+            getLogger(__name__).info('Made Summary Plot')
 
     def loadFlatSpectra(self):
         """
@@ -212,11 +155,10 @@ class FlatCal(object):
         self.frames = []
         self.spectralCubes = []
         self.cubeEffIntTimes = []
-        for firstSec in range(0, self.expTime, self.intTime):
-            #for each time chunk
+        for firstSec in range(0, self.expTime, self.intTime):  # for each time chunk
             cubeDict = self.obs.getSpectralCube(firstSec=firstSec, integrationTime=self.intTime, applySpecWeight=False,
-                                               applyTPFWeight=False, wvlBinEdges=self.wvlBinEdges, energyBinWidth=None,
-                                               timeSpacingCut=self.timeSpacingCut)
+                                                applyTPFWeight=False, wvlBinEdges=self.wvlBinEdges, energyBinWidth=None,
+                                                timeSpacingCut=self.timeSpacingCut)
             cube = np.array(cubeDict['cube'], dtype=np.double)
             effIntTime = cubeDict['effIntTime']
             # add third dimension for broadcasting
@@ -224,7 +166,7 @@ class FlatCal(object):
             cube /= effIntTime3d
             cube[np.isnan(cube)] = 0
             rawFrameDict = self.obs.getPixelCountImage(firstSec=firstSec, integrationTime=self.intTime,
-                                                      scaleByEffInt=True)
+                                                       scaleByEffInt=True)
             rawFrame = np.array(rawFrameDict['image'], dtype=np.double)
             rawFrame /= rawFrameDict['effIntTimes']
             nonlinearFactors = 1. / (1. - rawFrame * self.deadtime)
@@ -237,21 +179,19 @@ class FlatCal(object):
             self.spectralCubes.append(cube)
             self.cubeEffIntTimes.append(effIntTime3d)
             getLogger(__name__).info('Loaded Flat Spectra for seconds {} to {}'.format(int(firstSec), int(firstSec) + int(self.intTime)))
-        self.obs.file.close()
+
+        self.obs.file.close()  #TODO Neelay, Isabel, this needs to be brought into a context manager if it is necessary
+
         self.spectralCubes = np.array(self.spectralCubes)
         self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
         self.countCubes = self.cubeEffIntTimes * self.spectralCubes
 
     def checkCountRates(self):
-        """
-        mask out frames, or cubes from integration time chunks with count rates too high
-        """
+        """ mask out frames, or cubes from integration time chunks with count rates too high """
         medianCountRates = np.array([np.median(frame[frame != 0]) for frame in self.frames])
-        boolIncludeFrames: Union[bool, Any] = medianCountRates <= self.countRateCutoff
-        self.spectralCubes = np.array([cube for cube, boolIncludeFrame in zip(self.spectralCubes, boolIncludeFrames)
-                                       if boolIncludeFrame == True])
-        self.frames = [frame for frame, boolIncludeFrame in zip(self.frames, boolIncludeFrames)
-                       if boolIncludeFrame == True]
+        mask = medianCountRates <= self.countRateCutoff
+        self.spectralCubes = np.array([cube for cube, use in zip(self.spectralCubes, mask) if use])
+        self.frames = [frame for frame, use in zip(self.frames, mask) if use]
 
     def calculateWeights(self):
         """
@@ -328,30 +268,6 @@ class FlatCal(object):
         wvlWeightMedians = np.ma.median(np.reshape(self.flatWeights, (-1, self.nWvlBins)), axis=0)
         self.flatWeights = np.divide(self.flatWeights, wvlWeightMedians)
         self.flatWeightsforplot = np.ma.sum(self.flatWeights, axis=-1)
-        self.writeWeights()
-        if self.save_plots:
-            self.plotWeightsWvlSlices()
-            getLogger(__name__).info('Plotted Weights by Wvl Slices at WvlSlices_{}'.format(timestamp))
-            self.plotWeightsByPixelWvlCompare()
-            getLogger(__name__).info('Plotted Weights by Pixel against the Wavelength Solution at WavelengthCompare_{}'.format(timestamp))
-        if self.summary_plot:
-            self.makeSummary()
-            getLogger(__name__).info('Made Summary Plot')
-
-    def makeh5(self):
-
-        flatpath = '{}{}.txt'.format(self.h5directory, 'flat')
-        b2h_config=bin2hdf.Bin2HdfConfig(datadir=self.dataDir,
-                                                     beamfile=self.beamDir, outdir=self.h5directory,
-                                                     starttime=self.startTime, inttime=self.expTime, x=self.xpix,
-                                                     y=self.ypix, writeto=flatpath)
-        getLogger(__name__).info('Made h5 file at {}.h5'.format(self.startTime))
-
-        bin2hdf.makehdf(b2h_config, maxprocs=1)
-        self.h5directory=self.h5directory+str(self.startTime)+'.h5'
-        getLogger(__name__).info('Applied Wavecal {} to {}.h5'.format(self.wvlCalFile, self.startTime))
-        obsfile = ObsFile(self.h5directory, mode='write')
-        ObsFile.applyWaveCal(obsfile, self.wvlCalFile)
 
     def plotWeightsByPixelWvlCompare(self):
         """
@@ -429,7 +345,7 @@ class FlatCal(object):
         """
         Plot weights in images of a single wavelength bin (wavelength-sliced images)
         """
-        self.plotName = 'WvlSlices_{}'.format(timestamp)
+        self.plotName = 'WvlSlices_{}'.format(timestamp)  #TODO @Isabel this is a bug
         self._setupPlots()
         matplotlib.rcParams['font.size'] = 4
         wvls = self.wvlBinEdges[0:-1]
@@ -508,7 +424,7 @@ class FlatCal(object):
         try:
             flatCalFile = tables.open_file(self.flatCalFileName, mode='w')
         except:
-            getLogger(__name__).info('Error: Couldn\'t create flat cal file,{} ', self.flatCalFileName)
+            getLogger(__name__).error("Couldn't create flat cal file: {} ", self.flatCalFileName)
             return
         header = flatCalFile.create_group(flatCalFile.root, 'header', 'Calibration information')
         tables.Array(header, 'beamMap', obj=self.beamImage)
@@ -561,9 +477,9 @@ class FlatCal(object):
         self.iPlot = 0
         self.pdfFullPath = self.out_directory + self.plotName + '.pdf'
         if os.path.isfile(self.pdfFullPath):
-            answer = self._query("{0} already exists. Overwrite?".format(self.pdfFullPath), yes_or_no=True)
+            answer = query("{0} already exists. Overwrite?".format(self.pdfFullPath), yes_or_no=True)
             if answer is False:
-                answer = self._query("Provide a new file name (type exit to quit):")
+                answer = query("Provide a new file name (type exit to quit):")
                 if answer == 'exit':
                     raise RuntimeError("User doesn't want to overwrite the plot file " + "... exiting")
                 self.pdfFullPath = self.out_directory + str(answer) + '.pdf'
@@ -596,42 +512,6 @@ class FlatCal(object):
             self._mergePlots()
         plt.close('all')
 
-    @staticmethod
-    def _query(question, yes_or_no=False, default="no"):
-        """
-        Ask a question via raw_input() and return their answer.
-        "question" is a string that is presented to the user.
-        "yes_or_no" specifies if it is a yes or no question
-        "default" is the presumed answer if the user just hits <Enter>.
-        It must be "yes" (the default), "no" or None (meaning an answer is required of
-        the user). Only used if yes_or_no=True.
-        The "answer" return value is the user input for a general question. For a yes or
-        no question it is True for "yes" and False for "no".
-        """
-        if yes_or_no:
-            valid = {"yes": True, "y": True, "ye": True, "no": False, "n": False}
-        if not yes_or_no:
-            prompt = ""
-            default = None
-        elif default is None:
-            prompt = " [y/n] "
-        elif default == "yes":
-            prompt = " [Y/n] "
-        elif default == "no":
-            prompt = " [y/N] "
-        else:
-            raise ValueError("invalid default answer: '%s'" % default)
-        while True:
-            print(question + prompt)
-            choice = input().lower()
-            if not yes_or_no:
-                return choice
-            elif default is not None and choice == '':
-                return valid[default]
-            elif choice in valid:
-                return valid[choice]
-            else:
-                print("Please respond with 'yes' or 'no' (or 'y' or 'n').")
 
 
 def summaryPlot(calsolnName, save_plot=False):
@@ -707,34 +587,20 @@ def fetch(solution_descriptors, config=None, ncpu=1, async=False, force_h5=False
 
     solutions = []
     for sd in solution_descriptors:
-        sf = os.path.join(cfg.paths.database, sd.id+'.npz')
+        sf = os.path.join(cfg.paths.database, sd.filename)
         if os.path.exists(sf):
-            solutions.append(Solution(sd.id+'npz'))
+            pass
         else:
+            cfg = mkidpipeline.config.load_task_config(pkg.resource_filename(__name__, 'flatcal.yml'))
 
-            flatobject = FlatCal(args.cfgfile, cal_file_name='calsol_{}.h5'.format(timestamp))
+            cfg.update('start_time', sd.start)
+            cfg.update('exposure_time', sd.duration)
+            cfg.unregister('flatname')
+            cfg.unregister('wavesol')
+            cfg.unregister('h5file')
 
-            if not flatobject.hdfexist():
-                flatobject.makeh5()
-
-            else:
-                flatobject.h5directory = flatobject.h5directory + flatobject.file_name
-
-            if args.h5only:
-                exit()
-
-            else:
-
-                flatobject.makeCalibration()
-
-    for s in solutions:
-        try:
-            s.run()
-        except AttributeError:
-            continue
-
-    return s
-
+            flattner = FlatCal(cfg, cal_file_name=sf)
+            flattner.makeCalibration()
 
 
 if __name__ == '__main__':
@@ -754,39 +620,31 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if not args.quiet:
-        mkidcore.corelog.create_log('__main__', logfile='flatcalib_{}.log'.format(timestamp), console=False,
-                                    propagate=False,
-                                    fmt='%(levelname)s %(message)s', level=mkidcore.corelog.INFO)
+        mkidcore.corelog.create_log('__main__', logfile='flatcalib_{}.log'.format(timestamp), console=True,
+                                    propagate=False, fmt='Flatcal: %(levelname)s %(message)s',
+                                    level=mkidcore.corelog.INFO)
 
-    atexit.register(lambda x:print('Execution took {:.0f}s'.format(time.time()-x)), time.time())
+    atexit.register(lambda x: print('Execution took {:.0f}s'.format(time.time()-x)), time.time())
 
     args = parser.parse_args()
 
+    flattner = FlatCal(args.cfgfile, cal_file_name='calsol_{}.h5'.format(timestamp))
 
-    flatobject=FlatCal(args.cfgfile, cal_file_name='calsol_{}.h5'.format(timestamp))
-
-    if not (os.path.isfile(self.h5directory+self.file_name)):
-        flatobject.makeh5()
-
-        flatpath = '{}{}.txt'.format(self.h5directory, 'flat')
-        b2h_config=bin2hdf.Bin2HdfConfig(datadir=self.dataDir,
-                                                     beamfile=self.beamDir, outdir=self.h5directory,
-                                                     starttime=self.startTime, inttime=self.expTime, x=self.xpix,
-                                                     y=self.ypix, writeto=flatpath)
-        getLogger(__name__).info('Made h5 file at {}.h5'.format(self.startTime))
-
+    if not os.path.isfile(flattner.cfg.h5file):
+        b2h_config = bin2hdf.Bin2HdfConfig(datadir=flattner.cfg.paths.data, beamfile=flattner.cfg.beammap.file,
+                                           outdir=flattner.paths.out, starttime=flattner.cfg.start_time,
+                                           inttime=flattner.cfg.expTime,
+                                           x=flattner.cfg.beammap.ncols, y=flattner.cfg.beammap.ncols)
         bin2hdf.makehdf(b2h_config, maxprocs=1)
-        self.h5directory=self.h5directory+str(self.startTime)+'.h5'
-        getLogger(__name__).info('Applied Wavecal {} to {}.h5'.format(self.wvlCalFile, self.startTime))
-        obsfile = ObsFile(self.h5directory, mode='write')
-        ObsFile.applyWaveCal(obsfile, self.wvlCalFile)
+        getLogger(__name__).info('Made h5 file at {}.h5'.format(flattner.cfg.start_time))
 
-    else:
-        flatobject.h5directory=flatobject.h5directory+flatobject.file_name
+    obsfile = ObsFile(flattner.h5file, mode='write')
+    if not obsfile.isWavelengthCalibrated:
+        wsol = flattner.cfg.wavesol
+        obsfile.applyWaveCal(flattner.cfg.wavesol)
+        getLogger(__name__).info('Applied Wavecal {} to {}.h5'.format(wsol, flattner.h5file))
 
     if args.h5only:
         exit()
 
-    else:
-
-        flatobject.makeCalibration()
+    flattner.makeCalibration()

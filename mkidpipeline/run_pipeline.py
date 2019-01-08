@@ -62,8 +62,8 @@ import mkidpipeline.calibration.flatcal as flatcal
 import mkidpipeline.config
 import mkidpipeline.badpix as badpix
 
-datafile = './src/mkidpipeline/mkidpipeline/data.yml'
-cfgfile = './src/mkidpipeline/mkidpipeline/pipe.yml'
+datafile = '/mnt/data0/baileyji/mec/data.yml'
+cfgfile = '/mnt/data0/baileyji/mec/pipe.yml'
 mkidpipeline.config.configure_pipeline(cfgfile)
 mkidpipeline.config.logtoconsole()
 c = input = mkidpipeline.config.load_data_description(datafile)
@@ -71,7 +71,7 @@ c = input = mkidpipeline.config.load_data_description(datafile)
 
 # wcc = './src/mkidpipeline/mkidpipeline/calibration/wavecal.yml'
 # mkidpipeline.config.load_task_config(wcc)
-# tr,ev = bin2hdf.buildtables(input.timeranges, asynchronous=True, ncpu=4)
+tr,ev = bin2hdf.buildtables(input.timeranges, asynchronous=0, ncpu=1)
 wavecals = wavecal.fetch(input.wavecals, async=True)
 
 #noise.calibrate(table)
