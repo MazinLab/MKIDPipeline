@@ -19,6 +19,7 @@ def load_task_config(file):
     cfg.register('beammap', config.beammap, update=True)
     cfg.register('paths', config.paths, update=True)
     cfg.register('templar', config.templar, update=True)
+    cfg.register('instrument', config.instrument, update=True)
     return cfg
 
 
@@ -121,6 +122,9 @@ yaml.register_class(MKIDWavedataDescription)
 
 class MKIDFlatdataDescription(MKIDObservingDataDescription):
     yaml_tag = u'!fc'
+
+    def filename(self):
+        return 'calsol_{}.h5'.format(self.start)
 
     # def __init__(self, data):
     #     self.data = data
