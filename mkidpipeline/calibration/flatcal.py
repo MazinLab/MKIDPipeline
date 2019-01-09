@@ -639,7 +639,7 @@ if __name__ == '__main__':
         getLogger(__name__).info('Made h5 file at {}.h5'.format(flattner.cfg.start_time))
 
     obsfile = ObsFile(flattner.h5file, mode='write')
-    if not obsfile.isWavelengthCalibrated:
+    if not obsfile.wavelength_calibrated:
         wsol = flattner.cfg.wavesol
         obsfile.applyWaveCal(flattner.cfg.wavesol)
         getLogger(__name__).info('Applied Wavecal {} to {}.h5'.format(wsol, flattner.h5file))

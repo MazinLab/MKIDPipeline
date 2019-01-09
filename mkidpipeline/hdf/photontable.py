@@ -180,7 +180,6 @@ class ObsFile(object):
         self.nXPix = beamShape[0]
         self.nYPix = beamShape[1]
 
-
     def getFromHeader(self, name):
         """
         Returns a requested entry from the obs file header
@@ -804,10 +803,17 @@ class ObsFile(object):
             else:
                 self.applyFlag(row, column, 0b00000010)  # failed waveCal
         self.modifyHeaderEntry(headerTitle='isWvlCalibrated', headerValue=True)
-        self.modifyHeaderEntry(headerTitle='wvlCalFile',headerValue=str.encode(file_name))
+        self.modifyHeaderEntry(headerTitle='wvlCalFile', headerValue=str.encode(file_name))
         self.photonTable.reindex_dirty() # recompute "dirty" wavelength index
         self.photonTable.autoindex = True # turn on auto-indexing
 
+    @property
+    def wavelength_calibrated(self):
+        return self.info['isWvlCalibrated']
+
+    @property
+    def duration(self):
+        return self.info['expTime']
 
     @staticmethod
     def makeWvlBins(energyBinWidth=.1, wvlStart=700, wvlStop=1500):

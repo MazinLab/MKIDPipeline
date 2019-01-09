@@ -18,6 +18,8 @@ import pkg_resources as pkg
 from datetime import datetime
 from glob import glob
 import warnings
+from mkidpipeline.hdf.photontable import ObsFile
+
 
 __DUMMY = False
 
@@ -72,7 +74,7 @@ def makehdf(cfgORcfgs, maxprocs=2, polltime=.1, events=None,
 
     tfile_dict = {}
 
-    events = {c:threading.Event() for c in cfgs} if events is None else {c:e for c,e in zip(cfgs,events)}
+    events = {c: threading.Event() for c in cfgs} if events is None else {c:e for c,e in zip(cfgs,events)}
 
     for cfg, e in zip(cfgs, events):
         with tempfile.NamedTemporaryFile('w', suffix='.cfg', delete=False) as tfile:
@@ -336,22 +338,44 @@ class Bin2HdfConfig(object):
         raise NotImplementedError
 
 
-def buildtables(timeranges, config=None, ncpu=1, asynchronous=False):
+def buildtables(timeranges, config=None, ncpu=1, asynchronous=False, remake=False):
     cfg = mkidpipeline.config.config if config is None else config
 
     timeranges = list(set(timeranges))
 
     b2h_configs = []
+    done = []
     for start_t, end_t in timeranges:
-        b2h_configs.append(Bin2HdfConfig(datadir=_get_dir_for_start(cfg.paths.data, start_t),
-                                         beammap=cfg.beammap, outdir=cfg.paths.out,
-                                         starttime=start_t, inttime=end_t - start_t))
+        cfg = Bin2HdfConfig(datadir=_get_dir_for_start(cfg.paths.data, start_t),
+                            beammap=cfg.beammap, outdir=cfg.paths.out,
+                            starttime=start_t, inttime=end_t - start_t)
+        b2h_configs.append(cfg)
+
+        if os.path.exists(cfg.h5file):
+            try:
+                done.append(ObsFile(cfg.h5file).duration >= end_t - start_t)
+                if not done[-1]:
+                    getLogger(__name__).info(('Existing H5 file starting at {} does not contain full duration,'
+                                              ' will remove and rebuild').format(cfg.h5file))
+            except:
+                getLogger(__name__).info(('Existing H5 file at {} presumed corrupt,'
+                                          ' will remove and rebuild').format(cfg.h5file), exc_info=True)
+                done.append(False)
+
+            if not done[-1]:
+                os.remove(cfg.h5file)
+
     if asynchronous:
         events = [threading.Event() for _ in b2h_configs]
 
+        for e in (e for e, d in zip(events, done) if d):
+            e.set()
+
         def do_work():
             try:
-                makehdf(b2h_configs, maxprocs=min(ncpu, mkidpipeline.config.n_cpus_available()), events=events)
+                makehdf([c for c, d in zip(b2h_configs, done) if not d],
+                        maxprocs=min(ncpu, mkidpipeline.config.n_cpus_available()),
+                        events=[e for e, d in zip(events, done) if not d])
             except:
                 getLogger(__name__).error('MakeHDF failed.', exc_info=True)
             finally:
