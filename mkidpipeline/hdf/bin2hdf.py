@@ -19,7 +19,7 @@ from datetime import datetime
 from glob import glob
 import warnings
 from mkidpipeline.hdf.photontable import ObsFile
-
+import mkidcore.utils
 
 __DUMMY = False
 
@@ -74,33 +74,43 @@ def makehdf(cfgORcfgs, maxprocs=2, polltime=.1, events=None,
 
     tfile_dict = {}
 
-    events = {c: threading.Event() for c in cfgs} if events is None else {c:e for c,e in zip(cfgs,events)}
+    if events is None:
+        events = {c: mkidcore.utils.manager().Event() for c in cfgs}
+    else:
+        {c: e for c,e in zip(cfgs, events)}
 
     for cfg, e in zip(cfgs, events):
         with tempfile.NamedTemporaryFile('w', suffix='.cfg', delete=False) as tfile:
             cfg.write(tfile)
             tfile_dict[cfg] = tfile
+        getLogger(__name__).debug('Write temp file for bin2hdf {}'.format(tfile))
 
     things = list(cfgs)
     procs = []
+    proc_map = {}
+    tics = dict()
     while things:
         cfg = things.pop()
         procs.append(psutil.Popen((program, tfile_dict[cfg].name),
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                   shell=False, cwd=None, env=None, creationflags=0))
-
+        proc_map[procs[-1]] = cfg
+        tics[procs[-1]] = time.time()
         while len(procs) >= nproc:
             # TODO consider replacing with https://gist.github.com/bgreenlee/1402841
             for i, proc in enumerate(procs):
                 try:
                     out, err = proc.communicate(timeout=polltime)
-                    # TODO fix formatting before uncommenting
                     if out:
                         getLogger(__name__ + '.bin2hdf_{}'.format(i)).info(out.decode('utf-8'))
                     if err:
                         getLogger(__name__ + '.bin2hdf_{}'.format(i)).error(err.decode('utf-8'))
                 except subprocess.TimeoutExpired:
-                    pass
+                    if time.time()-tics[proc] > 5:
+                        tics[proc] = time.time()
+                        getLogger(__name__ + '.bin2hdf_{}'.format(i)).debug('Continuing proc {} for {}'.format(
+                            proc.pid,
+                                                                                                                proc_map[proc].h5file))
             procs = list(filter(lambda p: p.poll() is None, procs))
 
     while len(procs):
@@ -108,13 +118,15 @@ def makehdf(cfgORcfgs, maxprocs=2, polltime=.1, events=None,
         for i, proc in enumerate(procs):
             try:
                 out, err = proc.communicate(timeout=polltime)
-                # TODO fix formatting before uncommenting
                 if out:
                     getLogger(__name__ + '.bin2hdf_{}'.format(i)).info(out.decode('utf-8'))
                 if err:
                     getLogger(__name__ + '.bin2hdf_{}'.format(i)).error(err.decode('utf-8'))
             except subprocess.TimeoutExpired:
-                pass
+                if time.time() - tics[proc] > 5:
+                    tics[proc] = time.time()
+                    getLogger(__name__ + '.bin2hdf_{}'.format(i)).debug('Continuing proc {} for {}'.format(
+                        proc.pid,proc_map[proc].h5file))
         procs = list(filter(lambda p: p.poll() is None, procs))
 
     if __DUMMY:
@@ -126,14 +138,11 @@ def makehdf(cfgORcfgs, maxprocs=2, polltime=.1, events=None,
     getLogger(__name__).info('Postprocessing {} H5 files using {} cores'.format(len(cfgs), ncore))
     if nproc > 1 and len(cfgs) > 1:
         pool = Pool(ncore)
-        #
-        # def eventwrap(ce_tuple):
-        #     c, e = ce_tuple
-        #     postprocess(c, event=e)
         pool.map(postprocess, events.items())
     else:
-        for c, e in events.items():
-            postprocess(c, event=e)
+        map(postprocess, events)
+
+    getLogger(__name__).info('Postprocessing complete')
 
     # Clean up temp files
     if keepconfigs:
@@ -346,36 +355,40 @@ def buildtables(timeranges, config=None, ncpu=1, asynchronous=False, remake=Fals
     b2h_configs = []
     done = []
     for start_t, end_t in timeranges:
-        cfg = Bin2HdfConfig(datadir=_get_dir_for_start(cfg.paths.data, start_t),
+        bc = Bin2HdfConfig(datadir=_get_dir_for_start(cfg.paths.data, start_t),
                             beammap=cfg.beammap, outdir=cfg.paths.out,
                             starttime=start_t, inttime=end_t - start_t)
-        b2h_configs.append(cfg)
+        b2h_configs.append(bc)
+        done.append(False)
 
-        if os.path.exists(cfg.h5file):
+        if os.path.exists(bc.h5file):
             try:
-                done.append(ObsFile(cfg.h5file).duration >= end_t - start_t)
+                done[-1] = ObsFile(bc.h5file).duration >= end_t - start_t
                 if not done[-1]:
-                    getLogger(__name__).info(('Existing H5 file starting at {} does not contain full duration,'
-                                              ' will remove and rebuild').format(cfg.h5file))
+                    getLogger(__name__).info(('Existing H5 file starting at {} does not contain full '
+                                              'duration, will remove and rebuild').format(bc.h5file))
             except:
                 getLogger(__name__).info(('Existing H5 file at {} presumed corrupt,'
-                                          ' will remove and rebuild').format(cfg.h5file), exc_info=True)
-                done.append(False)
-
+                                          ' will remove and rebuild').format(bc.h5file), exc_info=True)
             if not done[-1]:
-                os.remove(cfg.h5file)
+                os.remove(bc.h5file)
+
+    configs = [c for c, d in zip(b2h_configs, done) if not d]
+
+    getLogger(__name__).info('Will build {} h5 files for {} timeranges.'.format(len(configs), len(timeranges)))
 
     if asynchronous:
-        events = [threading.Event() for _ in b2h_configs]
+        manager = mkidcore.utils.manager()
+        allevents = [manager.Event() for _ in b2h_configs]
+        configs = [c for c, d in zip(b2h_configs, done) if not d]
+        events = [e for e, d in zip(allevents, done) if not d]
 
-        for e in (e for e, d in zip(events, done) if d):
+        for e in (e for e, d in zip(allevents, done) if d):
             e.set()
 
         def do_work():
             try:
-                makehdf([c for c, d in zip(b2h_configs, done) if not d],
-                        maxprocs=min(ncpu, mkidpipeline.config.n_cpus_available()),
-                        events=[e for e, d in zip(events, done) if not d])
+                makehdf(configs, events=events, maxprocs=min(ncpu, mkidpipeline.config.n_cpus_available()))
             except:
                 getLogger(__name__).error('MakeHDF failed.', exc_info=True)
             finally:
