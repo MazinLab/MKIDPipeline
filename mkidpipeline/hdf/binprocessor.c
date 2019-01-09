@@ -71,44 +71,6 @@ void FixOverflowTimestamps(struct hdrpacket* hdr, int fileNameTime, int tsOffs) 
     hdr->timestamp += 2000*nWraps*1048576;
 }
 
-/*
- * Sorts all photon tables in time order. Uses insertion sort (good for mostly ordered data)
- */
-void SortPhotonTables(photon ***ptable, uint32_t **ptablect, uint32_t beamCols, uint32_t beamRows) {
-    photon *photonToSortAddr; //address of element currently being sorted
-    photon *curPhotonAddr; //address of element being compared to photonToSort
-    photon *photonSwapAddr; //address of element being moved, once correct index for photonToSort has been found
-    photon photonToSort; //stores the data in photonToSortAddr
-    unsigned int x,y; //beammap indices
-
-    for(x=0; x<beamCols; x++)
-        for(y=0; y<beamRows; y++)
-            //loop through photons in list, check if it is greater than previous elements (all previous elements are already sorted)
-            for(photonToSortAddr = ptable[x][y]+1; photonToSortAddr < ptable[x][y] + ptablect[x][y]; photonToSortAddr++){
-                //check elements before photonToSort (curPhotonAddr) until correct spot is found (curPhotonAddr->timestamp < photonToSortAddr->timestamp)
-                for(curPhotonAddr = photonToSortAddr-1; curPhotonAddr >= ptable[x][y]; curPhotonAddr--) {
-                    if(photonToSortAddr->timestamp >= curPhotonAddr->timestamp) {
-                        if(curPhotonAddr == photonToSortAddr-1) break; //this photon is already sorted
-                        else {//moves photonToSort into correct position
-                            photonToSort = *photonToSortAddr;
-                            for(photonSwapAddr = photonToSortAddr; photonSwapAddr > curPhotonAddr+1; photonSwapAddr--)
-                                *photonSwapAddr = *(photonSwapAddr-1);
-
-                            *(curPhotonAddr+1) = photonToSort;
-                            break;
-                        }
-                    }
-                    else if(curPhotonAddr==ptable[x][y]) { //Photon is smallest in the table
-                        photonToSort = *photonToSortAddr;
-                        for(photonSwapAddr = photonToSortAddr; photonSwapAddr > curPhotonAddr; photonSwapAddr--)
-                            *photonSwapAddr = *(photonSwapAddr-1);
-
-                        *curPhotonAddr = photonToSort;
-                        break;
-                    }
-                }
-            }
-}
 
 long ParseBeamMapFile(const char *BeamFile, uint32_t **BeamMap, uint32_t **BeamFlag, long **DiskBeamMap) {
     // read in Beam Map file
@@ -148,8 +110,9 @@ void InitializeBeamMap(uint32_t **BeamMap, uint32_t value, uint32_t beamCols, ui
             BeamMap[x][y] = value;
 }
 
-void ParseToMem(char *packet, uint64_t l, int tsOffs, int FirstFile, int iFile, uint32_t **BeamMap, uint32_t **BeamFlag,
-                int mapflag, char ***ResIdString, photon ***ptable, uint32_t **ptablect, uint32_t beamCols, uint32_t beamRows) {
+void ParseToMem(char *packet, uint64_t l, int tsOffs, int FirstFile, int iFile, int nFiles, uint32_t **BeamMap,
+                uint32_t **BeamFlag, int mapflag, char ***ResIdString, photon ***ptable, uint32_t **ptablect, uint32_t
+                beamCols, uint32_t beamRows) {
     uint64_t i,swp,swp1;
     int64_t basetime;
     struct hdrpacket *hdr;
@@ -170,12 +133,8 @@ void ParseToMem(char *packet, uint64_t l, int tsOffs, int FirstFile, int iFile, 
     basetime = hdr->timestamp - tstart; // time since start of first file, in half ms
     //printf("Roach: %d; Offset: %d\n", hdr->roach, FirstFile - tsOffs - hdr->timestamp/2000);
 
-    if( basetime < 0 ) { // maybe have some packets out of order early in file
-	    printf("Early Start!\n");
-		//basetime = 0;
-        return;
-
-	}
+    //Abort if outside of required time range
+    if( (basetime < 0) || (basetime >= 2000*nFiles) ) return;
 
     for(i=1;i<l/8;i++) {
         //printf("i=%ld\n",i); fflush(stdout);
@@ -213,11 +172,11 @@ long extract_photons(const char *binpath, unsigned long start_timestamp, unsigne
     char fName[STR_SIZE]; //TODO this should be a malloc based on the length of binpath to prevent possibile segfault
     int FirstFile, mapflag, nRoaches;
     uint32_t beamCols, beamRows, nFiles;
-    long fSize, rd, j, k, x, y;
+    long fSize, rd, i, j, k, x, y;
     struct stat st;
     FILE *fp;
     clock_t start, diff, olddiff;
-    uint64_t swp, swp1, i, pstart, pcount, firstHeader;
+    uint64_t swp, swp1, pstart, pcount, firstHeader;
     long nPhot;
     struct hdrpacket *hdr;
     char packet[808*16];
@@ -234,7 +193,7 @@ long extract_photons(const char *binpath, unsigned long start_timestamp, unsigne
     long **DiskBeamMap;
     long DiskBeamMapLen;
     const unsigned long DATA_BUFFER_SIZE_BYTES = 1.1*MAX_CNT_RATE*bmap_ncol*bmap_nrow*8;
-
+    int checkExists;
 
 
     //Timing variables
@@ -340,9 +299,14 @@ long extract_photons(const char *binpath, unsigned long start_timestamp, unsigne
 
     // Loop through the data files and parse the packets into separate data tables
 
-    for(i=0; i < nFiles; i++) {
+    for(i=-1; i < nFiles+1; i++) {
         sprintf(fName,"%s/%ld.bin",binpath,FirstFile+i);
-        stat(fName, &st);
+        checkExists = stat(fName, &st);
+        if(checkExists != 0){
+            printf("Warning: %s does not exist", fName);
+            continue;
+        }
+
         fSize = st.st_size;
 
         printf("\nReading %s - %ld Mb\n",fName,fSize/1024/1024);
@@ -382,17 +346,12 @@ long extract_photons(const char *binpath, unsigned long start_timestamp, unsigne
                 memmove(packet, &data[pstart/8], k*8 - pstart);
                 pcount++;
                 // add to HDF5 file
-     	        ParseToMem(packet,k*8-pstart,tsOffs,FirstFile,i,BeamMap,BeamFlag,mapflag,ResIdString,ptable,ptablect,beamCols,beamRows);
+     	        ParseToMem(packet,k*8-pstart,tsOffs,FirstFile,i,nFiles,BeamMap,BeamFlag,mapflag,ResIdString,ptable,ptablect,beamCols,beamRows);
 		        pstart = k*8;   // move start location for next packet
 		        if( pcount%1000 == 0 ) { printf("."); fflush(stdout);}
             }
         }
-
-
     }
-
-    printf("\nSorting photon tables.\n"); fflush(stdout);
-    SortPhotonTables(ptable, ptablect, beamCols, beamRows);
 
     diff = clock()-start;
     olddiff = diff;
