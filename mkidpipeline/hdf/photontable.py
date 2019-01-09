@@ -66,10 +66,10 @@ from interval import interval
 from matplotlib.backends.backend_pdf import PdfPages
 from regions import CirclePixelRegion, PixCoord
 
+from mkidcore.corelog import getLogger
+import mkidcore.pixelflags as pixelflags
 from mkidcore.pixelflags import h5FileFlags
-import mkidcore.pixelflags as pixelfalgs
 from PyPDF2 import PdfFileMerger, PdfFileReader
-from mkidpipeline.calibration import wavecal
 
 
 TBRERROR = RuntimeError('Function needs to be reviewed')
@@ -407,7 +407,6 @@ class ObsFile(object):
         else:
             return np.asarray([x['counts'] for x in data])
 
-
     def getPixelCountImage(self, firstSec=0, integrationTime= -1, wvlStart=None,wvlStop=None,
                                  applyWeight=True, applyTPFWeight=True,
                                  scaleByEffInt=False, flagToUse=0):
@@ -462,7 +461,7 @@ class ObsFile(object):
             endTime = startTime + int(integrationTime*self.ticksPerSec)
             query+=' & (Time < endTime)'
         if wvlStart is not None and wvlStop is not None and wvlStart==wvlStop:
-            wvl=startWvl
+            wvl=wvlStart
             query+=' & (Wavelength == wvl)'
         else:
             if wvlStart is not None:
@@ -780,7 +779,7 @@ class ObsFile(object):
         self.flush()
         self.close()
 
-    def applyWaveCal(self, file_name):
+    def applyWaveCal(self, solution):
         """
         loads the wavelength cal coefficients from a given file and applies them to the
         wavelengths table for each pixel. ObsFile must be loaded in write mode.
@@ -789,7 +788,6 @@ class ObsFile(object):
         if self.info['isWvlCalibrated']:
             getLogger(__name__).info('Data already calibrated using {}'.format(self.info['wvlCalFile']))
             return
-        solution = wavecal.Solution(file_name)
         self.photonTable.autoindex = False # Don't reindex every time we change column
         # apply waveCal
         for (row, column), resID in np.ndenumerate(self.beamImage):
@@ -803,9 +801,9 @@ class ObsFile(object):
             else:
                 self.applyFlag(row, column, 0b00000010)  # failed waveCal
         self.modifyHeaderEntry(headerTitle='isWvlCalibrated', headerValue=True)
-        self.modifyHeaderEntry(headerTitle='wvlCalFile', headerValue=str.encode(file_name))
-        self.photonTable.reindex_dirty() # recompute "dirty" wavelength index
-        self.photonTable.autoindex = True # turn on auto-indexing
+        self.modifyHeaderEntry(headerTitle='wvlCalFile', headerValue=str.encode(solution.solution_name))
+        self.photonTable.reindex_dirty()  # recompute "dirty" wavelength index
+        self.photonTable.autoindex = True  # turn on auto-indexing
 
     @property
     def wavelength_calibrated(self):
