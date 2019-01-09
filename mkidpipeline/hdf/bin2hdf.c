@@ -3,7 +3,9 @@
  *  h5 file.
  *
  * compiled with this command
- /usr/local/hdf5/bin/h5cc -shlib -pthread -O3 -g -o bin2hdf bin2hdf.c
+ /usr/local/hdf5/bin/h5cc -shlib -pthread -O3 -o bin2hdf bin2hdf.c
+ * for gdb use
+ /usr/local/hdf5/bin/h5cc -shlib -pthread -O0 -g -o bin2hdf bin2hdf.c
  *************************************************************************************************/
 
 #include <stdio.h>
@@ -85,12 +87,16 @@ int ParseConfig(int argc, char *argv[], char *Path, int *FirstFile, int *nFiles,
     fclose(fp);
 
     // check for valid range for rows and columns
+    printf("%d %d\n", *beamCols, *beamRows);
     if( *beamCols < 80 || *beamCols > 150) return 0;
     if( *beamRows < 125 || *beamRows > 146) return 0;
 
     // check whether Path exists
     DIR* dir = opendir(Path);
-    if (ENOENT == errno) return 0;
+    if (ENOENT == errno){
+        printf("Path %s doesn't exist!", Path);
+        return 0;
+    }
 
     // check nFiles
     printf("nFiles = %d\n",*nFiles);
@@ -221,7 +227,7 @@ void InitializeBeamMap(uint32_t **BeamMap, uint32_t value, int beamCols, int bea
 
 }
 
-void ParseToMem(char *packet, uint64_t l, int tsOffs, int FirstFile, int iFile, uint32_t **BeamMap, uint64_t *nPhot, uint32_t **BeamFlag, int mapflag, char ***ResIdString, photon ***ptable, uint32_t **ptablect, int beamCols, int beamRows)
+void ParseToMem(char *packet, uint64_t l, int tsOffs, int FirstFile, int iFile, int nFiles, uint32_t **BeamMap, uint64_t *nPhot, uint32_t **BeamFlag, int mapflag, char ***ResIdString, photon ***ptable, uint32_t **ptablect, int beamCols, int beamRows)
 {
     uint64_t i,swp,swp1;
     int64_t basetime;
@@ -245,8 +251,8 @@ void ParseToMem(char *packet, uint64_t l, int tsOffs, int FirstFile, int iFile, 
     basetime = hdr->timestamp - tstart; // time since start of first file, in half ms
     //printf("Roach: %d; Offset: %d\n", hdr->roach, FirstFile - tsOffs - hdr->timestamp/2000);
 
-    if( basetime < 0 ) { // maybe have some packets out of order early in file
-	    printf("Early Start!\n");
+    if(( basetime < 0 ) || (basetime >= 2000*nFiles)) { // make sure photons are within specified range
+	    //printf("Early Start!\n");
 		//basetime = 0;
         return;
 
@@ -289,7 +295,7 @@ int main(int argc, char *argv[])
     FILE *fp;
     clock_t start, diff, olddiff;
     time_t fnStartTime, fnEndTime;
-    uint64_t swp,swp1,i,pstart,pcount,firstHeader, nPhot, tPhot=0;
+    uint64_t swp,swp1,pstart,pcount,firstHeader, nPhot, tPhot=0;
     struct hdrpacket *hdr;
     char packet[808*16];
     char *olddata;
@@ -309,6 +315,8 @@ int main(int argc, char *argv[])
     uint64_t dSize;
     long **DiskBeamMap;
     long DiskBeamMapLen;
+    int checkExists;
+    int i;
 
     // hdf5 variables
     hid_t file_id;
@@ -470,9 +478,15 @@ int main(int argc, char *argv[])
 
     // Loop through the data files and parse the packets into separate data tables
     start = clock();
-    for(i=0; i < nFiles; i++) {
+    for(i=-1; i < nFiles+1; i++) {
         sprintf(fName,"%s/%ld.bin",path,FirstFile+i);
-        stat(fName, &st);
+        checkExists = stat(fName, &st);
+        if(checkExists != 0){
+            printf("Warning: %d.bin doesn't exist");
+            continue;
+
+        }
+
         fSize = st.st_size;
         printf("\nReading %s - %ld bytes\n",fName,fSize);
         data = (uint64_t *) malloc(fSize);
@@ -515,7 +529,7 @@ int main(int argc, char *argv[])
                 // parse into image
                 ParsePacket(image, packet, k*8 - pstart, frame, beamCols, beamRows);
                 // add to HDF5 file
-     	        ParseToMem(packet,k*8-pstart,tsOffs,FirstFile,i,BeamMap,&nPhot,BeamFlag,mapflag,ResIdString,ptable,ptablect,beamCols,beamRows);
+     	        ParseToMem(packet,k*8-pstart,tsOffs,FirstFile,i,nFiles,BeamMap,&nPhot,BeamFlag,mapflag,ResIdString,ptable,ptablect,beamCols,beamRows);
 		        pstart = k*8;   // move start location for next packet
 		        if( pcount%1000 == 0 ) printf("."); fflush(stdout);
             }
@@ -540,8 +554,8 @@ int main(int argc, char *argv[])
     diff = clock()-start;
     olddiff = diff;
 
-    printf("\nSorting photon tables.\n");
-    SortPhotonTables(ptable, ptablect, beamCols, beamRows);
+    //printf("\nSorting photon tables.\n");
+    //SortPhotonTables(ptable, ptablect, beamCols, beamRows);
 
     printf("Read and parsed data in memory in %f ms.\n",(float)diff*1000.0/CLOCKS_PER_SEC);
 
