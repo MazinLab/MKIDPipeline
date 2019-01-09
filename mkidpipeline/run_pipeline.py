@@ -71,7 +71,7 @@ c = input = mkidpipeline.config.load_data_description(datafile)
 
 # wcc = './src/mkidpipeline/mkidpipeline/calibration/wavecal.yml'
 # mkidpipeline.config.load_task_config(wcc)
-tr,ev = bin2hdf.buildtables(input.timeranges, asynchronous=0, ncpu=1)
+tr,ev = bin2hdf.buildtables(list(input.timeranges)[:3], asynchronous=1, ncpu=3)
 wavecals = wavecal.fetch(input.wavecals, async=True)
 
 #noise.calibrate(table)
