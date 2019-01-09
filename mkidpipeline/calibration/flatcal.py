@@ -641,7 +641,7 @@ if __name__ == '__main__':
     obsfile = ObsFile(flattner.h5file, mode='write')
     if not obsfile.wavelength_calibrated:
         wsol = flattner.cfg.wavesol
-        obsfile.applyWaveCal(flattner.cfg.wavesol)
+        obsfile.applyWaveCal(wavecal.Solution(flattner.cfg.wavesol))
         getLogger(__name__).info('Applied Wavecal {} to {}.h5'.format(wsol, flattner.h5file))
 
     if args.h5only:
