@@ -43,14 +43,15 @@ class photon_list(object):
         self.loglike_true_params = -1
         self.statsModels_result = np.array([])
         self.logLike_statsModels = -1
+        self.optimize_res_list = []
 
 
         if Ic>0:
             self.gen_plist(Ic,Is,Ir,Ttot,tau)
             self.setup_cube_lists()
-            self.get_cube()
             self.p0_get_simple()
             self.find_max_like()
+            self.get_cube()
             self.p0_cube_max()
             self.find_max_like()
             self.loglike_true_params = -binfree.loglike([Ic, Is, Ir], self.dt, self.deadtime)
@@ -89,8 +90,10 @@ class photon_list(object):
         if self.p0.size == 0:
             print('you need to define a seed: self.p0')
             return
-        self.p1 = optimize.minimize(binfree.loglike, self.p0, (self.dt, self.deadtime), method='Newton-CG', jac=binfree._jacobean,
-                               hess=binfree._hessian).x
+        res = optimize.minimize(binfree.loglike, self.p0, (self.dt, self.deadtime), method='Newton-CG', jac=binfree._jacobean,
+                               hess=binfree._hessian)
+        self.p1 = res.x
+        self.optimize_res_list = [self.optimize_res_list, res]
         self.p0_list = np.append(self.p0_list, self.p0)
         self.p1_list = np.append(self.p1_list, self.p1)
         self.loglike_max_check = np.append(self.loglike_max_check, binMR.check_binfree_loglike_max(self.ts, self.p1, deadtime=self.deadtime))
@@ -116,7 +119,7 @@ class photon_list(object):
         I = self.Ic + self.Is + self.Ir
         self.Ic_list = np.linspace(1, I, 100)
         self.Is_list = np.linspace(1, I, 100)
-        self.Ir_list = np.linspace(0, 100, 10)
+        self.Ir_list = np.linspace(0, 100, 21)
 
 
     def save_cubeslices(self,path,plist_number):
