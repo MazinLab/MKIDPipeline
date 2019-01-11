@@ -83,7 +83,7 @@ class photon_list(object):
         if len(self.Ic_list) < 2 or len(self.Is_list) < 2 or len(self.Ir_list) < 2:
             print('one of the lists has a length < 2')
             return
-        self.cube = binMR.logL_cube(self.ts, self.Ic_list, self.Is_list, self.Ir_list)
+        self.cube = binMR.logL_cube(self.ts, self.Ic_list, self.Is_list, self.Ir_list, partial_cube=True)
 
 
     def find_max_like(self):
