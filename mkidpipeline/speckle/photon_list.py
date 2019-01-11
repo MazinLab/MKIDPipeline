@@ -150,8 +150,10 @@ class photon_list(object):
 
     def do_stats_models(self):
         # now use Alex's code to estimate the parameters
+        I = 1 / np.mean(self.dt)
+        p0 = I*np.ones(3)/3.
         m = bf.MR_SpeckleModel(self.ts, deadtime=self.deadtime)
-        res = m.fit()
+        res = m.fit(start_params=p0)
         self.logLike_statsModels = -binfree.loglike([res.params[0], res.params[1], res.params[2]], self.dt, self.deadtime)
 
         self.p0_list = np.append(self.p0_list, np.array([-1,-1,-1]))
