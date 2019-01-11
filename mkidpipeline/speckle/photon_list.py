@@ -93,7 +93,7 @@ class photon_list(object):
         res = optimize.minimize(binfree.loglike, self.p0, (self.dt, self.deadtime), method='Newton-CG', jac=binfree._jacobean,
                                hess=binfree._hessian)
         self.p1 = res.x
-        self.optimize_res_list = [self.optimize_res_list, res]
+        self.optimize_res_list.append(res)
         self.p0_list = np.append(self.p0_list, self.p0)
         self.p1_list = np.append(self.p1_list, self.p1)
         self.loglike_max_check = np.append(self.loglike_max_check, binMR.check_binfree_loglike_max(self.ts, self.p1, deadtime=self.deadtime))
