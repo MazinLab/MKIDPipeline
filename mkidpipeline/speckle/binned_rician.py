@@ -766,7 +766,7 @@ def logL_cube(ts, Ic_list, Is_list, Ir_list, deadtime = 0,partial_cube = False):
                     break
 
     if partial_cube:
-        cube[cube==0] = np.amax(cube) - 8
+        cube[cube==0] = np.amax(cube) - 9
 
 
 
