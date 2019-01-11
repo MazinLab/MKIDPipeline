@@ -738,7 +738,7 @@ def logLMap_binfree(t, x_list, Is_list, IcPlusIs = False,Ir_slice=0, deadtime = 
     return X,Y,im
 
 
-def logL_cube(ts, Ic_list, Is_list, Ir_list, deadtime = 0):
+def logL_cube(ts, Ic_list, Is_list, Ir_list, deadtime = 0,partial_cube = False):
     """
     Make a data cube filled with loglike values using provided lists of Ic, Is, Ir.
     INPUTS
@@ -752,8 +752,25 @@ def logL_cube(ts, Ic_list, Is_list, Ir_list, deadtime = 0):
     cube - data cube. First index is for Ir, second for Is, third for Ic. IcPlusIs is always False.
     """
     cube = np.zeros(len(Ic_list)*len(Is_list)*len(Ir_list)).reshape(len(Ir_list),len(Is_list),len(Ic_list))
+    cube_max = 0.
     for ii, Ir in enumerate(Ir_list):
         cube[ii] = logLMap_binfree(ts, Ic_list, Is_list, Ir_slice=Ir, deadtime=deadtime)[2]
+        if partial_cube:
+            slice_max = np.amax(cube[ii])
+            if ii==0:
+                cube_max = slice_max
+            else:
+                if slice_max > cube_max:
+                    cube_max = slice_max
+                elif slice_max < cube_max - 8:
+                    break
+
+    if partial_cube:
+        cube[cube==0] = np.amax(cube) - 8
+
+
+
+
     return cube
 
 
