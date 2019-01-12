@@ -20,12 +20,13 @@ import pickle
 
 
 class photon_list(object):
-    def __init__(self,Ic=-1,Is=-1,Ir=-1,Ttot=-1,tau=-1):
+    def __init__(self,Ic=-1,Is=-1,Ir=-1,Ttot=-1,tau=-1,seed = None):
         self.Ic = Ic # nominal Ic
         self.Is = Is
         self.Ir = Ir
         self.tau = tau # decorrelation time, seconds
         self.Ttot = Ttot # total length of photon list in seconds
+        self.seed = seed # seed for random number generator. Only needed if doing multithreading
         self.ts = np.array([])  # units microseconds
         self.p0 = np.array([]) # seed for calling the optimize routine
         self.p1 = np.array([]) # result of the optimize routine
@@ -47,7 +48,7 @@ class photon_list(object):
 
 
         if Ic>0:
-            self.gen_plist(Ic,Is,Ir,Ttot,tau)
+            self.gen_plist(Ic,Is,Ir,Ttot,tau,seed)
             self.setup_cube_lists()
             self.p0_get_simple()
             self.find_max_like()
@@ -70,13 +71,13 @@ class photon_list(object):
     #     with open("/Users/clint/Dropbox/mazinlab/speckle/20181226/junk.p", "wb") as f:
     #         pickle.dump(self, f, pickle.HIGHEST_PROTOCOL)
 
-    def gen_plist(self,Ic,Is,Ir,Ttot,tau):
+    def gen_plist(self,Ic,Is,Ir,Ttot,tau,seed=None):
         self.Ic = Ic
         self.Is = Is
         self.Ir = Ir
         self.Ttot = Ttot
         self.tau = tau
-        self.ts = gpl.genphotonlist(Ic, Is, Ir, Ttot, tau)
+        self.ts = gpl.genphotonlist(Ic, Is, Ir, Ttot, tau, seed)
         self.dt = (self.ts[1:] - self.ts[:-1]) * 1e-6
 
     def get_cube(self):
