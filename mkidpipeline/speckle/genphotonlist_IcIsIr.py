@@ -72,7 +72,7 @@ def MRicdf(Ic, Is, interpmethod='cubic'):
     i = np.unique(cdf, return_index=True)[1]
     return interpolate.interp1d(cdf[i], I[i], kind=interpmethod)
 
-def corrsequence(Ttot, tau):
+def corrsequence(Ttot, tau, local_state = None):
 
     """
     Generate a sequence of correlated Gaussian noise, correlation time
@@ -90,9 +90,12 @@ def corrsequence(Ttot, tau):
     r: a correlated Gaussian random variable, zero mean and unit variance, array of length Ttot
 
     """
-    
+
     t = np.arange(Ttot)
-    g = np.random.normal(0, 1, Ttot)
+    if local_state is not None:
+        g = local_state.normal(0, 1, Ttot)
+    else:
+        g = np.random.normal(0, 1, Ttot)
     r = np.zeros(g.shape)
     f = np.exp(-1./tau)
     sqrt1mf2 = np.sqrt(1 - f**2)
@@ -102,7 +105,7 @@ def corrsequence(Ttot, tau):
 
 
 def genphotonlist(Ic, Is, Ir, Ttot, tau, deadtime=0, interpmethod='cubic',
-                  taufac=500, return_IDs=False):
+                  taufac=500, return_IDs=False, seed=None):
 
     """
     Generate a photon list from an input Ic, Is with an arbitrary
@@ -129,6 +132,10 @@ def genphotonlist(Ic, Is, Ir, Ttot, tau, deadtime=0, interpmethod='cubic',
 
     """
 
+    # Use a seed when doing multithreading. Each thread should get it's own seed an integer.
+    if seed is not None:
+        local_state = np.random.RandomState(seed)
+
     # Generate a correlated Gaussian sequence, correlation time tau.
     # Then transform this to a random variable uniformly distributed
     # between 0 and 1, and finally back to a modified Rician random
@@ -142,7 +149,10 @@ def genphotonlist(Ic, Is, Ir, Ttot, tau, deadtime=0, interpmethod='cubic',
     N = max(int(tau*1e6/taufac), 1)
 
     if Is > 1e-8*Ic:
-        t, normal = corrsequence(int(Ttot*1e6/N), tau*1e6/N)
+        if seed is not None:
+            t, normal = corrsequence(int(Ttot * 1e6 / N), tau * 1e6 / N, local_state)
+        else:
+            t, normal = corrsequence(int(Ttot*1e6/N), tau*1e6/N)
         uniform = 0.5*(special.erf(normal/np.sqrt(2)) + 1)
         t *= N
         f = MRicdf(Ic, Is, interpmethod=interpmethod)
@@ -156,9 +166,13 @@ def genphotonlist(Ic, Is, Ir, Ttot, tau, deadtime=0, interpmethod='cubic',
         raise ValueError("Cannot generate a photon list with Is<0.")
 
     # Number of photons from each distribution in each time bin
-    
-    n1 = np.random.poisson(I*N)
-    n2 = np.random.poisson(np.ones(t.shape)*Ir/1e6*N)
+
+    if seed is not None:
+        n1 = local_state.poisson(I*N)
+        n2 = local_state.poisson(np.ones(t.shape)*Ir/1e6*N)
+    else:
+        n1 = np.random.poisson(I*N)
+        n2 = np.random.poisson(np.ones(t.shape)*Ir/1e6*N)
 
     # Go ahead and make the list with repeated times
     
@@ -172,8 +186,10 @@ def genphotonlist(Ic, Is, Ir, Ttot, tau, deadtime=0, interpmethod='cubic',
     tlist_tot = np.concatenate((tlist, tlist_r))*1.
 
     # Add a random number to give the exact arrival time within the bin
-
-    tlist_tot += N*np.random.rand(len(tlist_tot))
+    if seed is not None:
+        tlist_tot += N*local_state.rand(len(tlist_tot))
+    else:
+        tlist_tot += N*np.random.rand(len(tlist_tot))
 
     # Cython is much, much faster given that this has to be an
     # explicit for loop; without Cython (even with numba) this step
