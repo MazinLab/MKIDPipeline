@@ -7,6 +7,10 @@ import astropy.units
 import multiprocessing as mp
 from mkidcore.corelog import getLogger, create_log
 import pkg_resources as pkg
+from mkidreadout.configuration.beammap.beammap import Beammap
+
+#Ensure that the beammap gets registered with yaml
+Beammap()
 
 config = None
 
@@ -102,7 +106,7 @@ class MKIDWavedataDescription(object):
     def wavelengths(self):
         def getnm(x):
             try:
-                astropy.units.Unit(x).to('nm')
+                return astropy.units.Unit(x).to('nm')
             except astropy.units.UnitConversionError:
                 return float(x)
         return [getnm(x.name) for x in self.data]
