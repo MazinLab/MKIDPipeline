@@ -44,6 +44,7 @@ class photon_list(object):
         self.statsModels_result = np.array([])
         self.logLike_statsModels = -1
         self.optimize_res_list = []
+        self.eval_time = []
 
 
         if Ic>0:
@@ -90,8 +91,11 @@ class photon_list(object):
         if self.p0.size == 0:
             print('you need to define a seed: self.p0')
             return
+        t1 = time.time()
         res = optimize.minimize(binfree.loglike, self.p0, (self.dt, self.deadtime), method='Newton-CG', jac=binfree._jacobean,
                                hess=binfree._hessian)
+        t2 = time.time()
+        self.eval_time.append(t2-t1)
         self.p1 = res.x
         self.optimize_res_list.append(res)
         self.p0_list = np.append(self.p0_list, self.p0)
@@ -152,8 +156,11 @@ class photon_list(object):
         # now use Alex's code to estimate the parameters
         I = 1 / np.mean(self.dt)
         p0 = I*np.ones(3)/3.
+        t1 = time.time()
         m = bf.MR_SpeckleModel(self.ts, deadtime=self.deadtime)
         res = m.fit(start_params=p0)
+        t2 = time.time()
+        self.eval_time.append(t2 - t1)
         self.logLike_statsModels = -binfree.loglike([res.params[0], res.params[1], res.params[2]], self.dt, self.deadtime)
 
         self.p0_list = np.append(self.p0_list, np.array([-1,-1,-1]))
