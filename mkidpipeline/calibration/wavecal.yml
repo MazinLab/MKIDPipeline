@@ -18,8 +18,7 @@ start_times: [1530100392, 1530100506, 1530100622, 1530100736, 1530100850]
 exposure_times: [100, 100, 100, 100, 100]
 # wavelengths in nanometers (list of numbers)
 wavelengths: [850, 950, 1100, 1250, 1375]
-
-#h5_file_names: [None, None, None, None, None] (optional
+#h5_file_names: [None, None, None, None, None] (optional)
 
 wavecal: !configdict
   plots: all
