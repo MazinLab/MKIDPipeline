@@ -78,17 +78,17 @@ class Configuration(object):
                  calibration_model_names=('Quadratic', 'Linear'), dt=500, parallel=True,
                  summary_plot=True, templarfile=''):
 
+
         # parse arguments
         self.configuration_path = configfile
 
-        beammap = beammap if beammap is not None else Beammap('MEC')
-        self.x_pixels = beammap.ncols
-        self.y_pixels = beammap.nrows
-        self.beam_map_path = beammap.file
         self.h5_directory = h5dir
         self.out_directory = outdir
         self.bin_directory = bindir
-        self.start_times = list(map(int, start_times))
+        self.start_times = list(set(map(int, start_times)))
+
+        self.h5_file_names = [os.path.join(self.h5_directory,str(t)+'.h5') for t in self.start_times]
+
         self.exposure_times = list(map(int, exposure_times))
         self.wavelengths = np.array(wavelengths, dtype=float)
 
@@ -106,6 +106,7 @@ class Configuration(object):
             # load in the configuration file
             config = mkidcore.config.load(self.configuration_path)
 
+            self.beammap = config.beammap
             # load in the parameters
             self.x_pixels = config.beammap.ncols
             self.y_pixels = config.beammap.nrows
@@ -116,6 +117,12 @@ class Configuration(object):
             self.bin_directory = config.paths.data
 
             self.start_times = list(map(int, config.start_times))
+
+            try:
+                self.h5_file_names = [os.path.join(self.h5_directory, f) for f in config.h5_file_names]
+            except KeyError:
+                self.h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.start_times]
+
             self.exposure_times = list(map(int, config.exposure_times))
             self.wavelengths = np.array(config.wavelengths, dtype=float)
 
@@ -129,6 +136,12 @@ class Configuration(object):
             self.summary_plot = config.wavecal.plots.lower() in ('all', 'summary')
 
             self.templar_configuration_path = config.templar.file
+        else:
+            self.beammap = beammap if beammap is not None else Beammap(default='MEC')
+            self.x_pixels = beammap.ncols
+            self.y_pixels = beammap.nrows
+            self.beam_map_path = beammap.file
+            self.h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.start_times]
 
         for model in self.histogram_model_names:
             assert issubclass(getattr(wm, model), wm.PartialLinearModel), \
@@ -155,8 +168,7 @@ class Configuration(object):
 
     def hdf_exist(self):
         """Check if all hdf5 files specified exist."""
-        file_paths = [os.path.join(self.h5_directory, file_) for file_ in self.h5_file_names]
-        return all(map(os.path.isfile, file_paths))
+        return all(map(os.path.isfile, self.h5_file_names))
 
     def write(self, file_):
         """Save the configuration to a file"""
@@ -188,24 +200,21 @@ class Calibrator(object):
     """
     def __init__(self, configuration, solution_name='solution.npz'):
         # save configuration
-        self.cfg = Configuration(configuration) if isinstance(configuration,str) else configuration
+        self.cfg = Configuration(configuration) if not isinstance(configuration, Configuration) else configuration
         self.solution_name = solution_name
 
         # get beam map
         obs_files = []
-        for index, _ in enumerate(self.cfg.wavelengths):
-            file_name = os.path.join(self.cfg.paths.out,
-                                     self.cfg.h5_file_names[index])
-            obs_files.append(ObsFile(file_name))
+        for f in self.cfg.h5_file_names:
+            obs_files.append(ObsFile(f))
             message = "The beam map does not match the array dimensions"
-            assert (obs_files[-1].beamImage.shape ==
-                    (self.cfg.x_pixels, self.cfg.y_pixels)), message
+            assert obs_files[-1].beamImage.shape == (self.cfg.beammap.ncols, self.cfg.beammap.nrows), message
         beam_map = obs_files[0].beamImage.copy()
         beam_map_flags = np.array(obs_files[0].beamFlagImage)
         del obs_files
 
         # initialize fit array
-        fit_array = np.empty((self.cfg.x_pixels, self.cfg.y_pixels), dtype=object)
+        fit_array = np.empty((self.cfg.beammap.ncols, self.cfg.beammap.nrows), dtype=object)
         self.solution = Solution(fit_array=fit_array, configuration=self.cfg,
                                  beam_map=beam_map, beam_map_flags=beam_map_flags,
                                  solution_name=self.solution_name)
@@ -213,6 +222,12 @@ class Calibrator(object):
         self.progress_iteration = None
         self._acquired = 0
         self._max_queue_size = None
+
+        l=pipelinelog.getLogger(__name__)
+
+        l.info('Wave Calibrator configured with: {}'.format(self.cfg.configuration_path))
+        l.info('Parallel mode: {}'.format(self.cfg.parallel))
+
 
     def run(self, pixels=None, wavelengths=None, verbose=True, parallel=None, save=True,
             plot=None):
@@ -277,9 +292,7 @@ class Calibrator(object):
             for wavelength in wavelengths:
                 # wavelengths might be unordered, so we get the right order of h5 files
                 index = np.where(wavelength == self.cfg.wavelengths)[0].squeeze()
-                file_name = os.path.join(self.cfg.paths.out,
-                                         self.cfg.h5_file_names[index])
-                obs_files.append(ObsFile(file_name))
+                obs_files.append(ObsFile(self.cfg.h5_file_names[index]))
             # make histograms for each pixel in pixels and wavelength in wavelengths
             for pixel in pixels.T:
                 wavelength = None
@@ -2089,7 +2102,7 @@ class Solution(object):
         info += r" \begin{tabular}{@{}>{\raggedright}p{1.5in} | p{1.5in}}"
         info += r"\textbf{ObsFile Names:} & \textbf{Wavelengths [nm]:} \\"
         for index, file_name in enumerate(self.cfg.h5_file_names):
-            info += r"{} & {} \\".format(file_name, self.cfg.wavelengths[index])
+            info += r"{} & {} \\".format(os.path.basename(file_name), self.cfg.wavelengths[index])
         info += table_end
 
         # add text to axes
@@ -2218,11 +2231,10 @@ class Solution(object):
             bad_input = (not np.issubdtype(pixels.dtype, np.integer) or
                          pixels.shape[0] != 2)
             if bad_input:
-                raise ValueError("pixels must be a list of pairs of integers")
+                raise ValueError("pixels must be a list of pairs of integers: {}".format(pixels))
         else:
-            x_pixels = range(self.cfg.x_pixels)
-            y_pixels = range(self.cfg.y_pixels)
-            pixels = np.array([[x, y] for x in x_pixels for y in y_pixels]).T
+            pixels = np.array([[x, y] for x in range(self.cfg.beammap.ncols)
+                               for y in range(self.cfg.beammap.nrows)]).T
         return pixels
 
     def _parse_res_ids(self, res_ids=None):
@@ -2295,11 +2307,13 @@ def fetch(solution_descriptors, config=None, ncpu=1, async=False, force_h5=False
         if os.path.exists(sf):
             solutions.append(Solution(sd.id+'npz'))
         else:
-            wcfg = mkidpipeline.config.load_task_config(pkg.resource_filename(__name__, 'wavecal.yml'))
-            wcfg.register('h5_file_names', [str(x.start)+'.h5' for x in sd.data], update=True)
-            wcfg.update('start_times', [x.start for x in sd.data])
-            wcfg.update('exposure_times', [x.duration for x in sd.data])
-            wcfg.update('wavelengths', [w for w in sd.wavelengths])
+            if 'wavecal' not in cfg:
+                wcfg = mkidpipeline.config.load_task_config(pkg.resource_filename(__name__, 'wavecal.yml'))
+            else:
+                wcfg = cfg.copy()
+            wcfg.register('start_times', [x.start for x in sd.data], update=True)
+            wcfg.register('exposure_times', [x.duration for x in sd.data], update=True)
+            wcfg.register('wavelengths', [w for w in sd.wavelengths], update=True)
             solutions.append(Calibrator(wcfg, solution_name=sd.id+'npz'))
 
     for s in solutions:
@@ -2339,8 +2353,7 @@ if __name__ == "__main__":
     # load the configuration file
     config = Configuration(args.cfg_file)
 
-    config.wavecal.register('h5_file_names',
-                            [str(x.start)+'.h5' for x in config.start_times], update=False)
+    config.wavecal.register('h5_file_names', [str(x.start)+'.h5' for x in config.start_times], update=False)
 
     # set up logging
     if not args.quiet:
