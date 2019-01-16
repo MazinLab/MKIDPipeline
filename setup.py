@@ -12,7 +12,7 @@ def compile_and_install_software():
     """Used the subprocess module to compile/install the C software."""
     src_path = './mkidpipeline/hdf/'
     try:
-        subprocess.check_call('/usr/local/hdf5/bin/h5cc -shlib -pthread -g -Og -pg -o bin2hdf bin2hdf.c',
+        subprocess.check_call('/usr/local/hdf5/bin/h5cc -shlib -pthread -O3 -o bin2hdf bin2hdf.c',
                               cwd=src_path, shell=True)
     except Exception as e:
         print(str(e))
