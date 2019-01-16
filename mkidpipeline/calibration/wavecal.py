@@ -593,6 +593,7 @@ class Calibrator(object):
             cpu_count = min(len(wavelengths), cpu_count)
             n_data *= len(wavelengths)
 
+        pipelinelog.getLogger(__name__).info('Running using {} cores'.format(cpu_count))
         self._max_queue_size = int(np.ceil(max(50, 750 / len(wavelengths))))
         # make input, output and progress queues
         workers = []

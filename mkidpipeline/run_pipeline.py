@@ -67,11 +67,12 @@ cfgfile = '/mnt/data0/baileyji/mec/pipe.yml'
 mkidpipeline.config.configure_pipeline(cfgfile)
 mkidpipeline.config.logtoconsole()
 c = input = mkidpipeline.config.load_data_description(datafile)
-
+cfg = mkidpipeline.config.config
 
 # wcc = './src/mkidpipeline/mkidpipeline/calibration/wavecal.yml'
 # mkidpipeline.config.load_task_config(wcc)
-tr,ev = bin2hdf.buildtables(list(input.timeranges)[:3], asynchronous=1, ncpu=3)
+#2019-01-14 13:21:16,676 DEBUG Running async on 5 builders (pid=14760)
+x=bin2hdf.buildtables(list(input.timeranges), asynchronous=1, ncpu=6)
 wavecals = wavecal.fetch(input.wavecals, async=True)
 
 #noise.calibrate(table)
