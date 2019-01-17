@@ -9,18 +9,18 @@ This code is adapted from Julian's testImageStack from the ARCONS pipeline.
 
 import warnings
 import pickle
+import os
 import os.path
 import glob
 import scipy.stats
 import numpy as np
 #from astropy import coordinates as coord
 # import pyfits
-import matplotlib.pylab as mpl
+import matplotlib.pylab as plt
 import RADecImage as rdi
-# from utils.FileName import FileName
 from utils import utils
 from mkidpipeline.hdf.photontable import ObsFile
-# import CentroidCalc
+import CentroidCalc
 
 from pprint import pprint
 
@@ -30,14 +30,10 @@ def dprint(message):
     print("%s:%d - %s" % (caller.filename, caller.lineno, message))
 
 def makeImageStack(fileNames='*.h5', dir=os.getenv('MKID_PROC_PATH', default="/Scratch") + 'photonLists/',
-                   detImage=False, saveFileName='stackedImage.pkl', wvlMin=-200,
-                   wvlMax=-150, doWeighted=False, medCombine=False, vPlateScale=1,
-                   nPixRA=250, nPixDec=250, maxBadPixTimeFrac=None, integrationTime=5,
+                   dithLogFilename = 'KAnd_1545626974_dither.log', detImage=False, saveFileName='stackedImage.pkl',
+                   wvlMin=3500, wvlMax=12000, doWeighted=True, medCombine=False, vPlateScale=0.2,
+                   nPixRA=250, nPixDec=250, maxBadPixTimeFrac=0.2, integrationTime=-1,
                    outputdir=''):
-    # nPixRA=146, nPixDec=140,vPlateScale=0.45
-    #               wvlMax=12000, doWeighted=True, medCombine=False, vPlateScale=0.2,
-    #                nPixRA=250, nPixDec=250, maxBadPixTimeFrac=0.2, integrationTime=-1,
-    #                outputdir=''):
     '''
     Create an image stack
     INPUTS:
@@ -80,10 +76,15 @@ def makeImageStack(fileNames='*.h5', dir=os.getenv('MKID_PROC_PATH', default="/S
     else:
         files = glob.glob(os.path.join(dir, fileNames))
 
-    print os.path.join(dir, fileNames),files
+
+    ditherDict = loadDitherLog(dithLogFilename)
+    con2pix = getCon2Pix(files[0], files[1], ditherDict, filename = dir+'con2pix.txt')
+    ditherDict = getPixOff(ditherDict,con2pix)
+
     # Initialise empty image centered on Crab Pulsar
     virtualImage = rdi.RADecImage(nPixRA=nPixRA, nPixDec=nPixDec, vPlateScale=vPlateScale,
-                                  cenRA=1.4596725441339724, cenDec=0.38422539085925933)
+                                  cenRA=1.4596725441339724, cenDec=0.38422539085925933,
+                                  ditherDict=ditherDict)
     imageStack = []
     # pprint(virtualImage.__dict__)
 
@@ -99,7 +100,7 @@ def makeImageStack(fileNames='*.h5', dir=os.getenv('MKID_PROC_PATH', default="/S
                 im = phList.getImageDet(wvlMin=wvlMin, wvlMax=wvlMax)
                 dprint(im)
                 utils.plotArray(im)
-                mpl.imsave(fname=imSaveName, arr=im, colormap=mpl.cm.gnuplot2, origin='lower')
+                plt.imsave(fname=imSaveName, arr=im, colormap=plt.cm.gnuplot2, origin='lower')
                 if eachFile == files[0]:
                     virtualImage = im
                 else:
@@ -114,12 +115,12 @@ def makeImageStack(fileNames='*.h5', dir=os.getenv('MKID_PROC_PATH', default="/S
                 #     medComImage = scipy.stats.nanmedian(np.array(imageStack), axis=0)
                 #     toDisplay = np.copy(medComImage)
                 #     toDisplay[~np.isfinite(toDisplay)] = 0
-                #     utils.plotArray(toDisplay, pclip=0.1, cbar=True, colormap=mpl.cm.gray)
+                #     utils.plotArray(toDisplay, pclip=0.1, cbar=True, colormap=plt.cm.gray)
                 # else:
-                #     virtualImage.display(pclip=0.5, colormap=mpl.cm.gray)
+                #     virtualImage.display(pclip=0.5, colormap=plt.cm.gray)
                 #     medComImage = None
 
-            mpl.show()
+            plt.show()
 
 
         else:
@@ -139,5 +140,96 @@ def makeImageStack(fileNames='*.h5', dir=os.getenv('MKID_PROC_PATH', default="/S
 
     return results
 
+def getCon2Pix(ObsFilename1, ObsFilename2, ditherDict, filename):
+    '''Essentially a wrapper for calcCon2Pix'''
+    if os.path.exists(filename):
+        con2Pix = np.loadtxt(filename, delimiter=',')
+        print con2Pix
+        return con2Pix
+    else:
+        con2Pix = calcCon2Pix(ObsFilename1, ObsFilename2, ditherDict, filename)
+        return con2Pix
+
+def calcCon2Pix(ObsFilename1, ObsFilename2, ditherDict, filename):
+    '''Quick and dirty implementation to get the conversation between connex values and pixel offsets'''
+
+    ObsFile1 = ObsFile(ObsFilename1)
+    ObsFile2 = ObsFile(ObsFilename2)
+
+    # from matplotlib.colors import LogNorm
+    # img1 = ObsFile1.getPixelCountImage(firstSec =0, integrationTime=1)
+    # image1 = img1['image']
+    # plt.imshow(image1, aspect='equal', norm= LogNorm())
+    # plt.show()
+    # img2 = ObsFile2.getPixelCountImage(firstSec =0, integrationTime=1)
+    # image2 = img2['image']
+    # plt.imshow(image2, aspect='equal', norm= LogNorm())
+    # plt.show()
+
+    # change these from hard coded
+    centroid_RA = '09:26:38.7'
+    centroid_DEC = '36:24:02.4'
+
+    centroidDictList1 = CentroidCalc.centroidCalc(ObsFile1, centroid_RA, centroid_DEC, guessTime=1, integrationTime=1,
+                                                 secondMaxCountsForDisplay=500)
+    centroidDictList2 = CentroidCalc.centroidCalc(ObsFile2, centroid_RA, centroid_DEC, guessTime=1, integrationTime=1,
+                                                 secondMaxCountsForDisplay=500)
+
+    locPix1 = [centroidDictList1[0]['xPositionList'], centroidDictList1[0]['yPositionList']]
+    locPix2 = [centroidDictList2[0]['xPositionList'], centroidDictList2[0]['yPositionList']]
+
+    pixVec = locPix1 - locPix2
+
+    locCon1 = [ditherDict['xPos'][0],ditherDict['yPos'][0]]
+    locCon2 = [ditherDict['xPos'][1],ditherDict['yPos'][1]]
+
+    conVec = locCon1 - locCon2
+
+    con2pix = conVec/pixVec
+
+    # save the conversion for next time
+    np.savetxt(filename, con2pix)
+
+    return con2pix
+
+def loadDitherLog(fileName):
+
+    logPath = os.getenv('MKID_PROC_PATH',default="/Scratch") + 'photonLists/'
+    log = os.path.join(logPath,fileName)
+    ditherDict = {}
+    with open(log) as f:
+        ditherDict['startTimes'] = np.float_(f.readline()[14:-3].split(','))
+        ditherDict['endTimes'] = np.float_(f.readline()[12:-3].split(','))
+        ditherDict['xPos'] = np.float_(f.readline()[8:-3].split(','))
+        ditherDict['yPos'] = np.float_(f.readline()[8:-3].split(','))
+        ditherDict['intTime'] = np.float(f.readline()[10:])
+        ditherDict['nSteps'] = np.float(f.readline()[9:])
+
+    firstSec = ditherDict['startTimes'][0]
+    ditherDict['startTimes'] = ditherDict['startTimes'] - firstSec
+    ditherDict['endTimes'] = ditherDict['endTimes'] - firstSec
+
+    return ditherDict
+
+
+def getPixOff(ditherDict, con2pix=None):
+    ''' A function to convert the connex offset to pixel displacement'''#
+
+    if con2pix==None:
+        np.array([[-20, 1], [1,-20]])
+    conPos = np.array([ditherDict['xPos'],ditherDict['yPos']])
+    ditherDict['xPixOff'], ditherDict['yPixOff'] = np.int_(np.matmul(conPos.T, con2pix)).T
+
+    # xFirst = np.min(ditherDict['xPos'])
+    # yFirst = np.min(ditherDict['yPos'])
+    # ditherDict['xPos'] = ditherDict['xPos'] - xFirst
+    # ditherDict['yPos'] = ditherDict['yPos'] - yFirst
+
+    return ditherDict
+
 if __name__ == '__main__':
-    makeImageStack()
+    makeImageStack(fileNames='*.h5', dir=os.getenv('MKID_PROC_PATH') + 'photonLists/',
+                   detImage=False, saveFileName='stackedImage.pkl', wvlMin=-200,
+                   wvlMax=-150, doWeighted=False, medCombine=False, vPlateScale=1,
+                   nPixRA=250, nPixDec=250, maxBadPixTimeFrac=None, integrationTime=5,
+                   outputdir='')
