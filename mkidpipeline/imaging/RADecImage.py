@@ -13,19 +13,14 @@ import numpy as np
 # np.set_printoptions(threshold=np.inf)
 import tables
 import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm, SymLogNorm
+from matplotlib.colors import LogNorm
 import pyfits
 import utils
 import boxer
 from mkidcore import pixelflags
 import ephem
 import astropy.time
-import CentroidCalc
-
 from inspect import getframeinfo, stack
-def dprint(message):
-    caller = getframeinfo(stack()[1][0])
-    print("%s:%d - %s" % (caller.filename, caller.lineno, message))
 
 
 class RADecImage(object):
@@ -65,18 +60,16 @@ class RADecImage(object):
         .totExpTime         - Scalar, total exposure time for the current image (seconds)
     '''
 
-    def __init__(self, ObsFile=None, nPixRA=None, nPixDec=None, cenRA=None, cenDec=None,
+    def __init__(self, ditherDict, nPixRA=None, nPixDec=None, cenRA=None, cenDec=None,
                  # vPlateScale=0.1, detPlateScale=0.44, firstSec=0, integrationTime=-1,
-                 vPlateScale=1, detPlateScale=1, firstSec=0, integrationTime=-1,
-                 doWeighted=True, wvlMin=None, wvlMax=None, maxBadPixTimeFrac=0.5,
-                 savePreStackImage=None):
+                 vPlateScale=1, detPlateScale=1, firstSec=0,
+                 integrationTime=-1, doWeighted=True, wvlMin=None, wvlMax=None,
+                 maxBadPixTimeFrac=0.5, savePreStackImage=None):
         # expWeightTimeStep=1.0):
         '''
         Initialise a (possibly empty) RA-dec coordinate frame image.
 
         INPUTS:
-            ObsFile: optionally provide a ObsFile object from which to create an
-                        image (see photonlist.ObsFile)
             nPixRA, nPixDec: integers, Number of pixels in RA and Dec directions
                         for the virtual image.
             cenRA, cenDec: floats, location of center of virtual image in RA and
@@ -137,9 +130,6 @@ class RADecImage(object):
         #     self.loadImage(ObsFile, firstSec=firstSec, integrationTime=integrationTime,
         #                    doWeighted=doWeighted, wvlMin=wvlMin, wvlMax=wvlMax,
         #                    maxBadPixTimeFrac=maxBadPixTimeFrac, savePreStackImage=savePreStackImage)
-
-        ditherDict = self.loadDitherLog('KAnd_1545626974_dither.log')
-        ditherDict = self.Con2Pix(ditherDict)
 
         self.centroidRightAscension = 1.4596725441339724
         self.centroidDeclination = 0.38422539085925933
@@ -206,16 +196,14 @@ class RADecImage(object):
         self.rotatedValues = np.dot(self.rotationMatrix, self.values)
 
         self.timestamp = np.array(timestamp)
-        self.xPhotonPixel = np.array(xPhotonPixel)  # .astype('int')        #Don't require integer values for inputs - JvE 7/19/2013
-        self.yPhotonPixel = np.array(yPhotonPixel)  # .astype('int')
+        self.xPhotonPixel = np.array(xPhotonPixel) #Don't require integer values for inputs - JvE 7/19/2013
+        self.yPhotonPixel = np.array(yPhotonPixel)
         self.xyPhotonPixel = np.array([self.xPhotonPixel, self.yPhotonPixel])  # 2 x nPhotons array of x,y pairs
 
         self.inputLength = len(self.timestamp)
 
         # self.deltaTime = (self.times[1] - self.times[0])*1e6
         # self.binNumber = np.array(self.timestamp / self.deltaTime).astype('int')
-        # print self.times, self.timestamp
-        # print self.binNumber, len(self.binNumber), self.timestamp, self.deltaTime
         self.binNumber = np.ones_like((self.timestamp), dtype=np.int8)*ditherInd
         self.photonHourAngle = self.hourAngles[self.binNumber]
 
@@ -239,27 +227,15 @@ class RADecImage(object):
                     self.xPhotonRotated - self.centroidRotated[0][self.binNumber])
         self.declinationOffset = self.plateScale * (
                     self.yPhotonRotated - self.centroidRotated[1][self.binNumber])
-        # print np.median(self.rightAscensionOffset), 'here'
-        # print np.median(self.declinationOffset), 'here'
 
-        # plt.plot(self.centroidRotated[0], marker='o')
-        # plt.figure()
-        #
-        # plt.plot(self.centroidRotated[1], marker='o')
-        # plt.show()
-
-        # plt.plot(self.xPhotonRotated, marker='o')
-        # plt.figure()
-        #
-        # plt.plot(self.yPhotonRotated, marker='o')
-        # plt.show()
+        # plt.plot(self.centroidRotated[0], marker='o'); plt.figure()
+        # plt.plot(self.centroidRotated[1], marker='o'); plt.show()
+        # plt.plot(self.xPhotonRotated, marker='o'); plt.figure()
+        # plt.plot(self.yPhotonRotated, marker='o'); plt.show()
 
         # Convert centroid positions in DD:MM:SS.S and HH:MM:SS.S format to radians.
         self.centroidRightAscensionRadians = ephem.hours(self.centroidRightAscension).real
         self.centroidDeclinationRadians = ephem.degrees(self.centroidDeclination).real
-
-        # print(self.centroidRightAscensionRadians)
-        # print(self.centroidDeclinationRadians)
 
         # Convert centroid position radians to arcseconds.
 
@@ -272,9 +248,6 @@ class RADecImage(object):
         # Add the photon arcsecond offset to the centroid offset.
         self.photonDeclinationArcseconds = self.centroidDeclinationArcseconds + self.declinationOffset
         self.photonRightAscensionArcseconds = self.centroidRightAscensionArcseconds + self.rightAscensionOffset
-
-        # print self.photonDeclinationArcseconds, self.centroidDeclinationArcseconds, self.declinationOffset
-        # print self.photonRightAscensionArcseconds, self.centroidRightAscensionArcseconds, self.rightAscensionOffset, 'offsets'
 
         # Convert the photon positions from arcseconds to radians
         self.photonDeclinationRadians = (self.photonDeclinationArcseconds / 3600.0) * degreesToRadians
@@ -297,65 +270,6 @@ class RADecImage(object):
         # Note - +1's are because these are pixel *boundaries*, not pixel centers:
         self.gridRA = self.cenRA + (self.vPlateScale * (np.arange(self.nPixRA + 1) - ((self.nPixRA + 1) // 2)))
         self.gridDec = self.cenDec + (self.vPlateScale * (np.arange(self.nPixDec + 1) - ((self.nPixDec + 1) // 2)))
-
-
-    def loadDitherLog(self, fileName):
-        import os
-        logPath = dir=os.getenv('MKID_PROC_PATH',default="/Scratch") + 'photonLists/'
-        log = os.path.join(logPath,fileName)
-        ditherDict = {}
-        with open(log) as f:
-            ditherDict['startTimes'] = np.float_(f.readline()[14:-3].split(','))
-            ditherDict['endTimes'] = np.float_(f.readline()[12:-3].split(','))
-            ditherDict['xPos'] = np.float_(f.readline()[8:-3].split(','))
-            ditherDict['yPos'] = np.float_(f.readline()[8:-3].split(','))
-            ditherDict['intTime'] = np.float(f.readline()[10:])
-            ditherDict['nSteps'] = np.float(f.readline()[9:])
-
-        firstSec = ditherDict['startTimes'][0]
-        ditherDict['startTimes'] = ditherDict['startTimes'] - firstSec
-        ditherDict['endTimes'] = ditherDict['endTimes'] - firstSec
-
-        return ditherDict
-
-
-    def Con2Pix(self, ditherDict, con2pix=-20):
-        ''' A function to convert the connex offset to pixel displacement'''#
-
-        ditherDict['xPixOff'] = np.int_(ditherDict['xPos']*con2pix)
-        ditherDict['yPixOff'] = np.int_(ditherDict['yPos']*con2pix)
-
-        # xFirst = np.min(ditherDict['xPos'])
-        # yFirst = np.min(ditherDict['yPos'])
-        # ditherDict['xPos'] = ditherDict['xPos'] - xFirst
-        # ditherDict['yPos'] = ditherDict['yPos'] - yFirst
-
-        return ditherDict
-
-    def calculateCon2Pix(self, ObsFile1, ObsFile2, ditherDict):
-        '''Quick and dirty implementation to get the conversation between connex values and pixel offsets
-        Code exists for using the mouse to identify the point sources and should be used instead of this'''
-
-        img1 = ObsFile1.getPixelCountImage(firstSec =0, integrationTime=1)
-        image1 = img1['image']
-        plt.imshow(image1, aspect='equal', norm= LogNorm())
-        plt.show()
-        img2 = ObsFile2.getPixelCountImage(firstSec =0, integrationTime=1)
-        image2 = img2['image']
-        plt.imshow(image2, aspect='equal', norm= LogNorm())
-        plt.show()
-
-        # fit the centroid in both imgs and get loc1 and loc2 then...
-        loc1, loc2 = [0,0], [45,45]
-        disp = loc1 - loc2
-        pixDist = np.sqrt(disp[0]**2 + disp[1]**2)
-
-        conDist = np.sqrt((ditherDict['xPos'][1]- ditherDict['xPos'][0])**2 +
-                          (ditherDict['yPos'][1]- ditherDict['yPos'][0])**2)
-
-        con2pix = conDist/pixDist
-
-        return con2pix
 
     def loadExposure(self, ObsFile, ditherInd=0, firstSec=0, integrationTime=-1, wvlMin=None, wvlMax=None,
                   doStack=False, savePreStackImage=None, doWeighted=True,
@@ -392,17 +306,11 @@ class RADecImage(object):
         tic = time.clock()
 
         photTable = ObsFile.file.root.Photons.PhotonTable  # Shortcut to table
+
         # img = ObsFile.getPixelCountImage(firstSec =0, integrationTime=1)
         # image = img['image']
         # plt.imshow(image, aspect='equal')
         # plt.show()
-
-        # ##### just for testing purposes delete after
-        # centroid_RA = '09:26:38.7'
-        # centroid_DEC = '36:24:02.4'
-        # CentroidCalc.centroidCalc(ObsFile, centroid_RA, centroid_DEC, guessTime=300, integrationTime=30,
-        #                           secondMaxCountsForDisplay=500)
-        # ##### end here #####
 
         # if expWeightTimeStep is not None:
         #    self.expWeightTimeStep=expWeightTimeStep
@@ -444,7 +352,6 @@ class RADecImage(object):
                 self.nPixDec = int((self.decMax - self.decMin) // self.vPlateScale + 2)
             self.setCoordGrid()
 
-        print type(ObsFile)
         beamFlagImage = np.transpose(ObsFile.beamFlagImage.read())
         self.nDPixRow, self.nDPixCol = beamFlagImage.shape
 
@@ -561,8 +468,6 @@ class RADecImage(object):
         # photons = np.asarray(photons)
 
         # photons = photons.view(dtype=np.ndarray)
-        # # print photons[:,0]
-        # print photons.shape, np.shape(np.transpose(photons)), type(photons[0]), photons[0], photons[:5], photons[:5, 1]
         print 'Calculating RA/Decs...'
         n_photons = len(photons)
         times = np.zeros(n_photons)
@@ -581,7 +486,6 @@ class RADecImage(object):
 
         photRAs, photDecs, photHAs = self.getRaDec(times, np.array(icols), np.array(irows), ditherInd)
 
-        # print photons
         if ObsFile.getFromHeader('isFlatCalibrated') and ObsFile.getFromHeader('isSpecCalibrated'):
             print 'INCLUDING FLUX WEIGHTS!'
             photWeights = photons['flatWeight'] * photons['fluxWeight']  # ********EXPERIMENTING WITH ADDING FLUX WEIGHT - NOT FULLY TESTED, BUT SEEMS OKAY....********

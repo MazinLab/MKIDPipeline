@@ -205,8 +205,9 @@ def centroidImage(image,xyguess,radiusOfSearch = 6,doDS9=True,usePsfFit=False):
             
     outDict = {'xycenter':xycenter,'flag':flag}
     if usePsfFit:
-        outDict['xycenterGuide'] = xycenterGuide
         outDict['xycenterPsf'] = xycenterPsf
+    outDict['xycenterGuide'] = xycenterGuide
+
     return outDict
 
 def getUserCentroidGuess(image,norm=None):
@@ -403,11 +404,13 @@ def centroidCalc(obsFile, centroid_RA, centroid_DEC, outputFileName=None, guessT
     
     flag=0
     print 'Retrieving images...'
+    exptime = 2
+    print range(exptime)
     for iFrame in range(exptime):
         # Integrate over the guess time.  Click a pixel in the plot corresponding to the xy center guess.  This will be used to centroid for the duration of guessTime.
         if iFrame%guessTime == 0:
         # Use obsFile to get guessTime image.
-            imageInformation = ob.getPixelCountImage(firstSec=iFrame, integrationTime= guessTime, weighted=True,fluxWeighted=False, getRawCount=False,scaleByEffInt=False)
+            imageInformation = ob.getPixelCountImage(firstSec=iFrame, integrationTime= guessTime, applyWeight=False,scaleByEffInt=False)
             image=imageInformation['image']
             if xyapprox is None:
                 #Get user to click on approx. centroid location
@@ -422,7 +425,7 @@ def centroidCalc(obsFile, centroid_RA, centroid_DEC, outputFileName=None, guessT
         # Centroid an image that has been integrated over integrationTime.
         if iFrame%integrationTime == 0:
             # Use obsFile to get integrationTime image.
-            imageInformation = ob.getPixelCountImage(firstSec=iFrame, integrationTime= integrationTime, weighted=True,fluxWeighted=False, getRawCount=False,scaleByEffInt=False)
+            imageInformation = ob.getPixelCountImage(firstSec=iFrame, integrationTime= integrationTime, applyWeight=False,scaleByEffInt=False)
             image=imageInformation['image']        
 
             centroidDict = centroidImage(image,xyguess,radiusOfSearch,doDS9=True,usePsfFit=usePsfFit)
