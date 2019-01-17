@@ -3,7 +3,6 @@
 from __future__ import print_function
 import numpy as np
 from scipy import special, interpolate
-# import pyximport; pyximport.install()
 import mkidpipeline.speckle.photonstats_utils as utils
 from astropy.convolution import Gaussian2DKernel, convolve
 from mkidcore.headers import ObsHeader
