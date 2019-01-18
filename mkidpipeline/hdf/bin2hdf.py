@@ -162,7 +162,7 @@ class HDFBuilder(object):
                 getLogger(__name__).info('H5 {} already built. Remake not requested. Done.'.format(self.cfg.h5file))
                 self.done.set()
 
-    def run(self, polltime=0.1, usepytables=False, index=True):
+    def run(self, polltime=0.1, usepytables=True, index=('ultralight',6)):
         self.handle_existing()
         if self.done.is_set():
             return
