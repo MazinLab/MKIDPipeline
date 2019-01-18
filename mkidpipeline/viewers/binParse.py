@@ -110,6 +110,7 @@ class ParsedBin(object):
 
     """
     def __init__(self, files, pix_shape=None, verbose=False):
+        # Todo: We need functionality to automatically figure out the dimensions of the image.
         # Saving List of File Names
         self.obs_files = files
         self.pix_shape = pix_shape
@@ -255,7 +256,7 @@ if __name__ == "__main__":
     fnames = obs_list(args.basepath, args.starttime, args.endtime)
 
     # Test Settings
-    img_shape = (125, 80)
+    img_shape = (125, 80) # mec (146,140)
     phase_binsize = 2
     phs_range = (-250, -200)
 
