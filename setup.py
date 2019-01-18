@@ -15,7 +15,7 @@ mkidbin_extension = Extension(
     sources=["mkidpipeline/hdf/mkidbin.pyx", "mkidpipeline/hdf/binprocessor.c"],
     library_dirs=["mkidpipeline/hdf"], # Location of .o file
     include_dirs=["mkidpipeline/hdf", numpy.get_include()], # Location of the .h file
-    extra_compile_args=["-std=c99", "-O3"]
+    extra_compile_args=["-std=c99", "-O3", '-pthread']
 )
 
 def compile_and_install_software():
