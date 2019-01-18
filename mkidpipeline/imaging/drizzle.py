@@ -17,6 +17,10 @@ import numpy as np
 #from astropy import coordinates as coord
 # import pyfits
 import matplotlib.pylab as plt
+
+plt.plot(range(5))
+plt.show()
+import time
 import RADecImage as rdi
 from utils import utils
 from mkidpipeline.hdf.photontable import ObsFile
@@ -34,6 +38,7 @@ def makeImageStack(fileNames='*.h5', dir=os.getenv('MKID_PROC_PATH', default="/S
                    wvlMin=3500, wvlMax=12000, doWeighted=True, medCombine=False, vPlateScale=0.2,
                    nPixRA=250, nPixDec=250, maxBadPixTimeFrac=0.2, integrationTime=-1,
                    outputdir=''):
+
     '''
     Create an image stack
     INPUTS:
@@ -107,9 +112,12 @@ def makeImageStack(fileNames='*.h5', dir=os.getenv('MKID_PROC_PATH', default="/S
                     virtualImage += im
             else:
                 # imSaveName = os.path.join(outputdir, baseSaveName + '.tif')
-                virtualImage.loadExposure(phList, ditherInd=ix, doStack=not medCombine, savePreStackImage=None,
+                tic = time.clock()
+                photons = virtualImage.loadObsFile(phList, ditherInd=ix,
                                        wvlMin=wvlMin, wvlMax=wvlMax, doWeighted=doWeighted,
                                        maxBadPixTimeFrac=maxBadPixTimeFrac, integrationTime=integrationTime)
+                virtualImage.stackExposure(photons, ditherInd=ix, doStack=not medCombine, savePreStackImage=None)
+                print 'Image load done. Time taken (s): ', time.clock() - tic
                 imageStack.append(virtualImage.image * virtualImage.expTimeWeights)  # Only makes sense if medCombine==True, otherwise will be ignored
                 # if medCombine == True:
                 #     medComImage = scipy.stats.nanmedian(np.array(imageStack), axis=0)
@@ -215,7 +223,7 @@ def loadDitherLog(fileName):
 def getPixOff(ditherDict, con2pix=None):
     ''' A function to convert the connex offset to pixel displacement'''#
 
-    if con2pix==None:
+    if con2pix is None:
         np.array([[-20, 1], [1,-20]])
     conPos = np.array([ditherDict['xPos'],ditherDict['yPos']])
     ditherDict['xPixOff'], ditherDict['yPixOff'] = np.int_(np.matmul(conPos.T, con2pix)).T
