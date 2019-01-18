@@ -1,32 +1,29 @@
-from mkidcore.headers import ObsFileCols
 import numpy as np
 import tables
+import mkidpipeline.hdf.bin2hdf as bin2hdf
+import shutil
 import time
-np_photon = np.dtype([('resid',np.uint32),
-                      ('timestamp', np.uint32),
-                      ('wavelength', np.float32),
-                      ('wSpec', np.float32),
-                      ('wNoise', np.float32)], align=True)
+
+"""Test 1 creation"""
+#make a bin2hdfconfig
+cfg=None
+builder = bin2hdf.HDFBuilder(cfg)
+builder.run(usepytables=True, index=('ultralight', 6))
+shutil.move(cfg.h5file, cfg.h5file[:-3]+'_pytables_ul6.h5')
+builder.done.clear()
+builder.run(usepytables=True, index=True)
+shutil.move(cfg.h5file, cfg.h5file[:-3]+'_pytables_csi.h5')
+builder.done.clear()
+builder.run(usepytables=False)
+shutil.move(cfg.h5file, cfg.h5file[:-3]+'_bin2hdf.h5')
 
 
+"""Test 2 Query Times"""
+binfile = '/mnt/data0/baileyji/mec/out/1545542180_bin2hdf.h5'
+csifile = '/mnt/data0/baileyji/mec/out/1545542180_pytables_csi.h5'
+ulifile = '/mnt/data0/baileyji/mec/out/1545542180_pytables_ul6.h5'
 
-""" Test 1 generate a basic photon table: ~10s for 375 mphotons"""
-nphotons=375000000
-np.random.randint(0,20000, nphotons, np.uint32)
-photons = np.zeros(nphotons, dtype=np_photon)
-photons['resid'] = np.random.randint(0,20000, nphotons, np.uint32)
-photons['timestamp'] = np.random.randint(1547683242,1547683242+150, nphotons, np.uint32)
-photons['wavelength'] = np.random.random(nphotons)
-photons['wSpec'] = np.random.random(nphotons)
-photons['wNoise'] = np.random.random(nphotons)
+bin = tables.open_file(binfile, mode="r")
+csi = tables.open_file(csifile, mode="r")
+uli = tables.open_file(ulifile, mode="r")
 
-tic=time.time()
-filter = tables.Filters(complevel=1, complib='blosc', shuffle=True, bitshuffle=False, fletcher32=False)
-h5file = tables.open_file("test.h5", mode="w", title="Test file")
-group = h5file.create_group("/", 'Photons', 'Photon Information')
-table = h5file.create_table(group, name='PhotonTable', description=ObsFileCols,
-                            title="Photon Table", expectedrows=nphotons, filters=filter)
-table.append(photons)
-h5file.close()
-toc=time.time()
-print(toc-tic)
