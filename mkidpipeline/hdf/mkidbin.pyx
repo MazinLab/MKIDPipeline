@@ -25,7 +25,8 @@ np_photon = np.dtype([('resID',np.uint32),
 
 
 def extract(directory, start, inttime, beamfile, x, y):
-    files = [os.path.join(directory, '{}.bin'.format(t)) for t in range(start-1, start+inttime)]
+    files = [os.path.join(directory, '{}.bin'.format(t)) for t in range(start-1, start+inttime+1)]
+    files = filter(os.path.exists, files)
     n_max_photons = int(np.ceil(sum([os.stat(f).st_size for f in files])/PHOTON_BIN_SIZE_BYTES))
     getLogger(__name__).debug('Calling C to extract ~{:g} photons, will require ~{:.1f}GB of RAM'.format(n_max_photons,
                                                                                    n_max_photons*PHOTON_SIZE_BYTES/1024/1024/1024))
@@ -36,7 +37,6 @@ def extract(directory, start, inttime, beamfile, x, y):
     getLogger(__name__).debug('C code returned {} photons'.format(nphotons))
     photons = photons[:nphotons]
     return photons
-#    return photons[photons['timestamp']>=start]
 
 
 def extract_fake(nphotons, start=1547683242, intt=150, nres=20000):
