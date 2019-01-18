@@ -8,130 +8,174 @@ import sys,os
 import tables
 import numpy as np
 import matplotlib.pyplot as plt
+import pyximport; pyximport.install()
+import mkidpipeline.calibration.ts_binner as ts_binner
 from utils import utils
 from hdf.photontable import photontable
 import inspect
 from interval import interval, inf, imath
-try:
-    from cosmic import tsBinner
-except ImportError:
-    print "trouble importing tsBinner.  Follow directions in cosmic/README.txt"
+
 
 from scipy.optimize import curve_fit
 from scipy.stats import expon
 import time
-import pickle
-import logging
+
+
 class Cosmic:
+    def __init__(self):
+        pass
 
 
+    def findCosmics(self, stride=10, threshold=100,
+                    population_max=2000, nSigma=5, write_cosmicmask=False,
+                    pps_stride=10000):
+        """
+        Find cosmics ray suspects.  Histogram the number of photons
+        recorded at each timeStamp.  When the number of photons in a
+        group of stride timeStamps is greater than threshold in second
+        iSec, add (iSec,timeStamp) to cosmicTimeLists.  Also keep
+        track of the histogram of the number of photons per stride
+        timeStamps.
+        return a dictionary of 'populationHg', 'cosmicTimeLists',
+        'binContents', 'timeHgValues', 'interval', 'frameSum', and 'pps'
 
-def findCosmics(self, stride=10, threshold=100,
-                population_max=2000, nSigma=5, write_cosmicmask=False,
-                pps_stride=10000):
-    """
-    Find cosmics ray suspects.  Histogram the number of photons
-    recorded at each timeStamp.  When the number of photons in a
-    group of stride timeStamps is greater than threshold in second
-    iSec, add (iSec,timeStamp) to cosmicTimeLists.  Also keep
-    track of the histogram of the number of photons per stride
-    timeStamps.
-    return a dictionary of 'populationHg', 'cosmicTimeLists',
-    'binContents', 'timeHgValues', 'interval', 'frameSum', and 'pps'
+         populationHg is a histogram of the number of photons in each time bin.
+        This is a poisson distribution with a long tail due to cosmic events
 
-     populationHg is a histogram of the number of photons in each time bin.
-    This is a poisson distribution with a long tail due to cosmic events
+        cosmicTimeLists is a numpy array  of all the sequences that are
+        suspects for cosmic rays
+        binContents corresponds to cosmicTimeLists.  For each time in
+        cosmicTimeLists, binContents is the number of photons detected
+        at that time.
 
-    cosmicTimeLists is a numpy array  of all the sequences that are
-    suspects for cosmic rays
-    binContents corresponds to cosmicTimeLists.  For each time in
-    cosmicTimeLists, binContents is the number of photons detected
-    at that time.
+        timeHgValues is a histogram of the number of photons in each time
+        interval
 
-    timeHgValues is a histogram of the number of photons in each time
-    interval
+        frameSum is a two dimensional  numpy array of the number of photons
+        detected by each pixel
+        interval is the interval of data to be masked out
+        pps is photons per second, calculated every ppsStride bins.
+        """
 
-    frameSum is a two dimensional  numpy array of the number of photons
-    detected by each pixel
-    interval is the interval of data to be masked out
-    pps is photons per second, calculated every ppsStride bins.
-    """
+        ###self.logger.info("findCosmics: begin stride=%d threshold=%d populationMax=%d nSigma=%d writeCosmicMask=%s")
 
-    self.logger.info("findCosmics: begin stride=%d threshold=%d populationMax=%d nSigma=%d writeCosmicMask=%s" % (
-    stride, threshold, populationMax, nSigma, writeCosmicMask))
+        exptime = self.endtime - self.begintime
+        nbins = int(np.round(self.file.ticks_per_sec * exptime + 1))
+        bins = np.arange(0, nbins, 1)
+        timehist_values, framesum = self.get_timehist_and_framesum(self.begintime, self.endtime)
+        remainder = len(timehist_values) % pps_stride
+        if remainder > 0:
+            temp = timehist_values[:-remainder]
+        else:
+            temp = timehist_values
+        pps_time = (pps_stride * self.file.tick_duration)
+        pps = np.sum(temp.reshape(-1, pps_stride), axis=1) / pps_time
+        cr_pop = Cosmic.population_from_timehist_values(timehist_values, population_max, stride, threshold)
 
-    exptime = self.endTime - self.beginTime
-    nBins = int(np.round(self.file.ticksPerSec * exptime + 1))
-    bins = np.arange(0, nBins, 1)
-    timeHgValues, frameSum = self.getTimeHgAndFrameSum(self.beginTime, self.endTime)
-    remainder = len(timeHgValues) % ppsStride
-    if remainder > 0:
-        temp = timeHgValues[:-remainder]
-    else:
-        temp = timeHgValues
-    ppsTime = (ppsStride * self.file.tickDuration)
-    pps = np.sum(temp.reshape(-1, ppsStride), axis=1) / ppsTime
-    self.logger.info("findCosmics:  call populationFromTimeHgValues")
-    pfthgv = Cosmic.populationFromTimeHgValues \
-        (timeHgValues, populationMax, stride, threshold)
-    # now build up all of the intervals in seconds
+        # now build up all of the intervals in seconds
 
-    self.logger.info("findCosmics:  build up intervals:  nCosmicTime=%d" % len(pfthgv['cosmicTimeList']))
+        i = interval()
+        icount = 0
+        seconds_per_tick = self.file.tick_duration
+        for cosmic_time in cr_pop['cosmic_time_list']:
 
-    i = interval()
-    iCount = 0
-    secondsPerTick = self.file.tickDuration
-    for cosmicTime in pfthgv['cosmicTimeList']:
+            t0 = self.begintime + cosmic_time * seconds_per_tick
+            dt = stride * seconds_per_tick
+            t1 = t0 + dt
+            left = max(self.begintime, t0 - nsigma * dt)
+            right = min(self.endtime, t1 + 2 * nsigma * dt)
+            i = i | interval[left, right]
+            icount += 1
 
-        t0 = self.beginTime + cosmicTime * secondsPerTick
-        dt = stride * secondsPerTick
-        t1 = t0 + dt
-        left = max(self.beginTime, t0 - nSigma * dt)
-        right = min(self.endTime, t1 + 2 * nSigma * dt)
-        i = i | interval[left, right]
-        self.logger.debug("findCosmics:  iCount=%d t0=%f t1=%f left=%f right=%f" % (iCount, t0, t1, left, right))
-        iCount += 1
+        times_masked = Cosmic.count_masked_bins(i)
+        ppm_masked = 1000000 * times_masked / (self.endtime - self.begintime)
 
-    tMasked = Cosmic.countMaskedBins(i)
-    ppmMasked = 1000000 * tMasked / (self.endTime - self.beginTime)
+        return_val = {}
+        return_val['timehist_values'] = timehist_values
+        return_val['population_hist'] = cr_pop['population_hist']
+        return_val['cosmic_timelist'] = cr_pop['cosmic_timelist']
+        return_val['bin_contents'] = cr_pop['bin_contents']
+        return_val['framesum'] = framesum
+        return_val['interval'] = i
+        return_val['ppm_masked'] = ppm_masked
+        return_val['pps'] = pps
+        return_val['pps_time'] = pps_time
 
-    retval = {}
-    retval['timeHgValues'] = timeHgValues
-    retval['populationHg'] = pfthgv['populationHg']
-    retval['cosmicTimeList'] = pfthgv['cosmicTimeList']
-    retval['binContents'] = pfthgv['binContents']
-    retval['frameSum'] = frameSum
-    retval['interval'] = i
-    retval['ppmMasked'] = ppmMasked
-    retval['pps'] = pps
-    retval['ppsTime'] = ppsTime
-    if writeCosmicMask:
-        cfn = self.fn.cosmicMask()
-        self.logger.info("findCosmics:  write masks to =%s" % cfn)
-        ObsFile.writeCosmicIntervalToFile(i, self.file.ticksPerSec,
-                                          cfn, self.beginTime, self.endTime,
-                                          stride, threshold, nSigma, populationMax)
-    self.logger.info("findCosmics:  end with ppm masked=%d" % ppmMasked)
-    return retval
+        return return_val
 
 
-def getTimeHgAndFrameSum(self, beginTime, endTime):
-    integrationTime = endTime - beginTime
-    nBins = int(np.round(self.file.ticksPerSec * integrationTime + 1))
-    timeHgValues = np.zeros(nBins, dtype=np.int64)
-    frameSum = np.zeros((self.file.nRow, self.file.nCol))
-    self.logger.info("get all time stamps for integrationTime=%f" % integrationTime)
-    for iRow in range(self.file.nRow):
-        for iCol in range(self.file.nCol):
+    def get_timehist_and_framesum(self, begintime, endtime):
+        integrationtime = endtime - begintime
+        nbins = int(np.round(self.file.ticks_per_sec * integrationtime + 1))
+        timehist_values = np.zeros(nbins, dtype=np.int64)
+        framesum = np.zeros((self.file.nRow, self.file.nCol))
+        for iRow in range(self.file.nRow):
+            for iCol in range(self.file.nCol):
+                gtpl = self.file.getPackets(iRow, iCol, begintime, integrationtime)
+                timestamps = gtpl['timestamps']
+                if timestamps.size > 0:
+                    timestamps = (timestamps - begintime) * self.file.ticks_per_sec
+                    ts32 = np.round(timestamps).astype(np.uint32)
+                    ts_binner.ts_binner32(ts32, timehist_values)
+                    framesum[iRow, iCol] += ts32.size
 
-            gtpl = self.file.getPackets(iRow, iCol,
-                                        beginTime, integrationTime)
-            timestamps = gtpl['timestamps']
-            if timestamps.size > 0:
-                timestamps = \
-                    (timestamps - beginTime) * self.file.ticksPerSec
-                ts32 = np.round(timestamps).astype(np.uint32)
-                tsBinner.tsBinner32(ts32, timeHgValues)
-                frameSum[iRow, iCol] += ts32.size
+        return timehist_values, framesum
 
-    return timeHgValues, frameSum
+    @staticmethod
+    def count_masked_bins(mask_interval):
+        return_val = 0
+        for x in mask_interval:
+            return_val += x[1]-x[0]
+        return return_val
+
+    @staticmethod
+    def population_from_timehist_values(timehist_values,population_max,stride,threshold):
+        """
+        Rebin the timehist_values histogram by combining stride bins.  If
+        stride > 1, then bin a second time after shifting by stride/2
+        Create population_hist, a histogram of the number of photons in
+        the large bins.  Also, create (and then sort) a list
+        cosmic_timelist of the start of bins (in original time units)
+        of overpopulated bins that have more than threshold number of
+        photons.
+        return a dictionary containing population_hist and cosmic_timelist
+        """
+        pop_range = (-0.5,population_max-0.5)
+        if stride==1:
+            population_hist = np.histogram(timehist_values, population_max, range=pop_range)
+            cosmic_timelist = np.where(timehist_values > threshold)[0]
+            bin_contents = np.extract(timehist_values > threshold, timehist_values)
+        else:
+            # rebin the timehist_values before counting the populations
+            length = timehist_values.size
+            remainder = length%stride
+            if remainder == 0:
+                end = length
+            else:
+                end = -remainder
+
+            timehist_values_trimmed = timehist_values[0:end]
+
+            timehist_values_rebinned_0 = np.reshape(timehist_values_trimmed, [length/stride, stride]).sum(axis=1)
+            population_hist_0 = np.histogram(timehist_values_rebinned_0, population_max, range=pop_range)
+            cosmic_timelist_0 = stride*np.where(timehist_values_rebinned_0 > threshold)[0]
+            bin_contents_0 = np.extract(timehist_values_rebinned_0 > threshold, timehist_values_rebinned_0)
+
+            timehist_values_rebinned_1 = np.reshape(timehist_values_trimmed[stride/2:-stride/2],[(length-stride)/stride, stride]).sum(axis=1)
+            population_hist_1 = np.histogram(timehist_values_rebinned_1, population_max, range=pop_range)
+            cosmic_timelist_1 = (stride/2)+stride*np.where(timehist_values_rebinned_1 > threshold)[0]
+            bin_contents_1 = np.extract(timehist_values_rebinned_1 > threshold, timehist_values_rebinned_1)
+
+            population_hist = (population_hist_0[0]+population_hist_1[0],population_hist_0[1])
+            cosmic_timelist = np.concatenate((cosmic_timelist_0,cosmic_timelist_1))
+            bin_contents = np.concatenate((binContents0, binContents1))
+            args = np.argsort(cosmic_timelist)
+            cosmic_timelist = cosmic_timelist[args]
+            bin_contents = bin_contents[args]
+            cosmic_timelist.sort()
+
+        return_val = {}
+        return_val['population_hist'] = population_hist
+        return_val['cosmic_timelist'] = cosmic_timelist
+        return_val['bin_contents'] = bin_contents
+        return return_val
