@@ -56,10 +56,18 @@ Attach WCS Info (This is a function of the time and beammap)
 #TODO we need a way to autofetch all the parameters for steps of the pipeline (or at least standardize)
 #TODO configure wavecal logging pulling from wavecal.setup_logging as needed
 
+import os
+import numpy as np
 import mkidpipeline.hdf.bin2hdf as bin2hdf
 import mkidpipeline.calibration.wavecal as wavecal
 import mkidpipeline.calibration.flatcal as flatcal
 import mkidpipeline.config
+from mkidpipeline.hdf.mkidbin import extract, test
+from mkidcore.headers import ObsFileCols, ObsHeader
+import mkidpipeline.hdf.bin2hdf as bin2hdf
+import tables
+
+from mkidcore.config import getLogger
 import mkidpipeline.badpix as badpix
 
 datafile = '/mnt/data0/baileyji/mec/data.yml'
@@ -67,12 +75,27 @@ cfgfile = '/mnt/data0/baileyji/mec/pipe.yml'
 mkidpipeline.config.configure_pipeline(cfgfile)
 mkidpipeline.config.logtoconsole()
 c = input = mkidpipeline.config.load_data_description(datafile)
-cfg = mkidpipeline.config.config
+pcfg = mkidpipeline.config.config
 
 # wcc = './src/mkidpipeline/mkidpipeline/calibration/wavecal.yml'
 # mkidpipeline.config.load_task_config(wcc)
 #2019-01-14 13:21:16,676 DEBUG Running async on 5 builders (pid=14760)
-x=bin2hdf.buildtables(list(input.timeranges), asynchronous=1, ncpu=6)
+
+timeranges = list(set(input.timeranges))
+from mkidpipeline.hdf.bin2hdf import Bin2HdfConfig, _get_dir_for_start
+cfgs = []
+cfg = mkidpipeline.config.config
+for start_t, end_t in timeranges:
+    bc = Bin2HdfConfig(datadir=_get_dir_for_start(cfg.paths.data, start_t),
+                       beammap=cfg.beammap, outdir=cfg.paths.out,
+                       starttime=start_t, inttime=end_t - start_t)
+    cfgs.append(bc)
+cfg=cfgs[0]
+photons = extract(cfg.datadir, cfg.starttime, cfg.inttime, cfg.beamfile, cfg.x, cfg.y)
+
+builder = bin2hdf.HDFBuilder(cfg)
+builder.run(usepytables=True, index=('ultralight',6))
+x=bin2hdf.buildtables(list(input.timeranges)[0], asynchronous=1, ncpu=6)
 wavecals = wavecal.fetch(input.wavecals, async=True)
 
 #noise.calibrate(table)
