@@ -20,6 +20,7 @@ from glob import glob
 import warnings
 from mkidpipeline.hdf.photontable import ObsFile
 import mkidcore.utils
+from mkidreadout.configuration.beammap.beammap import Beammap
 
 __DUMMY = False
 
@@ -51,6 +52,71 @@ def _get_dir_for_start(base, start):
         return os.path.join(base, nmin[keys[keys < start].max()])
     except ValueError:
         raise ValueError('No directory in {} found for start {}'.format(base, start))
+
+
+def testbuild(cfg):
+    if cfg.starttime < 1518222559:
+        raise ValueError('Data prior to 1518222559 not supported without added fixtimestamps')
+
+    from mkidpipeline.hdf.mkidbin import extract
+    from mkidcore.headers import ObsFileCols, ObsHeader
+
+    getLogger(__name__).debug('Starting build')
+
+    photons = extract(cfg.datadir, cfg.starttime, cfg.inttime, cfg.beamfile, cfg.x, cfg.y)
+
+    getLogger(__name__).debug('Data Extracted')
+
+    h5file = tables.open_file(cfg.h5file, mode="a", title="MKID Photon File")
+    group = h5file.create_group("/", 'Photons', 'Photon Information')
+    filter = tables.Filters(complevel=1, complib='blosc', shuffle=True, bitshuffle=False,
+                            fletcher32=False)
+    table = h5file.create_table(group, name='PhotonTable', description=ObsFileCols,
+                                title="Photon Datatable", expectedrows=photons.shape[0],
+                                filters=filter)
+    table.append(photons)
+
+    getLogger(__name__).debug('Table Populated')
+    table.cols.Time.create_csindex()
+    getLogger(__name__).debug('Time Indexed')
+    table.cols.ResID.create_csindex()
+    getLogger(__name__).debug('ResID Indexed')
+    table.cols.Wavelength.create_csindex()
+    getLogger(__name__).debug('Wavlength Indexed')
+    getLogger(__name__).debug('Table Indexed')
+
+    # group = h5file.create_group("/", 'Images', 'Image Snaps')  #todo delete?
+    bmap = Beammap(cfg.beamfile, xydim=(cfg.x, cfg.y))
+    group = h5file.create_group("/", 'BeamMap', 'Beammap Information', filters=filter)
+    h5file.create_array(group, 'Map', bmap.residmap, 'resID map')
+    h5file.create_array(group, 'Flag', bmap.flagmap, 'flag map')
+
+    getLogger(__name__).debug('Beammap Attached')
+
+    h5file.create_group('/', 'header', 'Header')
+    headerTable = h5file.create_table('/header', 'header', ObsHeader, 'Header')
+    headerContents = headerTable.row
+    headerContents['isWvlCalibrated'] = False
+    headerContents['isFlatCalibrated'] = False
+    headerContents['isSpecCalibrated'] = False
+    headerContents['isLinearityCorrected'] = False
+    headerContents['isPhaseNoiseCorrected'] = False
+    headerContents['isPhotonTailCorrected'] = False
+    headerContents['timeMaskExists'] = False
+    headerContents['startTime'] = cfg.starttime
+    headerContents['expTime'] = cfg.inttime
+    headerContents['wvlBinStart'] = 700
+    headerContents['wvlBinEnd'] = 1500
+    headerContents['energyBinWidth'] = 0.1
+    headerContents['target'] = ''
+    headerContents['dataDir'] = cfg.datadir
+    headerContents['beammapFile'] = cfg.beamfile
+    headerContents['wvlCalFile'] = ''
+    headerContents.append()
+
+    getLogger(__name__).debug('Header Attached')
+    h5file.close()
+    getLogger(__name__).debug('Done')
 
 
 class HDFBuilder(object):
