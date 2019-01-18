@@ -43,6 +43,8 @@
 #define TSOFFS2017 1483228800 //difference between epoch and Jan 1 2017 UTC
 #define TSOFFS 1514764800 //difference between epoch and Jan 1 2018 UTC
 
+#define MAX_CNT_RATE 2500
+
 struct datapacket {
     int baseline:17;
     int wvl:18;
@@ -185,10 +187,10 @@ void ParseToMem(char *packet, uint64_t l, int tsOffs, int FirstFile, int iFile, 
 
 		// When we have more than 2500 cts reallocate the memory for more
 		//if( ptablect[data->xcoord][data->ycoord] > 2500*5-1 ) continue;
-		if( ptablect[data->xcoord][data->ycoord] % 2500 == 2498 ) {
-		    cursize = (long) ceil(ptablect[data->xcoord][data->ycoord]/2500.0);
+		if( ptablect[data->xcoord][data->ycoord] % MAX_CNT_RATE == (MAX_CNT_RATE-2) ) {
+		    cursize = (long) ceil(ptablect[data->xcoord][data->ycoord]/(float)MAX_CNT_RATE);
 		    //printf("cursize=%ld\n",cursize);
-		    ptable[data->xcoord][data->ycoord] = (photon *) realloc(ptable[data->xcoord][data->ycoord],2500*sizeof(photon)*(cursize+1));
+		    ptable[data->xcoord][data->ycoord] = (photon *) realloc(ptable[data->xcoord][data->ycoord],MAX_CNT_RATE*sizeof(photon)*(cursize+1));
 		}
 
 		// add the photon to ptable and increment the appropriate counter
@@ -231,6 +233,9 @@ long extract_photons(const char *binpath, unsigned long start_timestamp, unsigne
     uint64_t *data;
     long **DiskBeamMap;
     long DiskBeamMapLen;
+    const unsigned long DATA_BUFFER_SIZE_BYTES = 1.1*MAX_CNT_RATE*bmap_ncol*bmap_nrow*8;
+
+
 
     //Timing variables
     struct tm *startTime;
@@ -284,6 +289,7 @@ long extract_photons(const char *binpath, unsigned long start_timestamp, unsigne
     toWriteBeamMap = (uint32_t*)malloc(beamCols * beamRows * sizeof(uint32_t));
     toWriteBeamFlag = (uint32_t*)malloc(beamCols * beamRows * sizeof(uint32_t));
     DiskBeamMap = (long **)malloc(beamCols * beamRows * sizeof(long*));
+    data = (uint64_t *) malloc(DATA_BUFFER_SIZE_BYTES);
 
     printf("Allocated flag maps.\n"); fflush(stdout);
 
@@ -317,7 +323,7 @@ long extract_photons(const char *binpath, unsigned long start_timestamp, unsigne
                 continue;
             }
 
-			ptable[i][j] = (photon *) malloc( 2500 * sizeof(photon) );	// allocate memory for ptable
+			ptable[i][j] = (photon *) malloc( MAX_CNT_RATE * sizeof(photon) );	// allocate memory for ptable
 		}
 	}
 
@@ -338,12 +344,16 @@ long extract_photons(const char *binpath, unsigned long start_timestamp, unsigne
         sprintf(fName,"%s/%ld.bin",binpath,FirstFile+i);
         stat(fName, &st);
         fSize = st.st_size;
+
         printf("\nReading %s - %ld Mb\n",fName,fSize/1024/1024);
-        data = (uint64_t *) malloc(fSize); //#TODO this is a memory leak!!
-        //dSize = (uint64_t) fSize;
+        if (DATA_BUFFER_SIZE_BYTES<fSize) {
+            printf("Bin file too large for buffer, did the max counts increase from 2500 cts/s\n");
+            //TODO free all the crap
+            return -1;
+        }
 
         fp = fopen(fName, "rb");
-        rd = fread( data, 1, fSize, fp);
+        rd = fread(data, 1, fSize, fp);
         if( rd != fSize) {printf("Didn't read the entire file %s\n",fName); fflush(stdout);}
         fclose(fp);
 
@@ -369,7 +379,7 @@ long extract_photons(const char *binpath, unsigned long start_timestamp, unsigne
             if (hdr->start == 0b11111111) {        // found new packet header!
                 //fill packet and parse
                 if( k*8 - pstart > 816 ) { printf("Packet too long - %ld bytes\n",k*8 - pstart); fflush(stdout);}
-                memmove(packet,&data[pstart/8],k*8 - pstart);
+                memmove(packet, &data[pstart/8], k*8 - pstart);
                 pcount++;
                 // add to HDF5 file
      	        ParseToMem(packet,k*8-pstart,tsOffs,FirstFile,i,BeamMap,BeamFlag,mapflag,ResIdString,ptable,ptablect,beamCols,beamRows);
@@ -411,8 +421,8 @@ long extract_photons(const char *binpath, unsigned long start_timestamp, unsigne
 
 
     diff = clock()-start;
-    printf("Parsed %ld photons in %f seconds: %9.1f photons/sec.\n",nPhot,((float)diff)/CLOCKS_PER_SEC,
-        ((float)nPhot)/((float)(diff)/CLOCKS_PER_SEC)); fflush(stdout);
+    printf("Parsed %ld photons in %f seconds: %9.1f kphotons/sec.\n",nPhot,((float)diff)/CLOCKS_PER_SEC,
+        ((float)nPhot)/((float)(diff)/CLOCKS_PER_SEC)/1000); fflush(stdout);
 
     free(data);
 
