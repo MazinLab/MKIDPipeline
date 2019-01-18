@@ -54,7 +54,7 @@ def _get_dir_for_start(base, start):
         raise ValueError('No directory in {} found for start {}'.format(base, start))
 
 
-def testbuild(cfg):
+def testbuild(cfg, index=True):
     if cfg.starttime < 1518222559:
         raise ValueError('Data prior to 1518222559 not supported without added fixtimestamps')
 
@@ -77,13 +77,16 @@ def testbuild(cfg):
     table.append(photons)
 
     getLogger(__name__).debug('Table Populated')
-    table.cols.Time.create_csindex()
-    getLogger(__name__).debug('Time Indexed')
-    table.cols.ResID.create_csindex()
-    getLogger(__name__).debug('ResID Indexed')
-    table.cols.Wavelength.create_csindex()
-    getLogger(__name__).debug('Wavlength Indexed')
-    getLogger(__name__).debug('Table Indexed')
+    if index:
+        table.cols.Time.create_csindex()  #TODO investigate performace of ultralight index
+        getLogger(__name__).debug('Time Indexed')
+        table.cols.ResID.create_csindex()
+        getLogger(__name__).debug('ResID Indexed')
+        table.cols.Wavelength.create_csindex()
+        getLogger(__name__).debug('Wavlength Indexed')
+        getLogger(__name__).debug('Table Indexed')
+    else:
+        getLogger(__name__).debug('Skipping Index Generation')
 
     # group = h5file.create_group("/", 'Images', 'Image Snaps')  #todo delete?
     bmap = Beammap(cfg.beamfile, xydim=(cfg.x, cfg.y))
@@ -126,7 +129,8 @@ class HDFBuilder(object):
         self.done = mkidcore.utils.manager().Event()
         self.force = force
 
-    def run(self, polltime=0.1):
+    def handle_existing(self):
+        """ Handles existing h5 files, deleting them if appropriate"""
         if os.path.exists(self.cfg.h5file):
             done = self.force
 
@@ -144,12 +148,22 @@ class HDFBuilder(object):
             if not done:
                 try:
                     os.remove(self.cfg.h5file)
+                    getLogger(__name__).info('Deleted {}'.format(self.cfg.h5file))
                 except FileNotFoundError:
                     pass
             else:
                 getLogger(__name__).info('H5 {} already built. Remake not requested. Done.'.format(self.cfg.h5file))
                 self.done.set()
-                return
+
+    def run(self, polltime=0.1, usepytables=False, index=True):
+        self.handle_existing()
+        if self.done.is_set():
+            return
+
+        if usepytables:
+            testbuild(self.cfg, index=index)
+            self.done.set()
+            return
 
         tfile = tempfile.NamedTemporaryFile('w', suffix='.cfg', delete=False)
         self.cfg.write(tfile)
