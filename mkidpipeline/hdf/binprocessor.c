@@ -195,7 +195,6 @@ long extract_photons(const char *binpath, unsigned long start_timestamp, unsigne
     const unsigned long DATA_BUFFER_SIZE_BYTES = 1.1*MAX_CNT_RATE*bmap_ncol*bmap_nrow*8;
     int checkExists;
 
-
     //Timing variables
     struct tm *startTime;
     struct tm *yearStartTime; //Jan 1 00:00 UTC of current year
