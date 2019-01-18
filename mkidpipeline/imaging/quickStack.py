@@ -24,7 +24,7 @@ import tables
 matplotlib.use('Qt5agg')
 import matplotlib.pyplot as plt
 from mkidpipeline.utils.plottingTools import plot_array
-from mkidpipeline.utils.readDict import readDict
+from mkidcore.utils.readdict import ReadDict
 
 import mkidpipeline.badpix as gbpm
 
@@ -82,8 +82,7 @@ else:
 print("Using config", configFileName)
 
 
-configData = readDict()
-configData.read_from_file(configFileName)
+configData = ReadDict(file=configFileName)
 
 # Extract parameters from config file
 nPos = int(configData['nPos'])

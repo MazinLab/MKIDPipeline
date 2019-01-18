@@ -8,11 +8,10 @@ import pstats
 
 import numpy as np
 
-from .readDict import readDict
+from mkidcore.utils.readdict import ReadDict
 
 configFileName = 'profileTest.cfg'
-configData = readDict()
-configData.read_from_file(configFileName)
+configData = ReadDict(file=configFileName)
 
 # Extract parameters from config file
 timeSpan = np.array(configData['timeSpan'], dtype=int)
