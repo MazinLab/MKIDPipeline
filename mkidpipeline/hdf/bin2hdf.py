@@ -78,11 +78,18 @@ def testbuild(cfg, index=True):
 
     getLogger(__name__).debug('Table Populated')
     if index:
-        table.cols.Time.create_csindex()  #TODO investigate performace of ultralight index
+
+        def indexer(col, index):
+            if isinstance(index, bool):
+                col.create_csindex()
+            else:
+                col.create_index(optlevel=index[1], kind=index[0])
+
+        indexer(table.cols.Time, index)
         getLogger(__name__).debug('Time Indexed')
-        table.cols.ResID.create_csindex()
+        indexer(table.cols.ResID, index)
         getLogger(__name__).debug('ResID Indexed')
-        table.cols.Wavelength.create_csindex()
+        indexer(table.cols.Wavelength, index)
         getLogger(__name__).debug('Wavlength Indexed')
         getLogger(__name__).debug('Table Indexed')
     else:
