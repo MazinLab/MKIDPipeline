@@ -288,7 +288,7 @@ if __name__ == "__main__":
     # Array should be zero below lnLmax - thresh.  Then interpolate
     # onto the desired array defined by x, y.
     #####################################################################
-    
+
     outarr = lnLmin + thresh - outarr
     outarr[np.where(np.logical_not(np.isfinite(outarr)))] = 0
     outarr *= outarr > 0

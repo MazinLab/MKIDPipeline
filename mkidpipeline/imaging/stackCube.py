@@ -25,7 +25,7 @@ from mkidpipeline.utils.FileName import FileName
 # import mpfit
 from mkidpipeline.utils.plottingTools import plot_array
 from mkidpipeline.utils.loadStack import *
-from mkidpipeline.utils.readDict import readDict
+from mkidcore.utils.readdict import ReadDict
 
 
 # import hotpix.hotPixels as hp
@@ -33,8 +33,7 @@ from mkidpipeline.utils.readDict import readDict
 
 def makeCubeTimestream(configFileName):
     
-    configData = readDict()
-    configData.read_from_file(configFileName)
+    configData = ReadDict(file=configFileName)
 
     # Extract parameters from config file
     nPos = int(configData['nPos'])
