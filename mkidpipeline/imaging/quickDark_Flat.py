@@ -37,7 +37,7 @@ import mkidpipeline.hotpix.generatebadpixmask as gbpm
 import mkidpipeline.utils.irUtils as irUtils
 from mkidpipeline.utils.plottingTools import plot_array
 from mkidpipeline.utils.loadStack import loadBINStack, loadIMGStack
-from mkidpipeline.utils.readDict import readDict
+from mkidcore.utils.readdict import ReadDict
 
 
 #def makeHPM(run=None, date=None, outputDir=None,darkSpan=None, numRows=None,numCols=None):
@@ -191,8 +191,7 @@ if __name__ == "__main__":
               sys.exit(0)
     else:
          configFileName = sys.argv[1]
-    configData = readDict()
-    configData.read_from_file(configFileName)
+    configData = ReadDict(file=configFileName)
 
     useImg=True
      

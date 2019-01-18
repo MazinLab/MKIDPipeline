@@ -48,7 +48,7 @@ import mkidpipeline.hotpix.generatebadpixmask as gbpm
 import mkidpipeline.utils.irUtils as irUtils
 from mkidpipeline.utils.plottingTools import plot_array
 from mkidpipeline.utils.loadStack import loadBINStack, loadIMGStack
-from mkidpipeline.utils.readDict import readDict
+from mkidcore.utils.readdict import ReadDict
 
 if len(sys.argv)<2:
     #grab most recent .cfg file if one has not been provided
@@ -61,8 +61,7 @@ if len(sys.argv)<2:
 else:
     configFileName = sys.argv[1]
     
-configData = readDict()
-configData.read_from_file(configFileName)
+configData = ReadDict(file=configFileName)
 
 # Extract parameters from config file
 darkSpan = np.array(configData['darkSpan'], dtype=int)
