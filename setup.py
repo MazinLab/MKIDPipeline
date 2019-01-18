@@ -4,9 +4,19 @@ import os
 from setuptools.command.install import install
 from setuptools.command.develop import develop
 import subprocess
+import numpy
+from distutils.extension import Extension
+from Cython.Build import cythonize
 
 #pip install -e git+http://github.com/mazinlab/mkidpipeline.git@develop#egg=mkidpipeline
 
+mkidbin_extension = Extension(
+    name="mkidpipeline.hdf.mkidbin",
+    sources=["mkidpipeline/hdf/mkidbin.pyx", "mkidpipeline/hdf/binprocessor.c"],
+    library_dirs=["mkidpipeline/hdf"], # Location of .o file
+    include_dirs=["mkidpipeline/hdf", numpy.get_include()], # Location of the .h file
+    extra_compile_args=["-std=c99", "-O3", '-pthread']
+)
 
 def compile_and_install_software():
     """Used the subprocess module to compile/install the C software."""
@@ -14,6 +24,7 @@ def compile_and_install_software():
     try:
         subprocess.check_call('/usr/local/hdf5/bin/h5cc -shlib -pthread -O3 -o bin2hdf bin2hdf.c',
                               cwd=src_path, shell=True)
+
     except Exception as e:
         print(str(e))
         #raise e don't raise because on some machines h5cc might not exist.
@@ -50,5 +61,6 @@ setuptools.setup(
         "Development Status :: 1 - Planning",
         "Intended Audience :: Science/Research"
     ),
+    ext_modules=cythonize(mkidbin_extension),
     cmdclass={'install': CustomInstall,'develop': CustomDevelop}
 )
