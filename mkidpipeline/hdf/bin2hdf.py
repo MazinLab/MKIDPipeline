@@ -22,15 +22,6 @@ from mkidpipeline.hdf.photontable import ObsFile
 import mkidcore.utils
 from mkidreadout.configuration.beammap.beammap import Beammap
 
-__DUMMY = False
-
-BIN2HDFCONFIGTEMPLATE = ('{x} {y}\n'
-                         '{datadir}\n'
-                         '{starttime}\n'
-                         '{inttime}\n'
-                         '{beamfile}\n'
-                         '1\n'
-                         '{outdir}')
 
 _datadircache = {}
 
@@ -54,7 +45,7 @@ def _get_dir_for_start(base, start):
         raise ValueError('No directory in {} found for start {}'.format(base, start))
 
 
-def testbuild(cfg, index=True):
+def build_pytables(cfg, index=('ultralight', 6)):
     if cfg.starttime < 1518222559:
         raise ValueError('Data prior to 1518222559 not supported without added fixtimestamps')
 
@@ -129,205 +120,54 @@ def testbuild(cfg, index=True):
     getLogger(__name__).debug('Done')
 
 
-class HDFBuilder(object):
-    def __init__(self, cfg, force=False, executable_path=pkg.resource_filename('mkidpipeline.hdf', 'bin2hdf')):
-        self.cfg = cfg
-        self.exc = executable_path
-        self.done = mkidcore.utils.manager().Event()
-        self.force = force
+def build_bin2hdf(cfg, exc, polltime=.1):
+    tfile = tempfile.NamedTemporaryFile('w', suffix='.cfg', delete=False)
+    cfg.write(tfile)
+    tfile.close()
 
-    def handle_existing(self):
-        """ Handles existing h5 files, deleting them if appropriate"""
-        if os.path.exists(self.cfg.h5file):
-            done = self.force
+    getLogger(__name__).debug('Wrote temp file for bin2hdf {}'.format(tfile.name))
 
-            if self.force:
-                getLogger(__name__).info('Remaking {} forced'.format(self.cfg.h5file))
-            else:
-                try:
-                    done = ObsFile(self.cfg.h5file).duration >= self.cfg.inttime
-                    if not done:
-                        getLogger(__name__).info(('{} does not contain full duration, '
-                                                  'will remove and rebuild').format(self.cfg.h5file))
-                except:
-                    getLogger(__name__).info(('{} presumed corrupt,'
-                                              ' will remove and rebuild').format(self.cfg.h5file), exc_info=True)
-            if not done:
-                try:
-                    os.remove(self.cfg.h5file)
-                    getLogger(__name__).info('Deleted {}'.format(self.cfg.h5file))
-                except FileNotFoundError:
-                    pass
-            else:
-                getLogger(__name__).info('H5 {} already built. Remake not requested. Done.'.format(self.cfg.h5file))
-                self.done.set()
-
-    def run(self, polltime=0.1, usepytables=True, index=('ultralight',6)):
-        self.handle_existing()
-        if self.done.is_set():
-            return
-
-        if usepytables:
-            testbuild(self.cfg, index=index)
-            self.done.set()
-            return
-
-        tfile = tempfile.NamedTemporaryFile('w', suffix='.cfg', delete=False)
-        self.cfg.write(tfile)
-        tfile.close()
-
-        getLogger(__name__).debug('Wrote temp file for bin2hdf {}'.format(tfile.name))
-
-        proc = psutil.Popen((self.exc, tfile.name),
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            shell=False, cwd=None, env=None, creationflags=0)
-        tic = time.time()
-        while True:
-            try:
-                out, err = proc.communicate(timeout=polltime)
-                if out:
-                    getLogger(__name__).info(out.decode('utf-8'))
-                if err:
-                    getLogger(__name__).error(err.decode('utf-8'))
-            except subprocess.TimeoutExpired:
-                if time.time() - tic > 5:
-                    tic = time.time()
-                    getLogger(__name__).debug('Waiting on bin2hdf (pid={}) for {}'.format(proc.pid, self.cfg.h5file))
-
-            if proc.poll() is not None:
-                break
-
-        if self.exc == __file__:
-            getLogger(__name__).info('Dummy run done')
-            self.done.set()
-            return
-
-        postprocess(self.cfg)
-
-        self.done.set()
-
-        getLogger(__name__).info('Postprocessing complete, cleaning temp files')
+    proc = psutil.Popen((exc, tfile.name),
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        shell=False, cwd=None, env=None, creationflags=0)
+    tic = time.time()
+    while True:
         try:
-            os.remove(tfile.name)
-        except IOError:
-            getLogger(__name__).debug('Failed to delete temp file {}'.format(tfile.name))
+            out, err = proc.communicate(timeout=polltime)
+            if out:
+                getLogger(__name__).info(out.decode('utf-8'))
+            if err:
+                getLogger(__name__).error(err.decode('utf-8'))
+        except subprocess.TimeoutExpired:
+            if time.time() - tic > 5:
+                tic = time.time()
+                getLogger(__name__).debug('Waiting on bin2hdf (pid={}) for {}'.format(proc.pid, cfg.h5file))
 
+        if proc.poll() is not None:
+            break
 
-
-def makehdf(cfgORcfgs, maxprocs=2, polltime=.1, events=None,
-            executable_path=pkg.resource_filename('mkidpipeline.hdf', 'bin2hdf')):
-    """
-    Run b2n2hdf on the config(s). Takes a config or iterable of configs.
-
-    maxprocs(2) keyword may be used to specify the maximum number of processes
-    polltime(.1) sets how often processes are checked for output and output logged
-
-    events if set must be the length of the configs and each will be set wwent the process is complete
-    """
-    cfgs = tuple(cfgORcfgs) if isinstance(cfgORcfgs, (tuple, list, set)) else (cfgORcfgs,)
-
-    program = executable_path if not __DUMMY else __file__
-
-    keepconfigs = False
-
-    nproc = min(len(cfgs), maxprocs)
-    polltime = max(.01, polltime)
-
-    tfile_dict = {}
-
-    if events is None:
-        events = {c: mkidcore.utils.manager().Event() for c in cfgs}
-    else:
-        events = {c: e for c, e in zip(cfgs, events)}
-
-    for cfg, e in zip(cfgs, events):
-        with tempfile.NamedTemporaryFile('w', suffix='.cfg', delete=False) as tfile:
-            cfg.write(tfile)
-            tfile_dict[cfg] = tfile
-        getLogger(__name__).debug('Write temp file for bin2hdf {}'.format(tfile))
-
-    things = list(cfgs)
-    procs = []
-    proc_map = {}
-    tics = dict()
-    while things:
-        cfg = things.pop()
-        procs.append(psutil.Popen((program, tfile_dict[cfg].name),
-                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                  shell=False, cwd=None, env=None, creationflags=0))
-        proc_map[procs[-1]] = cfg
-        tics[procs[-1]] = time.time()
-        while len(procs) >= nproc:
-            # TODO consider replacing with https://gist.github.com/bgreenlee/1402841
-            for i, proc in enumerate(procs):
-                try:
-                    out, err = proc.communicate(timeout=polltime)
-                    if out:
-                        getLogger(__name__ + '.bin2hdf_{}'.format(i)).info(out.decode('utf-8'))
-                    if err:
-                        getLogger(__name__ + '.bin2hdf_{}'.format(i)).error(err.decode('utf-8'))
-                except subprocess.TimeoutExpired:
-                    if time.time()-tics[proc] > 5:
-                        tics[proc] = time.time()
-                        getLogger(__name__ + '.bin2hdf_{}'.format(i)).debug('Continuing proc {} for {}'.format(
-                            proc.pid,
-                                                                                                                proc_map[proc].h5file))
-            procs = list(filter(lambda p: p.poll() is None, procs))
-
-    while len(procs):
-        # TODO consider replacing with https://gist.github.com/bgreenlee/1402841
-        for i, proc in enumerate(procs):
-            try:
-                out, err = proc.communicate(timeout=polltime)
-                if out:
-                    getLogger(__name__ + '.bin2hdf_{}'.format(i)).info(out.decode('utf-8'))
-                if err:
-                    getLogger(__name__ + '.bin2hdf_{}'.format(i)).error(err.decode('utf-8'))
-            except subprocess.TimeoutExpired:
-                if time.time() - tics[proc] > 5:
-                    tics[proc] = time.time()
-                    getLogger(__name__ + '.bin2hdf_{}'.format(i)).debug('Continuing proc {} for {}'.format(
-                        proc.pid,proc_map[proc].h5file))
-        procs = list(filter(lambda p: p.poll() is None, procs))
-
-    if __DUMMY:
+    if exc == __file__:
         getLogger(__name__).info('Dummy run done')
         return
 
-    # Postprocess the h5 files
-    ncore = min(nproc, len(cfgs))
-    getLogger(__name__).info('Postprocessing {} H5 files using {} cores'.format(len(cfgs), ncore))
-    if nproc > 1 and len(cfgs) > 1:
-        pool = Pool(ncore)
-        pool.map(postprocess, events.items())
-    else:
-        map(postprocess, events)
+    _postprocess(cfg)
 
-    getLogger(__name__).info('Postprocessing complete')
-
-    # Clean up temp files
-    if keepconfigs:
-        getLogger(__name__).info('bin2hdf config files left in {}'.format(os.path.dirname(tfile_dict.values()[0])))
-    else:
-        getLogger(__name__).info('Cleaning temp files')
-        tfiles = tfile_dict.values()
-        while tfiles:
-            tfile = tfiles.pop()
-            try:
-                os.remove(tfile.name)
-            except IOError:
-                getLogger(__name__).debug('Failed to delete temp file {}'.format(tfile.name))
+    getLogger(__name__).info('Postprocessing complete, cleaning temp files')
+    try:
+        os.remove(tfile.name)
+    except IOError:
+        getLogger(__name__).debug('Failed to delete temp file {}'.format(tfile.name))
 
 
-def postprocess(cfg, event=None):
+def _postprocess(cfg, event=None):
     time.sleep(.1)
-    add_header(cfg)
+    _add_header(cfg)
     time.sleep(.1)
     if cfg.starttime < 1518222559:
         fix_timestamp_bug(cfg.h5file)
     time.sleep(.1)
     # Prior to Ben's speedup of bin2hdf.c the consolidatePhotonTablesCmd step would need to be here
-    index_hdf(cfg)
+    _index_hdf(cfg)
     if event is not None:
         event.set()
 
@@ -364,7 +204,7 @@ def _correct_timestamps(timestamps):
     return np.array(correctedTimestamps, dtype=np.uint32)
 
 
-def index_hdf(cfg):
+def _index_hdf(cfg):
     hfile = tables.open_file(cfg.h5file, 'a')
     hfile.set_node_attr('/', 'PYTABLES_FORMAT_VERSION', '2.0')
     hfile.format_version = '2.0'
@@ -377,8 +217,8 @@ def index_hdf(cfg):
     hfile.close()
 
 
-# TODO:  This isn't in its final form, there is a patch to deal with the Bin2HDF bug
 def fix_timestamp_bug(file):
+    # TODO:  This isn't in its final form, there is a patch to deal with the Bin2HDF bug
     # which writes the same photonlist twice to certain resIDs
     noResIDFlag = 2 ** 32 - 1
     hfile = tables.open_file(file, mode='a')
@@ -431,7 +271,7 @@ def fix_timestamp_bug(file):
     hfile.close()
 
 
-def add_header(cfg, wvlBinStart=700, wvlBinEnd=1500, energyBinWidth=0.1):
+def _add_header(cfg, wvlBinStart=700, wvlBinEnd=1500, energyBinWidth=0.1):
     dataDir = cfg.datadir
     firstSec = cfg.starttime
     expTime = cfg.inttime
@@ -463,6 +303,14 @@ def add_header(cfg, wvlBinStart=700, wvlBinEnd=1500, energyBinWidth=0.1):
 
 @yaml_object(yaml)
 class Bin2HdfConfig(object):
+    _template = ('{x} {y}\n'
+                 '{datadir}\n'
+                 '{starttime}\n'
+                 '{inttime}\n'
+                 '{beamfile}\n'
+                 '1\n'
+                 '{outdir}')
+
     def __init__(self, datadir='./', beamfile='./default.bmap', starttime=None, inttime=None,
                  outdir='./', x=140, y=146, writeto=None, beammap=None):
 
@@ -495,20 +343,67 @@ class Bin2HdfConfig(object):
             getLogger(__name__).debug('bin files found in data directory. Will not append YYYMMDD')
 
         try:
-            file.write(BIN2HDFCONFIGTEMPLATE.format(datadir=dir, starttime=self.starttime,
-                                                    inttime=self.inttime, beamfile=self.beamfile,
-                                                    outdir=self.outdir, x=self.x, y=self.y))
+            file.write(self._template.format(datadir=dir, starttime=self.starttime,
+                                             inttime=self.inttime, beamfile=self.beamfile,
+                                             outdir=self.outdir, x=self.x, y=self.y))
         except AttributeError:
             with open(file, 'w') as wavefile:
-                wavefile.write(BIN2HDFCONFIGTEMPLATE.format(datadir=dir, starttime=self.starttime,
-                                                            inttime=self.inttime, beamfile=self.beamfile,
-                                                            outdir=self.outdir, x=self.x, y=self.y))
+                wavefile.write(self._template.format(datadir=dir, starttime=self.starttime,
+                                                     inttime=self.inttime, beamfile=self.beamfile,
+                                                     outdir=self.outdir, x=self.x, y=self.y))
 
     def load(self):
         raise NotImplementedError
 
 
-def _runbuilder(b):
+class HDFBuilder(object):
+    def __init__(self, cfg, force=False, executable_path=pkg.resource_filename('mkidpipeline.hdf', 'bin2hdf')):
+        self.cfg = cfg
+        self.exc = executable_path
+        self.done = mkidcore.utils.manager().Event()
+        self.force = force
+
+    def handle_existing(self):
+        """ Handles existing h5 files, deleting them if appropriate"""
+        if os.path.exists(self.cfg.h5file):
+            done = self.force
+
+            if self.force:
+                getLogger(__name__).info('Remaking {} forced'.format(self.cfg.h5file))
+            else:
+                try:
+                    done = ObsFile(self.cfg.h5file).duration >= self.cfg.inttime
+                    if not done:
+                        getLogger(__name__).info(('{} does not contain full duration, '
+                                                  'will remove and rebuild').format(self.cfg.h5file))
+                except:
+                    getLogger(__name__).info(('{} presumed corrupt,'
+                                              ' will remove and rebuild').format(self.cfg.h5file), exc_info=True)
+            if not done:
+                try:
+                    os.remove(self.cfg.h5file)
+                    getLogger(__name__).info('Deleted {}'.format(self.cfg.h5file))
+                except FileNotFoundError:
+                    pass
+            else:
+                getLogger(__name__).info('H5 {} already built. Remake not requested. Done.'.format(self.cfg.h5file))
+                self.done.set()
+
+    def run(self, polltime=0.1, usepytables=True, index=('ultralight', 6)):
+        self.handle_existing()
+        if self.done.is_set():
+            return
+
+        if usepytables:
+            build_pytables(self.cfg, index=index)
+            self.done.set()
+            return
+        else:
+            build_bin2hdf(self.cfg, self.exc, polltime=polltime)
+            self.done.set()
+
+
+def runbuilder(b):
     getLogger(__name__).debug('Calling run on {}'.format(b.cfg.h5file))
     b.run()
 
@@ -532,10 +427,10 @@ def buildtables(timeranges, config=None, ncpu=1, asynchronous=False, remake=Fals
 
     if asynchronous:
         getLogger(__name__).debug('Running async on {} builders'.format(len(builders)))
-        pool.map_async(_runbuilder, builders)
+        pool.map_async(runbuilder, builders)
         return timeranges, events
     else:
-        pool.map(_runbuilder, builders)
+        pool.map(runbuilder, builders)
 
 
 if __name__ == '__main__':
