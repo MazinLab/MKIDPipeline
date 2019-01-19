@@ -2391,7 +2391,9 @@ if __name__ == "__main__":
                                                      starttime=start_t, inttime=int_t,
                                                      x=config.x_pixels,
                                                      y=config.y_pixels))
-        bin2hdf.makehdf(b2h_configs, maxprocs=min(args.n_cpu, mp.cpu_count()))
+        builders = [bin2hdf.HDFBuilder(c) for c in b2h_configs]
+        pool = mp.Pool(min(args.n_cpu, mp.cpu_count()))
+        pool.map(bin2hdf.runbuilder, builders)
     if args.h5_only:
         exit()
     # run the wavelength calibration

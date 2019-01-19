@@ -497,7 +497,7 @@ long cparsebin(const char *fName, unsigned long max_len,
 	// Find the first header packet
 	for(unsigned long i=0; i<fSize/8; i++) {
 		swp = *((uint64_t *) (&data[i]));
-		swp1 = bswap_64(swp);
+		swp1 = __bswap_64(swp);
 		hdr = (struct hdrpacket *) (&swp1);
 		if (hdr->start == 0b11111111) {
 			firstHeader = i;
@@ -512,7 +512,7 @@ long cparsebin(const char *fName, unsigned long max_len,
 	// New approach - do it all in this function
     for(unsigned long i=firstHeader+1; i<fSize/8; i++) {
         swp = *((uint64_t *) (&data[i]));
-        swp1 = bswap_64(swp);
+        swp1 = __bswap_64(swp);
         hdr = (struct hdrpacket *) (&swp1);
         if (hdr->start == 0b11111111) {        // found new packet header - update timestamp and curroach
 			curtime = hdr->timestamp;
