@@ -260,29 +260,78 @@ class ObsFile(object):
         if (self.pixelIsBad(xCoord, yCoord, not forceRawPhase)
            or firstSec>float(self.getFromHeader('expTime'))                         # Starting time is past total exposure time in file
            or ((wvlStart!=None) and (wvlStop!=None) and (wvlStop<wvlStart))):       # wavelength range invalid
-            ##print('BadPixel')
-            #print((wvlStop<wvlStart))
+
             return self.photonTable.read_where('(Time < 0)') #use dummy condition to get empty photon list of correct format
             
-        query='(ResID == resID)'
-        startTime=0
-        if firstSec>0:
-            startTime = int(firstSec*self.ticksPerSec) #convert to us
-            query+=' & (Time >= startTime)'
-        if integrationTime!=-1:
-            endTime = startTime + int(integrationTime*self.ticksPerSec)
-            query+=' & (Time < endTime)'
-        if wvlStart is not None and wvlStart==wvlStop:
-            wvl=wvlStart
-            query+=' & (Wavelength == wvl)'
-        else:
-            if wvlStart is not None:
-                startWvl=wvlStart
-                query+=' & (Wavelength >= startWvl)'
-            if wvlStop is not None:
-                stopWvl=wvlStop
-                query+=' & (Wavelength < stopWvl)'
+        return self.query(startw=wvlStart, stopw=wvlStop, startt=firstSec if firstSec else None,
+                          resid=resID, intt=None if integrationTime == -1 else integrationTime)
 
+    def query(self, startw=None, stopw=None, startt=None, stopt=None, resid=None, intt=None):
+        """
+        intt takes precedence
+
+        :param startw: number or none
+        :param stopw: number or none
+        :param startt: number or none
+        :param endt: number or none
+        :param resid: number, list/array or None
+        :return:
+        """
+
+        try:
+            startt = int(startt * self.ticksPerSec)  # convert to us
+        except TypeError:
+            pass
+
+        try:
+            stopt = int(stopt * self.ticksPerSec)
+        except TypeError:
+            pass
+
+        if intt is not None:
+            stopt = (startt if startt is not None else 0) + int(intt * self.ticksPerSec)
+
+        if resid is None:
+            resid = tuple()
+        elif isinstance(resid, (int, float)):
+            resid = [resid]
+
+        if resid is None:
+            resid = tuple()
+        elif isinstance(resid, (int, float)):
+            resid = [resid]
+
+        res = '|'.join(['(ResID=={})'.format(r) for r in map(int, resid)])
+        res = '(' + res + ')' if '|' in res and res else res
+        tp = '(Time < stopt)'
+        tm = '(Time >= startt)'
+        wm = '(Wavelength >= startw)'
+        wp = '(Wavelength < stopw)'
+        # should follow '{res} & ( ({time}) & ({wave}))'
+
+        if startw is not None:
+            if stopw is not None:
+                wave = '({} & {})'.format(wm, wp)
+            else:
+                wave = wm
+        elif stopw is not None:
+            wave = wp
+        else:
+            wave = ''
+
+        if startt is not None:
+            if stopt is not None:
+                time = '({} & {})'.format(tm, tp)
+            else:
+                time = tm
+        elif stopt is not None:
+            time = tp
+        else:
+            time = ''
+
+        query = res + ('&(' if res and (time or wave) else '')
+        query += time + ('&' if wave and time else '')
+        query += wave + (')' if res else '')
         return self.photonTable.read_where(query)
 
     def getListOfPixelsPhotonList(self, posList, **kwargs):
@@ -455,22 +504,8 @@ class ObsFile(object):
         countImage = np.zeros((self.nXPix, self.nYPix), dtype=np.float64)
         countImage.fill(np.nan)     #default count value is np.nan if it's a bad pixel
 
-        startTime = int(firstSec*self.ticksPerSec) #convert to us
-        query='(Time >= startTime)'
-        if integrationTime!=-1:
-            endTime = startTime + int(integrationTime*self.ticksPerSec)
-            query+=' & (Time < endTime)'
-        if wvlStart is not None and wvlStop is not None and wvlStart==wvlStop:
-            wvl=wvlStart
-            query+=' & (Wavelength == wvl)'
-        else:
-            if wvlStart is not None:
-                startWvl=wvlStart
-                query+=' & (Wavelength >= startWvl)'
-            if wvlStop is not None:
-                stopWvl=wvlStop
-                query+=' & (Wavelength < stopWvl)'
-        photonList = self.photonTable.read_where(query)
+        photonList = self.query(startw=wvlStart, stopw=wvlStop, startt=firstSec if firstSec else None,
+                                intt=None if integrationTime == -1 else integrationTime)
 
         resIDDiffs = np.diff(photonList['ResID'])
         if np.any(resIDDiffs < 0):
@@ -650,11 +685,8 @@ class ObsFile(object):
         rawCounts = np.zeros((self.nXPix,self.nYPix))
         if integrationTime==-1:
             integrationTime = self.getFromHeader('expTime')
-        
-        startTime = firstSec*1.e6
-        endTime = (firstSec + integrationTime)*1.e6
 
-        masterPhotonList = self.photonTable.read_where('(Time>=startTime)&(Time<endTime)')
+        masterPhotonList = self.query(startt=firstSec if firstSec else None, intt=integrationTime)
         emptyPhotonList = self.photonTable.read_where('Time<0')
         
         resIDDiffs = np.diff(masterPhotonList['ResID'])
