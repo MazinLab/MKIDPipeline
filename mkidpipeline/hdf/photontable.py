@@ -256,19 +256,19 @@ class ObsFile(object):
         NoiseWeight is a float in [0,1]
         
         """
-        resID = self.beamImage[xCoord][yCoord]
+        resID = self.beamImage[xCoord, yCoord]
         if (self.pixelIsBad(xCoord, yCoord, not forceRawPhase)
            or firstSec>float(self.getFromHeader('expTime'))                         # Starting time is past total exposure time in file
            or ((wvlStart!=None) and (wvlStop!=None) and (wvlStop<wvlStart))):       # wavelength range invalid
 
-            return self.photonTable.read_where('(Time < 0)') #use dummy condition to get empty photon list of correct format
+            return self.query()
             
         return self.query(startw=wvlStart, stopw=wvlStop, startt=firstSec if firstSec else None,
                           resid=resID, intt=None if integrationTime == -1 else integrationTime)
 
     def query(self, startw=None, stopw=None, startt=None, stopt=None, resid=None, intt=None):
         """
-        intt takes precedence
+        intt takes precedence, All none is a null result
 
         :param startw: number or none
         :param stopw: number or none
@@ -332,7 +332,16 @@ class ObsFile(object):
         query = res + ('&(' if res and (time or wave) else '')
         query += time + ('&' if wave and time else '')
         query += wave + (')' if res else '')
-        return self.photonTable.read_where(query)
+        if not query:
+            #TODO make dtype pull from mkidcore.headers
+            return np.array([], dtype=[('ResID', '<u4'), ('Time', '<u4'), ('Wavelength', '<f4'),
+                                       ('SpecWeight', '<f4'), ('NoiseWeight', '<f4')])
+        else:
+            tic=time.time()
+            q=self.photonTable.read_where(query)
+            toc=time.time()
+            getLogger(__name__).debug('Query {} for {} took {:.3f}s'.format(self.fileName, query, toc-tic))
+            return q
 
     def getListOfPixelsPhotonList(self, posList, **kwargs):
         """
@@ -687,7 +696,7 @@ class ObsFile(object):
             integrationTime = self.getFromHeader('expTime')
 
         masterPhotonList = self.query(startt=firstSec if firstSec else None, intt=integrationTime)
-        emptyPhotonList = self.photonTable.read_where('Time<0')
+        emptyPhotonList = self.photonTable.query()
         
         resIDDiffs = np.diff(masterPhotonList['ResID'])
         if np.any(resIDDiffs < 0):
@@ -982,7 +991,7 @@ class ObsFile(object):
         assert len(pixelRowInds)==len(weightArr), 'Calibrated wavelength list does not match length of photon list!'
 
         weightArr = np.array(weightArr)
-        curWeights = self.photonTable.read_where('resID==ResID')['SpecWeight']
+        curWeights = self.photonTable.query(resid=resID)['SpecWeight']
         newWeights = weightArr*curWeights
         self.photonTable.modify_column(start=pixelRowInds[0], stop=pixelRowInds[-1]+1, column=newWeights, colname=colName)
         self.photonTable.flush()
