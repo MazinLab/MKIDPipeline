@@ -21,6 +21,7 @@ from mkidpipeline.utils.plottingTools import plot_array
 from configparser import ConfigParser
 from mkidpipeline.utils import irUtils
 
+
 parser = argparse.ArgumentParser(description='Process a dither stack into a final rough-stacked image.')
 parser.add_argument('ditherName', metavar='file', nargs=1,
                     help='filename of the dither config file')
@@ -44,8 +45,14 @@ startTimes = ast.literal_eval(config['Data']['startTimes'])
 stopTimes =  ast.literal_eval(config['Data']['stopTimes'])
 xPos = ast.literal_eval(config['Data']['xPos'])
 yPos = ast.literal_eval(config['Data']['yPos'])
-useImg = ast.literal_eval(config['Data']['useImg'])
 
+
+''' A function to convert the connex offset to pixel displacement'''#
+con2pix =np.array([[-20, 1], [1,-20]])
+conPos = np.array([xPos,yPos])
+pixOffarray= np.int_(np.matmul(conPos.T, con2pix)).T
+xPos=pixOffarray[0]
+yPos=pixOffarray[1]
 
 upSample = 2
 padFraction = 0.4
@@ -55,7 +62,7 @@ wvlStop=0
 h5dir = outPath
 print(h5dir)
 outputDir = outPath
-outfileName='HR8799StackWaveCal'
+outfileName='TrapSeeQuick'
 
 ObsFNList =glob.glob(h5dir+'15*.h5')
 print(ObsFNList)
