@@ -17,9 +17,6 @@ import numpy as np
 #from astropy import coordinates as coord
 # import pyfits
 import matplotlib.pylab as plt
-
-plt.plot(range(5))
-plt.show()
 import time
 import RADecImage as rdi
 from utils import utils
@@ -206,16 +203,16 @@ def loadDitherLog(fileName):
     log = os.path.join(logPath,fileName)
     ditherDict = {}
     with open(log) as f:
-        ditherDict['startTimes'] = np.float_(f.readline()[14:-3].split(','))
-        ditherDict['endTimes'] = np.float_(f.readline()[12:-3].split(','))
+        ditherDict['startTimes'] = np.int_(f.readline()[14:-2].split(','))
+        ditherDict['endTimes'] = np.int_(f.readline()[12:-2].split(','))
         ditherDict['xPos'] = np.float_(f.readline()[8:-3].split(','))
         ditherDict['yPos'] = np.float_(f.readline()[8:-3].split(','))
         ditherDict['intTime'] = np.float(f.readline()[10:])
-        ditherDict['nSteps'] = np.float(f.readline()[9:])
+        ditherDict['nSteps'] = np.int(f.readline()[9:])
 
     firstSec = ditherDict['startTimes'][0]
-    ditherDict['startTimes'] = ditherDict['startTimes'] - firstSec
-    ditherDict['endTimes'] = ditherDict['endTimes'] - firstSec
+    ditherDict['relStartTimes'] = ditherDict['startTimes'] - firstSec
+    ditherDict['relEndTimes'] = ditherDict['endTimes'] - firstSec
 
     return ditherDict
 
@@ -224,7 +221,7 @@ def getPixOff(ditherDict, con2pix=None):
     ''' A function to convert the connex offset to pixel displacement'''#
 
     if con2pix is None:
-        np.array([[-20, 1], [1,-20]])
+        con2pix =np.array([[-20, 1], [1,-20]])
     conPos = np.array([ditherDict['xPos'],ditherDict['yPos']])
     ditherDict['xPixOff'], ditherDict['yPixOff'] = np.int_(np.matmul(conPos.T, con2pix)).T
 

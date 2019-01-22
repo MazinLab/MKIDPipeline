@@ -11,6 +11,7 @@ import Detector.pipeline as pipe
 import random
 from scipy import misc
 from scipy.ndimage import rotate
+from imaging import drizzle
 
 # from .distribution import Distribution
 
@@ -191,13 +192,42 @@ photons = sample_cube(sky_sample, int(1e4))
 packets = np.transpose(photons)
 print packets[:5]
 
-np.save('fakedata.npy', packets)
+# np.save('fakedata.npy', packets)
 # packets = np.load('fakedata.npy')
 
 cube = arange_into_cube(packets, (array_size[0], array_size[1]))
 image = pipe.make_intensity_map(cube, (array_size[0], array_size[1]))
 
-plt.imshow(image, norm=LogNorm())
-plt.show()
+# plt.imshow(image, norm=LogNorm())
+# plt.show()
 
-    # mec_array = np.zeros((array_size[0],array_size[1]))
+dithLogFilename = 'quickRotTest2.log'
+
+ditherDict = drizzle.loadDitherLog(dithLogFilename)
+# con2pix = drizzle.getCon2Pix(files[0], files[1], ditherDict, filename = dir+'con2pix.txt')
+ditherDict = drizzle.getPixOff(ditherDict,con2pix=None)
+print ditherDict
+
+# Initialise empty image centered on Crab Pulsar
+virtualImage = rdi.RADecImage(nPixRA=250, nPixDec=250, vPlateScale=0.25,
+                              cenRA=0., cenDec=89*np.pi/180,
+                              ditherDict=ditherDict)
+packets[:,0] *= 5375
+# packets[:,0] += ditherDict['startTimes'][0]
+
+print packets[:5]
+[virtualImage.nDPixRow, virtualImage.nDPixCol] = array_size
+virtualImage.photWeights = None
+virtualImage.detExpTimes = None
+
+for ix in range(ditherDict['nSteps']):
+
+    effExposure = packets[np.where((packets[:,0] > ditherDict['relStartTimes'][ix])
+                                & (packets[:,0] < ditherDict['relEndTimes'][ix]))]
+    effExposure = effExposure.T
+    # print effExposure[:,5], effExposure.shape
+
+    thisImage, thisGridDec, thisGridRA = np.histogram2d(effExposure[1], effExposure[2], bins=146)
+    # plt.imshow(thisImage)
+    # plt.show()
+    virtualImage.stackExposure(effExposure, ditherInd=ix, doStack=True)
