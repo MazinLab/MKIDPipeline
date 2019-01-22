@@ -45,7 +45,7 @@ class FlatCal(object):
     weights for flat file.  Writes these weights to a h5 file and plots weights both by pixel
     and in wavelength-sliced images.
     """
-    def __init__(self, config=None, cal_file_name='calsol_{start}.h5', log=True):
+    def __init__(self, config=None, cal_file_name='flatsol_{start}.h5', log=True):
         """
         Reads in the param file and opens appropriate flat file.  Sets wavelength binning parameters.
         """
@@ -58,7 +58,8 @@ class FlatCal(object):
             if not os.path.exists(self.wvlCalFile):
                 self.wvlCalFile = os.path.join(self.cfg.paths.database, self.wvlCalFile)
         except KeyError:
-            getLogger(__name__).info('No wavelength solution specified. Solution must have been previously applied.')
+            getLogger(__name__).info('No wavelength solution specified. '
+                                     'Solution must have been previously applied.')
             self.wvlCalFile = ''
 
         self.startTime = self.cfg.start_time
@@ -69,8 +70,8 @@ class FlatCal(object):
         self.dataDir = self.cfg.paths.data
         self.out_directory = self.cfg.paths.out
 
-        self.flatCalFileName = self.cfg.get('flatname', os.path.join(self.cfg.paths.database, cal_file_name.format(
-            start=self.startTime)))
+        self.flatCalFileName = self.cfg.get('flatname', os.path.join(self.cfg.paths.database,
+                                                                     cal_file_name.format(start=self.startTime)))
 
         self.intTime = self.cfg.flatcal.chunk_time
 
@@ -591,15 +592,17 @@ def fetch(solution_descriptors, config=None, ncpu=1, async=False, force_h5=False
         if os.path.exists(sf):
             pass
         else:
-            cfg = mkidpipeline.config.load_task_config(pkg.resource_filename(__name__, 'flatcal.yml'))
+            if 'flatcal' not in cfg:
+                fcfg = mkidpipeline.config.load_task_config(pkg.resource_filename(__name__, 'flatcal.yml'))
+            else:
+                fcfg = cfg.copy()
+            fcfg.register('start_time', sd.start, update=True)
+            fcfg.register('exposure_time', sd.duration, update=True)
+            fcfg.unregister('flatname')
+            fcfg.unregister('wavesol')
+            fcfg.unregister('h5file')
 
-            cfg.update('start_time', sd.start)
-            cfg.update('exposure_time', sd.duration)
-            cfg.unregister('flatname')
-            cfg.unregister('wavesol')
-            cfg.unregister('h5file')
-
-            flattner = FlatCal(cfg, cal_file_name=sf)
+            flattner = FlatCal(cfg, cal_file_name=sd.id)
             flattner.makeCalibration()
 
 

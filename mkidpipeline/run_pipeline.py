@@ -81,28 +81,28 @@ pcfg = mkidpipeline.config.config
 # mkidpipeline.config.load_task_config(wcc)
 #2019-01-14 13:21:16,676 DEBUG Running async on 5 builders (pid=14760)
 
-timeranges = list(set(input.timeranges))
-from mkidpipeline.hdf.bin2hdf import Bin2HdfConfig, _get_dir_for_start
-cfgs = []
-cfg = mkidpipeline.config.config
-for start_t, end_t in timeranges:
-    bc = Bin2HdfConfig(datadir=_get_dir_for_start(cfg.paths.data, start_t),
-                       beammap=cfg.beammap, outdir=cfg.paths.out,
-                       starttime=start_t, inttime=end_t - start_t)
-    cfgs.append(bc)
-cfg=cfgs[0]
-photons = extract(cfg.datadir, cfg.starttime, cfg.inttime, cfg.beamfile, cfg.x, cfg.y)
+getLogger('mkidpipeline.calibration.wavecal').setLevel('INFO')
+getLogger('mkidpipeline.hdf.photontable').setLevel('INFO')
 
-builder = bin2hdf.HDFBuilder(cfg)
-builder.run(usepytables=True, index=('ultralight',6))
-x=bin2hdf.buildtables(list(input.timeranges)[0], asynchronous=1, ncpu=6)
-wavecals = wavecal.fetch(input.wavecals, async=True)
+x = bin2hdf.buildtables(input.timeranges, asynchronous=0, ncpu=6)
+wavecals = wavecal.fetch(input.wavecals, async=True, verbose=False)
 
 #noise.calibrate(table)
 
+
+# for f in glob('*.h5'):
+#     h5=tables.open_file(f,mode='a')
+#     group = h5.get_node("/BeamMap")
+#     a=np.array(h5.get_node('/BeamMap/Flag'),dtype=int)
+#     h5.remove_node('/BeamMap/Flag')
+#     h5.create_array(group, 'Flag', a, 'flag map')
+#     a=np.array(h5.get_node('/BeamMap/Map'),dtype=int)
+#     h5.remove_node('/BeamMap/Map')
+#     h5.create_array(group, 'Map', a, 'resID map')
+#     h5.close()
+
 flatcals = flatcal.fetch(input.flatcals, async=True)
 
-raise RuntimeError()
 
 table.applyWaveCal(wavecals)
 table.applyFlatCal(flatcals)
