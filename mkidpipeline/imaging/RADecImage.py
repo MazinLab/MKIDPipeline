@@ -131,26 +131,33 @@ class RADecImage(object):
         #                    doWeighted=doWeighted, wvlMin=wvlMin, wvlMax=wvlMax,
         #                    maxBadPixTimeFrac=maxBadPixTimeFrac, savePreStackImage=savePreStackImage)
 
-        self.centroidRightAscension = 1.4596725441339724
-        self.centroidDeclination = 0.38422539085925933
+        # This was previously read from the dither log file. Lets try using cenRA and Dec instead
+        self.centroidRightAscension = cenRA
+        self.centroidDeclination = cenDec
 
         self.times = ditherDict['startTimes']
-        self.xCentroids = ditherDict['xPixOff']
-        self.yCentroids = ditherDict['yPixOff']
+        self.xCentroids = ditherDict['xPixOff'] + 73
+        self.yCentroids = ditherDict['yPixOff'] + 73
         self.centroidFlags = np.zeros_like(self.times)
 
         # self.hourAngles = np.ones_like(self.times)*np.pi/3#np.array([0,0])
+        # print ephem.hours(self.centroidRightAscension).real
         self.hourAngles = self.calcHAs(self.times, ephem.hours(self.centroidRightAscension).real)
 
-        # Account for 0.5 offset in centroiding algorithm
-        self.xCentroids = self.xCentroids - 0.5
-        self.yCentroids = self.yCentroids - 0.5
+        # print self.hourAngles, 'hourangles'
+
+        # # Account for 0.5 offset in centroiding algorithm
+        # self.xCentroids = self.xCentroids - 0.5
+        # self.yCentroids = self.yCentroids - 0.5
 
         # Note - changed rotation direction here - JvE 6/5/2013
         self.rotationMatrix = np.array([[np.cos(self.hourAngles), -np.sin(self.hourAngles)],
                                         [np.sin(self.hourAngles), np.cos(self.hourAngles)]]).T
         self.centroidRotated = np.dot(self.rotationMatrix, np.array([self.xCentroids, self.yCentroids])).diagonal(
             axis1=0, axis2=2)
+
+        # plt.imshow(self.centroidRotated)
+        # plt.show()
 
         # And start figuring out the exposure time weights....
         print 'Calculating effective exposure times'
@@ -159,118 +166,20 @@ class RADecImage(object):
         self.firstDitherSec = firstDitherSec
 
         if dithIntTime != -1:
-            self.lastDithSec = ditherDict['startTimes'][0]+dithIntTime
+            self.lastDithSec = ditherDict['relStartTimes'][0]+dithIntTime
         else:
             self.lastDithSec = ditherDict['endTimes'][-1]
 
-        print ditherDict['startTimes'][0], self.lastDithSec
-        withinIntegration = ((ditherDict['startTimes'] < self.lastDithSec) & (ditherDict['endTimes'] > self.firstDitherSec))
-        self.tStartFrames = ditherDict['startTimes'][withinIntegration].clip(
+        withinIntegration = ((ditherDict['relStartTimes'] < self.lastDithSec) & (ditherDict['relEndTimes'] > self.firstDitherSec))
+        self.tStartFrames = ditherDict['relStartTimes'][withinIntegration].clip(
             min=self.firstDitherSec)  # Now clip so that everything is within the requested integration time.
-        self.tEndFrames = ditherDict['endTimes'][withinIntegration].clip(max=self.lastDithSec)
+        self.tEndFrames = ditherDict['relEndTimes'][withinIntegration].clip(max=self.lastDithSec)
         self.nFrames = len(self.tStartFrames)
         assert self.nFrames > 0  # Otherwise we have a problem....
         assert np.all(self.tStartFrames <= self.lastDithSec) and np.all(self.tEndFrames >= self.firstDitherSec)
 
         # Get x,y locations of detector pixel corners (2D array of each x,y value, in detector space)
         # Assume definition where integer values represent location of pixel center.
-
-    def calcHAs(self, times, RAs, observatory='Subaru'):
-        # RA is a function of xPos and yPos too right?
-        # **** This needs to be verified!!! ****
-
-        if observatory == 'Subaru':
-            longitude = 155.0903
-
-        LSTs = astropy.time.Time(val=times, format='unix').sidereal_time('mean', longitude).radian
-
-        LHAs = LSTs - RAs
-
-        return LHAs
-
-    def getRaDec(self, timestamp, xPhotonPixel, yPhotonPixel, ditherInd):
-        self.pixelCount = self.nDPixCol * self.nDPixRow
-        self.values = np.zeros((2, self.pixelCount))
-        for i in range(self.pixelCount):
-            self.values[0, i] = i / self.nDPixRow
-            self.values[1, i] = i % self.nDPixRow
-        self.rotatedValues = np.dot(self.rotationMatrix, self.values)
-
-        self.timestamp = np.array(timestamp)
-        self.xPhotonPixel = np.array(xPhotonPixel) #Don't require integer values for inputs - JvE 7/19/2013
-        self.yPhotonPixel = np.array(yPhotonPixel)
-        self.xyPhotonPixel = np.array([self.xPhotonPixel, self.yPhotonPixel])  # 2 x nPhotons array of x,y pairs
-
-        self.inputLength = len(self.timestamp)
-
-        # self.deltaTime = (self.times[1] - self.times[0])*1e6
-        # self.binNumber = np.array(self.timestamp / self.deltaTime).astype('int')
-        self.binNumber = np.ones_like((self.timestamp), dtype=np.int8)*ditherInd
-        self.photonHourAngle = self.hourAngles[self.binNumber]
-
-        self.indexArray = np.array(self.xPhotonPixel * self.nDPixRow + self.yPhotonPixel)
-
-        self.xPhotonRotated = np.zeros(len(self.timestamp))
-        self.yPhotonRotated = np.zeros(len(self.timestamp))
-
-        # NEW VERSION (calculate on the fly, no look-up table, can handle non-integers)
-        for iBin in np.arange(np.min(self.binNumber), np.max(self.binNumber) + 1):
-            inThisBin = np.where(self.binNumber == iBin)[0]  # [0] just to move array result outside tuple
-            if len(inThisBin) == 0: continue
-            rotatedValues = np.dot(self.rotationMatrix[iBin, :, :], self.xyPhotonPixel[:, inThisBin])
-            self.xPhotonRotated[inThisBin] = rotatedValues[0, :]
-            self.yPhotonRotated[inThisBin] = rotatedValues[1, :]
-            self.rotatedValues = np.dot(self.rotationMatrix, self.values)
-
-        # Use the centroid as the zero point for ra and dec offsets
-
-        self.rightAscensionOffset = -1.0 * self.plateScale * (
-                    self.xPhotonRotated - self.centroidRotated[0][self.binNumber])
-        self.declinationOffset = self.plateScale * (
-                    self.yPhotonRotated - self.centroidRotated[1][self.binNumber])
-
-        # plt.plot(self.centroidRotated[0], marker='o'); plt.figure()
-        # plt.plot(self.centroidRotated[1], marker='o'); plt.show()
-        # plt.plot(self.xPhotonRotated, marker='o'); plt.figure()
-        # plt.plot(self.yPhotonRotated, marker='o'); plt.show()
-
-        # Convert centroid positions in DD:MM:SS.S and HH:MM:SS.S format to radians.
-        self.centroidRightAscensionRadians = ephem.hours(self.centroidRightAscension).real
-        self.centroidDeclinationRadians = ephem.degrees(self.centroidDeclination).real
-
-        # Convert centroid position radians to arcseconds.
-
-        degreesToRadians = np.pi / 180.0
-        radiansToDegrees = 180.0 / np.pi
-
-        self.centroidDeclinationArcseconds = self.centroidDeclinationRadians * radiansToDegrees * 3600.0
-        self.centroidRightAscensionArcseconds = self.centroidRightAscensionRadians * radiansToDegrees * 3600.0
-
-        # Add the photon arcsecond offset to the centroid offset.
-        self.photonDeclinationArcseconds = self.centroidDeclinationArcseconds + self.declinationOffset
-        self.photonRightAscensionArcseconds = self.centroidRightAscensionArcseconds + self.rightAscensionOffset
-
-        # Convert the photon positions from arcseconds to radians
-        self.photonDeclinationRadians = (self.photonDeclinationArcseconds / 3600.0) * degreesToRadians
-        self.photonRightAscensionRadians = (self.photonRightAscensionArcseconds / 3600.0) * degreesToRadians
-
-        return self.photonRightAscensionRadians, self.photonDeclinationRadians, self.photonHourAngle
-
-    def setCoordGrid(self):
-        '''
-        Establish RA and dec coordinates for pixel boundaries in the virtual pixel grid,
-        given the number of pixels in each direction (self.nPixRA and self.nPixDec), the
-        location of the centre of the array (self.cenRA, self.cenDec), and the plate scale
-        (self.vPlateScale).
-        '''
-        # self.gridRA = np.empty((self.nPixDec,self.nPixRA),dtype=float)
-        # self.gridRA.fill(np.nan)
-        # self.gridDec = np.empty((self.nPixDec,self.nPixRA),dtype=float)
-        # self.gridDec.fill(np.nan)
-
-        # Note - +1's are because these are pixel *boundaries*, not pixel centers:
-        self.gridRA = self.cenRA + (self.vPlateScale * (np.arange(self.nPixRA + 1) - ((self.nPixRA + 1) // 2)))
-        self.gridDec = self.cenDec + (self.vPlateScale * (np.arange(self.nPixDec + 1) - ((self.nPixDec + 1) // 2)))
 
     def loadObsFile(self, ObsFile, firstObsTime=0, integrationTime=-1, ditherInd=0, wvlMin=None, wvlMax=None,
                  doWeighted=True,
@@ -333,9 +242,9 @@ class RADecImage(object):
         else:
             lastObsTime = firstObsTime + integrationTime
 
-        print lastObsTime, integrationTime, obsFileExpTime,
+        # print lastObsTime, integrationTime, obsFileExpTime,
         lastObsTime*=1e6 # convert to microseconds. Change the variable name maybe?
-        print lastObsTime
+        # print lastObsTime
 
         # If virtual coordinate grid is not yet defined, figure it out.
         if self.gridRA is None or self.gridDec is None:
@@ -405,7 +314,7 @@ class RADecImage(object):
         # if a given pixel is bad more than a fraction maxBadTimeFrac of the time,
         # then write it off as permanently bad for the duration of the requested
         # integration.
-        print maxBadPixTimeFrac
+        # print maxBadPixTimeFrac
         if maxBadPixTimeFrac is not None:
             print 'Rejecting pixels with more than ', 100 * maxBadPixTimeFrac, '% bad-flagged time'
             detGoodIntTimes = ObsFile.hotPixTimeMask.getEffIntTimeImage(firstSec=firstObsTime,
@@ -506,14 +415,127 @@ class RADecImage(object):
 
         return reformat_photons
 
+    def calcHAs(self, times, RAs, observatory='greenwich'):
+        # RA is a function of xPos and yPos too right?
+        # **** This needs to be verified!!! ****
+
+        if observatory == 'Mauna Kea':
+            longitude = 155.0903 #
+        else:
+            longitude = 'greenwich'
+
+        LSTs = astropy.time.Time(val=times, format='unix').sidereal_time('mean', longitude).radian
+        # print times, RAs, longitude, LSTs
+        LHAs = LSTs - RAs
+
+        return LHAs
+
+    def getRaDec(self, timestamp, xPhotonPixel, yPhotonPixel, ditherInd, show=False):
+        self.pixelCount = self.nDPixCol * self.nDPixRow
+        self.values = np.zeros((2, self.pixelCount))
+        for i in range(self.pixelCount):
+            self.values[0, i] = i / self.nDPixRow
+            self.values[1, i] = i % self.nDPixRow
+        self.rotatedValues = np.dot(self.rotationMatrix, self.values)
+
+        self.timestamp = np.array(timestamp)
+        self.xPhotonPixel = np.array(xPhotonPixel) #Don't require integer values for inputs - JvE 7/19/2013
+        self.yPhotonPixel = np.array(yPhotonPixel)
+        self.xyPhotonPixel = np.array([self.xPhotonPixel, self.yPhotonPixel])  # 2 x nPhotons array of x,y pairs
+
+        self.inputLength = len(self.timestamp)
+
+        # self.deltaTime = (self.times[1] - self.times[0])*1e6
+        # self.binNumber = np.array(self.timestamp / self.deltaTime).astype('int')
+        self.binNumber = np.ones_like((self.timestamp), dtype=np.int8)*ditherInd
+        self.photonHourAngle = self.hourAngles[self.binNumber]
+
+        self.indexArray = np.array(self.xPhotonPixel * self.nDPixRow + self.yPhotonPixel)
+
+        self.xPhotonRotated = np.zeros(len(self.timestamp))
+        self.yPhotonRotated = np.zeros(len(self.timestamp))
+
+        # NEW VERSION (calculate on the fly, no look-up table, can handle non-integers)
+        for iBin in np.arange(np.min(self.binNumber), np.max(self.binNumber) + 1):
+            # print iBin
+            inThisBin = np.where(self.binNumber == iBin)[0]  # [0] just to move array result outside tuple
+            if len(inThisBin) == 0: continue
+            rotatedValues = np.dot(self.rotationMatrix[iBin, :, :], self.xyPhotonPixel[:, inThisBin])
+            self.xPhotonRotated[inThisBin] = rotatedValues[0, :]
+            self.yPhotonRotated[inThisBin] = rotatedValues[1, :]
+            self.rotatedValues = np.dot(self.rotationMatrix, self.values)
+
+        # Use the centroid as the zero point for ra and dec offsets
+        self.rightAscensionOffset = -1.0 * self.plateScale * (
+                    self.xPhotonRotated - self.centroidRotated[0][self.binNumber])
+        self.declinationOffset = self.plateScale * (
+                    self.yPhotonRotated - self.centroidRotated[1][self.binNumber])
+
+        # if show:
+        #     thisImage, xedges, yedges = np.histogram2d(self.rightAscensionOffset, self.declinationOffset, bins=146)
+        #     plt.imshow(thisImage)
+        #     plt.show()
+        #     plt.plot(self.rightAscensionOffset, marker='o'); plt.show()
+        #     plt.plot(self.declinationOffset, marker='o'); plt.show()
+        #     plt.plot(xedges, marker='o'); plt.show()
+        #     plt.plot(yedges, marker='o'); plt.show()
+        #     plt.plot(self.centroidRotated[0], marker='o'); plt.show()
+        #     plt.plot(self.centroidRotated[1], marker='o'); plt.show()
+        #     plt.plot(self.xPhotonRotated, marker='o'); plt.show()
+        #     plt.plot(self.yPhotonRotated, marker='o'); plt.show()
+
+        # Convert centroid positions in DD:MM:SS.S and HH:MM:SS.S format to radians.
+        self.centroidRightAscensionRadians = ephem.hours(self.centroidRightAscension).real
+        self.centroidDeclinationRadians = ephem.degrees(self.centroidDeclination).real
+
+        # Convert centroid position radians to arcseconds.
+
+        degreesToRadians = np.pi / 180.0
+        radiansToDegrees = 180.0 / np.pi
+
+        self.centroidDeclinationArcseconds = self.centroidDeclinationRadians * radiansToDegrees * 3600.0
+        self.centroidRightAscensionArcseconds = self.centroidRightAscensionRadians * radiansToDegrees * 3600.0
+
+        # Add the photon arcsecond offset to the centroid offset.
+        self.photonDeclinationArcseconds = self.centroidDeclinationArcseconds + self.declinationOffset
+        self.photonRightAscensionArcseconds = self.centroidRightAscensionArcseconds + self.rightAscensionOffset
+
+        # Convert the photon positions from arcseconds to radians
+        self.photonDeclinationRadians = (self.photonDeclinationArcseconds / 3600.0) * degreesToRadians
+        self.photonRightAscensionRadians = (self.photonRightAscensionArcseconds / 3600.0) * degreesToRadians
+
+        return self.photonRightAscensionRadians, self.photonDeclinationRadians, self.photonHourAngle
+
+    def setCoordGrid(self):
+        '''
+        Establish RA and dec coordinates for pixel boundaries in the virtual pixel grid,
+        given the number of pixels in each direction (self.nPixRA and self.nPixDec), the
+        location of the centre of the array (self.cenRA, self.cenDec), and the plate scale
+        (self.vPlateScale).
+        '''
+        # self.gridRA = np.empty((self.nPixDec,self.nPixRA),dtype=float)
+        # self.gridRA.fill(np.nan)
+        # self.gridDec = np.empty((self.nPixDec,self.nPixRA),dtype=float)
+        # self.gridDec.fill(np.nan)
+
+        # Note - +1's are because these are pixel *boundaries*, not pixel centers:
+        # print self.cenRA, (np.arange(self.nPixRA + 1) - ((self.nPixRA + 1) // 2)), (np.arange(self.nPixRA + 1) - ((self.nPixRA + 1) // 2))*self.vPlateScale, 'cenRA'
+
+        self.gridRA = self.cenRA + (self.vPlateScale * (np.arange(self.nPixRA + 1) - ((self.nPixRA + 1) // 2)))
+        self.gridDec = self.cenDec + (self.vPlateScale * (np.arange(self.nPixDec + 1) - ((self.nPixDec + 1) // 2)))
+
+
+
     def stackExposure(self, photons, ditherInd=0, doStack=False, savePreStackImage=None):
 
         # photons = np.asarray(photons)
 
         # photons = photons.view(dtype=np.ndarray)
         print 'Calculating RA/Decs...'
-        photRAs, photDecs, photHAs = self.getRaDec(photons[0], photons[1], photons[2], ditherInd)
-
+        photRAs, photDecs, photHAs = self.getRaDec(photons[0], photons[1], photons[2], ditherInd, show=True)
+        thisImage, thisGridDec, thisGridRA = np.histogram2d(photDecs, photRAs, bins=146)
+        plt.imshow(thisImage)
+        plt.show()
 
         nPhot = len(photRAs)
 
@@ -528,17 +550,21 @@ class RADecImage(object):
         photRAs = photRAs + ditherRAs
         photDecs = photDecs + ditherDecs
 
-        print self.gridDec, photDecs, photDecs.shape
+        thisImage, thisGridDec, thisGridRA = np.histogram2d(photDecs, photRAs, bins=146)
+        plt.imshow(thisImage)
+        plt.show()
 
-        # plt.plot(self.gridDec)
-        # plt.plot(photDecs)
+        # print self.gridDec, photDecs, photDecs.shape
+
+        # plt.plot(self.gridDec, alpha=0.5)
+        # plt.plot(photDecs, alpha=0.5)
         # plt.show(block=True)
         #
-        # plt.plot(self.gridRA)
-        # plt.plot(photRAs)
+        # plt.plot(self.gridRA, alpha=0.5)
+        # plt.plot(photRAs, alpha=0.5)
         # plt.show()
-        #
-        # plt.hist(photDecs, alpha=0.5)# np.histogram()
+
+        # plt.hist(photDecs, alpha=0.5)
         # plt.show()
         # plt.hist(photRAs, alpha =0.5)
         # plt.show()
