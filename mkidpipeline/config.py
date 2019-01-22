@@ -19,6 +19,8 @@ yaml = mkidcore.config.yaml
 
 def load_task_config(file):
     global config
+    if not isinstance(file, str):
+        return file
     cfg = mkidcore.config.load(file)
     cfg.register('beammap', config.beammap, update=True)
     cfg.register('paths', config.paths, update=True)
@@ -72,6 +74,10 @@ class MKIDObservingDataDescription(object):
             raise ValueError('Stop ({}) must come after start ({})'.format(self.stop,self.start))
 
         self.name = str(name)
+
+    @property
+    def date(self):
+        return datetime.utcfromtimestamp(self.start)
 
     @property
     def duration(self):

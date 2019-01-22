@@ -89,8 +89,8 @@ def build_pytables(cfg, index=('ultralight', 6)):
     # group = h5file.create_group("/", 'Images', 'Image Snaps')  #todo delete?
     bmap = Beammap(cfg.beamfile, xydim=(cfg.x, cfg.y))
     group = h5file.create_group("/", 'BeamMap', 'Beammap Information', filters=filter)
-    h5file.create_array(group, 'Map', bmap.residmap, 'resID map')
-    h5file.create_array(group, 'Flag', bmap.flagmap, 'flag map')
+    h5file.create_array(group, 'Map', bmap.residmap.astype(int), 'resID map')
+    h5file.create_array(group, 'Flag', bmap.flagmap.astype(int), 'flag map')
 
     getLogger(__name__).debug('Beammap Attached')
 
@@ -422,6 +422,11 @@ def buildtables(timeranges, config=None, ncpu=1, asynchronous=False, remake=Fals
 
     builders = [HDFBuilder(c, force=remake) for c in b2h_configs]
     events = [b.done for b in builders]
+
+    if ncpu ==1:
+        for b in builders:
+            b.run()
+        return timeranges, events
 
     pool = mp.Pool(min(ncpu, mp.cpu_count()))
 
