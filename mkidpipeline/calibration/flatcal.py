@@ -153,12 +153,14 @@ class FlatCal(object):
 
         getLogger(__name__).info('Done')
 
-    def loadFlatSpectra(self):
+    def loadFlatSpectraWL(self):
         """
         Reads the flat data into a spectral cube whose dimensions are determined
         by the number of x and y pixels and the number of wavelength bins.
         Each element will be the spectral cube for a time chunk
         Find factors to correct nonlinearity due to deadtime in firmware
+
+        To be used for whitelight flat data
         """
         self.frames = []
         self.spectralCubes = []
@@ -191,6 +193,12 @@ class FlatCal(object):
         self.spectralCubes = np.array(self.spectralCubes)
         self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
         self.countCubes = self.cubeEffIntTimes * self.spectralCubes
+
+    def loadFlatSpectraLaser(self):
+        """
+        Need a way to make flats with MEC
+        """
+        pass
 
     def checkCountRates(self):
         """ mask out frames, or cubes from integration time chunks with count rates too high """
