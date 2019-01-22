@@ -56,6 +56,7 @@ import os
 import warnings
 import time
 from datetime import datetime
+import multiprocessing as mp
 
 import astropy.constants
 import matplotlib
@@ -99,11 +100,9 @@ class ObsFile(object):
             ObsFile instance
                 
         """
-        if mode in ['read', 'r']: mode='read'
-        elif mode in ['write', 'w','a']: mode='write'
-        assert mode=='read' or mode=='write', '"mode" argument must be "read" or "write"'
+        self.mode = 'write' if mode.lower() in ('write', 'w', 'a', 'append') else 'read'
         self.mode = mode
-        self.verbose=verbose
+        self.verbose = verbose
         self.tickDuration = ObsFile.tickDuration
         self.noResIDFlag = 2**32-1      #All pixels should have a unique resID. But if for some reason it doesn't, it'll have this resID
         self.wvlLowerLimit = None
@@ -205,12 +204,15 @@ class ObsFile(object):
         -------
             True if pixel is bad. Otherwise false
         """
-        resID = self.beamImage[xCoord][yCoord]
-        if resID==self.noResIDFlag: return True     # No resID was given during readout
+        resID = self.beamImage[xCoord, yCoord]
+        if resID==self.noResIDFlag:
+            return True     # No resID was given during readout
         pixelFlags = self.beamFlagImage[xCoord, yCoord]
         deadFlags = h5FileFlags['noDacTone']
-        if forceWvl and self.getFromHeader('isWvlCalibrated'): deadFlags+=h5FileFlags['waveCalFailed']
-        if forceWeights and self.getFromHeader('isFlatCalibrated'): deadFlags+=h5FileFlags['flatCalFailed']
+        if forceWvl and self.getFromHeader('isWvlCalibrated'):
+            deadFlags|=h5FileFlags['waveCalFailed']
+        if forceWeights and self.getFromHeader('isFlatCalibrated'):
+            deadFlags|=h5FileFlags['flatCalFailed']
         #if forceWeights and self.getFromHeader('isLinearityCorrected'): deadFlags+=h5FileFlags['linCalFailed']
         #if forceTPFWeights and self.getFromHeader('isPhaseNoiseCorrected'): deadFlags+=h5FileFlags['phaseNoiseCalFailed']
         return (pixelFlags & deadFlags)>0
@@ -293,12 +295,10 @@ class ObsFile(object):
 
         if resid is None:
             resid = tuple()
-        elif isinstance(resid, (int, float)):
-            resid = [resid]
 
-        if resid is None:
-            resid = tuple()
-        elif isinstance(resid, (int, float)):
+        try:
+            iter(resid)
+        except TypeError:
             resid = [resid]
 
         res = '|'.join(['(ResID=={})'.format(r) for r in map(int, resid)])
@@ -321,25 +321,39 @@ class ObsFile(object):
 
         if startt is not None:
             if stopt is not None:
-                time = '({} & {})'.format(tm, tp)
+                timestr = '({} & {})'.format(tm, tp)
             else:
-                time = tm
+                timestr = tm
         elif stopt is not None:
-            time = tp
+            timestr = tp
         else:
-            time = ''
+            timestr = ''
 
-        query = res + ('&(' if res and (time or wave) else '')
-        query += time + ('&' if wave and time else '')
-        query += wave + (')' if res else '')
+        query = res
+        if res and (timestr or wave):
+            query += '&'
+        if res and timestr and wave:
+            query += '('
+
+        query += timestr
+        if timestr and wave:
+            query += '&'
+
+        query += wave
+        if res and timestr:
+            query += ')'
+
         if not query:
             #TODO make dtype pull from mkidcore.headers
             return np.array([], dtype=[('ResID', '<u4'), ('Time', '<u4'), ('Wavelength', '<f4'),
                                        ('SpecWeight', '<f4'), ('NoiseWeight', '<f4')])
         else:
-            tic=time.time()
-            q=self.photonTable.read_where(query)
-            toc=time.time()
+            tic = time.time()
+            try:
+                q = self.photonTable.read_where(query)
+            except SyntaxError:
+                raise
+            toc = time.time()
             getLogger(__name__).debug('Query {} for {} took {:.3f}s'.format(self.fileName, query, toc-tic))
             return q
 
