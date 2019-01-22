@@ -79,12 +79,12 @@ class FlatCal(object):
         self.ypix = self.cfg.beammap.nrows
         self.deadtime = self.cfg.instrument.deadtime
 
-        self.energyBinWidth = self.cfg.instrument.energyBinWidth
-        self.wvlStart = self.cfg.instrument.wvlStart
-        self.wvlStop = self.cfg.instrument.wvlStop
+        self.energyBinWidth = self.cfg.instrument.energy_bin_width
+        self.wvlStart = self.cfg.instrument.wvl_start
+        self.wvlStop = self.cfg.instrument.wvl_stop
 
-        self.countRateCutoff = self.cfg.flatcal.countRateCutoff
-        self.fractionOfChunksToTrim = self.cfg.flatcal.fractionOfChunksToTrim
+        self.countRateCutoff = self.cfg.flatcal.rate_cutoff
+        self.fractionOfChunksToTrim = self.cfg.flatcal.trim_fraction
         self.timeSpacingCut = None
 
         self.obs = None
@@ -97,9 +97,7 @@ class FlatCal(object):
         self.save_plots = self.cfg.flatcal.plots.lower() == 'all'
         self.summary_plot = self.cfg.flatcal.plots.lower() in ('all', 'summary')
         if self.save_plots:
-            getLogger(__name__).warning("Saving debug plots, this will add ~30 min to runtime.")
-
-        getLogger(__name__).info("Computing Factors for FlatCal")
+            getLogger(__name__).warning("Comanded to save debug plots, this will add ~30 min to runtime.")
 
         self.frames = None
         self.spectralCubes = None
@@ -131,20 +129,29 @@ class FlatCal(object):
         self.nWvlBins = self.wvlBinEdges.size - 1
 
     def makeCalibration(self):
+        getLogger(__name__).info("Loading H5")
         self.loadh5()
+        getLogger(__name__).info("Loading flat spectra")
         self.loadFlatSpectra()
+        getLogger(__name__).info("Checking count rates")
         self.checkCountRates()
+        getLogger(__name__).info("Calculating weights")
         self.calculateWeights()
+        getLogger(__name__).info("Writing weights")
         self.writeWeights()
 
-        if self.save_plots:
-            self.plotWeightsWvlSlices()
-            getLogger(__name__).info('Plotted Weights by Wvl Slices at WvlSlices_{}'.format(timestamp))
-            self.plotWeightsByPixelWvlCompare()
-            getLogger(__name__).info('Plotted Weights by Pixel against the Wavelength Solution at WavelengthCompare_{}'.format(timestamp))
         if self.summary_plot:
+            getLogger(__name__).info('Making a summary plot')
             self.makeSummary()
-            getLogger(__name__).info('Made Summary Plot')
+
+        if self.save_plots:
+            getLogger(__name__).info("Writing detailed plots, go get some tea.")
+            getLogger(__name__).info('Plotting Weights by Wvl Slices at WvlSlices_{}'.format(timestamp))
+            self.plotWeightsWvlSlices()
+            getLogger(__name__).info('Plotting Weights by Pixel against the Wavelength Solution at WavelengthCompare_{}'.format(timestamp))
+            self.plotWeightsByPixelWvlCompare()
+
+        getLogger(__name__).info('Done')
 
     def loadFlatSpectra(self):
         """
@@ -180,8 +187,6 @@ class FlatCal(object):
             self.spectralCubes.append(cube)
             self.cubeEffIntTimes.append(effIntTime3d)
             getLogger(__name__).info('Loaded Flat Spectra for seconds {} to {}'.format(int(firstSec), int(firstSec) + int(self.intTime)))
-
-        self.obs.file.close()  #TODO Neelay, Isabel, this needs to be brought into a context manager if it is necessary
 
         self.spectralCubes = np.array(self.spectralCubes)
         self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
@@ -588,7 +593,7 @@ def fetch(solution_descriptors, config=None, ncpu=1, async=False, force_h5=False
 
     solutions = []
     for sd in solution_descriptors:
-        sf = os.path.join(cfg.paths.database, sd.filename)
+        sf = os.path.join(cfg.paths.database, sd.id)
         if os.path.exists(sf):
             pass
         else:
@@ -602,7 +607,7 @@ def fetch(solution_descriptors, config=None, ncpu=1, async=False, force_h5=False
             fcfg.unregister('wavesol')
             fcfg.unregister('h5file')
 
-            flattner = FlatCal(cfg, cal_file_name=sd.id)
+            flattner = FlatCal(fcfg, cal_file_name=sd.id)
             flattner.makeCalibration()
 
 

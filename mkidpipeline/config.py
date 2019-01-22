@@ -133,7 +133,8 @@ yaml.register_class(MKIDWavedataDescription)
 class MKIDFlatdataDescription(MKIDObservingDataDescription):
     yaml_tag = u'!fc'
 
-    def filename(self):
+    @property
+    def id(self):
         return 'calsol_{}.h5'.format(self.start)
 
     # def __init__(self, data):

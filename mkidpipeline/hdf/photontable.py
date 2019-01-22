@@ -72,8 +72,18 @@ import mkidcore.pixelflags as pixelflags
 from mkidcore.pixelflags import h5FileFlags
 from PyPDF2 import PdfFileMerger, PdfFileReader
 
+import tables.parameters
 
 TBRERROR = RuntimeError('Function needs to be reviewed')
+#
+# tables.parameters.CHUNK_CACHE_NELMTS = 1e6
+# tables.parameters.CHUNK_CACHE_SIZE = 20 * 1024*1024*1024
+# tables.parameters.TABLE_MAX_SIZE = 20 * 1024*1024*1024  #default 1MB
+# tables.parameters.SORTEDLR_MAX_SIZE = 1 *1024*1024*1024 # default 8MB
+# tables.parameters.SORTED_MAX_SIZE = 1 *1024*1024*1024 # default 1MB
+# tables.parameters.LIMBOUNDS_MAX_SIZE = 1 *1024*1024*1024
+
+# tables.parameters.SORTEDLR_MAX_SLOTS = 100000
 
 
 class ObsFile(object):
@@ -178,6 +188,9 @@ class ObsFile(object):
         beamShape = self.beamImage.shape
         self.nXPix = beamShape[0]
         self.nYPix = beamShape[1]
+
+    def resIDs(self):
+        return np.unique(self.beamImage.ravel())
 
     def getFromHeader(self, name):
         """
@@ -689,10 +702,9 @@ class ObsFile(object):
         if self.filterIsApplied == True:
             if not np.array_equal(self.filterWvlBinEdges, wvlBinEdges):
                 raise ValueError("Synthetic filter wvlBinEdges do not match pixel spectrum wvlBinEdges!")
-            spectrum*=self.filterTrans
+            spectrum *= self.filterTrans
         #if getEffInt is True:
         return {'spectrum':spectrum, 'wvlBinEdges':wvlBinEdges, 'rawCounts':rawCounts}
-
 
     def getSpectralCube(self, firstSec=0, integrationTime=-1, applySpecWeight=False, applyTPFWeight=False, wvlStart=700, wvlStop=1500,
                         wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None, timeSpacingCut=None, flagToUse=0):
@@ -710,7 +722,7 @@ class ObsFile(object):
             integrationTime = self.getFromHeader('expTime')
 
         masterPhotonList = self.query(startt=firstSec if firstSec else None, intt=integrationTime)
-        emptyPhotonList = self.photonTable.query()
+        emptyPhotonList = self.query()
         
         resIDDiffs = np.diff(masterPhotonList['ResID'])
         if np.any(resIDDiffs < 0):
