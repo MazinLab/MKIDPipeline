@@ -302,7 +302,7 @@ class Calibrator(object):
             # make ObsFiles
             for wavelength in wavelengths:
                 # wavelengths might be unordered, so we get the right order of h5 files
-                index = np.where(wavelength == self.cfg.wavelengths)[0].squeeze()
+                index = np.where(wavelength == np.asarray(self.cfg.wavelengths))[0].squeeze()
                 obs_files.append(ObsFile(self.cfg.h5_file_names[index]))
             # make histograms for each pixel in pixels and wavelength in wavelengths
             for pixel in pixels.T:
@@ -362,11 +362,10 @@ class Calibrator(object):
                     raise KeyboardInterrupt
                 except Exception as error:
                     if wavelength is None:
-                        message = "({}, {}) : ".format(pixel[0], pixel[1]) + str(error)
+                        message = "({}, {}) : ".format(pixel[0], pixel[1])
                     else:
-                        message = ("({}, {}), : {} nm : ".format(pixel[0], pixel[1],
-                                                                 wavelength) + str(error))
-                    log.error(message)
+                        message = ("({}, {}) @ {} nm : ".format(pixel[0], pixel[1], wavelength))
+                    log.error(message, exc_info=True)
                     raise error
             # update progress bar
             self._update_progress(finish=True, verbose=verbose)
@@ -430,7 +429,7 @@ class Calibrator(object):
                         good_solutions = self.solution.has_good_histogram_solutions(
                             pixel=pixel)
                         wavelength_index = np.where(
-                            wavelength == self.cfg.wavelengths)[0].squeeze()
+                            wavelength == np.asarray(self.cfg.wavelengths))[0].squeeze()
                         if np.any(good_solutions):
                             guess = self._guess(pixel, wavelength_index, good_solutions)
                             model.fit(guess)
@@ -470,7 +469,7 @@ class Calibrator(object):
                     if model.has_good_solution():
                         continue
                     wavelength_index = np.where(
-                        wavelength == self.cfg.wavelengths)[0].squeeze()
+                        wavelength == np.asarray(self.cfg.wavelengths))[0].squeeze()
                     if np.any(good_solutions[wavelength_index + 1:]):
                         tried_models = []
                         for histogram_model in self.solution.histogram_model_list:
@@ -499,7 +498,7 @@ class Calibrator(object):
                 else:
                     message = ("({}, {}), : {} nm : ".format(pixel[0], pixel[1],
                                                              wavelength) + str(error))
-                log.error(message)
+                log.error(message, exc_info=True)
                 raise error
         # update progress bar
         self._update_progress(finish=True, verbose=verbose)
@@ -580,7 +579,7 @@ class Calibrator(object):
             except KeyboardInterrupt:
                 raise KeyboardInterrupt
             except Exception as error:
-                log.error("({}, {}) : ".format(pixel[0], pixel[1]) + str(error))
+                log.error("({}, {}) : ".format(pixel[0], pixel[1]), exc_info=True)
                 raise error
         # update progress bar
         self._update_progress(finish=True, verbose=verbose)
@@ -748,7 +747,7 @@ class Calibrator(object):
         signal_center parameter and set the other parameters equal to the average of
         those in the good fits."""
         # get initial guess
-        wavelengths = self.cfg.wavelengths
+        wavelengths = np.asarray(self.cfg.wavelengths)
         histogram_models = self.solution.histogram_models(pixel=pixel)
         parameters = self.solution.histogram_parameters(pixel=pixel)
         model = histogram_models[wavelength_index]
@@ -909,7 +908,7 @@ class Calibrator(object):
                 dictionary = self.solution[computed_pixel[0], computed_pixel[1]]
                 histogram_models = dictionary['histograms']
                 for wavelength in computed_wavelengths:
-                    logic = (wavelength == self.cfg.wavelengths)
+                    logic = (wavelength == np.asarray(self.cfg.wavelengths))
                     model = fit_element['histograms'][logic][0]
                     histogram_models[logic] = model
             else:
@@ -1096,7 +1095,7 @@ class Solution(object):
                     res_id = self.beam_map[pixel[0], pixel[1]]
                     histogram_models = np.array(
                         [self.histogram_model_list[0](pixel=pixel, res_id=res_id)
-                         for _ in range(len(self.cfg.wavelengths))])
+                         for _ in self.cfg.wavelengths])
                     calibration_model = self.calibration_model_list[0](pixel=pixel,
                                                                        res_id=res_id)
                     self._fit_array[pixel] = {'histograms': histogram_models,
@@ -1112,13 +1111,14 @@ class Solution(object):
     def save(self, save_name=None):
         """Save the solution to a file whose name is determined by the configuration."""
         # TODO: saving and loading is slow: only save parts needed to recreate solution
-        if save_name is not None:
+        if save_name is None:
+            save_path = os.path.join(self.cfg.out_directory, self.solution_name)
+        else:
             save_path = os.path.join(self.cfg.out_directory, save_name)
         # make sure the configuration is pickleable if created from __main__
         if self.cfg.__class__.__module__ == "__main__":
             from mkidpipeline.calibration.wavecal import Configuration
-            self.cfg = Configuration(self.cfg.configuration_path,
-                                     solution_name=self.solution_name)
+            self.cfg = Configuration(self.cfg.configuration_path)
 
         log.info("Saving solution to {}".format(save_path))
         np.savez(save_path, fit_array=self._fit_array,
@@ -1385,7 +1385,7 @@ class Solution(object):
         pixel, _ = self._parse_resonators(pixel, res_id)
         wavelengths = self._parse_wavelengths(wavelengths)
         models = self._parse_models(models, 'histograms', wavelengths=wavelengths)
-        logic = (wavelengths == self.cfg.wavelengths)
+        logic = (wavelengths == np.asarray(self.cfg.wavelengths))
         self[pixel[0], pixel[1]]['histograms'][logic] = models
 
     def histogram_models(self, wavelengths=None, pixel=None, res_id=None):
@@ -1393,7 +1393,7 @@ class Solution(object):
         resonator at the specified wavelengths wavelength."""
         pixel, _ = self._parse_resonators(pixel, res_id)
         wavelengths = self._parse_wavelengths(wavelengths)
-        logic = (wavelengths == self.cfg.wavelengths)
+        logic = (wavelengths == np.asarray(self.cfg.wavelengths))
         models = self[pixel[0], pixel[1]]['histograms'][logic]
         return models
 
@@ -2266,13 +2266,13 @@ class Solution(object):
         if not self._parse:
             return wavelengths
         if wavelengths is None:
-            wavelengths = self.cfg.wavelengths
+            wavelengths = np.asarray(self.cfg.wavelengths)
             return wavelengths
         if not isinstance(wavelengths, (list, tuple, np.ndarray)):
             wavelengths = np.array([wavelengths])
         if not isinstance(wavelengths, np.ndarray):
             wavelengths = np.array(wavelengths)
-        bad_wavelengths = np.logical_not(np.isin(wavelengths, self.cfg.wavelengths))
+        bad_wavelengths = np.logical_not(np.isin(wavelengths, np.asarray(self.cfg.wavelengths)))
         if bad_wavelengths.any():
             message = "invalid wavelengths: {} nm"
             raise ValueError(message.format(wavelengths[bad_wavelengths]))
@@ -2310,14 +2310,14 @@ class Solution(object):
         axes.clear()
 
 
-def fetch(solution_descriptors, config=None, ncpu=1, async=False, force_h5=False):
+def fetch(solution_descriptors, config=None, async=False, **kwargs):
     cfg = mkidpipeline.config.config if config is None else config
 
     solutions = []
     for sd in solution_descriptors:
         sf = os.path.join(cfg.paths.database, sd.id+'.npz')
         if os.path.exists(sf):
-            solutions.append(Solution(sd.id+'npz'))
+            solutions.append(Solution(sd.id+'.npz'))
         else:
             if 'wavecal' not in cfg:
                 wcfg = mkidpipeline.config.load_task_config(pkg.resource_filename(__name__, 'wavecal.yml'))
@@ -2330,7 +2330,7 @@ def fetch(solution_descriptors, config=None, ncpu=1, async=False, force_h5=False
 
     for s in solutions:
         try:
-            s.run()
+            s.run(**kwargs)
         except AttributeError:
             continue
 
