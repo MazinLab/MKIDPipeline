@@ -63,6 +63,7 @@ class FlatCal(object):
             self.wvlCalFile = ''
         self.wave_list= self.cfg.wave_list
         self.wave_inttime_list=self.cfg.wave_inttime_list
+        self.laserFlag=self.cfg.laserFlag
 
         self.startTime = self.cfg.start_time
         self.expTime = self.cfg.exposure_time
@@ -126,7 +127,7 @@ class FlatCal(object):
         self.wvlFlags = self.obs.beamFlagImage
         self.xpix = self.obs.nXPix
         self.ypix = self.obs.nYPix
-        if laserFlag:
+        if self.laserFlag:
             self.wvlBinEdges=self.wave_list
         else:
             self.wvlBinEdges = self.obs.makeWvlBins(self.energyBinWidth, self.wvlStart, self.wvlStop)
@@ -167,7 +168,7 @@ class FlatCal(object):
 
         To be used for whitelight flat data
         """
-        if laserFlag:
+        if self.laserFlag:
             cubeDict = makeSpectralCubeFromWavecal(self)
             cube = np.array(cubeDict['cube'], dtype=np.double)
             effIntTime = cubeDict['effIntTime']
