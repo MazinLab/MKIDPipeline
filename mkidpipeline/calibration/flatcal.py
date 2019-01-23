@@ -61,6 +61,8 @@ class FlatCal(object):
             getLogger(__name__).info('No wavelength solution specified. '
                                      'Solution must have been previously applied.')
             self.wvlCalFile = ''
+        self.wave_list= self.cfg.wave_list
+        self.wave_inttime_list=self.cfg.wave_inttime_list
 
         self.startTime = self.cfg.start_time
         self.expTime = self.cfg.exposure_time
@@ -124,7 +126,10 @@ class FlatCal(object):
         self.wvlFlags = self.obs.beamFlagImage
         self.xpix = self.obs.nXPix
         self.ypix = self.obs.nYPix
-        self.wvlBinEdges = self.obs.makeWvlBins(self.energyBinWidth, self.wvlStart, self.wvlStop)
+        if laserFlag:
+            self.wvlBinEdges=self.wave_list
+        else:
+            self.wvlBinEdges = self.obs.makeWvlBins(self.energyBinWidth, self.wvlStart, self.wvlStop)
         # wvlBinEdges includes both lower and upper limits, so number of bins is 1 less than number of edges
         self.nWvlBins = self.wvlBinEdges.size - 1
 
@@ -163,7 +168,6 @@ class FlatCal(object):
         To be used for whitelight flat data
         """
         if laserFlag:
-            sol = wavecal.Solution(self.wvlCalFile)
             cubeDict = makeSpectralCubeFromWavecal(self)
             cube = np.array(cubeDict['cube'], dtype=np.double)
             effIntTime = cubeDict['effIntTime']
@@ -171,16 +175,6 @@ class FlatCal(object):
             effIntTime3d = np.reshape(effIntTime, np.shape(effIntTime) + (1,))
             cube /= effIntTime3d
             cube[np.isnan(cube)] = 0
-            rawFrameDict = self.obs.getPixelCountImage(firstSec=firstSec, integrationTime=self.intTime,
-                                                       scaleByEffInt=True)
-            rawFrame = np.array(rawFrameDict['image'], dtype=np.double)
-            rawFrame /= rawFrameDict['effIntTimes']
-            nonlinearFactors = 1. / (1. - rawFrame * self.deadtime)
-            nonlinearFactors[np.isnan(nonlinearFactors)] = 0.
-            frame = np.sum(cube, axis=2)  # in counts per sec
-            frame = frame * nonlinearFactors
-            nonlinearFactors = np.reshape(nonlinearFactors, np.shape(nonlinearFactors) + (1,))
-            cube = cube * nonlinearFactors
 
             self.spectralCubes = np.array(cube)
             self.cubeEffIntTimes = np.array(effIntTime3d)
@@ -194,9 +188,7 @@ class FlatCal(object):
                                                 applyTPFWeight=False, wvlBinEdges=self.wvlBinEdges, energyBinWidth=None,
                                                 timeSpacingCut=self.timeSpacingCut)
                 cube = np.array(cubeDict['cube'], dtype=np.double)
-                effIntTime = cubeDict['effIntTime']
-                # add third dimension for broadcasting
-                effIntTime3d = np.reshape(effIntTime, np.shape(effIntTime) + (1,))
+                effIntTime3d = cubeDict['effIntTime3d']
                 cube /= effIntTime3d
                 cube[np.isnan(cube)] = 0
                 rawFrameDict = self.obs.getPixelCountImage(firstSec=firstSec, integrationTime=self.intTime,
@@ -218,11 +210,34 @@ class FlatCal(object):
             self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
             self.countCubes = self.cubeEffIntTimes * self.spectralCubes
 
-    def loadFlatSpectraLaser(self):
-        """
-        Need a way to make flats with MEC
-        """
-        pass
+    def make_spectralcube_from_wavecal(self):
+        sol = wavecal.Solution(self.wvlCalFile)
+        wave_list = self.wave_list
+        nWavs = len(self.wave_list)
+        spectralcube = np.zeros([self.xpix, self.ypix, nWavs])
+        spectralcube[:, :, :] = np.nan
+        eff_int_time_3d = np.zeros([self.xpix, self.ypix, nWavs])
+        gaussian_names = ['GaussianAndExponential', 'GaussianAndGaussian', 'GaussianAndGaussianExponential',
+                          'SkewedGaussianAndGaussianExponential']
+        for nRow in range(nRows):
+            for nCol in range(nCols):
+                good_cal = sol.has_good_calibration_solution(pixel=[nRow, nCol])
+                if good_cal:
+                    params = sol.histogram_parameters(pixel=[nRow, nCol])
+                    model_names = sol.histogram_model_names(pixel=[nRow, nCol])
+                    good_sol = sol.has_good_histogram_solutions(pixel=[nRow, nCol])
+                    for iwvl, wvl in enumerate(wave_list):
+                        if good_sol[iwvl]:
+                            if model_names[iwvl] in gaussian_names:
+                                sig_center = params[iwvl]['signal_center'].value
+                                sigma = params[iwvl]['signal_sigma'].value
+                                amp_scaled = params[iwvl]['signal_amplitude'].value
+                                wvl_intensity = np.sqrt(sigma) * amp_scaled
+                            spectralcube[nRow, nCol, iwvl] = wvl_intensity
+                            eff_int_time_3d[nRow, nCol, iwvl] = self.wave_inttime_list[iwvl]
+        cubeDict = {'cube': spectralcube,  'effIntTime3d': eff_int_time_3d}
+        return (cubeDict)
+
 
     def checkCountRates(self):
         """ mask out frames, or cubes from integration time chunks with count rates too high """
