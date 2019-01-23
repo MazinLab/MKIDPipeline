@@ -4,6 +4,10 @@ import mkidpipeline.hdf.bin2hdf as bin2hdf
 import shutil
 import time
 import timeit
+import os
+import mkidpipeline
+from mkidpipeline.hdf.photontable import ObsFile
+
 
 """Test 1: Creation"""
 #make a bin2hdfconfig
@@ -93,30 +97,126 @@ def testqueriesmultires(fn, xCoord, yCoord, firstSec, intTime, wvlStart, wvlStop
 def doquery(h5, query):
     return h5.get_node('/Photons/PhotonTable').read_where(query)
 
-binfile = '/mnt/data0/baileyji/mec/out/1545542180_bin2hdf.h5'
-csifile = '/mnt/data0/baileyji/mec/out/1545542180_pytables_csi.h5'
-ulifile = '/mnt/data0/baileyji/mec/out/1545542180_pytables_ul6.h5'
 
-# bin = tables.open_file(binfile, mode="r")
-# csi = tables.open_file(csifile, mode="r")
-# uli = tables.open_file(ulifile, mode="r")
+def cachetest():
+    q='Time<3e5'
+    binfile = '/mnt/data0/baileyji/mec/h5/1545542180.h5'
+    csifile = '/mnt/data0/baileyji/mec/h5/1545542180_pytables_csi.h5'
+    ulifile = '/mnt/data0/baileyji/mec/h5/1545542180_pytables_ul6.h5'
+    # tables.parameters.CHUNK_CACHE_NELMTS = 1e6
+    # tables.parameters.CHUNK_CACHE_SIZE = 20 * 1024*1024*1024
+    # tables.parameters.TABLE_MAX_SIZE = 20 * 1024*1024*1024  #default 1MB
+    # tables.parameters.SORTEDLR_MAX_SIZE = 1 *1024*1024*1024 # default 8MB
+    # tables.parameters.SORTED_MAX_SIZE = 1 *1024*1024*1024 # default 1MB
+    # tables.parameters.LIMBOUNDS_MAX_SIZE = 1 *1024*1024*1024
+    tic = time.time()
+    f=tables.open_file(binfile, mode="r")
+    print(f.get_node('/Photons/PhotonTable').will_query_use_indexing(q))
+    bin = f.get_node('/Photons/PhotonTable').read_where(q)
+    f.close()
+    toc1 = time.time()
+    f=tables.open_file(csifile, mode="r")
+    print(f.get_node('/Photons/PhotonTable').will_query_use_indexing(q))
+    csi = f.get_node('/Photons/PhotonTable').read_where(q)
+    f.close()
+    toc2 = time.time()
+    f = tables.open_file(ulifile, mode="r")
+    print(f.get_node('/Photons/PhotonTable').will_query_use_indexing(q))
+    uli =f.get_node('/Photons/PhotonTable').read_where(q)
+    f.close()
+    toc3 = time.time()
+    print(('Bin: {} rows {:.2f} s\n'
+          'csi: {} rows {:.2f} s\n'
+          'uli: {} rows {:.2f} s').format(len(bin),toc1-tic,len(csi),toc2-toc1, len(uli), toc3-toc2))
 
+
+mkidpipeline.config.logtoconsole()
+
+dfile = '/mnt/data0/baileyji/mec/h5/1507093430.h5'  #darkness flat 60s
+csifile = '/mnt/data0/baileyji/mec/h5/1545542180_csi.h5'
+csitimefile = '/mnt/data0/baileyji/mec/h5/1545542180_csi_time.h5'
+binfile = '/mnt/data0/baileyji/mec/h5/1545542180_bin2hdf.h5'
+ulitimefile = '/mnt/data0/baileyji/mec/h5/1545542180_time.h5'
+ulitimenoindexfile = '/mnt/data0/baileyji/mec/h5/1545542180_time_notindex.h5'
+ulinoindexfile = '/mnt/data0/baileyji/mec/h5/1545542180_noridindex.h5'
+ulifile = '/mnt/data0/baileyji/mec/h5/1545542180_ul6.h5'
 
 firstSec = 2
 intTime = 2
-xCoord = 105
-xCoord = [105,106,50,30]
-yCoord = 55
 wvlStart = -90
 wvlStop = -80
-#wvlStart = None
-#wvlStop = None
+resid = 91416
+resids = [91416,101119,90116,80881,81572,101471,90267,10603,80867,80180]
+
+
+for f in [ObsFile(csitimefile)]:
+    f.query(resid=resid, startt=firstSec, intt=intTime, startw=wvlStart, stopw=wvlStop)
+    f.query(resid=resid)
+    f.query(resid=resids)
+    f.query(startt=0, intt=10)
+
+
+files = [binfile, csifile, ulitimefile, ulitimenoindexfile, ulinoindexfile, ulifile, csitimefile]
+of = [ObsFile(f) for f in files]
+for f in of:
+    # f=ObsFile(fi)
+    f.query(resid=resid, startt=firstSec, intt=intTime, startw=wvlStart, stopw=wvlStop)
+    # f.file.close()
+# 2019-01-23 09:33:44,465 DEBUG Retrieved 148 rows in 1.731s using indices ('Wavelength', 'Time', 'ResID') for query (ResID==91416)&(((Time >= startt) & (Time < stopt))&((Wavelength >= startw) & (Wavelength < stopw))) (pid=29222)
+# 2019-01-23 09:33:45,770 DEBUG Retrieved 148 rows in 1.287s using indices ('Wavelength', 'Time', 'ResID') for query (ResID==91416)&(((Time >= startt) & (Time < stopt))&((Wavelength >= startw) & (Wavelength < stopw))) (pid=29222)
+# 2019-01-23 09:33:46,027 DEBUG Retrieved 148 rows in 0.239s using indices ('Wavelength', 'Time', 'ResID') for query (ResID==91416)&(((Time >= startt) & (Time < stopt))&((Wavelength >= startw) & (Wavelength < stopw))) (pid=29222)
+# 2019-01-23 09:33:50,189 DEBUG Retrieved 148 rows in 4.146s using indices ('Wavelength', 'ResID') for query (ResID==91416)&(((Time >= startt) & (Time < stopt))&((Wavelength >= startw) & (Wavelength < stopw))) (pid=29222)
+# 2019-01-23 09:33:53,467 DEBUG Retrieved 148 rows in 3.263s using indices ('Wavelength', 'Time') for query (ResID==91416)&(((Time >= startt) & (Time < stopt))&((Wavelength >= startw) & (Wavelength < stopw))) (pid=29222)
+# 2019-01-23 09:33:53,876 DEBUG Retrieved 148 rows in 0.391s using indices ('Wavelength', 'Time', 'ResID') for query (ResID==91416)&(((Time >= startt) & (Time < stopt))&((Wavelength >= startw) & (Wavelength < stopw))) (pid=29222)
+# 2019-01-23 10:44:45,547 DEBUG Retrieved 148 rows in 1.350s using indices ('Time', 'ResID', 'Wavelength') for query (ResID==91416)&(((Time >= startt) & (Time < stopt))&((Wavelength >= startw) & (Wavelength < stopw))) (pid=31119)
+
+for f in of:
+    # f = ObsFile(fi)
+    f.query(resid=resid)
+    # f.file.close()
+# 2019-01-23 09:33:54,056 DEBUG Retrieved 47412 rows in 0.163s using indices ('ResID',) for query (ResID==91416) (pid=29222)
+# 2019-01-23 09:33:54,097 DEBUG Retrieved 47783 rows in 0.024s using indices ('ResID',) for query (ResID==91416) (pid=29222)
+# 2019-01-23 09:33:58,423 DEBUG Retrieved 47783 rows in 4.310s using indices ('ResID',) for query (ResID==91416) (pid=29222)
+# 2019-01-23 09:34:03,180 DEBUG Retrieved 47783 rows in 4.742s using indices ('ResID',) for query (ResID==91416) (pid=29222)
+# 2019-01-23 09:34:05,442 DEBUG Retrieved 47783 rows in 2.249s using indices () for query (ResID==91416) (pid=29222)
+# 2019-01-23 09:34:05,507 DEBUG Retrieved 47783 rows in 0.050s using indices ('ResID',) for query (ResID==91416) (pid=29222)
+# 2019-01-23 10:44:51,968 DEBUG Retrieved 47783 rows in 6.420s using indices ('ResID',) for query (ResID==91416) (pid=31119)
+
+for fi in files:
+    f = ObsFile(fi)
+    f.query(resid=resids)
+    f.file.close()
+# 2019-01-23 09:34:06,995 DEBUG Retrieved 432866 rows in 1.473s using indices ('ResID',) for query ((ResID==91416)|(ResID==101119)|(ResID==90116)|(ResID==80881)|(ResID==81572)|(ResID==101471)|(ResID==90267)|(ResID==10603)|(ResID==80867)|(ResID==80180)) (pid=29222)
+# 2019-01-23 09:34:24,873 DEBUG Retrieved 436192 rows in 17.854s using indices ('ResID',) for query ((ResID==91416)|(ResID==101119)|(ResID==90116)|(ResID==80881)|(ResID==81572)|(ResID==101471)|(ResID==90267)|(ResID==10603)|(ResID==80867)|(ResID==80180)) (pid=29222)
+# 2019-01-23 09:34:30,365 DEBUG Retrieved 436192 rows in 5.477s using indices ('ResID',) for query ((ResID==91416)|(ResID==101119)|(ResID==90116)|(ResID==80881)|(ResID==81572)|(ResID==101471)|(ResID==90267)|(ResID==10603)|(ResID==80867)|(ResID==80180)) (pid=29222)
+# 2019-01-23 09:34:36,367 DEBUG Retrieved 436192 rows in 5.985s using indices ('ResID',) for query ((ResID==91416)|(ResID==101119)|(ResID==90116)|(ResID==80881)|(ResID==81572)|(ResID==101471)|(ResID==90267)|(ResID==10603)|(ResID==80867)|(ResID==80180)) (pid=29222)
+# 2019-01-23 09:34:57,121 DEBUG Retrieved 436192 rows in 20.737s using indices () for query ((ResID==91416)|(ResID==101119)|(ResID==90116)|(ResID==80881)|(ResID==81572)|(ResID==101471)|(ResID==90267)|(ResID==10603)|(ResID==80867)|(ResID==80180)) (pid=29222)
+# 2019-01-23 09:35:14,994 DEBUG Retrieved 436192 rows in 17.857s using indices ('ResID',) for query ((ResID==91416)|(ResID==101119)|(ResID==90116)|(ResID==80881)|(ResID==81572)|(ResID==101471)|(ResID==90267)|(ResID==10603)|(ResID==80867)|(ResID==80180)) (pid=29222)
+# 2019-01-23 10:44:59,295 DEBUG Retrieved 436192 rows in 7.327s using indices ('ResID',) for query ((ResID==91416)|(ResID==101119)|(ResID==90116)|(ResID==80881)|(ResID==81572)|(ResID==101471)|(ResID==90267)|(ResID==10603)|(ResID==80867)|(ResID==80180)) (pid=31119)
+
+for fi in files:
+    f = ObsFile(fi)
+    f.query(startt=0, intt=10)
+    f.file.close()
+# 2019-01-23 09:36:05,951 DEBUG Retrieved 20543781 rows in 50.942s using indices ('Time',) for query ((Time >= startt) & (Time < stopt)) (pid=29222)
+# 2019-01-23 09:38:50,549 DEBUG Retrieved 20543781 rows in 162.294s using indices ('Time',) for query ((Time >= startt) & (Time < stopt)) (pid=29222)
+# 2019-01-23 09:38:58,417 DEBUG Retrieved 20543781 rows in 7.797s using indices ('Time',) for query ((Time >= startt) & (Time < stopt)) (pid=29222)
+# 2019-01-23 09:39:08,505 DEBUG Retrieved 20543781 rows in 10.073s using indices () for query ((Time >= startt) & (Time < stopt)) (pid=29222)
+# 2019-01-23 09:41:50,704 DEBUG Retrieved 20543781 rows in 162.184s using indices ('Time',) for query ((Time >= startt) & (Time < stopt)) (pid=29222)
+# 2019-01-23 09:44:33,428 DEBUG Retrieved 20543781 rows in 162.653s using indices ('Time',) for query ((Time >= startt) & (Time < stopt)) (pid=29222)
+# 2019-01-23 10:45:07,916 DEBUG Retrieved 20543781 rows in 8.621s using indices ('Time',) for query ((Time >= startt) & (Time < stopt)) (pid=31119)
+
+
+
+
+qtime = timeit.timeit('cachetest()', setup='from __main__ import cachetest', number=1,  globals=locals())
+
 
 binres = list(testqueries(binfile, xCoord, yCoord, firstSec, intTime, wvlStart, wvlStop))
 csires = list(testqueries(csifile, xCoord, yCoord, firstSec, intTime, wvlStart, wvlStop))
 ulires = list(testqueries(ulifile, xCoord, yCoord, firstSec, intTime, wvlStart, wvlStop))
 
-testqueriesmultires(ulifile, xCoord, yCoord, firstSec, intTime, wvlStart, wvlStop)
+ulires2 = testqueriesmultires(ulifile, xCoord, yCoord, firstSec, intTime, wvlStart, wvlStop)
 
 msg='Query form {}: {:.2f} {:.2f} {:.2f}'
 for b,c,u in zip(binres,csires,ulires):
@@ -126,9 +226,19 @@ for b,c,u in zip(binres,csires,ulires):
     print(msg.format(q.replace('0',''),bt,ct,ut))
 
 msg='Query form {}: {:.2f} s'
-ulires.sort(key=lambda x: x[1])
-for q,t in ulires:
+ulires2.sort(key=lambda x: x[1])
+for q, t in ulires:
     print(msg.format(q,t))
+
+
+# tables.parameters.CHUNK_CACHE_NELMTS = 1e6
+# tables.parameters.CHUNK_CACHE_SIZE = 20 * 1024*1024*1024
+# tables.parameters.TABLE_MAX_SIZE = 20 * 1024*1024*1024  #default 1MB
+# tables.parameters.SORTEDLR_MAX_SIZE = 1 *1024*1024*1024 # default 8MB
+# tables.parameters.SORTED_MAX_SIZE = 1 *1024*1024*1024 # default 1MB
+# tables.parameters.LIMBOUNDS_MAX_SIZE = 1 *1024*1024*1024
+
+
 """
 Query form res&(wave-&wave+&(time-&time+)): 0.44 s
 Query form res&((wave-&wave+)&(time-&time+)): 0.44 s
@@ -179,67 +289,3 @@ Query form res&((wave-&time-)&(wave+&time+)): 8.53 s
 Query form res&((wave-&time-)&wave+&time+): 8.54 s
 Query form res&(wave-&time-&(wave+&time+)): 8.55 s
 """
-
-
-def query(startw=None, stopw=None, startt=None, stopt=None, resid=None, intt=None):
-    """
-    intt takes precedence
-
-    :param startw: number or none
-    :param stopw: number or none
-    :param startt: number or none
-    :param endt: number or none
-    :param resid: number, list/array or None
-    :return:
-    """
-    ticksPerSec=1
-    try:
-        startt = int(startt * ticksPerSec)  # convert to us
-    except TypeError:
-        pass
-
-    try:
-        stopt = int(stopt * ticksPerSec)
-    except TypeError:
-        pass
-
-    if intt is not None:
-        stopt = (startt if startt is not None else 0) + int(intt * ticksPerSec)
-
-    if resid is None:
-        resid = tuple()
-    elif isinstance(resid, (int, float)):
-        resid = [resid]
-
-    res = '|'.join(['(ResID=={})'.format(r) for r in map(int, resid)])
-    res = '(' + res + ')' if '|' in res and res else res
-    tp = '(Time < stopt)'
-    tm = '(Time >= startt)'
-    wm = '(Wavelength >= startw)'
-    wp = '(Wavelength < stopw)'
-    # should follow '{res} & ( ({time}) & ({wave}))'
-
-    if startw is not None:
-        if stopw is not None:
-            wave = '({} & {})'.format(wm, wp)
-        else:
-            wave = wm
-    elif stopw is not None:
-        wave = wp
-    else:
-        wave = ''
-
-    if startt is not None:
-        if stopt is not None:
-            time = '({} & {})'.format(tm, tp)
-        else:
-            time = tm
-    elif stopt is not None:
-        time = tp
-    else:
-        time = ''
-
-    query = res + ('&(' if res and (time or wave) else '')
-    query += time + ('&' if wave and time else '')
-    query += wave + (')' if res else '')
-    print(query)
