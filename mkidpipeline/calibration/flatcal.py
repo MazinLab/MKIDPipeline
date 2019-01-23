@@ -162,13 +162,9 @@ class FlatCal(object):
 
         To be used for whitelight flat data
         """
-        self.frames = []
-        self.spectralCubes = []
-        self.cubeEffIntTimes = []
-        for firstSec in range(0, self.expTime, self.intTime):  # for each time chunk
-            cubeDict = self.obs.getSpectralCube(firstSec=firstSec, integrationTime=self.intTime, applySpecWeight=False,
-                                                applyTPFWeight=False, wvlBinEdges=self.wvlBinEdges, energyBinWidth=None,
-                                                timeSpacingCut=self.timeSpacingCut)
+        if laserFlag:
+            sol = wavecal.Solution(self.wvlCalFile)
+            cubeDict = makeSpectralCubeFromWavecal(self)
             cube = np.array(cubeDict['cube'], dtype=np.double)
             effIntTime = cubeDict['effIntTime']
             # add third dimension for broadcasting
@@ -185,14 +181,42 @@ class FlatCal(object):
             frame = frame * nonlinearFactors
             nonlinearFactors = np.reshape(nonlinearFactors, np.shape(nonlinearFactors) + (1,))
             cube = cube * nonlinearFactors
-            self.frames.append(frame)
-            self.spectralCubes.append(cube)
-            self.cubeEffIntTimes.append(effIntTime3d)
-            getLogger(__name__).info('Loaded Flat Spectra for seconds {} to {}'.format(int(firstSec), int(firstSec) + int(self.intTime)))
 
-        self.spectralCubes = np.array(self.spectralCubes)
-        self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
-        self.countCubes = self.cubeEffIntTimes * self.spectralCubes
+            self.spectralCubes = np.array(cube)
+            self.cubeEffIntTimes = np.array(effIntTime3d)
+            self.countCubes = self.cubeEffIntTimes * self.spectralCubes
+        else:
+            self.frames = []
+            self.spectralCubes = []
+            self.cubeEffIntTimes = []
+            for firstSec in range(0, self.expTime, self.intTime):  # for each time chunk
+                cubeDict = self.obs.getSpectralCube(firstSec=firstSec, integrationTime=self.intTime, applySpecWeight=False,
+                                                applyTPFWeight=False, wvlBinEdges=self.wvlBinEdges, energyBinWidth=None,
+                                                timeSpacingCut=self.timeSpacingCut)
+                cube = np.array(cubeDict['cube'], dtype=np.double)
+                effIntTime = cubeDict['effIntTime']
+                # add third dimension for broadcasting
+                effIntTime3d = np.reshape(effIntTime, np.shape(effIntTime) + (1,))
+                cube /= effIntTime3d
+                cube[np.isnan(cube)] = 0
+                rawFrameDict = self.obs.getPixelCountImage(firstSec=firstSec, integrationTime=self.intTime,
+                                                           scaleByEffInt=True)
+                rawFrame = np.array(rawFrameDict['image'], dtype=np.double)
+                rawFrame /= rawFrameDict['effIntTimes']
+                nonlinearFactors = 1. / (1. - rawFrame * self.deadtime)
+                nonlinearFactors[np.isnan(nonlinearFactors)] = 0.
+                frame = np.sum(cube, axis=2)  # in counts per sec
+                frame = frame * nonlinearFactors
+                nonlinearFactors = np.reshape(nonlinearFactors, np.shape(nonlinearFactors) + (1,))
+                cube = cube * nonlinearFactors
+                self.frames.append(frame)
+                self.spectralCubes.append(cube)
+                self.cubeEffIntTimes.append(effIntTime3d)
+                getLogger(__name__).info('Loaded Flat Spectra for seconds {} to {}'.format(int(firstSec), int(firstSec) + int(self.intTime)))
+
+            self.spectralCubes = np.array(self.spectralCubes)
+            self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
+            self.countCubes = self.cubeEffIntTimes * self.spectralCubes
 
     def loadFlatSpectraLaser(self):
         """
