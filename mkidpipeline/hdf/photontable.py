@@ -381,10 +381,11 @@ class ObsFile(object):
             except SyntaxError:
                 raise
             toc = time.time()
-            msg = 'Retrieved {} rows in {:.3f}s using indices {} for query {}'
+            msg = 'Retrieved {} rows in {:.3f}s using indices {} for query {} \n\t st:{} et:{} sw:{} ew:{}'
             getLogger(__name__).debug(msg.format(len(q), toc-tic,
-                                                 tuple(self.photonTable.will_query_use_indexing(query)),
-                                                 query))
+                                                 tuple(self.photonTable.will_query_use_indexing(query)), query,
+                                                 *map(lambda x: '{:.2f}'.format(x) if x is not None else 'None',
+                                                      (startt, stopt, startw, stopw))))
             return q
 
     def getListOfPixelsPhotonList(self, posList, **kwargs):
@@ -745,7 +746,8 @@ class ObsFile(object):
         if integrationTime==-1 or integrationTime is None:
             integrationTime = self.getFromHeader('expTime')
 
-        cube = np.zeros((self.nXPix,self.nYPix,nWvlBins))
+        cube = np.zeros((self.nXPix, self.nYPix, nWvlBins))
+
         # TODO Actually compute the effective integration time
         effIntTime = np.full((self.nXPix,self.nYPix), integrationTime)
 
