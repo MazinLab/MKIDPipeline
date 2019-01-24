@@ -34,7 +34,7 @@ except Exception as err:
     log.warning('Error importing progressbar: ' + str(err))
 
 try:
-    from mkidpipeline.hdf.darkObsFile import ObsFile
+    from mkidpipeline.hdf.photontable import ObsFile
 except Exception as err:
     log.warning('Error importing darkObsFile: ' + str(err))
 
