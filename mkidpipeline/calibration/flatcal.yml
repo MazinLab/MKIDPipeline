@@ -22,7 +22,6 @@ exposure_time: 30
 flatcal: !configdict
   #This section provides the parameters specific to the flat calibration function
   countRateCutoff: 20000 #Count Rate Cutoff in seconds (number)
-  fractionOfChunksToTrim: 0 #Fraction of Chunks to trim (integer)
   #Integration time to break up larger h5 files into in seconds (number) (5 sec recommended)
   #Flatcal will calculate weights over EXPTIME/INTTIME time chunks and median-average them
   chunk_time: 30
