@@ -172,12 +172,12 @@ class WhiteCalibrator(object):
         self.cubeEffIntTimes = []
         for firstSec in range(0, self.expTime, self.intTime):  # for each time chunk
             cubeDict = self.obs.getSpectralCube(firstSec=firstSec, integrationTime=self.intTime, applySpecWeight=False,
-                                                applyTPFWeight=False, wvlBinEdges=self.wvlBinEdges,
-                                                timeSpacingCut=self.timeSpacingCut)
-            cube = cubeDict['cube']
-            effIntTime3d = cubeDict['effIntTime']
-            cube /= effIntTime3d
-            cube[np.isnan(cube)] = 0
+                                                applyTPFWeight=False, wvlBinEdges=self.wvlBinEdges)
+            cube = cubeDict['cube']/cubeDict['effIntTime'][:,:,None]
+            bad = np.isnan(cube)  #TODO need to update maskes to note why these 0s appeared
+            cube[bad] = 0
+
+            #TODO get rid of this second full query???
             rawFrameDict = self.obs.getPixelCountImage(firstSec=firstSec, integrationTime=self.intTime,
                                                        scaleByEffInt=True)
             rawFrame = np.array(rawFrameDict['image'], dtype=np.double)
@@ -190,7 +190,7 @@ class WhiteCalibrator(object):
             cube = cube * nonlinearFactors
             self.frames.append(frame)
             self.spectralCubes.append(cube)
-            self.cubeEffIntTimes.append(effIntTime3d)
+            self.cubeEffIntTimes.append(cubeDict['effIntTime'])
             getLogger(__name__).info('Loaded Flat Spectra for seconds {} to {}'.format(int(firstSec), int(firstSec) + int(self.intTime)))
 
         self.spectralCubes = np.array(self.spectralCubes)
