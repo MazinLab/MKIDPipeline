@@ -95,6 +95,7 @@ class WhiteCalibrator(object):
         self.beamImage = None
         self.wvlFlags = None
         self.wvlBinEdges = None
+        self.wvlBinSize= None
 
         self.logging = log
         self.save_plots = self.cfg.flatcal.plots.lower() == 'all'
@@ -106,7 +107,6 @@ class WhiteCalibrator(object):
         self.cubeEffIntTimes = None
         self.countCubes = None
         self.flatWeightsList = None
-        self.averageSpectra = None
         self.maskedCubeWeights = None
         self.maskedCubeDeltaWeights = None
         self.totalCube = None
@@ -127,6 +127,7 @@ class WhiteCalibrator(object):
         self.xpix = self.obs.nXPix
         self.ypix = self.obs.nYPix
         self.wvlBinEdges = self.obs.makeWvlBins(self.energyBinWidth, self.wvlStart, self.wvlStop)
+        self.wvlBinSize = self.wvlBinEdges.size - 1
 
     def makeCalibration(self):
         getLogger(__name__).info("Loading Data")
@@ -199,14 +200,13 @@ class WhiteCalibrator(object):
         """
         self.flatWeightsList = []
         cubeWeightsList = []
-        self.averageSpectra = []
         deltaWeightsList = []
         for iCube, cube in enumerate(self.spectralCubes):
             effIntTime = self.cubeEffIntTimes[iCube]
             # for each time chunk
-            wvlAverages = np.zeros(self.wvlBinEdges.size - 1)
-            spectra2d = np.reshape(cube, [self.xpix * self.ypix, self.wvlBinEdges.size - 1])
-            for iWvl in range(self.wvlBinEdges.size - 1):
+            wvlAverages = np.zeros(self.wvlBinSize)
+            spectra2d = np.reshape(cube, [self.xpix * self.ypix, self.wvlBinSize])
+            for iWvl in range(self.wvlBinSize):
                 wvlSlice = spectra2d[:, iWvl]
                 goodPixelWvlSlice = np.array(wvlSlice[wvlSlice != 0])
                 # dead pixels need to be taken out before calculating averages
@@ -228,7 +228,7 @@ class WhiteCalibrator(object):
 
             deltaWeights = weights / np.sqrt(effIntTime * cube)
             deltaWeightsList.append(deltaWeights)
-            self.averageSpectra.append(wvlAverages)
+
         cubeWeights = np.array(cubeWeightsList)
         deltaCubeWeights = np.array(deltaWeightsList)
         cubeWeightsMask = np.isnan(cubeWeights)
@@ -264,7 +264,7 @@ class WhiteCalibrator(object):
 
         self.deltaFlatWeights = np.sqrt(summedAveragingWeights ** -1.)
         self.flatFlags = self.flatWeights.mask
-        wvlWeightMedians = np.ma.median(np.reshape(self.flatWeights, (-1, self.wvlBinEdges.size - 1)), axis=0)
+        wvlWeightMedians = np.ma.median(np.reshape(self.flatWeights, (-1, self.wvlBinSize)), axis=0)
         self.flatWeights = np.divide(self.flatWeights, wvlWeightMedians)
         self.flatWeightsforplot = np.ma.sum(self.flatWeights, axis=-1)
 
@@ -281,7 +281,7 @@ class WhiteCalibrator(object):
         # path to your wavecal solution file
         wavesol=wavecal.Solution(self.wvlCalFile)
         matplotlib.rcParams['font.size'] = 4
-        wvls = self.wvlBinEdges[0:-1]
+        wvls = self.wvlBinEdges[0:self.wvlBinSize]
         nCubes = len(self.maskedCubeWeights)
         for iRow in range(self.xpix):
             for iCol in range(self.ypix):
@@ -347,7 +347,7 @@ class WhiteCalibrator(object):
         self.plotName = 'WvlSlices_{}'.format(timestamp)  #TODO @Isabel this is a bug
         self._setupPlots()
         matplotlib.rcParams['font.size'] = 4
-        wvls = self.wvlBinEdges[0:-1]
+        wvls = self.wvlBinEdges[0:self.wvlBinSize]
         for iWvl, wvl in enumerate(wvls):
             if self.iPlot % self.nPlotsPerPage == 0:
                 self.fig = plt.figure(figsize=(10, 10), dpi=100)
@@ -390,7 +390,7 @@ class WhiteCalibrator(object):
             self.plotName = 'MaskWvlSlices_{}'.format(timestamp)
             self._setupPlots()
         matplotlib.rcParams['font.size'] = 4
-        wvls = self.wvlBinEdges[0:-1]
+        wvls = self.wvlBinEdges[0:self.wvlBinSize]
         for iWvl, wvl in enumerate(wvls):
             if self.iPlot % self.nPlotsPerPage == 0:
                 self.fig = plt.figure(figsize=(10, 10), dpi=100)
@@ -439,7 +439,7 @@ class WhiteCalibrator(object):
                      title='Flat cal flags indexed by pixelRow,pixelCol,wavelengthBin. 0 is Good')
         tables.Array(calgroup, 'wavelengthBins', obj=self.wvlBinEdges,
                      title='Wavelength bin edges corresponding to third dimension of weights array')
-        descriptionDict = FlatCalSoln_Description(self.wvlBinEdges.size - 1)
+        descriptionDict = FlatCalSoln_Description(self.wvlBinSize)
         caltable = flatCalFile.create_table(calgroup, 'calsoln', descriptionDict, title='Flat Cal Table')
         for iRow in range(self.xpix):
             for iCol in range(self.ypix):
@@ -526,6 +526,7 @@ class LaserCalibrator(WhiteCalibrator):
         self.wave_list = self.sol.cfg.wavelengths
         self.wave_inttime_list = self.sol.cfg.exposure_times
         self.wvlBinEdges = self.wave_list
+        self.wvlBinSize = self.wvlBinEdges.size
 
     def loadFlatSpectra(self):
         cubeDict = self.make_spectralcube_from_wavecal()
