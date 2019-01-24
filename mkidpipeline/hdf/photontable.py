@@ -722,7 +722,8 @@ class ObsFile(object):
         #if getEffInt is True:
         return {'spectrum':spectrum, 'wvlBinEdges':wvlBinEdges, 'rawCounts':rawCounts}
 
-    def getSpectralCube(self, firstSec=0, integrationTime=-1, applySpecWeight=False, applyTPFWeight=False, wvlStart=700, wvlStop=1500,
+    def getSpectralCube(self, firstSec=0, integrationTime=None, applySpecWeight=False, applyTPFWeight=False,
+                        wvlStart=700, wvlStop=1500,
                         wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None, timeSpacingCut=None, flagToUse=0):
         """
         Return a time-flattened spectral cube of the counts integrated from firstSec to firstSec+integrationTime.
@@ -730,47 +731,77 @@ class ObsFile(object):
         If weighted is True, flat cal weights are applied.
         If fluxWeighted is True, spectral shape weights are applied.
         """
+        if wvlBinEdges is not None:
+            assert wvlBinWidth is None and energyBinWidth is None, 'Histogram bins are overspecified!'
+        elif energyBinWidth is not None:
+            assert wvlBinWidth is None, 'Cannot specify both wavelength and energy bin widths!'
+            wvlBinEdges = self.makeWvlBins(energyBinWidth=energyBinWidth, wvlStart=wvlStart, wvlStop=wvlStop)
+        elif wvlBinWidth is not None:
+            wvlBinEdges = np.linspace(wvlStart, wvlStop, num=int((wvlStop - wvlStart) / wvlBinWidth)+1)
+        else:
+            wvlBinEdges = self.defaultWvlBins.size
+        nWvlBins = wvlBinEdges.size - 1
 
-        cube = [[[] for yCoord in range(self.nYPix)] for xCoord in range(self.nXPix)]
-        effIntTime = np.zeros((self.nXPix,self.nYPix))
-        rawCounts = np.zeros((self.nXPix,self.nYPix))
-        if integrationTime==-1:
+        if integrationTime==-1 or integrationTime is None:
             integrationTime = self.getFromHeader('expTime')
+
+        cube = np.zeros((self.nXPix,self.nYPix,nWvlBins))
+        effIntTime = np.full((self.nXPix,self.nYPix), integrationTime)
+        rawCounts = np.zeros((self.nXPix,self.nYPix))
 
         masterPhotonList = self.query(startt=firstSec if firstSec else None, intt=integrationTime)
         emptyPhotonList = self.query()
-        
-        resIDDiffs = np.diff(masterPhotonList['ResID'])
-        if np.any(resIDDiffs < 0):
-            warnings.warn('Photon list not sorted by ResID! This could take a while...')
-            masterPhotonList = np.sort(masterPhotonList, order='ResID', kind='mergsort') #mergesort is stable, so time order will be preserved
-            resIDDiffs = np.diff(masterPhotonList['ResID'])
-        
-        resIDBoundaryInds = np.where(resIDDiffs>0)[0]+1 #indices in masterPhotonList where ResID changes; ie marks boundaries between pixel tables
-        resIDBoundaryInds = np.insert(resIDBoundaryInds, 0, 0)
-        resIDList = masterPhotonList['ResID'][resIDBoundaryInds]
-        resIDBoundaryInds = np.append(resIDBoundaryInds, len(masterPhotonList['ResID']))
 
-        for xCoord in range(self.nXPix):    
-            for yCoord in range(self.nYPix):  
-                resID = self.beamImage[xCoord, yCoord]
-                flag = self.beamFlagImage[xCoord, yCoord]
-                resIDInd = np.where(resIDList==resID)[0]
-                if np.shape(resIDInd)[0]>0 and (flag | flagToUse)==flagToUse:
-                    resIDInd = resIDInd[0]
-                    photonList = masterPhotonList[resIDBoundaryInds[resIDInd]:resIDBoundaryInds[resIDInd+1]]
-                else:
-                    photonList = emptyPhotonList
-                x = self._makePixelSpectrum(photonList, applySpecWeight=applySpecWeight,
-                                  applyTPFWeight=applyTPFWeight, wvlStart=wvlStart, wvlStop=wvlStop,
-                                  wvlBinWidth=wvlBinWidth, energyBinWidth=energyBinWidth,
-                                  wvlBinEdges=wvlBinEdges, timeSpacingCut=timeSpacingCut)
-                cube[xCoord][yCoord] = x['spectrum']
-                effIntTime[xCoord][yCoord] = integrationTime
-                rawCounts[xCoord][yCoord] = x['rawCounts']
-                wvlBinEdges = x['wvlBinEdges']
-        cube = np.array(cube)
-        return {'cube':cube,'wvlBinEdges':wvlBinEdges,'effIntTime':effIntTime, 'rawCounts':rawCounts}
+        #self.photonTable.itersorted('ResID', checkCSI=True) option one
+
+        #option 2 pytables
+        # grouped = df.groupby('A')
+        # for name, group in grouped:
+
+        #option 3 numpy_iter package
+        #GroupBy(masterPhotonList['ResID']).split_sequence_as_iterable(masterPhotonList)
+
+        #Option 4 np.histogram 2d ~5.25s on MEC data with 30Mphot
+        weights = None
+        if applySpecWeight:
+            weights = masterPhotonList['SpecWeight']
+        if applyTPFWeight:
+            if weights is not None:
+                weights *= masterPhotonList['NoiseWeight']
+            else:
+                weights = masterPhotonList['NoiseWeight']
+
+        tic = time.time()
+        ridbins = sorted(self.beamImage.ravel())
+        ridbins = np.append(ridbins, max(ridbins)+1)
+        hist, xedg, yedg = np.histogram2d(masterPhotonList['ResID'], masterPhotonList['Wavelength'],
+                                          bins=(ridbins, wvlBinEdges), weights=weights)
+
+        toc = time.time()
+        xe = xedg[:-1]
+        for (x, y), resID in np.ndenumerate(self.beamImage): #3% % of the time
+            if not (self.beamFlagImage[x, y] | flagToUse) == flagToUse:
+                continue
+            cube[x, y, :] = hist[xe==resID]
+        toc2 = time.time()
+        getLogger(__name__).debug('Histogramed data in {:.2f} s, reformatting in {:.2f}'.format(toc2-tic, toc2-toc))
+
+        #Option 5: legacy 1183 s on MEC data with 30Mphot
+        # cube2 = np.zeros((self.nXPix, self.nYPix, nWvlBins))
+        # tic = time.time()
+        # resIDs = masterPhotonList['ResID']
+        # for (xCoord, yCoord), resID in np.ndenumerate(self.beamImage): #162 ms/loop
+        #     flag = self.beamFlagImage[xCoord, yCoord]
+        #     #all the time
+        #     photonList = masterPhotonList[resIDs == resID] if (flag | flagToUse) == flagToUse else emptyPhotonList
+        #     x = self._makePixelSpectrum(photonList, applySpecWeight=applySpecWeight, applyTPFWeight=applyTPFWeight,
+        #                                 wvlBinEdges=wvlBinEdges)
+        #     cube2[xCoord, yCoord, :] = x['spectrum']
+        #     rawCounts[xCoord, yCoord] = x['rawCounts']
+        # toc = time.time()
+        # getLogger(__name__).debug(('Cubed data in {:.2f} s using old'
+        #                           ' approach. Cubes same {}').format(toc - tic, (cube==cube2).all()))
+        return {'cube': cube, 'wvlBinEdges': wvlBinEdges, 'effIntTime': effIntTime, 'rawCounts': rawCounts}
 
     def getPixelSpectrum(self, xCoord, yCoord, firstSec=0, integrationTime= -1,
                          applySpecWeight=False, applyTPFWeight=False, wvlStart=None, wvlStop=None,
