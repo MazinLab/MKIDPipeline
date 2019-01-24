@@ -529,7 +529,6 @@ class LaserCalibrator(WhiteCalibrator):
         super().__init__(*args, **kwargs)
         self.wave_list = self.cfg.wave_list
         self.wave_inttime_list = self.cfg.wave_inttime_list
-        self.laserFlag = self.cfg.laserFlag
 
     def fetchWaveBinEdges(self):
         return self.wave_list
@@ -537,9 +536,7 @@ class LaserCalibrator(WhiteCalibrator):
     def loadFlatSpectra(self):
         cubeDict = self.make_spectralcube_from_wavecal()
         cube = np.array(cubeDict['cube'], dtype=np.double)
-        effIntTime = cubeDict['effIntTime']
-        # add third dimension for broadcasting
-        effIntTime3d = np.reshape(effIntTime, np.shape(effIntTime) + (1,))
+        effIntTime3d = cubeDict['effIntTime3d']
         cube /= effIntTime3d
         cube[np.isnan(cube)] = 0
 
@@ -556,20 +553,19 @@ class LaserCalibrator(WhiteCalibrator):
         eff_int_time_3d = np.zeros([self.xpix, self.ypix, nWavs])
         gaussian_names = ['GaussianAndExponential', 'GaussianAndGaussian', 'GaussianAndGaussianExponential',
                           'SkewedGaussianAndGaussianExponential']
-        for nRow in range(nRows):
-            for nCol in range(nCols):
+        for nRow in range(self.xpix):
+            for nCol in range(self.ypix):
                 good_cal = sol.has_good_calibration_solution(pixel=[nRow, nCol])
                 if good_cal:
                     params = sol.histogram_parameters(pixel=[nRow, nCol])
                     model_names = sol.histogram_model_names(pixel=[nRow, nCol])
                     good_sol = sol.has_good_histogram_solutions(pixel=[nRow, nCol])
                     for iwvl, wvl in enumerate(wave_list):
-                        if good_sol[iwvl]:
-                            if model_names[iwvl] in gaussian_names:
-                                sig_center = params[iwvl]['signal_center'].value
-                                sigma = params[iwvl]['signal_sigma'].value
-                                amp_scaled = params[iwvl]['signal_amplitude'].value
-                                wvl_intensity = np.sqrt(sigma) * amp_scaled
+                        if good_sol[iwvl] and model_names[iwvl] in gaussian_names:
+                            sig_center = params[iwvl]['signal_center'].value
+                            sigma = params[iwvl]['signal_sigma'].value
+                            amp_scaled = params[iwvl]['signal_amplitude'].value
+                            wvl_intensity = np.sqrt(sigma) * amp_scaled
                             spectralcube[nRow, nCol, iwvl] = wvl_intensity
                             eff_int_time_3d[nRow, nCol, iwvl] = self.wave_inttime_list[iwvl]
         cubeDict = {'cube': spectralcube, 'effIntTime3d': eff_int_time_3d}
@@ -663,7 +659,7 @@ def fetch(solution_descriptors, config=None, ncpu=1, async=False, force_h5=False
             fcfg.unregister('wavesol')
             fcfg.unregister('h5file')
 
-            flattner = WhiteCalibrator(fcfg, cal_file_name=sd.id)
+            flattner = FlatCal(fcfg, cal_file_name=sd.id)
             flattner.makeCalibration()
 
 
@@ -692,7 +688,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    flattner = FlatCal(args.cfgfile, cal_file_name='calsol_{}.h5'.format(timestamp))
+    flattner = WhiteCalibrator(args.cfgfile, cal_file_name='calsol_{}.h5'.format(timestamp))
 
     if not os.path.isfile(flattner.cfg.h5file):
         b2h_config = bin2hdf.Bin2HdfConfig(datadir=flattner.cfg.paths.data, beamfile=flattner.cfg.beammap.file,
