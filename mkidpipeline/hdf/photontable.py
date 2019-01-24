@@ -199,7 +199,7 @@ class ObsFile(object):
         """
         entry = self.info[self.titles.index(name)]
         return entry
-    
+
     def pixelIsBad(self, xCoord, yCoord, forceWvl=False, forceWeights=False, forceTPFWeights=False):
         """
         Returns True if the pixel wasn't read out or if a given calibration failed when needed
@@ -293,6 +293,8 @@ class ObsFile(object):
         :return:
         """
 
+        startt = startt if startt else None  #don't query on 0 its slower
+
         try:
             startt = int(startt * self.ticksPerSec)  # convert to us
         except TypeError:
@@ -367,7 +369,10 @@ class ObsFile(object):
             except SyntaxError:
                 raise
             toc = time.time()
-            getLogger(__name__).debug('Query {} for {} took {:.3f}s'.format(self.fileName, query, toc-tic))
+            msg = 'Retrieved {} rows in {:.3f}s using indices {} for query {}'
+            getLogger(__name__).debug(msg.format(len(q), toc-tic,
+                                                 tuple(self.photonTable.will_query_use_indexing(query)),
+                                                 query))
             return q
 
     def getListOfPixelsPhotonList(self, posList, **kwargs):
@@ -662,8 +667,7 @@ class ObsFile(object):
         wvlBinWidth = kwargs.pop('wvlBinWidht', None)
         energyBinWidth = kwargs.pop('energyBinWidth', None)
         wvlBinEdges = kwargs.pop('wvlBinEdges', None)
-        timeSpacingCut = kwargs.pop('timeSpacingCut', None)
-        
+
         wvlStart=wvlStart if (wvlStart!=None and wvlStart>0.) else (self.wvlLowerLimit if (self.wvlLowerLimit!=None and self.wvlLowerLimit>0.) else 700)
         wvlStop=wvlStop if (wvlStop!=None and wvlStop>0.) else (self.wvlUpperLimit if (self.wvlUpperLimit!=None and self.wvlUpperLimit>0.) else 1500)
 

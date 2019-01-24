@@ -137,6 +137,7 @@ csifile = '/mnt/data0/baileyji/mec/h5/1545542180_csi.h5'
 csitimefile = '/mnt/data0/baileyji/mec/h5/1545542180_csi_time.h5'
 binfile = '/mnt/data0/baileyji/mec/h5/1545542180_bin2hdf.h5'
 ulitimefile = '/mnt/data0/baileyji/mec/h5/1545542180_time.h5'
+uli9timefile = '/mnt/data0/baileyji/mec/h5/1545542180_time_ul9.h5'
 ulitimenoindexfile = '/mnt/data0/baileyji/mec/h5/1545542180_time_notindex.h5'
 ulinoindexfile = '/mnt/data0/baileyji/mec/h5/1545542180_noridindex.h5'
 ulifile = '/mnt/data0/baileyji/mec/h5/1545542180_ul6.h5'
@@ -149,7 +150,7 @@ resid = 91416
 resids = [91416,101119,90116,80881,81572,101471,90267,10603,80867,80180]
 
 
-for f in [ObsFile(csitimefile)]:
+for f in [ObsFile(uli9timefile)]:
     f.query(resid=resid, startt=firstSec, intt=intTime, startw=wvlStart, stopw=wvlStop)
     f.query(resid=resid)
     f.query(resid=resids)
