@@ -172,10 +172,10 @@ class WhiteCalibrator(object):
         self.cubeEffIntTimes = []
         for firstSec in range(0, self.expTime, self.intTime):  # for each time chunk
             cubeDict = self.obs.getSpectralCube(firstSec=firstSec, integrationTime=self.intTime, applySpecWeight=False,
-                                            applyTPFWeight=False, wvlBinEdges=self.wvlBinEdges, energyBinWidth=None,
-                                            timeSpacingCut=self.timeSpacingCut)
-            cube = np.array(cubeDict['cube'], dtype=np.double)
-            effIntTime3d = cubeDict['effIntTime3d']
+                                                applyTPFWeight=False, wvlBinEdges=self.wvlBinEdges,
+                                                timeSpacingCut=self.timeSpacingCut)
+            cube = cubeDict['cube']
+            effIntTime3d = cubeDict['effIntTime']
             cube /= effIntTime3d
             cube[np.isnan(cube)] = 0
             rawFrameDict = self.obs.getPixelCountImage(firstSec=firstSec, integrationTime=self.intTime,
