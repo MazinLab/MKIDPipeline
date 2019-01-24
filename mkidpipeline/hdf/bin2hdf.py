@@ -45,7 +45,7 @@ def _get_dir_for_start(base, start):
         raise ValueError('No directory in {} found for start {}'.format(base, start))
 
 
-def build_pytables(cfg, index=('ultralight', 6)):
+def build_pytables(cfg, index=('ultralight', 6), timesort=True):
     if cfg.starttime < 1518222559:
         raise ValueError('Data prior to 1518222559 not supported without added fixtimestamps')
 
@@ -57,6 +57,10 @@ def build_pytables(cfg, index=('ultralight', 6)):
     photons = extract(cfg.datadir, cfg.starttime, cfg.inttime, cfg.beamfile, cfg.x, cfg.y)
 
     getLogger(__name__).debug('Data Extracted')
+
+    if timesort:
+        photons.sort(order=('timestamp', 'resID'))
+        getLogger(__name__).debug('Data sorted on time')
 
     h5file = tables.open_file(cfg.h5file, mode="a", title="MKID Photon File")
     group = h5file.create_group("/", 'Photons', 'Photon Information')
@@ -389,15 +393,16 @@ class HDFBuilder(object):
                 getLogger(__name__).info('H5 {} already built. Remake not requested. Done.'.format(self.cfg.h5file))
                 self.done.set()
 
-    def run(self, polltime=0.1, usepytables=True, index=('ultralight', 6)):
+    def run(self, polltime=0.1, usepytables=True, **kwargs):
+        """kwargs is passed on to build_pytables or buildbin2hdf"""
         self.handle_existing()
         if self.done.is_set():
+            getLogger(__name__).info('Already run')
             return
 
         if usepytables:
-            build_pytables(self.cfg, index=index)
+            build_pytables(self.cfg, **kwargs)
             self.done.set()
-            return
         else:
             build_bin2hdf(self.cfg, self.exc, polltime=polltime)
             self.done.set()
@@ -408,7 +413,7 @@ def runbuilder(b):
     b.run()
 
 
-def buildtables(timeranges, config=None, ncpu=1, asynchronous=False, remake=False):
+def gen_configs(timeranges, config=None):
     cfg = mkidpipeline.config.config if config is None else config
 
     timeranges = list(set(timeranges))
@@ -419,6 +424,14 @@ def buildtables(timeranges, config=None, ncpu=1, asynchronous=False, remake=Fals
                            beammap=cfg.beammap, outdir=cfg.paths.out,
                            starttime=start_t, inttime=end_t - start_t)
         b2h_configs.append(bc)
+
+    return b2h_configs
+
+
+def buildtables(timeranges, config=None, ncpu=1, asynchronous=False, remake=False):
+    timeranges = list(set(timeranges))
+
+    b2h_configs = gen_configs(timeranges, config)
 
     builders = [HDFBuilder(c, force=remake) for c in b2h_configs]
     events = [b.done for b in builders]
