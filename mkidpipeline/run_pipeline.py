@@ -56,19 +56,19 @@ Attach WCS Info (This is a function of the time and beammap)
 #TODO we need a way to autofetch all the parameters for steps of the pipeline (or at least standardize)
 #TODO configure wavecal logging pulling from wavecal.setup_logging as needed
 
+
+
 import os
 import numpy as np
 import mkidpipeline.hdf.bin2hdf as bin2hdf
 import mkidpipeline.calibration.wavecal as wavecal
 import mkidpipeline.calibration.flatcal as flatcal
-import mkidpipeline.config
-from mkidpipeline.hdf.mkidbin import extract, test
-from mkidcore.headers import ObsFileCols, ObsHeader
-import mkidpipeline.hdf.bin2hdf as bin2hdf
-import tables
-
-from mkidcore.config import getLogger
 import mkidpipeline.badpix as badpix
+import mkidpipeline.config
+import tables
+import tables.parameters
+from mkidcore.config import getLogger
+
 
 datafile = '/mnt/data0/baileyji/mec/data.yml'
 cfgfile = '/mnt/data0/baileyji/mec/pipe.yml'
@@ -76,33 +76,19 @@ mkidpipeline.config.configure_pipeline(cfgfile)
 mkidpipeline.config.logtoconsole()
 c = input = mkidpipeline.config.load_data_description(datafile)
 pcfg = mkidpipeline.config.config
+bcfgs = bin2hdf.gen_configs(input.timeranges)
+# getLogger('mkidpipeline.calibration.wavecal').setLevel('INFO')
+# getLogger('mkidpipeline.hdf.photontable').setLevel('INFO')
 
-# wcc = './src/mkidpipeline/mkidpipeline/calibration/wavecal.yml'
-# mkidpipeline.config.load_task_config(wcc)
-#2019-01-14 13:21:16,676 DEBUG Running async on 5 builders (pid=14760)
 
-getLogger('mkidpipeline.calibration.wavecal').setLevel('INFO')
-getLogger('mkidpipeline.hdf.photontable').setLevel('INFO')
-
-x = bin2hdf.buildtables(input.timeranges, asynchronous=0, ncpu=6)
-wavecals = wavecal.fetch(input.wavecals, async=True, verbose=False)
+# x = bin2hdf.buildtables(input.timeranges, asynchronous=0, ncpu=6)
+#wavecals = wavecal.fetch(input.wavecals, async=True, verbose=False)
 
 #noise.calibrate(table)
 
-
-# for f in glob('*.h5'):
-#     h5=tables.open_file(f,mode='a')
-#     group = h5.get_node("/BeamMap")
-#     a=np.array(h5.get_node('/BeamMap/Flag'),dtype=int)
-#     h5.remove_node('/BeamMap/Flag')
-#     h5.create_array(group, 'Flag', a, 'flag map')
-#     a=np.array(h5.get_node('/BeamMap/Map'),dtype=int)
-#     h5.remove_node('/BeamMap/Map')
-#     h5.create_array(group, 'Map', a, 'resID map')
-#     h5.close()
-
 flatcals = flatcal.fetch(input.flatcals, async=True)
 
+raise RuntimeError()
 
 table.applyWaveCal(wavecals)
 table.applyFlatCal(flatcals)
