@@ -75,10 +75,22 @@ from PyPDF2 import PdfFileMerger, PdfFileReader
 import tables.parameters
 
 TBRERROR = RuntimeError('Function needs to be reviewed')
-#
+
+tables.parameters.MAX_NUMEXPR_THREADS = 16
+tables.parameters.MAX_BLOSC_THREADS = 8
+
+
 # tables.parameters.CHUNK_CACHE_NELMTS = 1e6
-# tables.parameters.CHUNK_CACHE_SIZE = 20 * 1024*1024*1024
-# tables.parameters.TABLE_MAX_SIZE = 20 * 1024*1024*1024  #default 1MB
+tables.parameters.CHUNK_CACHE_SIZE = 2 * 1024*1024*1024
+
+tables.parameters.TABLE_MAX_SIZE = 2 * 1024*1024*1024  #default 1MB
+# This will create a chunk cache that will store table data, if a row is
+# 20 bytes (as is our present state)
+# nslots = TABLE_MAX_SIZE / (chunksize * rowsize_bytes)
+# so number of rows in the cache is ~ TABLE_MAX_SIZE/rowsize_bytes
+# one 1s of 20k pix data @ 2500c/s is 0.95GB
+
+
 # tables.parameters.SORTEDLR_MAX_SIZE = 1 *1024*1024*1024 # default 8MB
 # tables.parameters.SORTED_MAX_SIZE = 1 *1024*1024*1024 # default 1MB
 # tables.parameters.LIMBOUNDS_MAX_SIZE = 1 *1024*1024*1024
