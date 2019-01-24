@@ -746,22 +746,11 @@ class ObsFile(object):
             integrationTime = self.getFromHeader('expTime')
 
         cube = np.zeros((self.nXPix,self.nYPix,nWvlBins))
+        # TODO Actually compute the effective integration time
         effIntTime = np.full((self.nXPix,self.nYPix), integrationTime)
-        rawCounts = np.zeros((self.nXPix,self.nYPix))
 
         masterPhotonList = self.query(startt=firstSec if firstSec else None, intt=integrationTime)
-        emptyPhotonList = self.query()
 
-        #self.photonTable.itersorted('ResID', checkCSI=True) option one
-
-        #option 2 pytables
-        # grouped = df.groupby('A')
-        # for name, group in grouped:
-
-        #option 3 numpy_iter package
-        #GroupBy(masterPhotonList['ResID']).split_sequence_as_iterable(masterPhotonList)
-
-        #Option 4 np.histogram 2d ~5.25s on MEC data with 30Mphot
         weights = None
         if applySpecWeight:
             weights = masterPhotonList['SpecWeight']
@@ -771,6 +760,17 @@ class ObsFile(object):
             else:
                 weights = masterPhotonList['NoiseWeight']
 
+        #option one
+        #self.photonTable.itersorted('ResID', checkCSI=True)
+
+        #option 2 pytables
+        # grouped = df.groupby('A')
+        # for name, group in grouped:
+
+        #option 3 numpy_iter package
+        #GroupBy(masterPhotonList['ResID']).split_sequence_as_iterable(masterPhotonList)
+
+        #Option 4 np.histogram 2d ~5.25s on MEC data with 30Mphot
         tic = time.time()
         ridbins = sorted(self.beamImage.ravel())
         ridbins = np.append(ridbins, max(ridbins)+1)
@@ -788,6 +788,7 @@ class ObsFile(object):
 
         #Option 5: legacy 1183 s on MEC data with 30Mphot
         # cube2 = np.zeros((self.nXPix, self.nYPix, nWvlBins))
+        # rawCounts = np.zeros((self.nXPix,self.nYPix))
         # tic = time.time()
         # resIDs = masterPhotonList['ResID']
         # for (xCoord, yCoord), resID in np.ndenumerate(self.beamImage): #162 ms/loop
@@ -801,7 +802,7 @@ class ObsFile(object):
         # toc = time.time()
         # getLogger(__name__).debug(('Cubed data in {:.2f} s using old'
         #                           ' approach. Cubes same {}').format(toc - tic, (cube==cube2).all()))
-        return {'cube': cube, 'wvlBinEdges': wvlBinEdges, 'effIntTime': effIntTime, 'rawCounts': rawCounts}
+        return {'cube': cube, 'wvlBinEdges': wvlBinEdges, 'effIntTime': effIntTime}
 
     def getPixelSpectrum(self, xCoord, yCoord, firstSec=0, integrationTime= -1,
                          applySpecWeight=False, applyTPFWeight=False, wvlStart=None, wvlStop=None,
