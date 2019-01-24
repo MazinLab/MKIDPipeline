@@ -102,7 +102,6 @@ class WhiteCalibrator(object):
         if self.save_plots:
             getLogger(__name__).warning("Comanded to save debug plots, this will add ~30 min to runtime.")
 
-        self.frames = None
         self.spectralCubes = None
         self.cubeEffIntTimes = None
         self.countCubes = None
@@ -121,20 +120,17 @@ class WhiteCalibrator(object):
         self.plotName = None
         self.fig = None #TODO @Isabel lets talk about if this is really needed as a class attribute
 
-    def loadh5(self):
+    def loadData(self):
         self.obs = ObsFile(self.h5file)
         self.beamImage = self.obs.beamImage
         self.wvlFlags = self.obs.beamFlagImage
         self.xpix = self.obs.nXPix
         self.ypix = self.obs.nYPix
-        self.wvlBinEdges = self.fetchWaveBinEdges()
-
-    def fetchWaveBinEdges(self):
-        return self.obs.makeWvlBins(self.energyBinWidth, self.wvlStart, self.wvlStop)
+        self.wvlBinEdges = self.obs.makeWvlBins(self.energyBinWidth, self.wvlStart, self.wvlStop)
 
     def makeCalibration(self):
-        getLogger(__name__).info("Loading H5")
-        self.loadh5()
+        getLogger(__name__).info("Loading Data")
+        self.loadData()
         getLogger(__name__).info("Loading flat spectra")
         self.loadFlatSpectra()
         getLogger(__name__).info("Checking count rates")
@@ -167,42 +163,35 @@ class WhiteCalibrator(object):
         To be used for whitelight flat data
         """
 
-        self.frames = []
         self.spectralCubes = []
         self.cubeEffIntTimes = []
         for firstSec in range(0, self.expTime, self.intTime):  # for each time chunk
             cubeDict = self.obs.getSpectralCube(firstSec=firstSec, integrationTime=self.intTime, applySpecWeight=False,
-                                                applyTPFWeight=False, wvlBinEdges=self.wvlBinEdges)
+                                                applyTPFWeight=False, wvlBinEdges=self.wvlBinEdges,
+                                                deadtimeCorrection=True)
             cube = cubeDict['cube']/cubeDict['effIntTime'][:,:,None]
+            cube /= (1 - cube.sum(axis=2) * self.deadtime)
             bad = np.isnan(cube)  #TODO need to update maskes to note why these 0s appeared
             cube[bad] = 0
 
-            #TODO get rid of this second full query???
-            rawFrameDict = self.obs.getPixelCountImage(firstSec=firstSec, integrationTime=self.intTime,
-                                                       scaleByEffInt=True)
-            rawFrame = np.array(rawFrameDict['image'], dtype=np.double)
-            rawFrame /= rawFrameDict['effIntTimes']
-            nonlinearFactors = 1. / (1. - rawFrame * self.deadtime)
-            nonlinearFactors[np.isnan(nonlinearFactors)] = 0.
-            frame = np.sum(cube, axis=2)  # in counts per sec
-            frame = frame * nonlinearFactors
-            nonlinearFactors = np.reshape(nonlinearFactors, np.shape(nonlinearFactors) + (1,))
-            cube = cube * nonlinearFactors
-            self.frames.append(frame)
             self.spectralCubes.append(cube)
             self.cubeEffIntTimes.append(cubeDict['effIntTime'])
-            getLogger(__name__).info('Loaded Flat Spectra for seconds {} to {}'.format(int(firstSec), int(firstSec) + int(self.intTime)))
+            msg = 'Loaded Flat Spectra for seconds {} to {}'.format(int(firstSec), int(firstSec) + int(self.intTime))
+            getLogger(__name__).info(msg)
 
         self.spectralCubes = np.array(self.spectralCubes)
         self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
         self.countCubes = self.cubeEffIntTimes * self.spectralCubes
+
+    @property
+    def frames(self):
+        return self.spectralCubes.sum(axis=2)
 
     def checkCountRates(self):
         """ mask out frames, or cubes from integration time chunks with count rates too high """
         medianCountRates = np.array([np.median(frame[frame != 0]) for frame in self.frames])
         mask = medianCountRates <= self.countRateCutoff
         self.spectralCubes = np.array([cube for cube, use in zip(self.spectralCubes, mask) if use])
-        self.frames = [frame for frame, use in zip(self.frames, mask) if use]
 
     def calculateWeights(self):
         """
@@ -527,11 +516,20 @@ class WhiteCalibrator(object):
 class LaserCalibrator(WhiteCalibrator):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.wave_list = self.cfg.wave_list
-        self.wave_inttime_list = self.cfg.wave_inttime_list
 
-    def fetchWaveBinEdges(self):
-        return self.wave_list
+
+    def loadData(self):
+        self.sol = wavecal.Solution(self.wvlCalFile)
+        #TODO extract from sol or delete if unused
+        # self.beamImage = self.obs.beamImage
+        # self.wvlFlags = self.obs.beamFlagImage
+        # self.xpix = self.obs.nXPix
+        # self.ypix = self.obs.nYPix
+        # self.wave_list = self.sol.wavelengths
+        # self.wave_inttime_list =
+        # self.wvlBinEdges = self.wave_list
+        # self.wave_list = self.cfg.wave_list
+        # self.wave_inttime_list = self.cfg.wave_inttime_list
 
     def loadFlatSpectra(self):
         cubeDict = self.make_spectralcube_from_wavecal()
@@ -539,37 +537,35 @@ class LaserCalibrator(WhiteCalibrator):
         effIntTime3d = cubeDict['effIntTime3d']
         cube /= effIntTime3d
         cube[np.isnan(cube)] = 0
-
         self.spectralCubes = np.array(cube)
         self.cubeEffIntTimes = np.array(effIntTime3d)
         self.countCubes = self.cubeEffIntTimes * self.spectralCubes
 
     def make_spectralcube_from_wavecal(self):
-        sol = wavecal.Solution(self.wvlCalFile)
+
         wave_list = self.wave_list
         nWavs = len(self.wave_list)
         spectralcube = np.zeros([self.xpix, self.ypix, nWavs])
         spectralcube[:, :, :] = np.nan
         eff_int_time_3d = np.zeros([self.xpix, self.ypix, nWavs])
-        gaussian_names = ['GaussianAndExponential', 'GaussianAndGaussian', 'GaussianAndGaussianExponential',
+        gaussian_names = ['GaussianAndExponential', 'GaussianAndGaussian',
+                          'GaussianAndGaussianExponential',
                           'SkewedGaussianAndGaussianExponential']
         for nRow in range(self.xpix):
             for nCol in range(self.ypix):
-                good_cal = sol.has_good_calibration_solution(pixel=[nRow, nCol])
+                good_cal = self.sol.has_good_calibration_solution(pixel=[nRow, nCol])
                 if good_cal:
-                    params = sol.histogram_parameters(pixel=[nRow, nCol])
-                    model_names = sol.histogram_model_names(pixel=[nRow, nCol])
-                    good_sol = sol.has_good_histogram_solutions(pixel=[nRow, nCol])
+                    params = self.sol.histogram_parameters(pixel=[nRow, nCol])
+                    model_names = self.sol.histogram_model_names(pixel=[nRow, nCol])
+                    good_sol = self.sol.has_good_histogram_solutions(pixel=[nRow, nCol])
                     for iwvl, wvl in enumerate(wave_list):
                         if good_sol[iwvl] and model_names[iwvl] in gaussian_names:
-                            sig_center = params[iwvl]['signal_center'].value
                             sigma = params[iwvl]['signal_sigma'].value
                             amp_scaled = params[iwvl]['signal_amplitude'].value
                             wvl_intensity = np.sqrt(sigma) * amp_scaled
                             spectralcube[nRow, nCol, iwvl] = wvl_intensity
                             eff_int_time_3d[nRow, nCol, iwvl] = self.wave_inttime_list[iwvl]
-        cubeDict = {'cube': spectralcube, 'effIntTime3d': eff_int_time_3d}
-        return (cubeDict)
+        return {'cube': spectralcube, 'effIntTime3d': eff_int_time_3d}
 
 
 def summaryPlot(calsolnName, save_plot=False):
