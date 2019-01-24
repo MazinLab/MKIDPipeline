@@ -723,8 +723,8 @@ class ObsFile(object):
         return {'spectrum':spectrum, 'wvlBinEdges':wvlBinEdges, 'rawCounts':rawCounts}
 
     def getSpectralCube(self, firstSec=0, integrationTime=None, applySpecWeight=False, applyTPFWeight=False,
-                        wvlStart=700, wvlStop=1500,
-                        wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None, timeSpacingCut=None, flagToUse=0):
+                        wvlStart=700, wvlStop=1500, wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None,
+                        flagToUse=0):
         """
         Return a time-flattened spectral cube of the counts integrated from firstSec to firstSec+integrationTime.
         If integration time is -1, all time after firstSec is used.
