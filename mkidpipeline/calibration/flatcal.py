@@ -520,16 +520,13 @@ class LaserCalibrator(WhiteCalibrator):
 
     def loadData(self):
         self.sol = wavecal.Solution(self.wvlCalFile)
-        #TODO extract from sol or delete if unused
-        # self.beamImage = self.obs.beamImage
-        # self.wvlFlags = self.obs.beamFlagImage
-        # self.xpix = self.obs.nXPix
-        # self.ypix = self.obs.nYPix
-        # self.wave_list = self.sol.wavelengths
-        # self.wave_inttime_list =
-        # self.wvlBinEdges = self.wave_list
-        # self.wave_list = self.cfg.wave_list
-        # self.wave_inttime_list = self.cfg.wave_inttime_list
+        self.beamImage = self.sol.beam_map
+        self.wvlFlags = self.sol.beam_map_flags
+        self.xpix =self.sol.cfg.x_pixels
+        self.ypix = self.sol.cfg.y_pixels
+        self.wave_list = self.sol.cfg.wavelengths
+        self.wave_inttime_list = self.sol.cfg.exposure_times
+        self.wvlBinEdges = self.wave_list
 
     def loadFlatSpectra(self):
         cubeDict = self.make_spectralcube_from_wavecal()
