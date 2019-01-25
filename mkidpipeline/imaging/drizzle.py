@@ -23,12 +23,58 @@ from utils import utils
 from mkidpipeline.hdf.photontable import ObsFile
 import CentroidCalc
 
+from mkidpipeline.config import MKIDObservingDataDescription, MKIDObservingDither
 from pprint import pprint
 
 from inspect import getframeinfo, stack
 def dprint(message):
     caller = getframeinfo(stack()[1][0])
     print("%s:%d - %s" % (caller.filename, caller.lineno, message))
+
+def form(observations, *args, cfg=None, **kwargs):
+    """
+    Form a (possibly drizzled) image from a set of observations. Forms a simple image for single observations.
+
+    TODO Sort out what arguments and kw arguments are needed
+    """
+    try:
+        iter(observations)
+    except:
+        observations = tuple(observations)
+
+    for obs in observations:
+        if isinstance(obs, MKIDObservingDataDescription):
+            #TODO formImage on a single obs per
+            raise NotImplementedError
+        elif isinstance(obs, MKIDObservingDither):
+            #TODO form from a dither
+            drizzleDither(obs, *args, **kwargs)
+        else:
+            #TODO do we need to enable drizzling lists of arbitrary observations?
+            raise ValueError('Unknown input')
+
+def drizzleDither(dither, *args, **kwargs):
+    """Form a drizzled image from a dither"""
+    drizzleddata = drizzle([ObsFile(get_h5_filename(ob)) for ob in dither], **kwargs)
+    drizzleddata.save(dither.name)
+
+
+def drizzle(obsfiles, metadata):
+    """ make a drizzled dataproduct from a list of obsfiles"""
+    raise NotImplementedError
+    #TODO Implement
+    #assume obsfiles either have their metadata or needed metadata is passed, e.g. WCS information, target info, etc
+
+    #Determine what we are drizzling onto
+    #e.g. 4d equivalent (sky_x, sky_y, wave, time) of an rdi.RADecImage
+
+    #Create thing (and its factory if it can't drizzle data into itself)
+
+    #Drizzle each photonlist into the output
+
+    #return the output
+
+
 
 def makeImageStack(fileNames='*.h5', dir=os.getenv('MKID_PROC_PATH', default="/Scratch") + 'photonLists/',
                    dithLogFilename = 'KAnd_1545626974_dither.log', detImage=False, saveFileName='stackedImage.pkl',
