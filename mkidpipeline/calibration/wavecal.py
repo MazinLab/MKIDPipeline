@@ -2310,7 +2310,7 @@ class Solution(object):
         axes.clear()
 
 
-def fetch(solution_descriptors, config=None, async=False, **kwargs):
+def fetch(solution_descriptors, config=None, **kwargs):
     cfg = mkidpipeline.config.config if config is None else config
 
     solutions = []
