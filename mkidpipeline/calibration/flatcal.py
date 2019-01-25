@@ -529,13 +529,17 @@ class LaserCalibrator(WhiteCalibrator):
         self.wvlBinSize = self.wvlBinEdges.size
 
     def loadFlatSpectra(self):
+        self.spectralCubes = []
+        self.cubeEffIntTimes = []
         cubeDict = self.make_spectralcube_from_wavecal()
         cube = np.array(cubeDict['cube'], dtype=np.double)
         effIntTime3d = cubeDict['effIntTime3d']
         cube /= effIntTime3d
         cube[np.isnan(cube)] = 0
-        self.spectralCubes = np.array(cube)
-        self.cubeEffIntTimes = np.array(effIntTime3d)
+        self.spectralCubes.append(cube)
+        self.spectralCubes = np.array(self.spectralCubes)
+        self.cubeEffIntTimes.append(effIntTime3d)
+        self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
         self.countCubes = self.cubeEffIntTimes * self.spectralCubes
 
     def make_spectralcube_from_wavecal(self):
