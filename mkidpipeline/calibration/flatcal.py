@@ -167,10 +167,9 @@ class WhiteCalibrator(object):
         self.cubeEffIntTimes = []
         for firstSec in range(0, self.expTime, self.intTime):  # for each time chunk
             cubeDict = self.obs.getSpectralCube(firstSec=firstSec, integrationTime=self.intTime, applySpecWeight=False,
-                                                applyTPFWeight=False, wvlBinEdges=self.wvlBinEdges,
-                                                deadtimeCorrection=True)
-            cube = cubeDict['cube']/cubeDict['effIntTime'][:,:,None]
-            cube /= (1 - cube.sum(axis=2) * self.deadtime)
+                                                applyTPFWeight=False, wvlBinEdges=self.wvlBinEdges)
+            cube = cubeDict['cube']/cubeDict['effIntTime'][:, :, None]
+            cube /= (1 - cube.sum(axis=2) * self.deadtime)[:,:,None]
             bad = np.isnan(cube)  #TODO need to update maskes to note why these 0s appeared
             cube[bad] = 0
 
@@ -181,7 +180,7 @@ class WhiteCalibrator(object):
 
         self.spectralCubes = np.array(self.spectralCubes)
         self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
-        self.countCubes = self.cubeEffIntTimes * self.spectralCubes
+        self.countCubes = self.cubeEffIntTimes[:,:,:,None] * self.spectralCubes
 
     @property
     def frames(self):
@@ -652,7 +651,7 @@ def fetch(solution_descriptors, config=None, ncpu=1, async=False, force_h5=False
             fcfg.unregister('wavesol')
             fcfg.unregister('h5file')
 
-            flattner = FlatCal(fcfg, cal_file_name=sd.id)
+            flattner = WhiteCalibrator(fcfg, cal_file_name=sd.id)
             flattner.makeCalibration()
 
 
