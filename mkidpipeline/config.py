@@ -223,9 +223,19 @@ class MKIDObservingDataset(object):
     def flatcals(self):
         return [r for r in self.meta if isinstance(r, MKIDFlatdataDescription)]
 
+    @property
+    def observations(self):
+        return ([o for o in self.meta if isinstance(o, MKIDObservingDataDescription)] +
+                [o for d in self.meta if isinstance(d, MKIDObservingDither) for o in d.obs])
+
 
 def load_data_description(file):
     return MKIDObservingDataset(file)
+
+
+def get_h5_path(obs_data_descr):
+    global config
+    return os.path.join(config.paths.out, '{}.h5'.format(obs_data_descr.starttime))
 
 
 def n_cpus_available():
@@ -236,6 +246,7 @@ def n_cpus_available():
     except Exception:
         pass
     return mcpu
+
 
 def logtoconsole():
     create_log('mkidcore')
