@@ -19,7 +19,6 @@ from mpl_toolkits.axes_grid1 import axes_size, make_axes_locatable
 
 from mkidpipeline.hdf import bin2hdf
 import mkidcore.corelog as pipelinelog
-from mkidpipeline.hdf.photontable import ObsFile
 import mkidpipeline.config
 import mkidcore.config
 from mkidreadout.configuration.beammap.beammap import Beammap
@@ -34,9 +33,9 @@ except Exception as err:
     log.warning('Error importing progressbar: ' + str(err))
 
 try:
-    from mkidpipeline.hdf.photontable import ObsFile
+    import mkidpipeline.hdf.photontable as photontable
 except Exception as err:
-    log.warning('Error importing darkObsFile: ' + str(err))
+    log.warning('Error importing photontable: ' + str(err))
 
 try:
     import mkidpipeline.calibration.wavecal_models as wm
@@ -209,7 +208,7 @@ class Calibrator(object):
 
     Created by: Nicholas Zobrist, January 2018
     """
-    def __init__(self, configuration, solution_name='solution.npz'):
+    def __init__(self, configuration, solution_name='solution.npz', _shared_tables=None):
         # save configuration
         self.cfg = Configuration(configuration) if not isinstance(configuration, Configuration) else configuration
         self.solution_name = solution_name
@@ -217,7 +216,7 @@ class Calibrator(object):
         # get beam map
         obs_files = []
         for f in self.cfg.h5_file_names:
-            obs_files.append(ObsFile(f))
+            obs_files.append(photontable.ObsFile(f))
             message = "The beam map does not match the array dimensions"
             assert obs_files[-1].beamImage.shape == (self.cfg.beammap.ncols, self.cfg.beammap.nrows), message
         beam_map = obs_files[0].beamImage.copy()
@@ -233,15 +232,14 @@ class Calibrator(object):
         self.progress_iteration = None
         self._acquired = 0
         self._max_queue_size = None
+        self._shared_tables = _shared_tables
 
         l=pipelinelog.getLogger(__name__)
 
         l.info('Wave Calibrator configured with: {}'.format(self.cfg.configuration_path))
         l.info('Parallel mode: {}'.format(self.cfg.parallel))
 
-
-    def run(self, pixels=None, wavelengths=None, verbose=True, parallel=None, save=True,
-            plot=None):
+    def run(self, pixels=None, wavelengths=None, verbose=True, parallel=None, save=True, plot=None):
         """
         Compute the wavelength calibration for the data specified in the configuration
         object. This method runs make_histograms(), fit_histograms(), and
@@ -263,10 +261,17 @@ class Calibrator(object):
         pixels, wavelengths = self._setup(pixels, wavelengths)
         if parallel is None:
             parallel = self.cfg.parallel
+
+        if parallel:
+            #Load data from everything
+            log.info("Prefetching ALL data")
+            self._shared_tables = [photontable.SharedPhotonList(f) for f in self.cfg.h5_file_names]
+
         try:
             log.info("Computing phase histograms")
             self._run("make_histograms", pixels=pixels, wavelengths=wavelengths,
                       parallel=parallel, verbose=verbose, h5_safe=True)
+            del self._shared_tables
             log.info("Fitting phase histograms")
             self._run("fit_histograms", pixels=pixels, wavelengths=wavelengths,
                       parallel=parallel, verbose=verbose)
@@ -300,10 +305,11 @@ class Calibrator(object):
         obs_files = []
         try:
             # make ObsFiles
-            for wavelength in wavelengths:
-                # wavelengths might be unordered, so we get the right order of h5 files
-                index = np.where(wavelength == np.asarray(self.cfg.wavelengths))[0].squeeze()
-                obs_files.append(ObsFile(self.cfg.h5_file_names[index]))
+            # for wavelength in wavelengths:
+            #     # wavelengths might be unordered, so we get the right order of h5 files
+            #     index = np.where(wavelength == np.asarray(self.cfg.wavelengths))[0].squeeze()
+            #     obs_files.append(photontable.ObsFile(self.cfg.h5_file_names[index]))
+
             # make histograms for each pixel in pixels and wavelength in wavelengths
             for pixel in pixels.T:
                 wavelength = None
@@ -315,7 +321,12 @@ class Calibrator(object):
                     for index, wavelength in enumerate(wavelengths):
                         model = models[index]
                         # load the data
-                        photon_list = obs_files[index].getPixelPhotonList(*pixel)
+
+                        # photon_list = obs_files[index].getPixelPhotonList(*pixel)
+                        table_data = self._shared_tables[index].data
+                        # print(self.solution.beam_map.shape, pixel)
+                        photon_list = table_data[table_data['ResID'] == self.solution.beam_map[tuple(pixel)]]
+
                         if photon_list.size < 2:
                             model.flag = 1
                             message = "({}, {}) : {} nm : there are no photons"
@@ -597,14 +608,14 @@ class Calibrator(object):
                   h5_safe=False):
         # configure number of processes
         n_data = pixels.shape[1]
-
+        h5_safe=False
         cpu_count = mkidpipeline.config.n_cpus_available()
         if h5_safe:
             cpu_count = min(len(wavelengths), cpu_count)
             n_data *= len(wavelengths)
 
         pipelinelog.getLogger(__name__).info('Running using {} cores'.format(cpu_count))
-        self._max_queue_size = int(np.ceil(max(50, 750 / len(wavelengths))))
+        self._max_queue_size = 300#int(np.ceil(max(50, 750 / len(wavelengths))))
         # make input, output and progress queues
         workers = []
         progress_worker = None
@@ -622,14 +633,16 @@ class Calibrator(object):
         for _ in range(cpu_count + 1):
             events.append(mp.Event())
         try:
+
             # make cpu_count number of workers to process the data
             for index in range(cpu_count):
-                workers.append(Worker(self.cfg, method, events[index],
-                                      input_queues[index % queue_length], output_queue,
-                                      progress_queue))
+                workers.append(Worker(self.cfg, method, events[index], input_queues[0], output_queue, progress_queue,
+                                      shared_tables=self._shared_tables))
+
             # make a worker to handle the progress bar and start the progress bar
-            progress_worker = Worker(self.cfg, "_update_progress", events[-1],
-                                     progress_queue)
+            #TODO This should probably be its own class, or use something other than calibrator. I'd guess there is an
+            # enormous amount of code that is unused
+            progress_worker = Worker(self.cfg, "_update_progress", events[-1], progress_queue)
             progress_queue.put({"number": n_data, "initialize": True, "verbose": verbose})
 
             # assign data to workers
@@ -668,6 +681,7 @@ class Calibrator(object):
             self._clean_up(input_queues, output_queue, progress_queue, workers,
                            progress_worker, events, h5_safe, n_data)
             raise KeyboardInterrupt
+        #TODO should other exceptions be cought here
 
     def _remove_tail_riding_photons(self, photon_list):
         indices = np.argsort(photon_list['Time'])
@@ -967,9 +981,9 @@ class Calibrator(object):
 class Worker(mp.Process):
     """Worker class for running methods in the wavelength calibration in parallel."""
     def __init__(self, configuration, method, event, input_queue, output_queue=None,
-                 progress_queue=None):
+                 progress_queue=None, shared_tables=None):
         super(Worker, self).__init__()
-        self.calibrator = Calibrator(configuration)
+        self.calibrator = Calibrator(configuration, _shared_tables=shared_tables)
         self.method = method
         self.input_queue = input_queue
         self.output_queue = output_queue

@@ -50,7 +50,6 @@ modifyHeaderEntry(self, headerTitle, headerValue)
 
 
 """
-
 import glob
 import os
 import warnings
@@ -67,10 +66,12 @@ from interval import interval
 from matplotlib.backends.backend_pdf import PdfPages
 from regions import CirclePixelRegion, PixCoord
 
+from mkidcore.headers import PhotonCType, PhotonNumpyType
 from mkidcore.corelog import getLogger
 import mkidcore.pixelflags as pixelflags
 from mkidcore.pixelflags import h5FileFlags
 from PyPDF2 import PdfFileMerger, PdfFileReader
+import SharedArray
 
 import tables.parameters
 
@@ -81,24 +82,89 @@ WAVECAL_FAILED_FLAG = 0b00000010
 tables.parameters.MAX_NUMEXPR_THREADS = 16
 tables.parameters.MAX_BLOSC_THREADS = 8
 
-# tables.parameters.CHUNK_CACHE_NELMTS = 1e6
+#These are little better than blind guesses and don't seem to impact performaace, but still need benchmarking
 tables.parameters.CHUNK_CACHE_SIZE = 2 * 1024 * 1024 * 1024
-
 tables.parameters.TABLE_MAX_SIZE = 2 * 1024 * 1024 * 1024  # default 1MB
-
-
-# This will create a chunk cache that will store table data, if a row is
+# This governs the chunk cache that will store table data, if a row is
 # 20 bytes (as is our present state)
 # nslots = TABLE_MAX_SIZE / (chunksize * rowsize_bytes)
 # so number of rows in the cache is ~ TABLE_MAX_SIZE/rowsize_bytes
 # one 1s of 20k pix data @ 2500c/s is 0.95GB
 
-
+# These are all used by the c code backing pytables and it isn't clear their importance yet
+# tables.parameters.CHUNK_CACHE_NELMTS = 1e6
 # tables.parameters.SORTEDLR_MAX_SIZE = 1 *1024*1024*1024 # default 8MB
 # tables.parameters.SORTED_MAX_SIZE = 1 *1024*1024*1024 # default 1MB
 # tables.parameters.LIMBOUNDS_MAX_SIZE = 1 *1024*1024*1024
-
 # tables.parameters.SORTEDLR_MAX_SLOTS = 100000
+
+class SharedTable(object):
+    """multiprocessingsafe shared photon table, readonly!!!!"""
+    def __init__(self, shape):
+        self._shape = shape
+        self._X = mp.RawArray(PhotonCType, int(np.prod(shape)))
+        self.data = np.frombuffer(self._X, dtype=PhotonNumpyType).reshape(self._shape)
+
+    def __getstate__(self):
+        d = dict(__dict__)
+        d.pop('data', None)
+        return d
+
+    def __setstate__(self, state):
+        self.__dict__ = state
+        self.data = np.frombuffer(self._X, dtype=PhotonNumpyType).reshape(self._shape)
+
+
+def load_shareable_photonlist(file):
+    #TODO Add arguments to pass through a query
+    tic = time.time()
+    f = ObsFile(file)
+    table = SharedTable(f.photonTable.shape)
+    f.photonTable.read(out=table.data)
+    ram = table.data.size*table.data.itemsize/1024/1024/1024.0
+    msg = 'Created a shared table with {size} rows from {file} in {time:.2f} s, using {ram:.2f} GB'
+    getLogger(__name__).info(msg.format(file=file, size=f.photonTable.shape[0], time=time.time()-tic, ram=ram))
+    return table
+
+
+class SharedPhotonList(object):
+    """multiprocessingsafe shared photon table, readonly!!!!"""
+    def __init__(self, file):
+
+        file = os.path.abspath(file)
+        self._primary = True
+        self._name = file.replace(os.path.sep, '_')
+        try:
+            SharedArray.delete("shm://{}".format(self._name))
+            getLogger(__name__).debug("Deleted existing shared memory store {}".format(self._name))
+        except FileNotFoundError:
+            pass
+        f = ObsFile(file)
+        tic = time.time()
+        self.data = np.frombuffer(SharedArray.create("shm://{}".format(self._name), f.photonTable.shape,
+                                                     dtype=PhotonNumpyType), dtype=PhotonNumpyType)
+        f.photonTable.read(out=self.data)
+        toc = time.time()
+        ram = self.data.size * self.data.itemsize / 1024 / 1024 / 1024.0
+        msg = 'Created a shared table with {size} rows from {file} in {time:.2f} s, using {ram:.2f} GB'
+        getLogger(__name__).debug(msg.format(file=file, size=f.photonTable.shape[0], time=toc - tic, ram=ram))
+
+    def __getstate__(self):
+        d = dict(__dict__)
+        d.pop('data', None)
+        d.pop('raw')
+        return d
+
+    def __setstate__(self, state):
+        self.__dict__ = state
+        self._primary = False
+        getLogger(__name__).debug('Attaching to ' + self._name)
+        self.data = np.frombuffer(SharedArray.attach("shm://{}".format(self._name), dtype=PhotonNumpyType))
+
+    def __del__(self):
+        if self._primary:
+            getLogger(__name__).debug('Deleting '+self._name)
+            SharedArray.delete("shm://{}".format(self._name))
 
 
 class ObsFile(object):
