@@ -106,7 +106,6 @@ class WhiteCalibrator(object):
         self.spectralCubes = None
         self.cubeEffIntTimes = None
         self.countCubes = None
-        self.flatWeightsList = None
         self.maskedCubeWeights = None
         self.maskedCubeDeltaWeights = None
         self.totalCube = None
@@ -198,7 +197,6 @@ class WhiteCalibrator(object):
         finds flat cal factors as medians/pixelSpectra for each pixel.  Normalizes these weights at each wavelength bin.
         Trim the beginning and end off the sorted weights for each wvl for each pixel, to exclude extremes from averages
         """
-        self.flatWeightsList = []
         cubeWeightsList = []
         deltaWeightsList = []
         for iCube, cube in enumerate(self.spectralCubes):
@@ -525,8 +523,18 @@ class LaserCalibrator(WhiteCalibrator):
         self.ypix = self.sol.cfg.y_pixels
         self.wave_list = self.sol.cfg.wavelengths
         self.wave_inttime_list = self.sol.cfg.exposure_times
-        self.wvlBinEdges = self.wave_list
-        self.wvlBinSize = self.wvlBinEdges.size
+        self.laserBinEdges = self.wvl_medians
+        self.wvlBinEdges = ObsFile.makeWvlBins(self.energyBinWidth, self.wvlStart, self.wvlStop)
+        self.wvlBinSize = self.wvlBinEdges.size - 1
+
+    @property
+    def wvl_medians(self):
+        wvl_medians=[]
+        wvl_medians.append(self.wvlStart)
+        for index, wavelength in enumerate(self.wave_list[0:-1]):
+            wvl_medians.append(self.wave_list[index]+((self.wave_list[index+1]-self.wave_list[index])/2))
+        wvl_medians.append(self.wvlStop)
+        return np.array(wvl_medians)
 
     def loadFlatSpectra(self):
         self.spectralCubes = []
@@ -546,9 +554,9 @@ class LaserCalibrator(WhiteCalibrator):
 
         wave_list = self.wave_list
         nWavs = len(self.wave_list)
-        spectralcube = np.zeros([self.xpix, self.ypix, nWavs])
-        spectralcube[:, :, :] = np.nan
-        eff_int_time_3d = np.zeros([self.xpix, self.ypix, nWavs])
+        spectralcube_wave = np.zeros([self.xpix, self.ypix, nWavs])
+        spectralcube_wave[:, :, :] = np.nan
+        eff_int_time_3d_wave = np.zeros([self.xpix, self.ypix, nWavs])
         gaussian_names = ['GaussianAndExponential', 'GaussianAndGaussian',
                           'GaussianAndGaussianExponential',
                           'SkewedGaussianAndGaussianExponential']
@@ -564,8 +572,15 @@ class LaserCalibrator(WhiteCalibrator):
                             sigma = params[iwvl]['signal_sigma'].value
                             amp_scaled = params[iwvl]['signal_amplitude'].value
                             wvl_intensity = np.sqrt(sigma) * amp_scaled
-                            spectralcube[nRow, nCol, iwvl] = wvl_intensity
-                            eff_int_time_3d[nRow, nCol, iwvl] = self.wave_inttime_list[iwvl]
+                            spectralcube_wave[nRow, nCol, iwvl] = wvl_intensity
+                            eff_int_time_3d_wave[nRow, nCol, iwvl] = self.wave_inttime_list[iwvl]
+        spectralcube =  np.zeros([self.xpix, self.ypix,self.wvlBinSize])
+        eff_int_time_3d = np.zeros([self.xpix, self.ypix,self.wvlBinSize])
+        for j in range(self.laserBinEdges.size):
+            for i in range(self.wvlBinSize):
+                if self.wvlBinEdges[i] >= self.laserBinEdges[j] and self.wvlBinEdges[i] < self.laserBinEdges[j+1]:
+                    spectralcube[:,:,i] = spectralcube_wave[:,:,j]
+                    eff_int_time_3d[:,:,i] = eff_int_time_3d_wave[:,:,j]
         return {'cube': spectralcube, 'effIntTime3d': eff_int_time_3d}
 
 
