@@ -9,6 +9,7 @@ import numpy as np
 cimport numpy as np
 import os
 from mkidcore.corelog import getLogger
+from mkidcore.headers import PhotonNumpyTypeBin as np_photon
 
 PHOTON_BIN_SIZE_BYTES = 8
 PHOTON_SIZE_BYTES = 5*4
@@ -23,12 +24,6 @@ cdef extern from "binprocessor.h":
     long cparsebin(const char *fName, unsigned long max_len, int* baseline, float* wavelength,
                    unsigned long* timestamp, unsigned int* ycoord, unsigned int* xcoord, unsigned int* roach)
 
-
-np_photon = np.dtype([('resID',np.uint32),
-                      ('timestamp', np.uint32),
-                      ('wvl', np.float32),
-                      ('wSpec', np.float32),
-                      ('wNoise', np.float32)], align=True)
 
 
 def extract(directory, start, inttime, beamfile, x, y):

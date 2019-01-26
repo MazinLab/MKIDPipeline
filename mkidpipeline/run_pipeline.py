@@ -74,23 +74,32 @@ datafile = '/mnt/data0/baileyji/mec/data.yml'
 cfgfile = '/mnt/data0/baileyji/mec/pipe.yml'
 mkidpipeline.config.configure_pipeline(cfgfile)
 mkidpipeline.config.logtoconsole()
-c = input = mkidpipeline.config.load_data_description(datafile)
+c = dataset = mkidpipeline.config.load_data_description(datafile)
 pcfg = mkidpipeline.config.config
-bcfgs = bin2hdf.gen_configs(input.timeranges)
+bcfgs = bin2hdf.gen_configs(dataset.timeranges)
 # getLogger('mkidpipeline.calibration.wavecal').setLevel('INFO')
 # getLogger('mkidpipeline.hdf.photontable').setLevel('INFO')
 
 
-# x = bin2hdf.buildtables(input.timeranges, asynchronous=0, ncpu=6)
-#wavecals = wavecal.fetch(input.wavecals, async=True, verbose=False)
+bin2hdf.buildtables(dataset.timeranges, asynchronous=0, ncpu=6, remake=False)
+wavecals = wavecal.fetch(dataset.wavecals, verbose=False)
+
+raise RuntimeError()
+flatcals = flatcal.fetch(dataset.flatcals, async=True)
+
+def wcapply(o, w):
+    mkidpipeline.hdf.photontable.ObsFile(mkidpipeline.config.get_h5_path(o)).applyWaveCal(w)
+
+# pool = mp.Pool(4)
+#TODO we will eventually need some code/metadata to associate specific wavecals with observations
+pool.starmap(wcapply, zip(dataset.observations, [wavecals[0]]*len(dataset.observations)))
 
 #noise.calibrate(table)
-
-flatcals = flatcal.fetch(input.flatcals, async=True)
+# flatcals = flatcal.fetch(input.flatcals, async=True)
 
 raise RuntimeError()
 
-table.applyWaveCal(wavecals)
+
 table.applyFlatCal(flatcals)
 
 #cosmic.flag(table)
