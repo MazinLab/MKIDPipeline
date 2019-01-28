@@ -39,7 +39,7 @@ wavecal: !configdict
     # do the fitting using more than one core (True/False)
     parallel: True
 
-templar:
+templar: !configdict
   file: "templarconf.cfg"
 
 

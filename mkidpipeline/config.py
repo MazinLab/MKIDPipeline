@@ -22,10 +22,13 @@ def load_task_config(file):
     if not isinstance(file, str):
         return file
     cfg = mkidcore.config.load(file)
-    cfg.register('beammap', config.beammap, update=True)
-    cfg.register('paths', config.paths, update=True)
-    cfg.register('templar', config.templar, update=True)
-    cfg.register('instrument', config.instrument, update=True)
+    if config is not None:
+        cfg.register('beammap', config.beammap, update=True)
+        cfg.register('paths', config.paths, update=True)
+        cfg.register('templar', config.templar, update=True)
+        cfg.register('instrument', config.instrument, update=True)
+    else:
+        getLogger(__name__).warning('Loading task configuration when pipeline not fully configured.')
     return cfg
 
 

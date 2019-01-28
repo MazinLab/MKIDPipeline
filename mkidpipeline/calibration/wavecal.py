@@ -16,7 +16,7 @@ from matplotlib.widgets import Button, Slider
 from matplotlib import cm, lines, pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from mpl_toolkits.axes_grid1 import axes_size, make_axes_locatable
-
+import time
 from mkidpipeline.hdf import bin2hdf
 import mkidcore.corelog as pipelinelog
 import mkidpipeline.config
@@ -941,6 +941,7 @@ class Calibrator(object):
         # check that all process have stopped
         finished = False
         while not finished:
+            #TODO This will hange forever if stop isn't sent to the workers
             finished_list = [event.is_set() for event in events]
             finished = len(finished_list) == 0 or np.all(finished_list)
         # add sentinels to queues
@@ -2331,7 +2332,7 @@ def fetch(solution_descriptors, config=None, **kwargs):
     for sd in solution_descriptors:
         sf = os.path.join(cfg.paths.database, sd.id+'.npz')
         if os.path.exists(sf):
-            solutions.append(Solution(sd.id+'.npz'))
+            solutions.append(Solution(sf))
         else:
             if 'wavecal' not in cfg:
                 wcfg = mkidpipeline.config.load_task_config(pkg.resource_filename(__name__, 'wavecal.yml'))
@@ -2340,7 +2341,7 @@ def fetch(solution_descriptors, config=None, **kwargs):
             wcfg.register('start_times', [x.start for x in sd.data], update=True)
             wcfg.register('exposure_times', [x.duration for x in sd.data], update=True)
             wcfg.register('wavelengths', [w for w in sd.wavelengths], update=True)
-            solutions.append(Calibrator(wcfg, solution_name=sd.id+'npz'))
+            solutions.append(Calibrator(wcfg, solution_name=sf))
 
     for s in solutions:
         try:
@@ -2376,10 +2377,10 @@ if __name__ == "__main__":
                         help='Be verbose')
     args = parser.parse_args()
 
+
+    ymlcfg = mkidpipeline.config.load_task_config(args.cfg_file)
     # load the configuration file
     config = Configuration(args.cfg_file)
-
-    config.wavecal.register('h5_file_names', [str(x.start)+'.h5' for x in config.start_times], update=False)
 
     # set up logging
     if not args.quiet:
@@ -2399,9 +2400,9 @@ if __name__ == "__main__":
         b2h_configs = []
         for wave, start_t, int_t in zip(config.wavelengths, config.start_times,
                                         config.exposure_times):
-            b2h_configs.append(bin2hdf.Bin2HdfConfig(datadir=config.paths.data,
-                                                     beamfile=config.beam_map_path,
-                                                     outdir=config.out,
+            b2h_configs.append(bin2hdf.Bin2HdfConfig(datadir=ymlcfg.paths.data,
+                                                     beamfile=ymlcfg.beammap.file,
+                                                     outdir=ymlcfg.paths.out,
                                                      starttime=start_t, inttime=int_t,
                                                      x=config.x_pixels,
                                                      y=config.y_pixels))
