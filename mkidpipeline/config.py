@@ -243,7 +243,7 @@ def get_h5_path(obs_data_descr):
 
 def n_cpus_available():
     global config
-    mcpu = int(np.ceil(mp.cpu_count() / 2))
+    mcpu = mp.cpu_count() - 4
     try:
         mcpu = int(min(config.ncpu, mcpu))
     except Exception:

@@ -38,6 +38,7 @@ wavecal: !configdict
     dt: 500
     # do the fitting using more than one core (True/False)
     parallel: True
+    parallel_prefetch: True #use shared memory to load ALL the photon data into ram
 
 templar: !configdict
   file: "templarconf.cfg"

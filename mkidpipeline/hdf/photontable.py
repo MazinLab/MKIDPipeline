@@ -74,13 +74,17 @@ from PyPDF2 import PdfFileMerger, PdfFileReader
 import SharedArray
 
 import tables.parameters
+import tables.file
+import mkidcore.utils
+
+import functools
 
 TBRERROR = RuntimeError('Function needs to be reviewed')
 
 WAVECAL_FAILED_FLAG = 0b00000010
 
 tables.parameters.MAX_NUMEXPR_THREADS = 16
-tables.parameters.MAX_BLOSC_THREADS = 8
+tables.parameters.MAX_BLOSC_THREADS = 16
 
 #These are little better than blind guesses and don't seem to impact performaace, but still need benchmarking
 tables.parameters.CHUNK_CACHE_SIZE = 2 * 1024 * 1024 * 1024
@@ -92,11 +96,57 @@ tables.parameters.TABLE_MAX_SIZE = 2 * 1024 * 1024 * 1024  # default 1MB
 # one 1s of 20k pix data @ 2500c/s is 0.95GB
 
 # These are all used by the c code backing pytables and it isn't clear their importance yet
-# tables.parameters.CHUNK_CACHE_NELMTS = 1e6
-# tables.parameters.SORTEDLR_MAX_SIZE = 1 *1024*1024*1024 # default 8MB
-# tables.parameters.SORTED_MAX_SIZE = 1 *1024*1024*1024 # default 1MB
-# tables.parameters.LIMBOUNDS_MAX_SIZE = 1 *1024*1024*1024
-# tables.parameters.SORTEDLR_MAX_SLOTS = 100000
+tables.parameters.CHUNK_CACHE_NELMTS *= 10
+tables.parameters.SORTEDLR_MAX_SIZE = 1 *1024*1024*1024 # default 8MB
+tables.parameters.SORTED_MAX_SIZE = 1 *1024*1024*1024 # default 1MB
+tables.parameters.LIMBOUNDS_MAX_SIZE = 1*1024*1024*1024
+tables.parameters.SORTEDLR_MAX_SLOTS *= 10
+
+
+class ThreadsafeFileRegistry(tables.file._FileRegistry):
+    lock = mkidcore.utils.manager().RLock()
+
+    @property
+    def handlers(self):
+        return self._handlers.copy()
+
+    def add(self, handler):
+        with self.lock:
+            return super().add(handler)
+
+    def remove(self, handler):
+        with self.lock:
+            return super().remove(handler)
+
+    def close_all(self):
+        with self.lock:
+            return super().close_all()
+
+
+class ThreadsafeFile(tables.file.File):
+    def __init__(self, *args, **kargs):
+        with ThreadsafeFileRegistry.lock:
+            super().__init__(*args, **kargs)
+
+    def close(self):
+        with ThreadsafeFileRegistry.lock:
+            super().close()
+
+
+@functools.wraps(tables.open_file)
+def synchronized_open_file(*args, **kwargs):
+    with ThreadsafeFileRegistry.lock:
+        return tables.file._original_open_file(*args, **kwargs)
+
+# monkey patch the tables package
+tables.file._original_open_file = tables.file.open_file
+tables.file.open_file = synchronized_open_file
+tables.open_file = synchronized_open_file
+tables.file._original_File = tables.File
+tables.file.File = ThreadsafeFile
+tables.File = ThreadsafeFile
+tables.file._open_files = ThreadsafeFileRegistry()
+
 
 class SharedTable(object):
     """multiprocessingsafe shared photon table, readonly!!!!"""
