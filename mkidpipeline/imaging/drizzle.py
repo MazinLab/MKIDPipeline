@@ -1,16 +1,28 @@
-'''
+"""
+TODO
+Add ephem and pyguide to yml
+Add compiling of boxer.f to setup.py
+
+Usage
+-----
+
+python drizzle 'Trapezium/goodfiles/'
+
+Ephem installed with pip install ephem
+PyGuide is just downloaded from github (no installation
+
 Author: Rupert Dodkins, Julian van Eyken            Date: Jan 2019
 
 Reads in obsfiles for dither offsets (preferably fully reduced and calibrated) as well as a dither log file and creates
 a stacked image.
 
 This code is adapted from Julian's testImageStack from the ARCONS pipeline.
-'''
+"""
 
 import warnings
 import pickle
 import os
-import os.path
+import sys
 import glob
 import scipy.stats
 import numpy as np
@@ -19,14 +31,15 @@ import numpy as np
 import matplotlib.pylab as plt
 import time
 import RADecImage as rdi
-from utils import utils
+# from utils import utils
 from mkidpipeline.hdf.photontable import ObsFile
-import CentroidCalc
+import mkidpipeline.imaging.CentroidCalc as CentroidCalc
 
 from mkidpipeline.config import MKIDObservingDataDescription, MKIDObservingDither
-from pprint import pprint
+#from pprint import pprint
 
 from inspect import getframeinfo, stack
+
 def dprint(message):
     caller = getframeinfo(stack()[1][0])
     print("%s:%d - %s" % (caller.filename, caller.lineno, message))
@@ -59,25 +72,103 @@ def drizzleDither(dither, *args, **kwargs):
     drizzleddata.save(dither.name)
 
 
-def drizzle(obsfiles, metadata):
-    """ make a drizzled dataproduct from a list of obsfiles"""
-    raise NotImplementedError
-    #TODO Implement
-    #assume obsfiles either have their metadata or needed metadata is passed, e.g. WCS information, target info, etc
+# def drizzle(obsfiles, metadata):
+class drizzle(object):
+    """
+    make a drizzled dataproduct from a list of obsfiles
 
-    #Determine what we are drizzling onto
-    #e.g. 4d equivalent (sky_x, sky_y, wave, time) of an rdi.RADecImage
+    TODO
+    Calculate nPixRA etc variables
 
-    #Create thing (and its factory if it can't drizzle data into itself)
+    """
+    def __init__(self, obsfiles, metadata):
 
-    #Drizzle each photonlist into the output
+        #TODO Implement
+        #Assume obsfiles either have their metadata or needed metadata is passed, e.g. WCS information, target info, etc
 
-    #return the output
+        #Determine what we are drizzling onto
+        #e.g. 4d equivalent (sky_x, sky_y, wave, time) of an rdi.RADecImage
 
+        # These should should be calculated rather than defined
+        self.nPixRA = 250
+        self.nPixDec = 250
+        self.cenRA = metadata['cenRA']
+        self.cenDec = metadata['cenDec']
+        self.vPlateScale = 1
+        self.detPlateScale =1
+        self.plateScale = 0.44
 
+        self.vPlateScale = self.vPlateScale * 2 * np.pi / 1296000  # No. of radians on sky per virtual pixel.
+        self.detPlateScale = self.detPlateScale * 2 * np.pi / 1296000
+
+        self.setCoordGrid()
+
+        #Create thing (and its factory if it can't drizzle data into itself)
+
+        #Drizzle each photonlist into the output
+
+        # output has a save option
+        #return the output
+
+    def setCoordGrid(self):
+        '''
+        Establish RA and dec coordinates for pixel boundaries in the virtual pixel grid,
+        given the number of pixels in each direction (self.nPixRA and self.nPixDec), the
+        location of the centre of the array (self.cenRA, self.cenDec), and the plate scale
+        (self.vPlateScale).
+        '''
+
+        # Note - +1's are because these are pixel *boundaries*, not pixel centers:
+        self.gridRA = self.cenRA + (self.vPlateScale * (np.arange(self.nPixRA + 1) - ((self.nPixRA + 1) // 2)))
+        self.gridDec = self.cenDec + (self.vPlateScale * (np.arange(self.nPixDec + 1) - ((self.nPixDec + 1) // 2)))
+
+def readObsFiles():
+    '''
+    Get the list of filenames
+
+    TODO
+    Use something from MKIDCore if exists or add to MKIDCore
+
+    :return:
+    list of filenames
+    '''
+    dir = os.getenv('MKID_PROC_PATH')
+    filenames = glob.glob(os.path.join(dir, '*.h5'))
+
+    obsfiles = []
+    for file in filenames:
+        obsfile = ObsFile(file)
+        obsfiles.append(obsfile)
+
+    return obsfiles
+
+def readDithLog(dithFilename):
+    """
+    Reads the dither log file
+
+    :return:
+    ditherlog dictionary
+    """
+
+    if dithFilename[-4:] == '.log':
+        ditherDict = loadDitherLog(dithFilename)
+    else:
+        ditherDict = loadDitherCfg(dithFilename)
+
+    return ditherDict
+
+def getCon2Pix(ditherDict, files=False):
+    if len(files) ==2:
+        con2pix = getCon2PixFromCentroid(files[0], files[1], ditherDict, filename = dir+'con2pix.txt')
+    else:
+        con2pix = None
+
+    ditherDict = getPixOff(ditherDict,con2pix=con2pix)
+
+    return ditherDict
 
 def makeImageStack(fileNames='*.h5', dir=os.getenv('MKID_PROC_PATH', default="/Scratch") + 'photonLists/',
-                   dithLogFilename = 'KAnd_1545626974_dither.log', detImage=False, saveFileName='stackedImage.pkl',
+                   dithFilename = 'trapezium.log', detImage=False, saveFileName='stackedImage.pkl',
                    wvlMin=3500, wvlMax=12000, doWeighted=True, medCombine=False, vPlateScale=0.2,
                    nPixRA=250, nPixDec=250, maxBadPixTimeFrac=0.2, integrationTime=-1,
                    outputdir=''):
@@ -124,10 +215,12 @@ def makeImageStack(fileNames='*.h5', dir=os.getenv('MKID_PROC_PATH', default="/S
     else:
         files = glob.glob(os.path.join(dir, fileNames))
 
-
-    ditherDict = loadDitherLog(dithLogFilename)
-    con2pix = getCon2Pix(files[0], files[1], ditherDict, filename = dir+'con2pix.txt')
-    ditherDict = getPixOff(ditherDict,con2pix)
+    if dithFilename[-4:] == '.log':
+        ditherDict = loadDitherLog(dithFilename)
+    else:
+        ditherDict = loadDitherCfg(dithFilename)
+    # con2pix = getCon2Pix(files[0], files[1], ditherDict, filename = dir+'con2pix.txt')
+    ditherDict = getPixOff(ditherDict,con2pix=None)
 
     # Initialise empty image centered on Crab Pulsar
     virtualImage = rdi.RADecImage(nPixRA=nPixRA, nPixDec=nPixDec, vPlateScale=vPlateScale,
@@ -138,7 +231,7 @@ def makeImageStack(fileNames='*.h5', dir=os.getenv('MKID_PROC_PATH', default="/S
 
     for ix, eachFile in enumerate(files+files+files+files):
         if os.path.exists(eachFile):
-            print 'Loading: ', os.path.basename(eachFile)
+            print('Loading: ', os.path.basename(eachFile))
             # fullFileName=os.path.join(dir,eachFile)
             phList = ObsFile(eachFile)
             baseSaveName, ext = os.path.splitext(os.path.basename(eachFile))
@@ -147,7 +240,7 @@ def makeImageStack(fileNames='*.h5', dir=os.getenv('MKID_PROC_PATH', default="/S
                 imSaveName = os.path.join(outputdir, baseSaveName + 'det.tif')
                 im = phList.getImageDet(wvlMin=wvlMin, wvlMax=wvlMax)
                 dprint(im)
-                utils.plotArray(im)
+                # utils.plotArray(im)
                 plt.imsave(fname=imSaveName, arr=im, colormap=plt.cm.gnuplot2, origin='lower')
                 if eachFile == files[0]:
                     virtualImage = im
@@ -160,7 +253,7 @@ def makeImageStack(fileNames='*.h5', dir=os.getenv('MKID_PROC_PATH', default="/S
                                        wvlMin=wvlMin, wvlMax=wvlMax, doWeighted=doWeighted,
                                        maxBadPixTimeFrac=maxBadPixTimeFrac, integrationTime=integrationTime)
                 virtualImage.stackExposure(photons, ditherInd=ix, doStack=not medCombine, savePreStackImage=None)
-                print 'Image load done. Time taken (s): ', time.clock() - tic
+                print('Image load done. Time taken (s): ', time.clock() - tic)
                 imageStack.append(virtualImage.image * virtualImage.expTimeWeights)  # Only makes sense if medCombine==True, otherwise will be ignored
                 # if medCombine == True:
                 #     medComImage = scipy.stats.nanmedian(np.array(imageStack), axis=0)
@@ -175,7 +268,7 @@ def makeImageStack(fileNames='*.h5', dir=os.getenv('MKID_PROC_PATH', default="/S
 
 
         else:
-            print 'File doesn''t exist: ', eachFile
+            print('File doesn''t exist: ', eachFile)
 
     # Save the results.
     # Note, if median combining, 'vim' will only contain one frame. If not, medComImage will be None.
@@ -191,31 +284,25 @@ def makeImageStack(fileNames='*.h5', dir=os.getenv('MKID_PROC_PATH', default="/S
 
     return results
 
-def getCon2Pix(ObsFilename1, ObsFilename2, ditherDict, filename):
+def getCon2PixFromCentroid(ObsFilename1, ObsFilename2, ditherDict, filename):
     '''Essentially a wrapper for calcCon2Pix'''
     if os.path.exists(filename):
         con2Pix = np.loadtxt(filename, delimiter=',')
-        print con2Pix
+        print(con2Pix)
         return con2Pix
     else:
         con2Pix = calcCon2Pix(ObsFilename1, ObsFilename2, ditherDict, filename)
         return con2Pix
 
 def calcCon2Pix(ObsFilename1, ObsFilename2, ditherDict, filename):
-    '''Quick and dirty implementation to get the conversation between connex values and pixel offsets'''
+    """Quick and dirty implementation to get the conversation between connex values and pixel offsets
+
+    TODO
+    CentroidCalc needs to be reduced
+    """
 
     ObsFile1 = ObsFile(ObsFilename1)
     ObsFile2 = ObsFile(ObsFilename2)
-
-    # from matplotlib.colors import LogNorm
-    # img1 = ObsFile1.getPixelCountImage(firstSec =0, integrationTime=1)
-    # image1 = img1['image']
-    # plt.imshow(image1, aspect='equal', norm= LogNorm())
-    # plt.show()
-    # img2 = ObsFile2.getPixelCountImage(firstSec =0, integrationTime=1)
-    # image2 = img2['image']
-    # plt.imshow(image2, aspect='equal', norm= LogNorm())
-    # plt.show()
 
     # change these from hard coded
     centroid_RA = '09:26:38.7'
@@ -262,24 +349,77 @@ def loadDitherLog(fileName):
 
     return ditherDict
 
+def loadDitherCfg(fileName):
+    logPath = os.getenv('MKID_PROC_PATH',default="/Scratch") + 'Trapezium/'
+    log = os.path.join(logPath,fileName)
+    ditherDict = {}
+    with open(log) as f:
+        XPIX = 140
+        YPIX = 146
+        binPath = '/mnt/data0/ScienceData/Subaru/20190112/'
+        outPath = '/mnt/data0/isabel/highcontrastimaging/Jan2019Run/20190112/Trapezium/'
+        beamFile = "/mnt/data0/MEC/20190111/finalMap_20181218.bmap"
+        mapFlag = 1
+        filePrefix = 'a'
+        b2hPath = '/home/isabel/src/mkidpipeline/mkidpipeline/hdf'
+        ditherDict['startTimes'] = np.int_(f.readline()[14:-2].split(','))
+        ditherDict['endTimes'] = np.int_(f.readline()[12:-2].split(','))
+        ditherDict['xPos'] = np.float_(f.readline()[8:-3].split(','))
+        ditherDict['yPos'] = np.float_(f.readline()[8:-3].split(','))
+        ditherDict['intTime'] = np.float(f.readline()[10:])
+        ditherDict['nSteps'] = np.int(f.readline()[9:])
+
+    firstSec = ditherDict['startTimes'][0]
+    ditherDict['relStartTimes'] = ditherDict['startTimes'] - firstSec
+    ditherDict['relEndTimes'] = ditherDict['endTimes'] - firstSec
+
+    return ditherDict
 
 def getPixOff(ditherDict, con2pix=None):
     ''' A function to convert the connex offset to pixel displacement'''#
 
     if con2pix is None:
-        con2pix =np.array([[-20, 1], [1,-20]])
+        con2pix =np.array([[-20, 20], [20,-20]])
     conPos = np.array([ditherDict['xPos'],ditherDict['yPos']])
     ditherDict['xPixOff'], ditherDict['yPixOff'] = np.int_(np.matmul(conPos.T, con2pix)).T
 
-    # xFirst = np.min(ditherDict['xPos'])
-    # yFirst = np.min(ditherDict['yPos'])
-    # ditherDict['xPos'] = ditherDict['xPos'] - xFirst
-    # ditherDict['yPos'] = ditherDict['yPos'] - yFirst
-
     return ditherDict
 
+def reduce_obs(obsfile):
+    return obsfile
+
+def get_wcs(obsfile, ix, ditherDict):
+    print('Calculating RA/Decs...')
+    photRAs, photDecs, photHAs = getRaDec(photons[0], photons[1], photons[2], ditherInd, show=True)
+    return obsfile
+
+# def get_cen_sky(ditherDict, ):
+#     return  metadata
+
 if __name__ == '__main__':
-    makeImageStack(fileNames='*.h5', dir=os.getenv('MKID_PROC_PATH') + 'photonLists/',
+    # mod = MKIDObservingDither('Trapezium', 'Trapezium.log')
+    # print(mod.inttime)
+    #
+    # obsfiles = readObsFiles()
+    # ditherDict = readDithLog(dithFilename)
+    # ditherDict = getCon2Pix(ditherDict)
+    #
+    # for ix, obsfile in enumerate(obsfiles):
+    #     obsfile = reduce_obs(obsfile)
+    #     obsfile  = get_wcs(obsfile, ix, ditherDict)
+    #     obsfiles[ix] = obsfile
+    #
+    # metadata = {'cenRA': cenCoords[0], 'cenDec': cenCoords[1]}
+    #
+    # drizzle(obsfiles, metadata)
+
+
+    # makeImageStack(fileNames='*.h5', dir=os.getenv('MKID_PROC_PATH') + 'photonLists/',
+    #                detImage=False, saveFileName='stackedImage.pkl', wvlMin=-200,
+    #                wvlMax=-150, doWeighted=False, medCombine=False, vPlateScale=1,
+    #                nPixRA=250, nPixDec=250, maxBadPixTimeFrac=None, integrationTime=5,
+    #                outputdir='')
+    makeImageStack(fileNames='*.h5', dir=os.getenv('MKID_PROC_PATH') + 'Trapezium/goodfiles/',
                    detImage=False, saveFileName='stackedImage.pkl', wvlMin=-200,
                    wvlMax=-150, doWeighted=False, medCombine=False, vPlateScale=1,
                    nPixRA=250, nPixDec=250, maxBadPixTimeFrac=None, integrationTime=5,

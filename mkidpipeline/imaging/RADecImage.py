@@ -14,7 +14,7 @@ import numpy as np
 import tables
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
-import pyfits
+import astropy.io.fits as pyfits
 import utils
 import boxer
 from mkidcore import pixelflags
@@ -29,7 +29,7 @@ class RADecImage(object):
     frame.
 
     NOTE - to be able to import boxer for this routine,
-    boxer.so (exact name may vary by platform) needs to be created
+    boxer_old.so (exact name may vary by platform) needs to be created
     from fortran boxer.f (in the same directory) using command:
 
     f2py -c -m boxer boxer.f
@@ -160,7 +160,7 @@ class RADecImage(object):
         # plt.show()
 
         # And start figuring out the exposure time weights....
-        print 'Calculating effective exposure times'
+        print('Calculating effective exposure times')
         # First find start/end times of each timestep ('frame') for calculating effective exp. times
         # Use the same timesteps as used in calculating the astrometry.
         self.firstDitherSec = firstDitherSec
@@ -249,7 +249,7 @@ class RADecImage(object):
         # If virtual coordinate grid is not yet defined, figure it out.
         if self.gridRA is None or self.gridDec is None:
             # Find RA/dec range needed, taking advantage of the fact that the ra/dec columns are (or should be) indexed....
-            print 'Finding RA/dec ranges'
+            print('Finding RA/dec ranges')
             self.raMin = photTable.cols.ra[photTable.colindexes['ra'][0]]
             self.raMax = photTable.cols.ra[photTable.colindexes['ra'][-1]]
             self.decMin = photTable.cols.dec[photTable.colindexes['dec'][0]]
@@ -278,13 +278,13 @@ class RADecImage(object):
 
         if ObsFile.getFromHeader('isWvlCalibrated'):
             # wvlCalFlagImage = ObsFile.getBadWvlCalFlags()
-            print 'This needs to be updated. No flags loaded'
+            print('This needs to be updated. No flags loaded')
             wvlCalFlagImage = np.zeros_like(beamFlagImage)
         else:
             wvlCalFlagImage = np.zeros_like(beamFlagImage)
 
         deadPixMask = np.where(wvlCalFlagImage == pixelflags.speccal, 1, 0)  # 1.0 where flag is good; 0.0 otherwise. (Straight boolean mask would work, but not guaranteed for Python 4....)
-        print '# Dead detector pixels to reject on basis of wavelength cal: ', np.sum(deadPixMask == 0)
+        print('# Dead detector pixels to reject on basis of wavelength cal: ', np.sum(deadPixMask == 0))
 
         # Next a mask on the basis of the flat cals (or all ones if weighting not requested)
         if doWeighted:
@@ -306,7 +306,7 @@ class RADecImage(object):
 
             flatCalMask = np.where(np.all(flatCalFlagArray[:, :, inRange] == False, axis=2), 1,
                                    0)  # Should be zero where any pixel has a bad flag at any wavelength within the requested range; one otherwise. Spot checked, seems to work.
-            print '# Detector pixels to reject on basis of flatcals: ', np.sum(flatCalMask == 0)
+            print('# Detector pixels to reject on basis of flatcals: ', np.sum(flatCalMask == 0))
         else:
             flatCalMask = np.ones((self.nDPixRow, self.nDPixCol))
 
@@ -314,22 +314,21 @@ class RADecImage(object):
         # if a given pixel is bad more than a fraction maxBadTimeFrac of the time,
         # then write it off as permanently bad for the duration of the requested
         # integration.
-        # print maxBadPixTimeFrac
         if maxBadPixTimeFrac is not None:
-            print 'Rejecting pixels with more than ', 100 * maxBadPixTimeFrac, '% bad-flagged time'
+            print('Rejecting pixels with more than ', 100 * maxBadPixTimeFrac, '% bad-flagged time')
             detGoodIntTimes = ObsFile.hotPixTimeMask.getEffIntTimeImage(firstSec=firstObsTime,
                                                                          integrationTime=lastObsTime - firstObsTime)
             badPixMask = np.where(detGoodIntTimes / (lastObsTime - firstObsTime) > (1. - maxBadPixTimeFrac), 1,
                                   0)  # Again, 1 if okay, 0 bad. Use lastObsTime-firstObsTime instead of integrationTime in case integrationTime is -1.
-            print '# pixels to reject: ', np.sum(badPixMask == 0)
-            print '# pixels to reject with eff. int. time > 0: ', np.sum((badPixMask == 0) & (detGoodIntTimes > 0))
+            print('# pixels to reject: ', np.sum(badPixMask == 0))
+            print('# pixels to reject with eff. int. time > 0: ', np.sum((badPixMask == 0) & (detGoodIntTimes > 0)))
         else:
             badPixMask = np.ones((self.nDPixRow, self.nDPixCol))
 
         # Finally combine all the masks together into one detector pixel mask:
         detPixMask = deadPixMask * flatCalMask * badPixMask  # Combine masks
-        print 'Total detector pixels to reject: ', np.sum(
-            detPixMask), "(may not equal sum of the above since theres overlap!)"
+        print('Total detector pixels to reject: ', np.sum(
+            detPixMask), "(may not equal sum of the above since theres overlap!)")
 
         # Get array of effective exposure times for each detector pixel based on the hot pixel time mask
         # Multiply by the bad pixel mask and the flatcal mask so that non-functioning pixels have zero exposure time.
@@ -344,11 +343,11 @@ class RADecImage(object):
             self.detExpTimes =None
 
         # Now get the photons
-        print 'Getting photon coords'
-        print 'wvlMin, wvlMax: ', wvlMin, wvlMax
+        print('Getting photon coords')
+        print('wvlMin, wvlMax: ', wvlMin, wvlMax)
         if wvlMin is None:
             assert wvlMin is None and wvlMax is None
-            print '(getting all wavelengths)'
+            print('getting all wavelengths')
             # tic = time.clock()
             photons = photTable.read_where('(Time>=firstObsTime) & (Time<=lastObsTime)')
             # print 'v1 time taken (s): ', time.clock()-tic
@@ -362,12 +361,12 @@ class RADecImage(object):
             # print 'Time taken (s): ',time.clock()-tic
         else:
             assert wvlMin is not None and wvlMax is not None
-            print '(trimming wavelength range) '
+            print('(trimming wavelength range) ')
             photons = photTable.read_where(
                 '(Time>=firstObsTime) & (Time<=lastObsTime) & (Wavelength>=wvlMin) & (Wavelength<=wvlMax)')
 
         # And filter out photons to be masked out on the basis of the detector pixel mask
-        print 'Finding photons in masked detector pixels...'
+        print('Finding photons in masked detector pixels...')
         whereBad = np.where(detPixMask == 0)
 
         # badXY = pl.xyPack(whereBad[0],
@@ -384,13 +383,13 @@ class RADecImage(object):
         toReject = np.where(np.in1d(allPhotXY, badXY))[
             0]  # [0] to take index array out of the returned 1-element tuple.
         # Chuck out the bad photons
-        print 'Rejecting photons from bad pixels...'
+        print('Rejecting photons from bad pixels...')
         # photons = np.delete(photons, toReject)
         #########################################################################
 
         self.photWeights = None
         if ObsFile.getFromHeader('isFlatCalibrated') and ObsFile.getFromHeader('isSpecCalibrated'):
-            print 'INCLUDING FLUX WEIGHTS!'
+            print('INCLUDING FLUX WEIGHTS!')
             self.photWeights = photons['flatWeight'] * photons['fluxWeight']  # ********EXPERIMENTING WITH ADDING FLUX WEIGHT - NOT FULLY TESTED, BUT SEEMS OKAY....********
 
         n_photons = len(photons)
@@ -409,7 +408,7 @@ class RADecImage(object):
 
         if wvlMin is not None or wvlMax is not None:
             assert all(photWavelengths >= wvlMin) and all(photWavelengths <= wvlMax)
-        print 'Min, max photon wavelengths found: ', np.min(photWavelengths), np.max(photWavelengths)
+        print('Min, max photon wavelengths found: ', np.min(photWavelengths), np.max(photWavelengths))
 
         reformat_photons = [times, icols, irows, photWavelengths]
 
@@ -531,7 +530,7 @@ class RADecImage(object):
         # photons = np.asarray(photons)
 
         # photons = photons.view(dtype=np.ndarray)
-        print 'Calculating RA/Decs...'
+        print('Calculating RA/Decs...')
         photRAs, photDecs, photHAs = self.getRaDec(photons[0], photons[1], photons[2], ditherInd, show=True)
         thisImage, thisGridDec, thisGridRA = np.histogram2d(photDecs, photRAs, bins=146)
         plt.imshow(thisImage)
@@ -571,11 +570,11 @@ class RADecImage(object):
 
         # Make the image for this integration
         if self.photWeights:
-            print 'Making weighted image'
+            print('Making weighted image')
             thisImage, thisGridDec, thisGridRA = np.histogram2d(photDecs, photRAs, [self.gridDec, self.gridRA],
                                                                 weights=self.photWeights)
         else:
-            print 'Making unweighted image'
+            print('Making unweighted image')
             thisImage, thisGridDec, thisGridRA = np.histogram2d(photDecs, photRAs, [self.gridDec, self.gridRA])
 
         # plt.imshow(thisImage, norm= LogNorm())
@@ -584,7 +583,7 @@ class RADecImage(object):
         # Save the time slice images in detector coordinates if image saving is requested.
         if savePreStackImage is not None:
             saveName = 'det-' + savePreStackImage
-            print 'Making detector-frame image slice for diagnostics: ' + saveName
+            print('Making detector-frame image slice for diagnostics: ' + saveName)
             detImSlice = np.histogram2d(photons[1], photons[2], bins=[self.nDPixRow, self.nDPixCol])[0]
             plt.imshow(detImSlice)
             plt.show()
@@ -634,7 +633,7 @@ class RADecImage(object):
         # ------------ Loop through the time steps ----------
         # for iFrame in range(self.nFrames):
         iFrame = ditherInd
-        print 'Time slice: ', iFrame + 1, '/', self.nFrames
+        print('Time slice: ', iFrame + 1, '/', self.nFrames)
 
         # Calculate detector pixel corner locations in RA/dec space (needs to be clockwise in RA/dec space! (checked, gives +ve answers).
         frameTimeFlat.fill(self.tStartFrames[iFrame])
@@ -707,8 +706,8 @@ class RADecImage(object):
         # print 'Dunno why, but it passed the assertion...'
 
         if savePreStackImage is not None:
-            print 'Saving exp.time weighted pre-stacked image to ' + savePreStackImage
-            print 'cmap: ', plt.cm.gray
+            print('Saving exp.time weighted pre-stacked image to ' + savePreStackImage)
+            print('cmap: ', plt.cm.gray)
             imToSave = thisImage / vExpTimes
             plt.imsave(fname=savePreStackImage, arr=imToSave, origin='lower', cmap=plt.cm.gray,
                        vmin=np.percentile(imToSave, 1.0), vmax=np.percentile(imToSave, 99.0))
@@ -725,13 +724,12 @@ class RADecImage(object):
             self.imageIsLoaded = True
         else:
             assert self.imageIsLoaded == True
-            print 'Stacking'
+            print('Stacking')
             self.image += thisImage
             self.effIntTimes += vExpTimes
             self.totExpTime += self.lastDithSec - self.firstDitherSec
             self.expTimeWeights = self.totExpTime / self.effIntTimes
 
-        print 'here'
         plt.imshow(self.image, norm= LogNorm())
         plt.show(block=True)
 
@@ -853,7 +851,7 @@ class RADecImage(object):
         '''
 
         if self.image is None:
-            raise RuntimeError, 'No current image to write to FITS file'
+            raise RuntimeError('No current image to write to FITS file')
 
         if expWeight is True:
             hdu = pyfits.PrimaryHDU(self.image * self.expTimeWeights)
@@ -870,7 +868,7 @@ def test(ObsFileFileName='/Users/vaneyken/Data/UCSB/ARCONS/Palomar2012/corot18/t
         im = RADecImage(ObsFile, vPlateScale=vPlateScale, firstSec=firstSec,
                         integrationTime=integrationTime)
     finally:
-        print 'Closing phot. list file.'
+        print('Closing phot. list file.')
         ObsFile.close()
     im.display()
     return im
