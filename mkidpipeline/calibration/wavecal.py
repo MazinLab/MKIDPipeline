@@ -85,9 +85,8 @@ class Configuration(object):
                  beammap=None, h5dir='', outdir='', bindir='',
                  histogram_model_names=('GaussianAndExponential',),
                  bin_width=2, histogram_fit_attempts=3,
-                 calibration_model_names=('Quadratic', 'Linear'), dt=500, parallel=True,
+                 calibration_model_names=('Quadratic', 'Linear'), dt=500, parallel=True, parallel_prefetch=True,
                  summary_plot=True, templarfile=''):
-
 
         # parse arguments
         self.configuration_path = configfile
@@ -109,6 +108,7 @@ class Configuration(object):
         self.calibration_model_names = list(calibration_model_names)
         self.dt = float(dt)
         self.parallel = parallel
+        self.parallel_prefetch = parallel_prefetch
         self.summary_plot = summary_plot
         self.templar_configuration_path = templarfile
 
@@ -143,6 +143,7 @@ class Configuration(object):
             self.calibration_model_names = list(config.wavecal.fit.calibration_model_names)
             self.dt = float(config.wavecal.fit.dt)
             self.parallel = config.wavecal.fit.parallel
+            self.parallel_prefetch =  config.wavecal.fit.parallel_prefetch
             self.summary_plot = config.wavecal.plots.lower() in ('all', 'summary')
 
             self.templar_configuration_path = config.templar.file
@@ -212,7 +213,6 @@ class Calibrator(object):
         # save configuration
         self.cfg = Configuration(configuration) if not isinstance(configuration, Configuration) else configuration
         self.solution_name = solution_name
-
         # get beam map
         obs_files = []
         for f in self.cfg.h5_file_names:
@@ -262,16 +262,174 @@ class Calibrator(object):
         if parallel is None:
             parallel = self.cfg.parallel
 
-        if parallel:
+        if parallel and self.cfg.parallel_prefetch:
             #Load data from everything
             log.info("Prefetching ALL data")
-            self._shared_tables = [photontable.SharedPhotonList(f) for f in self.cfg.h5_file_names]
+            self._shared_tables = [photontable.load_shareable_photonlist(f) for f in self.cfg.h5_file_names[-2:]]
+            # self._shared_tables = [photontable.SharedPhotonList(f) for f in self.cfg.h5_file_names[-2:]]
+
+        # foo_elapsed=[0,0,0]
+        # for i in np.array([60977,  81141, 100519,  80485,  61070,  11439, 101240,  91158,  61179,
+        #                    90464]):#np.random.choice(self.solution.beam_map.ravel(), size=10):
+        #     table_data=self._shared_tables[-1].data
+        #     foo_tic = time.time()
+        #     foo_where = table_data['ResID'] == i  # 2.6-5.2s
+        #     foo_elapsed[0] += time.time() - foo_tic
+        #     foo_tic = time.time()
+        #     photon_list = table_data[foo_where]  # 6.2-8.4 s
+        #     foo_elapsed[1] += time.time() - foo_tic
+        # print(np.array(foo_elapsed) / 10)
+        # # #This points to 1.7s for finding and 2.5s for fetching in 774 MPhot w/ load_shareable_photonlist or SharedPhotonList
+
+        # foo_elapsed=[0,0,0]
+        # table_data = self._shared_tables[-1].data
+        # rid=np.array(table_data['ResID'], dtype=int)
+        # t=np.array(table_data['Time'], dtype=int)
+        # f1=np.array(table_data['Wavelength'], dtype=float)
+        # f2=np.array(table_data['SpecWeight'], dtype=float)
+        # f3=np.array(table_data['NoiseWeight'], dtype=float)
+        # for i in np.array([60977,  81141, 100519,  80485,  61070,  11439, 101240,  91158,  61179,
+        #                    90464]):#np.random.choice(self.solution.beam_map.ravel(), size=10):
+        #     foo_tic = time.time()
+        #     foo_where = rid == i  # 2.6-5.2s
+        #     foo_elapsed[0] += time.time() - foo_tic
+        #     foo_tic = time.time()
+        #     pl=(rid[foo_where], t[foo_where], f1[foo_where],f2[foo_where],f3[foo_where])
+        #     #photon_list = table_data[foo_where]  # 6.2-8.4 s
+        #     foo_elapsed[1] += time.time() - foo_tic
+        # print(np.array(foo_elapsed) / 10)
+        # #This points to 0.69-0.85s for finding and 0.6-0.8s for fetching in 774 MPhot w/ load_shareable_photonlist or
+        # SharedPhotonList
+
+        # foo_elapsed=[0,0,0]
+        # table_data = self._shared_tables[-1].data
+        # rid=np.array(table_data['ResID'], dtype=np.int32)
+        # t=np.array(table_data['Time'], dtype=np.int32)
+        # f1=np.array(table_data['Wavelength'], dtype=np.float32)
+        # f2=np.array(table_data['SpecWeight'], dtype=np.float32)
+        # f3=np.array(table_data['NoiseWeight'], dtype=np.float32)
+        # for i in np.array([60977,  81141, 100519,  80485,  61070,  11439, 101240,  91158,  61179,
+        #                    90464]):#np.random.choice(self.solution.beam_map.ravel(), size=10):
+        #     foo_tic = time.time()
+        #     foo_where = rid == i  # 2.6-5.2s
+        #     foo_elapsed[0] += time.time() - foo_tic
+        #     foo_tic = time.time()
+        #     pl=(rid[foo_where], t[foo_where], f1[foo_where],f2[foo_where],f3[foo_where])
+        #     #photon_list = table_data[foo_where]  # 6.2-8.4 s
+        #     foo_elapsed[1] += time.time() - foo_tic
+        # print(np.array(foo_elapsed) / 10)
+        # [0.54684958 0.9007694  0.]
+        #This points to 0.55s for finding and 0.9s for fetching in 774 MPhot w/ load_shareable_photonlist
+
+        # foo_elapsed=[0,0,0]
+        # table_data = self._shared_tables[-1].data
+        # rid=np.array(table_data['ResID'], dtype=np.int32)
+        # t=np.array(table_data['Time'], dtype=np.int32)
+        # f1=np.array(table_data['Wavelength'], dtype=np.float32)
+        # f2=np.array(table_data['SpecWeight'], dtype=np.float32)
+        # f3=np.array(table_data['NoiseWeight'], dtype=np.float32)
+        # for i in np.array([60977,  81141, 100519,  80485,  61070,  11439, 101240,  91158,  61179,
+        #                    90464]):#np.random.choice(self.solution.beam_map.ravel(), size=10):
+        #     foo_tic = time.time()
+        #     foo_where = rid == i  # 2.6-5.2s
+        #     foo_elapsed[0] += time.time() - foo_tic
+        #     foo_tic = time.time()
+        #     pl=f1[foo_where]
+        #     #photon_list = table_data[foo_where]  # 6.2-8.4 s
+        #     foo_elapsed[1] += time.time() - foo_tic
+        # print(np.array(foo_elapsed) / 10)
+        # # This points to 0.34s for finding and 0.17s for fetching a single column in 774 MPhot w/ load_shareable_photonlist
+        # [0.33878448 0.1685339  0.]
+
+        # foo_elapsed=[0,0,0]
+        # table_data = self._shared_tables[-1].data
+        # rid=np.array(table_data['ResID'], dtype=np.int32)
+        # t=np.array(table_data['Time'], dtype=np.int32)
+        # f1=np.array(table_data['Wavelength'], dtype=np.float64)
+        # f2=np.array(table_data['SpecWeight'], dtype=np.float64)
+        # f3=np.array(table_data['NoiseWeight'], dtype=np.float64)
+        # for i in np.array([60977,  81141, 100519,  80485,  61070,  11439, 101240,  91158,  61179,
+        #                    90464]):#np.random.choice(self.solution.beam_map.ravel(), size=10):
+        #     foo_tic = time.time()
+        #     foo_where = rid == i  # 2.6-5.2s
+        #     foo_elapsed[0] += time.time() - foo_tic
+        #     foo_tic = time.time()
+        #     pl=(rid[foo_where], t[foo_where], f1[foo_where],f2[foo_where],f3[foo_where])
+        #     #photon_list = table_data[foo_where]  # 6.2-8.4 s
+        #     foo_elapsed[1] += time.time() - foo_tic
+        # print(np.array(foo_elapsed) / 10)
+        #[0.46669374 0.83153057 0.]
+
+        # foo_elapsed=[0,0,0]
+        # table_data = self._shared_tables[-1].data
+        # td = np.zeros(table_data.size, dtype={'names': ('ResID', 'Time', 'Wavelength','SpecWeight','NoiseWeight'),
+        #                                       'formats': (np.int32,np.int32, np.float32, np.float32, np.float32),
+        #                                       'align':True})
+        # td['ResID']=table_data['ResID']
+        # td['Wavelength'] = table_data['Wavelength']
+        # td['Time'] = table_data['Time']
+        # table_data=td
+        # for i in np.array([60977,  81141, 100519,  80485,  61070,  11439, 101240,  91158,  61179,
+        #                    90464]):#np.random.choice(self.solution.beam_map.ravel(), size=10):
+        #
+        #     foo_tic = time.time()
+        #     foo_where = table_data['ResID'] == i  # 2.6-5.2s
+        #     foo_elapsed[0] += time.time() - foo_tic
+        #     foo_tic = time.time()
+        #     photon_list = table_data[foo_where]  # 6.2-8.4 s
+        #     foo_elapsed[1] += time.time() - foo_tic
+        # print(np.array(foo_elapsed) / 10)
+        # [1.51204822 3.03177817 0.]
+
+        # foo_elapsed=[0,0,0]
+        # table_data = self._shared_tables[-1].data
+        # td = np.zeros(table_data.size, dtype={'names': ('ResID', 'Time', 'Wavelength','SpecWeight','NoiseWeight'),
+        #                                       'formats': (np.int32,np.int32, np.float, np.float, np.float),
+        #                                       'align':True})
+        # td['ResID']=table_data['ResID']
+        # td['Wavelength'] = table_data['Wavelength']
+        # td['Time'] = table_data['Time']
+        # table_data=td
+        # for i in np.array([60977,  81141, 100519,  80485,  61070,  11439, 101240,  91158,  61179,
+        #                    90464]):#np.random.choice(self.solution.beam_map.ravel(), size=10):
+        #
+        #     foo_tic = time.time()
+        #     foo_where = table_data['ResID'] == i  # 2.6-5.2s
+        #     foo_elapsed[0] += time.time() - foo_tic
+        #     foo_tic = time.time()
+        #     photon_list = table_data[foo_where]  # 6.2-8.4 s
+        #     foo_elapsed[1] += time.time() - foo_tic
+        # print(np.array(foo_elapsed) / 10)
+        # [2.45702944 3.07930534 0.]
+        # foo_elapsed=[0,0,0]
+        # table_data = self._shared_tables[-1].data
+        # td = np.zeros(table_data.size, dtype={'names': ('ResID', 'Time', 'Wavelength','SpecWeight','NoiseWeight'),
+        #                                       'formats': (np.int64,np.int64, np.float, np.float, np.float),
+        #                                       'align':True})
+        # td['ResID']=table_data['ResID']
+        # td['Wavelength'] = table_data['Wavelength']
+        # td['Time'] = table_data['Time']
+        # table_data=td
+        # for i in np.array([60977,  81141, 100519,  80485,  61070,  11439, 101240,  91158,  61179,
+        #                    90464]):#np.random.choice(self.solution.beam_map.ravel(), size=10):
+        #
+        #     foo_tic = time.time()
+        #     foo_where = table_data['ResID'] == i  # 2.6-5.2s
+        #     foo_elapsed[0] += time.time() - foo_tic
+        #     foo_tic = time.time()
+        #     photon_list = table_data[foo_where]  # 6.2-8.4 s
+        #     foo_elapsed[1] += time.time() - foo_tic
+        # print(np.array(foo_elapsed) / 10)
+        #[3.34133077 8.82314401 0.]
+
 
         try:
             log.info("Computing phase histograms")
             self._run("make_histograms", pixels=pixels, wavelengths=wavelengths,
                       parallel=parallel, verbose=verbose, h5_safe=True)
-            del self._shared_tables
+            if self._shared_tables is not None:
+                del self._shared_tables
+                self._shared_tables=None
             log.info("Fitting phase histograms")
             self._run("fit_histograms", pixels=pixels, wavelengths=wavelengths,
                       parallel=parallel, verbose=verbose)
@@ -303,12 +461,14 @@ class Calibrator(object):
         pixels, wavelengths = self._setup(pixels, wavelengths)
         self._update_progress(number=pixels.shape[1], initialize=True, verbose=verbose)
         obs_files = []
+        foo_elapsed = [[0,0],[0,0],[0,0],[0,0]]
         try:
             # make ObsFiles
-            # for wavelength in wavelengths:
-            #     # wavelengths might be unordered, so we get the right order of h5 files
-            #     index = np.where(wavelength == np.asarray(self.cfg.wavelengths))[0].squeeze()
-            #     obs_files.append(photontable.ObsFile(self.cfg.h5_file_names[index]))
+            if self._shared_tables is None:
+                for wavelength in wavelengths:
+                    # wavelengths might be unordered, so we get the right order of h5 files
+                    index = np.where(wavelength == np.asarray(self.cfg.wavelengths))[0].squeeze()
+                    obs_files.append(photontable.ObsFile(self.cfg.h5_file_names[index]))
 
             # make histograms for each pixel in pixels and wavelength in wavelengths
             for pixel in pixels.T:
@@ -322,10 +482,21 @@ class Calibrator(object):
                         model = models[index]
                         # load the data
 
-                        # photon_list = obs_files[index].getPixelPhotonList(*pixel)
-                        table_data = self._shared_tables[index].data
-                        # print(self.solution.beam_map.shape, pixel)
-                        photon_list = table_data[table_data['ResID'] == self.solution.beam_map[tuple(pixel)]]
+                        if self._shared_tables is None:
+                            foo_tic = time.time()
+                            photon_list = obs_files[index].getPixelPhotonList(*pixel)
+                            foo_elapsed[0][0] += time.time() - foo_tic
+                            foo_elapsed[0][1] += 1
+                        else:
+                            table_data = self._shared_tables[index].data
+                            foo_tic = time.time()
+                            foo_where=table_data['ResID'] == self.solution.beam_map[tuple(pixel)] #2.6-5.2s
+                            foo_elapsed[0][0] += time.time() - foo_tic
+                            foo_elapsed[0][1] += 1
+                            foo_tic = time.time()
+                            photon_list = table_data[foo_where]  #6.2-8.4 s
+                            foo_elapsed[1][0] += time.time() - foo_tic
+                            foo_elapsed[1][1] += 1
 
                         if photon_list.size < 2:
                             model.flag = 1
@@ -379,6 +550,10 @@ class Calibrator(object):
                     log.error(message, exc_info=True)
                     raise error
             # update progress bar
+            pipelinelog.getLogger(__name__).debug('Pixel done {}'.format(list(map(lambda x: '{:.4f}'.format(x[0]/max(x[
+                                                                                                                     1],1)), foo_elapsed))))
+            #20-170ms /pix/wave
+
             self._update_progress(finish=True, verbose=verbose)
         finally:
             # close obsFiles
@@ -608,7 +783,7 @@ class Calibrator(object):
                   h5_safe=False):
         # configure number of processes
         n_data = pixels.shape[1]
-        h5_safe=False
+        h5_safe = False
         cpu_count = mkidpipeline.config.n_cpus_available()
         if h5_safe:
             cpu_count = min(len(wavelengths), cpu_count)
@@ -636,6 +811,7 @@ class Calibrator(object):
 
             # make cpu_count number of workers to process the data
             for index in range(cpu_count):
+                #TODO name each queue and worker if possible
                 workers.append(Worker(self.cfg, method, events[index], input_queues[0], output_queue, progress_queue,
                                       shared_tables=self._shared_tables))
 
@@ -646,7 +822,8 @@ class Calibrator(object):
             progress_queue.put({"number": n_data, "initialize": True, "verbose": verbose})
 
             # assign data to workers
-            for pixel in pixels.T:
+            foo_elapsed=[[0,0],[0,0],[0,0],[0,0]]
+            for fooi,pixel in enumerate(pixels.T):
                 if h5_safe:
                     for wavelength_index, wavelength in enumerate(wavelengths):
                         kwargs = {"pixel": pixel, "wavelengths": wavelength,
@@ -659,9 +836,27 @@ class Calibrator(object):
                     fit_element = self.solution[pixel[0], pixel[1]]
                     kwargs = {"pixel": pixel, "wavelengths": wavelengths,
                               "fit_element": fit_element, "verbose": verbose}
-                    while input_queues[0].qsize() > self._max_queue_size / 2:
+                    foo_tic=time.time()
+                    foo_cont=input_queues[0].qsize() > self._max_queue_size / 2
+                    foo_elapsed[0][0]+=time.time()-foo_tic
+                    foo_elapsed[0][1] += 1
+                    while foo_cont:
+                        foo_tic = time.time()
                         self._acquire_data(h5_safe, n_data, output_queue)
+                        foo_elapsed[1][0] += time.time() - foo_tic
+                        foo_elapsed[1][1] +=1
+                        foo_tic = time.time()
+                        foo_cont = input_queues[0].qsize() > self._max_queue_size / 2
+                        foo_elapsed[2][0] += time.time() - foo_tic
+                        foo_elapsed[2][1] += 1
                     input_queues[0].put(kwargs)
+                # if fooi>300:
+                #     pipelinelog.getLogger(__name__).debug('Trying to terminate')
+                #     pipelinelog.getLogger(__name__).debug(list(map(lambda x: '{:.4f}'.format(x[0]/max(x[1],1)),
+                #     foo_elapsed)))
+                #     for _ in range(cpu_count):
+                #         input_queues[0].put({"stop": True})
+                #     raise KeyboardInterrupt
             # tell each worker to stop after all the data has been processed
             for index in range(cpu_count):
                 input_queue = input_queues[index % queue_length]
@@ -994,14 +1189,20 @@ class Worker(mp.Process):
 
     def run(self):
         """This method gets called on the instantiation of the object."""
+        foo_elapsed = [[0,0],[0,0],[0,0]]
+
         try:
-            while not self.finished.is_set():
+            while True:
                 # get next bit of data to analyze
-                kwargs = self.input_queue.get()
+                foo_tic=time.time()
+                kwargs = self.input_queue.get()  #100-125ms /call on shared mem, 5s on photontable not h5safe
+                foo_elapsed[0][0]+=time.time()-foo_tic
+                foo_elapsed[0][1]+=1
                 # check for stopping condition
                 stop = kwargs.pop("stop", False)
                 if stop:
                     self.finished.set()
+                    break
                 else:
                     # pop kwargs that may not be arguments to the requested method
                     fit_element = kwargs.pop("fit_element", False)
@@ -1027,15 +1228,25 @@ class Worker(mp.Process):
                     # output data into queue if we are running one of the main methods
                     if pixel is not False and self.output_queue is not None:
                         fit_element = self.calibrator.solution[pixel[0], pixel[1]]
+                        foo_tic=time.time()
                         self.output_queue.put({"pixel": pixel, "wavelengths": wavelengths,
-                                               "fit_element": fit_element})
-                        self.progress_queue.put({"verbose": verbose})
+                                               "fit_element": fit_element})  #negligible
+                        foo_elapsed[1][0] += time.time() - foo_tic
+                        foo_elapsed[1][1] += 1
+                        foo_tic = time.time()
+                        self.progress_queue.put({"verbose": verbose})  #cumulative over 20k pixels ~5s
+                        foo_elapsed[2][0] += time.time() - foo_tic
+                        foo_elapsed[2][1] += 1
         except KeyboardInterrupt:
             self.finished.set()
             self.finished.wait()
         except Exception as error:
             self.finished.set()
             raise error
+        self.finished.set()
+        self.finished.wait()
+        pipelinelog.getLogger(__name__).info('Worker done {}'.format(list(map(lambda x: '{:.4f}'.format(x[0]/max(x[1],1)),
+                                                                          foo_elapsed))))
 
 
 class Solution(object):

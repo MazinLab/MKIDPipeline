@@ -34,6 +34,7 @@ wavecal: !configdict
     dt: 500
     # do the fitting using more than one core (True/False)
     parallel: True
+    parallel_prefetch: True
 
 flatcal: !configdict
   #This section provides the parameters specific to the flat calibration function

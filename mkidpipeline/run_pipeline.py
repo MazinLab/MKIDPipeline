@@ -70,6 +70,9 @@ import tables.parameters
 from mkidcore.config import getLogger
 
 
+os.environ["TMPDIR"] = '/mnt/data0/tmp/'
+
+
 datafile = '/mnt/data0/baileyji/mec/data.yml'
 cfgfile = '/mnt/data0/baileyji/mec/pipe.yml'
 mkidpipeline.config.configure_pipeline(cfgfile)
@@ -77,12 +80,12 @@ mkidpipeline.config.logtoconsole()
 c = dataset = mkidpipeline.config.load_data_description(datafile)
 pcfg = mkidpipeline.config.config
 bcfgs = bin2hdf.gen_configs(dataset.timeranges)
-# getLogger('mkidpipeline.calibration.wavecal').setLevel('INFO')
-# getLogger('mkidpipeline.hdf.photontable').setLevel('INFO')
+getLogger('mkidpipeline.calibration.wavecal').setLevel('INFO')
+getLogger('mkidpipeline.hdf.photontable').setLevel('INFO')
 
 
 bin2hdf.buildtables(dataset.timeranges, asynchronous=0, ncpu=6, remake=False)
-wavecals = wavecal.fetch(dataset.wavecals, verbose=False)
+wavecals = wavecal.fetch(dataset.wavecals, verbose=True)
 
 raise RuntimeError()
 flatcals = flatcal.fetch(dataset.flatcals, async=True)
