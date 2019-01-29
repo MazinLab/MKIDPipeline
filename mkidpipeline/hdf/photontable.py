@@ -104,7 +104,7 @@ tables.parameters.SORTEDLR_MAX_SLOTS *= 10
 
 
 class ThreadsafeFileRegistry(tables.file._FileRegistry):
-    lock = mkidcore.utils.manager().RLock()
+    lock = mp.RLock()
 
     @property
     def handlers(self):
