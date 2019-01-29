@@ -24,13 +24,11 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 from mkidpipeline.hdf.photontable import ObsFile
 import os
-from PyQt4 import QtGui
-from PyQt4 import QtCore
-# from PyQt4.QtGui import *
-# from tables import *
-from utils.FileName import FileName
+from PyQt5 import QtGui
+from PyQt5 import QtCore
+from mkidpipeline.utils.FileName import FileName
 # from photometry.PSFphotometry import PSFphotometry
-from utils.fitFunctions import model_list
+from mkidpipeline.utils.fitFunctions import model_list
 # from util import utils
 # from util.popup import PopUp
 
@@ -52,7 +50,7 @@ class MouseMonitor():
     def on_click(self,event):
         if event.inaxes is self.ax:
             self.xyguess = [event.xdata,event.ydata]
-            print 'Clicked: ',self.xyguess
+            print('Clicked: ',self.xyguess)
         
     def on_scroll_cbar(self,event):
         if event.inaxes is self.fig.cbar.ax:
@@ -122,9 +120,9 @@ def saveTable(centroidListFileName,paramsList,timeList,xPositionList,yPositionLi
     try:
         centroidListFile = tables.openFile(fullCentroidListFileName,mode='w')
     except:
-        print 'Error: Couldn\'t create centroid list file, ',fullCentroidListFileName
+        print('Error: Couldn\'t create centroid list file, ',fullCentroidListFileName)
         return
-    print 'writing to', fullCentroidListFileName
+    print('writing to', fullCentroidListFileName)
 
     # Set up and write h5 table with relevant parameters, centroid times and positions, hour angles, and flags.
 
@@ -199,7 +197,7 @@ def centroidImage(image,xyguess,radiusOfSearch = 6,doDS9=True,usePsfFit=False):
             xycenter = xycenterPsf
             flag = 0
         else:
-            print 'PSF fit failed with flag: ', psfDict['flag']
+            print('PSF fit failed with flag: ', psfDict['flag'])
             #xycenter = xycenterGuide 
             flag = 1
             
@@ -222,14 +220,14 @@ def getUserCentroidGuess(image,norm=None):
     map.fig = plt.figure()
     map.ax = map.fig.add_subplot(111)
     map.ax.set_title('Centroid Guess')
-    map.handleMatshow = map.ax.matshow(image,cmap = plt.cm.gray, origin = 'lower', norm=norm)
+    map.handleMatshow = map.ax.matshow(image, origin = 'lower', norm=norm)
     map.connect()
-    plt.show()
+    plt.show(block=True)
     #Get user to click on approx. centroid location
     try:
         xyguess = map.xyguess
         flag=0
-        print 'Guess = ' + str(xyguess)
+        print('Guess = ' + str(xyguess))
     except AttributeError:
         pass
         
@@ -263,7 +261,7 @@ def quickCentroid(images, radiusOfSearch=10, maxMove = 4,usePsfFit=False):
     k=-1
     while flag>0: 
         k+=1
-        print k,': Looking for star...'
+        print(k,': Looking for star...')
         xyguess, flag = getUserCentroidGuess(images[k])
         xPositionList[k]=xyguess[0]
         yPositionList[k]=xyguess[1]
@@ -273,7 +271,7 @@ def quickCentroid(images, radiusOfSearch=10, maxMove = 4,usePsfFit=False):
             xyguess, flag = getUserCentroidGuess(images[i])
             if flag>0:
                 flagList[i] = flag
-                print i,': No star selected'
+                print(i,': No star selected')
                 continue
         centroidDict = centroidImage(images[i],xyguess,radiusOfSearch = radiusOfSearch,doDS9=False,usePsfFit=usePsfFit)
         xycenter,flag = centroidDict['xycenter'],centroidDict['flag']
@@ -283,13 +281,13 @@ def quickCentroid(images, radiusOfSearch=10, maxMove = 4,usePsfFit=False):
             yPositionList[i]=xycenter[1]
             flagList[i] = flag
             xyguess=xycenter
-            print i,': Success! ',xycenter
+            print(i,': Success! ',xycenter)
             continue
             
         xyguess, flag = getUserCentroidGuess(images[i])
         if flag>0:        
             flagList[i] = flag
-            print i,': Failed. No star selected'
+            print(i,': Failed. No star selected')
             continue
 
         centroidDict = centroidImage(images[i],xyguess,radiusOfSearch = radiusOfSearch,doDS9=False,usePsfFit=usePsfFit)
@@ -298,7 +296,7 @@ def quickCentroid(images, radiusOfSearch=10, maxMove = 4,usePsfFit=False):
         yPositionList[i]=xycenter[1]
         flagList[i] = flag
         xyguess=xycenter
-        print i,': Success! Star found. ',xycenter
+        print(i,': Success! Star found. ',xycenter)
         
     return xPositionList,yPositionList,flagList
 
@@ -337,7 +335,7 @@ def centroidCalc(obsFile, centroid_RA, centroid_DEC, outputFileName=None, guessT
         centroidListFileName=FileName(obsFile).centroidList()
     else:
         centroidListFileName=outputFileName
-    print 'Saving to: ',centroidListFileName
+    print('Saving to: ',centroidListFileName)
     centroidListFolder = os.path.dirname(centroidListFileName)
     
     #app = QApplication(sys.argv)    #Commented out for now to avoid possible issues with x-forwarding if running remotely.
@@ -352,10 +350,10 @@ def centroidCalc(obsFile, centroid_RA, centroid_DEC, outputFileName=None, guessT
     ##### This is also done in RADecImage. Make a common function somewhere
     longitude = 155.0903
     import astropy
-    print int(obsFile.fileName[:-3])
+    print(int(obsFile.fileName[:-3]))
     original_lst = astropy.time.Time(val=int(obsFile.fileName[:-3]), format='unix').sidereal_time('mean', longitude).radian
 
-    print 'Original LST from telescope:', original_lst
+    print('Original LST from telescope:', original_lst)
 
 
 
@@ -374,12 +372,12 @@ def centroidCalc(obsFile, centroid_RA, centroid_DEC, outputFileName=None, guessT
     original_lst_seconds += float(integrationTime)/2.
     
     # Create saturated pixel mask to apply to PyGuide algorithm.
-    print 'Creating saturation mask...'
+    print('Creating saturation mask...')
     nFrames = int(np.ceil(float(exptime)/float(integrationTime)))
 
     
     # Generate dead pixel mask, invert obsFile deadMask format to put it into PyGuide format
-    print 'Creating dead mask...'    
+    print('Creating dead mask...')
     # deadMask = ob.getDeadPixels()
     if obsFile.getFromHeader('timeMaskExists'):
         # If hot pixels time-mask data not already parsed in (presumably not), then parse it.
@@ -403,9 +401,9 @@ def centroidCalc(obsFile, centroid_RA, centroid_DEC, outputFileName=None, guessT
     centroidDictList = []
     
     flag=0
-    print 'Retrieving images...'
+    print('Retrieving images...')
     exptime = 2
-    print range(exptime)
+    print(range(exptime))
     for iFrame in range(exptime):
         # Integrate over the guess time.  Click a pixel in the plot corresponding to the xy center guess.  This will be used to centroid for the duration of guessTime.
         if iFrame%guessTime == 0:
@@ -420,7 +418,7 @@ def centroidCalc(obsFile, centroid_RA, centroid_DEC, outputFileName=None, guessT
             else:
                 #Use guess supplied by caller.
                 xyguess = xyapprox
-                print 'Guess = ' + str(xyguess)
+                print('Guess = ' + str(xyguess))
                 
         # Centroid an image that has been integrated over integrationTime.
         if iFrame%integrationTime == 0:
@@ -432,12 +430,12 @@ def centroidCalc(obsFile, centroid_RA, centroid_DEC, outputFileName=None, guessT
             xycenter,flag = centroidDict['xycenter'],centroidDict['flag']
             centroidDictList.append(centroidDict)
             if flag==0:
-                print 'Calculated [x,y] center = ' + str((xycenter)) + ' for frame ' + str(iFrame) +'.'
+                print('Calculated [x,y] center = ' + str((xycenter)) + ' for frame ' + str(iFrame) +'.')
             else:
                 if usePsfFit:
-                    print 'Cannot centroid frame ' + str(iFrame) + ' by psf fit, using pyguide center instead'
+                    print('Cannot centroid frame ' + str(iFrame) + ' by psf fit, using pyguide center instead')
                 else:
-                    print 'Cannot centroid frame ' + str(iFrame) + ' by pyguide, using guess instead'
+                    print('Cannot centroid frame ' + str(iFrame) + ' by pyguide, using guess instead')
                 
                     
             # Begin RA/DEC mapping
@@ -510,7 +508,7 @@ class PSFphotometry(Photometry):
             self.expTime[badPixels] = 0.
             self.image[badPixels] = 0.
             if self.verbose:
-                print 'Removed', nbad, 'bad pixels'
+                print('Removed', nbad, 'bad pixels')
 
     def guess_parameters(self, model, aper_radius=9, tie_sigmas=True):
         '''

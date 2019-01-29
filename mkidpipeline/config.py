@@ -174,11 +174,19 @@ class MKIDObservingDither(object):
         proc = lambda x: str.lower(str.strip(x))
         d = dict([list(map(proc, l.partition('=')[::2])) for l in lines])
         self.inttime = int(d['inttime'])
-        self.nsteps = int(d['nsteps'])
+        try:
+            self.nsteps = int(d['npos'])
+        except KeyError:
+            self.nsteps = int(d['nsteps'])
         self.pos = list(zip(tofloat(d['xpos']), tofloat(d['ypos'])))
-        self.obs = [MKIDObservingDataDescription('{}_({})_{}'.format(self.name,os.path.basename(self.file),i),
-                                                 b, stop=e)
-                    for i, (b, e) in enumerate(zip(tofloat(d['starttimes']), tofloat(d['endtimes'])))]
+        try:
+            self.obs = [MKIDObservingDataDescription('{}_({})_{}'.format(self.name,os.path.basename(self.file),i),
+                                                     b, stop=e)
+                        for i, (b, e) in enumerate(zip(tofloat(d['starttimes']), tofloat(d['endtimes'])))]
+        except KeyError:
+            self.obs = [MKIDObservingDataDescription('{}_({})_{}'.format(self.name, os.path.basename(self.file), i),
+                                                     b, stop=e)
+                        for i, (b, e) in enumerate(zip(tofloat(d['starttimes']), tofloat(d['stoptimes'])))]
 
     @classmethod
     def from_yaml(cls, loader, node):

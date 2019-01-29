@@ -77,7 +77,7 @@ class Distribution(object):
         return self.transform(index)
 
 def sample_cube(datacube, num_events):
-    print 'creating photon data from reference cube'
+    print('creating photon data from reference cube')
     dist = Distribution(datacube, interpolation=True)
 
     photons = dist(num_events)
@@ -164,33 +164,37 @@ for nx in range(n_sources):
 # plt.show()
 
 positions = 5
-sky_sample = np.zeros((positions, array_size[0], array_size[1]))
-for ir, r in enumerate(np.linspace(0,90,positions)):
-    sky_pos, _ = rot(sky, np.array([sky_span//2,sky_span//2]), r)
-    sky_pos[sky_pos<=0] = 0
-    print sky_pos.shape
+sky_sample = np.zeros((positions**2, array_size[0], array_size[1]))
+# for ir, r in enumerate(np.linspace(0,90,positions)):
+#     sky_pos, _ = rot(sky, np.array([sky_span//2,sky_span//2]), r)
+#     sky_pos[sky_pos<=0] = 0
+ir = 0
+for ix in np.linspace(-30,30,positions):
+    for iy in np.linspace(-30,30,positions):
+        sky_pos = sky
+        print(sky_pos.shape)
 
-    # plt.imshow(sky_pos, interpolation='none', origin='lower', norm=LogNorm())
-    # plt.show()
+        # plt.imshow(sky_pos, interpolation='none', origin='lower', norm=LogNorm())
+        # plt.show()
 
-    sample_ind_x = (sky_pos.shape[0]-array_size[0])/2.
-    sample_ind_y = (sky_pos.shape[1]-array_size[1])/2.
+        sample_ind_x = (sky_pos.shape[0]-array_size[0])/2.
+        sample_ind_y = (sky_pos.shape[1]-array_size[1])/2.
 
-    print sample_ind_x, sky_pos.shape[0], array_size[0]
-    this_sky_sample = sky_pos[np.int(np.floor(sample_ind_x)):np.int(np.floor(-sample_ind_x)),
-                                    np.int(np.floor(sample_ind_y)):np.int(np.floor(-sample_ind_y))]
+        print(sample_ind_x, sky_pos.shape[0], array_size[0])
+        this_sky_sample = sky_pos[np.int(np.floor(sample_ind_x +ix)):np.int(np.floor(-sample_ind_x +ix)),
+                                  np.int(np.floor(sample_ind_y +iy)):np.int(np.floor(-sample_ind_y +iy))]
 
-    # sky_sample *= array_mask
+        # sky_sample *= array_mask
 
-    # plt.imshow(this_sky_sample, interpolation='none', origin='lower', norm=LogNorm())
-    # plt.show()
+        # plt.imshow(this_sky_sample, interpolation='none', origin='lower', norm=LogNorm())
+        # plt.show()
 
-    sky_sample[ir] = this_sky_sample
-
+        sky_sample[ir] = this_sky_sample
+        ir += 1
 photons = sample_cube(sky_sample, int(1e4))
 # print photons, photons.shape
 packets = np.transpose(photons)
-print packets[:5]
+print(packets[:5])
 
 # np.save('fakedata.npy', packets)
 # packets = np.load('fakedata.npy')
@@ -201,21 +205,22 @@ image = pipe.make_intensity_map(cube, (array_size[0], array_size[1]))
 # plt.imshow(image, norm=LogNorm())
 # plt.show()
 
-dithLogFilename = 'quickRotTest2.log'
+# dithLogFilename = 'quickRotTest2.log'
+dithLogFilename = 'quickditherTest.log'
 
 ditherDict = drizzle.loadDitherLog(dithLogFilename)
-# con2pix = drizzle.getCon2Pix(files[0], files[1], ditherDict, filename = dir+'con2pix.txt')
-ditherDict = drizzle.getPixOff(ditherDict,con2pix=None)
-print ditherDict
+ditherDict = drizzle.getPixOff(ditherDict,con2pix=np.array([[1, 1], [1,1]]))
+# print ditherDict
 
 # Initialise empty image centered on Crab Pulsar
 virtualImage = rdi.RADecImage(nPixRA=250, nPixDec=250, vPlateScale=0.25,
                               cenRA=0., cenDec=89*np.pi/180,
                               ditherDict=ditherDict)
-packets[:,0] *= 5375
+# packets[:,0] *= 5375
+packets[:,0] *= ditherDict['relStartTimes'][1]
 # packets[:,0] += ditherDict['startTimes'][0]
-
-print packets[:5]
+print(ditherDict['relStartTimes'])
+print(packets[:5])
 [virtualImage.nDPixRow, virtualImage.nDPixCol] = array_size
 virtualImage.photWeights = None
 virtualImage.detExpTimes = None
@@ -228,6 +233,6 @@ for ix in range(ditherDict['nSteps']):
     # print effExposure[:,5], effExposure.shape
 
     thisImage, thisGridDec, thisGridRA = np.histogram2d(effExposure[1], effExposure[2], bins=146)
-    # plt.imshow(thisImage)
-    # plt.show()
+    plt.imshow(thisImage)
+    plt.show()
     virtualImage.stackExposure(effExposure, ditherInd=ix, doStack=True)

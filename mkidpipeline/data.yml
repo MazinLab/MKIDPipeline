@@ -48,30 +48,36 @@
   header:
     ND: .5
     lamp: 40
-#- !dither
-#  name: HIP 10680
-#  file: dithers/HD10680_1545544478_dither.log
-#  comments:
-#    - Beta Pic moving group
-#    - No known planets or disks, but a good young target
-#    - 113mas Lyot
-#    - astrogrid
-#  out: photonlist
-#- !dither
-#  name: HIP 10680
-#  file: dithers/HD10680_1545546044_dither.log
-#  comments:
-#    - Beta Pic moving group
-#    - No known planets or disks, but a good young target
-#    - 113mas Lyot
-#    - astrogrid
-#  out: photonlist
-#- !dither
-#  name: HD22179
-#  file: dithers/HD22179_1545548901_dither.log
-#  comments:
-#    - 113mas Lyot
-#    - Astrogrid
-#    - Faint - J=7.8
-#    - 1545549968 - 1545551005,  Network error. Lost FL8a,b
-#  out: cube
+- !dither
+  name: Trapezium
+  file: dithers/trapezium.log
+  comments:
+    - Test
+  out: photonlist
+- !dither
+  name: HIP 10680
+  file: dithers/HD10680_1545544478_dither.log
+  comments:
+    - Beta Pic moving group
+    - No known planets or disks, but a good young target
+    - 113mas Lyot
+    - astrogrid
+  out: photonlist
+- !dither
+  name: HIP 10680
+  file: dithers/HD10680_1545546044_dither.log
+  comments:
+    - Beta Pic moving group
+    - No known planets or disks, but a good young target
+    - 113mas Lyot
+    - astrogrid
+  out: photonlist
+- !dither
+  name: HD22179
+  file: dithers/HD22179_1545548901_dither.log
+  comments:
+    - 113mas Lyot
+    - Astrogrid
+    - Faint - J=7.8
+    - 1545549968 - 1545551005,  Network error. Lost FL8a,b
+  out: cube
