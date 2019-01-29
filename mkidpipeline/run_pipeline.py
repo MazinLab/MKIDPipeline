@@ -85,7 +85,9 @@ getLogger('mkidpipeline.hdf.photontable').setLevel('INFO')
 
 
 bin2hdf.buildtables(dataset.timeranges, asynchronous=0, ncpu=6, remake=False)
-wavecals = wavecal.fetch(dataset.wavecals, verbose=True)
+wavecals = wavecal.fetch(dataset.wavecals, verbose=False)
+
+# inspect/mnt/data0/baileyji/mec/database/2018-12-23 051888891e1e27c48f09da56342a914aed89.npz
 
 raise RuntimeError()
 flatcals = flatcal.fetch(dataset.flatcals, async=True)
