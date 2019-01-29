@@ -84,11 +84,11 @@ TBRERROR = RuntimeError('Function needs to be reviewed')
 WAVECAL_FAILED_FLAG = 0b00000010
 
 tables.parameters.MAX_NUMEXPR_THREADS = 16
-tables.parameters.MAX_BLOSC_THREADS = 16
+tables.parameters.MAX_BLOSC_THREADS = 4
 
 #These are little better than blind guesses and don't seem to impact performaace, but still need benchmarking
-tables.parameters.CHUNK_CACHE_SIZE = 2 * 1024 * 1024 * 1024
-tables.parameters.TABLE_MAX_SIZE = 2 * 1024 * 1024 * 1024  # default 1MB
+# tables.parameters.CHUNK_CACHE_SIZE = 2 * 1024 * 1024 * 1024
+# tables.parameters.TABLE_MAX_SIZE = 2 * 1024 * 1024 * 1024  # default 1MB
 # This governs the chunk cache that will store table data, if a row is
 # 20 bytes (as is our present state)
 # nslots = TABLE_MAX_SIZE / (chunksize * rowsize_bytes)
@@ -96,11 +96,19 @@ tables.parameters.TABLE_MAX_SIZE = 2 * 1024 * 1024 * 1024  # default 1MB
 # one 1s of 20k pix data @ 2500c/s is 0.95GB
 
 # These are all used by the c code backing pytables and it isn't clear their importance yet
-tables.parameters.CHUNK_CACHE_NELMTS *= 10
-tables.parameters.SORTEDLR_MAX_SIZE = 1 *1024*1024*1024 # default 8MB
-tables.parameters.SORTED_MAX_SIZE = 1 *1024*1024*1024 # default 1MB
-tables.parameters.LIMBOUNDS_MAX_SIZE = 1*1024*1024*1024
-tables.parameters.SORTEDLR_MAX_SLOTS *= 10
+# tables.parameters.CHUNK_CACHE_NELMTS *= 10
+# tables.parameters.SORTEDLR_MAX_SIZE = 1 *1024*1024*1024 # default 8MB
+# tables.parameters.SORTED_MAX_SIZE = 1 *1024*1024*1024 # default 1MB
+# tables.parameters.LIMBOUNDS_MAX_SIZE = 1*1024*1024*1024
+# tables.parameters.SORTEDLR_MAX_SLOTS *= 10
+
+# tables.parameters.CHUNK_CACHE_SIZE *=10
+# tables.parameters.TABLE_MAX_SIZE *=10
+# tables.parameters.CHUNK_CACHE_NELMTS *= 10
+# tables.parameters.SORTEDLR_MAX_SIZE *=10
+# tables.parameters.SORTED_MAX_SIZE *=10
+# tables.parameters.LIMBOUNDS_MAX_SIZE *=10
+# tables.parameters.SORTEDLR_MAX_SLOTS *= 10
 
 
 class ThreadsafeFileRegistry(tables.file._FileRegistry):

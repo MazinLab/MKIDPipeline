@@ -146,7 +146,12 @@ class Configuration(object):
             self.parallel_prefetch =  config.wavecal.fit.parallel_prefetch
             self.summary_plot = config.wavecal.plots.lower() in ('all', 'summary')
 
-            self.templar_configuration_path = config.templar.file
+            try:
+                self.templar_configuration_path = config.templar.file
+            except KeyError:
+                if self.beammap.frequencies is None:
+                    pipelinelog.getLogger(__name__).warning('Beammap loaded without frequencies and no '
+                                                            'templar config specified.')
         else:
             self.beammap = beammap if beammap is not None else Beammap(default='MEC')
             self.x_pixels = beammap.ncols
@@ -209,11 +214,12 @@ class Calibrator(object):
 
     Created by: Nicholas Zobrist, January 2018
     """
-    def __init__(self, configuration, solution_name='solution.npz', _shared_tables=None):
+    def __init__(self, configuration, solution_name='solution.npz', _shared_tables=None, main=True):
         # save configuration
         self.cfg = Configuration(configuration) if not isinstance(configuration, Configuration) else configuration
         self.solution_name = solution_name
         # get beam map
+
         obs_files = []
         for f in self.cfg.h5_file_names:
             obs_files.append(photontable.ObsFile(f))
@@ -226,6 +232,7 @@ class Calibrator(object):
         # initialize fit array
         fit_array = np.empty((self.cfg.beammap.ncols, self.cfg.beammap.nrows), dtype=object)
         self.solution = Solution(fit_array=fit_array, configuration=self.cfg,
+                                 #beam_map=self.cfg.beammap.residmap, beam_map_flags=self.cfg.beammap.flagmap,
                                  beam_map=beam_map, beam_map_flags=beam_map_flags,
                                  solution_name=self.solution_name)
         self.progress = None
@@ -233,11 +240,13 @@ class Calibrator(object):
         self._acquired = 0
         self._max_queue_size = None
         self._shared_tables = _shared_tables
-
-        l=pipelinelog.getLogger(__name__)
-
-        l.info('Wave Calibrator configured with: {}'.format(self.cfg.configuration_path))
-        l.info('Parallel mode: {}'.format(self.cfg.parallel))
+        self._obsfiles = {}
+        self._last_pct = 0
+        
+        if main:
+            l = pipelinelog.getLogger(__name__)
+            l.info('Wave Calibrator configured with: {}'.format(self.cfg.configuration_path))
+            l.info('Parallel mode: {}'.format(self.cfg.parallel))
 
     def run(self, pixels=None, wavelengths=None, verbose=True, parallel=None, save=True, plot=None):
         """
@@ -444,6 +453,15 @@ class Calibrator(object):
         except KeyboardInterrupt:
             log.info("Keyboard shutdown requested ... exiting")
 
+    def fetch_obsfile(self, wavelength):
+        try:
+            return self._obsfiles[wavelength]
+        except KeyError:
+            # wavelengths might be unordered, so we get the right order of h5 files
+            index = np.where(wavelength == np.asarray(self.cfg.wavelengths))[0].squeeze()
+            self._obsfiles[wavelength] = photontable.ObsFile(self.cfg.h5_file_names[index])
+        return self._obsfiles[wavelength]
+
     def make_histograms(self, pixels=None, wavelengths=None, verbose=True):
         """
         Compute the phase pulse-height histograms for the data specified in the
@@ -463,12 +481,6 @@ class Calibrator(object):
         obs_files = []
         foo_elapsed = [[0,0],[0,0],[0,0],[0,0]]
         try:
-            # make ObsFiles
-            if self._shared_tables is None:
-                for wavelength in wavelengths:
-                    # wavelengths might be unordered, so we get the right order of h5 files
-                    index = np.where(wavelength == np.asarray(self.cfg.wavelengths))[0].squeeze()
-                    obs_files.append(photontable.ObsFile(self.cfg.h5_file_names[index]))
 
             # make histograms for each pixel in pixels and wavelength in wavelengths
             for pixel in pixels.T:
@@ -484,7 +496,7 @@ class Calibrator(object):
 
                         if self._shared_tables is None:
                             foo_tic = time.time()
-                            photon_list = obs_files[index].getPixelPhotonList(*pixel)
+                            photon_list = self.fetch_obsfile(wavelength).getPixelPhotonList(*pixel)
                             foo_elapsed[0][0] += time.time() - foo_tic
                             foo_elapsed[0][1] += 1
                         else:
@@ -779,8 +791,7 @@ class Calibrator(object):
             getattr(self, method)(pixels=pixels, wavelengths=wavelengths,
                                   verbose=verbose)
 
-    def _parallel(self, method, pixels=None, wavelengths=None, verbose=True,
-                  h5_safe=False):
+    def _parallel(self, method, pixels=None, wavelengths=None, verbose=True, h5_safe=False):
         # configure number of processes
         n_data = pixels.shape[1]
         h5_safe = False
@@ -811,14 +822,13 @@ class Calibrator(object):
 
             # make cpu_count number of workers to process the data
             for index in range(cpu_count):
-                #TODO name each queue and worker if possible
                 workers.append(Worker(self.cfg, method, events[index], input_queues[0], output_queue, progress_queue,
-                                      shared_tables=self._shared_tables))
+                                      shared_tables=self._shared_tables, name=str(index)))
 
             # make a worker to handle the progress bar and start the progress bar
             #TODO This should probably be its own class, or use something other than calibrator. I'd guess there is an
             # enormous amount of code that is unused
-            progress_worker = Worker(self.cfg, "_update_progress", events[-1], progress_queue)
+            progress_worker = Worker(self.cfg, "_update_progress", events[-1], progress_queue, name='progress')
             progress_queue.put({"number": n_data, "initialize": True, "verbose": verbose})
 
             # assign data to workers
@@ -850,7 +860,10 @@ class Calibrator(object):
                         foo_elapsed[2][0] += time.time() - foo_tic
                         foo_elapsed[2][1] += 1
                     input_queues[0].put(kwargs)
-                # if fooi>300:
+                    #TODO The final stage seems to be starved of data in the input queue, in general it looks like
+                    # the deepcopies required/implied? by going into the queues with fit/model objects is expensive
+                    # and may be taking ~50% to all the time for the second two phases.
+                # if fooi>1000:
                 #     pipelinelog.getLogger(__name__).debug('Trying to terminate')
                 #     pipelinelog.getLogger(__name__).debug(list(map(lambda x: '{:.4f}'.format(x[0]/max(x[1],1)),
                 #     foo_elapsed)))
@@ -876,7 +889,8 @@ class Calibrator(object):
             self._clean_up(input_queues, output_queue, progress_queue, workers,
                            progress_worker, events, h5_safe, n_data)
             raise KeyboardInterrupt
-        #TODO should other exceptions be cought here
+#        return workers
+        #TODO should other exceptions be caught here?
 
     def _remove_tail_riding_photons(self, photon_list):
         indices = np.argsort(photon_list['Time'])
@@ -900,8 +914,7 @@ class Calibrator(object):
             bin_width = self.cfg.bin_width * (2 ** update)
 
             # define bin edges being careful to start at the threshold cut
-            bin_edges = np.arange(max_phase, min_phase - bin_width,
-                                  -bin_width)[::-1]
+            bin_edges = np.arange(max_phase, min_phase - bin_width,  -bin_width)[::-1]
 
             # make histogram
             counts, x0 = np.histogram(phase_list, bins=bin_edges)
@@ -1105,25 +1118,29 @@ class Calibrator(object):
 
     def _acquire_data(self, h5_safe, n_data, output_queue):
         if self._acquired == n_data:
-            not_complete = False
             self._acquired = 0
+            self._last_pct = 0
+            return False
+
+        result = output_queue.get()
+        computed_pixel = result["pixel"]
+        computed_wavelengths = result["wavelengths"]
+        fit_element = result["fit_element"]
+        if h5_safe:
+            dictionary = self.solution[computed_pixel[0], computed_pixel[1]]
+            histogram_models = dictionary['histograms']
+            for wavelength in computed_wavelengths:
+                logic = (wavelength == np.asarray(self.cfg.wavelengths))
+                model = fit_element['histograms'][logic][0]
+                histogram_models[logic] = model
         else:
-            not_complete = True
-            result = output_queue.get()
-            computed_pixel = result["pixel"]
-            computed_wavelengths = result["wavelengths"]
-            fit_element = result["fit_element"]
-            if h5_safe:
-                dictionary = self.solution[computed_pixel[0], computed_pixel[1]]
-                histogram_models = dictionary['histograms']
-                for wavelength in computed_wavelengths:
-                    logic = (wavelength == np.asarray(self.cfg.wavelengths))
-                    model = fit_element['histograms'][logic][0]
-                    histogram_models[logic] = model
-            else:
-                self.solution[computed_pixel[0], computed_pixel[1]] = fit_element
-            self._acquired += 1
-        return not_complete
+            self.solution[computed_pixel[0], computed_pixel[1]] = fit_element
+        self._acquired += 1
+        pct = 100.0*self._acquired/n_data
+        if pct >= self._last_pct+10:
+            self._last_pct = pct
+            pipelinelog.getLogger(__name__).info('Acquired {:.1f} % of data for {} pixels.'.format(pct, n_data))
+        return True
 
     def _clean_up(self, input_queues, output_queue, progress_queue, workers,
                   progress_worker, events, h5_safe, n_data):
@@ -1136,7 +1153,6 @@ class Calibrator(object):
         # check that all process have stopped
         finished = False
         while not finished:
-            #TODO This will hange forever if stop isn't sent to the workers
             finished_list = [event.is_set() for event in events]
             finished = len(finished_list) == 0 or np.all(finished_list)
         # add sentinels to queues
@@ -1177,25 +1193,42 @@ class Calibrator(object):
 class Worker(mp.Process):
     """Worker class for running methods in the wavelength calibration in parallel."""
     def __init__(self, configuration, method, event, input_queue, output_queue=None,
-                 progress_queue=None, shared_tables=None):
+                 progress_queue=None, shared_tables=None, name=''):
         super(Worker, self).__init__()
-        self.calibrator = Calibrator(configuration, _shared_tables=shared_tables)
+        self.calibrator = Calibrator(configuration, _shared_tables=shared_tables, main=False)
         self.method = method
         self.input_queue = input_queue
         self.output_queue = output_queue
         self.progress_queue = progress_queue
         self.finished = event
+        self.name = name
+        self.stats = None
         self.start()
 
     def run(self):
+        # import yappi
+        # yappi.stop()
+        # yappi.clear_stats()
+        # yappi.start()
+        self.do_work()
+        # yappi.stop()
+        # self.stats = yappi.convert2pstats(yappi.get_func_stats())
+        # try:
+        #     self.stats.dump_stats('wavecal_worker{}_{}.pstats'.format(self.name, self.method))
+        # except Exception:
+        #     pipelinelog.getLogger(__name__).error('stats save failed', exc_info=True)
+        # yappi.clear_stats()
+
+    def do_work(self):
+
         """This method gets called on the instantiation of the object."""
-        foo_elapsed = [[0,0],[0,0],[0,0]]
+        foo_elapsed = [[0,0],[0,0]]
 
         try:
             while True:
                 # get next bit of data to analyze
                 foo_tic=time.time()
-                kwargs = self.input_queue.get()  #100-125ms /call on shared mem, 5s on photontable not h5safe
+                kwargs = self.input_queue.get()
                 foo_elapsed[0][0]+=time.time()-foo_tic
                 foo_elapsed[0][1]+=1
                 # check for stopping condition
@@ -1230,13 +1263,11 @@ class Worker(mp.Process):
                         fit_element = self.calibrator.solution[pixel[0], pixel[1]]
                         foo_tic=time.time()
                         self.output_queue.put({"pixel": pixel, "wavelengths": wavelengths,
-                                               "fit_element": fit_element})  #negligible
+                                               "fit_element": fit_element})  # phase 1, ~1/2 in phase 2 @ .25s/call
                         foo_elapsed[1][0] += time.time() - foo_tic
                         foo_elapsed[1][1] += 1
-                        foo_tic = time.time()
                         self.progress_queue.put({"verbose": verbose})  #cumulative over 20k pixels ~5s
-                        foo_elapsed[2][0] += time.time() - foo_tic
-                        foo_elapsed[2][1] += 1
+
         except KeyboardInterrupt:
             self.finished.set()
             self.finished.wait()
@@ -1245,9 +1276,55 @@ class Worker(mp.Process):
             raise error
         self.finished.set()
         self.finished.wait()
-        pipelinelog.getLogger(__name__).info('Worker done {}'.format(list(map(lambda x: '{:.4f}'.format(x[0]/max(x[1],1)),
-                                                                          foo_elapsed))))
-
+        pipelinelog.getLogger(__name__).info('Worker done {} [{} {}] calls'.format(list(map(lambda x: '{:.4f}'.format(x[
+                                                                                                                  0]/max(x[1],1)),
+                                                                          foo_elapsed)),foo_elapsed[0][1],
+                                                                              foo_elapsed[1][1]))
+        #1.5-3ms,<.05ms,<.1ms  #phase 1
+        #phase 2, get put, verbose  /pixel in s
+        # ['0.0088', '0.2232',
+        # ['0.0092', '0.2285',
+        # ['0.0059', '0.2359',
+        # ['0.0083', '0.2432',
+        # ['0.0099', '0.2391',
+        # ['0.0070', '0.2240',
+        # ['0.0063', '0.2289',
+        # ['0.0087', '0.2355',
+        # ['0.0076', '0.2596',
+        # ['0.0098', '0.2238',
+        # ['0.0094', '0.2693',
+        # ['0.0109', '0.2553',
+        # ['0.0081', '0.2271',
+        # ['0.0071', '0.2372',
+        # ['0.0091', '0.2337',
+        # ['0.0077', '0.2304',
+        # ['0.0079', '0.2289',
+        # ['0.0071', '0.2334',
+        # ['0.0101', '0.2325',
+        # ['0.0071', '0.2278',
+        # ['0.0240', '0.0000',
+        #phase 3
+        # ['0.0383', '0.4697', '0.0000'] (pid=816)
+        # ['0.0388', '0.4699', '0.0000'] (pid=817)
+        # ['0.0333', '0.4701', '0.0000'] (pid=830)
+        # ['0.0342', '0.4715', '0.0000'] (pid=831)
+        # ['0.0377', '0.4657', '0.0000'] (pid=818)
+        # ['0.0381', '0.4688', '0.0000'] (pid=815)
+        # ['0.0350', '0.4670', '0.0000'] (pid=826)
+        # ['0.0337', '0.4698', '0.0000'] (pid=832)
+        # ['0.0367', '0.4695', '0.0000'] (pid=824)
+        # ['0.0342', '0.4661', '0.0000'] (pid=827)
+        # ['0.0362', '0.4668', '0.0000'] (pid=822)
+        # ['0.0350', '0.4706', '0.0000'] (pid=825)
+        # ['0.0349', '0.4693', '0.0000'] (pid=829)
+        # ['0.0346', '0.4712', '0.0000'] (pid=823)
+        # ['0.0373', '0.4687', '0.0000'] (pid=819)
+        # ['0.0434', '0.4609', '0.0000'] (pid=833)
+        # ['0.0379', '0.4706', '0.0000'] (pid=820)
+        # ['0.0436', '0.4579', '0.0000'] (pid=834)
+        # ['0.0365', '0.4703', '0.0000'] (pid=821)
+        # ['0.0441', '0.4613', '0.0000'] (pid=828)
+        # ['0.0257', '0.0000', '0.0000'] (pid=835)
 
 class Solution(object):
     yaml_tag = '!wsoln'
@@ -2018,10 +2095,13 @@ class Solution(object):
         if axes is None:
             _, axes = plt.subplots()
         # load in the data
-        try:
-            data = self.load_frequency_files(self.cfg.templar_configuration_path)
-        except RuntimeError:
-            data = np.array([[np.nan, np.nan]])
+        if self.cfg.beammap.frequencies is not None:
+            data = np.array([self.cfg.beammap.resIDs, self.cfg.beammap.frequencies]).T
+        else:
+            try:
+                data = self.load_frequency_files(self.cfg.templar_configuration_path)
+            except RuntimeError:
+                data = np.array([[np.nan, np.nan]])
         # find the median r values for plotting
         with warnings.catch_warnings():
             # rows with all nan values will give an unnecessary RuntimeWarning
@@ -2374,6 +2454,7 @@ class Solution(object):
         if save_name is not None:
             file_path = os.path.join(self.cfg.out_directory, save_name)
             with PdfPages(file_path) as pdf:
+                #TODO move to start of plotting so there aren't any issues with interactive mode
                 for figure in figures:
                     try:
                         pdf.savefig(figure)
@@ -2527,8 +2608,7 @@ class Solution(object):
         assert not np.isin(self._type(models), model_list).any(), message.format(models)
         return models
 
-    @staticmethod
-    def _plot_color_bar(axes, wavelengths):
+    def _plot_color_bar(self, axes, wavelengths):
         z = [[0, 0], [0, 0]]
         levels = np.arange(min(wavelengths), max(wavelengths), 1)
         c = axes.contourf(z, levels, cmap=self._color_map)
@@ -2542,7 +2622,7 @@ def fetch(solution_descriptors, config=None, **kwargs):
     solutions = []
     for sd in solution_descriptors:
         sf = os.path.join(cfg.paths.database, sd.id+'.npz')
-        if os.path.exists(sf):
+        if os.path.exists(sf) and False:
             solutions.append(Solution(sf))
         else:
             if 'wavecal' not in cfg:
