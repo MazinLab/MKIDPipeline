@@ -173,20 +173,18 @@ class MKIDObservingDither(object):
         tofloat = lambda x: map(float, x.replace('[','').replace(']','').split(','))
         proc = lambda x: str.lower(str.strip(x))
         d = dict([list(map(proc, l.partition('=')[::2])) for l in lines])
+
+        #support legacy names
+        d['npos'] = d.get('npos', d['nsteps'])
+        d['endtimes'] = d.get('endtimes', d['stoptimes'])
+
         self.inttime = int(d['inttime'])
-        try:
-            self.nsteps = int(d['npos'])
-        except KeyError:
-            self.nsteps = int(d['nsteps'])
+        self.nsteps = int(d['npos'])
         self.pos = list(zip(tofloat(d['xpos']), tofloat(d['ypos'])))
-        try:
-            self.obs = [MKIDObservingDataDescription('{}_({})_{}'.format(self.name,os.path.basename(self.file),i),
-                                                     b, stop=e)
-                        for i, (b, e) in enumerate(zip(tofloat(d['starttimes']), tofloat(d['endtimes'])))]
-        except KeyError:
-            self.obs = [MKIDObservingDataDescription('{}_({})_{}'.format(self.name, os.path.basename(self.file), i),
-                                                     b, stop=e)
-                        for i, (b, e) in enumerate(zip(tofloat(d['starttimes']), tofloat(d['stoptimes'])))]
+        self.obs = [MKIDObservingDataDescription('{}_({})_{}'.format(self.name,os.path.basename(self.file), i),
+                                                 b, stop=e)
+                    for i, (b, e) in enumerate(zip(tofloat(d['starttimes']), tofloat(d['endtimes'])))]
+
 
     @classmethod
     def from_yaml(cls, loader, node):
@@ -251,7 +249,7 @@ def get_h5_path(obs_data_descr):
 
 def n_cpus_available():
     global config
-    mcpu = mp.cpu_count() - 4
+    mcpu = mp.cpu_count()*2 - 4
     try:
         mcpu = int(min(config.ncpu, mcpu))
     except Exception:
