@@ -446,7 +446,7 @@ class Calibrator(object):
             self._run("fit_calibrations", pixels=pixels, wavelengths=wavelengths,
                       parallel=parallel, verbose=verbose)
             if save:
-                self.solution.save()
+                self.solution.save(save_name=save if isinstance(save, str) else None)
             if plot or (plot is None and self.cfg.summary_plot):
                 save_name = self.solution_name.rpartition(".")[0] + ".pdf"
                 self.solution.plot_summary(save_name=save_name)
@@ -2632,15 +2632,11 @@ def fetch(solution_descriptors, config=None, **kwargs):
             wcfg.register('start_times', [x.start for x in sd.data], update=True)
             wcfg.register('exposure_times', [x.duration for x in sd.data], update=True)
             wcfg.register('wavelengths', [w for w in sd.wavelengths], update=True)
-            solutions.append(Calibrator(wcfg, solution_name=sf))
+            c = Calibrator(wcfg, solution_name=sf)
+            c.run(**kwargs)
+            solutions.append(Solution(sf))
 
-    for s in solutions:
-        try:
-            s.run(**kwargs)
-        except AttributeError:
-            continue
-
-    return s
+    return solutions
 
 
 mkidpipeline.config.yaml.register_class(Configuration)
