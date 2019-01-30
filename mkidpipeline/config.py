@@ -176,7 +176,7 @@ class MKIDObservingDither(object):
 
         #support legacy names
         d['npos'] = d.get('npos', d['nsteps'])
-        d['endtimes'] = d.get('endtimes', d['stoptimes'])
+        d['endtimes'] = d.get('endtimes', d['endtimes'])
 
         self.inttime = int(d['inttime'])
         self.nsteps = int(d['npos'])
