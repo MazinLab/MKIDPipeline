@@ -429,6 +429,7 @@ def gen_configs(timeranges, config=None):
 
 
 def buildtables(timeranges, config=None, ncpu=1, asynchronous=False, remake=False):
+    #TODO add support for time vs resid sorting since it looks like we need to switch between the two
     timeranges = list(set(timeranges))
 
     b2h_configs = gen_configs(timeranges, config)
