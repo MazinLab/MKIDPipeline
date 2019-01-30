@@ -442,7 +442,7 @@ class ObsFile(object):
             query += '&'
 
         query += wave
-        if res and timestr:
+        if res and timestr and wave:
             query += ')'
 
         if not query:
