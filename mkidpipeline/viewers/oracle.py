@@ -18,7 +18,7 @@ matplotlib.use('Qt5Agg')
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
-from matplotlib.widgets import Cursor
+# from matplotlib.widgets import Cursor
 import sys,os
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import QIcon
@@ -548,7 +548,7 @@ class mainWindow(QMainWindow):
             
             self.ax1.axis('off')
             
-            self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
+            # self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
             
             self.draw()
         
@@ -591,8 +591,9 @@ class mainWindow(QMainWindow):
             self.ax1.set_title('Raw counts')
             
             self.ax1.axis('off')
-            
-            self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
+
+            # TODO: fix the cursor. It was running super slow, so I turned it off.
+            # self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
             
             #self.ax1.plot(np.arange(10),np.arange(10)**2)
             
@@ -661,7 +662,7 @@ class mainWindow(QMainWindow):
             
             self.ax1.axis('off')
             
-            self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
+            # self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
             
             
             self.draw()
@@ -688,7 +689,7 @@ class mainWindow(QMainWindow):
         
         self.ax1.axis('off')
         
-        self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
+        # self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
 
         self.draw()
         
