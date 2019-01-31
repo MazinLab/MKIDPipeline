@@ -43,6 +43,9 @@ except ImportError as err:
     log.warning('Error importing wavecal_models: ' + str(err))
 
 
+_loaded_solutions = {}  #storeage for loaded wavelength solutions
+
+
 def setup_logging(tologfile='', toconsole=True, time_stamp=None):
     """
     Set up logging for the wavelength calibration module for running from the command
@@ -179,7 +182,7 @@ class Configuration(object):
 
     @classmethod
     def from_yaml(cls, constructor, node):
-        d = mkidcore.config.extract_from_node('configuration_path', node)
+        d = mkidcore.config.extract_from_node(constructor,'configuration_path', node)
         return cls(d['configuration_path'])
 
     def hdf_exist(self):
@@ -1326,6 +1329,7 @@ class Worker(mp.Process):
         # ['0.0441', '0.4613', '0.0000'] (pid=828)
         # ['0.0257', '0.0000', '0.0000'] (pid=835)
 
+
 class Solution(object):
     yaml_tag = '!wsoln'
 
@@ -1333,22 +1337,34 @@ class Solution(object):
     argument or both the fit_array and configuration arguments."""
     def __init__(self, file_path=None, fit_array=None, configuration=None, beam_map=None,
                  beam_map_flags=None, solution_name='solution.npz'):
-
+        #Don't use self in init or it will force loading at creation!
+        self._color_map = cm.get_cmap('viridis')
+        self.name = solution_name
         self.solution_name = solution_name
+        self._file_path = file_path
+        self._parse = True
         # load in solution and configuration objects
         if fit_array is not None and configuration is not None and beam_map is not None:
             self._fit_array = fit_array
             self.cfg = configuration
-            # TODO: integrate beam map object
-            self._beam_map = beam_map
+            self._beam_map = beam_map             # TODO: integrate beam map object
             self._beam_map_flags = beam_map_flags
+            self._finish_init()
+            self._unloaded = False
         elif file_path is not None:
-            self.load(file_path)
+            self._unloaded = True
+            self._fit_array = None
+            self.cfg = None
+            self._beam_map = None
+            self._beam_map_flags = None
+            self.solution_name = os.path.basename(file_path)
+            # self.load(file_path)
+            self._unloaded = True
         else:
-            message = ('provide either a file_path or both the fit_array and '
-                       'configuration arguments')
-            raise ValueError(message)
+            raise ValueError('provide either a file_path or both the fit_array and '
+                             'configuration arguments')
 
+    def _finish_init(self):
         self.save_path = os.path.join(self.cfg.out_directory, self.solution_name)
 
         # load in fitting models
@@ -1357,8 +1373,6 @@ class Solution(object):
         self.calibration_model_list = [getattr(wm, name) for _, name in
                                        enumerate(self.cfg.calibration_model_names)]
 
-        self._parse = True
-        self._color_map = cm.get_cmap('viridis')
         x_pixels = np.indices(self.beam_map.shape)[0, :, :].ravel()
         y_pixels = np.indices(self.beam_map.shape)[1, :, :].ravel()
         lookup_table = np.array([self.beam_map.ravel(), x_pixels, y_pixels])
@@ -1371,11 +1385,19 @@ class Solution(object):
 
     @classmethod
     def to_yaml(cls, representer, node):
-        return representer.represent_mapping(cls.yaml_tag, {'file':node.save_path})
+        return representer.represent_mapping(cls.yaml_tag, {'file': node.save_path})
 
     @classmethod
     def from_yaml(cls, constructor, node):
-        return cls(file_path=mkidcore.config.extract_from_node('file', node)['file'])
+        return load_solution(mkidcore.config.extract_from_node(constructor,'file', node)['file'])
+
+    def __getattribute__(self, item):
+        if item == '__class__':
+            return object.__getattribute__(self, item)
+        if object.__getattribute__(self, '_unloaded'):
+            print('Loading solution due to request for '+item)
+            object.__getattribute__(self, 'load')(object.__getattribute__(self, '_file_path'))
+        return object.__getattribute__(self, item)
 
     def __getitem__(self, key):
         results = np.atleast_2d(self._fit_array[key])
@@ -1436,7 +1458,11 @@ class Solution(object):
             self.cfg = npz_file['configuration'].item()
             self._beam_map = npz_file['beam_map']
             self._beam_map_flags = npz_file['beam_map_flags']
+            self._file_path = file_path
             self.solution_name = os.path.basename(file_path)
+            self._unloaded = False
+            self._finish_init()
+            log.info("Complete")
         except (OSError, KeyError):
             message = "Failed to interpret '{}' as a wavecal solution object"
             raise OSError(message.format(file_path))
@@ -2614,6 +2640,21 @@ class Solution(object):
         c = axes.contourf(z, levels, cmap=self._color_map)
         plt.colorbar(c, ax=axes, label='wavelength [nm]', aspect=50)
         axes.clear()
+
+
+def load_solution(wc, singleton_ok=True):
+    """wc is a solution file or a Solution object"""
+    global _loaded_solutions
+    if not singleton_ok:
+        raise NotImplementedError('Must implement solution copying')
+    if isinstance(wc, Solution):
+        return wc
+    wc = wc if os.path.isfile(wc) else os.path.join(mkidpipeline.config.config.paths.database, wc)
+    try:
+        return _loaded_solutions[wc]
+    except KeyError:
+        _loaded_solutions[wc] = Solution(file_path=wc)
+    return _loaded_solutions[wc]
 
 
 def fetch(solution_descriptors, config=None, **kwargs):
