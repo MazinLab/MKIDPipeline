@@ -503,7 +503,8 @@ class Calibrator(object):
 
                         if self._shared_tables is None:
                             foo_tic = time.time()
-                            photon_list = self.fetch_obsfile(wavelength).getPixelPhotonList(*pixel)
+                            photon_list = self.fetch_obsfile(wavelength).getPixelPhotonList(xCoord=pixel[0],
+                                                                                            yCoord=pixel[1])
                             foo_elapsed[0][0] += time.time() - foo_tic
                             foo_elapsed[0][1] += 1
                         else:
