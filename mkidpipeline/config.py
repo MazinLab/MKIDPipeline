@@ -56,7 +56,7 @@ def _build_common(yaml_loader, yaml_node):
 class MKIDObservingDataDescription(object):
     yaml_tag = u'!ob'
 
-    def __init__(self, name, start, duration=None, stop=None, _common=None):
+    def __init__(self, name, start, duration=None, stop=None, _common=None, wavecal=None, flatcal=None):
 
         if _common is not None:
             self.__dict__.update(_common)
@@ -76,7 +76,13 @@ class MKIDObservingDataDescription(object):
         if self.stop < self.start:
             raise ValueError('Stop ({}) must come after start ({})'.format(self.stop,self.start))
 
+        self.wavecal = wavecal
+        self.flatcal = flatcal
+
         self.name = str(name)
+
+    def __str__(self):
+        return '{} t={}:{}s'.format(self.name, self.start, self.duration)
 
     @property
     def date(self):
@@ -93,10 +99,8 @@ class MKIDObservingDataDescription(object):
         start = d.pop('start', None)
         stop = d.pop('stop', None)
         duration = d.pop('duration', None)
-        return cls(name, start, duration=duration, stop=stop, _common=d)
-
-
-yaml.register_class(MKIDObservingDataDescription)
+        return cls(name, start, duration=duration, stop=stop, _common=d,
+                   wavecal=d.pop('wavecal', None), flatcal=d.pop('flatcal', None))
 
 
 class MKIDWavedataDescription(object):
@@ -104,7 +108,7 @@ class MKIDWavedataDescription(object):
 
     def __init__(self, data):
         self.data = data
-        self.data.sort(key=lambda x: x.name)
+        self.data.sort(key=lambda x: x.start)
 
     @property
     def timeranges(self):
@@ -130,15 +134,12 @@ class MKIDWavedataDescription(object):
         return datetime.utcfromtimestamp(meanstart).strftime('%Y-%m-%d %H%M') + hash
 
 
-yaml.register_class(MKIDWavedataDescription)
-
-
-class MKIDFlatdataDescription(MKIDObservingDataDescription):
+class MKIDFlatdataDescription(object):
     yaml_tag = u'!fc'
 
     @property
     def id(self):
-        return 'calsol_{}.h5'.format(self.start)
+        return 'calsol_{}.h5'.format(self.data.start)
 
     # def __init__(self, data):
     #     self.data = data
@@ -154,19 +155,18 @@ class MKIDFlatdataDescription(MKIDObservingDataDescription):
     #     return cls(name, start, duration=duration, stop=stop, _common=d)
 
 
-yaml.register_class(MKIDFlatdataDescription)
-
-
 class MKIDObservingDither(object):
     yaml_tag = '!dither'
 
-    def __init__(self, name, file, _common=None):
+    def __init__(self, name, file, wavecal, flatcal, _common=None):
 
         if _common is not None:
             self.__dict__.update(_common)
 
         self.name = name
         self.file = file
+        self.wavecal = wavecal
+        self.flatcal = flatcal
         with open(file) as f:
             lines = f.readlines()
 
@@ -175,34 +175,33 @@ class MKIDObservingDither(object):
         d = dict([list(map(proc, l.partition('=')[::2])) for l in lines])
 
         #support legacy names
-        d['npos'] = d.get('npos', d['nsteps'])
-        d['endtimes'] = d.get('endtimes', d['endtimes'])
+        if 'npos' not in d:
+            d['npos'] = d['nsteps']
+        if 'endtimes' not in d:
+            d['endtimes'] = d['stoptimes']
 
         self.inttime = int(d['inttime'])
         self.nsteps = int(d['npos'])
         self.pos = list(zip(tofloat(d['xpos']), tofloat(d['ypos'])))
         self.obs = [MKIDObservingDataDescription('{}_({})_{}'.format(self.name,os.path.basename(self.file), i),
-                                                 b, stop=e)
+                                                 b, stop=e, wavecal=wavecal, flatcal=flatcal)
                     for i, (b, e) in enumerate(zip(tofloat(d['starttimes']), tofloat(d['endtimes'])))]
 
 
     @classmethod
     def from_yaml(cls, loader, node):
-        d = mkidcore.config.extract_from_node(('file', 'name'), node)
+        d = mkidcore.config.extract_from_node(loader, ('file', 'name', 'wavecal', 'flatcal'), node)
         if not os.path.isfile(d['file']):
             file = os.path.join(config.paths.dithers, d['file'])
             getLogger(__name__).info('Treating {} as relative dither path.'.format(d['file']))
         else:
             file = d['file']
-        return cls(d['name'], file, _common=_build_common(loader, node))
+        return cls(d['name'], file, d['wavecal'], d['flatcal'], _common=_build_common(loader, node))
 
     @property
     def timeranges(self):
         for o in self.obs:
             yield o.start, o.stop
-
-
-yaml.register_class(MKIDObservingDither)
 
 
 class MKIDObservingDataset(object):
@@ -233,9 +232,17 @@ class MKIDObservingDataset(object):
         return [r for r in self.meta if isinstance(r, MKIDFlatdataDescription)]
 
     @property
+    def dithers(self):
+        return [d for d in self.meta if isinstance(d, MKIDObservingDither)]
+
+    @property
     def observations(self):
         return ([o for o in self.meta if isinstance(o, MKIDObservingDataDescription)] +
                 [o for d in self.meta if isinstance(d, MKIDObservingDither) for o in d.obs])
+
+    @property
+    def wavecalable(self):
+        return [fc.ob for fc in self.flatcals]+self.observations
 
 
 def load_data_description(file):
@@ -244,7 +251,7 @@ def load_data_description(file):
 
 def get_h5_path(obs_data_descr):
     global config
-    return os.path.join(config.paths.out, '{}.h5'.format(obs_data_descr.starttime))
+    return os.path.join(config.paths.out, '{}.h5'.format(obs_data_descr.start))
 
 
 def n_cpus_available():
@@ -262,3 +269,13 @@ def logtoconsole():
     create_log('mkidreadout')
     create_log('mkidpipeline')
     create_log('__main__')
+
+
+def assiciate_wavecals(dataset):
+    wcdict = {w.name: os.path.join(config.paths.database, w.id+'.npz') for w in dataset.wavecals}
+    return [(o, wcdict.get(o.wavecal, o.wavecal)) for o in dataset.wavecalable]
+
+yaml.register_class(MKIDObservingDataDescription)
+yaml.register_class(MKIDWavedataDescription)
+yaml.register_class(MKIDFlatdataDescription)
+yaml.register_class(MKIDObservingDither)
