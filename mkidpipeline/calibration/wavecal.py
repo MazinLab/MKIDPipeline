@@ -22,7 +22,7 @@ import mkidcore.corelog as pipelinelog
 import mkidpipeline.config
 import mkidcore.config
 from mkidreadout.configuration.beammap.beammap import Beammap
-
+import astropy.constants
 import pkg_resources as pkg
 
 log = pipelinelog.getLogger('mkidpipeline.calibration.wavecal', setup=False)
@@ -41,6 +41,10 @@ try:
     import mkidpipeline.calibration.wavecal_models as wm
 except ImportError as err:
     log.warning('Error importing wavecal_models: ' + str(err))
+
+
+PLANK_CONSTANT_EV = astropy.constants.h.to('eV s').value
+SPEED_OF_LIGHT_MS = astropy.constants.c.to('m/s').value
 
 
 _loaded_solutions = {}  #storeage for loaded wavelength solutions
@@ -1676,13 +1680,18 @@ class Solution(object):
         model = self.calibration_model(pixel=pixel)
         return type(model).__name__
 
-    def calibration_function(self, pixel=None, res_id=None):
+    def calibration_function(self, pixel=None, res_id=None, wavelength_units=False):
         """Returns a function of one argument that converts phase to fitted energy for a
         particular resonator."""
         pixel, _ = self._parse_resonators(pixel, res_id)
         model = self.calibration_model(pixel=pixel)
 
-        return model.calibration_function
+        #TODO Nick integrate with the model or delete this note. using this wrapper may have negatives for
+        # introspection
+        def wave_cal_func(*args, **kwargs):
+            return PLANK_CONSTANT_EV * SPEED_OF_LIGHT_MS * 1e9/model.calibration_function(*args,**kwargs)
+
+        return model.calibration_function if not wavelength_units else wave_cal_func
 
     def calibration(self, pixel=None, res_id=None):
         """Returns a tuple of the  phases, energies, and phase errors (1 sigma) data
@@ -2663,8 +2672,8 @@ def fetch(solution_descriptors, config=None, **kwargs):
     solutions = []
     for sd in solution_descriptors:
         sf = os.path.join(cfg.paths.database, sd.id+'.npz')
-        if os.path.exists(sf) and False:
-            solutions.append(Solution(sf))
+        if os.path.exists(sf):
+            solutions.append(load_solution(sf))
         else:
             if 'wavecal' not in cfg:
                 wcfg = mkidpipeline.config.load_task_config(pkg.resource_filename(__name__, 'wavecal.yml'))
