@@ -9,7 +9,7 @@ import numpy as np
 cimport numpy as np
 import os
 from mkidcore.corelog import getLogger
-from mkidcore.headers import PhotonNumpyTypeBin as np_photon
+from mkidcore.headers import PhotonNumpyType as np_photon
 
 PHOTON_BIN_SIZE_BYTES = 8
 PHOTON_SIZE_BYTES = 5*4

@@ -45,7 +45,7 @@ def _get_dir_for_start(base, start):
         raise ValueError('No directory in {} found for start {}'.format(base, start))
 
 
-def build_pytables(cfg, index=('ultralight', 6), timesort=True):
+def build_pytables(cfg, index=('ultralight', 6), timesort=False):
     if cfg.starttime < 1518222559:
         raise ValueError('Data prior to 1518222559 not supported without added fixtimestamps')
 
@@ -59,7 +59,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=True):
     getLogger(__name__).debug('Data Extracted')
 
     if timesort:
-        photons.sort(order=('timestamp', 'resID'))
+        photons.sort(order=('Time', 'ResID'))
         getLogger(__name__).debug('Data sorted on time')
 
     h5file = tables.open_file(cfg.h5file, mode="a", title="MKID Photon File")
@@ -361,19 +361,21 @@ class Bin2HdfConfig(object):
 
 
 class HDFBuilder(object):
-    def __init__(self, cfg, force=False, executable_path=pkg.resource_filename('mkidpipeline.hdf', 'bin2hdf')):
+    def __init__(self, cfg, force=False, executable_path=pkg.resource_filename('mkidpipeline.hdf', 'bin2hdf'),
+                 **kwargs):
         self.cfg = cfg
         self.exc = executable_path
         self.done = mkidcore.utils.manager().Event()
         self.force = force
+        self.kwargs = kwargs
 
     def handle_existing(self):
         """ Handles existing h5 files, deleting them if appropriate"""
         if os.path.exists(self.cfg.h5file):
-            done = self.force
 
             if self.force:
                 getLogger(__name__).info('Remaking {} forced'.format(self.cfg.h5file))
+                done = False
             else:
                 try:
                     done = ObsFile(self.cfg.h5file).duration >= self.cfg.inttime
@@ -381,6 +383,7 @@ class HDFBuilder(object):
                         getLogger(__name__).info(('{} does not contain full duration, '
                                                   'will remove and rebuild').format(self.cfg.h5file))
                 except:
+                    done = False
                     getLogger(__name__).info(('{} presumed corrupt,'
                                               ' will remove and rebuild').format(self.cfg.h5file), exc_info=True)
             if not done:
@@ -395,13 +398,13 @@ class HDFBuilder(object):
 
     def run(self, polltime=0.1, usepytables=True, **kwargs):
         """kwargs is passed on to build_pytables or buildbin2hdf"""
+        self.kwargs.update(kwargs)
         self.handle_existing()
         if self.done.is_set():
-            getLogger(__name__).info('Already run')
             return
 
         if usepytables:
-            build_pytables(self.cfg, **kwargs)
+            build_pytables(self.cfg, **self.kwargs)
             self.done.set()
         else:
             build_bin2hdf(self.cfg, self.exc, polltime=polltime)
@@ -428,16 +431,15 @@ def gen_configs(timeranges, config=None):
     return b2h_configs
 
 
-def buildtables(timeranges, config=None, ncpu=1, asynchronous=False, remake=False):
-    #TODO add support for time vs resid sorting since it looks like we need to switch between the two
+def buildtables(timeranges, config=None, ncpu=1, asynchronous=False, remake=False, **kwargs):
     timeranges = list(set(timeranges))
 
     b2h_configs = gen_configs(timeranges, config)
 
-    builders = [HDFBuilder(c, force=remake) for c in b2h_configs]
+    builders = [HDFBuilder(c, force=remake, **kwargs) for c in b2h_configs]
     events = [b.done for b in builders]
 
-    if ncpu ==1:
+    if ncpu == 1:
         for b in builders:
             b.run()
         return timeranges, events
