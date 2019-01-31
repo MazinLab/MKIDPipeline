@@ -34,9 +34,8 @@ def load_task_config(file):
 
 def configure_pipeline(*args, **kwargs):
     global config
-    c = mkidcore.config.load(*args, **kwargs)
-    config = c
-    return c
+    config = mkidcore.config.load(*args, **kwargs)
+    return config
 
 
 configure_pipeline(pkg.resource_filename('mkidpipeline','pipe.yml'))
@@ -273,7 +272,7 @@ def logtoconsole():
 
 def assiciate_wavecals(dataset):
     wcdict = {w.name: os.path.join(config.paths.database, w.id+'.npz') for w in dataset.wavecals}
-    return [(o, wcdict.get(o.wavecal, o.wavecal)) for o in dataset.wavecalable]
+    return [(o, wcdict.get(o.wavecal, o.wavecal)) for o in dataset.wavecalable if o.wavecal is not None]
 
 yaml.register_class(MKIDObservingDataDescription)
 yaml.register_class(MKIDWavedataDescription)

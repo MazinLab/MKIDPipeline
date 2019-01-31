@@ -53,10 +53,6 @@ Attach WCS Info (This is a function of the time and beammap)
 """
 
 #TODO we need a way to retrieve templar/dashboard yml configs that were used based on timestamp
-#TODO we need a way to autofetch all the parameters for steps of the pipeline (or at least standardize)
-#TODO configure wavecal logging pulling from wavecal.setup_logging as needed
-
-
 
 import os
 import numpy as np
@@ -65,9 +61,24 @@ import mkidpipeline.calibration.wavecal as wavecal
 import mkidpipeline.calibration.flatcal as flatcal
 import mkidpipeline.badpix as badpix
 import mkidpipeline.config
+import mkidpipeline.hdf.photontable
+from mkidcore.config import getLogger
+import multiprocessing as mp
+
 import tables
 import tables.parameters
-from mkidcore.config import getLogger
+
+
+def wavecal_apply(o, wc):
+    of = mkidpipeline.hdf.photontable.ObsFile(mkidpipeline.config.get_h5_path(o), mode='a')
+    of.applyWaveCal(wavecal.load_solution(wc))
+    of.file.close()
+
+
+def batch_apply_wavecals(wavecal_pairs, ncpu=None):
+    pool = mp.Pool(ncpu if ncpu is not None else mkidpipeline.config.n_cpus_available())
+    pool.starmap(wavecal_apply, wavecal_pairs)
+    pool.close()
 
 
 os.environ["TMPDIR"] = '/mnt/data0/tmp/'
@@ -75,29 +86,45 @@ os.environ["TMPDIR"] = '/mnt/data0/tmp/'
 
 datafile = '/mnt/data0/baileyji/mec/data.yml'
 cfgfile = '/mnt/data0/baileyji/mec/pipe.yml'
-mkidpipeline.config.configure_pipeline(cfgfile)
 mkidpipeline.config.logtoconsole()
-c = dataset = mkidpipeline.config.load_data_description(datafile)
-pcfg = mkidpipeline.config.config
-bcfgs = bin2hdf.gen_configs(dataset.timeranges)
+pcfg = mkidpipeline.config.configure_pipeline(cfgfile)
+dataset = mkidpipeline.config.load_data_description(datafile)
+# pcfg = mkidpipeline.config.config
+# bcfgs = bin2hdf.gen_configs(dataset.timeranges)
+
 getLogger('mkidpipeline.calibration.wavecal').setLevel('INFO')
-getLogger('mkidpipeline.hdf.photontable').setLevel('INFO')
+# getLogger('mkidpipeline.hdf.photontable').setLevel('INFO')
 
 
-bin2hdf.buildtables(dataset.timeranges, asynchronous=0, ncpu=6, remake=False)
-wavecals = wavecal.fetch(dataset.wavecals, verbose=False)
+# NB dataset.dithers[0].timeranges[0] is sorted on time rest are on resid!!!
 
-# inspect/mnt/data0/baileyji/mec/database/2018-12-23 051888891e1e27c48f09da56342a914aed89.npz
+# bin2hdf.buildtables([t for wc in dataset.wavecals for t in wc.timeranges], ncpu=6, remake=False, timesort=False)
+# bin2hdf.buildtables(dataset.dithers[0].timeranges, ncpu=7, remake=False, timesort=False)
+
+# wavecals = wavecal.fetch(dataset.wavecals, verbose=False)
+
+
+# # inspect for possible failures in wavecal due to sharing h5 files
+# pixels = [p for p in ((x,y) for x in range(140) for y in range(146))
+#           if not np.all(sol.has_data(sol.cfg.wavelengths,p)) and sol.beam_map_flags[p]==0]
+# wavecal.fetch(dataset.wavecals, verbose=False, parallel=False, pixels=pixels, save='singlethread.npz')
+# sol = wavecal.Solution('/mnt/data0/baileyji/mec/database/2018-12-23 051888891e1e27c48f09da56342a914aed89.npz')
+# sol2 = wavecal.Solution('/mnt/data0/baileyji/mec/database/singlethread.npz')
+# for p in pixels:
+#     assert (sol2.has_data(sol2.cfg.wavelengths,p) == sol.has_data(sol.cfg.wavelengths,p)).all()
+
+
+# batch_apply_wavecals(mkidpipeline.config.assiciate_wavecals(dataset)[1:], 10)
+
 
 raise RuntimeError()
+
+
+
+
 flatcals = flatcal.fetch(dataset.flatcals, async=True)
 
-def wcapply(o, w):
-    mkidpipeline.hdf.photontable.ObsFile(mkidpipeline.config.get_h5_path(o)).applyWaveCal(w)
 
-# pool = mp.Pool(4)
-#TODO we will eventually need some code/metadata to associate specific wavecals with observations
-pool.starmap(wcapply, zip(dataset.observations, [wavecals[0]]*len(dataset.observations)))
 
 #noise.calibrate(table)
 # flatcals = flatcal.fetch(input.flatcals, async=True)

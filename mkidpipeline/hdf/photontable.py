@@ -1031,12 +1031,12 @@ class ObsFile(object):
             indices = self.photonTable.get_where_list('ResID==resID')
             if not indices.size:
                 continue
-            if (np.diff(indices) == 1).all():
+            if (np.diff(indices) == 1).all():  # This takes ~475s for ALL photons combined on a 70Mphot file.
                 # getLogger(__name__).debug('Using modify_column')
                 phase = self.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
                 self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=calibration(phase),
                                                colname='Wavelength')
-            else:
+            else:  # This takes 3.5s on a 70Mphot file!!!
                 getLogger(__name__).debug('Using modify_coordinates')
                 rows = self.photonTable.read_coordinates(indices)
                 rows['Wavelength'] = calibration(rows['Wavelength'])

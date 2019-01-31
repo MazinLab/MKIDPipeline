@@ -1397,10 +1397,10 @@ class Solution(object):
         return load_solution(mkidcore.config.extract_from_node(constructor,'file', node)['file'])
 
     def __getattribute__(self, item):
-        if item == '__class__':
+        if item.startswith('__') and item not in ('__getitem__', '__setitem__'):
             return object.__getattribute__(self, item)
         if object.__getattribute__(self, '_unloaded'):
-            print('Loading solution due to request for '+item)
+            pipelinelog.getLogger(__name__).info('Loading solution due to request for '+item)
             object.__getattribute__(self, 'load')(object.__getattribute__(self, '_file_path'))
         return object.__getattribute__(self, item)
 
