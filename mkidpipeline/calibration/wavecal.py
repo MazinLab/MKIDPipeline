@@ -1345,12 +1345,12 @@ class Solution(object):
         self._parse = True
         # load in solution and configuration objects
         if fit_array is not None and configuration is not None and beam_map is not None:
+            self._unloaded = False
             self._fit_array = fit_array
             self.cfg = configuration
             self._beam_map = beam_map             # TODO: integrate beam map object
             self._beam_map_flags = beam_map_flags
             self._finish_init()
-            self._unloaded = False
         elif file_path is not None:
             self._unloaded = True
             self._fit_array = None
