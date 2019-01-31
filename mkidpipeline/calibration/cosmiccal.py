@@ -118,7 +118,7 @@ class Cosmic:
         framesum = np.zeros((self.nRow, self.nCol))
         for iRow in range(self.nRow):
             for iCol in range(self.nCol):
-                gtpl = self.obs.getPixelPhotonList(iRow, iCol, begintime, integrationtime)
+                gtpl = self.obs.getPixelPhotonList(iRow, iCol, firstSec=begintime, integrationtime=integrationtime)
                 timestamps = gtpl['timestamps']
                 if timestamps.size > 0:
                     timestamps = (timestamps - begintime) * self.ticks_per_sec

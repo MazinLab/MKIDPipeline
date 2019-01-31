@@ -36,7 +36,7 @@ makeWvlBins(energyBinWidth=.1, wvlStart=700, wvlStop=1500)
 
 ====Data write functions for calibrating====
 applyWaveCal(self, file_name)
-updateWavelengths(self, xCoord, yCoord, wvlCalArr)
+updateWavelengths(self, wvlCalArr, xCoord=None, yCoord=None, resid=None)
 __applyColWeight(self, resID, weightArr, colName)
 applySpecWeight(self, resID, weightArr)
 applyTPFWeight(self, resID, weightArr)
@@ -224,10 +224,13 @@ class SharedPhotonList(object):
             getLogger(__name__).debug('Deleting '+self._name)
             SharedArray.delete("shm://{}".format(self._name))
 
+PLANK_CONSTANT_EV = astropy.constants.h.to('eV s').value
+SPEED_OF_LIGHT_MS = astropy.constants.c.to('m/s').value
+
 
 class ObsFile(object):
-    h = astropy.constants.h.to('eV s').value  # 4.135668e-15 #eV s
-    c = astropy.constants.c.to('m/s').value  # '2.998e8 #m/s
+    h = PLANK_CONSTANT_EV # 4.135668e-15 #eV s
+    c = SPEED_OF_LIGHT_MS  # '2.998e8 #m/s
     nCalCoeffs = 3
     tickDuration = 1e-6  # each integer value is 1 microsecond
 
@@ -250,7 +253,6 @@ class ObsFile(object):
                 
         """
         self.mode = 'write' if mode.lower() in ('write', 'w', 'a', 'append') else 'read'
-        self.mode = mode
         self.verbose = verbose
         self.tickDuration = ObsFile.tickDuration
         self.noResIDFlag = 2 ** 32 - 1  # All pixels should have a unique resID. But if for some reason it doesn't, it'll have this resID
@@ -463,17 +465,18 @@ class ObsFile(object):
                                                       (startt, stopt, startw, stopw))))
             return q
 
-    def getPixelPhotonList(self, xCoord, yCoord, firstSec=0, integrationTime=-1, wvlStart=None, wvlStop=None,
-                           forceRawPhase=False):
+    def getPixelPhotonList(self, xCoord=None, yCoord=None, resid=None, firstSec=0, integrationTime=-1, wvlStart=None,
+                           wvlStop=None, forceRawPhase=False):
         """
         Retrieves a photon list at xCoord,yCoord using the attached beammap.
 
         Parameters
         ----------
-        xCoord: int
+        xCoord: int or iterable valid to index arrays
             x-coordinate of pixel in beammap
-        yCoord: int
+        yCoord: int or iterable valid to index arrays
             y-coordinate index of pixel in beammap
+        resID: int or iterable valid to index arrays, takes precidence over x, y
         firstSec: float
             Photon list start time, in seconds relative to beginning of file
         integrationTime: float
@@ -513,11 +516,12 @@ class ObsFile(object):
         if firstSec is not None and firstSec > self.getFromHeader('expTime'):
             raise ValueError('Start time not in file.')
 
-        return self.query(startw=wvlStart, stopw=wvlStop, startt=firstSec if firstSec else None,
-                          resid=self.beamImage[xCoord, yCoord],
-                          intt=None if integrationTime == -1 else integrationTime)
+        resid = self.beamImage[xCoord, yCoord] if resid is None else resid
 
-    def getPixelCount(self, *args, applyWeight=True, applyTPFWeight=True, applyTimeMask=False, **kwargs):
+        return self.query(startw=wvlStart, stopw=wvlStop, startt=firstSec if firstSec else None,
+                          resid=resid, intt=None if integrationTime == -1 else integrationTime)
+
+    def getPixelCount(self, x, y, applyWeight=True, applyTPFWeight=True, applyTimeMask=False, **kwargs):
         """
         Returns the number of photons received in a single pixel from firstSec to firstSec + integrationTime
 
@@ -541,6 +545,7 @@ class ObsFile(object):
             'effIntTime':float, effective integration time after time-masking is
            `          accounted for.
         """
+        raise RuntimeError("Clean up the arguemnts/kwarguments, bug Jeb if you aren't sure.")
         try:
             applyWvl = not kwargs['forceRawPhase']
         except KeyError:
@@ -548,15 +553,15 @@ class ObsFile(object):
         try:
             xCoord = kwargs['xCoord']
         except KeyError:
-            xCoord = args[0]
+            xCoord = x
         try:
             yCoord = kwargs['yCoord']
         except KeyError:
-            yCoord = args[1]
+            yCoord = y
         if self.pixelIsBad(xCoord, yCoord, forceWvl=applyWvl, forceWeights=applyWeight, forceTPFWeights=applyTPFWeight):
             return 0, 0.0
 
-        photonList = self.getPixelPhotonList(*args, **kwargs)
+        photonList = self.getPixelPhotonList(**kwargs)
 
         weights = np.ones(len(photonList))
         if applyWeight:
@@ -761,6 +766,7 @@ class ObsFile(object):
                 exactApertureMask[apertureMaskCoords[i, 0], apertureMaskCoords[i, 1]] = 0
                 continue
             resID = self.beamImage[coords[0], coords[1]]
+            raise RuntimeError('Update this to query all at the same time')
             pixPhotonList = self.getPixelPhotonList(coords[0], coords[1], firstSec, integrationTime, wvlStart, wvlStop)
             pixPhotonList['NoiseWeight'] *= exactApertureMask[apertureMaskCoords[i, 0], apertureMaskCoords[i, 1]]
             if photonList is None:
@@ -965,7 +971,7 @@ class ObsFile(object):
                             the noise tail) during the effective exposure.
         """
 
-        photonList = self.getPixelPhotonList(xCoord, yCoord, firstSec, integrationTime)
+        photonList = self.getPixelPhotonList(xCoord, yCoord, firstSec=firstSec, integrationTime=integrationTime)
         return self._makePixelSpectrum(photonList, applySpecWeight=applySpecWeight,
                                        applyTPFWeight=applyTPFWeight, wvlStart=wvlStart, wvlStop=wvlStop,
                                        wvlBinWidth=wvlBinWidth, energyBinWidth=energyBinWidth,
@@ -1003,7 +1009,7 @@ class ObsFile(object):
     def applyWaveCal(self, solution):
         """
         loads the wavelength cal coefficients from a given file and applies them to the
-        wavelengths table for each pixel. ObsFile must be loaded in write mode.
+        wavelengths table for each pixel. ObsFile must be loaded in write mode. Dont call updateWavelengths !!!
         """
         # check file_name and status of obsFile
         if self.info['isWvlCalibrated']:
@@ -1011,21 +1017,38 @@ class ObsFile(object):
             return
         self.photonTable.autoindex = False  # Don't reindex every time we change column
         # apply waveCal
+        tic = time.time()
         for (row, column), resID in np.ndenumerate(self.beamImage):
-            if solution.has_good_calibration_solution(pixel=(row, column)):
-                calibration = solution.calibration_function(pixel=(row, column))
-                photon_list = self.getPixelPhotonList(row, column)
-                phases = photon_list['Wavelength']
-                energies = calibration(phases)
-                wavelengths = self.h * self.c / energies * 1e9  # wavelengths in nm
-                self.updateWavelengths(row, column, wavelengths)
-                self.undoFlag(row, column, WAVECAL_FAILED_FLAG)
+
+            if not solution.has_good_calibration_solution(res_id=resID):
+                self.applyFlag(row, column, WAVECAL_FAILED_FLAG)
+                continue
+
+            self.undoFlag(row, column, WAVECAL_FAILED_FLAG)
+            calibration = solution.calibration_function(res_id=resID, wavelength_units=True)
+
+            tic2 = time.time()
+            indices = self.photonTable.get_where_list('ResID==resID')
+            if not indices.size:
+                continue
+            if (np.diff(indices) == 1).all():
+                # getLogger(__name__).debug('Using modify_column')
+                phase = self.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
+                self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=calibration(phase),
+                                               colname='Wavelength')
             else:
-                self.applyFlag(row, column, WAVECAL_FAILED_FLAG)  # failed waveCal
+                getLogger(__name__).debug('Using modify_coordinates')
+                rows = self.photonTable.read_coordinates(indices)
+                rows['Wavelength'] = calibration(rows['Wavelength'])
+                self.photonTable.modify_coordinates(indices, rows)
+                getLogger(__name__).debug('Wavelength updated in {:.2f}s'.format(time.time() - tic2))
+
         self.modifyHeaderEntry(headerTitle='isWvlCalibrated', headerValue=True)
         self.modifyHeaderEntry(headerTitle='wvlCalFile', headerValue=str.encode(solution.solution_name))
         self.photonTable.reindex_dirty()  # recompute "dirty" wavelength index
         self.photonTable.autoindex = True  # turn on auto-indexing
+        self.photonTable.flush()
+        getLogger(__name__).info('Wavecal application took {:.2f}s'.format(time.time()-tic))
 
     @property
     def wavelength_calibrated(self):
@@ -1120,7 +1143,7 @@ class ObsFile(object):
         if len(reasons) > 0:
             self.hotPixTimeMask.set_mask(reasons)
 
-    def updateWavelengths(self, xCoord, yCoord, wvlCalArr):
+    def updateWavelengths(self, wvlCalArr, xCoord=None, yCoord=None, resID=None, flush=True):
         """
         Changes wavelengths for a single pixel. Overwrites "Wavelength" column w/
         contents of wvlCalArr. NOT reversible unless you have a copy of the original contents.
@@ -1134,21 +1157,37 @@ class ObsFile(object):
             Array of calibrated wavelengths. Replaces "Wavelength" column of this pixel's
             photon list.
         """
-        raise TBRERROR
-        resID = self.beamImage[xCoord][yCoord]
+        if resID is None:
+            resID = self.beamImage[xCoord, yCoord]
+
         if self.mode != 'write':
             raise Exception("Must open file in write mode to do this!")
         if self.info['isWvlCalibrated']:
+            getLogger(__name__).warning("Wavelength calibration already exists!")
             warnings.warn("Wavelength calibration already exists!")
-        pixelRowInds = self.photonTable.get_where_list('ResID==resID')
-        assert len(pixelRowInds) == 0 or (len(pixelRowInds) - 1) == (
-                    pixelRowInds[-1] - pixelRowInds[0]), 'Table is not sorted by Res ID!'
-        assert len(pixelRowInds) == len(wvlCalArr), 'Calibrated wavelength list does not match length of photon list!'
 
-        if len(pixelRowInds) > 0:
-            self.photonTable.modify_column(start=pixelRowInds[0], stop=pixelRowInds[-1] + 1, column=wvlCalArr,
+        tic = time.time()
+
+        indices = self.photonTable.get_where_list('ResID==resID')
+        assert len(indices) == len(wvlCalArr), 'Calibrated wavelength list does not match length of photon list!'
+
+        if not indices:
+            return
+
+        if (np.diff(indices)==1).all():
+            getLogger(__name__).debug('Using modify_column')
+            self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=wvlCalArr,
                                            colname='Wavelength')
+        else:
+            getLogger(__name__).debug('Using modify_coordinates')
+            rows = self.photonTable.read_coordinates(indices)
+            rows['Wavelength'] = wvlCalArr
+            self.photonTable.modify_coordinates(indices, rows)
+
+        if flush:
             self.photonTable.flush()
+
+        getLogger(__name__).debug('Wavelengths updated in {:.2f}s'.format(time.time()-tic))
 
     def __applyColWeight(self, resID, weightArr, colName):
         """
