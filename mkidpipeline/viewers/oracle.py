@@ -74,7 +74,7 @@ class subWindow(QMainWindow):
         
         # Figure
         self.dpi = 100
-        self.fig = Figure((3.0, 2.0), dpi=self.dpi, tight_layout=True)
+        self.fig = Figure((3.0, 2.0), dpi=self.dpi)
         self.canvas = FigureCanvas(self.fig)
         self.canvas.setParent(self.main_frame)
         self.ax = self.fig.add_subplot(111)
@@ -144,69 +144,45 @@ class subWindow(QMainWindow):
                 # by this subWindow base class
                 
     def getPhotonList(self):
-        #use this function to make the call to the correct obsfile method
+        # use this function to make the call to the correct obsfile method
         if self.apertureOn == True:
             photonList,aperture = self.a.getCircularAperturePhotonList(self.activePixel[0], self.activePixel[1], radius = self.apertureRadius, firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart = self.spinbox_startLambda.value(), wvlStop=self.spinbox_stopLambda.value(), flagToUse=0)
         
         else:
-#            t1 = time.time()
-            foo = self.activePixel[0]
-#            t2 = time.time()
-#            print('timer: ', t2 - t1)
-            
-#            t1 = time.time()
-            foo = self.activePixel[1]
-#            t2 = time.time()
-#            print('timer: ', t2 - t1)
-            
-#            t1 = time.time()
-            firstSec = self.spinbox_startTime.value()
-#            t2 = time.time()
-#            print('timer: ', t2 - t1)
-            
-#            t1 = time.time()
-            firstSec = self.spinbox_startTime.value()
-#            t2 = time.time()
-#            print('timer: ', t2 - t1)
-            
-#            t1 = time.time()
             wvlStart=self.spinbox_startLambda.value()
-#            t2 = time.time()
-#            print('timer: ', t2 - t1)
-            
-#            t1 = time.time()
             wvlStop=self.spinbox_stopLambda.value()
-#            t2 = time.time()
-#            print('timer: ', t2 - t1)
-            
-            
             t1 = time.time()
             
-            #it's WAY faster to not specify start/stop wavelengths. If that cut isn't 
-            #necessary, don't specify those keywords. 
+            # it's WAY faster to not specify start/stop wavelengths. If that cut isn't
+            # necessary, don't specify those keywords.
             if wvlStart==self.minLambda and wvlStop==self.maxLambda:
                 photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value())
+                cmd = 'photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value())'
             elif wvlStart==self.minLambda:
                 photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart=self.spinbox_startLambda.value())
+                cmd = 'photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart=self.spinbox_startLambda.value())'
             elif wvlStop==self.maxLambda:
                 photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStop=self.spinbox_stopLambda.value())
+                cmd = 'photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStop=self.spinbox_stopLambda.value())'
             else:
                 photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart=self.spinbox_startLambda.value(),wvlStop=self.spinbox_stopLambda.value())
+                cmd = 'photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart=self.spinbox_startLambda.value(),wvlStop=self.spinbox_stopLambda.value())'
             t2 = time.time()
-            
-            print('foo timer: ', t2 - t1)
+
+            print('\ncmd = ' + cmd)
+            print('\nTime to getPixelPhotonList(): ', t2 - t1)
         
         return photonList
             
 
 
 class timeStream(subWindow):
-    #this class inherits from the subWindow class. 
+    # this class inherits from the subWindow class.
     def __init__(self,parent):
         
-        self.spinbox_effExpTime = QDoubleSpinBox()  #make sure that the parent class will know that we need an effExpTime control
+        self.spinbox_effExpTime = QDoubleSpinBox()  # make sure that the parent class will know that we need an effExpTime control
         
-        #call the init function from the superclass 'subWindow'. 
+        # call the init function from the superclass 'subWindow'.
         super(timeStream, self).__init__(parent)
         self.setWindowTitle("Light Curve")
         self.plotData()
@@ -216,11 +192,8 @@ class timeStream(subWindow):
         
 
         
-    def plotData(self): 
-#        t1 = time.time()
+    def plotData(self):
         self.ax.clear()
-#        t2 = time.time()
-#        print('timer: ', t2 - t1)
      
         t1 = time.time()
         self.photonList = self.getPhotonList()
@@ -228,29 +201,19 @@ class timeStream(subWindow):
         print('timer: ', t2 - t1)
         
         self.effExpTime = self.spinbox_effExpTime.value()/1000
-#        self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = self.getLightCurve()
-        
-#        t1 = time.time()
         self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(self.photonList['Time']/1e6,self.spinbox_startTime.value(),self.spinbox_startTime.value()+self.spinbox_integrationTime.value(),self.effExpTime)
-#        t2 = time.time()
-#        print('timer: ', t2 - t1)
 
-#        t1 = time.time()
         self.ax.plot(self.lightCurveTimes,self.lightCurveIntensity,color = self.lineColor)
         self.ax.set_xlabel('time [seconds]')
         self.ax.set_ylabel('intensity [cps]')
         self.ax.set_title('pixel ({},{})' .format(self.activePixel[0],self.activePixel[1]))
         self.draw()
-#        t2 = time.time()
-#        print('timer: ', t2 - t1)
-        
-        
-        
-        
+
+
         
         
 class intensityHistogram(subWindow):
-    #this class inherits from the subWindow class. 
+    # this class inherits from the subWindow class.
     def __init__(self,parent):
         
         self.spinbox_effExpTime = QDoubleSpinBox()  #make sure that the parent class will know that we need an effExpTime control
@@ -555,30 +518,31 @@ class mainWindow(QMainWindow):
         
         
     def plotImage(self,*args):        
-        #check if obsfile object exists
+        # check if obsfile object exists
         try:
             self.a
         except:
             print('\nNo obsfile object defined. Select H5 file to load.\n')
             return
         else:
-        
-        
-            #clear the axes
+            # clear the axes
             self.ax1.clear()  
             
             if self.spinbox_integrationTime.value()==self.spinbox_integrationTime.maximum():
                 integrationTime = -1
             else:
                 integrationTime = self.spinbox_integrationTime.value()
-            
+
+            t1 = time.time()
             temp = self.a.getPixelCountImage(firstSec = self.spinbox_startTime.value(), integrationTime=integrationTime,applyWeight=False,flagToUse = 0,wvlStart=self.spinbox_startLambda.value(), wvlStop=self.spinbox_stopLambda.value())
+            print('\nTime for getPixelCountImage = ', time.time() - t1)
+
             self.rawCountsImage = np.transpose(temp['image'])
             
             self.image = self.rawCountsImage
             self.image[np.where(np.logical_not(np.isfinite(self.image)))]=0
-#            self.image = self.rawCountsImage*self.beamFlagMask
-            #self.image = self.rawCountsImage*self.beamFlagMask*self.hotPixMask
+            # self.image = self.rawCountsImage*self.beamFlagMask
+            # self.image = self.rawCountsImage*self.beamFlagMask*self.hotPixMask
             self.image = 1.0*self.image/self.spinbox_integrationTime.value()
             
             self.cbarLimits = np.array([np.amin(self.image),np.amax(self.image)])
@@ -595,7 +559,7 @@ class mainWindow(QMainWindow):
             # TODO: fix the cursor. It was running super slow, so I turned it off.
             # self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
             
-            #self.ax1.plot(np.arange(10),np.arange(10)**2)
+            # self.ax1.plot(np.arange(10),np.arange(10)**2)
             
             
             self.draw()
