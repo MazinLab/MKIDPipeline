@@ -27,7 +27,7 @@ from PyPDF2 import PdfFileMerger, PdfFileReader
 
 from matplotlib.backends.backend_pdf import PdfPages
 from mkidpipeline.calibration import wavecal
-from mkidcore.headers  import FlatCalSoln_Description
+from mkidcore.headers import FlatCalSoln_Description
 from mkidpipeline.hdf.photontable import ObsFile
 from mkidcore.corelog import getLogger
 import mkidcore.corelog
@@ -39,16 +39,22 @@ from mkidcore.utils import query
 DEFAULT_CONFIG_FILE = pkg.resource_filename('mkidpipeline.calibration.flatcal', 'flatcal.yml')
 
 
+# TODO need to create a calibrator factory that works with three options: wavecal, white light, and filtered or laser
+#  light. In essence each needs a loadData functionand maybe a loadflatspectra in the parlance of the current
+#  structure. The individual cases can be determined by seeing if the input data has a starttime or a wavesol
+#  Subclasses for special functions and a factory function for deciding which to instantiate.
+
 class FlatCalibrator(object):
     pass
 
 
-class WhiteCalibrator(object):
+class WhiteCalibrator(FlatCalibrator):
     """
     Opens flat file using parameters from the param file, sets wavelength binnning parameters, and calculates flat
     weights for flat file.  Writes these weights to a h5 file and plots weights both by pixel
     and in wavelength-sliced images.
     """
+
     def __init__(self, config=None, cal_file_name='flatsol_{start}.h5', log=True):
         """
         Reads in the param file and opens appropriate flat file.  Sets wavelength binning parameters.
@@ -69,7 +75,7 @@ class WhiteCalibrator(object):
         self.startTime = self.cfg.start_time
         self.expTime = self.cfg.exposure_time
 
-        self.h5file = self.cfg.get('h5file', os.path.join(self.cfg.paths.out, str(self.startTime)+'.h5'))
+        self.h5file = self.cfg.get('h5file', os.path.join(self.cfg.paths.out, str(self.startTime) + '.h5'))
 
         self.dataDir = self.cfg.paths.data
         self.out_directory = self.cfg.paths.out
@@ -95,7 +101,7 @@ class WhiteCalibrator(object):
         self.beamImage = None
         self.wvlFlags = None
         self.wvlBinEdges = None
-        self.wvlBinSize= None
+        self.wvlBinSize = None
 
         self.logging = log
         self.save_plots = self.cfg.flatcal.plots.lower() == 'all'
@@ -117,7 +123,7 @@ class WhiteCalibrator(object):
         self.flatWeights = None
         self.flatWeightsforplot = None
         self.plotName = None
-        self.fig = None #TODO @Isabel lets talk about if this is really needed as a class attribute
+        self.fig = None  # TODO @Isabel lets talk about if this is really needed as a class attribute
 
     def loadData(self):
         self.obs = ObsFile(self.h5file)
@@ -148,7 +154,8 @@ class WhiteCalibrator(object):
             getLogger(__name__).info("Writing detailed plots, go get some tea.")
             getLogger(__name__).info('Plotting Weights by Wvl Slices at WvlSlices_{}'.format(timestamp))
             self.plotWeightsWvlSlices()
-            getLogger(__name__).info('Plotting Weights by Pixel against the Wavelength Solution at WavelengthCompare_{}'.format(timestamp))
+            getLogger(__name__).info(
+                'Plotting Weights by Pixel against the Wavelength Solution at WavelengthCompare_{}'.format(timestamp))
             self.plotWeightsByPixelWvlCompare()
 
         getLogger(__name__).info('Done')
@@ -168,9 +175,9 @@ class WhiteCalibrator(object):
         for firstSec in range(0, self.expTime, self.intTime):  # for each time chunk
             cubeDict = self.obs.getSpectralCube(firstSec=firstSec, integrationTime=self.intTime, applySpecWeight=False,
                                                 applyTPFWeight=False, wvlBinEdges=self.wvlBinEdges)
-            cube = cubeDict['cube']/cubeDict['effIntTime'][:, :, None]
-            cube /= (1 - cube.sum(axis=2) * self.deadtime)[:,:,None]
-            bad = np.isnan(cube)  #TODO need to update maskes to note why these 0s appeared
+            cube = cubeDict['cube'] / cubeDict['effIntTime'][:, :, None]
+            cube /= (1 - cube.sum(axis=2) * self.deadtime)[:, :, None]
+            bad = np.isnan(cube)  # TODO need to update maskes to note why these 0s appeared
             cube[bad] = 0
 
             self.spectralCubes.append(cube)
@@ -180,7 +187,7 @@ class WhiteCalibrator(object):
 
         self.spectralCubes = np.array(self.spectralCubes)
         self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
-        self.countCubes = self.cubeEffIntTimes[:,:,:,None] * self.spectralCubes
+        self.countCubes = self.cubeEffIntTimes[:, :, :, None] * self.spectralCubes
 
     @property
     def frames(self):
@@ -239,20 +246,32 @@ class WhiteCalibrator(object):
         if self.fractionOfChunksToTrim and nCubes > 1:
             sortedIndices = np.ma.argsort(self.maskedCubeWeights, axis=0)
             identityIndices = np.ma.indices(np.shape(self.maskedCubeWeights))
-            sortedWeights = self.maskedCubeWeights[sortedIndices, identityIndices[1], identityIndices[2], identityIndices[3]]
-            countCubesReordered = self.countCubes[sortedIndices, identityIndices[1], identityIndices[2], identityIndices[3]]
-            cubeDeltaWeightsReordered = self.maskedCubeDeltaWeights[sortedIndices, identityIndices[1], identityIndices[2], identityIndices[3]]
-            trimmedWeights = sortedWeights[self.fractionOfChunksToTrim * nCubes:(1 - self.fractionOfChunksToTrim) * nCubes, :, :, :]
-            trimmedCountCubesReordered = countCubesReordered[self.fractionOfChunksToTrim * nCubes:(1 - self.fractionOfChunksToTrim) * nCubes,:, :, :]
-            trimmedCubeDeltaWeightsReordered = cubeDeltaWeightsReordered[self.fractionOfChunksToTrim * nCubes:(1 - self.fractionOfChunksToTrim) * nCubes,:, :, :]
+            sortedWeights = self.maskedCubeWeights[
+                sortedIndices, identityIndices[1], identityIndices[2], identityIndices[3]]
+            countCubesReordered = self.countCubes[
+                sortedIndices, identityIndices[1], identityIndices[2], identityIndices[3]]
+            cubeDeltaWeightsReordered = self.maskedCubeDeltaWeights[
+                sortedIndices, identityIndices[1], identityIndices[2], identityIndices[3]]
+            trimmedWeights = sortedWeights[
+                             self.fractionOfChunksToTrim * nCubes:(1 - self.fractionOfChunksToTrim) * nCubes, :, :, :]
+            trimmedCountCubesReordered = countCubesReordered[self.fractionOfChunksToTrim * nCubes:(
+                                                                                                              1 - self.fractionOfChunksToTrim) * nCubes,
+                                         :, :, :]
+            trimmedCubeDeltaWeightsReordered = cubeDeltaWeightsReordered[self.fractionOfChunksToTrim * nCubes:(
+                                                                                                                          1 - self.fractionOfChunksToTrim) * nCubes,
+                                               :, :, :]
             self.totalCube = np.ma.sum(trimmedCountCubesReordered, axis=0)
             self.totalFrame = np.ma.sum(self.totalCube, axis=-1)
-            self.flatWeights, summedAveragingWeights = np.ma.average(trimmedWeights, axis=0,weights=trimmedCubeDeltaWeightsReordered ** -2.,returned=True)
+            self.flatWeights, summedAveragingWeights = np.ma.average(trimmedWeights, axis=0,
+                                                                     weights=trimmedCubeDeltaWeightsReordered ** -2.,
+                                                                     returned=True)
             self.countCubesToSave = np.ma.sum(trimmedCountCubesReordered, axis=0)
         else:
             self.totalCube = np.ma.sum(self.countCubes, axis=0)
             self.totalFrame = np.ma.sum(self.totalCube, axis=-1)
-            self.flatWeights, summedAveragingWeights = np.ma.average(self.maskedCubeWeights, axis=0,weights=self.maskedCubeDeltaWeights ** -2., returned=True)
+            self.flatWeights, summedAveragingWeights = np.ma.average(self.maskedCubeWeights, axis=0,
+                                                                     weights=self.maskedCubeDeltaWeights ** -2.,
+                                                                     returned=True)
             self.countCubesToSave = np.ma.sum(self.countCubes, axis=0)
 
         """
@@ -277,7 +296,7 @@ class WhiteCalibrator(object):
             self.plotName = 'WavelengthCompare_{}'.format(timestamp)
             self._setupPlots()
         # path to your wavecal solution file
-        wavesol=wavecal.Solution(self.wvlCalFile)
+        wavesol = wavecal.Solution(self.wvlCalFile)
         matplotlib.rcParams['font.size'] = 4
         wvls = self.wvlBinEdges[0:self.wvlBinSize]
         nCubes = len(self.maskedCubeWeights)
@@ -342,7 +361,7 @@ class WhiteCalibrator(object):
         """
         Plot weights in images of a single wavelength bin (wavelength-sliced images)
         """
-        self.plotName = 'WvlSlices_{}'.format(timestamp)  #TODO @Isabel this is a bug
+        self.plotName = 'WvlSlices_{}'.format(timestamp)  # TODO @Isabel this is a bug
         self._setupPlots()
         matplotlib.rcParams['font.size'] = 4
         wvls = self.wvlBinEdges[0:self.wvlBinSize]
@@ -514,12 +533,11 @@ class LaserCalibrator(WhiteCalibrator):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-
     def loadData(self):
-        self.sol = wavecal.Solution(self.wvlCalFile)
+        self.sol = wavecal.load_solution(self.wvlCalFile)
         self.beamImage = self.sol.beam_map
         self.wvlFlags = self.sol.beam_map_flags
-        self.xpix =self.sol.cfg.x_pixels
+        self.xpix = self.sol.cfg.x_pixels
         self.ypix = self.sol.cfg.y_pixels
         self.wave_list = self.sol.cfg.wavelengths
         self.wave_inttime_list = self.sol.cfg.exposure_times
@@ -529,10 +547,10 @@ class LaserCalibrator(WhiteCalibrator):
 
     @property
     def wvl_medians(self):
-        wvl_medians=[]
+        wvl_medians = []
         wvl_medians.append(self.wvlStart)
         for index, wavelength in enumerate(self.wave_list[0:-1]):
-            wvl_medians.append(self.wave_list[index]+((self.wave_list[index+1]-self.wave_list[index])/2))
+            wvl_medians.append(self.wave_list[index] + ((self.wave_list[index + 1] - self.wave_list[index]) / 2))
         wvl_medians.append(self.wvlStop)
         return np.array(wvl_medians)
 
@@ -551,7 +569,6 @@ class LaserCalibrator(WhiteCalibrator):
         self.countCubes = self.cubeEffIntTimes * self.spectralCubes
 
     def make_spectralcube_from_wavecal(self):
-
         wave_list = self.wave_list
         nWavs = len(self.wave_list)
         spectralcube_wave = np.zeros([self.xpix, self.ypix, nWavs])
@@ -574,13 +591,13 @@ class LaserCalibrator(WhiteCalibrator):
                             wvl_intensity = np.sqrt(sigma) * amp_scaled
                             spectralcube_wave[nRow, nCol, iwvl] = wvl_intensity
                             eff_int_time_3d_wave[nRow, nCol, iwvl] = self.wave_inttime_list[iwvl]
-        spectralcube =  np.zeros([self.xpix, self.ypix,self.wvlBinSize])
-        eff_int_time_3d = np.zeros([self.xpix, self.ypix,self.wvlBinSize])
+        spectralcube = np.zeros([self.xpix, self.ypix, self.wvlBinSize])
+        eff_int_time_3d = np.zeros([self.xpix, self.ypix, self.wvlBinSize])
         for j in range(self.laserBinEdges.size):
             for i in range(self.wvlBinSize):
-                if self.wvlBinEdges[i] >= self.laserBinEdges[j] and self.wvlBinEdges[i] < self.laserBinEdges[j+1]:
-                    spectralcube[:,:,i] = spectralcube_wave[:,:,j]
-                    eff_int_time_3d[:,:,i] = eff_int_time_3d_wave[:,:,j]
+                if self.wvlBinEdges[i] >= self.laserBinEdges[j] and self.wvlBinEdges[i] < self.laserBinEdges[j + 1]:
+                    spectralcube[:, :, i] = spectralcube_wave[:, :, j]
+                    eff_int_time_3d[:, :, i] = eff_int_time_3d_wave[:, :, j]
         return {'cube': spectralcube, 'effIntTime3d': eff_int_time_3d}
 
 
@@ -658,21 +675,28 @@ def fetch(solution_descriptors, config=None, ncpu=1, async=False, force_h5=False
     solutions = []
     for sd in solution_descriptors:
         sf = os.path.join(cfg.paths.database, sd.id)
-        if os.path.exists(sf):
-            pass
-        else:
+        if not os.path.exists(sf):
             if 'flatcal' not in cfg:
                 fcfg = mkidpipeline.config.load_task_config(pkg.resource_filename(__name__, 'flatcal.yml'))
             else:
                 fcfg = cfg.copy()
-            fcfg.register('start_time', sd.start, update=True)
-            fcfg.register('exposure_time', sd.duration, update=True)
-            fcfg.unregister('flatname')
-            fcfg.unregister('wavesol')
-            fcfg.unregister('h5file')
 
-            flattner = WhiteCalibrator(fcfg, cal_file_name=sd.id)
+            if hasattr(sd, 'wavecal'):
+                fcfg.register('wavesol', sd.wavecal, update=True)
+                fcfg.register('start_time', -1, update=True) #TODO get rid of this when lasercalibrator's init is fixed
+                fcfg.register('exposure_time',-1, update=True)
+                fcfg.unregister('flatname')
+                fcfg.unregister('h5file')
+                flattner = LaserCalibrator(fcfg, cal_file_name=sd.id)
+            else:
+                fcfg.register('start_time', sd.ob.start, update=True)
+                fcfg.register('exposure_time', sd.ob.duration, update=True)
+                fcfg.unregister('flatname')
+                fcfg.unregister('wavesol')
+                fcfg.unregister('h5file')
+                flattner = WhiteCalibrator(fcfg, cal_file_name=sd.id)
             flattner.makeCalibration()
+        solutions.append(sf)
 
 
 if __name__ == '__main__':
@@ -696,13 +720,14 @@ if __name__ == '__main__':
                                     propagate=False, fmt='Flatcal: %(levelname)s %(message)s',
                                     level=mkidcore.corelog.INFO)
 
-    atexit.register(lambda x: print('Execution took {:.0f}s'.format(time.time()-x)), time.time())
+    atexit.register(lambda x: print('Execution took {:.0f}s'.format(time.time() - x)), time.time())
 
     args = parser.parse_args()
 
     flattner = WhiteCalibrator(args.cfgfile, cal_file_name='calsol_{}.h5'.format(timestamp))
 
     if not os.path.isfile(flattner.cfg.h5file):
+        raise RuntimeError('Not up to date')
         b2h_config = bin2hdf.Bin2HdfConfig(datadir=flattner.cfg.paths.data, beamfile=flattner.cfg.beammap.file,
                                            outdir=flattner.paths.out, starttime=flattner.cfg.start_time,
                                            inttime=flattner.cfg.expTime,
@@ -712,9 +737,8 @@ if __name__ == '__main__':
 
     obsfile = ObsFile(flattner.h5file, mode='write')
     if not obsfile.wavelength_calibrated:
-        wsol = flattner.cfg.wavesol
-        obsfile.applyWaveCal(wavecal.Solution(flattner.cfg.wavesol))
-        getLogger(__name__).info('Applied Wavecal {} to {}.h5'.format(wsol, flattner.h5file))
+        obsfile.applyWaveCal(wavecal.load_solution(flattner.cfg.wavesol))
+        getLogger(__name__).info('Applied Wavecal {} to {}.h5'.format(flattner.cfg.wavesol, flattner.h5file))
 
     if args.h5only:
         exit()
