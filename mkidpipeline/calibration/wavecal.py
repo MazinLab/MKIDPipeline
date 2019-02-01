@@ -1344,33 +1344,28 @@ class Solution(object):
                  beam_map_flags=None, solution_name='solution.npz'):
         #Don't use self in init or it will force loading at creation!
         self._color_map = cm.get_cmap('viridis')
-        self.name = solution_name
-        self.solution_name = solution_name
         self._file_path = file_path
         self._parse = True
+        self._fit_array = fit_array
+        self._beam_map = beam_map  # TODO: integrate beam map object
+        self._beam_map_flags = beam_map_flags
+
+        self.cfg = configuration
+
         # load in solution and configuration objects
         if fit_array is not None and configuration is not None and beam_map is not None:
             self._unloaded = False
-            self._fit_array = fit_array
-            self.cfg = configuration
-            self._beam_map = beam_map             # TODO: integrate beam map object
-            self._beam_map_flags = beam_map_flags
+            self.name = solution_name
             self._finish_init()
         elif file_path is not None:
             self._unloaded = True
-            self._fit_array = None
-            self.cfg = None
-            self._beam_map = None
-            self._beam_map_flags = None
-            self.solution_name = os.path.basename(file_path)
-            # self.load(file_path)
-            self._unloaded = True
+            self.name = os.path.basename(file_path)
         else:
             raise ValueError('provide either a file_path or both the fit_array and '
                              'configuration arguments')
 
     def _finish_init(self):
-        self.save_path = os.path.join(self.cfg.out_directory, self.solution_name)
+        self._file_path = self.save_path = os.path.join(self.cfg.out_directory, self.name)
 
         # load in fitting models
         self.histogram_model_list = [getattr(wm, name) for _, name in
@@ -1396,8 +1391,12 @@ class Solution(object):
     def from_yaml(cls, constructor, node):
         return load_solution(mkidcore.config.extract_from_node(constructor,'file', node)['file'])
 
+    def __str__(self):
+        return self._file_path
+
     def __getattribute__(self, item):
-        if item.startswith('__') and item not in ('__getitem__', '__setitem__'):
+        ok = ('name', '_ipython_canary_method_should_not_exist_', '_file_path')
+        if (item.startswith('__') and item not in ('__getitem__', '__setitem__')) or item in ok:
             return object.__getattribute__(self, item)
         if object.__getattribute__(self, '_unloaded'):
             pipelinelog.getLogger(__name__).info('Loading solution due to request for '+item)
@@ -1442,7 +1441,7 @@ class Solution(object):
         """Save the solution to a file whose name is determined by the configuration."""
         # TODO: saving and loading is slow: only save parts needed to recreate solution
         if save_name is None:
-            save_path = os.path.join(self.cfg.out_directory, self.solution_name)
+            save_path = os.path.join(self.cfg.out_directory, self.name)
         else:
             save_path = os.path.join(self.cfg.out_directory, save_name)
         # make sure the configuration is pickleable if created from __main__
@@ -1464,7 +1463,7 @@ class Solution(object):
             self._beam_map = npz_file['beam_map']
             self._beam_map_flags = npz_file['beam_map_flags']
             self._file_path = file_path
-            self.solution_name = os.path.basename(file_path)
+            self.name = os.path.basename(file_path)
             self._unloaded = False
             self._finish_init()
             log.info("Complete")
@@ -2452,7 +2451,7 @@ class Solution(object):
         calibration_table = table_title + table_begin + table + table_end
         # set up additional text
         info = (r"\textbf{Solution File Name:} \\" +
-                r"{} \\ \\ \\".format(self.solution_name))
+                r"{} \\ \\ \\".format(self.name))
         info += r" \begin{tabular}{@{}>{\raggedright}p{1.5in} | p{1.5in}}"
         info += r"\textbf{ObsFile Names:} & \textbf{Wavelengths [nm]:} \\"
         for index, file_name in enumerate(self.cfg.h5_file_names):
