@@ -291,24 +291,14 @@ class ObsFile(object):
             pass
 
     def loadFile(self, fileName):
-        """
-        Opens file and loads obs file attributes and beammap
-        """
-        mode = 'a' if self.mode == 'write' else 'r'
-
+        """ Opens file and loads obs file attributes and beammap """
         self.fileName = os.path.basename(fileName)
         self.fullFileName = fileName
-        if self.verbose: print("Loading " + self.fullFileName)
+        getLogger(__name__).debug("Loading {} in {} mode.".format(self.fullFileName, self.mode))
         try:
-            self.file = tables.open_file(self.fullFileName, mode=mode)
-        except IOError:  # check the MKID_RAW_PATH if the full path wasn't given
-            self.fileName = fileName
-            # make the full file name by joining the input name
-            # to the MKID_RAW_PATH (or . if the environment variable
-            # is not defined)
-            dataDir = os.getenv('MKID_RAW_PATH', '')
-            self.fullFileName = os.path.join(dataDir, self.fileName)
-            self.file = tables.open_file(self.fullFileName, mode=mode)
+            self.file = tables.open_file(self.fullFileName, mode='a' if self.mode == 'write' else 'r')
+        except (IOError, OSError):
+            raise
 
         # get the header
         self.header = self.file.root.header.header
