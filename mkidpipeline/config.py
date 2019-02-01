@@ -138,20 +138,10 @@ class MKIDFlatdataDescription(object):
 
     @property
     def id(self):
-        return 'calsol_{}.h5'.format(self.data.start)
-
-    # def __init__(self, data):
-    #     self.data = data
-
-    # @classmethod
-    # def from_yaml(cls, loader, node):
-    #     return MKIDObservingDataDescription.from_yaml(cls, loader, node)
-    #     d = dict(loader.construct_pairs(node))  #WTH this one line took half a day to get right
-    #     name = d.pop('name')
-    #     start = d.pop('start', None)
-    #     stop = d.pop('stop', None)
-    #     duration = d.pop('duration', None)
-    #     return cls(name, start, duration=duration, stop=stop, _common=d)
+        try:
+            return 'flatcal_{}.h5'.format(self.ob.start)
+        except AttributeError:
+            return 'flatcal_{}.h5'.format(self.wavecal)
 
 
 class MKIDObservingDither(object):
