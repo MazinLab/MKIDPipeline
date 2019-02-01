@@ -117,17 +117,12 @@ getLogger('mkidpipeline.calibration.wavecal').setLevel('INFO')
 # batch_apply_wavecals(mkidpipeline.config.assiciate_wavecals(dataset)[1:], 10)
 
 
-raise RuntimeError()
-
-
-
-
-flatcals = flatcal.fetch(dataset.flatcals, async=True)
-
 
 
 #noise.calibrate(table)
-# flatcals = flatcal.fetch(input.flatcals, async=True)
+
+#TODO need to associate and update the flatcals that have wavecals by name with the actual wavecal object
+flatcals = flatcal.fetch([dataset.flatcals[1]], async=True)
 
 raise RuntimeError()
 
