@@ -69,15 +69,15 @@ import tables
 import tables.parameters
 
 
-def wavecal_apply(o, wc):
+def wavecal_apply(o):
     of = mkidpipeline.hdf.photontable.ObsFile(mkidpipeline.config.get_h5_path(o), mode='a')
-    of.applyWaveCal(wavecal.load_solution(wc))
+    of.applyWaveCal(wavecal.load_solution(o.wavecal))
     of.file.close()
 
 
 def batch_apply_wavecals(wavecal_pairs, ncpu=None):
     pool = mp.Pool(ncpu if ncpu is not None else mkidpipeline.config.n_cpus_available())
-    pool.starmap(wavecal_apply, wavecal_pairs)
+    pool.map(wavecal_apply, wavecal_pairs)
     pool.close()
 
 
@@ -114,7 +114,7 @@ getLogger('mkidpipeline.calibration.wavecal').setLevel('INFO')
 #     assert (sol2.has_data(sol2.cfg.wavelengths,p) == sol.has_data(sol.cfg.wavelengths,p)).all()
 
 
-# batch_apply_wavecals(mkidpipeline.config.assiciate_wavecals(dataset)[1:], 10)
+# batch_apply_wavecals(dataset.wavecalable, 10)
 
 
 
@@ -122,9 +122,8 @@ getLogger('mkidpipeline.calibration.wavecal').setLevel('INFO')
 #noise.calibrate(table)
 
 #TODO need to associate and update the flatcals that have wavecals by name with the actual wavecal object
-flatcals = flatcal.fetch([dataset.flatcals[1]], async=True)
+flatcals = flatcal.fetch(dataset.flatcals[:1], async=True, remake=True)
 
-raise RuntimeError()
 
 
 table.applyFlatCal(flatcals)

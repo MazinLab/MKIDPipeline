@@ -45,94 +45,6 @@ DEFAULT_CONFIG_FILE = pkg.resource_filename('mkidpipeline.calibration.flatcal', 
 #  Subclasses for special functions and a factory function for deciding which to instantiate.
 
 class FlatCalibrator(object):
-    pass
-
-
-class WhiteCalibrator(FlatCalibrator):
-    """
-    Opens flat file using parameters from the param file, sets wavelength binnning parameters, and calculates flat
-    weights for flat file.  Writes these weights to a h5 file and plots weights both by pixel
-    and in wavelength-sliced images.
-    """
-
-    def __init__(self, config=None, cal_file_name='flatsol_{start}.h5', log=True):
-        """
-        Reads in the param file and opens appropriate flat file.  Sets wavelength binning parameters.
-        """
-        self.config_file = DEFAULT_CONFIG_FILE if config is None else config
-
-        self.cfg = mkidpipeline.config.load_task_config(config)
-
-        try:
-            self.wvlCalFile = self.cfg.wavesol
-            if not os.path.exists(self.wvlCalFile):
-                self.wvlCalFile = os.path.join(self.cfg.paths.database, self.wvlCalFile)
-        except KeyError:
-            getLogger(__name__).info('No wavelength solution specified. '
-                                     'Solution must have been previously applied.')
-            self.wvlCalFile = ''
-
-        self.startTime = self.cfg.start_time
-        self.expTime = self.cfg.exposure_time
-
-        self.h5file = self.cfg.get('h5file', os.path.join(self.cfg.paths.out, str(self.startTime) + '.h5'))
-
-        self.dataDir = self.cfg.paths.data
-        self.out_directory = self.cfg.paths.out
-
-        self.flatCalFileName = self.cfg.get('flatname', os.path.join(self.cfg.paths.database,
-                                                                     cal_file_name.format(start=self.startTime)))
-
-        self.intTime = self.cfg.flatcal.chunk_time
-
-        self.xpix = self.cfg.beammap.ncols
-        self.ypix = self.cfg.beammap.nrows
-        self.deadtime = self.cfg.instrument.deadtime
-
-        self.energyBinWidth = self.cfg.instrument.energy_bin_width
-        self.wvlStart = self.cfg.instrument.wvl_start
-        self.wvlStop = self.cfg.instrument.wvl_stop
-
-        self.countRateCutoff = self.cfg.flatcal.rate_cutoff
-        self.fractionOfChunksToTrim = self.cfg.flatcal.trim_fraction
-        self.timeSpacingCut = None
-
-        self.obs = None
-        self.beamImage = None
-        self.wvlFlags = None
-        self.wvlBinEdges = None
-        self.wvlBinSize = None
-
-        self.logging = log
-        self.save_plots = self.cfg.flatcal.plots.lower() == 'all'
-        self.summary_plot = self.cfg.flatcal.plots.lower() in ('all', 'summary')
-        if self.save_plots:
-            getLogger(__name__).warning("Comanded to save debug plots, this will add ~30 min to runtime.")
-
-        self.spectralCubes = None
-        self.cubeEffIntTimes = None
-        self.countCubes = None
-        self.maskedCubeWeights = None
-        self.maskedCubeDeltaWeights = None
-        self.totalCube = None
-        self.totalFrame = None
-        self.flatWeights = None
-        self.countCubesToSave = None
-        self.deltaFlatWeights = None
-        self.flatFlags = None
-        self.flatWeights = None
-        self.flatWeightsforplot = None
-        self.plotName = None
-        self.fig = None  # TODO @Isabel lets talk about if this is really needed as a class attribute
-
-    def loadData(self):
-        self.obs = ObsFile(self.h5file)
-        self.beamImage = self.obs.beamImage
-        self.wvlFlags = self.obs.beamFlagImage
-        self.xpix = self.obs.nXPix
-        self.ypix = self.obs.nYPix
-        self.wvlBinEdges = self.obs.makeWvlBins(self.energyBinWidth, self.wvlStart, self.wvlStop)
-        self.wvlBinSize = self.wvlBinEdges.size - 1
 
     def makeCalibration(self):
         getLogger(__name__).info("Loading Data")
@@ -160,34 +72,57 @@ class WhiteCalibrator(FlatCalibrator):
 
         getLogger(__name__).info('Done')
 
-    def loadFlatSpectra(self):
+    def makeSummary(self):
+        summaryPlot(calsolnName=self.flatCalFileName, save_plot=True)
+
+    def writeWeights(self):
         """
-        Reads the flat data into a spectral cube whose dimensions are determined
-        by the number of x and y pixels and the number of wavelength bins.
-        Each element will be the spectral cube for a time chunk
-        Find factors to correct nonlinearity due to deadtime in firmware
-
-        To be used for whitelight flat data
+        Writes an h5 file to put calculated flat cal factors in
         """
-
-        self.spectralCubes = []
-        self.cubeEffIntTimes = []
-        for firstSec in range(0, self.expTime, self.intTime):  # for each time chunk
-            cubeDict = self.obs.getSpectralCube(firstSec=firstSec, integrationTime=self.intTime, applySpecWeight=False,
-                                                applyTPFWeight=False, wvlBinEdges=self.wvlBinEdges)
-            cube = cubeDict['cube'] / cubeDict['effIntTime'][:, :, None]
-            cube /= (1 - cube.sum(axis=2) * self.deadtime)[:, :, None]
-            bad = np.isnan(cube)  # TODO need to update maskes to note why these 0s appeared
-            cube[bad] = 0
-
-            self.spectralCubes.append(cube)
-            self.cubeEffIntTimes.append(cubeDict['effIntTime'])
-            msg = 'Loaded Flat Spectra for seconds {} to {}'.format(int(firstSec), int(firstSec) + int(self.intTime))
-            getLogger(__name__).info(msg)
-
-        self.spectralCubes = np.array(self.spectralCubes)
-        self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
-        self.countCubes = self.cubeEffIntTimes[:, :, :, None] * self.spectralCubes
+        if not os.path.exists(self.out_directory):
+            os.makedirs(self.out_directory)
+        try:
+            flatCalFile = tables.open_file(self.flatCalFileName, mode='w')
+        except:
+            getLogger(__name__).error("Couldn't create flat cal file: {} ", self.flatCalFileName)
+            return
+        header = flatCalFile.create_group(flatCalFile.root, 'header', 'Calibration information')
+        tables.Array(header, 'beamMap', obj=self.beamImage)
+        tables.Array(header, 'xpix', obj=self.xpix)
+        tables.Array(header, 'ypix', obj=self.ypix)
+        calgroup = flatCalFile.create_group(flatCalFile.root, 'flatcal',
+                                            'Table of flat calibration weights by pixel and wavelength')
+        tables.Array(calgroup, 'weights', obj=self.flatWeights.data,
+                     title='Flat calibration Weights indexed by pixelRow,pixelCol,wavelengthBin')
+        tables.Array(calgroup, 'spectrum', obj=self.countCubesToSave.data,
+                     title='Twilight spectrum indexed by pixelRow,pixelCol,wavelengthBin')
+        tables.Array(calgroup, 'flags', obj=self.flatFlags,
+                     title='Flat cal flags indexed by pixelRow,pixelCol,wavelengthBin. 0 is Good')
+        tables.Array(calgroup, 'wavelengthBins', obj=self.wvlBinEdges,
+                     title='Wavelength bin edges corresponding to third dimension of weights array')
+        descriptionDict = FlatCalSoln_Description(self.wvlBinSize)
+        caltable = flatCalFile.create_table(calgroup, 'calsoln', descriptionDict, title='Flat Cal Table')
+        for iRow in range(self.xpix):
+            for iCol in range(self.ypix):
+                weights = self.flatWeights[iRow, iCol, :]
+                spectrum = self.countCubesToSave[iRow, iCol, :]
+                deltaWeights = self.deltaFlatWeights[iRow, iCol, :]
+                flags = self.flatFlags[iRow, iCol, :]
+                flag = np.any(self.flatFlags[iRow, iCol, :])
+                pixelName = self.beamImage[iRow, iCol]
+                entry = caltable.row
+                entry['resid'] = pixelName
+                entry['pixelrow'] = iRow
+                entry['pixelcol'] = iCol
+                entry['weights'] = weights
+                entry['weightUncertainties'] = deltaWeights
+                entry['spectrum'] = spectrum
+                entry['weightFlags'] = flags
+                entry['flag'] = flag
+                entry.append()
+        flatCalFile.flush()
+        flatCalFile.close()
+        getLogger(__name__).info("Wrote to {}".format(self.flatCalFileName))
 
     @property
     def frames(self):
@@ -216,20 +151,17 @@ class WhiteCalibrator(FlatCalibrator):
                 goodPixelWvlSlice = np.array(wvlSlice[wvlSlice != 0])
                 # dead pixels need to be taken out before calculating averages
                 wvlAverages[iWvl] = np.median(goodPixelWvlSlice)
-            weights = np.divide(wvlAverages, cube)
-            weights[weights == 0] = np.nan
-            weights[weights == np.inf] = np.nan
+            weights = wvlAverages / cube
+            weights[(weights == 0) | (weights == np.inf)] = np.nan
             cubeWeightsList.append(weights)
 
-            """
-            To get uncertainty in weight:
-            Assuming negligible uncertainty in medians compared to single pixel spectra,
-            then deltaWeight=weight*deltaSpectrum/Spectrum
-            deltaWeight=weight*deltaRawCounts/RawCounts
-            with deltaRawCounts=sqrt(RawCounts)#Assuming Poisson noise
-            deltaWeight=weight/sqrt(RawCounts)
-            but 'cube' is in units cps, not raw counts so multiply by effIntTime before sqrt
-            """
+            # To get uncertainty in weight:
+            # Assuming negligible uncertainty in medians compared to single pixel spectra,
+            # then deltaWeight=weight*deltaSpectrum/Spectrum
+            # deltaWeight=weight*deltaRawCounts/RawCounts
+            # with deltaRawCounts=sqrt(RawCounts)#Assuming Poisson noise
+            # deltaWeight=weight/sqrt(RawCounts)
+            # but 'cube' is in units cps, not raw counts so multiply by effIntTime before sqrt
 
             deltaWeights = weights / np.sqrt(effIntTime * cube)
             deltaWeightsList.append(deltaWeights)
@@ -238,11 +170,10 @@ class WhiteCalibrator(FlatCalibrator):
         deltaCubeWeights = np.array(deltaWeightsList)
         cubeWeightsMask = np.isnan(cubeWeights)
         self.maskedCubeWeights = np.ma.array(cubeWeights, mask=cubeWeightsMask, fill_value=1.)
-        nCubes = np.shape(self.maskedCubeWeights)[0]
+        nCubes = self.maskedCubeWeights.shape[0]
         self.maskedCubeDeltaWeights = np.ma.array(deltaCubeWeights, mask=cubeWeightsMask)
 
         # sort maskedCubeWeights and rearrange spectral cubes the same way
-
         if self.fractionOfChunksToTrim and nCubes > 1:
             sortedIndices = np.ma.argsort(self.maskedCubeWeights, axis=0)
             identityIndices = np.ma.indices(np.shape(self.maskedCubeWeights))
@@ -252,14 +183,10 @@ class WhiteCalibrator(FlatCalibrator):
                 sortedIndices, identityIndices[1], identityIndices[2], identityIndices[3]]
             cubeDeltaWeightsReordered = self.maskedCubeDeltaWeights[
                 sortedIndices, identityIndices[1], identityIndices[2], identityIndices[3]]
-            trimmedWeights = sortedWeights[
-                             self.fractionOfChunksToTrim * nCubes:(1 - self.fractionOfChunksToTrim) * nCubes, :, :, :]
-            trimmedCountCubesReordered = countCubesReordered[self.fractionOfChunksToTrim * nCubes:(
-                                                                                                              1 - self.fractionOfChunksToTrim) * nCubes,
-                                         :, :, :]
-            trimmedCubeDeltaWeightsReordered = cubeDeltaWeightsReordered[self.fractionOfChunksToTrim * nCubes:(
-                                                                                                                          1 - self.fractionOfChunksToTrim) * nCubes,
-                                               :, :, :]
+            sl = slice(self.fractionOfChunksToTrim * nCubes, (1 - self.fractionOfChunksToTrim) * nCubes)
+            trimmedWeights = sortedWeights[sl, :, :, :]
+            trimmedCountCubesReordered = countCubesReordered[sl, :, :, :]
+            trimmedCubeDeltaWeightsReordered = cubeDeltaWeightsReordered[sl, :, :, :]
             self.totalCube = np.ma.sum(trimmedCountCubesReordered, axis=0)
             self.totalFrame = np.ma.sum(self.totalCube, axis=-1)
             self.flatWeights, summedAveragingWeights = np.ma.average(trimmedWeights, axis=0,
@@ -431,58 +358,6 @@ class WhiteCalibrator(FlatCalibrator):
             self.iPlot += 1
         self._closePlots()
 
-    def writeWeights(self):
-        """
-        Writes an h5 file to put calculated flat cal factors in
-        """
-        if not os.path.exists(self.out_directory):
-            os.makedirs(self.out_directory)
-        try:
-            flatCalFile = tables.open_file(self.flatCalFileName, mode='w')
-        except:
-            getLogger(__name__).error("Couldn't create flat cal file: {} ", self.flatCalFileName)
-            return
-        header = flatCalFile.create_group(flatCalFile.root, 'header', 'Calibration information')
-        tables.Array(header, 'beamMap', obj=self.beamImage)
-        tables.Array(header, 'xpix', obj=self.xpix)
-        tables.Array(header, 'ypix', obj=self.ypix)
-        calgroup = flatCalFile.create_group(flatCalFile.root, 'flatcal',
-                                            'Table of flat calibration weights by pixel and wavelength')
-        tables.Array(calgroup, 'weights', obj=self.flatWeights.data,
-                     title='Flat calibration Weights indexed by pixelRow,pixelCol,wavelengthBin')
-        tables.Array(calgroup, 'spectrum', obj=self.countCubesToSave.data,
-                     title='Twilight spectrum indexed by pixelRow,pixelCol,wavelengthBin')
-        tables.Array(calgroup, 'flags', obj=self.flatFlags,
-                     title='Flat cal flags indexed by pixelRow,pixelCol,wavelengthBin. 0 is Good')
-        tables.Array(calgroup, 'wavelengthBins', obj=self.wvlBinEdges,
-                     title='Wavelength bin edges corresponding to third dimension of weights array')
-        descriptionDict = FlatCalSoln_Description(self.wvlBinSize)
-        caltable = flatCalFile.create_table(calgroup, 'calsoln', descriptionDict, title='Flat Cal Table')
-        for iRow in range(self.xpix):
-            for iCol in range(self.ypix):
-                weights = self.flatWeights[iRow, iCol, :]
-                spectrum = self.countCubesToSave[iRow, iCol, :]
-                deltaWeights = self.deltaFlatWeights[iRow, iCol, :]
-                flags = self.flatFlags[iRow, iCol, :]
-                flag = np.any(self.flatFlags[iRow, iCol, :])
-                pixelName = self.beamImage[iRow, iCol]
-                entry = caltable.row
-                entry['resid'] = pixelName
-                entry['pixelrow'] = iRow
-                entry['pixelcol'] = iCol
-                entry['weights'] = weights
-                entry['weightUncertainties'] = deltaWeights
-                entry['spectrum'] = spectrum
-                entry['weightFlags'] = flags
-                entry['flag'] = flag
-                entry.append()
-        flatCalFile.flush()
-        flatCalFile.close()
-        getLogger(__name__).info("Wrote to {}".format(self.flatCalFileName))
-
-    def makeSummary(self):
-        summaryPlot(calsolnName=self.flatCalFileName, save_plot=True)
-
     def _setupPlots(self):
         """
         Initialize plotting variables
@@ -529,6 +404,126 @@ class WhiteCalibrator(FlatCalibrator):
         plt.close('all')
 
 
+class WhiteCalibrator(FlatCalibrator):
+    """
+    Opens flat file using parameters from the param file, sets wavelength binnning parameters, and calculates flat
+    weights for flat file.  Writes these weights to a h5 file and plots weights both by pixel
+    and in wavelength-sliced images.
+    """
+
+    def __init__(self, config=None, cal_file_name='flatsol_{start}.h5', log=True):
+        """
+        Reads in the param file and opens appropriate flat file.  Sets wavelength binning parameters.
+        """
+
+        super().__init__()
+
+        self.config_file = DEFAULT_CONFIG_FILE if config is None else config
+
+        self.cfg = mkidpipeline.config.load_task_config(config)
+
+        self.wvlCalFile = ''
+        try:
+            self.wvlCalFile = self.cfg.wavesol
+            if not os.path.exists(self.wvlCalFile):
+                self.wvlCalFile = os.path.join(self.cfg.paths.database, self.wvlCalFile)
+        except KeyError:
+            pass
+
+        self.startTime = self.cfg.start_time
+        self.expTime = self.cfg.exposure_time
+
+        self.h5file = self.cfg.get('h5file', os.path.join(self.cfg.paths.out, str(self.startTime) + '.h5'))
+
+        self.dataDir = self.cfg.paths.data
+        self.out_directory = self.cfg.paths.out
+
+        self.flatCalFileName = self.cfg.get('flatname', os.path.join(self.cfg.paths.database,
+                                                                     cal_file_name.format(start=self.startTime)))
+
+        self.intTime = self.cfg.flatcal.chunk_time
+
+        self.xpix = self.cfg.beammap.ncols
+        self.ypix = self.cfg.beammap.nrows
+        self.deadtime = self.cfg.instrument.deadtime
+
+        self.energyBinWidth = self.cfg.instrument.energy_bin_width
+        self.wvlStart = self.cfg.instrument.wvl_start
+        self.wvlStop = self.cfg.instrument.wvl_stop
+
+        self.countRateCutoff = self.cfg.flatcal.rate_cutoff
+        self.fractionOfChunksToTrim = self.cfg.flatcal.trim_fraction
+        self.timeSpacingCut = None
+
+        self.obs = None
+        self.beamImage = None
+        self.wvlFlags = None
+        self.wvlBinEdges = None
+        self.wvlBinSize = None
+
+        self.logging = log
+        self.save_plots = self.cfg.flatcal.plots.lower() == 'all'
+        self.summary_plot = self.cfg.flatcal.plots.lower() in ('all', 'summary')
+        if self.save_plots:
+            getLogger(__name__).warning("Comanded to save debug plots, this will add ~30 min to runtime.")
+
+        self.spectralCubes = None
+        self.cubeEffIntTimes = None
+        self.countCubes = None
+        self.maskedCubeWeights = None
+        self.maskedCubeDeltaWeights = None
+        self.totalCube = None
+        self.totalFrame = None
+        self.flatWeights = None
+        self.countCubesToSave = None
+        self.deltaFlatWeights = None
+        self.flatFlags = None
+        self.flatWeights = None
+        self.flatWeightsforplot = None
+        self.plotName = None
+        self.fig = None  # TODO @Isabel lets talk about if this is really needed as a class attribute
+
+    def loadData(self):
+        self.obs = ObsFile(self.h5file)
+        if not self.obs.wavelength_calibrated:
+            raise RuntimeError('Photon data is not wavelength calibrated.')
+        self.beamImage = self.obs.beamImage
+        self.wvlFlags = self.obs.beamFlagImage
+        self.xpix = self.obs.nXPix
+        self.ypix = self.obs.nYPix
+        self.wvlBinEdges = ObsFile.makeWvlBins(self.energyBinWidth, self.wvlStart, self.wvlStop)
+        self.wvlBinSize = self.wvlBinEdges.size - 1
+
+    def loadFlatSpectra(self):
+        """
+        Reads the flat data into a spectral cube whose dimensions are determined
+        by the number of x and y pixels and the number of wavelength bins.
+        Each element will be the spectral cube for a time chunk
+        Find factors to correct nonlinearity due to deadtime in firmware
+
+        To be used for whitelight flat data
+        """
+
+        self.spectralCubes = []
+        self.cubeEffIntTimes = []
+        for firstSec in range(0, self.expTime, self.intTime):  # for each time chunk
+            cubeDict = self.obs.getSpectralCube(firstSec=firstSec, integrationTime=self.intTime, applySpecWeight=False,
+                                                applyTPFWeight=False, wvlBinEdges=self.wvlBinEdges)
+            cube = cubeDict['cube'] / cubeDict['effIntTime'][:, :, None]
+            cube /= (1 - cube.sum(axis=2) * self.deadtime)[:, :, None]
+            bad = np.isnan(cube)  # TODO need to update maskes to note why these 0s appeared
+            cube[bad] = 0
+
+            self.spectralCubes.append(cube)
+            self.cubeEffIntTimes.append(cubeDict['effIntTime'])
+            msg = 'Loaded Flat Spectra for seconds {} to {}'.format(int(firstSec), int(firstSec) + int(self.intTime))
+            getLogger(__name__).info(msg)
+
+        self.spectralCubes = np.array(self.spectralCubes)
+        self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
+        self.countCubes = self.cubeEffIntTimes[:, :, :, None] * self.spectralCubes
+
+
 class LaserCalibrator(WhiteCalibrator):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -557,14 +552,12 @@ class LaserCalibrator(WhiteCalibrator):
     def loadFlatSpectra(self):
         self.spectralCubes = []
         self.cubeEffIntTimes = []
-        cubeDict = self.make_spectralcube_from_wavecal()
-        cube = np.array(cubeDict['cube'], dtype=np.double)
-        effIntTime3d = cubeDict['effIntTime3d']
-        cube /= effIntTime3d
+        cube, eff_time = self.make_spectralcube_from_wavecal()
+        cube /= eff_time
         cube[np.isnan(cube)] = 0
         self.spectralCubes.append(cube)
+        self.cubeEffIntTimes.append(eff_time)
         self.spectralCubes = np.array(self.spectralCubes)
-        self.cubeEffIntTimes.append(effIntTime3d)
         self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
         self.countCubes = self.cubeEffIntTimes * self.spectralCubes
 
@@ -591,6 +584,7 @@ class LaserCalibrator(WhiteCalibrator):
                             wvl_intensity = np.sqrt(sigma) * amp_scaled
                             spectralcube_wave[nRow, nCol, iwvl] = wvl_intensity
                             eff_int_time_3d_wave[nRow, nCol, iwvl] = self.wave_inttime_list[iwvl]
+
         spectralcube = np.zeros([self.xpix, self.ypix, self.wvlBinSize])
         eff_int_time_3d = np.zeros([self.xpix, self.ypix, self.wvlBinSize])
         for j in range(self.laserBinEdges.size):
@@ -598,7 +592,7 @@ class LaserCalibrator(WhiteCalibrator):
                 if self.wvlBinEdges[i] >= self.laserBinEdges[j] and self.wvlBinEdges[i] < self.laserBinEdges[j + 1]:
                     spectralcube[:, :, i] = spectralcube_wave[:, :, j]
                     eff_int_time_3d[:, :, i] = eff_int_time_3d_wave[:, :, j]
-        return {'cube': spectralcube, 'effIntTime3d': eff_int_time_3d}
+        return spectralcube, eff_int_time_3d
 
 
 def summaryPlot(calsolnName, save_plot=False):
@@ -664,18 +658,18 @@ def summaryPlot(calsolnName, save_plot=False):
     if not save_plot:
         plt.show()
     else:
-        pdf = PdfPages(os.path.join(os.getcwd(), 'SummaryPlot_{}.pdf'.format(timestamp)))
+        pdf = PdfPages(os.path.join(os.getcwd(), 'SummaryPlot_{}.pdf'.format(calsolnName)))
         pdf.savefig(fig)
         pdf.close()
 
 
-def fetch(solution_descriptors, config=None, ncpu=1, async=False, force_h5=False):
+def fetch(solution_descriptors, config=None, ncpu=1, async=False, remake=False):
     cfg = mkidpipeline.config.config if config is None else config
 
     solutions = []
     for sd in solution_descriptors:
         sf = os.path.join(cfg.paths.database, sd.id)
-        if not os.path.exists(sf):
+        if not os.path.exists(sf) or remake:
             if 'flatcal' not in cfg:
                 fcfg = mkidpipeline.config.load_task_config(pkg.resource_filename(__name__, 'flatcal.yml'))
             else:
@@ -698,6 +692,7 @@ def fetch(solution_descriptors, config=None, ncpu=1, async=False, force_h5=False
             flattner.makeCalibration()
         solutions.append(sf)
 
+    return solutions
 
 if __name__ == '__main__':
 

@@ -101,6 +101,10 @@ class MKIDObservingDataDescription(object):
         return cls(name, start, duration=duration, stop=stop, _common=d,
                    wavecal=d.pop('wavecal', None), flatcal=d.pop('flatcal', None))
 
+    @property
+    def timerange(self):
+        return self.start, self.stop
+
 
 class MKIDWavedataDescription(object):
     yaml_tag = u'!wc'
@@ -112,7 +116,7 @@ class MKIDWavedataDescription(object):
     @property
     def timeranges(self):
         for o in self.data:
-            yield o.start, o.stop
+            yield o.timerange
 
     @property
     def wavelengths(self):
@@ -141,7 +145,7 @@ class MKIDFlatdataDescription(object):
         try:
             return 'flatcal_{}.h5'.format(self.ob.start)
         except AttributeError:
-            return 'flatcal_{}.h5'.format(self.wavecal)
+            return 'flatcal_{}.h5'.format(str(self.wavecal).replace(os.path.sep, '_'))
 
 
 class MKIDObservingDither(object):
@@ -190,7 +194,7 @@ class MKIDObservingDither(object):
     @property
     def timeranges(self):
         for o in self.obs:
-            yield o.start, o.stop
+            yield o.timerange
 
 
 class MKIDObservingDataset(object):
@@ -206,7 +210,7 @@ class MKIDObservingDataset(object):
                     yield tr
             except AttributeError:
                 try:
-                    yield x.start, x.stop
+                    yield x.timerange
                 except AttributeError:
                     pass
             except StopIteration:
@@ -225,17 +229,27 @@ class MKIDObservingDataset(object):
         return [d for d in self.meta if isinstance(d, MKIDObservingDither)]
 
     @property
-    def observations(self):
+    def all_observations(self):
         return ([o for o in self.meta if isinstance(o, MKIDObservingDataDescription)] +
-                [o for d in self.meta if isinstance(d, MKIDObservingDither) for o in d.obs])
+                [o for d in self.meta if isinstance(d, MKIDObservingDither) for o in d.obs] +
+                [d.ob for d in self.meta if isinstance(d, MKIDFlatdataDescription) and hasattr(d,'ob')])
 
     @property
     def wavecalable(self):
-        return [fc.ob for fc in self.flatcals]+self.observations
+        return self.all_observations
 
 
 def load_data_description(file):
-    return MKIDObservingDataset(file)
+    dataset = MKIDObservingDataset(file)
+    wcdict = {w.name: os.path.join(config.paths.database, w.id+'.npz') for w in dataset.wavecals}
+    for o in dataset.all_observations:
+        o.wavecal = wcdict.get(o.wavecal, o.wavecal)
+    for fc in dataset.flatcals:
+        try:
+            fc.wavecal = wcdict.get(fc.wavecal, fc.wavecal)
+        except AttributeError:
+            pass
+    return dataset
 
 
 def get_h5_path(obs_data_descr):

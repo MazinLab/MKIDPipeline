@@ -854,6 +854,27 @@ class ObsFile(object):
         ## Retrieval rate is about 2.27Mphot/s for queries in the 100-200M photon range
         masterPhotonList = self.query(startt=firstSec if firstSec else None, intt=integrationTime)
 
+        # tic=time.time()  #14.39
+        # r=self.photonTable.read(field='ResID')
+        # t=self.photonTable.read(field='Time')
+        # tic2=time.time()
+        # u=t<5000000
+        # r[u]
+        # t[u]
+        # print(tic2-tic, time.time()-tic2)
+        #
+        # tic=time.time()
+        # d=self.photonTable.read()
+        # tic2=time.time()
+        # r=np.array(d['ResID'])
+        # t=np.array(d['Time'])
+        # u=t<5000000
+        # r[u]
+        # t[u]
+        # print(tic2-tic, time.time()-tic2)
+        # 4.766175985336304 0.4749867916107178
+        # 3.8692047595977783 2.829094648361206
+
         weights = None
         if applySpecWeight:
             weights = masterPhotonList['SpecWeight']
@@ -1027,6 +1048,7 @@ class ObsFile(object):
                 self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=calibration(phase),
                                                colname='Wavelength')
             else:  # This takes 3.5s on a 70Mphot file!!!
+                raise NotImplementedError('This code path is impractically slow at present.')
                 getLogger(__name__).debug('Using modify_coordinates')
                 rows = self.photonTable.read_coordinates(indices)
                 rows['Wavelength'] = calibration(rows['Wavelength'])
