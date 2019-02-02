@@ -1395,7 +1395,7 @@ class Solution(object):
         return self._file_path
 
     def __getattribute__(self, item):
-        ok = ('name', '_ipython_canary_method_should_not_exist_', '_file_path')
+        ok = ('name', '_ipython_canary_method_should_not_exist_', '_repr_mimebundle_', '_file_path')
         if (item.startswith('__') and item not in ('__getitem__', '__setitem__')) or item in ok:
             return object.__getattribute__(self, item)
         if object.__getattribute__(self, '_unloaded'):
