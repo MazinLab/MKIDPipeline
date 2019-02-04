@@ -1,4 +1,4 @@
-'''
+"""
 Author: Julian van Eyken                    Date: May 15 2013
 
 Package/class for handling of images created from photon lists that are derotated and
@@ -6,7 +6,7 @@ mapped to sky coordinates, and stacked.
 
 (NB - NEED TO COMPLETE DOCUMENTATION OF OBJECT ATTRIBUTES)
 
-'''
+"""
 
 
 import numpy as np
@@ -24,7 +24,7 @@ from inspect import getframeinfo, stack
 
 
 class RADecImage(object):
-    '''
+    """
     Class to hold derotated, integrated and possibly stacked images, in the sky coordinate
     frame.
 
@@ -58,15 +58,14 @@ class RADecImage(object):
         .gridRA, .gridDec   - 1D arrays containing the virtual pixel boundaries in the RA and dec
                                 directions.
         .totExpTime         - Scalar, total exposure time for the current image (seconds)
-    '''
+    """
 
     def __init__(self, ditherDict, nPixRA=None, nPixDec=None, cenRA=None, cenDec=None,
                  # vPlateScale=0.1, detPlateScale=0.44, firstSec=0, integrationTime=-1,
                  vPlateScale=1, detPlateScale=1, firstDitherSec=0,
                  dithIntTime=-1, doWeighted=True, wvlMin=None, wvlMax=None,
-                 maxBadPixTimeFrac=0.5, savePreStackImage=None):
-        # expWeightTimeStep=1.0):
-        '''
+                 maxBadPixTimeFrac=0.5, savePreStackImage=None): # expWeightTimeStep=1.0):
+        """
         Initialise a (possibly empty) RA-dec coordinate frame image.
 
         INPUTS:
@@ -90,7 +89,7 @@ class RADecImage(object):
             expWeightTimeStep: float, time step to use when calculating exposure
                         time weights for the virtual pixels (seconds).
             #####################
-        '''
+        """
 
         self.nPixRA = nPixRA  # No. of virtual pixels in RA direction
         self.nPixDec = nPixDec  # No. of virtual pixels in dec. direction
@@ -184,7 +183,7 @@ class RADecImage(object):
     def loadObsFile(self, ObsFile, firstObsTime=0, integrationTime=-1, ditherInd=0, wvlMin=None, wvlMax=None,
                  doWeighted=True,
                   maxBadPixTimeFrac=0.5):  # savePreStackImage is sort of temporary for test purposes
-        '''
+        """
         load photons for a given effective exposure - typically a dither position or orientation on the sky
 
         Old intro - needs looking over
@@ -213,7 +212,7 @@ class RADecImage(object):
 
             maxBadPixTimeFrac - Maximum fraction of time for which a pixel is allowed to be flagged as hot (or otherwise bad)
                                 before it is written off as bad for the entire duration of the requested integration time.
-        '''
+        """
 
 
 
@@ -506,12 +505,12 @@ class RADecImage(object):
         return self.photonRightAscensionRadians, self.photonDeclinationRadians, self.photonHourAngle
 
     def setCoordGrid(self):
-        '''
+        """
         Establish RA and dec coordinates for pixel boundaries in the virtual pixel grid,
         given the number of pixels in each direction (self.nPixRA and self.nPixDec), the
         location of the centre of the array (self.cenRA, self.cenDec), and the plate scale
         (self.vPlateScale).
-        '''
+        """
         # self.gridRA = np.empty((self.nPixDec,self.nPixRA),dtype=float)
         # self.gridRA.fill(np.nan)
         # self.gridDec = np.empty((self.nPixDec,self.nPixRA),dtype=float)
@@ -737,7 +736,7 @@ class RADecImage(object):
 
     def display(self, normMin=None, normMax=None, expWeight=True, pclip=None, colormap=plt.cm.hot,
                 image=None, logScale=False, fileName=None, ds9=False, cbar=False, noAxis=False):
-        '''
+        """
         Display the current image. Currently just a short-cut to utils.plotArray,
         but needs updating to mark RA and Dec on the axes.
 
@@ -761,7 +760,7 @@ class RADecImage(object):
                     call this repeatedly though.)
             noAxis: if True, don't mark or label the axes.
 
-        '''
+        """
 
         showCoordsOnAxes = False  # For now, don't try, since it looks like image flip/rotation assumed by CalculateRaDec may be wrong.
 
@@ -842,13 +841,13 @@ class RADecImage(object):
         # plt.show()
 
     def writeFits(self, fileName='RADecImage.fits', expWeight=True):
-        '''
+        """
         Write the current image (if present) to a fits file.
 
         INPUTS:
             fileName - name of output file to write
             expWeight - if True, scale by the per-pixel exposure time weights.
-        '''
+        """
 
         if self.image is None:
             raise RuntimeError('No current image to write to FITS file')
