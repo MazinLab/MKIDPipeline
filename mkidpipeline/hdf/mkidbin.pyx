@@ -145,6 +145,6 @@ def parse(file,_n=0):
     # Remove Fake Photons
     #   fake photons translate to x=511 when you read the bitvalues as numbers
     #   we just throw them away since they aren't useful to anybody
-    ret = np.delete(p, p.x==511)
+    ret = p[p.x != 511]
 
     return ret

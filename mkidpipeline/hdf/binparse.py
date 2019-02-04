@@ -68,8 +68,7 @@ def _makeimage(xs, ys, img_shape, verbose=False):
     """See documentation in ParseBin.image() for best info"""
     tic = time.time()
     ret = np.zeros(tuple(img_shape))
-    # TODO: don't do the removal of fake photons here, do it in mkidbin.pyx
-    np.add.at(ret, (ys[xs != 511], xs[xs != 511]), 1)
+    np.add.at(ret, (ys, xs), 1)
     toc = time.time()
     if verbose:
         getLogger('binparse').debug("Time to make image is {:4.2f} seconds".format( toc - tic))
