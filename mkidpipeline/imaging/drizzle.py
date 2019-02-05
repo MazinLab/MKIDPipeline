@@ -19,18 +19,11 @@ a stacked image.
 This code is adapted from Julian's testImageStack from the ARCONS pipeline.
 """
 
-import warnings
-import pickle
 import os
-import glob
-import scipy.stats
 import numpy as np
-#from astropy import coordinates as coord
-import matplotlib.pylab as plt
 import time
 import mkidpipeline.imaging.RADecImage as rdi
 from mkidpipeline.hdf.photontable import ObsFile
-import mkidpipeline.imaging.CentroidCalc as CentroidCalc
 from mkidcore.corelog import getLogger
 from mkidpipeline.config import MKIDObservingDataDescription, MKIDObservingDither
 from astropy.io import fits
@@ -172,7 +165,7 @@ class SpatialDrizzler(Drizzler):
 
         effective_timestamp = self.meta.time+self.meta.total_exp_time/2  #TODO this is only approximate
 
-        ret = fits.ImageHDU(data=virtualImage)
+        ret = fits.ImageHDU(data=virtualImage.image)
         ret.header['imgname'] = save_file
         ret.header['utc'] = datetime.utcfromtimestamp(effective_timestamp).strftime('%Y-%m-%d %H:%M:%S')
         ret.header['exptime'] = self.meta.total_exp_time

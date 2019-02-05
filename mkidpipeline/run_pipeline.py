@@ -54,7 +54,14 @@ Attach WCS Info (This is a function of the time and beammap)
 
 #TODO we need a way to retrieve templar/dashboard yml configs that were used based on timestamp
 
+
+
+
 import os
+os.environ['NUMEXPR_MAX_THREADS'] = '64'
+os.environ['NUMEXPR_NUM_THREADS'] = '32'
+os.environ["TMPDIR"] = '/mnt/data0/tmp/'
+
 import numpy as np
 import mkidpipeline.hdf.bin2hdf as bin2hdf
 import mkidpipeline.calibration.wavecal as wavecal
@@ -81,7 +88,6 @@ def batch_apply_wavecals(wavecal_pairs, ncpu=None):
     pool.close()
 
 
-os.environ["TMPDIR"] = '/mnt/data0/tmp/'
 
 
 datafile = '/mnt/data0/baileyji/mec/data.yml'
