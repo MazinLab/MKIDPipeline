@@ -10,7 +10,6 @@ mapped to sky coordinates, and stacked.
 
 
 import numpy as np
-# np.set_printoptions(threshold=np.inf)
 import tables
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
@@ -20,7 +19,6 @@ import boxer
 from mkidcore import pixelflags
 import ephem
 import astropy.time
-from inspect import getframeinfo, stack
 
 
 class RADecImage(object):
@@ -180,18 +178,17 @@ class RADecImage(object):
         # Get x,y locations of detector pixel corners (2D array of each x,y value, in detector space)
         # Assume definition where integer values represent location of pixel center.
 
-    def loadObsFile(self, ObsFile, firstObsTime=0, integrationTime=-1, ditherInd=0, wvlMin=None, wvlMax=None,
-                 doWeighted=True,
-                  maxBadPixTimeFrac=0.5):  # savePreStackImage is sort of temporary for test purposes
+    def loadObsFile(self, obsfile, firstObsTime=0, integrationTime=-1, ditherInd=0, wvlMin=None, wvlMax=None,
+                    doWeighted=True, maxBadPixTimeFrac=0.5):
         """
         load photons for a given effective exposure - typically a dither position or orientation on the sky
 
         Old intro - needs looking over
-        Build a de-rotated stacked image from a photon list (ObsFile) object.
+        Build a de-rotated stacked image from a photon list (obsfile) object.
         If the RADecImage instance already contains an image, the new image is added to it.
 
         INPUTS:
-            ObsFile - a ObsFile object from which to construct the image.
+            obsfile - a obsfile object from which to construct the image.
 
             firstSec - time from start of exposure to start the 'integration' for the image (seconds)
 
@@ -216,26 +213,18 @@ class RADecImage(object):
 
 
 
-        photTable = ObsFile.file.root.Photons.PhotonTable  # Shortcut to table
+        photTable = obsfile.file.root.Photons.PhotonTable  # Shortcut to table
 
-        # img = ObsFile.getPixelCountImage(firstSec =0, integrationTime=1)
-        # image = img['image']
-        # plt.imshow(image, aspect='equal')
-        # plt.show()
-
-        # if expWeightTimeStep is not None:
-        #    self.expWeightTimeStep=expWeightTimeStep
-
-        if ObsFile.getFromHeader('timeMaskExists'):
+        if obsfile.getFromHeader('timeMaskExists'):
             # If hot pixels time-mask data not already parsed in (presumably not), then parse it.
-            if ObsFile.hotPixTimeMask is None:
-                ObsFile.parseHotPixTimeMask()  # Loads time mask dictionary into ObsFile.hotPixTimeMask
+            if obsfile.hotPixTimeMask is None:
+                obsfile.parseHotPixTimeMask()  # Loads time mask dictionary into obsfile.hotPixTimeMask
 
         if wvlMin is not None and wvlMax is None: wvlMax = np.inf
         if wvlMin is None and wvlMax is not None: wvlMin = 0.0
 
         # Figure out last second of integration
-        obsFileExpTime = ObsFile.header.cols.expTime[0]
+        obsFileExpTime = obsfile.header.cols.expTime[0]
         if integrationTime == -1 or firstObsTime + integrationTime > obsFileExpTime:
             lastObsTime = obsFileExpTime
         else:
@@ -263,7 +252,7 @@ class RADecImage(object):
                 self.nPixDec = int((self.decMax - self.decMin) // self.vPlateScale + 2)
             self.setCoordGrid()
 
-        beamFlagImage = np.transpose(ObsFile.beamFlagImage.read())
+        beamFlagImage = np.transpose(obsfile.beamFlagImage.read())
         self.nDPixRow, self.nDPixCol = beamFlagImage.shape
 
         # nVPixRA, nVPixDec = self.nPixRA, self.nPixDec
@@ -275,8 +264,8 @@ class RADecImage(object):
         # True (1) = good; False (0) = dead
         # First on the basis of the wavelength cals:
 
-        if ObsFile.getFromHeader('isWvlCalibrated'):
-            # wvlCalFlagImage = ObsFile.getBadWvlCalFlags()
+        if obsfile.getFromHeader('isWvlCalibrated'):
+            # wvlCalFlagImage = obsfile.getBadWvlCalFlags()
             print('This needs to be updated. No flags loaded')
             wvlCalFlagImage = np.zeros_like(beamFlagImage)
         else:
@@ -287,8 +276,8 @@ class RADecImage(object):
 
         # Next a mask on the basis of the flat cals (or all ones if weighting not requested)
         if doWeighted:
-            flatCalFlagArray = ObsFile.file.root.flatcal.flags.read()  # 3D array - nRow * nCol * nWavelength Bins.
-            flatWvlBinEdges = ObsFile.file.root.flatcal.wavelengthBins.read()  # 1D array of wavelength bin edges for the flat cal.
+            flatCalFlagArray = obsfile.file.root.flatcal.flags.read()  # 3D array - nRow * nCol * nWavelength Bins.
+            flatWvlBinEdges = obsfile.file.root.flatcal.wavelengthBins.read()  # 1D array of wavelength bin edges for the flat cal.
             lowerEdges = flatWvlBinEdges[0:-1]
             upperEdges = flatWvlBinEdges[1:]
             if wvlMin is None and wvlMax is None:
@@ -315,8 +304,8 @@ class RADecImage(object):
         # integration.
         if maxBadPixTimeFrac is not None:
             print('Rejecting pixels with more than ', 100 * maxBadPixTimeFrac, '% bad-flagged time')
-            detGoodIntTimes = ObsFile.hotPixTimeMask.getEffIntTimeImage(firstSec=firstObsTime,
-                                                                         integrationTime=lastObsTime - firstObsTime)
+            detGoodIntTimes = obsfile.hotPixTimeMask.getEffIntTimeImage(firstSec=firstObsTime,
+                                                                        integrationTime=lastObsTime - firstObsTime)
             badPixMask = np.where(detGoodIntTimes / (lastObsTime - firstObsTime) > (1. - maxBadPixTimeFrac), 1,
                                   0)  # Again, 1 if okay, 0 bad. Use lastObsTime-firstObsTime instead of integrationTime in case integrationTime is -1.
             print('# pixels to reject: ', np.sum(badPixMask == 0))
@@ -332,11 +321,11 @@ class RADecImage(object):
         # Get array of effective exposure times for each detector pixel based on the hot pixel time mask
         # Multiply by the bad pixel mask and the flatcal mask so that non-functioning pixels have zero exposure time.
         # Flatten the array in the same way as the previous arrays (1D array, nRow*nCol elements).
-        # detExpTimes = (hp.getEffIntTimeImage(ObsFile.hotPixTimeMask, integrationTime=tEndFrames[iFrame]-tStartFrames[iFrame],
+        # detExpTimes = (hp.getEffIntTimeImage(obsfile.hotPixTimeMask, integrationTime=tEndFrames[iFrame]-tStartFrames[iFrame],
         #                                     firstObsTime=tStartFrames[iFrame]) * detPixMask).flatten()
-        if ObsFile.getFromHeader('timeMaskExists'):
-            self.detExpTimes = (ObsFile.hotPixTimeMask.getEffIntTimeImage(firstSec=self.tStartFrames[ditherInd],
-                                                                      integrationTime=self.tEndFrames[ditherInd] - self.tStartFrames[
+        if obsfile.getFromHeader('timeMaskExists'):
+            self.detExpTimes = (obsfile.hotPixTimeMask.getEffIntTimeImage(firstSec=self.tStartFrames[ditherInd],
+                                                                          integrationTime=self.tEndFrames[ditherInd] - self.tStartFrames[
                                                                           ditherInd]) * detPixMask).flatten()
         else:
             self.detExpTimes =None
@@ -345,24 +334,11 @@ class RADecImage(object):
         print('Getting photon coords')
         print('wvlMin, wvlMax: ', wvlMin, wvlMax)
         if wvlMin is None:
-            assert wvlMin is None and wvlMax is None
             print('getting all wavelengths')
-            # tic = time.clock()
-            photons = photTable.read_where('(Time>=firstObsTime) & (Time<=lastObsTime)')
-            # print 'v1 time taken (s): ', time.clock()-tic
-            # tic = time.clock()
-            # photons = np.array([row.fetch_all_fields() for row in photTable.where('(arrivalTime>=firstObsTime) & (arrivalTime<=lastObsTime)')])
-            # photIndices = photTable.getWhereList('(arrivalTime>=firstObsTime) & (arrivalTime<=lastObsTime)')
-            # print 'v2 time taken (s): ', time.clock()-tic
-            # print 'Doing by second method'
-            # tic = time.clock()
-            # photons2 = [x for x in photons.iterrows() if (x['arrivalTime']>=firstObsTime) and (x['arrivalTime']<=lastObsTime)]
-            # print 'Time taken (s): ',time.clock()-tic
         else:
             assert wvlMin is not None and wvlMax is not None
             print('(trimming wavelength range) ')
-            photons = photTable.read_where(
-                '(Time>=firstObsTime) & (Time<=lastObsTime) & (Wavelength>=wvlMin) & (Wavelength<=wvlMax)')
+        photons = obsfile.query(startt=firstObsTime/1e6, stopt=lastObsTime/1e6, startw=wvlMin, stopw=wvlMax)
 
         # And filter out photons to be masked out on the basis of the detector pixel mask
         print('Finding photons in masked detector pixels...')
@@ -379,15 +355,15 @@ class RADecImage(object):
             for col in range(self.nDPixCol):
                 allPhotXY.append(xyPackMult*row + col)
         # Get a boolean array indicating photons whose packed x-y coordinate value is in the 'bad' list.
-        toReject = np.where(np.in1d(allPhotXY, badXY))[
-            0]  # [0] to take index array out of the returned 1-element tuple.
+        toReject = np.where(np.in1d(allPhotXY, badXY))[0]  # [0] to take index array out of the returned 1-element
+        # tuple.
         # Chuck out the bad photons
         print('Rejecting photons from bad pixels...')
         # photons = np.delete(photons, toReject)
         #########################################################################
 
         self.photWeights = None
-        if ObsFile.getFromHeader('isFlatCalibrated') and ObsFile.getFromHeader('isSpecCalibrated'):
+        if obsfile.getFromHeader('isFlatCalibrated') and obsfile.getFromHeader('isSpecCalibrated'):
             print('INCLUDING FLUX WEIGHTS!')
             self.photWeights = photons['flatWeight'] * photons['fluxWeight']  # ********EXPERIMENTING WITH ADDING FLUX WEIGHT - NOT FULLY TESTED, BUT SEEMS OKAY....********
 
@@ -400,8 +376,8 @@ class RADecImage(object):
         for p, photon in enumerate(photons):
             # print p, photon
             times[p] = photon[1]
-            icols[p], irows[p] = np.where(ObsFile.beamImage==photon[0])
-            # resIDInd = np.where(resIDList == ObsFile.beamImage[xCoord, yCoord])[0]
+            icols[p], irows[p] = np.where(obsfile.beamImage == photon[0])
+            # resIDInd = np.where(resIDList == obsfile.beamImage[xCoord, yCoord])[0]
             # icols[p], irows[p] = pl.xyUnpack(photon[0])
             photWavelengths[p] = photon[2]
 
