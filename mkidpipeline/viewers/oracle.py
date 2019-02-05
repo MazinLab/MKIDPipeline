@@ -35,16 +35,16 @@ import time
 
 class subWindow(QMainWindow):
     
-    #set up a signal so that the window closes when the main window closes
-    #closeWindow = QtCore.pyqtSignal()
-    
-    #replot = pyqtsignal()
+    # set up a signal so that the window closes when the main window closes
+    # closeWindow = QtCore.pyqtSignal()
+    #
+    # replot = pyqtsignal()
     
     def __init__(self,parent=None):
         super(QMainWindow, self).__init__(parent)
         self.parent=parent
         
-        self.effExpTime = .010  #units are s
+        self.effExpTime = .010  # units are s
         
         self.create_main_frame()
         self.activePixel = parent.activePixel
@@ -56,7 +56,7 @@ class subWindow(QMainWindow):
         self.spinbox_stopLambda = parent.spinbox_stopLambda
         self.image = parent.image
         self.beamFlagMask = parent.beamFlagMask
-        self.apertureRadius = 2.27/2   #Taken from Seth's paper (not yet published in Jan 2018)
+        self.apertureRadius = 2.27/2   # Taken from Seth's paper (not yet published in Jan 2018)
         self.apertureOn = False
         self.lineColor = 'blue'
         self.minLambda = parent.minLambda
@@ -79,14 +79,14 @@ class subWindow(QMainWindow):
         self.canvas.setParent(self.main_frame)
         self.ax = self.fig.add_subplot(111)
         
-        #create a navigation toolbar for the plot window
+        # create a navigation toolbar for the plot window
         self.toolbar = NavigationToolbar(self.canvas, self)
         
-        #create a vertical box for the plot to go in.
+        # create a vertical box for the plot to go in.
         vbox_plot = QVBoxLayout()
         vbox_plot.addWidget(self.canvas)
         
-        #check if we need effective exposure time controls in the window, and add them if we do. 
+        # check if we need effective exposure time controls in the window, and add them if we do.
         try:
             self.spinbox_effExpTime
         except:
@@ -108,40 +108,40 @@ class subWindow(QMainWindow):
             
         vbox_plot.addWidget(self.toolbar)
 
-        
-        #combine everything into another vbox
+        # combine everything into another vbox
         vbox_combined = QVBoxLayout()
         vbox_combined.addLayout(vbox_plot)
         
-        #Set the main_frame's layout to be vbox_combined
+        # Set the main_frame's layout to be vbox_combined
         self.main_frame.setLayout(vbox_combined)
 
-        #Set the overall QWidget to have the layout of the main_frame.
+        # Set the overall QWidget to have the layout of the main_frame.
         self.setCentralWidget(self.main_frame)
                 
         
     def draw(self):
-        #The plot window calls this function
+        # The plot window calls this function
         self.canvas.draw()
         self.canvas.flush_events()     
         
         
     def setActivePixel(self):
         self.activePixel = self.parent.activePixel
-#        if self.parent.image[self.activePixel[0],self.activePixel[1]] ==0: #only plot data from good pixels
-#            self.lineColor = 'red'
-#        else:
-#            self.lineColor = 'blue'
+        # if self.parent.image[self.activePixel[0],self.activePixel[1]] ==0: #only plot data from good pixels
+        #    self.lineColor = 'red'
+        # else:
+        #    self.lineColor = 'blue'
         try:
-            self.plotData() #put this in a try statement in case it doesn't work. This way it won't kill the whole gui. 
+            self.plotData() # put this in a try statement in case it doesn't work. This way it won't kill the whole gui.
         except:
             pass
 
 
     def plotData(self):
-        return #just create a dummy function that we'll redefine in the child classes
-                # this way the signal to update the plots is handled entirely 
-                # by this subWindow base class
+        # just create a dummy function that we'll redefine in the child classes
+        # this way the signal to update the plots is handled entirely
+        # by this subWindow base class
+        return
                 
     def getPhotonList(self):
         # use this function to make the call to the correct obsfile method
@@ -218,15 +218,12 @@ class intensityHistogram(subWindow):
         
         self.spinbox_effExpTime = QDoubleSpinBox()  #make sure that the parent class will know that we need an effExpTime control
         
-        #call the init function from the superclass 'subWindow'. 
+        # call the init function from the superclass 'subWindow'.
         super(intensityHistogram, self).__init__(parent)
         self.setWindowTitle("Intensity Histogram")
         self.plotData()
         self.draw()
-        
-   
-    
-    
+
     """
     def fitBlurredMR(self,bins,intensityHist):   #this needs some work
         sigma = np.sqrt(intensityHist)
@@ -256,11 +253,11 @@ class intensityHistogram(subWindow):
         
         self.effExpTime = self.spinbox_effExpTime.value()/1000
         
-        #self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = self.getLightCurve()
+        # self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = self.getLightCurve()
         
         self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(self.photonList['Time']/1e6,self.spinbox_startTime.value(),self.spinbox_startTime.value()+self.spinbox_integrationTime.value(),self.effExpTime)
         
-#        self.intensityHist, self.bins = self.histogramLC(self.lightCurveIntensityCounts)
+        # self.intensityHist, self.bins = self.histogramLC(self.lightCurveIntensityCounts)
         
         self.intensityHist, self.bins = binnedRE.histogramLC(self.lightCurveIntensityCounts)
         # [self.intensityHist] = counts
@@ -273,17 +270,17 @@ class intensityHistogram(subWindow):
         self.ax.set_title('pixel ({},{})' .format(self.activePixel[0],self.activePixel[1]))
         
         if np.sum(self.lightCurveIntensityCounts) > 0:
-#            try:
-#                popt, pcov = curve_fit(binnedRE.modifiedRician,self.bins,self.intensityHist,p0=[1,1])
-#            
-#                Ic = popt[0]
-#                Is = popt[1]
-#            except RuntimeError:
-#                Ic, Is, =1,0.1
-            
-#            self.ax.plot(np.arange(self.Nbins, step=sstep),binnedRE.modifiedRician(np.arange(self.Nbins, step=sstep),Ic,Is),'.-r',label = 'MR from numpy.curve_fit')
-            
-#            self.ax.set_title('pixel ({},{})  Ic = {:.2f}, Is = {:.2f}, Ic/Is = {:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic,Is,Ic/Is))
+            # try:
+            #     popt, pcov = curve_fit(binnedRE.modifiedRician,self.bins,self.intensityHist,p0=[1,1])
+            #
+            #     Ic = popt[0]
+            #     Is = popt[1]
+            # except RuntimeError:
+            #     Ic, Is, =1,0.1
+            #
+            # self.ax.plot(np.arange(self.Nbins, step=sstep),binnedRE.modifiedRician(np.arange(self.Nbins, step=sstep),Ic,Is),'.-r',label = 'MR from numpy.curve_fit')
+            #
+            # self.ax.set_title('pixel ({},{})  Ic = {:.2f}, Is = {:.2f}, Ic/Is = {:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic,Is,Ic/Is))
             
             mu = np.mean(self.lightCurveIntensityCounts)
             var = np.var(self.lightCurveIntensityCounts)  
@@ -296,8 +293,8 @@ class intensityHistogram(subWindow):
             
             self.ax.plot(np.arange(Nbins, step=sstep),binnedRE.blurredMR(np.arange(Nbins, step=sstep),Ic_final,Is_final),'.-k',label = 'blurred MR from curve_fit. Ic,Is = {:.2f}, {:.2f}'.format(Ic_final/self.effExpTime,Is_final/self.effExpTime))
             
-#            self.ax.set_title('pixel ({},{})  Ic = {:.2f}, Is = {:.2f}, Ic/Is = {:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic_final,Is_final,Ic_final/Is_final))
-#            self.ax.set_title('pixel ({},{})  Ic,Ic_f = {:.2f},{:.2f}, Is,Is_f = {:.2f},{:.2f}, Ic/Is, Ic_f/Is_f = {:.2f},{:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic,Ic_final,Is,Is_final,Ic/Is,Ic_final/Is_final))
+            # self.ax.set_title('pixel ({},{})  Ic = {:.2f}, Is = {:.2f}, Ic/Is = {:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic_final,Is_final,Ic_final/Is_final))
+            # self.ax.set_title('pixel ({},{})  Ic,Ic_f = {:.2f},{:.2f}, Is,Is_f = {:.2f},{:.2f}, Ic/Is, Ic_f/Is_f = {:.2f},{:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic,Ic_final,Is,Is_final,Ic/Is,Ic_final/Is_final))
             
 
             try:
@@ -310,7 +307,7 @@ class intensityHistogram(subWindow):
         
                 self.ax.plot(np.arange(Nbins, step=sstep),binnedRE.blurredMR(np.arange(Nbins, step=sstep),IIc,IIs),'.-b',label = r'blurred MR from $\sigma$ and $\mu$. Ic,Is = {:.2f}, {:.2f}'.format(IIc/self.effExpTime,IIs/self.effExpTime))
                 
-#                self.ax.set_title('pixel ({},{})  Ic,IIc = {:.2f},{:.2f}, Is,IIs = {:.2f},{:.2f}, Ic/Is, IIc/IIs = {:.2f},{:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic_final,IIc,Is_final,IIs,Ic_final/Is_final,IIc/IIs))
+            # self.ax.set_title('pixel ({},{})  Ic,IIc = {:.2f},{:.2f}, Is,IIs = {:.2f},{:.2f}, Ic/Is, IIc/IIs = {:.2f},{:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic_final,IIc,Is_final,IIs,Ic_final/Is_final,IIc/IIs))
             
             self.ax.set_title('pixel ({},{})' .format(self.activePixel[0],self.activePixel[1]))
                 
@@ -324,9 +321,9 @@ class intensityHistogram(subWindow):
         
         
 class spectrum(subWindow):
-    #this class inherits from the subWindow class. 
+    # this class inherits from the subWindow class.
     def __init__(self,parent):
-        #call the init function from the superclass 'subWindow'. 
+        # call the init function from the superclass 'subWindow'.
         super(spectrum, self).__init__(parent)
         self.setWindowTitle("Spectrum")
         self.plotData()
@@ -340,7 +337,7 @@ class spectrum(subWindow):
         
         self.spectrum = temp['spectrum']
         self.wvlBinEdges = temp['wvlBinEdges']
-        #self.effIntTime = temp['effIntTime']
+        # self.effIntTime = temp['effIntTime']
         self.rawCounts = temp['rawCounts']
         
         self.wvlBinCenters = np.diff(self.wvlBinEdges)/2 + self.wvlBinEdges[:-1]
@@ -356,9 +353,9 @@ class spectrum(subWindow):
         
         
 class pulseHeightHistogram(subWindow):
-    #this class inherits from the subWindow class. 
+    # this class inherits from the subWindow class.
     def __init__(self,parent):
-        #call the init function from the superclass 'subWindow'. 
+        # call the init function from the superclass 'subWindow'.
         super(pulseHeightHistogram, self).__init__(parent)
         self.setWindowTitle("Pulse Heights")
         self.plotData()
@@ -407,7 +404,7 @@ class mainWindow(QMainWindow):
     
     updateActivePix = pyqtSignal()
 
-    def __init__(self,parent=None):
+    def __init__(self,*argv,parent=None):
         QMainWindow.__init__(self,parent=parent)
         self.initializeEmptyArrays()
         self.setWindowTitle('oracle')
@@ -416,6 +413,19 @@ class mainWindow(QMainWindow):
         self.create_status_bar()
         self.createMenu()
         self.plotNoise()
+        if len(argv[0]) > 1:
+            if os.path.isfile(argv[0][1]):
+                self.filename = argv[0][1]
+                if self.filename.endswith(".h5"):
+                    self.loadDataFromH5(self.filename)
+                elif self.filename.endswith(".img"):
+                    print('handling of img files coming soon!')
+                elif self.filename.endswith(".bin"):
+                    print('handling of bin files coming soon!')
+                else:
+                    print('unrecognized file extension')
+            else:
+                print('file does not exist: \n', argv[0][1])
         
         
     def initializeEmptyArrays(self,nCol = 10,nRow = 10):
@@ -433,7 +443,7 @@ class mainWindow(QMainWindow):
         
         
     def loadDataFromH5(self,*args):
-        #a = ObsFile('/Users/clint/Documents/mazinlab/ScienceData/PAL2017b/20171004/1507175503.h5')
+        # a = ObsFile('/Users/clint/Documents/mazinlab/ScienceData/PAL2017b/20171004/1507175503.h5')
         if os.path.isfile(self.filename):
             try:
                 self.a = ObsFile(self.filename)
@@ -448,14 +458,14 @@ class mainWindow(QMainWindow):
                 self.makeHotPixMask()
                 self.radio_button_beamFlagImage.setChecked(True)
                 self.callPlotMethod()
-                #set the max integration time to the h5 exp time in the header
+                # set the max integration time to the h5 exp time in the header
                 self.expTime = self.a.getFromHeader('expTime')
                 self.wvlBinStart = self.a.getFromHeader('wvlBinStart')
                 self.wvlBinEnd = self.a.getFromHeader('wvlBinEnd')
                 
-                #set the max and min values for the lambda spinboxes
-#                self.spinbox_startLambda.setMinimum(self.wvlBinStart)
-                #check if the data is wavecaled and set the limits on the spinboxes accordingly
+                # set the max and min values for the lambda spinboxes
+                # self.spinbox_startLambda.setMinimum(self.wvlBinStart)
+                # check if the data is wavecaled and set the limits on the spinboxes accordingly
                 if self.a.getFromHeader('isWvlCalibrated'):
                     self.minLambda = self.wvlBinStart
                     self.maxLambda = self.wvlBinEnd
@@ -465,29 +475,23 @@ class mainWindow(QMainWindow):
                     self.label_startLambda.setText('start phase [uncal degrees]')
                     self.label_stopLambda.setText('stop phase [uncal degrees]')
                     
-                    
                 self.spinbox_stopLambda.setMinimum(self.minLambda)
                 self.spinbox_startLambda.setMaximum(self.maxLambda)
                 self.spinbox_stopLambda.setMaximum(self.maxLambda)
                 self.spinbox_startLambda.setMinimum(self.minLambda)
                 self.spinbox_startLambda.setValue(self.minLambda)
                 self.spinbox_stopLambda.setValue(self.maxLambda)
-                    
 
-                
-                #set the max value of the integration time spinbox
+                # set the max value of the integration time spinbox
                 self.spinbox_startTime.setMinimum(0)
                 self.spinbox_startTime.setMaximum(self.expTime)
                 self.spinbox_integrationTime.setMinimum(0)
                 self.spinbox_integrationTime.setMaximum(self.expTime)
                 self.spinbox_integrationTime.setValue(self.expTime)
-
-        
-        
         
         
     def plotBeamImage(self):
-        #check if obsfile object exists
+        # check if obsfile object exists
         try:
             self.a
         except:
@@ -496,7 +500,7 @@ class mainWindow(QMainWindow):
         else:
         
             
-            #clear the axes
+            # clear the axes
             self.ax1.clear()  
             
             self.image = self.beamFlagImage
@@ -574,14 +578,14 @@ class mainWindow(QMainWindow):
         
         
     def plotIcIs(self):
-        #check if obsfile object exists
+        # check if obsfile object exists
         try:
             self.a
         except:
             print('\nNo obsfile object defined. Select H5 file to load.\n')
             return
         else:
-            self.ax1.clear() #clear the axes
+            self.ax1.clear() # clear the axes
             
             for col in range(self.nCol):
                 print(col,'/80')
@@ -591,7 +595,7 @@ class mainWindow(QMainWindow):
                     
                     
                     
-                    effExpTime = .00001 #10 ms/1000
+                    effExpTime = .00001 # 10 ms/1000
 
                     
                     lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = binnedRE.getLightCurve(photonList['Time']/1e6,self.spinbox_startTime.value(),self.spinbox_startTime.value()+self.spinbox_integrationTime.value(),effExpTime)
@@ -611,9 +615,9 @@ class mainWindow(QMainWindow):
                 
             self.image = self.IsMap
             self.image[np.where(np.logical_not(np.isfinite(self.image)))]=0
-#            self.image = self.rawCountsImage*self.beamFlagMask
-            #self.image = self.rawCountsImage*self.beamFlagMask*self.hotPixMask
-#            self.image = 1.0*self.image/self.spinbox_integrationTime.value()
+            # self.image = self.rawCountsImage*self.beamFlagMask
+            # self.image = self.rawCountsImage*self.beamFlagMask*self.hotPixMask
+            # self.image = 1.0*self.image/self.spinbox_integrationTime.value()
             
             self.cbarLimits = np.array([np.amin(self.image),np.amax(self.image)])
             
@@ -976,11 +980,10 @@ class mainWindow(QMainWindow):
         sWindow = pulseHeightHistogram(self)
         sWindow.show()
         self.sWindowList.append(sWindow)
-        
-        
+
         
 if __name__ == "__main__":
     a = QApplication(sys.argv)
-    foo = mainWindow()
+    foo = mainWindow(sys.argv)
     foo.show()
     sys.exit(a.exec_())
