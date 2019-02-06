@@ -24,6 +24,7 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import pyqtSignal
 from mkidpipeline.hdf.photontable import ObsFile
+import mkidpipeline.hdf.binparse as binparse
 from scipy.optimize import curve_fit
 import os.path
 from mkidpipeline.utils import pdfs
@@ -394,7 +395,7 @@ class pulseHeightHistogram(subWindow):
 
 
 
-class main window(QMainWindow):
+class main_window(QMainWindow):
     updateActivePix = pyqtSignal()
 
     def __init__(self,*argv,parent=None):
@@ -414,7 +415,7 @@ class main window(QMainWindow):
                 elif self.filename.endswith(".img"):
                     print('handling of img files coming soon!')
                 elif self.filename.endswith(".bin"):
-                    print('handling of bin files coming soon!')
+                    self.load_data_from_bin()
                 else:
                     print('unrecognized file extension')
             else:
@@ -457,7 +458,6 @@ class main window(QMainWindow):
                 self.wvlBinEnd = self.a.getFromHeader('wvlBinEnd')
 
                 # set the max and min values for the lambda spinboxes
-                # self.spinbox_startLambda.setMinimum(self.wvlBinStart)
                 # check if the data is wavecaled and set the limits on the spinboxes accordingly
                 if self.a.getFromHeader('isWvlCalibrated'):
                     self.minLambda = self.wvlBinStart
@@ -481,6 +481,43 @@ class main window(QMainWindow):
                 self.spinbox_integrationTime.setMinimum(0)
                 self.spinbox_integrationTime.setMaximum(self.expTime)
                 self.spinbox_integrationTime.setValue(self.expTime)
+
+
+    def load_data_from_bin(self):
+        img_size = (146,140) # TODO: get rid of this hard coding
+
+        print('attempting to load data from ', self.filename)
+
+        if os.path.isfile(self.filename):
+            try:
+                self.a = binparse.ParsedBin([self.filename], img_size)
+            except:
+                print('coudnt load bin file')
+            else:
+                self.radio_button_rawCounts.setChecked(True)
+                self.plotImage()
+                self.h5_filename_label.setText(self.filename)
+
+            self.beamFlagMask = np.zeros(img_size[0]*img_size[1]).reshape(img_size)  # make a mask. 0 for good beam map
+
+            # set the max and min values for the lambda spinboxes
+            self.minLambda = -200
+            self.maxLambda = 200
+            self.label_startLambda.setText('start phase [uncal degrees]')
+            self.label_stopLambda.setText('stop phase [uncal degrees]')
+            self.spinbox_stopLambda.setMinimum(self.minLambda)
+            self.spinbox_startLambda.setMaximum(self.maxLambda)
+            self.spinbox_stopLambda.setMaximum(self.maxLambda)
+            self.spinbox_startLambda.setMinimum(self.minLambda)
+            self.spinbox_startLambda.setValue(self.minLambda)
+            self.spinbox_stopLambda.setValue(self.maxLambda)
+
+            # set the max value of the integration time spinbox
+            self.spinbox_startTime.setMinimum(0)
+            self.spinbox_startTime.setMaximum(1)
+            self.spinbox_integrationTime.setMinimum(0)
+            self.spinbox_integrationTime.setMaximum(1)
+            self.spinbox_integrationTime.setValue(1)
 
 
     def plotBeamImage(self):
@@ -528,17 +565,21 @@ class main window(QMainWindow):
             else:
                 integrationTime = self.spinbox_integrationTime.value()
 
-            t1 = time.time()
-            temp = self.a.getPixelCountImage(firstSec = self.spinbox_startTime.value(), integrationTime=integrationTime,applyWeight=False,flagToUse = 0,wvlStart=self.spinbox_startLambda.value(), wvlStop=self.spinbox_stopLambda.value())
-            print('\nTime for getPixelCountImage = ', time.time() - t1)
-
-            self.rawCountsImage = np.transpose(temp['image'])
-
-            self.image = self.rawCountsImage
-            self.image[np.where(np.logical_not(np.isfinite(self.image)))]=0
-            # self.image = self.rawCountsImage*self.beamFlagMask
-            # self.image = self.rawCountsImage*self.beamFlagMask*self.hotPixMask
-            self.image = 1.0*self.image/self.spinbox_integrationTime.value()
+            if type(self.a).__name__ == 'ObsFile':
+                t1 = time.time()
+                temp = self.a.getPixelCountImage(firstSec=self.spinbox_startTime.value(),
+                                                 integrationTime=integrationTime, applyWeight=False, flagToUse=0,
+                                                 wvlStart=self.spinbox_startLambda.value(),
+                                                 wvlStop=self.spinbox_stopLambda.value())
+                print('\nTime for getPixelCountImage = ', time.time() - t1)
+                self.rawCountsImage = np.transpose(temp['image'])
+                self.image = self.rawCountsImage
+                self.image[np.where(np.logical_not(np.isfinite(self.image)))] = 0
+                self.image = 1.0 * self.image / self.spinbox_integrationTime.value()
+            elif type(self.a).__name__ == 'ParsedBin':
+                self.image = self.a.getPixelCountImage()
+            else:
+                print('unrecognized object type: type(self.a).__name__ = ',type(self.a).__name__)
 
             self.cbarLimits = np.array([np.amin(self.image),np.amax(self.image)])
 
