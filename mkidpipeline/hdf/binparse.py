@@ -185,6 +185,13 @@ class ParsedBin(object):
             self._icube = _makeimage(self.x, self.y, self.pix_shape, self.vb)
         return self._icube
 
+
+    def getPixelCountImage(self, **kwargs):
+        """
+        This is a dummy function to emulate a similar method in photontable.py
+        """
+        return self.image()
+
     ###################################
     # Make Phase Cube
     ###################################
@@ -216,6 +223,30 @@ class ParsedBin(object):
             self._pcube_meta = (range, dp)
 
         return self._pcube
+
+
+    def getPixelPhotonList(self,xCoord = None, yCoord = None, **kwargs):
+        """
+        Emulates the method of the same name in photontable.py
+        """
+        if xCoord is None or yCoord is None:
+            print('x and/or y coordinate not specified')
+            return
+        tstamps = self.tstamp[np.logical_and(self.x == xCoord, self.y == yCoord)]
+        tstamps -= np.amin(tstamps) # remove offset so that smallest timestamp is at zero
+        tstamps *= 500 # TODO: check this conversion to microseconds. I think the original units are 1/2 ms
+        phase = self.phase[np.logical_and(self.x == xCoord, self.y == yCoord)]
+
+        # the datatype of the structured numpy array returned by getPixelPhotonList in ObsFile is:
+        # dtype = [('ResID', '<u4'), ('Time', '<u4'), ('Wavelength', '<f4'), ('SpecWeight', '<f4'),('NoiseWeight', '<f4')])
+
+        # bin files only have timestamps and wavelengths, the xy coords are already specified for this method
+        wtype = np.dtype([('Time', '<u4'), ('Wavelength', '<f4')])
+        w = np.empty(len(tstamps),wtype)
+        w['Time'] = tstamps
+        w['Wavelength'] = phase
+        return w
+
 
     ###################################
     # Reshape

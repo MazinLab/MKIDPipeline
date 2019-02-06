@@ -88,8 +88,7 @@ def parse(file,_n=0):
     100 photons in the frame or the clock reaches the next 0.5 ms. In the latter
     casse, the firmware MUST generate a fake photon to end the frame. These
     fake photons are not removed in the binlib.c code (they could be. We remove
-    them here in the cython file by creating a new numpy array through the
-    np.delete function. We have to create a new array, even though it is memory
+    them here in the cython file. We have to create a new array, even though it is memory
     intensive, because you cannot change a numpy array's shape (easily).
 
     File is called by:
