@@ -100,18 +100,17 @@ startTimes = ast.literal_eval(config['Data']['startTimes'])
 stopTimes =  ast.literal_eval(config['Data']['stopTimes'])
 xPos = ast.literal_eval(config['Data']['xPos'])
 yPos = ast.literal_eval(config['Data']['yPos'])
-useImg = ast.literal_eval(config['Data']['useImg'])
+#useImg = ast.literal_eval(config['Data']['useImg'])
 
 
 upSample = 2
 padFraction = 0.4
-wvlStart=0
-wvlStop=0
+wvlStart=900
+wvlStop=1140
 
-h5dir = outPath
-print(h5dir)
-outputDir = outPath
-outfileName='HR8799StackWaveCal'
+outputDir = '/mnt/data0/isabel/highcontrastimaging/Jan2019Run/20190112/51Eri/51EriDither1/51Eri_wavecalib/'
+outfileName='51EriYBand'
+h5dir=outputDir
 
 ObsFNList =glob.glob(h5dir+'15*.h5')
 print(ObsFNList)
@@ -182,7 +181,7 @@ for i in range(nPos):
         #pad frame with margin for shifting and stacking
         paddedFrame = irUtils.embedInLargerArray(processedIm,frameSize=padFraction)
         outfile=h5dir+outfileName+str(i)
-        np.save(outfile, paddedFrame)
+        #np.save(outfile, paddedFrame)
 
         #apply rough dX and dY shift to frame
         print("Shifting dither %i, frame %i by x=%i, y=%i"%(i,0,dXs[i], dYs[i]))
@@ -206,4 +205,4 @@ finalImage = irUtils.medianStack(shiftedFrames)
 
 plot_array(finalImage,title='final',origin='upper')
 outfile=h5dir+outfileName+'AlignedWaveCal'
-np.save(outfile, finalImage)
+#np.save(outfile, finalImage)
