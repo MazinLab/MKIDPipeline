@@ -108,10 +108,9 @@ padFraction = 0.4
 wvlStart=900
 wvlStop=1140
 
-h5dir = outPath
-print(h5dir)
-outputDir = '/mnt/data0/isabel/highcontrastimaging/Jan2019Run/20190112/Trapezium/trap_ditherwavecalib/TrapSeeAttempt4/'
-outfileName='TrapYBandWvlRange'
+outputDir = '/mnt/data0/isabel/highcontrastimaging/Jan2019Run/20190112/51Eri/51EriDither1/51Eri_wavecalib/'
+outfileName='51EriYBand'
+h5dir=outputDir
 
 ObsFNList =glob.glob(h5dir+'15*.h5')
 print(ObsFNList)
