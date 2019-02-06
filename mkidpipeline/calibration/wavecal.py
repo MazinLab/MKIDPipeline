@@ -2671,7 +2671,7 @@ def fetch(solution_descriptors, config=None, **kwargs):
 
     solutions = []
     for sd in solution_descriptors:
-        sf = os.path.join(cfg.paths.database, sd.id+'.npz')
+        sf = os.path.join(cfg.paths.database, sd.id)
         if os.path.exists(sf):
             solutions.append(load_solution(sf))
         else:
@@ -2684,7 +2684,7 @@ def fetch(solution_descriptors, config=None, **kwargs):
             wcfg.register('wavelengths', [w for w in sd.wavelengths], update=True)
             c = Calibrator(wcfg, solution_name=sf)
             c.run(**kwargs)
-            solutions.append(Solution(sf))
+            solutions.append(load_solution(sf))
 
     return solutions
 

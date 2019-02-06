@@ -37,11 +37,9 @@ def configure_pipeline(*args, **kwargs):
     config = mkidcore.config.load(*args, **kwargs)
     return config
 
-
 configure_pipeline(pkg.resource_filename('mkidpipeline','pipe.yml'))
 
 load_data_description = mkidcore.config.load
-
 
 _COMMON_KEYS = ('comments', 'meta', 'header', 'out')
 
@@ -134,7 +132,7 @@ class MKIDWavedataDescription(object):
     def id(self):
         meanstart = int(np.mean([x[0] for x in self.timeranges]))
         hash = hashlib.md5(str(self).encode()).hexdigest()
-        return datetime.utcfromtimestamp(meanstart).strftime('%Y-%m-%d %H%M') + hash
+        return datetime.utcfromtimestamp(meanstart).strftime('%Y-%m-%d %H%M') + hash + '.npz'
 
 
 class MKIDFlatdataDescription(object):
@@ -235,15 +233,23 @@ class MKIDObservingDataset(object):
                 [d.ob for d in self.meta if isinstance(d, MKIDFlatdataDescription) and hasattr(d,'ob')])
 
     @property
+    def science_observations(self):
+        return ([o for o in self.meta if isinstance(o, MKIDObservingDataDescription)] +
+                [o for d in self.meta if isinstance(d, MKIDObservingDither) for o in d.obs]
+
+    @property
     def wavecalable(self):
         return self.all_observations
 
 
 def load_data_description(file):
     dataset = MKIDObservingDataset(file)
-    wcdict = {w.name: os.path.join(config.paths.database, w.id+'.npz') for w in dataset.wavecals}
+    wcdict = {w.name: os.path.join(config.paths.database, w.id) for w in dataset.wavecals}
+    fcdict = {f.name: os.path.join(config.paths.database, f.id) for f in dataset.flatcals}
     for o in dataset.all_observations:
         o.wavecal = wcdict.get(o.wavecal, o.wavecal)
+    for o in dataset.science_observations:
+        o.flatcal = fcdict.get(o.flatcal, o.flatcal)
     for fc in dataset.flatcals:
         try:
             fc.wavecal = wcdict.get(fc.wavecal, fc.wavecal)
@@ -275,7 +281,7 @@ def logtoconsole():
 
 
 def assiciate_wavecals(dataset):
-    wcdict = {w.name: os.path.join(config.paths.database, w.id+'.npz') for w in dataset.wavecals}
+    wcdict = {w.name: os.path.join(config.paths.database, w.id) for w in dataset.wavecals}
     return [(o, wcdict.get(o.wavecal, o.wavecal)) for o in dataset.wavecalable if o.wavecal is not None]
 
 yaml.register_class(MKIDObservingDataDescription)
