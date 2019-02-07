@@ -17,16 +17,16 @@ config = None
 yaml = mkidcore.config.yaml
 
 
-def load_task_config(file):
+def load_task_config(file, use_global_config=True):
     global config
     if not isinstance(file, str):
         return file
     cfg = mkidcore.config.load(file)
     if config is not None:
-        cfg.register('beammap', config.beammap, update=True)
-        cfg.register('paths', config.paths, update=True)
-        cfg.register('templar', config.templar, update=True)
-        cfg.register('instrument', config.instrument, update=True)
+        cfg.register('beammap', config.beammap, update=use_global_config)
+        cfg.register('paths', config.paths, update=use_global_config)
+        cfg.register('templar', config.templar, update=use_global_config)
+        cfg.register('instrument', config.instrument, update=use_global_config)
     else:
         getLogger(__name__).warning('Loading task configuration when pipeline not fully configured.')
     return cfg
@@ -235,7 +235,7 @@ class MKIDObservingDataset(object):
     @property
     def science_observations(self):
         return ([o for o in self.meta if isinstance(o, MKIDObservingDataDescription)] +
-                [o for d in self.meta if isinstance(d, MKIDObservingDither) for o in d.obs]
+                [o for d in self.meta if isinstance(d, MKIDObservingDither) for o in d.obs])
 
     @property
     def wavecalable(self):

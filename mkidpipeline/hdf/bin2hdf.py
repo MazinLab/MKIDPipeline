@@ -32,11 +32,16 @@ def _get_dir_for_start(base, start):
     try:
         nmin = _datadircache[base]
     except KeyError:
-        nights_times = glob(os.path.join(base, '*', '*.bin'))
-        nights, times = np.genfromtxt(list(map(lambda s: s[len(base) + 1:-4], nights_times)),
-                                      delimiter=os.path.sep, dtype=int).T
-        nmin = {times[nights == n].min(): str(n) for n in set(nights)}
-        _datadircache[base] = nmin
+        try:
+            nights_times = glob(os.path.join(base, '*', '*.bin'))
+            with warnings.catch_warnings():  # ignore warning for nights_times = []
+                warnings.simplefilter("ignore", UserWarning)
+                nights, times = np.genfromtxt(list(map(lambda s: s[len(base) + 1:-4], nights_times)),
+                                              delimiter=os.path.sep, dtype=int).T
+            nmin = {times[nights == n].min(): str(n) for n in set(nights)}
+            _datadircache[base] = nmin
+        except ValueError:  # for not pipeline oriented bin file storage
+            return base
 
     keys = np.array(list(nmin))
     try:
