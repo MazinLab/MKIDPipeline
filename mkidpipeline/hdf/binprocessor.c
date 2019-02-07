@@ -530,7 +530,7 @@ long cparsebin(const char *fName, unsigned long max_len,
         swp1 = __bswap_64(swp);
         hdr = (struct hdrpacket *) (&swp1);
         if (hdr->start == 0b11111111) {        // found new packet header - update timestamp and curroach
-			curtime = hdr->timestamp;
+			curtime = hdr->timestamp*500;
 			curroach = hdr->roach;
 		}
 		else {                              // must be data. Save as photondata struct
