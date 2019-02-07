@@ -233,8 +233,8 @@ class ParsedBin(object):
             print('x and/or y coordinate not specified')
             return
         tstamps = self.tstamp[np.logical_and(self.x == xCoord, self.y == yCoord)]
-        tstamps -= np.amin(tstamps) # remove offset so that smallest timestamp is at zero
-        tstamps *= 500 # TODO: check this conversion to microseconds. I think the original units are 1/2 ms
+        # tstamps -= np.amin(tstamps) # remove offset so that smallest timestamp is at zero
+        # tstamps *= 500 # TODO: check this conversion to microseconds. I think the original units are 1/2 ms
         phase = self.phase[np.logical_and(self.x == xCoord, self.y == yCoord)]
 
         # the datatype of the structured numpy array returned by getPixelPhotonList in ObsFile is:
