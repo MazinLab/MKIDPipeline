@@ -59,28 +59,18 @@ def setup_logging(tologfile='', toconsole=True, time_stamp=None):
         configuration: wavelength calibration Configuration object
         time_stamp: utc time stamp to name the log file
     """
-    wavecal_name = 'mkidpipeline.calibration.wavecal'
-    models_name = 'mkidpipeline.calibration.wavecal_models'
-    wavecal_log = pipelinelog.getLogger(wavecal_name, setup=False)
-    wavecal_models_log = pipelinelog.getLogger(models_name, setup=False)
     if time_stamp is None:
         time_stamp = int(datetime.utcnow().timestamp())
     if toconsole:
         log_format = "%(levelname)s : %(message)s"
-        wavecal_log = pipelinelog.create_log(wavecal_name, console=True, fmt=log_format,
-                                             level="INFO")
-        wavecal_models_log = pipelinelog.create_log(models_name, console=True,
-                                                    fmt=log_format, level="INFO")
+        pipelinelog.create_log('mkidpipeline', console=True, fmt=log_format, level="INFO")
+
     if tologfile:
         log_directory = os.path.join(tologfile, 'logs')
         log_file = os.path.join(log_directory, '{:.0f}.log'.format(time_stamp))
         log_format = '%(asctime)s : %(funcName)s : %(levelname)s : %(message)s'
-        wavecal_log = pipelinelog.create_log(wavecal_name, logfile=log_file,
-                                             console=False, fmt=log_format, level="DEBUG")
-        wavecal_models_log = pipelinelog.create_log(models_name, logfile=log_file,
-                                                    console=False, fmt=log_format,
-                                                    level="DEBUG")
-    return wavecal_log, wavecal_models_log
+        pipelinelog.create_log('mkidpipeline', logfile=log_file, console=False,
+                               fmt=log_format, level="DEBUG")
 
 
 class Configuration(object):
@@ -2695,7 +2685,8 @@ mkidpipeline.config.yaml.register_class(Solution)
 
 if __name__ == "__main__":
     timestamp = int(datetime.utcnow().timestamp())
-
+    # print execution time on exit
+    atexit.register(lambda: print('Execution took {:.2f} minutes'.format((datetime.utcnow().timestamp() - timestamp) / 60)))
     # read in command line arguments
     parser = argparse.ArgumentParser(description='MKID Wavelength Calibration Utility')
     parser.add_argument('cfg_file', type=str, help='The configuration file')
@@ -2709,45 +2700,25 @@ if __name__ == "__main__":
                         help="Number of CPUs to use for bin2hdf, " 
                              "default is number of wavelengths")
     parser.add_argument('--quiet', action='store_true', dest='quiet',
-                        help='Disable logging')
+                        help='Disable progress bar')
     parser.add_argument('--verbose', action='store_true', dest='verbose',
-                        help='Be verbose')
+                        help='Log to console')
     args = parser.parse_args()
-
-
-    ymlcfg = mkidpipeline.config.load_task_config(args.cfg_file)
     # load the configuration file
+    ymlcfg = mkidpipeline.config.load_task_config(args.cfg_file, use_global_config=False)
     config = Configuration(args.cfg_file)
-
     # set up logging
-    if not args.quiet:
-        setup_logging(tologfile=config.out_directory if not args.quiet else '',
-                      toconsole=args.verbose, time_stamp=timestamp)
-
-    # print execution time on exit
-    atexit.register(lambda: print('Execution took {:.2f} minutes'.format((datetime.utcnow().timestamp() - timestamp) / 60)))
-
-
+    setup_logging(tologfile=config.out_directory, toconsole=args.verbose, time_stamp=timestamp)
     # set up bin2hdf
     if args.n_cpu == 0:
         args.n_cpu = len(config.wavelengths)
     if args.vet_only:
         exit()
-    if not config.hdf_exist() or args.force_h5:
-        b2h_configs = []
-        for wave, start_t, int_t in zip(config.wavelengths, config.start_times,
-                                        config.exposure_times):
-            b2h_configs.append(bin2hdf.Bin2HdfConfig(datadir=ymlcfg.paths.data,
-                                                     beamfile=ymlcfg.beammap.file,
-                                                     outdir=ymlcfg.paths.out,
-                                                     starttime=start_t, inttime=int_t,
-                                                     x=config.x_pixels,
-                                                     y=config.y_pixels))
-        builders = [bin2hdf.HDFBuilder(c) for c in b2h_configs]
-        pool = mp.Pool(min(args.n_cpu, mp.cpu_count()))
-        pool.map(bin2hdf.runbuilder, builders)
+    time_ranges = [(ymlcfg.start_times[i], ymlcfg.start_times[i] + ymlcfg.exposure_times[i])
+                   for i in range(len(ymlcfg.start_times))]
+    bin2hdf.buildtables(time_ranges, ymlcfg, ncpu=6, remake=args.force_h5, timesort=False)
     if args.h5_only:
         exit()
     # run the wavelength calibration
     c = Calibrator(config, solution_name='wavecal_solution_{}.npz'.format(timestamp))
-    c.run(verbose=args.verbose)
+    c.run(verbose=not quiet)
