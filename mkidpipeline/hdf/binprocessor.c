@@ -517,7 +517,7 @@ long cparsebin(const char *fName, unsigned long max_len,
 		if (hdr->start == 0b11111111) {
 			firstHeader = i;
 			pstart = i;
-			curtime = hdr->timestamp;
+			curtime = hdr->timestamp*500;
 			curroach = hdr->roach;
 			if( firstHeader != 0 ) printf("First header at %ld\n",firstHeader);
 			break;
@@ -530,7 +530,9 @@ long cparsebin(const char *fName, unsigned long max_len,
         swp1 = __bswap_64(swp);
         hdr = (struct hdrpacket *) (&swp1);
         if (hdr->start == 0b11111111) {        // found new packet header - update timestamp and curroach
-			curtime = hdr->timestamp*500;
+			curtime = hdr->timestamp*500;     // convert units from 1/2 millisecond to microsecond.
+			                                  // curtime is the number of us from the beginning of the year.
+			// printf("%llu\n", curtime);
 			curroach = hdr->roach;
 		}
 		else {                              // must be data. Save as photondata struct
@@ -538,7 +540,7 @@ long cparsebin(const char *fName, unsigned long max_len,
 			photondata = (struct datapacket *) (&swp1);
 			baseline[out_i] = photondata->baseline;
 			wavelength[out_i] = ((float) photondata->wvl)*RAD2DEG/32768.0;
-			timestamp[out_i] = photondata->timestamp + curtime;
+			timestamp[out_i] = photondata->timestamp + curtime; // units are microseconds elapsed from beginning of year.
 			ycoord[out_i] = photondata->ycoord;
 			xcoord[out_i] = photondata->xcoord;
 			roach[out_i] = curroach;
