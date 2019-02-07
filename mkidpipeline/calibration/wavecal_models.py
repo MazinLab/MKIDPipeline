@@ -120,7 +120,7 @@ def plot_text(axes, flag, color):
     y_limits = axes.get_ylim()
     dx, dy = np.diff(x_limits), np.diff(y_limits)
     axes.text(x_limits[0] + 0.01 * dx, y_limits[1] - 0.01 * dy,
-              pixelflags.waveCal[flag], color=color, ha='left', va='top')
+              pixelflags.wavecal[flag], color=color, ha='left', va='top')
 
 
 class PartialLinearModel(object):
