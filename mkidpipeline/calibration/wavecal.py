@@ -7,7 +7,6 @@ import warnings
 import numpy as np
 import multiprocessing as mp
 from datetime import datetime
-from astropy.constants import c, h
 from distutils.spawn import find_executable
 from six.moves.configparser import ConfigParser
 import matplotlib
@@ -29,12 +28,12 @@ log = pipelinelog.getLogger('mkidpipeline.calibration.wavecal', setup=False)
 
 try:
     import progressbar as pb
-except Exception as err:
+except ImportError as err:
     log.warning('Error importing progressbar: ' + str(err))
 
 try:
     import mkidpipeline.hdf.photontable as photontable
-except Exception as err:
+except ImportError as err:
     log.warning('Error importing photontable: ' + str(err))
 
 try:
@@ -47,7 +46,7 @@ PLANK_CONSTANT_EV = astropy.constants.h.to('eV s').value
 SPEED_OF_LIGHT_MS = astropy.constants.c.to('m/s').value
 
 
-_loaded_solutions = {}  #storeage for loaded wavelength solutions
+_loaded_solutions = {}  # storage for loaded wavelength solutions
 
 
 def setup_logging(tologfile='', toconsole=True, time_stamp=None):
@@ -140,7 +139,7 @@ class Configuration(object):
             self.calibration_model_names = list(config.wavecal.fit.calibration_model_names)
             self.dt = float(config.wavecal.fit.dt)
             self.parallel = config.wavecal.fit.parallel
-            self.parallel_prefetch =  config.wavecal.fit.parallel_prefetch
+            self.parallel_prefetch = config.wavecal.fit.parallel_prefetch
             self.summary_plot = config.wavecal.plots.lower() in ('all', 'summary')
 
             try:
@@ -245,7 +244,7 @@ class Calibrator(object):
             l.info('Wave Calibrator configured with: {}'.format(self.cfg.configuration_path))
             l.info('Parallel mode: {}'.format(self.cfg.parallel))
 
-    def run(self, pixels=None, wavelengths=None, verbose=True, parallel=None, save=True, plot=None):
+    def run(self, pixels=None, wavelengths=None, verbose=False, parallel=None, save=True, plot=None):
         """
         Compute the wavelength calibration for the data specified in the configuration
         object. This method runs make_histograms(), fit_histograms(), and
@@ -271,7 +270,7 @@ class Calibrator(object):
         if parallel and self.cfg.parallel_prefetch:
             #Load data from everything
             log.info("Prefetching ALL data")
-            self._shared_tables = [photontable.load_shareable_photonlist(f) for f in self.cfg.h5_file_names[-2:]]
+            self._shared_tables = [photontable.load_shareable_photonlist(f) for f in self.cfg.h5_file_names]
             # self._shared_tables = [photontable.SharedPhotonList(f) for f in self.cfg.h5_file_names[-2:]]
 
         # foo_elapsed=[0,0,0]
@@ -459,7 +458,7 @@ class Calibrator(object):
             self._obsfiles[wavelength] = photontable.ObsFile(self.cfg.h5_file_names[index])
         return self._obsfiles[wavelength]
 
-    def make_histograms(self, pixels=None, wavelengths=None, verbose=True):
+    def make_histograms(self, pixels=None, wavelengths=None, verbose=False):
         """
         Compute the phase pulse-height histograms for the data specified in the
         configuration file.
@@ -570,7 +569,7 @@ class Calibrator(object):
             for obs_file in obs_files:
                 obs_file.file.close()
 
-    def fit_histograms(self, pixels=None, wavelengths=None, verbose=True):
+    def fit_histograms(self, pixels=None, wavelengths=None, verbose=False):
         """
         Fit the phase pulse-height histograms to a model by fitting each specified in the
         configuration object and selecting the best one.
@@ -584,7 +583,7 @@ class Calibrator(object):
         """
         # check inputs and setup progress bar
         pixels, wavelengths = self._setup(pixels, wavelengths)
-        self._update_progress(number=pixels.shape[1], initialize=True, verbose=verbose)
+        self._update_progress(number=pixels.shape[1], initialize=True, verbose=False)
         # fit histograms for each pixel in pixels and wavelength in wavelengths
         for pixel in pixels.T:
             wavelength = None
@@ -699,7 +698,7 @@ class Calibrator(object):
         # update progress bar
         self._update_progress(finish=True, verbose=verbose)
 
-    def fit_calibrations(self, pixels=None, wavelengths=None, verbose=True):
+    def fit_calibrations(self, pixels=None, wavelengths=None, verbose=False):
         """
         Fit the phase to energy calibration for the detector by using the centers of each
         histogram fit.
@@ -728,8 +727,7 @@ class Calibrator(object):
                         histogram_model = histogram_models[index]
                         phases.append(histogram_model.signal_center.value)
                         variance.append(histogram_model.signal_center.stderr**2)
-                        energies.append(h.to('eV s').value * c.to('nm/s').value /
-                                        wavelength)
+                        energies.append(SPEED_OF_LIGHT_MS * PLANK_CONSTANT_EV / wavelength)
                         sigmas.append(histogram_model.signal_sigma.value)
                 # give data to model
                 if variance:
@@ -780,7 +778,7 @@ class Calibrator(object):
         # update progress bar
         self._update_progress(finish=True, verbose=verbose)
 
-    def _run(self, method, pixels=None, wavelengths=None, verbose=True, parallel=True,
+    def _run(self, method, pixels=None, wavelengths=None, verbose=False, parallel=True,
              h5_safe=False):
         if parallel:
             self._parallel(method, pixels=pixels, wavelengths=wavelengths,
@@ -789,10 +787,10 @@ class Calibrator(object):
             getattr(self, method)(pixels=pixels, wavelengths=wavelengths,
                                   verbose=verbose)
 
-    def _parallel(self, method, pixels=None, wavelengths=None, verbose=True, h5_safe=False):
+    def _parallel(self, method, pixels=None, wavelengths=None, verbose=False, h5_safe=False):
         # configure number of processes
         n_data = pixels.shape[1]
-        h5_safe = False
+        h5_safe = False  # TODO: remove h5 safe parameter
         cpu_count = mkidpipeline.config.n_cpus_available()
         if h5_safe:
             cpu_count = min(len(wavelengths), cpu_count)
@@ -803,7 +801,7 @@ class Calibrator(object):
         # make input, output and progress queues
         workers = []
         progress_worker = None
-        input_queues = []
+        input_queues = []  # TODO: back to one input queue
         output_queue = mp.Queue(maxsize=self._max_queue_size)
         progress_queue = mp.Queue(maxsize=self._max_queue_size)
         if h5_safe:
@@ -1137,7 +1135,7 @@ class Calibrator(object):
         pct = 100.0*self._acquired/n_data
         if pct >= self._last_pct+10:
             self._last_pct = pct
-            pipelinelog.getLogger(__name__).info('Acquired {:.1f} % of data for {} pixels.'.format(pct, n_data))
+            log.debug('Acquired {:.1f} % of data for {} pixels.'.format(pct, n_data))
         return True
 
     def _clean_up(self, input_queues, output_queue, progress_queue, workers,
@@ -2121,7 +2119,7 @@ class Solution(object):
             _, axes = plt.subplots()
         # load in the data
         if self.cfg.beammap.frequencies is not None:
-            data = np.array([self.cfg.beammap.resIDs, self.cfg.beammap.frequencies]).T
+            data = np.array([self.cfg.beammap.resIDs, self.cfg.beammap.frequencies * 1e6]).T
         else:
             try:
                 data = self.load_frequency_files(self.cfg.templar_configuration_path)
@@ -2153,10 +2151,11 @@ class Solution(object):
         window = 0.3e9  # 200 MHz
         r = np.zeros(resolutions.shape)
         for index, _ in enumerate(resolutions):
-            points = np.where(np.logical_and(frequencies > frequencies[index] -
-                                             window / 2,
-                                             frequencies < frequencies[index] +
-                                             window / 2))
+            with warnings.catch_warnings():
+                # rows with all nan values will give an unnecessary RuntimeWarning
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                points = np.where(np.logical_and(frequencies > frequencies[index] -  window / 2,
+                                                 frequencies < frequencies[index] + window / 2))
             if len(points[0]) > 0:
                 r[index] = np.median(resolutions[points])
             else:
@@ -2686,29 +2685,23 @@ mkidpipeline.config.yaml.register_class(Solution)
 if __name__ == "__main__":
     timestamp = int(datetime.utcnow().timestamp())
     # print execution time on exit
-    atexit.register(lambda: print('Execution took {:.2f} minutes'.format((datetime.utcnow().timestamp() - timestamp) / 60)))
+    atexit.register(lambda: print('Time: {:.2f} minutes'.format((datetime.utcnow().timestamp() - timestamp) / 60)))
     # read in command line arguments
     parser = argparse.ArgumentParser(description='MKID Wavelength Calibration Utility')
     parser.add_argument('cfg_file', type=str, help='The configuration file')
-    parser.add_argument('--vet', action='store_true', dest='vet_only',
-                        help='Only verify the configuration file')
-    parser.add_argument('--h5', action='store_true', dest='h5_only',
-                        help='Only make the h5 files')
-    parser.add_argument('--force', action='store_true', dest='force_h5',
-                        help='Force h5 file creation')
-    parser.add_argument('-nc', type=int, dest='n_cpu', default=0,
-                        help="Number of CPUs to use for bin2hdf, " 
-                             "default is number of wavelengths")
-    parser.add_argument('--quiet', action='store_true', dest='quiet',
-                        help='Disable progress bar')
-    parser.add_argument('--verbose', action='store_true', dest='verbose',
-                        help='Log to console')
+    parser.add_argument('--vet', action='store_true', dest='vet_only', help='Only verify the configuration file')
+    parser.add_argument('--h5', action='store_true', dest='h5_only', help='Only make the h5 files')
+    parser.add_argument('--force', action='store_true', dest='force_h5', help='Force h5 file creation')
+    parser.add_argument('--ncpu', type=int, dest='n_cpu', default=0, help="Number of CPUs to use for bin2hdf, "
+                                                                          "default is number of wavelengths")
+    parser.add_argument('--progress', action='store_true', dest='progress', help='Enable the progress bar')
+    parser.add_argument('--quiet', action='store_true', dest='quiet', help="Don't log to the console")
     args = parser.parse_args()
     # load the configuration file
     ymlcfg = mkidpipeline.config.load_task_config(args.cfg_file, use_global_config=False)
     config = Configuration(args.cfg_file)
     # set up logging
-    setup_logging(tologfile=config.out_directory, toconsole=args.verbose, time_stamp=timestamp)
+    setup_logging(tologfile=config.out_directory, toconsole=not args.quiet, time_stamp=timestamp)
     # set up bin2hdf
     if args.n_cpu == 0:
         args.n_cpu = len(config.wavelengths)
@@ -2721,4 +2714,4 @@ if __name__ == "__main__":
         exit()
     # run the wavelength calibration
     c = Calibrator(config, solution_name='wavecal_solution_{}.npz'.format(timestamp))
-    c.run(verbose=not quiet)
+    c.run(verbose=args.progress)
