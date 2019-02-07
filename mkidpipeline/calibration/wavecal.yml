@@ -43,5 +43,7 @@ wavecal: !configdict
 templar: !configdict
   file: "templarconf.cfg"
 
+ncpu: 20
+
 
 
