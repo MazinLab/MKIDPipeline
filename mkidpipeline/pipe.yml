@@ -3,6 +3,7 @@ badpix: median
 
 beammap: !bmap
   file: /mnt/data0/baileyji/mec/finalMap_20181218.bmap
+  freqfiles: /mnt/data0/baileyji/mec/psfreq_dec/ps_freqs_FL*_clip.txt
   nrows: 146
   ncols: 140
 
@@ -14,7 +15,7 @@ paths: !configdict
     out: /mnt/data0/baileyji/mec/out
     tmp: /mnt/data0/baileyji/mec/scratch/  #(optional) can be used to specify a location for data intensive temp files
 
-ncpu: 20
+ncpu: 7
 
 wavecal: !configdict
   plots: summary
@@ -34,7 +35,7 @@ wavecal: !configdict
     dt: 500
     # do the fitting using more than one core (True/False)
     parallel: True
-    parallel_prefetch: True
+    parallel_prefetch: False
 
 flatcal: !configdict
   #This section provides the parameters specific to the flat calibration function
