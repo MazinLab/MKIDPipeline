@@ -575,7 +575,15 @@ class main_window(QMainWindow):
             else:
                 print('unrecognized object type: type(self.a).__name__ = ',type(self.a).__name__)
 
-            self.cbarLimits = np.array([np.amin(self.image),np.amax(self.image)])
+            # colorbar auto
+            if self.checkbox_colorbar_auto.isChecked():
+                self.cbarLimits = np.array([0, np.amax(self.image)])
+                self.fig.cbar.set_clim(self.cbarLimits[0], self.cbarLimits[1])
+                self.fig.cbar.draw_all()
+            else:
+                self.cbarLimits = np.array([0, self.spinbox_colorBarMax.value()])
+                self.fig.cbar.set_clim(self.cbarLimits[0], self.cbarLimits[1])
+                self.fig.cbar.draw_all()
 
             self.ax1.imshow(self.image,interpolation='none',vmin = self.cbarLimits[0],vmax = self.cbarLimits[1])
 
@@ -762,6 +770,18 @@ class main_window(QMainWindow):
         # make a label to display timestamp in human readable format
         self.label_log = QLabel('foobar!')
 
+        # make a checkbox for the colorbar autoscale
+        self.checkbox_colorbar_auto = QCheckBox()
+        self.checkbox_colorbar_auto.setChecked(False)
+        self.checkbox_colorbar_auto.stateChanged.connect(self.spinBoxValueChange)
+
+        label_checkbox_colorbar_auto = QLabel('Auto colorbar')
+
+        self.spinbox_colorBarMax = QSpinBox()
+        self.spinbox_colorBarMax.setRange(1, 2500)
+        self.spinbox_colorBarMax.setValue(2000)
+        self.spinbox_colorBarMax.valueChanged.connect(self.spinBoxValueChange)
+
         # create a vertical box for the plot to go in.
         vbox_plot = QVBoxLayout()
         vbox_plot.addWidget(self.canvas)
@@ -795,8 +815,15 @@ class main_window(QMainWindow):
         vbox_time_lambda_buttons.addLayout(hbox_time_lambda)
         vbox_time_lambda_buttons.addLayout(hbox_buttons)
 
+        #make a vbox for the autoscale colorbar
+        hbox_autoscale = QHBoxLayout()
+        hbox_autoscale.addWidget(label_checkbox_colorbar_auto)
+        hbox_autoscale.addWidget(self.checkbox_colorbar_auto)
+        hbox_autoscale.addWidget(self.spinbox_colorBarMax)
+
         # create a v box for the radio buttons
         vbox_radio_buttons = QVBoxLayout()
+        vbox_radio_buttons.addLayout(hbox_autoscale)
         # vbox_radio_buttons.addWidget(self.radio_button_noise)
         vbox_radio_buttons.addWidget(self.radio_button_img)
         vbox_radio_buttons.addWidget(self.radio_button_ic_is)
