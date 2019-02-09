@@ -1,122 +1,76 @@
-import photutils as pho
-import matplotlib.pyplot as plt
-import numpy as np
 import os
+import numpy as np
+import skimage.transform as tf
+import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
-from scipy.optimize import curve_fit
+
+from photutils import DAOStarFinder, centroids, centroid_2dg, centroid_1dg, centroid_com
+from photutils import CircularAperture
+from astropy import stats
+from mkidpipeline.config import MKIDObservingDither
 from mkidpipeline.hdf.photontable import ObsFile
 
+def get_con2pix(ditherfile, datadir, wvl_start=None, wvl_stop=None, fwhm_guess=3.0, fit_power=1, CONEX_ERROR=0.0001):
 
-class Con2Pix(object):
-    _template = ('{datadir}\n'
-                 '{obs_files}\n'
-                 '{x_initialguess}\n'
-                 '{y_initialguess}\n'
-                 '{x_conex}\n'
-                 '{y_conex}\n'
-                 'box_size')
+    dither=MKIDObservingDither(os.path.basename(ditherfile), ditherfile, None, None)
+    obs_files = [os.path.join(datadir, '{}.h5'.format(o.start)) for o in dither.obs]
 
-    def __init__(self, datadir='./', wvl_start=None, wvl_stop=None, x_initialguess=None, y_initialguess=None, x_conex=None,
-                 y_conex=None, obs_files=None, box_size=30, verbose=False):
+    box_size=fwhm_guess*10
 
-        self.datadir = datadir
-        self.wvl_start = wvl_start
-        self.wvl_stop = wvl_stop
-        self.obs_files=list(obs_files)
-        self.x_initialguess = list(x_initialguess)
-        self.y_initialguess = list(y_initialguess)
-        self.x_conex = list(x_conex)
-        self.y_conex = list(y_conex)
-        self.box_size = box_size
-        self.verbose = verbose
+    debug_images=[]
+    pixel_positions=[]
+    source_est=[]
 
-    def fit_centroids(self):
-        self.xpos_new = []
-        self.ypos_new = []
-        for index, file in enumerate(self.obs_files):
-            obsfile = os.path.join(self.datadir, file)
-            obs = ObsFile(obsfile)
-            data = obs.getPixelCountImage(applyWeight=False,flagToUse = 0,wvlStart=self.wvl_start,wvlStop=self.wvl_stop)['image']
-            data = np.transpose(data)
-            data[data == 0] = ['nan']
-            x_initial = self.x_initialguess[index]
-            y_initial = self.y_initialguess[index]
-            positions_new = pho.centroids.centroid_sources(data, x_initial, y_initial, box_size=self.box_size)
-            if self.verbose:
-                fig, ax = plt.subplots(1, 1)
-                ax.imshow(data, origin='lower', interpolation='nearest', cmap='viridis')
-                ax.add_patch(Rectangle((x_initial - (self.box_size/2), y_initial - (self.box_size/2)), self.box_size, self.box_size, linewidth=1, edgecolor='r', fill=None))
-                marker = '+'
-                ms, mew = 30, 2.
-                plt.plot(x_initial, y_initial, color='red', marker=marker, ms=ms, mew=mew)
-                plt.plot(positions_new[0], positions_new[1], color='blue', marker=marker, ms=ms, mew=mew)
-                plt.show()
-            self.xpos_new.append(positions_new[0][0])
-            self.ypos_new.append(positions_new[1][0])
-        self.xpos_new=np.array(self.xpos_new)
-        self.ypos_new=np.array(self.ypos_new)
+    for file in obs_files:
+        obs = ObsFile(file)
+        data = obs.getPixelCountImage(firstSec=0, integrationTime=1, applyWeight=False, flagToUse = 0, wvlStart=wvl_start,
+                                      wvlStop=wvl_stop)['image']
+        data = np.transpose(data)
+        debug_images.append(data)
+        mean, median, std = stats.sigma_clipped_stats(data, sigma=3.0, mask_value=0)
+        mask = np.zeros_like(data, dtype=bool)
+        mask[data == 0] = True
 
-    def calc_fit_params(self):
-        self.con_xpos=np.unique(self.x_conex)
-        self.con_ypos=np.unique(self.y_conex)
+        sources = DAOStarFinder(fwhm=fwhm_guess, threshold=5.*std)(data - median, mask=mask)
+        source = sources[sources['flux'].argmax()]
+        source_est.append((source['xcentroid'], source['ycentroid']))
 
-        self.xfit_array=[]
-        self.yfit_array=[]
+        position = centroids.centroid_sources(data, source['xcentroid'], source['ycentroid'], box_size=int(box_size), centroid_func=centroid_2dg, mask=mask)
+        pixel_positions.append((position[0][0],position[1][0]))
 
-        self.xerr_array=[]
-        self.yerr_array=[]
+    pixel_positions=np.array(pixel_positions)
+    conex_positions = np.array(dither.pos)
+    conex_positon_errors = np.full_like(conex_positions, fill_value=CONEX_ERROR)
 
-        for index in range(len(self.con_xpos)):
-            sub_xarray = self.xpos_new[np.where(self.x_conex == self.con_xpos[index])]
-            self.xfit_array.append(np.median(sub_xarray))
-            if len(sub_xarray) > 1:
-                self.xerr_array.append(np.std(sub_xarray))
-            else:
-                self.xerr_array.append(np.sqrt(sub_xarray[0]))
+    xform = tf.estimate_transform('polynomial', conex_positions, pixel_positions, order=fit_power)
 
-        for index in range(len(self.con_ypos)):
-            sub_yarray = self.ypos_new[np.where(self.y_conex == self.con_ypos[index])]
-            self.yfit_array.append(np.median(sub_yarray))
-            if len(sub_yarray) > 1:
-                self.yerr_array.append(np.std(sub_yarray))
-            else:
-                self.yerr_array.append(np.sqrt(sub_yarray[0]))
+    for index, image in enumerate(debug_images):
+        fig, ax = plt.subplots(1, 1)
+        ax.imshow(image, origin='lower', interpolation='nearest', cmap='viridis')
+        ax.add_patch(Rectangle((source_est[index][0]- (box_size / 2), source_est[index][1] - (box_size / 2)), box_size, box_size,
+                      linewidth=1, edgecolor='r', fill=None))
+        marker = '+'
+        ms, mew = 30, 2.
+        plt.plot(source_est[index][0], source_est[index][1], color='red', marker=marker, ms=ms, mew=mew)
+        plt.plot(pixel_positions[index][0], pixel_positions[index][1], color='blue', marker=marker, ms=ms, mew=mew)
+        ax.set_title('Red + = Estimate, Blue + = Centroid for Dither Pos %i'%index)
+        plt.show()
 
-        np.array(self.xfit_array)
-        np.array(self.yfit_array)
-        np.array(self.xerr_array)
-        np.array(self.yerr_array)
-
-    def fit_two_linear_functions(self):
-        self.x_linear, self.x_linearcov = curve_fit(linear_func, self.con_xpos, self.xfit_array, sigma=self.xerr_array)
-        self.y_linear, self.y_linearcov = curve_fit(linear_func, self.con_ypos, self.yfit_array, sigma=self.yerr_array)
-
-    def fit_geometric_transform(self):
-
-        conex_fit = []
-        for i in range(len(self.con_xpos)):
-            conex_fit.append([self.con_xpos[i], self.con_ypos[i]])
-        conex_fit = np.array(conex_fit)
-
-        positions_fit = []
-        for i in range(len(self.xfit_array)):
-            positions_fit.append([self.xfit_array[i], self.yfit_array[i]])
-        positions_fit = np.array(positions_fit)
-
-        self.geo_transform = tf.estimate_transform('euclidean', conex_fit, positions_fit)
-
-def linear_func(x, slope, intercept):
-        return x * slope + intercept
+    positions_fit=xform(conex_positions)
+    plt.scatter(np.hsplit(pixel_positions,2)[0], np.hsplit(pixel_positions,2)[1])
+    plt.scatter(np.hsplit(positions_fit,2)[0], np.hsplit(positions_fit,2)[1])
+    plt.show()
+    residuals_x=np.hsplit(pixel_positions,2)[0]-np.hsplit(positions_fit,2)[0]
+    residuals_y=np.hsplit(pixel_positions,2)[1]-np.hsplit(positions_fit,2)[1]
+    plt.scatter(np.arange(len(obs_files)), residuals_x)
+    plt.show()
+    plt.scatter(np.arange(len(obs_files)), residuals_y)
+    plt.show()
+    return xform
 
 if __name__ == '__main__':
 
-    con=Con2Pix(datadir='/mnt/data0/isabel/highcontrastimaging/Jan2019Run/20190112/51Eri/51EriDither1/51Eri_wavecalib/', wvl_start=900, wvl_stop=1140,
-                x_initialguess=[125.46, 124.79, 107.98, 106.54, 106.04, 93.81, 93.58, 91.51, 89.87],
-                y_initialguess=[61.30, 88.13, 61.53, 90.77, 114.66, 36.54, 61.22, 90.85, 115.43], x_conex=[-0.035, -0.035, 0.23, 0.23, 0.23, 0.495, 0.495, 0.495, 0.495],
-                 y_conex=[-0.38, 0.0, -0.38, 0.0, 0.38,-0.76, -0.38, 0.0, 0.38],
-                obs_files=['1547356758.h5', '1547356819.h5', '1547357065.h5', '1547357126.h5', '1547357187.h5', '1547357310.h5', '1547357371.h5', '1547357432.h5', '1547357493.h5'],
-                box_size=30, verbose=False)
+    ditherfile = '/mnt/data0/isabel/highcontrastimaging/Jan2019Run/20190112/51Eri/51EriDither1/51Eri_wavecalib/51eri_ditheruseable.cfg'
+    datadir = '/mnt/data0/isabel/highcontrastimaging/Jan2019Run/20190112/51Eri/51EriDither1/51Eri_wavecalib/'
 
-    con.fit_centroids()
-    con.calc_fit_params()
-    con.fit_two_linear_functions()
+    xform=get_con2pix(ditherfile, datadir, fwhm_guess=3.0, wvl_start=900, wvl_stop=1200, fit_power=2)
