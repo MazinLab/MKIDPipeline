@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
 from photutils import DAOStarFinder, centroids, centroid_2dg, centroid_1dg, centroid_com
-from photutils import CircularAperture
 from astropy import stats
 from mkidpipeline.config import MKIDObservingDither
 from mkidpipeline.hdf.photontable import ObsFile
@@ -23,7 +22,7 @@ def get_con2pix(ditherfile, datadir, wvl_start=None, wvl_stop=None, fwhm_guess=3
 
     for file in obs_files:
         obs = ObsFile(file)
-        data = obs.getPixelCountImage(firstSec=0, integrationTime=1, applyWeight=False, flagToUse = 0, wvlStart=wvl_start,
+        data = obs.getPixelCountImage(applyWeight=False, flagToUse = 0, wvlStart=wvl_start,
                                       wvlStop=wvl_stop)['image']
         data = np.transpose(data)
         debug_images.append(data)
