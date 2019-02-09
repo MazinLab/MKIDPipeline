@@ -439,6 +439,8 @@ class ObsFile(object):
 
         if not query:
             # TODO make dtype pull from mkidcore.headers
+            # TODO check whether dtype for Time should be u4 or u8. u4 loses
+            #  a bunch of leading bits, but it may not matter.
             return np.array([], dtype=[('ResID', '<u4'), ('Time', '<u4'), ('Wavelength', '<f4'),
                                        ('SpecWeight', '<f4'), ('NoiseWeight', '<f4')])
         else:

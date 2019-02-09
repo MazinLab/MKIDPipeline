@@ -2,6 +2,7 @@
 beammap: !bmap
   default: MEC
 #  file: /mnt/data0/MEC/20180624/finalMap_20180622.txt
+#  freqfiles: /mnt/data0/baileyji/mec/psfreq_dec/ps_freqs_FL*_clip.txt
 #  nrows: 146
 #  ncols: 140
 
