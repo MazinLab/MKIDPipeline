@@ -35,6 +35,41 @@ import datetime
 
 
 
+
+
+class img_object():
+    def __init__(self,filename,verbose = False):
+        self.verbose = verbose
+        self.filename = filename
+        self.nCol, self.nRow = self.get_nPixels(self.filename)
+        with open(filename, mode='rb') as f:
+            self.image = np.transpose(np.reshape(np.fromfile(f,dtype=np.uint16), (self.nCol,self.nRow)))
+
+    def get_nPixels(self, filename):
+        # 140 x 146 for MEC
+        # 80 x 125 for darkness
+
+        npixels = len(np.fromfile(open(filename, mode='rb'), dtype=np.uint16))
+        if self.verbose: print('npixels = ', npixels, '\n')
+
+        if npixels == 10000:  # darkness
+            nCol = 80
+            nRow = 125
+            if self.verbose: print('\n\ncamera is DARKNESS/PICTURE-C\n\n')
+        elif npixels == 20440:  # mec
+            nCol = 140
+            nRow = 146
+            if self.verbose: print('\n\ncamera is MEC\n\n')
+        else:
+            raise ValueError('img does not have 10000 or 20440 pixels')
+
+        return nCol, nRow
+
+    def getPixelCountImage(self, **kwargs):
+        return self.image
+
+
+
 class subWindow(QMainWindow):
     # set up a signal so that the window closes when the main window closes
     # closeWindow = QtCore.pyqtSignal()
@@ -415,10 +450,13 @@ class main_window(QMainWindow):
                     self.load_data_from_h5(self.filename)
                 elif self.filename.endswith(".img"):
                     print('handling of img files coming soon!')
+                    self.load_log_filenames(self.filename)
+                    self.load_data_from_img(self.filename)
+                    self.load_filenames(self.filename)
                 elif self.filename.endswith(".bin"):
                     self.load_log_filenames(self.filename)
-                    self.load_bin_filenames(self.filename)
-                    # self.load_data_from_bin(self.filename)
+                    self.load_data_from_bin(self.filename)
+                    self.load_filenames(self.filename)
                 else:
                     print('unrecognized file extension')
             else:
@@ -437,6 +475,8 @@ class main_window(QMainWindow):
         self.image = np.zeros(self.nRow*self.nCol).reshape((self.nRow,self.nCol))
         self.activePixel = [0,0]
         self.sWindowList = []
+        self.path = '/'
+        self.filename_extension = ''
 
 
     def load_data_from_h5(self,*args):
@@ -448,7 +488,7 @@ class main_window(QMainWindow):
                 print('darkObsFile failed to load file. Check filename.\n',self.filename)
             else:
                 print('data loaded from .h5 file')
-                self.h5_filename_label.setText(self.filename)
+                self.filename_label.setText(self.filename)
                 self.initialize_empty_arrays(len(self.a.beamImage),len(self.a.beamImage[0]))
                 self.beamFlagImage = np.transpose(self.a.beamFlagImage.read())
                 self.beamFlagMask = self.beamFlagImage==0  #make a mask. 0 for good beam map
@@ -497,21 +537,42 @@ class main_window(QMainWindow):
             else:
                 self.radio_button_rawCounts.setChecked(True)
                 self.plotImage()
-                self.h5_filename_label.setText(self.filename)
+                self.filename_label.setText(self.filename)
 
             self.beamFlagMask = np.zeros(img_size[0]*img_size[1]).reshape(img_size)  # make a mask. 0 for good beam map
+            
+            
+            
+    def load_data_from_img(self, filename):
+        if os.path.isfile(self.filename):
+            try:
+               self.a = img_object(self.filename)
+            except:
+               print('coudnt load img file')
+            else:
+               self.radio_button_img.setChecked(True)
+               self.plotImage()
+               self.filename_label.setText(self.filename)
+
+            # self.beamFlagMask = np.zeros(img_size[0]*img_size[1]).reshape(img_size)  # make a mask. 0 for good beam map
+        
 
 
     def spinBoxValueChange(self):
-        try:
-            filename = self.bin_file_list_raw[np.where(self.bin_timestamp_list==self.spinbox_startTime.value())[0][0]]
-        except:
-            print('filename does not exist in selfl.bin_file_list_Raw')
-            self.updateLogLabel(IMG_fileExists=False)
-        else:
-            self.filename = filename
-            self.load_data_from_bin(self.filename)
-            self.updateLogLabel()
+        if type(self.a).__name__ == 'ParsedBin' or type(self.a).__name__ == 'img_object':
+            try:
+                filename = self.file_list_raw[np.where(self.timestamp_list==self.spinbox_startTime.value())[0][0]]
+            except:
+                print('filename does not exist in selfl.file_list_Raw')
+                self.updateLogLabel(file_exists=False)
+            else:
+                self.filename = filename
+                if type(self.a).__name__ == 'ParsedBin':
+                    self.load_data_from_bin(self.filename)
+                elif type(self.a).__name__ == 'img_object':
+                    self.load_data_from_img(self.filename)
+                self.updateLogLabel()
+
 
 
     def plotBeamImage(self):
@@ -544,7 +605,7 @@ class main_window(QMainWindow):
 
 
     def plotImage(self,*args):
-        # check if obsfile object exists
+        # check if file object exists
         try:
             self.a
         except:
@@ -571,6 +632,8 @@ class main_window(QMainWindow):
                 self.image[np.where(np.logical_not(np.isfinite(self.image)))] = 0
                 self.image = 1.0 * self.image / self.spinbox_integrationTime.value()
             elif type(self.a).__name__ == 'ParsedBin':
+                self.image = self.a.getPixelCountImage()
+            elif type(self.a).__name__ == 'img_object':
                 self.image = self.a.getPixelCountImage()
             else:
                 print('unrecognized object type: type(self.a).__name__ = ',type(self.a).__name__)
@@ -752,7 +815,7 @@ class main_window(QMainWindow):
         self.label_stopLambda = QLabel('stop wavelength [nm]')
 
         # label for the filenames
-        self.h5_filename_label = QLabel('no file loaded')
+        self.filename_label = QLabel('no file loaded')
 
         # label for the active pixel
         self.activePixel_label = QLabel('Active Pixel ({},{}) {}'.format(self.activePixel[0],self.activePixel[1],self.image[self.activePixel[1],self.activePixel[0]]))
@@ -844,7 +907,7 @@ class main_window(QMainWindow):
 
         # create a v box for showing the files that are loaded in memory
         vbox_filenames = QVBoxLayout()
-        vbox_filenames.addWidget(self.h5_filename_label)
+        vbox_filenames.addWidget(self.filename_label)
         vbox_filenames.addWidget(self.activePixel_label)
 
 
@@ -1006,35 +1069,96 @@ class main_window(QMainWindow):
 
         self.filename = filename
         self.load_bin_filenames(self.filename)
-        # self.load_data_from_bin(self.filename)
 
 
-    def load_bin_filenames(self, filename):
-        print('loading img filenames\n')
+    # def load_bin_filenames(self, filename):
+    #     print('loading bin filenames\n')
+    #
+    #     self.bin_path = os.path.dirname(filename)
+    #     bin_file_list_raw = []
+    #     bin_timestamp_list = np.array([])
+    #     ii = 0
+    #     for file in os.listdir(self.bin_path):
+    #         if file.endswith(".bin"):
+    #             bin_file_list_raw = bin_file_list_raw + [os.path.join(self.bin_path, file)]
+    #             bin_timestamp_list = np.append(bin_timestamp_list, np.fromstring(file[:-4], dtype=int, sep=' ')[0])
+    #         else:
+    #             continue
+    #         ii += 1
+    #
+    #     # the files may not be in chronological order, so let's enforce it
+    #     bin_file_list_raw = np.asarray(bin_file_list_raw)
+    #     bin_file_list_raw = bin_file_list_raw[np.argsort(bin_timestamp_list)]
+    #     bin_timestamp_list = np.sort(np.asarray(bin_timestamp_list))
+    #
+    #     self.bin_file_list_raw = bin_file_list_raw
+    #     self.bin_timestamp_list = bin_timestamp_list
+    #
+    #     print('\nfound {:d} .bin files\n'.format(len(self.bin_timestamp_list)))
+    #     print('first timestamp: {:d}'.format(int(self.bin_timestamp_list[0])))
+    #     print('last timestamp:  {:d}\n'.format(int(self.bin_timestamp_list[-1])))
+    #
+    #     self.initialize_spinbox_values(filename)
+    #
+    #
+    # def load_img_filenames(self, filename):
+    #     print('loading img filenames\n')
+    #
+    #     self.img_path = os.path.dirname(filename)
+    #     img_file_list_raw = []
+    #     img_timestamp_list = np.array([])
+    #     ii = 0
+    #     for file in os.listdir(self.img_path):
+    #         if file.endswith(".bin"):
+    #             img_file_list_raw = img_file_list_raw + [os.path.join(self.img_path, file)]
+    #             img_timestamp_list = np.append(img_timestamp_list, np.fromstring(file[:-4], dtype=int, sep=' ')[0])
+    #         else:
+    #             continue
+    #         ii += 1
+    #
+    #     # the files may not be in chronological order, so let's enforce it
+    #     img_file_list_raw = np.asarray(img_file_list_raw)
+    #     img_file_list_raw = img_file_list_raw[np.argsort(img_timestamp_list)]
+    #     img_timestamp_list = np.sort(np.asarray(img_timestamp_list))
+    #
+    #     self.img_file_list_raw = img_file_list_raw
+    #     self.img_timestamp_list = img_timestamp_list
+    #
+    #     print('\nfound {:d} .img files\n'.format(len(self.img_timestamp_list)))
+    #     print('first timestamp: {:d}'.format(int(self.img_timestamp_list[0])))
+    #     print('last timestamp:  {:d}\n'.format(int(self.img_timestamp_list[-1])))
+    #
+    #     self.initialize_spinbox_values(filename)
 
-        self.bin_path = os.path.dirname(filename)
-        bin_file_list_raw = []
-        bin_timestamp_list = np.array([])
+
+
+    def load_filenames(self, filename):
+        print('loading filenames\n')
+
+        self.path = os.path.dirname(filename)
+        _, self.filename_extension = os.path.splitext(filename)
+        file_list_raw = []
+        timestamp_list = np.array([],dtype=int)
         ii = 0
-        for file in os.listdir(self.bin_path):
-            if file.endswith(".bin"):
-                bin_file_list_raw = bin_file_list_raw + [os.path.join(self.bin_path, file)]
-                bin_timestamp_list = np.append(bin_timestamp_list, np.fromstring(file[:-4], dtype=int, sep=' ')[0])
+        for file in os.listdir(self.path):
+            if file.endswith(self.filename_extension):
+                file_list_raw = file_list_raw + [os.path.join(self.path, file)]
+                timestamp_list = np.append(timestamp_list, np.fromstring(file[:-4], dtype=int, sep=' ')[0])
             else:
                 continue
             ii += 1
 
         # the files may not be in chronological order, so let's enforce it
-        bin_file_list_raw = np.asarray(bin_file_list_raw)
-        bin_file_list_raw = bin_file_list_raw[np.argsort(bin_timestamp_list)]
-        bin_timestamp_list = np.sort(np.asarray(bin_timestamp_list))
+        file_list_raw = np.asarray(file_list_raw)
+        file_list_raw = file_list_raw[np.argsort(timestamp_list)]
+        timestamp_list = np.sort(np.asarray(timestamp_list))
 
-        self.bin_file_list_raw = bin_file_list_raw
-        self.bin_timestamp_list = bin_timestamp_list
+        self.file_list_raw = file_list_raw
+        self.timestamp_list = timestamp_list
 
-        print('\nfound {:d} .bin files\n'.format(len(self.bin_timestamp_list)))
-        print('first timestamp: {:d}'.format(int(self.bin_timestamp_list[0])))
-        print('last timestamp:  {:d}\n'.format(int(self.bin_timestamp_list[-1])))
+        print('\nfound {:d} '.format(len(self.timestamp_list)) + self.filename_extension + ' files\n')
+        print('first timestamp: {:d}'.format(self.timestamp_list[0]))
+        print('last timestamp:  {:d}\n'.format(self.timestamp_list[-1]))
 
         self.initialize_spinbox_values(filename)
 
@@ -1053,8 +1177,9 @@ class main_window(QMainWindow):
         self.spinbox_stopLambda.setValue(self.maxLambda)
 
         # set the max value of the integration time spinbox
-        self.spinbox_startTime.setMinimum(self.bin_timestamp_list[0])
-        self.spinbox_startTime.setMaximum(self.bin_timestamp_list[-1])
+        if type(self.a).__name__ == 'ParsedBin' or type(self.a).__name__ == 'img_object':
+            self.spinbox_startTime.setMinimum(self.timestamp_list[0])
+            self.spinbox_startTime.setMaximum(self.timestamp_list[-1])
         self.spinbox_startTime.valueChanged.connect(self.spinBoxValueChange)
         self.spinbox_startTime.setValue(np.fromstring(os.path.basename(filename)[:-4], dtype=int, sep=' ')[0])
 
@@ -1063,7 +1188,7 @@ class main_window(QMainWindow):
         self.spinbox_integrationTime.setValue(1)
 
 
-    def updateLogLabel(self, IMG_fileExists = True):
+    def updateLogLabel(self, file_exists = True):
 
         timestamp = self.spinbox_startTime.value()
 
@@ -1074,8 +1199,8 @@ class main_window(QMainWindow):
             self.label_log.setText(text)
             return
 
-        # check if the img exists, if not then return
-        if not IMG_fileExists:
+        # check if the file exists, if not then return
+        if not file_exists:
             text = datetime.datetime.fromtimestamp(timestamp).strftime(
                 '%Y-%m-%d %H:%M:%S\n\n') + 'no .bin file found'
             self.label_log.setText(text)
