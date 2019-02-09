@@ -31,6 +31,7 @@ from mkidpipeline.utils import pdfs
 from mkidpipeline.speckle import binned_rician as binnedRE
 from scipy.special import factorial
 import time
+import datetime
 
 
 
@@ -415,7 +416,9 @@ class main_window(QMainWindow):
                 elif self.filename.endswith(".img"):
                     print('handling of img files coming soon!')
                 elif self.filename.endswith(".bin"):
-                    self.load_data_from_bin()
+                    self.load_log_filenames(self.filename)
+                    self.load_bin_filenames(self.filename)
+                    # self.load_data_from_bin(self.filename)
                 else:
                     print('unrecognized file extension')
             else:
@@ -483,10 +486,8 @@ class main_window(QMainWindow):
                 self.spinbox_integrationTime.setValue(self.expTime)
 
 
-    def load_data_from_bin(self):
+    def load_data_from_bin(self, filename):
         img_size = (146,140) # TODO: get rid of this hard coding
-
-        print('attempting to load data from ', self.filename)
 
         if os.path.isfile(self.filename):
             try:
@@ -500,24 +501,17 @@ class main_window(QMainWindow):
 
             self.beamFlagMask = np.zeros(img_size[0]*img_size[1]).reshape(img_size)  # make a mask. 0 for good beam map
 
-            # set the max and min values for the lambda spinboxes
-            self.minLambda = -200
-            self.maxLambda = 200
-            self.label_startLambda.setText('start phase [uncal degrees]')
-            self.label_stopLambda.setText('stop phase [uncal degrees]')
-            self.spinbox_stopLambda.setMinimum(self.minLambda)
-            self.spinbox_startLambda.setMaximum(self.maxLambda)
-            self.spinbox_stopLambda.setMaximum(self.maxLambda)
-            self.spinbox_startLambda.setMinimum(self.minLambda)
-            self.spinbox_startLambda.setValue(self.minLambda)
-            self.spinbox_stopLambda.setValue(self.maxLambda)
 
-            # set the max value of the integration time spinbox
-            self.spinbox_startTime.setMinimum(0)
-            self.spinbox_startTime.setMaximum(1)
-            self.spinbox_integrationTime.setMinimum(0)
-            self.spinbox_integrationTime.setMaximum(1)
-            self.spinbox_integrationTime.setValue(1)
+    def spinBoxValueChange(self):
+        try:
+            filename = self.bin_file_list_raw[np.where(self.bin_timestamp_list==self.spinbox_startTime.value())[0][0]]
+        except:
+            print('filename does not exist in selfl.bin_file_list_Raw')
+            self.updateLogLabel(IMG_fileExists=False)
+        else:
+            self.filename = filename
+            self.load_data_from_bin(self.filename)
+            self.updateLogLabel()
 
 
     def plotBeamImage(self):
@@ -581,7 +575,15 @@ class main_window(QMainWindow):
             else:
                 print('unrecognized object type: type(self.a).__name__ = ',type(self.a).__name__)
 
-            self.cbarLimits = np.array([np.amin(self.image),np.amax(self.image)])
+            # colorbar auto
+            if self.checkbox_colorbar_auto.isChecked():
+                self.cbarLimits = np.array([0, np.amax(self.image)])
+                self.fig.cbar.set_clim(self.cbarLimits[0], self.cbarLimits[1])
+                self.fig.cbar.draw_all()
+            else:
+                self.cbarLimits = np.array([0, self.spinbox_colorBarMax.value()])
+                self.fig.cbar.set_clim(self.cbarLimits[0], self.cbarLimits[1])
+                self.fig.cbar.draw_all()
 
             self.ax1.imshow(self.image,interpolation='none',vmin = self.cbarLimits[0],vmax = self.cbarLimits[1])
 
@@ -765,6 +767,21 @@ class main_window(QMainWindow):
         self.radio_button_rawCounts = QRadioButton("Raw Counts")
         self.radio_button_img.setChecked(True)
 
+        # make a label to display timestamp in human readable format
+        self.label_log = QLabel('foobar!')
+
+        # make a checkbox for the colorbar autoscale
+        self.checkbox_colorbar_auto = QCheckBox()
+        self.checkbox_colorbar_auto.setChecked(False)
+        self.checkbox_colorbar_auto.stateChanged.connect(self.spinBoxValueChange)
+
+        label_checkbox_colorbar_auto = QLabel('Auto colorbar')
+
+        self.spinbox_colorBarMax = QSpinBox()
+        self.spinbox_colorBarMax.setRange(1, 2500)
+        self.spinbox_colorBarMax.setValue(2000)
+        self.spinbox_colorBarMax.valueChanged.connect(self.spinBoxValueChange)
+
         # create a vertical box for the plot to go in.
         vbox_plot = QVBoxLayout()
         vbox_plot.addWidget(self.canvas)
@@ -786,7 +803,7 @@ class main_window(QMainWindow):
         # create an h box for the buttons
         hbox_buttons = QHBoxLayout()
         hbox_buttons.addWidget(button_plot)
-        hbox_buttons.addWidget(button_quickLoad) #################################################
+        # hbox_buttons.addWidget(button_quickLoad) #################################################
 
         # create an h box for the time and lambda v boxes
         hbox_time_lambda = QHBoxLayout()
@@ -798,8 +815,15 @@ class main_window(QMainWindow):
         vbox_time_lambda_buttons.addLayout(hbox_time_lambda)
         vbox_time_lambda_buttons.addLayout(hbox_buttons)
 
+        #make a vbox for the autoscale colorbar
+        hbox_autoscale = QHBoxLayout()
+        hbox_autoscale.addWidget(label_checkbox_colorbar_auto)
+        hbox_autoscale.addWidget(self.checkbox_colorbar_auto)
+        hbox_autoscale.addWidget(self.spinbox_colorBarMax)
+
         # create a v box for the radio buttons
         vbox_radio_buttons = QVBoxLayout()
+        vbox_radio_buttons.addLayout(hbox_autoscale)
         # vbox_radio_buttons.addWidget(self.radio_button_noise)
         vbox_radio_buttons.addWidget(self.radio_button_img)
         vbox_radio_buttons.addWidget(self.radio_button_ic_is)
@@ -808,10 +832,15 @@ class main_window(QMainWindow):
         vbox_radio_buttons.addWidget(self.radio_button_beamFlagImage)
         vbox_radio_buttons.addWidget(self.radio_button_rawCounts)
 
-        # create a h box combining the spinboxes, buttons, and radio buttons
+        # create a h box for the log label
+        vbox_log_label = QVBoxLayout()
+        vbox_log_label.addWidget(self.label_log)
+
+        # create a h box combining the spinboxes, buttons, radio buttons, human readable timestamp
         hbox_controls = QHBoxLayout()
         hbox_controls.addLayout(vbox_time_lambda_buttons)
         hbox_controls.addLayout(vbox_radio_buttons)
+        hbox_controls.addLayout(vbox_log_label)
 
         # create a v box for showing the files that are loaded in memory
         vbox_filenames = QVBoxLayout()
@@ -835,6 +864,9 @@ class main_window(QMainWindow):
         cid = self.fig.canvas.mpl_connect('motion_notify_event', self.hover_canvas)
         cid2 = self.fig.canvas.mpl_connect('button_press_event', self.mouse_pressed)
         cid3 = self.fig.canvas.mpl_connect('scroll_event', self.scroll_ColorBar)
+
+
+        self.logPath = '/'
 
 
 
@@ -921,11 +953,17 @@ class main_window(QMainWindow):
         self.menubar = self.menuBar()
         self.fileMenu = self.menubar.addMenu("&File")
 
-        openFileButton = QAction(QIcon('exit24.png'), 'Open H5 File', self)
-        openFileButton.setShortcut('Ctrl+O')
-        openFileButton.setStatusTip('Open an H5 File')
-        openFileButton.triggered.connect(self.getFileNameFromUser)
-        self.fileMenu.addAction(openFileButton)
+        open_h5_file_button = QAction(QIcon('exit24.png'), 'Open H5 File', self)
+        open_h5_file_button.setShortcut('Ctrl+O')
+        open_h5_file_button.setStatusTip('Open an H5 File')
+        open_h5_file_button.triggered.connect(self.get_h5_file_name_from_user)
+        self.fileMenu.addAction(open_h5_file_button)
+
+        open_bin_file_button = QAction(QIcon('exit24.png'), 'Open bin File', self)
+        open_bin_file_button.setShortcut('Ctrl+b')
+        open_bin_file_button.setStatusTip('Open a bin File')
+        open_bin_file_button.triggered.connect(self.get_bin_file_name_from_user)
+        self.fileMenu.addAction(open_bin_file_button)
 
         exitButton = QAction(QIcon('exit24.png'), 'Exit', self)
         exitButton.setShortcut('Ctrl+Q')
@@ -950,7 +988,7 @@ class main_window(QMainWindow):
 
         self.menubar.setNativeMenuBar(False) # This is for MAC OS
 
-    def getFileNameFromUser(self):
+    def get_h5_file_name_from_user(self):
         # look at this website for useful examples
         # https://pythonspot.com/pyqt5-file-dialog/
         try:def_loc = os.environ['MKID_DATA_DIR']
@@ -959,6 +997,147 @@ class main_window(QMainWindow):
 
         self.filename = filename
         self.load_data_from_h5(self.filename)
+
+
+    def get_bin_file_name_from_user(self):
+        try:def_loc = os.environ['MKID_DATA_DIR']
+        except KeyError:def_loc='.'
+        filename, _ = QFileDialog.getOpenFileName(self, 'Select One File', def_loc,filter = '*.bin')
+
+        self.filename = filename
+        self.load_bin_filenames(self.filename)
+        # self.load_data_from_bin(self.filename)
+
+
+    def load_bin_filenames(self, filename):
+        print('loading img filenames\n')
+
+        self.bin_path = os.path.dirname(filename)
+        bin_file_list_raw = []
+        bin_timestamp_list = np.array([])
+        ii = 0
+        for file in os.listdir(self.bin_path):
+            if file.endswith(".bin"):
+                bin_file_list_raw = bin_file_list_raw + [os.path.join(self.bin_path, file)]
+                bin_timestamp_list = np.append(bin_timestamp_list, np.fromstring(file[:-4], dtype=int, sep=' ')[0])
+            else:
+                continue
+            ii += 1
+
+        # the files may not be in chronological order, so let's enforce it
+        bin_file_list_raw = np.asarray(bin_file_list_raw)
+        bin_file_list_raw = bin_file_list_raw[np.argsort(bin_timestamp_list)]
+        bin_timestamp_list = np.sort(np.asarray(bin_timestamp_list))
+
+        self.bin_file_list_raw = bin_file_list_raw
+        self.bin_timestamp_list = bin_timestamp_list
+
+        print('\nfound {:d} .bin files\n'.format(len(self.bin_timestamp_list)))
+        print('first timestamp: {:d}'.format(int(self.bin_timestamp_list[0])))
+        print('last timestamp:  {:d}\n'.format(int(self.bin_timestamp_list[-1])))
+
+        self.initialize_spinbox_values(filename)
+
+
+    def initialize_spinbox_values(self, filename):
+        # set the max and min values for the lambda spinboxes
+        self.minLambda = -200
+        self.maxLambda = 200
+        self.label_startLambda.setText('start phase [uncal degrees]')
+        self.label_stopLambda.setText('stop phase [uncal degrees]')
+        self.spinbox_stopLambda.setMinimum(self.minLambda)
+        self.spinbox_startLambda.setMaximum(self.maxLambda)
+        self.spinbox_stopLambda.setMaximum(self.maxLambda)
+        self.spinbox_startLambda.setMinimum(self.minLambda)
+        self.spinbox_startLambda.setValue(self.minLambda)
+        self.spinbox_stopLambda.setValue(self.maxLambda)
+
+        # set the max value of the integration time spinbox
+        self.spinbox_startTime.setMinimum(self.bin_timestamp_list[0])
+        self.spinbox_startTime.setMaximum(self.bin_timestamp_list[-1])
+        self.spinbox_startTime.valueChanged.connect(self.spinBoxValueChange)
+        self.spinbox_startTime.setValue(np.fromstring(os.path.basename(filename)[:-4], dtype=int, sep=' ')[0])
+
+        self.spinbox_integrationTime.setMinimum(0)
+        self.spinbox_integrationTime.setMaximum(1)
+        self.spinbox_integrationTime.setValue(1)
+
+
+    def updateLogLabel(self, IMG_fileExists = True):
+
+        timestamp = self.spinbox_startTime.value()
+
+        # check if self.logTimestampList has more than zero entries. If not, return.
+        if len(self.logTimestampList) == 0:
+            text = datetime.datetime.fromtimestamp(timestamp).strftime(
+                '%Y-%m-%d %H:%M:%S\n\n') + 'no log file found.\n Check log file path.'
+            self.label_log.setText(text)
+            return
+
+        # check if the img exists, if not then return
+        if not IMG_fileExists:
+            text = datetime.datetime.fromtimestamp(timestamp).strftime(
+                '%Y-%m-%d %H:%M:%S\n\n') + 'no .bin file found'
+            self.label_log.setText(text)
+            return
+
+        # check if a nearby log file exists, then pick the closest one
+        diffs = timestamp - self.logTimestampList
+        if np.sum(np.abs(diffs) < 3600) == 0:  # nearby means within 1 hour.
+            text = datetime.datetime.fromtimestamp(timestamp).strftime(
+                '%Y-%m-%d %H:%M:%S\n\n') + 'nearest log is ' + str(np.amin(diffs)) + '\nseconds away from bin'
+            self.label_log.setText(text)
+            return
+
+        diffs[np.where(diffs < 0)] = np.amax(diffs)
+
+        logLabelTimestamp = self.logTimestampList[np.argmin(diffs)]
+
+        labelFilename = self.logFilenameList[np.where(self.logTimestampList == logLabelTimestamp)[0][0]]
+
+        # print('labelFilename is ', os.path.join(os.environ['MKID_RAW_PATH'],labelFilename))
+        # fin=open(os.path.join(os.environ['MKID_RAW_PATH'],labelFilename),'r')
+        with open(os.path.join(self.logPath, labelFilename), 'r') as fin:
+            text = 'data timestamp:\n' + datetime.datetime.fromtimestamp(timestamp).strftime(
+                '%Y-%m-%d %H:%M:%S') + '\n\nLogfile time:\n' + datetime.datetime.fromtimestamp(
+                logLabelTimestamp).strftime('%Y-%m-%d %H:%M:%S\n') + '\n' + labelFilename[:-4] + '\n' + fin.read()
+            self.label_log.setText(text)
+
+
+    def load_log_filenames(self,filename):
+        # check if directory exists
+        self.logPath = os.path.dirname(filename)
+        if not os.path.exists(self.logPath):
+            text = 'log file path not found.\n Check log file path.'
+            self.label_log.setText(text)
+
+            self.logTimestampList = np.asarray([])
+            self.logFilenameList = np.asarray([])
+
+            return
+
+        # load the log filenames
+        print('loading log filenames\n')
+        logFilenameList = []
+        logTimestampList = []
+
+        for logFilename in os.listdir(self.logPath):
+
+            if logFilename.endswith("telescope.log"):
+                continue
+            elif logFilename.endswith(".log"):
+                logFilenameList.append(logFilename)
+                logTimestampList.append(np.fromstring(logFilename[:10], dtype=int, sep=' ')[0])
+
+        # the files may not be in chronological order, so let's enforce it
+        logFilenameList = np.asarray(logFilenameList)
+        logFilenameList = logFilenameList[np.argsort(logTimestampList)]
+        logTimestampList = np.sort(np.asarray(logTimestampList))
+
+        self.logTimestampList = np.asarray(logTimestampList)
+        self.logFilenameList = logFilenameList
+
+
 
     def makeTimestreamPlot(self):
         sWindow = timeStream(self)

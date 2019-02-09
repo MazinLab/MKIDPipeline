@@ -233,14 +233,17 @@ class ParsedBin(object):
             print('x and/or y coordinate not specified')
             return
         tstamps = self.tstamp[np.logical_and(self.x == xCoord, self.y == yCoord)]
-        # tstamps -= np.amin(tstamps) # remove offset so that smallest timestamp is at zero
-        # tstamps *= 500 # TODO: check this conversion to microseconds. I think the original units are 1/2 ms
+        tstamps -= np.amin(tstamps) # remove offset so that smallest timestamp is at zero
         phase = self.phase[np.logical_and(self.x == xCoord, self.y == yCoord)]
 
         # the datatype of the structured numpy array returned by getPixelPhotonList in ObsFile is:
         # dtype = [('ResID', '<u4'), ('Time', '<u4'), ('Wavelength', '<f4'), ('SpecWeight', '<f4'),('NoiseWeight', '<f4')])
 
         # bin files only have timestamps and wavelengths, the xy coords are already specified for this method
+
+        # note on dtype for Time: if we remove the initial offset at the beginning of the file, then
+        # dtype can be <u4 (uint32). If we don't remove it, then it needs to be <u8 (uint64).
+
         wtype = np.dtype([('Time', '<u4'), ('Wavelength', '<f4')])
         w = np.empty(len(tstamps),wtype)
         w['Time'] = tstamps
