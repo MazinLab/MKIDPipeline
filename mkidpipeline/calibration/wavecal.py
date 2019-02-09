@@ -1,6 +1,7 @@
 #!/bin/env python3
 from __future__ import print_function
 import os
+import queue
 import atexit
 import argparse
 import warnings
@@ -227,7 +228,7 @@ class Calibrator(object):
         self.progress = None
         self.progress_iteration = None
         self._acquired = 0
-        self._max_queue_size = None
+        self._max_queue_size = 300
         self._shared_tables = _shared_tables
         self._obsfiles = {}
         self._last_pct = 0
@@ -583,15 +584,13 @@ class Calibrator(object):
                 for index, wavelength in enumerate(wavelengths):
                     model = models[index]
                     if model.x is None or model.y is None:
-                        message = ("({}, {}) : {} nm : histogram fit failed because "
-                                   "there is no data")
+                        message = "({}, {}) : {} nm : histogram fit failed because there is no data"
                         log.debug(message.format(pixel[0], pixel[1], wavelength))
                         continue
                     if len(model.x) < model.max_parameters * 2:
                         model.flag = 5
-                        message = ("({}, {}) : {} nm : histogram fit failed because "
-                                   "there are less than 15 bins")
-                        log.debug(message.format(pixel[0], pixel[1], wavelength))
+                        message = "({}, {}) : {} nm : histogram fit failed because there are less than {} bins"
+                        log.debug(message.format(pixel[0], pixel[1], wavelength, model.max_parameters * 2))
                         continue
                     message = "({}, {}) : {} nm : beginning histogram fitting"
                     log.debug(message.format(pixel[0], pixel[1], wavelength))
@@ -662,24 +661,21 @@ class Calibrator(object):
                             guess = self._guess(pixel, wavelength_index, good_solutions)
                             model.fit(guess)
                             if model.has_good_solution():
-                                message = ("({}, {}) : {} nm : histogram fit recomputed "
-                                           "and successful with model '{}'")
+                                message = "({}, {}) : {} nm : histogram fit recomputed and successful with model '{}'"
                                 log.debug(message.format(pixel[0], pixel[1], wavelength,
                                                          type(model).__name__))
                                 break
                             tried_models.append(model.copy())
                         else:
                             # find the model with the best bad fit and save that one
-                            self._assign_best_histogram_model(tried_models, wavelength,
-                                                              pixel)
+                            self._assign_best_histogram_model(tried_models, wavelength, pixel)
             except KeyboardInterrupt:
                 raise KeyboardInterrupt
             except Exception as error:
                 if wavelength is None:
                     message = "({}, {}) : ".format(pixel[0], pixel[1]) + str(error)
                 else:
-                    message = ("({}, {}), : {} nm : ".format(pixel[0], pixel[1],
-                                                             wavelength) + str(error))
+                    message = "({}, {}), : {} nm : ".format(pixel[0], pixel[1], wavelength) + str(error)
                 log.error(message, exc_info=True)
                 raise error
         # update progress bar
@@ -728,16 +724,14 @@ class Calibrator(object):
                 # don't fit if there's not enough data
                 if len(variance) < 3:
                     model.flag = 11
-                    message = ("({}, {}) : {} data points is not enough to make a "
-                               "calibration")
+                    message = "({}, {}) : {} data points is not enough to make a calibration"
                     log.debug(message.format(pixel[0], pixel[1], len(variance)))
                     continue
                 diff = np.diff(phases)
                 sigma = np.sqrt(variance)
                 if (diff < -4 * (sigma[:-1] + sigma[1:])).any():
                     model.flag = 12
-                    message = ("({}, {}) : fitted phase values are not monotonic enough "
-                               "to make a calibration")
+                    message = "({}, {}) : fitted phase values are not monotonic enough to make a calibration"
                     log.debug(message.format(pixel[0], pixel[1]))
                 # fit the data
                 message = "({}, {}) : beginning phase-energy calibration fitting"
@@ -751,10 +745,8 @@ class Calibrator(object):
                     model.fit(guess)
                     tried_models.append(model.copy())
                     if model.has_good_solution():
-                        message = ("({}, {}) : phase-energy calibration fit successful "
-                                   "with model '{}'")
-                        log.debug(message.format(pixel[0], pixel[1],
-                                                 type(model).__name__))
+                        message = "({}, {}) : phase-energy calibration fit successful with model '{}'"
+                        log.debug(message.format(pixel[0], pixel[1], type(model).__name__))
                 # find model with the best fit and save that one
                 self._assign_best_calibration_model(tried_models, pixel)
             except KeyboardInterrupt:
@@ -775,57 +767,48 @@ class Calibrator(object):
         # configure number of processes
         n_data = pixels.shape[1]
         cpu_count = mkidpipeline.config.n_cpus_available()
+        log.debug("using {} CPUs".format(cpu_count))
 
         pipelinelog.getLogger(__name__).info('Running using {} cores'.format(cpu_count))
-        self._max_queue_size = 300  # int(np.ceil(max(50, 750 / len(wavelengths))))
         # make input, output and progress queues
         workers = []
         progress_worker = None
-        input_queue = mp.Queue(maxsize=self._max_queue_size)  # TODO: back to one input queue
+        input_queue = mp.Queue(maxsize=self._max_queue_size)
         output_queue = mp.Queue(maxsize=self._max_queue_size)
         progress_queue = mp.Queue(maxsize=self._max_queue_size)
         # make stopping events
         events = []
-        for _ in range(cpu_count + 1):
+        for _ in range(cpu_count):
             events.append(mp.Event())
         try:
             # make cpu_count number of workers to process the data
-            for index in range(cpu_count):
+            for index in range(cpu_count - 1):
                 workers.append(Worker(self.cfg, method, events[index], input_queue, output_queue, progress_queue,
                                       shared_tables=self._shared_tables, name=str(index)))
             # make a worker to handle the progress bar and start the progress bar
             progress_worker = Worker(self.cfg, "_update_progress", events[-1], progress_queue, name='progress')
             progress_queue.put({"number": n_data, "initialize": True, "verbose": verbose})
             # assign data to workers
-            # foo_elapsed=[[0,0],[0,0],[0,0],[0,0]]
-            for fooi, pixel in enumerate(pixels.T):
-                fit_element = self.solution[pixel[0], pixel[1]]
-                kwargs = {"pixel": pixel, "wavelengths": wavelengths, "fit_element": fit_element, "verbose": verbose}
-                # foo_tic = time.time()
-                # foo_elapsed[0][0] += time.time()-foo_tic
-                # foo_elapsed[0][1] += 1
+            for pixel in pixels.T:
+                # skip if there's no data (but not if the data hasn't been made yet)
+                if (not self.solution.has_data(pixel=pixel).any()) and method != 'make_histograms':
+                    progress_queue.put({"verbose": verbose})
+                    self._acquired += 1  # needed for _acquire_data() before joining workers
+                    continue
+                kwargs = {"pixel": pixel, "wavelengths": wavelengths, "verbose": verbose}
+                # don't add the fit_element to the kwargs if it's not needed
+                if method != 'make_histograms':
+                    kwargs.update({'fit_element': self.solution[pixel[0], pixel[1]]})
+                # grab the data if the queue is getting full
                 while input_queue.qsize() > self._max_queue_size / 2:
-                    # foo_tic = time.time()
                     self._acquire_data(n_data, output_queue)
-                    # foo_elapsed[1][0] += time.time() - foo_tic
-                    # foo_elapsed[1][1] +=1
-                    # foo_tic = time.time()
-                    # foo_elapsed[2][0] += time.time() - foo_tic
-                    # foo_elapsed[2][1] += 1
+                # queue the job
                 input_queue.put(kwargs)
                 # TODO The final stage seems to be starved of data in the input queue, in general it looks like
                 #  the deepcopies required/implied? by going into the queues with fit/model objects is expensive
                 #  and may be taking ~50% to all the time for the second two phases.
-
-                # if fooi>1000:
-                #     pipelinelog.getLogger(__name__).debug('Trying to terminate')
-                #     pipelinelog.getLogger(__name__).debug(list(map(lambda x: '{:.4f}'.format(x[0]/max(x[1],1)),
-                #     foo_elapsed)))
-                #     for _ in range(cpu_count):
-                #         input_queues[0].put({"stop": True})
-                #     raise KeyboardInterrupt
             # tell each worker to stop after all the data has been processed
-            for index in range(cpu_count):
+            for index in range(cpu_count - 1):
                 while input_queue.qsize() > self._max_queue_size / 2:
                     self._acquire_data(n_data, output_queue)
                 input_queue.put({"stop": True})
@@ -839,11 +822,11 @@ class Calibrator(object):
             progress_queue.put({"stop": True})
             progress_worker.join()
         except KeyboardInterrupt:
+            log.debug('cleaning up workers')
             self._clean_up(input_queue, output_queue, progress_queue, workers,
                            progress_worker, events, n_data, cpu_count)
+            log.debug('cleaned up')
             raise KeyboardInterrupt
-#        return workers
-        # TODO should other exceptions be caught here?
 
     def _remove_tail_riding_photons(self, photon_list):
         indices = np.argsort(photon_list['Time'])
@@ -865,14 +848,11 @@ class Calibrator(object):
         while max_count < 400 and update < 3:
             # update bin_width
             bin_width = self.cfg.bin_width * (2 ** update)
-
             # define bin edges being careful to start at the threshold cut
             bin_edges = np.arange(max_phase, min_phase - bin_width,  -bin_width)[::-1]
-
             # make histogram
             counts, x0 = np.histogram(phase_list, bins=bin_edges)
             centers = (x0[:-1] + x0[1:]) / 2.0
-
             # update counters
             max_count = np.max(counts)
             update += 1
@@ -1005,10 +985,8 @@ class Calibrator(object):
         if best_model.has_good_solution():
             best_model.flag = 0
             self.solution.set_histogram_models(best_model, wavelength, pixel=pixel)
-            message = ("({}, {}) : {} nm : histogram model '{}' chosen as "
-                       "the best successful fit")
-            log.debug(message.format(pixel[0], pixel[1], wavelength,
-                                     type(best_model).__name__))
+            message = "({}, {}) : {} nm : histogram model '{}' chosen as the best successful fit"
+            log.debug(message.format(pixel[0], pixel[1], wavelength, type(best_model).__name__))
         else:
             if not lowest_aic_model.best_fit_result.success:
                 lowest_aic_model.flag = 6  # did not converge
@@ -1078,8 +1056,12 @@ class Calibrator(object):
         result = output_queue.get()
         computed_pixel = result["pixel"]
         computed_wavelengths = result["wavelengths"]
-        fit_element = result["fit_element"]
-        self.solution[computed_pixel[0], computed_pixel[1]] = fit_element
+        fit_element = result.pop("fit_element", None)
+        if fit_element is None:
+            for model in self.solution.histogram_models(pixel=computed_pixel):
+                model.flag = 1  # no data
+        else:
+            self.solution[computed_pixel[0], computed_pixel[1]] = fit_element
         self._acquired += 1
         pct = 100.0*self._acquired/n_data
         if pct >= self._last_pct+10:
@@ -1090,47 +1072,62 @@ class Calibrator(object):
     def _clean_up(self, input_queue, output_queue, progress_queue, workers,
                   progress_worker, events, n_data, cpu_count):
         # send an extra stop flag just in case
-        for index in range(cpu_count):
+        for index in range(cpu_count - 1):
             while input_queue.qsize() > max(0, self._max_queue_size - 2):
                 input_queue.get()
             input_queue.put({"stop": True})
+        log.debug("all workers asked to stop")
+        while progress_queue.qsize() > max(0, self._max_queue_size - 2):
+            progress_queue.get()
         progress_queue.put({"stop": True})
+        log.debug("progress bar asked to stop")
         # check that all process have stopped
         finished = False
         while not finished:
             finished_list = [event.is_set() for event in events]
             finished = len(finished_list) == 0 or np.all(finished_list)
+        log.debug("all processes stopped")
         # add sentinels to queues
         input_queue.put(None)
         while output_queue.qsize() > max(0, self._max_queue_size - 1):
             # grab the last bit of data so that there is room in the queue for closing
             self._acquire_data(n_data, output_queue)
+        log.debug("output queue drained")
         output_queue.put(None)
         progress_queue.put(None)
-        # clean up input queues
-        while input_queue.get() is not None:
+        # clean up input queue
+        try:  # sometimes the input queue doesn't register the sentinel for some reason
+            while input_queue.get_nowait() is not None:
+                pass
+        except queue.Empty:
             pass
         input_queue.close()
+        log.debug("input queue closed")
         # clean up output queue
         while output_queue.get() is not None:
             pass
         output_queue.close()
+        log.debug("output queue closed")
         # close progress queue
         while progress_queue.get() is not None:
             pass
         progress_queue.close()
+        log.debug("progress queue closed")
         # let all processes finish
         for event in events:
             event.set()
+        log.debug("events set")
         # close and join workers
         for worker in workers:
             log.info("PID {0} ... exiting".format(worker.pid))
             worker.terminate()
             worker.join()
+        log.debug("workers closed")
         if progress_worker is not None:
             log.info("PID {0} ... exiting".format(progress_worker.pid))
             progress_worker.terminate()
             progress_worker.join()
+        log.debug("progress worker closed")
 
 
 class Worker(mp.Process):
@@ -1177,6 +1174,7 @@ class Worker(mp.Process):
                 # check for stopping condition
                 stop = kwargs.pop("stop", False)
                 if stop:
+                    log.debug("stopping {}".format(self.pid))
                     self.finished.set()
                     break
                 else:
@@ -1203,10 +1201,11 @@ class Worker(mp.Process):
 
                     # output data into queue if we are running one of the main methods
                     if pixel is not False and self.output_queue is not None:
-                        fit_element = self.calibrator.solution[pixel[0], pixel[1]]
                         foo_tic = time.time()
-                        self.output_queue.put({"pixel": pixel, "wavelengths": wavelengths,
-                                               "fit_element": fit_element})  # phase 1, ~1/2 in phase 2 @ .25s/call
+                        return_dict = {"pixel": pixel, "wavelengths": wavelengths}
+                        if self.calibrator.solution.has_data(pixel=pixel).any():
+                            return_dict.update({"fit_element": self.calibrator.solution[pixel[0], pixel[1]]})
+                        self.output_queue.put(return_dict)  # phase 1, ~1/2 in phase 2 @ .25s/call
                         foo_elapsed[1][0] += time.time() - foo_tic
                         foo_elapsed[1][1] += 1
                         self.progress_queue.put({"verbose": verbose})  # cumulative over 20k pixels ~5s
@@ -1219,10 +1218,8 @@ class Worker(mp.Process):
             raise error
         self.finished.set()
         self.finished.wait()
-        pipelinelog.getLogger(__name__).info('Worker done {} [{} {}] calls'.format(list(map(lambda x: '{:.4f}'.format(x[
-                                                                                                                  0]/max(x[1],1)),
-                                                                          foo_elapsed)),foo_elapsed[0][1],
-                                                                              foo_elapsed[1][1]))
+        # log.info('Worker done {} [{} {}] calls'.format(list(map(lambda x: '{:.4f}'.format(x[0]/max(x[1],1)),
+        #                                                         foo_elapsed)),foo_elapsed[0][1], foo_elapsed[1][1]))
         #1.5-3ms,<.05ms,<.1ms  #phase 1
         #phase 2, get put, verbose  /pixel in s
         # ['0.0088', '0.2232',
@@ -1618,7 +1615,7 @@ class Solution(object):
         model = self.calibration_model(pixel=pixel)
 
         # TODO Nick integrate with the model or delete this note. using this wrapper may have negatives for
-        # introspection
+        #  introspection
         def wave_cal_func(*args, **kwargs):
             return PLANK_CONSTANT_EV * SPEED_OF_LIGHT_MS * 1e9/model.calibration_function(*args,**kwargs)
 
@@ -1712,7 +1709,7 @@ class Solution(object):
         """
         pixel, _ = self._parse_resonators(pixel, res_id)
         if not isinstance(self._fit_array[pixel[0], pixel[1]][0], dict):
-            return False
+            return np.array([False] * len(wavelengths))
         models = self.histogram_models(wavelengths, pixel=pixel)
         good = np.array([model.has_good_solution() for model in models])
         return good
@@ -1724,7 +1721,7 @@ class Solution(object):
         pixel, _ = self._parse_resonators(pixel, res_id)
         wavelengths = self._parse_wavelengths(wavelengths)
         if not isinstance(self._fit_array[pixel[0], pixel[1]][0], dict):
-            return False
+            return np.array([False] * len(wavelengths))
         models = self.histogram_models(wavelengths, pixel=pixel)
         data = np.array([model.x is not None and model.y is not None for model in models])
         return data
@@ -1914,17 +1911,22 @@ class Solution(object):
         log.debug("plotting resolving power histogram")
         # check inputs
         wavelengths = self._parse_wavelengths(wavelengths)
-        # make sure r is defined
-        if r is None:
-            r, _ = self.find_resolving_powers(wavelengths=wavelengths, feedline=feedline)
-        max_r = np.nanmax(r)
         # make sure axes is defined
         if axes is None:
             _, axes = plt.subplots()
+        # set axes labels
+        axes.set_xlabel(r'R [E/$\Delta$E]')
+        axes.set_ylabel('counts per bin width')
         # make a color bar if there are a lot of wavelengths
         color_bar = len(wavelengths) >= 10
         if color_bar:
             self._plot_color_bar(axes, wavelengths)
+        # make sure r is defined
+        if r is None:
+            r, _ = self.find_resolving_powers(wavelengths=wavelengths, feedline=feedline)
+        if r.size == 0:
+            return axes
+        max_r = np.nanmax(r)
         # plot each histogram
         max_counts = []
         for index, wavelength in enumerate(wavelengths):
@@ -1952,8 +1954,6 @@ class Solution(object):
         # set up axis
         if np.max(max_counts) != 0:
             axes.set_ylim([0, 1.2 * np.max(max_counts)])
-        axes.set_xlabel(r'R [E/$\Delta$E]')
-        axes.set_ylabel('counts per bin width')
         # add legend if there's no color bar
         if not color_bar:
             axes.legend(fontsize=6)
@@ -2277,6 +2277,7 @@ class Solution(object):
             able to determine latex compatibility in all cases, so set use_latex=False if
             you know that latex compilation will not work on your system.
         """
+        # TODO: allow for max/min r cutoff for plots
         log.debug("making summary plot")
         # reversibly configure matplotlib rc if we can use latex
         tex_installed = (find_executable('latex') is not None and
@@ -2358,14 +2359,14 @@ class Solution(object):
                  r"fits successful out of beam-mapped pixels & {:.2f} \% \\" +
                  r"\hline ")
         for model_name in self.cfg.histogram_model_names:
-            count = (np.array(histogram_names) == model_name).sum()
+            count = np.sum(np.array(histogram_names) == model_name)
             table += (r"fits using {:s} & {:.2f} \% \\"
                       .format(model_name, count / len(histogram_names) * 100))
         table = table.format(n_wavelengths,
                              histogram_success,
                              completely_successful / n_pixels * 100,
                              histogram_success / (n_pixels * n_wavelengths) * 100,
-                             histogram_success / photosensitive * 100,
+                             histogram_success / photosensitive * 100 if photosensitive != 0 else 0,
                              histogram_success / (beam_mapped * n_wavelengths) * 100)
         table_end = r"\end{tabular} \\ \\ \\"
         histogram_table = table_title + table_begin + table + table_end
@@ -2377,12 +2378,12 @@ class Solution(object):
                  r"fits successful out of beam-mapped pixels & {:.2f} \% \\" +
                  r"\hline ")
         for model_name in self.cfg.calibration_model_names:
-            count = (np.array(calibration_names) == model_name).sum()
+            count = np.sum(np.array(calibration_names) == model_name)
             table += (r"fits using {:s} & {:.2f} \% \\"
                       .format(model_name, count / len(calibration_names) * 100))
         table = table.format(calibration_success,
                              calibration_success / n_pixels * 100,
-                             calibration_success / photosensitive * n_wavelengths * 100,
+                             calibration_success / photosensitive * n_wavelengths * 100 if photosensitive != 0 else 0,
                              calibration_success / beam_mapped * 100)
         calibration_table = table_title + table_begin + table + table_end
         # set up additional text

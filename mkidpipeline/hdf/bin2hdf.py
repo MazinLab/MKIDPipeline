@@ -457,6 +457,8 @@ def buildtables(timeranges, config=None, ncpu=1, asynchronous=False, remake=Fals
         return timeranges, events
     else:
         pool.map(runbuilder, builders)
+        pool.close()
+        pool.join()
 
 
 if __name__ == '__main__':
