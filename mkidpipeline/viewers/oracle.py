@@ -1071,67 +1071,6 @@ class main_window(QMainWindow):
         self.load_bin_filenames(self.filename)
 
 
-    # def load_bin_filenames(self, filename):
-    #     print('loading bin filenames\n')
-    #
-    #     self.bin_path = os.path.dirname(filename)
-    #     bin_file_list_raw = []
-    #     bin_timestamp_list = np.array([])
-    #     ii = 0
-    #     for file in os.listdir(self.bin_path):
-    #         if file.endswith(".bin"):
-    #             bin_file_list_raw = bin_file_list_raw + [os.path.join(self.bin_path, file)]
-    #             bin_timestamp_list = np.append(bin_timestamp_list, np.fromstring(file[:-4], dtype=int, sep=' ')[0])
-    #         else:
-    #             continue
-    #         ii += 1
-    #
-    #     # the files may not be in chronological order, so let's enforce it
-    #     bin_file_list_raw = np.asarray(bin_file_list_raw)
-    #     bin_file_list_raw = bin_file_list_raw[np.argsort(bin_timestamp_list)]
-    #     bin_timestamp_list = np.sort(np.asarray(bin_timestamp_list))
-    #
-    #     self.bin_file_list_raw = bin_file_list_raw
-    #     self.bin_timestamp_list = bin_timestamp_list
-    #
-    #     print('\nfound {:d} .bin files\n'.format(len(self.bin_timestamp_list)))
-    #     print('first timestamp: {:d}'.format(int(self.bin_timestamp_list[0])))
-    #     print('last timestamp:  {:d}\n'.format(int(self.bin_timestamp_list[-1])))
-    #
-    #     self.initialize_spinbox_values(filename)
-    #
-    #
-    # def load_img_filenames(self, filename):
-    #     print('loading img filenames\n')
-    #
-    #     self.img_path = os.path.dirname(filename)
-    #     img_file_list_raw = []
-    #     img_timestamp_list = np.array([])
-    #     ii = 0
-    #     for file in os.listdir(self.img_path):
-    #         if file.endswith(".bin"):
-    #             img_file_list_raw = img_file_list_raw + [os.path.join(self.img_path, file)]
-    #             img_timestamp_list = np.append(img_timestamp_list, np.fromstring(file[:-4], dtype=int, sep=' ')[0])
-    #         else:
-    #             continue
-    #         ii += 1
-    #
-    #     # the files may not be in chronological order, so let's enforce it
-    #     img_file_list_raw = np.asarray(img_file_list_raw)
-    #     img_file_list_raw = img_file_list_raw[np.argsort(img_timestamp_list)]
-    #     img_timestamp_list = np.sort(np.asarray(img_timestamp_list))
-    #
-    #     self.img_file_list_raw = img_file_list_raw
-    #     self.img_timestamp_list = img_timestamp_list
-    #
-    #     print('\nfound {:d} .img files\n'.format(len(self.img_timestamp_list)))
-    #     print('first timestamp: {:d}'.format(int(self.img_timestamp_list[0])))
-    #     print('last timestamp:  {:d}\n'.format(int(self.img_timestamp_list[-1])))
-    #
-    #     self.initialize_spinbox_values(filename)
-
-
-
     def load_filenames(self, filename):
         print('loading filenames\n')
 
