@@ -41,29 +41,29 @@ class img_object():
     def __init__(self,filename,verbose = False):
         self.verbose = verbose
         self.filename = filename
-        self.nCol, self.nRow = self.get_nPixels(self.filename)
+        self.n_col, self.n_row = self.get_npixels(self.filename)
         with open(filename, mode='rb') as f:
-            self.image = np.transpose(np.reshape(np.fromfile(f,dtype=np.uint16), (self.nCol,self.nRow)))
+            self.image = np.transpose(np.reshape(np.fromfile(f,dtype=np.uint16), (self.n_col,self.n_row)))
 
-    def get_nPixels(self, filename):
-        # 140 x 146 for MEC
-        # 80 x 125 for darkness
+    def get_npixels(self, filename):
+        # 146 row x 140 col for MEC
+        # 125 row x 80 col for darkness
 
         npixels = len(np.fromfile(open(filename, mode='rb'), dtype=np.uint16))
         if self.verbose: print('npixels = ', npixels, '\n')
 
         if npixels == 10000:  # darkness
-            nCol = 80
-            nRow = 125
+            n_col = 80
+            n_row = 125
             if self.verbose: print('\n\ncamera is DARKNESS/PICTURE-C\n\n')
         elif npixels == 20440:  # mec
-            nCol = 140
-            nRow = 146
+            n_col = 140
+            n_row = 146
             if self.verbose: print('\n\ncamera is MEC\n\n')
         else:
             raise ValueError('img does not have 10000 or 20440 pixels')
 
-        return nCol, nRow
+        return n_col, n_row
 
     def getPixelCountImage(self, **kwargs):
         return self.image
@@ -227,13 +227,14 @@ class timeStream(subWindow):
     def plotData(self):
         self.ax.clear()
 
-        t1 = time.time()
         self.photonList = self.get_photon_list()
-        t2 = time.time()
-        print('timer: ', t2 - t1)
 
         self.eff_exp_time = self.spinbox_eff_exp_time.value()/1000
-        self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(self.photonList['Time']/1e6,self.spinbox_startTime.value(),self.spinbox_startTime.value()+self.spinbox_integrationTime.value(),self.eff_exp_time)
+        if type(self.a).__name__ == 'ObsFile':
+            self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(self.photonList['Time']/1e6,self.spinbox_startTime.value(),self.spinbox_startTime.value()+self.spinbox_integrationTime.value(),self.eff_exp_time)
+        else:
+            self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(
+                self.photonList['Time'] / 1e6, 0, self.spinbox_integrationTime.value(), self.eff_exp_time)
 
         self.ax.plot(self.lightCurveTimes,self.lightCurveIntensity,color = self.lineColor)
         self.ax.set_xlabel('time [seconds]')
@@ -256,24 +257,6 @@ class intensityHistogram(subWindow):
         self.plotData()
         self.draw()
 
-    """
-    def fitBlurredMR(self,bins,intensityHist):   #this needs some work
-        sigma = np.sqrt(intensityHist)
-        sigma[np.where(sigma==0)] = 1
-        try:
-            popt2,pcov2 = curve_fit(binnedRE.blurredMR,bins,intensityHist,p0=[1,1],sigma=sigma,bounds=(0,np.inf))
-            
-            Ic = popt2[0]
-            Is = popt2[1]
-        except RuntimeError:
-            Ic, Is = 1,0.1
-        
-        return Ic,Is
-    """
-
-
-
-
 
     def plotData(self):
 
@@ -285,14 +268,13 @@ class intensityHistogram(subWindow):
 
         self.eff_exp_time = self.spinbox_eff_exp_time.value()/1000
 
-        # self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = self.getLightCurve()
-
-        self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(self.photonList['Time']/1e6,self.spinbox_startTime.value(),self.spinbox_startTime.value()+self.spinbox_integrationTime.value(),self.eff_exp_time)
-
-        # self.intensityHist, self.bins = self.histogramLC(self.lightCurveIntensityCounts)
+        if type(self.a).__name__ == 'ObsFile':
+            self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(self.photonList['Time']/1e6,self.spinbox_startTime.value(),self.spinbox_startTime.value()+self.spinbox_integrationTime.value(),self.eff_exp_time)
+        else:
+            self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(
+                self.photonList['Time'] / 1e6, 0, self.spinbox_integrationTime.value(), self.eff_exp_time)
 
         self.intensityHist, self.bins = binnedRE.histogramLC(self.lightCurveIntensityCounts)
-        # [self.intensityHist] = counts
 
         Nbins = max(30,len(self.bins))
 
@@ -302,18 +284,6 @@ class intensityHistogram(subWindow):
         self.ax.set_title('pixel ({},{})' .format(self.activePixel[0],self.activePixel[1]))
 
         if np.sum(self.lightCurveIntensityCounts) > 0:
-            # try:
-            #     popt, pcov = curve_fit(binnedRE.modifiedRician,self.bins,self.intensityHist,p0=[1,1])
-            #
-            #     Ic = popt[0]
-            #     Is = popt[1]
-            # except RuntimeError:
-            #     Ic, Is, =1,0.1
-            #
-            # self.ax.plot(np.arange(self.Nbins, step=sstep),binnedRE.modifiedRician(np.arange(self.Nbins, step=sstep),Ic,Is),'.-r',label = 'MR from numpy.curve_fit')
-            #
-            # self.ax.set_title('pixel ({},{})  Ic = {:.2f}, Is = {:.2f}, Ic/Is = {:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic,Is,Ic/Is))
-
             mu = np.mean(self.lightCurveIntensityCounts)
             var = np.var(self.lightCurveIntensityCounts)
 
@@ -325,10 +295,6 @@ class intensityHistogram(subWindow):
 
             self.ax.plot(np.arange(Nbins, step=sstep),binnedRE.blurredMR(np.arange(Nbins, step=sstep),Ic_final,Is_final),'.-k',label = 'blurred MR from curve_fit. Ic,Is = {:.2f}, {:.2f}'.format(Ic_final/self.eff_exp_time,Is_final/self.eff_exp_time))
 
-            # self.ax.set_title('pixel ({},{})  Ic = {:.2f}, Is = {:.2f}, Ic/Is = {:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic_final,Is_final,Ic_final/Is_final))
-            # self.ax.set_title('pixel ({},{})  Ic,Ic_f = {:.2f},{:.2f}, Is,Is_f = {:.2f},{:.2f}, Ic/Is, Ic_f/Is_f = {:.2f},{:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic,Ic_final,Is,Is_final,Ic/Is,Ic_final/Is_final))
-
-
             try:
                 IIc = np.sqrt(mu**2 - var + mu)
             except:
@@ -338,8 +304,6 @@ class intensityHistogram(subWindow):
 
 
                 self.ax.plot(np.arange(Nbins, step=sstep),binnedRE.blurredMR(np.arange(Nbins, step=sstep),IIc,IIs),'.-b',label = r'blurred MR from $\sigma$ and $\mu$. Ic,Is = {:.2f}, {:.2f}'.format(IIc/self.eff_exp_time,IIs/self.eff_exp_time))
-
-            # self.ax.set_title('pixel ({},{})  Ic,IIc = {:.2f},{:.2f}, Is,IIs = {:.2f},{:.2f}, Ic/Is, IIc/IIs = {:.2f},{:.2f}' .format(self.activePixel[0],self.activePixel[1],Ic_final,IIc,Is_final,IIs,Ic_final/Is_final,IIc/IIs))
 
             self.ax.set_title('pixel ({},{})' .format(self.activePixel[0],self.activePixel[1]))
 
@@ -463,16 +427,16 @@ class main_window(QMainWindow):
                 print('file does not exist: \n', argv[0][1])
 
 
-    def initialize_empty_arrays(self,nCol = 10,nRow = 10):
-        self.nCol = nCol
-        self.nRow = nRow
-        self.IcMap = np.zeros(self.nRow*self.nCol).reshape((self.nRow,self.nCol))
-        self.IsMap = np.zeros(self.nRow*self.nCol).reshape((self.nRow,self.nCol))
-        self.IcIsMap = np.zeros(self.nRow*self.nCol).reshape((self.nRow,self.nCol))
-        self.rawCountsImage = np.zeros(self.nRow*self.nCol).reshape((self.nRow,self.nCol))
-        self.hotPixMask = np.zeros(self.nRow*self.nCol).reshape((self.nRow,self.nCol))
+    def initialize_empty_arrays(self,n_col = 10,n_row = 10):
+        self.n_col = n_col
+        self.n_row = n_row
+        self.IcMap = np.zeros(self.n_row*self.n_col).reshape((self.n_row,self.n_col))
+        self.IsMap = np.zeros(self.n_row*self.n_col).reshape((self.n_row,self.n_col))
+        self.IcIsMap = np.zeros(self.n_row*self.n_col).reshape((self.n_row,self.n_col))
+        self.rawCountsImage = np.zeros(self.n_row*self.n_col).reshape((self.n_row,self.n_col))
+        self.hotPixMask = np.zeros(self.n_row*self.n_col).reshape((self.n_row,self.n_col))
         self.hotPixCut = 2300
-        self.image = np.zeros(self.nRow*self.nCol).reshape((self.nRow,self.nCol))
+        self.image = np.zeros(self.n_row*self.n_col).reshape((self.n_row,self.n_col))
         self.activePixel = [0,0]
         self.sWindowList = []
         self.path = '/'
@@ -553,8 +517,6 @@ class main_window(QMainWindow):
                self.radio_button_img.setChecked(True)
                self.plotImage()
                self.filename_label.setText(self.filename)
-
-            # self.beamFlagMask = np.zeros(img_size[0]*img_size[1]).reshape(img_size)  # make a mask. 0 for good beam map
         
 
 
@@ -677,9 +639,9 @@ class main_window(QMainWindow):
         else:
             self.ax1.clear() # clear the axes
 
-            for col in range(self.nCol):
+            for col in range(self.n_col):
                 print(col,'/80')
-                for row in range(self.nRow):
+                for row in range(self.n_row):
                     photonList = self.a.getPixelPhotonList(col, row, firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart=self.spinbox_startLambda.value(),wvlStop=self.spinbox_stopLambda.value())
 
                     eff_exp_time = .00001 # 10 ms/1000
@@ -728,7 +690,7 @@ class main_window(QMainWindow):
         self.ax1.clear()
 
         # debugging- generate some noise to plot
-        self.image = np.random.randn(self.nRow,self.nCol)
+        self.image = np.random.randn(self.n_row,self.n_col)
 
         self.foo = self.ax1.imshow(self.image,interpolation='none')
         self.cbarLimits = np.array([np.amin(self.image),np.amax(self.image)])
@@ -764,8 +726,8 @@ class main_window(QMainWindow):
         # if self.hotPixMask[row][col] = 0, it's a hot pixel. If 1, it's good.
         temp = self.a.getPixelCountImage(firstSec = 0, integrationTime=1,applyWeight=False,flagToUse = 0)
         rawCountsImage = np.transpose(temp['image'])
-        for col in range(self.nCol):
-            for row in range(self.nRow):
+        for col in range(self.n_col):
+            for row in range(self.n_row):
                 if rawCountsImage[row][col] < self.hotPixCut:
                     self.hotPixMask[row][col] = 1
 
@@ -948,7 +910,7 @@ class main_window(QMainWindow):
         if event.inaxes is self.ax1:
             col = int(round(event.xdata))
             row = int(round(event.ydata))
-            if row < self.nRow and col < self.nCol:
+            if row < self.n_row and col < self.n_col:
                 self.status_text.setText('({:d},{:d}) {}'.format(col,row,self.image[row,col]))
 
     def scroll_ColorBar(self,event):
