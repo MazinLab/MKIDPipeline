@@ -9,26 +9,35 @@ from mkidcore.corelog import getLogger, create_log
 import pkg_resources as pkg
 from mkidreadout.configuration.beammap.beammap import Beammap
 
-#Ensure that the beammap gets registered with yaml
+#Ensure that the beammap gets registered with yaml, technically the import does this
+#but without this note an IDE or human might remove the import
 Beammap()
 
 config = None
 
 yaml = mkidcore.config.yaml
 
+pipline_settings = ('beammap', 'paths', 'templar', 'instrument', 'ncpu')
+
 
 def load_task_config(file, use_global_config=True):
+    #if pipeline is not configured then do all needed to get it online
+    #if pipeline has been configured by user then choice of pip or task, but update with all pipeline stuff
+    #Never edit an existing pipeline config
+
     global config
-    if not isinstance(file, str):
-        return file
-    cfg = mkidcore.config.load(file)
-    if config is not None:
-        cfg.register('beammap', config.beammap, update=use_global_config)
-        cfg.register('paths', config.paths, update=use_global_config)
-        cfg.register('templar', config.templar, update=use_global_config)
-        cfg.register('instrument', config.instrument, update=use_global_config)
-    else:
-        getLogger(__name__).warning('Loading task configuration when pipeline not fully configured.')
+
+    cfg = mkidcore.config.load(file) if isinstance(file, str) else file  #assume someone passing through a config
+
+    from_config = use_global_config
+
+    if config is None:
+        from_config = True
+        configure_pipeline(pkg.resource_filename('mkidpipeline', 'pipe.yml'))
+
+    for k in pipline_settings:
+        cfg.register(k, config.get(k), update=from_config)
+
     return cfg
 
 
@@ -36,8 +45,6 @@ def configure_pipeline(*args, **kwargs):
     global config
     config = mkidcore.config.load(*args, **kwargs)
     return config
-
-configure_pipeline(pkg.resource_filename('mkidpipeline','pipe.yml'))
 
 load_data_description = mkidcore.config.load
 
