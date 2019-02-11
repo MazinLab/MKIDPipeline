@@ -21,7 +21,8 @@ pipline_settings = ('beammap', 'paths', 'templar', 'instrument', 'ncpu')
 
 
 def load_task_config(file, use_global_config=True):
-    #if pipeline is not configured then do all needed to get it online
+    #if pipeline is not configured then do all needed to get it online, loading defaults and overwriting them with
+    # the task cfg
     #if pipeline has been configured by user then choice of pip or task, but update with all pipeline stuff
     #Never edit an existing pipeline config
 
@@ -29,14 +30,16 @@ def load_task_config(file, use_global_config=True):
 
     cfg = mkidcore.config.load(file) if isinstance(file, str) else file  #assume someone passing through a config
 
-    from_config = use_global_config
-
     if config is None:
-        from_config = True
         configure_pipeline(pkg.resource_filename('mkidpipeline', 'pipe.yml'))
+        for k in pipline_settings:
+            try:
+                config.update(k, cfg.get(k))
+            except KeyError:
+                pass
 
     for k in pipline_settings:
-        cfg.register(k, config.get(k), update=from_config)
+        cfg.register(k, config.get(k), update=use_global_config)
 
     return cfg
 
