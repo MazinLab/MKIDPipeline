@@ -153,13 +153,6 @@ class Configuration(object):
             self.beam_map_path = beammap.file
             self.h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.start_times]
 
-        # TODO don't do this
-        if not hasattr(self, "ncpu"):
-            try:
-                self.ncpu = cfg.ncpu
-            except Exception:
-                self.ncpu = mkidpipeline.config.n_cpus_available()
-
         for model in self.histogram_model_names:
             assert issubclass(getattr(wm, model), wm.PartialLinearModel), \
                    '{} is not a subclass of wavecal_models.PartialLinearModel'.format(model)
@@ -773,7 +766,7 @@ class Calibrator(object):
     def _parallel(self, method, pixels=None, wavelengths=None, verbose=False):
         # configure number of processes
         n_data = pixels.shape[1]
-        cpu_count = mkidpipeline.config.n_cpus_available(self.cfg)  # TODO: don't use self.cfg here
+        cpu_count = mkidpipeline.config.n_cpus_available()
         log.info("using {} CPUs".format(cpu_count))
 
         pipelinelog.getLogger(__name__).info('Running using {} cores'.format(cpu_count))
@@ -2609,7 +2602,7 @@ if __name__ == "__main__":
     setup_logging(tologfile=wcalcfg.out_directory, toconsole=not args.quiet, time_stamp=timestamp)
     # load as a task configuration
     # TODO: remove configuration class and just use task config
-    ymlcfg = mkidpipeline.config.load_task_config(args.cfg_file, use_global_config=False)
+    ymlcfg = mkidpipeline.config.load_task_config(args.cfg_file)
     # set up bin2hdf
     if args.n_cpu == 0:
         args.n_cpu = len(wcalcfg.wavelengths)
