@@ -1843,7 +1843,7 @@ class Solution(object):
             axes_grid.squeeze()
         return axes_grid
 
-    def plot_r_histogram(self, axes=None, wavelengths=None, feedline=None, r=None):
+    def plot_r_histogram(self, axes=None, wavelengths=None, feedline=None, minimum=None, maximum=None, r=None):
         """
         Plot a histogram of the energy resolution, R, for each wavelength in the
         wavelength calibration solution object.
@@ -1855,6 +1855,10 @@ class Solution(object):
                          The default is to use all.
             feedline: only resonators from this feedline will be used to make the plot.
                       All are used if set to None.
+            minimum: only histogram resolving powers above this value. No lower bound
+                     is used if it is not specified.
+            maximum: only histogram resolving powers below this value. No upper bound
+                     is used if it is not specified.
             r: a NxM array of resolving powers to histogram where M corresponds to the
                wavelengths list. If none, they are calculated from the solution object.
                feedline is ignored if used.
@@ -1886,6 +1890,11 @@ class Solution(object):
             # pull out relevant data
             r_wavelength = r[:, index]
             r_wavelength = r_wavelength[np.logical_not(np.isnan(r_wavelength))]
+            # filter if needed
+            if minimum is not None:
+                r_wavelength = r_wavelength[r_wavelength >= minimum]
+            if maximum is not None:
+                r_wavelength = r_wavelength[r_wavelength <= maximum]
             # histogram data
             counts, edges = np.histogram(r_wavelength, bins=30, range=(0, 1.1 * max_r))
             bin_widths = np.diff(edges)
@@ -1915,7 +1924,7 @@ class Solution(object):
 
         return axes
 
-    def plot_response_histogram(self, axes=None, wavelengths=None, feedline=None,
+    def plot_response_histogram(self, axes=None, wavelengths=None, feedline=None, minimum=None, maximum=None,
                                 responses=None):
         """
         Plot a histogram of the model phase distribution centers for the solution object.
@@ -1927,6 +1936,10 @@ class Solution(object):
                          The default is to use all.
             feedline: only resonators from this feedline will be used to make the plot.
                       All are used if set to None.
+            minimum: only histogram responses above this value. No lower bound is used
+                     if it is not specified.
+            maximum: only histogram responses below this value. No upper bound is used
+                     if it is not specified.
             responses: a NxM array of responses to histogram where M corresponds to the
                        wavelengths list. If none, they are calculated from the solution
                        object. feedline is ignored if used.
@@ -1955,7 +1968,11 @@ class Solution(object):
             wavelength_responses = responses[:, wavelength_index]
             logic = np.logical_not(np.isnan(wavelength_responses))
             wavelength_responses = wavelength_responses[logic]
-
+            # filter if needed
+            if minimum is not None:
+                wavelength_responses = wavelength_responses[wavelength_responses >= minimum]
+            if maximum is not None:
+                wavelength_responses = wavelength_responses[wavelength_responses <= maximum]
             # make histogram
             counts, edges = np.histogram(wavelength_responses, bins=30, range=(-150, -20))
             bin_width = np.diff(edges)[0]
@@ -1985,7 +2002,7 @@ class Solution(object):
         plt.tight_layout()
         return axes
 
-    def plot_r_vs_f(self, axes=None, feedline=None, r=None, res_ids=None):
+    def plot_r_vs_f(self, axes=None, feedline=None, minimum=None, maximum=None, r=None, res_ids=None):
         """
         Plot the median energy resolution over all wavelengths against the resonance
         frequency.
@@ -1995,6 +2012,10 @@ class Solution(object):
                   is provided a new figure will be made.
             feedline: only resonators from this feedline will be used to make the plot.
                       All are used if set to None. Ignored if r and res_ids is used.
+            minimum: only plot median resolving powers above this value. No lower bound
+                     is used if it is not specified.
+            maximum: only plot median resolving powers below this value. No upper bound
+                     is used if it is not specified.
             r: a NxM array of resolving powers to histogram where M corresponds to the
                wavelengths list. If none, they are calculated from the solution object.
                res_ids must also be specified. feedline is ignored if used.
@@ -2009,7 +2030,9 @@ class Solution(object):
             raise ValueError("either specify both r and res_ids or neither")
         # make sure r and res_ids are defined
         if r is None:
-            r, res_ids = self.find_resolving_powers(feedline=feedline)
+            r, res_ids = self.find_resolving_powers(feedline=feedline, maximum=maximum, minimum=minimum)
+            minimum = None  # don't filter again
+            maximum = None  # don't filter again
         # make sure axes is defined
         if axes is None:
             _, axes = plt.subplots()
@@ -2043,6 +2066,11 @@ class Solution(object):
         indices = np.argsort(frequencies)
         frequencies = frequencies[indices]
         resolutions = resolutions[indices]
+        # filter out data if needed
+        if minimum is not None:
+            resolutions = resolutions[resolutions >= minimum]
+        if maximum is not None:
+            resolutions = resolutions[resolutions <= maximum]
         # filter the data
         window = 0.3e9  # 200 MHz
         r = np.zeros(resolutions.shape)
@@ -2201,7 +2229,8 @@ class Solution(object):
         indexer = Index(ax_slider, ax_prev, ax_next)
         return axes, indexer
 
-    def plot_summary(self, axes=None, feedline=None, save_name=None, resolution_images=True, use_latex=True):
+    def plot_summary(self, axes=None, feedline=None, save_name=None, resolution_images=True, use_latex=True, min_r=None,
+                     max_r=None, min_a=None, max_a=None):
         """
         Plot a summary of the wavelength calibration solution object.
 
@@ -2217,6 +2246,10 @@ class Solution(object):
                                these plots are appended to the returned axes array.
             use_latex: a boolean turning on or off latex compilation. Text will not print
                        nicely without a latex install.
+            min_r: minimum resolving power to show in plots
+            max_r: maximum resolving power to show in plots
+            min_a: minimum response to show in plots
+            max_a: maximum response to show in plots
         Returns:
             axes: an array of Axes objects if no save name is provided
         Notes:
@@ -2230,7 +2263,6 @@ class Solution(object):
             able to determine latex compatibility in all cases, so set use_latex=False if
             you know that latex compilation will not work on your system.
         """
-        # TODO: allow for max/min r cutoff for plots
         log.debug("making summary plot")
         # reversibly configure matplotlib rc if we can use latex
         tex_installed = (find_executable('latex') is not None and
@@ -2273,9 +2305,9 @@ class Solution(object):
             all_res_ids = all_res_ids[np.floor(all_res_ids / 10000) == feedline]
 
         # plot the results
-        self.plot_r_vs_f(axes=axes_list[0], r=r, res_ids=res_ids_r)
-        self.plot_r_histogram(axes=axes_list[1], r=r)
-        self.plot_response_histogram(axes=axes_list[2], responses=a)
+        self.plot_r_vs_f(axes=axes_list[0], r=r, minimum=min_r, maximum=max_r, res_ids=res_ids_r)
+        self.plot_r_histogram(axes=axes_list[1], minimum=min_r, maximum=max_r, r=r)
+        self.plot_response_histogram(axes=axes_list[2], minimum=min_a, maximum=max_a, responses=a)
         # get info on the solution
         histogram_names = []
         calibration_names = []
