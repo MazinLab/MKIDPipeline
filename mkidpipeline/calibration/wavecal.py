@@ -153,6 +153,13 @@ class Configuration(object):
             self.beam_map_path = beammap.file
             self.h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.start_times]
 
+        # TODO don't do this
+        if not hasattr(self, "ncpu"):
+            try:
+                self.ncpu = cfg.ncpu
+            except Exception:
+                self.ncpu = mkidpipeline.config.n_cpus_available()
+
         for model in self.histogram_model_names:
             assert issubclass(getattr(wm, model), wm.PartialLinearModel), \
                    '{} is not a subclass of wavecal_models.PartialLinearModel'.format(model)
@@ -766,8 +773,8 @@ class Calibrator(object):
     def _parallel(self, method, pixels=None, wavelengths=None, verbose=False):
         # configure number of processes
         n_data = pixels.shape[1]
-        cpu_count = mkidpipeline.config.n_cpus_available()
-        log.debug("using {} CPUs".format(cpu_count))
+        cpu_count = mkidpipeline.config.n_cpus_available(self.cfg)  # TODO: don't use self.cfg here
+        log.info("using {} CPUs".format(cpu_count))
 
         pipelinelog.getLogger(__name__).info('Running using {} cores'.format(cpu_count))
         # make input, output and progress queues
@@ -1218,53 +1225,6 @@ class Worker(mp.Process):
             raise error
         self.finished.set()
         self.finished.wait()
-        # log.info('Worker done {} [{} {}] calls'.format(list(map(lambda x: '{:.4f}'.format(x[0]/max(x[1],1)),
-        #                                                         foo_elapsed)),foo_elapsed[0][1], foo_elapsed[1][1]))
-        #1.5-3ms,<.05ms,<.1ms  #phase 1
-        #phase 2, get put, verbose  /pixel in s
-        # ['0.0088', '0.2232',
-        # ['0.0092', '0.2285',
-        # ['0.0059', '0.2359',
-        # ['0.0083', '0.2432',
-        # ['0.0099', '0.2391',
-        # ['0.0070', '0.2240',
-        # ['0.0063', '0.2289',
-        # ['0.0087', '0.2355',
-        # ['0.0076', '0.2596',
-        # ['0.0098', '0.2238',
-        # ['0.0094', '0.2693',
-        # ['0.0109', '0.2553',
-        # ['0.0081', '0.2271',
-        # ['0.0071', '0.2372',
-        # ['0.0091', '0.2337',
-        # ['0.0077', '0.2304',
-        # ['0.0079', '0.2289',
-        # ['0.0071', '0.2334',
-        # ['0.0101', '0.2325',
-        # ['0.0071', '0.2278',
-        # ['0.0240', '0.0000',
-        #phase 3
-        # ['0.0383', '0.4697', '0.0000'] (pid=816)
-        # ['0.0388', '0.4699', '0.0000'] (pid=817)
-        # ['0.0333', '0.4701', '0.0000'] (pid=830)
-        # ['0.0342', '0.4715', '0.0000'] (pid=831)
-        # ['0.0377', '0.4657', '0.0000'] (pid=818)
-        # ['0.0381', '0.4688', '0.0000'] (pid=815)
-        # ['0.0350', '0.4670', '0.0000'] (pid=826)
-        # ['0.0337', '0.4698', '0.0000'] (pid=832)
-        # ['0.0367', '0.4695', '0.0000'] (pid=824)
-        # ['0.0342', '0.4661', '0.0000'] (pid=827)
-        # ['0.0362', '0.4668', '0.0000'] (pid=822)
-        # ['0.0350', '0.4706', '0.0000'] (pid=825)
-        # ['0.0349', '0.4693', '0.0000'] (pid=829)
-        # ['0.0346', '0.4712', '0.0000'] (pid=823)
-        # ['0.0373', '0.4687', '0.0000'] (pid=819)
-        # ['0.0434', '0.4609', '0.0000'] (pid=833)
-        # ['0.0379', '0.4706', '0.0000'] (pid=820)
-        # ['0.0436', '0.4579', '0.0000'] (pid=834)
-        # ['0.0365', '0.4703', '0.0000'] (pid=821)
-        # ['0.0441', '0.4613', '0.0000'] (pid=828)
-        # ['0.0257', '0.0000', '0.0000'] (pid=835)
 
 
 class Solution(object):
@@ -2643,11 +2603,13 @@ if __name__ == "__main__":
     parser.add_argument('--progress', action='store_true', dest='progress', help='Enable the progress bar')
     parser.add_argument('--quiet', action='store_true', dest='quiet', help="Don't log to the console")
     args = parser.parse_args()
-    # load the configuration file
-    ymlcfg = mkidpipeline.config.load_task_config(args.cfg_file, use_global_config=False)
+    # load wavecal configuration file
     wcalcfg = Configuration(args.cfg_file)
     # set up logging
     setup_logging(tologfile=wcalcfg.out_directory, toconsole=not args.quiet, time_stamp=timestamp)
+    # load as a task configuration
+    # TODO: remove configuration class and just use task config
+    ymlcfg = mkidpipeline.config.load_task_config(args.cfg_file, use_global_config=False)
     # set up bin2hdf
     if args.n_cpu == 0:
         args.n_cpu = len(wcalcfg.wavelengths)
