@@ -188,6 +188,12 @@ class PartialLinearModel(object):
             message = "no more than {} parameters are allowed in the full_fit_function"
             raise SyntaxError(message.format(self.max_parameters))
 
+    def __getstate__(self):
+        pass
+
+    def __setstate__(self, state):
+        pass
+
     def fit(self, guess):
         self._check_data()
         guess = add_fwhm(guess)
