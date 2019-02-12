@@ -187,8 +187,9 @@ class PartialLinearModel(object):
 
     def __getstate__(self):
         state = {'pixel': self.pixel, 'res_id': self.res_id, 'x': self.x, 'y': self.y, 'variance': self.variance,
-                 'best_fit_result': self.best_fit_result.dumps(), 'best_fit_result_good': self.best_fit_result_good,
-                 'flag': self.flag, 'phm': self.phm, 'nhm': self.nhm}
+                 # 'best_fit_result': self.best_fit_result.dumps() if self.best_fit_result is not None else None,
+                 'best_fit_result': pickle.dumps(self.best_fit_result),
+                 'best_fit_result_good': self.best_fit_result_good, 'flag': self.flag, 'phm': self.phm, 'nhm': self.nhm}
         return state
 
     def __setstate__(self, state):
@@ -196,7 +197,20 @@ class PartialLinearModel(object):
         self.x = state['x']
         self.y = state['y']
         self.variance = state['variance']
-        self.best_fit_result = lm.model.ModelResult(None, None).loads(state['best_fit_result'])
+        if state['best_fit_result'] is None:
+            self.best_fit_result = None
+        else:
+            result = pickle.loads(state['best_fit_result'])
+            # TODO: use lmfit dumps() and loads()
+            # result = lm.model.ModelResult(self._full_model, lm.Parameters())
+            # result.loads(state['best_fit_result'], funcdefs={'full_fit_function': self.full_fit_function})
+            # # fix loading bug in lmfit
+            # result.data = result.userargs[0]
+            # result.weights = result.userargs[1]
+            # result.init_params = result.model.make_params(**result.init_values)
+            #
+            # result.residual = result.model._residual(result.params, y, weights, x=x)
+            self.best_fit_result = result
         self.best_fit_result_good = state['best_fit_result_good']
         self.flag = state['flag']
         self.phm = state['phm']
