@@ -1309,6 +1309,7 @@ class Solution(object):
                     histogram_models = np.array([self.histogram_model_list[0](pixel=pixel, res_id=res_id)
                                                  for _ in self.cfg.wavelengths])
                     calibration_model = self.calibration_model_list[0](pixel=pixel, res_id=res_id)
+                    # TODO: replace all these dictionaries with a structured numpy array to reduce object count
                     self._fit_array[pixel] = {'histograms': histogram_models, 'calibration': calibration_model}
         results = self._fit_array[key]
         if isinstance(results, np.ndarray) and results.size == 1:
