@@ -2095,7 +2095,7 @@ class Solution(object):
         plt.tight_layout()
         return axes
 
-    def plot_resolution_image(self, axes=None, wavelength=None, r=None, res_ids=None):
+    def plot_resolution_image(self, axes=None, wavelength=None, minimum=None, maximum=None, r=None, res_ids=None):
         """
         Plots an image of the array with the energy resolution as a color for this
         solution object.
@@ -2106,6 +2106,10 @@ class Solution(object):
             wavelength: a specific wavelength to plot data for. If used the plot will not
                         be interactive. Specify zero to plot a boolean mask of good/bad
                         pixels
+            minimum: only plot resolving powers above this value. No lower bound is used
+                     if it is not specified. Ignored if wavelength=0.
+            maximum: only plot resolving powers below this value. No upper bound is used
+                     if it is not specified. Ignored if wavelength=0.
             r: a NxM array of resolving powers to histogram where M corresponds to the
                wavelengths list in the configuration file. If none, they are calculated
                from the solution object. If wavelength is specified, M needs to be 1.
@@ -2131,6 +2135,8 @@ class Solution(object):
         if wavelength == 0:
             wavelengths = []
             number = 2
+            minimum = None
+            maximum = None
         else:
             wavelengths = self._parse_wavelengths(wavelength)
             number = 11
@@ -2143,6 +2149,10 @@ class Solution(object):
                     r_cube[w_index, pixel[1], pixel[0]] = r[index, w_index]
                 r_cube[-1, pixel[1], pixel[0]] = 1
         r_cube[np.isnan(r_cube)] = 0
+        if minimum is not None:
+            r_cube[:, np.any(r_cube < minimum, axis=0)] = 0
+        if maximum is not None:
+            r_cube[:, np.any(r_cube > maximum, axis=0)] = 0
 
         if axes is None:
             _, axes = plt.subplots(figsize=(8, 8))
@@ -2398,13 +2408,12 @@ class Solution(object):
         figures = [figure]
         if resolution_images:
             figure, axes = plt.subplots(figsize=figure_size)
-            axes, _ = self.plot_resolution_image(axes=axes, wavelength=0, r=r,
-                                                 res_ids=res_ids_r)
+            axes, _ = self.plot_resolution_image(axes=axes, wavelength=0, r=r, res_ids=res_ids_r)
             axes_list = np.append(axes_list, axes)
             figures.append(figure)
             for wavelength in self.cfg.wavelengths:
                 figure, axes = plt.subplots(figsize=figure_size)
-                axes, _ = self.plot_resolution_image(axes=axes, wavelength=wavelength,
+                axes, _ = self.plot_resolution_image(axes=axes, wavelength=wavelength, minimum=min_r, maximum=max_r,
                                                      r=r, res_ids=res_ids_r)
                 axes_list = np.append(axes_list, axes)
                 figures.append(figure)
