@@ -155,6 +155,8 @@ class MKIDFlatdataDescription(object):
         except AttributeError:
             return 'flatcal_{}.h5'.format(str(self.wavecal).replace(os.path.sep, '_'))
 
+    def __str__(self):
+        return '{}: {}'.format(self.name, self.ob if hasattr(self,'ob') else self.wavecal)
 
 class MKIDObservingDither(object):
     yaml_tag = '!dither'
@@ -250,6 +252,21 @@ class MKIDObservingDataset(object):
     @property
     def wavecalable(self):
         return self.all_observations
+
+    @property
+    def description(self):
+        """Return a string describing the data"""
+        s = ("Wavecals:\n{wc}\n"
+             "Flatcals:\n{fc}\n"
+             "Dithers:\n{dithers}\n"
+             "Single Obs:\n{obs}".format(wc=('\t-'+'\n\t-'.join([str(w).replace('\n','\n\t')
+                                                               for w in self.wavecals])) if  self.wavecals else
+                                         '\tNone',
+                                      fc=('\t-'+'\n\t-'.join([str(f) for f in self.flatcals])) if self.flatcals else
+                                         '\tNone',
+                                      dithers='Not implemented',
+                                      obs='Not implemented'))
+        return s
 
 
 def load_data_description(file):
