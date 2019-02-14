@@ -222,7 +222,7 @@ def plot_array(image, title='', xlabel='', ylabel='', cbar_stretch='linear', vmi
         good_image = image[np.isfinite(image)]
         kwargs['vmin'] = good_image.min()
     if not 'cmap' in kwargs:
-        default_cmap = matplotlib.cm.ocean
+        default_cmap = matplotlib.cm.magma
         default_cmap.set_bad('0.15')
         kwargs['cmap'] = default_cmap
     if not 'origin' in kwargs:
