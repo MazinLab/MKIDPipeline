@@ -78,7 +78,7 @@ from mkidpipeline.speckle.binned_rician import *
 import scipy.stats
 
 from mkidpipeline.utils import utils
-from mkidpipeline.utils.plottingTools import plot_array
+from mkidpipeline.utils.plottingTools import plot_array as pa
 from mkidcore.corelog import getLogger
 import mkidcore.corelog
 
@@ -498,24 +498,27 @@ def cps_cut_img(image, sigma=5, max_cut=2450, cold_mask=False):
         raw_image = raw_image.T
 
     # initial masking, flag dead pixels (counts < 0.01) and flag anything with cps > maxCut as hot
-    bad_mask = np.zeros_like(raw_image)
-    bad_mask[np.where(raw_image<=0.01)]=3
-    bad_mask[np.where(raw_image>=max_cut)]=1
+    hot_mask = np.zeros_like(raw_image)
+    dead_mask = np.zeros_like(raw_image)
+    hot_mask[np.where(raw_image>=max_cut)]=1
+    dead_mask[np.where(raw_image<=0.01)]=3
 
     #second round of masking, flag where cps > mean+sigma*std as hot
     with warnings.catch_warnings():
         # nan values will give an unnecessary RuntimeWarning
         warnings.simplefilter("ignore", category=RuntimeWarning)
-        bad_mask[np.where(raw_image>=np.nanmedian(raw_image)+sigma*np.nanstd(raw_image))]=1
+        hot_mask[np.where(raw_image>=np.nanmedian(raw_image)+sigma*np.nanstd(raw_image))]=1
 
     #if coldCut is true, also mask cps < mean-sigma*std
     if cold_mask==True:
         with warnings.catch_warnings():
             # nan values will give an unnecessary RuntimeWarning
             warnings.simplefilter("ignore", category=RuntimeWarning)
-            bad_mask[np.where(raw_image<=np.nanmedian(raw_image)-sigma*np.nanstd(raw_image))]=1
+            hot_mask[np.where(raw_image<=np.nanmedian(raw_image)-sigma*np.nanstd(raw_image))]=1
 
-    return {'bad_mask': bad_mask, 'image': raw_image}
+    bad_mask = dead_mask + hot_mask
+
+    return {'bad_mask': bad_mask, 'dead_mask': dead_mask, 'hot_mask': hot_mask, 'image': raw_image}
 
 
 def cps_cut_stack(stack, len_stack, sigma=4, max_cut=2450, cold_mask=False, verbose=False):
@@ -621,13 +624,13 @@ def find_bad_pixels(obsfile, hpcutmethod, time_step=30, start_time=0, end_time= 
     if end_time is None: pass
 
     #Some arguments necessary to be passed into getPixelCountImage
-    if self.info['isSpecCalibrated']:  applyWeight = True
+    if obsfile.info['isSpecCalibrated']:  applyWeight = True
     else:  applyWeight = False
-    if method==cps_cut_img: scaleByEffInt = True
+    if hpcutmethod=='cps_cut_img': scaleByEffInt = True
     else:  scaleByEffInt = False
     applyTPFWeight=False #Change once we write the noise calibration
 
-    exp_time = obsfile.getFromHeader('exptime')
+    exp_time = obsfile.getFromHeader('expTime')
     if end_time < 0: end_time = exp_time
     step_starts = np.arange(start_time, end_time, time_step)  # Start time for each step (in seconds).
     step_ends = step_starts + time_step  # End time for each step
@@ -638,26 +641,34 @@ def find_bad_pixels(obsfile, hpcutmethod, time_step=30, start_time=0, end_time= 
     assert (np.all((step_starts >= start_time) & (step_ends <= end_time)))
 
     # Initialise stack of masks, one for each time step
-    hot_masks = np.zeros([obsfile.xpix, obsfile.ypix, nsteps], dtype=np.int8)
-    dead_masks = np.zeros([obsfile.xpix, obsfile.ypix, nsteps], dtype=np.int8)
+    hot_masks = np.zeros([obsfile.nXPix, obsfile.nYPix, nsteps], dtype=np.int8)
+    dead_masks = np.zeros([obsfile.nXPix, obsfile.nYPix, nsteps], dtype=np.int8)
 
     #Generate a stack of bad pixel mask, one for each time step
     for i, each_time in enumerate(step_starts):
-        getLogger(__name__).info('Processing time slice: '.format(str(each_time)) + ' - ' + str(each_time + time_step) + 's')
+        #getLogger(__name__).info('Processing time slice: '.format(str(each_time)) + ' - ' + str(each_time + time_step) + 's')
         raw_image_dict = obsfile.getPixelCountImage(firstSec=each_time, integrationTime=time_step, applyWeight=applyWeight,
                                                     applyTPFWeight=applyTPFWeight, scaleByEffInt=scaleByEffInt)
-        bad_pixel_solution = hpcutmethod(image = raw_image_dict['image'], *hpcutargs, **hpcutkwargs)
+        raw_image_dict['image'][np.isnan(raw_image_dict['image'])] = 0  #getPixelCountImage returns dead pix as nans but the HP fxns expect them to be 0
+        if hpcutmethod=='hpm_flux_threshold':   #TODO: remove if statements and rework so any hot pixel fxn can be passed through the hpcutmethod parameter
+            bad_pixel_solution = hpm_flux_threshold(raw_image_dict['image'], *hpcutargs, **hpcutkwargs)
+        elif hpcutmethod == 'hpm_median_movingbox':
+            bad_pixel_solution = hpm_median_movingbox(raw_image_dict['image'], *hpcutargs, **hpcutkwargs)
+        elif hpcutmethod == 'cps_cut_img':
+            bad_pixel_solution = cps_cut_img(raw_image_dict['image'], *hpcutargs, **hpcutkwargs)
+        elif hpcutmethod == 'hpm_laplacian':
+            bad_pixel_solution = hpm_laplacian(raw_image_dict['image'], *hpcutargs, **hpcutkwargs)
+        else:
+            print('method '+hpcutmethod+'does not exist')
+            return
         dead_masks[:,:,i] = bad_pixel_solution['dead_mask']
         hot_masks[:, :, i] = bad_pixel_solution['hot_mask']
 
     #Combine the bad pixel masks into a master mask
     dead_pixel_mask = (np.sum(dead_masks, axis=-1)/nsteps)*3
     hot_pixel_mask = np.sum(hot_masks, axis=-1)/nsteps
-    bad_pixel_mask=dead_pixel_mask + hot_pixel_mask
-
-    #Write it all out to the obs file
-
-    obsfile.write_bad_pixels(obsfile, bad_pixel_mask)
+    bad_pixel_mask=np.array(dead_pixel_mask + hot_pixel_mask)
+    obsfile.write_bad_pixels(bad_pixel_mask)
 
 
 def save_mask_array(mask= None, out_directory= None):
