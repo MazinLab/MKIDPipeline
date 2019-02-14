@@ -2606,58 +2606,6 @@ class Solution(object):
         return not isinstance(self.fit_array[pixel[0], pixel[1]][0], dict)
 
 
-class Solution2(Solution):
-    """
-    Updated solution class for the wavelength calibration for faster loading.
-    Initialize with either the file_name argument or both the fit_array and
-    configuration arguments.
-    """
-    def __init__(self, file_path=None, fit_array=None, configuration=None, beam_map=None,
-                 beam_map_flags=None, solution_name='solution.npz'):
-        dt = [('histograms', object), ('calibration', object)]
-        if file_path is None and fit_array is None and configuration is not None:
-            fit_array = np.empty((configuration.beammap.ncols, configuration.beammap.nrows), dtype=dt)
-        super().__init__(file_path=file_path, fit_array=fit_array, configuration=configuration, beam_map=beam_map,
-                         beam_map_flags=beam_map_flags, solution_name=solution_name)
-        self._dt = dt
-
-    def __getitem__(self, key):
-        new_key = key
-        if not isinstance(key[0], slice):
-            index = new_key[0].item() if isinstance(new_key[0], np.ndarray) else new_key[0]
-            new_key = (slice(index, index + 1), new_key[1])
-        if not isinstance(key[1], slice):
-            index = new_key[1].item() if isinstance(new_key[1], np.ndarray) else new_key[1]
-            new_key = (new_key[0], slice(index, index + 1))
-        results = np.atleast_2d(self.fit_array[new_key])
-        empty = (results == np.array((None, None), dtype=self._dt))
-        if empty.any():
-            start0 = new_key[0].start if new_key[0].start is not None else 0
-            start1 = new_key[1].start if new_key[1].start is not None else 0
-            step0 = new_key[0].step if new_key[0].step is not None else 1
-            step1 = new_key[1].step if new_key[1].step is not None else 1
-            for index, entry in np.ndenumerate(results):
-                if empty[index]:
-                    pixel = np.array((index[0] * step0 + start0, index[1] * step1 + start1)).squeeze()
-                    pixel = (pixel[0], pixel[1])  # ensures pixel is a tuple of integers
-                    res_id = self.beam_map[pixel[0], pixel[1]]
-                    histogram_models = np.array([self.histogram_model_list[0](pixel=pixel, res_id=res_id)
-                                                 for _ in self.cfg.wavelengths])
-                    calibration_model = self.calibration_model_list[0](pixel=pixel, res_id=res_id)
-                    self.fit_array[pixel]['histograms'] = histogram_models
-                    self.fit_array[pixel]['calibration'] = calibration_model
-        results = self.fit_array[key]
-        if isinstance(results, np.ndarray) and results.size == 1:
-            results = results[0]
-        return results
-
-    def _is_empty(self, pixel):
-        empty = np.array([(np.array([None] * 5, dtype=object), None)], dtype=self._dt)
-        hist = (self.fit_array[pixel[0], pixel[1]][0]['histograms'] == empty['histograms'][0]).any()
-        cal = self.fit_array[pixel[0], pixel[1]][0]['calibration'] == empty['calibration']
-        return hist and cal
-
-
 def load_solution(wc, singleton_ok=True):
     """wc is a solution file or a Solution object"""
     global _loaded_solutions
