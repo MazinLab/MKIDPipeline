@@ -220,8 +220,7 @@ class Calibrator(object):
         del obs_files
 
         # initialize fit array
-        fit_array = np.empty((self.cfg.beammap.ncols, self.cfg.beammap.nrows), dtype=object)
-        self.solution = Solution(fit_array=fit_array, configuration=self.cfg,
+        self.solution = Solution(configuration=self.cfg,
                                  # beam_map=self.cfg.beammap.residmap, beam_map_flags=self.cfg.beammap.flagmap,
                                  beam_map=beam_map, beam_map_flags=beam_map_flags,
                                  solution_name=self.solution_name)
@@ -543,7 +542,7 @@ class Calibrator(object):
                     if wavelength is None:
                         message = "({}, {}) : ".format(pixel[0], pixel[1])
                     else:
-                        message = ("({}, {}) @ {} nm : ".format(pixel[0], pixel[1], wavelength))
+                        message = ("({}, {}) : {} nm : ".format(pixel[0], pixel[1], wavelength))
                     log.error(message, exc_info=True)
                     raise error
             # update progress bar
@@ -767,9 +766,7 @@ class Calibrator(object):
         # configure number of processes
         n_data = pixels.shape[1]
         cpu_count = mkidpipeline.config.n_cpus_available()
-        log.info("using {} CPUs".format(cpu_count))
-
-        pipelinelog.getLogger(__name__).info('Running using {} cores'.format(cpu_count))
+        log.info("Using {} additional cores".format(cpu_count))
         # make input, output and progress queues
         workers = []
         progress_worker = None
@@ -782,17 +779,20 @@ class Calibrator(object):
             events.append(mp.Event())
         try:
             # make cpu_count number of workers to process the data
-            for index in range(cpu_count - 1):
-                workers.append(Worker(self.cfg, method, events[index], input_queue, output_queue, progress_queue,
+            for index in range(cpu_count - 1 * bool(verbose)):
+                workers.append(Worker(self.cfg, method, events[index], input_queue, output_queue,
+                                      progress_queue if verbose else None,
                                       shared_tables=self._shared_tables, name=str(index)))
             # make a worker to handle the progress bar and start the progress bar
-            progress_worker = Worker(self.cfg, "_update_progress", events[-1], progress_queue, name='progress')
-            progress_queue.put({"number": n_data, "initialize": True, "verbose": verbose})
+            if verbose:
+                progress_worker = Worker(self.cfg, "_update_progress", events[-1], progress_queue, name='progress')
+                progress_queue.put({"number": n_data, "initialize": True, "verbose": verbose})
             # assign data to workers
             for pixel in pixels.T:
                 # skip if there's no data (but not if the data hasn't been made yet)
                 if (not self.solution.has_data(pixel=pixel).any()) and method != 'make_histograms':
-                    progress_queue.put({"verbose": verbose})
+                    if verbose:
+                        progress_queue.put({"verbose": verbose})
                     self._acquired += 1  # needed for _acquire_data() before joining workers
                     continue
                 kwargs = {"pixel": pixel, "wavelengths": wavelengths, "verbose": verbose}
@@ -808,7 +808,7 @@ class Calibrator(object):
                 #  the deepcopies required/implied? by going into the queues with fit/model objects is expensive
                 #  and may be taking ~50% to all the time for the second two phases.
             # tell each worker to stop after all the data has been processed
-            for index in range(cpu_count - 1):
+            for index in range(cpu_count - 1 * bool(verbose)):
                 while input_queue.qsize() > self._max_queue_size / 2:
                     self._acquire_data(n_data, output_queue)
                 input_queue.put({"stop": True})
@@ -818,13 +818,15 @@ class Calibrator(object):
             # close processes when done
             for w in workers:
                 w.join()
-            progress_queue.put({"finish": True, "verbose": verbose})
-            progress_queue.put({"stop": True})
-            progress_worker.join()
+            if verbose:
+                progress_queue.put({"finish": True, "verbose": verbose})
+                progress_queue.put({"stop": True})
+                progress_worker.join()
+            log.info("{} cores released".format(cpu_count))
         except KeyboardInterrupt:
             log.debug('cleaning up workers')
             self._clean_up(input_queue, output_queue, progress_queue, workers,
-                           progress_worker, events, n_data, cpu_count)
+                           progress_worker, events, n_data, cpu_count, verbose)
             log.debug('cleaned up')
             raise KeyboardInterrupt
 
@@ -1070,9 +1072,9 @@ class Calibrator(object):
         return True
 
     def _clean_up(self, input_queue, output_queue, progress_queue, workers,
-                  progress_worker, events, n_data, cpu_count):
+                  progress_worker, events, n_data, cpu_count, verbose):
         # send an extra stop flag just in case
-        for index in range(cpu_count - 1):
+        for index in range(cpu_count - 1 * bool(verbose)):
             while input_queue.qsize() > max(0, self._max_queue_size - 2):
                 input_queue.get()
             input_queue.put({"stop": True})
@@ -1128,7 +1130,7 @@ class Calibrator(object):
             progress_worker.terminate()
             progress_worker.join()
         log.debug("progress worker closed")
-
+        log.info("{} cores released".format(cpu_count))
 
 class Worker(mp.Process):
     """Worker class for running methods in the wavelength calibration in parallel."""
@@ -1167,10 +1169,7 @@ class Worker(mp.Process):
         try:
             while True:
                 # get next bit of data to analyze
-                foo_tic=time.time()
                 kwargs = self.input_queue.get()
-                foo_elapsed[0][0]+=time.time()-foo_tic
-                foo_elapsed[0][1]+=1
                 # check for stopping condition
                 stop = kwargs.pop("stop", False)
                 if stop:
@@ -1184,21 +1183,17 @@ class Worker(mp.Process):
                     wavelengths = kwargs.pop("wavelengths", False)
                     # get the verbose keyword to defer to the progress worker
                     verbose = kwargs.get("verbose", False)
-
                     # supplying pixel means we are running one of the three main methods
                     if pixel is not False:
                         pixel, wavelengths = self.calibrator._setup(pixel, wavelengths)
                         kwargs['pixels'] = pixel
                         kwargs['wavelengths'] = wavelengths
                         kwargs['verbose'] = False
-
                     # supplying fit_element means we are overloading the local fit element
                     if fit_element is not False:
                         self.calibrator.solution[pixel[0], pixel[1]] = fit_element
-
                     # run the requested method
                     getattr(self.calibrator, self.method)(**kwargs)
-
                     # output data into queue if we are running one of the main methods
                     if pixel is not False and self.output_queue is not None:
                         foo_tic = time.time()
@@ -1206,10 +1201,8 @@ class Worker(mp.Process):
                         if self.calibrator.solution.has_data(pixel=pixel).any():
                             return_dict.update({"fit_element": self.calibrator.solution[pixel[0], pixel[1]]})
                         self.output_queue.put(return_dict)  # phase 1, ~1/2 in phase 2 @ .25s/call
-                        foo_elapsed[1][0] += time.time() - foo_tic
-                        foo_elapsed[1][1] += 1
-                        self.progress_queue.put({"verbose": verbose})  # cumulative over 20k pixels ~5s
-
+                        if self.progress_queue is not None:
+                            self.progress_queue.put({"verbose": verbose})  # cumulative over 20k pixels ~5s
         except KeyboardInterrupt:
             self.finished.set()
             self.finished.wait()
@@ -1227,37 +1220,31 @@ class Solution(object):
     argument or both the fit_array and configuration arguments."""
     def __init__(self, file_path=None, fit_array=None, configuration=None, beam_map=None,
                  beam_map_flags=None, solution_name='solution.npz'):
-        # Don't use self in init or it will force loading at creation!
+        # default parameters
         self._color_map = cm.get_cmap('viridis')
-        self._file_path = os.path.abspath(file_path) if file_path is not None else file_path
         self._parse = True
-        self._fit_array = fit_array
-        self._beam_map = beam_map  # TODO: integrate beam map object
-        self._beam_map_flags = beam_map_flags
-
+        # load in arguments
+        self._file_path = os.path.abspath(file_path) if file_path is not None else file_path
+        self.fit_array = fit_array
+        self.beam_map = beam_map
+        self.beam_map_flags = beam_map_flags
         self.cfg = configuration
-
-        # load in solution and configuration objects
-        if fit_array is not None and configuration is not None and beam_map is not None:
-            self._unloaded = False
-            self.name = solution_name
-            self._finish_init()
-        elif file_path is not None:
-            self._unloaded = True
-            self.name = os.path.basename(file_path)
+        # if we've specified a file load it without overloading previously set arguments
+        if self._file_path is not None:
+            self.load(self._file_path, overload=False)
+        # if not finish the init
         else:
-            raise ValueError('provide either a file_path or both the fit_array and '
-                             'configuration arguments')
+            self.name = solution_name  # use the default or specified name for saving
+            self.npz = None  # no npz file so all the properties should be set
+            self._finish_init()
 
     def _finish_init(self):
-        self._file_path = self.save_path = os.path.join(self.cfg.out_directory, self.name)
-
         # load in fitting models
         self.histogram_model_list = [getattr(wm, name) for _, name in
                                      enumerate(self.cfg.histogram_model_names)]
         self.calibration_model_list = [getattr(wm, name) for _, name in
                                        enumerate(self.cfg.calibration_model_names)]
-
+        # create lookup tables
         x_pixels = np.indices(self.beam_map.shape)[0, :, :].ravel()
         y_pixels = np.indices(self.beam_map.shape)[1, :, :].ravel()
         lookup_table = np.array([self.beam_map.ravel(), x_pixels, y_pixels])
@@ -1266,11 +1253,12 @@ class Solution(object):
         self._reverse_beam_map = np.zeros((2, res_ids.size), dtype=int)
         indices = np.searchsorted(res_ids, lookup_table[0, :])
         self._reverse_beam_map[:, indices] = lookup_table[1:, :]
+        # quick vectorized type operation
         self._type = np.vectorize(type, otypes=[str])
 
     @classmethod
     def to_yaml(cls, representer, node):
-        return representer.represent_mapping(cls.yaml_tag, {'file': node.save_path})
+        return representer.represent_mapping(cls.yaml_tag, {'file': node._file_path})
 
     @classmethod
     def from_yaml(cls, constructor, node):
@@ -1279,24 +1267,17 @@ class Solution(object):
     def __str__(self):
         return self._file_path
 
-    def __getattribute__(self, item):
-        ok = ('name', '_ipython_canary_method_should_not_exist_', '_repr_mimebundle_', '_file_path')
-        if (item.startswith('__') and item not in ('__getitem__', '__setitem__')) or item in ok:
-            return object.__getattribute__(self, item)
-        if object.__getattribute__(self, '_unloaded'):
-            pipelinelog.getLogger(__name__).info('Loading solution due to request for ' + item)
-            object.__getattribute__(self, 'load')(object.__getattribute__(self, '_file_path'))
-        return object.__getattribute__(self, item)
-
     def __getitem__(self, key):
-        results = np.atleast_2d(self._fit_array[key])
+        new_key = key
+        if not isinstance(key[0], slice):
+            index = new_key[0].item() if isinstance(new_key[0], np.ndarray) else new_key[0]
+            new_key = (slice(index, index + 1), new_key[1])
+        if not isinstance(key[1], slice):
+            index = new_key[1].item() if isinstance(new_key[1], np.ndarray) else new_key[1]
+            new_key = (new_key[0], slice(index, index + 1))
+        results = np.atleast_2d(self.fit_array[new_key])
         empty = (results == np.array([None]))
         if empty.any():
-            new_key = key
-            if not isinstance(key[0], slice):
-                new_key = (slice(new_key[0], new_key[0] + 1), new_key[1])
-            if not isinstance(key[1], slice):
-                new_key = (new_key[0], slice(new_key[1], new_key[1] + 1))
             start0 = new_key[0].start if new_key[0].start is not None else 0
             start1 = new_key[1].start if new_key[1].start is not None else 0
             step0 = new_key[0].step if new_key[0].step is not None else 1
@@ -1309,19 +1290,17 @@ class Solution(object):
                     histogram_models = np.array([self.histogram_model_list[0](pixel=pixel, res_id=res_id)
                                                  for _ in self.cfg.wavelengths])
                     calibration_model = self.calibration_model_list[0](pixel=pixel, res_id=res_id)
-                    # TODO: replace all these dictionaries with a structured numpy array to reduce object count
-                    self._fit_array[pixel] = {'histograms': histogram_models, 'calibration': calibration_model}
-        results = self._fit_array[key]
+                    self.fit_array[pixel] = {'histograms': histogram_models, 'calibration': calibration_model}
+        results = self.fit_array[key]
         if isinstance(results, np.ndarray) and results.size == 1:
             results = results[0]
         return results
 
     def __setitem__(self, key, value):
-        self._fit_array[key] = value
+        self.fit_array[key] = value
 
     def save(self, save_name=None):
         """Save the solution to a file whose name is determined by the configuration."""
-        # TODO: saving and loading is slow: only save parts needed to recreate solution
         if save_name is None:
             save_path = os.path.join(self.cfg.out_directory, self.name)
         else:
@@ -1332,37 +1311,82 @@ class Solution(object):
             self.cfg = Configuration(self.cfg.configuration_path)
 
         log.info("Saving solution to {}".format(save_path))
-        np.savez(save_path, fit_array=self._fit_array,
-                 configuration=self.cfg, beam_map=self._beam_map,
-                 beam_map_flags=self._beam_map_flags)
+        np.savez(save_path, fit_array=self.fit_array, configuration=self.cfg, beam_map=self.beam_map,
+                 beam_map_flags=self.beam_map_flags)
+        self._file_path = save_path  # new file_path for the solution
 
-    def load(self, file_path):
+    def load(self, file_path, overload=True):
         log.info("Loading solution from {}".format(file_path))
         try:
+            keys = ('fit_array', 'configuration', 'beam_map', 'beam_map_flags')
             npz_file = np.load(file_path)
-            self._fit_array = npz_file['fit_array']
-            self.cfg = npz_file['configuration'].item()
-            self._beam_map = npz_file['beam_map']
-            self._beam_map_flags = npz_file['beam_map_flags']
-            self._file_path = file_path
-            self.name = os.path.basename(file_path)
-            self._unloaded = False
+            for key in npz_file.keys():
+                assert key in keys, key
+            self.npz = npz_file
+            if overload:  # properties grab from self.npz if set to none
+                for attr in keys:
+                    setattr(self, attr, None)
+            self._file_path = file_path  # new file_path for the solution
+            self.name = os.path.basename(file_path)  # new name for saving
             self._finish_init()
             log.info("Complete")
-        except (OSError, KeyError):
+        except (OSError, AssertionError):
             message = "Failed to interpret '{}' as a wavecal solution object"
             raise OSError(message.format(file_path))
 
     @property
+    def fit_array(self):
+        if self._fit_array is not None:
+            return self._fit_array
+        elif self.npz is not None:
+            self._fit_array = self.npz['fit_array']
+            return self._fit_array
+        else:
+            self._fit_array = np.empty((self.cfg.beammap.ncols, self.cfg.beammap.nrows), dtype=object)
+            return self._fit_array
+
+    @fit_array.setter
+    def fit_array(self, value):
+        self._fit_array = value
+
+    @property
+    def cfg(self):
+        if self._cfg is not None:
+            return self._cfg
+        else:
+            self._cfg = self.npz['configuration'].item()
+            return self._cfg
+
+    @cfg.setter
+    def cfg(self, value):
+        self._cfg = value
+
+    @property
     def beam_map(self):
         """ResIDs for the x and y positions on the array (beam_map[x_ind, y_ind])."""
-        return self._beam_map
+        if self._beam_map is not None:
+            return self._beam_map
+        else:
+            self._beam_map = self.npz['beam_map']
+            return self._beam_map
+
+    @beam_map.setter
+    def beam_map(self, value):
+        self._beam_map = value
 
     @property
     def beam_map_flags(self):
         """Beam map flags for the x and y positions on the array
          (beam_map_flags[x_ind, y_ind])."""
-        return self._beam_map_flags
+        if self._beam_map_flags is not None:
+            return self._beam_map_flags
+        else:
+            self._beam_map_flags = self.npz['beam_map_flags']
+            return self._beam_map_flags
+
+    @beam_map_flags.setter
+    def beam_map_flags(self, value):
+        self._beam_map_flags = value
 
     def resolving_powers(self, pixel=None, res_id=None, wavelengths=None):
         """
@@ -1587,7 +1611,7 @@ class Solution(object):
         """Returns True if the resonator has a good wavelength calibration fit. Returns
          False otherwise."""
         pixel, _ = self._parse_resonators(pixel, res_id)
-        if not isinstance(self._fit_array[pixel[0], pixel[1]][0], dict):
+        if self._is_empty(pixel):
             return False
         model = self.calibration_model(pixel=pixel)
         return model.has_good_solution()
@@ -1662,7 +1686,7 @@ class Solution(object):
         histogram fit and False otherwise for the corresponding wavelength.
         """
         pixel, _ = self._parse_resonators(pixel, res_id)
-        if not isinstance(self._fit_array[pixel[0], pixel[1]][0], dict):
+        if self._is_empty(pixel):
             return np.array([False] * len(wavelengths))
         models = self.histogram_models(wavelengths, pixel=pixel)
         good = np.array([model.has_good_solution() for model in models])
@@ -1674,7 +1698,7 @@ class Solution(object):
         wavelength."""
         pixel, _ = self._parse_resonators(pixel, res_id)
         wavelengths = self._parse_wavelengths(wavelengths)
-        if not isinstance(self._fit_array[pixel[0], pixel[1]][0], dict):
+        if self._is_empty(pixel):
             return np.array([False] * len(wavelengths))
         models = self.histogram_models(wavelengths, pixel=pixel)
         data = np.array([model.x is not None and model.y is not None for model in models])
@@ -2511,8 +2535,7 @@ class Solution(object):
                 pixels = np.atleast_2d(pixels).T
             if pixels.size == 2 and pixels.shape[1] == 2:
                 pixels = pixels.T
-            bad_input = (not np.issubdtype(pixels.dtype, np.integer) or
-                         pixels.shape[0] != 2)
+            bad_input = (not np.issubdtype(pixels.dtype, np.integer) or pixels.shape[0] != 2)
             if bad_input:
                 raise ValueError("pixels must be a list of pairs of integers: {}".format(pixels))
         else:
@@ -2578,6 +2601,61 @@ class Solution(object):
         contour_set = axes.contourf(z, levels, cmap=self._color_map)
         plt.colorbar(contour_set, ax=axes, label='wavelength [nm]', aspect=50)
         axes.clear()
+
+    def _is_empty(self, pixel):
+        return not isinstance(self.fit_array[pixel[0], pixel[1]][0], dict)
+
+
+class Solution2(Solution):
+    """
+    Updated solution class for the wavelength calibration for faster loading.
+    Initialize with either the file_name argument or both the fit_array and
+    configuration arguments.
+    """
+    def __init__(self, file_path=None, fit_array=None, configuration=None, beam_map=None,
+                 beam_map_flags=None, solution_name='solution.npz'):
+        dt = [('histograms', object), ('calibration', object)]
+        if file_path is None and fit_array is None and configuration is not None:
+            fit_array = np.empty((configuration.beammap.ncols, configuration.beammap.nrows), dtype=dt)
+        super().__init__(file_path=file_path, fit_array=fit_array, configuration=configuration, beam_map=beam_map,
+                         beam_map_flags=beam_map_flags, solution_name=solution_name)
+        self._dt = dt
+
+    def __getitem__(self, key):
+        new_key = key
+        if not isinstance(key[0], slice):
+            index = new_key[0].item() if isinstance(new_key[0], np.ndarray) else new_key[0]
+            new_key = (slice(index, index + 1), new_key[1])
+        if not isinstance(key[1], slice):
+            index = new_key[1].item() if isinstance(new_key[1], np.ndarray) else new_key[1]
+            new_key = (new_key[0], slice(index, index + 1))
+        results = np.atleast_2d(self.fit_array[new_key])
+        empty = (results == np.array((None, None), dtype=self._dt))
+        if empty.any():
+            start0 = new_key[0].start if new_key[0].start is not None else 0
+            start1 = new_key[1].start if new_key[1].start is not None else 0
+            step0 = new_key[0].step if new_key[0].step is not None else 1
+            step1 = new_key[1].step if new_key[1].step is not None else 1
+            for index, entry in np.ndenumerate(results):
+                if empty[index]:
+                    pixel = np.array((index[0] * step0 + start0, index[1] * step1 + start1)).squeeze()
+                    pixel = (pixel[0], pixel[1])  # ensures pixel is a tuple of integers
+                    res_id = self.beam_map[pixel[0], pixel[1]]
+                    histogram_models = np.array([self.histogram_model_list[0](pixel=pixel, res_id=res_id)
+                                                 for _ in self.cfg.wavelengths])
+                    calibration_model = self.calibration_model_list[0](pixel=pixel, res_id=res_id)
+                    self.fit_array[pixel]['histograms'] = histogram_models
+                    self.fit_array[pixel]['calibration'] = calibration_model
+        results = self.fit_array[key]
+        if isinstance(results, np.ndarray) and results.size == 1:
+            results = results[0]
+        return results
+
+    def _is_empty(self, pixel):
+        empty = np.array([(np.array([None] * 5, dtype=object), None)], dtype=self._dt)
+        hist = (self.fit_array[pixel[0], pixel[1]][0]['histograms'] == empty['histograms'][0]).any()
+        cal = self.fit_array[pixel[0], pixel[1]][0]['calibration'] == empty['calibration']
+        return hist and cal
 
 
 def load_solution(wc, singleton_ok=True):

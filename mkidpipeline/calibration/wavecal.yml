@@ -41,9 +41,6 @@ wavecal: !configdict
     parallel: True
     parallel_prefetch: False #use shared memory to load ALL the photon data into ram
 
-templar: !configdict
-  file: "templarconf.cfg"
-
 ncpu: 20
 
 
