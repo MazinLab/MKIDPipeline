@@ -630,7 +630,7 @@ def find(obsfile, method, time_step=30, start_time=0, end_time=np.inf, *cutargs,
         hot_masks[:, :, i] = bad_pixel_solution['hot_mask']
 
     #Combine the bad pixel masks into a master mask and write it all out to the obs file
-    obsfile.flag(dead_masks.any(axis=-1) * pixelflags.DEADPIXEL + hot_masks.any(axis=-1) * pixelflags.DEADPIXEL)
+    obsfile.flag((dead_masks.any(axis=-1) * pixelflags.DEADPIXEL) | (hot_masks.any(axis=-1) * pixelflags.HOTPIXEL))
 
 
 def save_mask_array(mask= None, out_directory= None):
