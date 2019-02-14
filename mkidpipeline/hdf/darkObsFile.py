@@ -799,16 +799,17 @@ class ObsFile:
         Writes a 'bad pixel table' to an output h5 file titled 'badpixmask_--timestamp--.h5'.
 
         """
-        badpixmask = self.create_group(self.root, 'badpixmap', 'Bad Pixel Map')
+        badpixmask = self.file.create_group(self.file.root, 'badpixmap', 'Bad Pixel Map')
         tables.Array(badpixmask, 'badpixmap', obj=bad_pixel_mask,
                      title='Bad Pixel Mask')
 
-        self.flush()
-        self.close()
+        self.file.flush()
+        self.file.close()
 
     def loadBestWvlCalFile(self,master=True):
         """
         Searchs the waveCalSolnFiles directory tree for the best wavecal to apply to this obsfile.
+        if master==True then it first looks for a master wavecal solution
         if master==True then it first looks for a master wavecal solution
         """
         raise NotImplementedError
