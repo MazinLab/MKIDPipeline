@@ -461,6 +461,15 @@ def buildtables(timeranges, config=None, ncpu=1, asynchronous=False, remake=Fals
         pool.join()
 
 
+def tests(file):
+    """tests that should be good on a h5 file"""
+    import h5py
+    t = h5py.File(file, 'r')
+    badrids = np.array(t['BeamMap']['Map'])[np.array(t['BeamMap']['Flag']) > 0].ravel()
+    rid = np.array(t['Photons']['PhotonTable']['ResID'])
+    assert np.isin(rid, badrids).sum()==0
+
+
 if __name__ == '__main__':
     """run as a dummy for testing"""
     print('Pretending to run bin2hdf on ' + sys.argv[1])
