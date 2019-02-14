@@ -26,14 +26,15 @@ This code is adapted from Julian's testImageStack from the ARCONS pipeline.
 import os
 import numpy as np
 import time
-from astropy import wcs
-from astropy.io import fits
-if __name__ != '__main__':
-    from drizzle import drizzle as stdrizzle
-import astropy
-# import matplotlib.pylab as plt
+import matplotlib.pylab as plt
+from matplotlib.colors import LogNorm
 import ephem
 import glob
+from astropy import wcs
+from astropy.io import fits
+from astropy.coordinates import EarthLocation
+import astropy
+from drizzle import drizzle as stdrizzle
 from mkidcore import pixelflags
 from mkidpipeline.hdf.photontable import ObsFile
 from mkidcore.corelog import getLogger
@@ -147,7 +148,7 @@ def drizzleDither(dither, *args, **kwargs):
     drizzleddata = drizzle([ObsFile(get_h5_filename(ob)) for ob in dither], **kwargs)
     drizzleddata.save(dither.name)
 
-def getditherdata(ditherdesc):
+def getmetafromh5():
     '''
     Helper function not properly implemented yet. Hard coded values from Trap
 
@@ -157,61 +158,78 @@ def getditherdata(ditherdesc):
 
     # raise NotImplementedError
 
-    ditherdesc.cenRA = 1.463
-    ditherdesc.cenDec = 0.0951
-    ditherdesc.xpix = 140
-    ditherdesc.ypix = 146
-    ditherdesc.platescale = 0.44
+    cenRA = 1.463
+    cenDec = 0.0951
+    xpix = 140
+    ypix = 146
+    platescale = 0.44
+
+    return (cenRA, cenDec, xpix, ypix, platescale)
 
 class DitherDescription(object):
     '''
-    Not sure this is the best architecture but this class suplements the dither metadata. Another way would be to
-    put these fucntions in the original class definition in config.py
+    Info on the dither
+
+    rotate determines if the effective integrations are pupil stablised or not
+
+    TODO implement center of rotation
     '''
-    def __init__(self, mkid_observing_dither, rotate=True):
+    def __init__(self, mkid_observing_dither, h5dithdata, observatory='greenwich', rotate=False):
         self.description = mkid_observing_dither
-        #TODO implement. Should take the place of ditherdict and more
 
-        pixel_x, pixel_y = ditherp_2_pixel(mkid_observing_dither.pos)
+        # these definitions need to be redone
+        self.cenRA = h5dithdata[0]
+        self.cenDec = h5dithdata[1]
+        self.xpix = h5dithdata[2]
+        self.ypix = h5dithdata[3]
+        self.platescale = h5dithdata[4]
+        self.pos = mkid_observing_dither.pos
 
-        mkid_observing_dither.xCentroids = pixel_x
-        mkid_observing_dither.yCentroids = pixel_y
+        xCentroids, yCentroids = ditherp_2_pixel(self.pos)
 
-        mkid_observing_dither.hourAngles = self.calcHAs([o.start for o in mkid_observing_dither.obs],
-                                                        ephem.hours(mkid_observing_dither.cenRA).real)
+        if rotate:
+            print('**** warning: the rotation seems to be around the wrong point ****')
+            times = [o.start for o in mkid_observing_dither.obs]
+            site = EarthLocation.of_site(observatory)
+            LSTs = astropy.time.Time(val=times, format='unix').sidereal_time('mean', site.lon).radian
 
-        if not rotate:
-            mkid_observing_dither.hourAngles = np.zeros_like(mkid_observing_dither.hourAngles)
-        getLogger(__name__).debug("HAs: %s", mkid_observing_dither.hourAngles)
+            #TODO RA is a function of xPos and yPos too right? The HA should depend on the position in the array
+            self.hourAngles = LSTs - ephem.hours(self.cenRA).real
 
-
-        # Note - changed rotation direction here - JvE 6/5/2013
-        mkid_observing_dither.rotationMatrix = np.array([[np.cos(mkid_observing_dither.hourAngles),
-                                                          -np.sin(mkid_observing_dither.hourAngles)],
-                                                         [np.sin(mkid_observing_dither.hourAngles),
-                                                          np.cos(mkid_observing_dither.hourAngles)]]).T
-        mkid_observing_dither.centroidRotated = np.dot(mkid_observing_dither.rotationMatrix,
-                                                       np.array([mkid_observing_dither.xCentroids,
-                                                                 mkid_observing_dither.yCentroids])).diagonal(
-            axis1=0, axis2=2)
-
-    def calcHAs(self, times, RAs, observatory='greenwich'):
-        # RA is a function of xPos and yPos too right?
-        # **** This needs to be verified!!! ****
-
-        if observatory == 'Mauna Kea':
-            longitude = 155.0903 #
         else:
-            longitude = 'greenwich'
+            self.hourAngles = np.zeros_like((mkid_observing_dither.obs), dtype=np.float)
+        getLogger(__name__).debug("HAs: %s", self.hourAngles)
 
-        LSTs = astropy.time.Time(val=times, format='unix').sidereal_time('mean', longitude).radian
-        # print times, RAs, longitude, LSTs
-        LHAs = LSTs - RAs
+        self.rotationMatrix = np.array([[np.cos(self.hourAngles), -np.sin(self.hourAngles)],
+                                        [np.sin(self.hourAngles), np.cos(self.hourAngles)]]).T
 
-        return LHAs
+        self.centroidRotated = np.dot(self.rotationMatrix,
+                                      np.array([xCentroids, yCentroids])).diagonal(axis1=0,axis2=2)
 
 class Drizzler(object):
-    # def __init__(self):
+    def __init__(self):
+        print('Finding RA/dec ranges')
+        raMin, raMax, decMin, decMax = [], [], [], []
+        for photonlist in photonlists:
+            raMin.append(min(photonlist.photRARad))
+            raMax.append(max(photonlist.photRARad))
+            decMin.append(min(photonlist.photDecRad))
+            decMax.append(max(photonlist.photDecRad))
+        raMin = min(raMin)
+        raMax = max(raMax)
+        decMin = min(decMin)
+        decMax = max(decMax)
+
+        self.cenRA = (raMin + raMax) / 2.0
+        self.cenDec = (decMin + decMax) / 2.0
+
+        # Set size of virtual grid to accommodate.
+
+        if self.nPixRA is None:
+            # +1 for round up; +1 because coordinates are the boundaries of the virtual pixels, not the centers.
+            self.nPixRA = int((raMax - raMin) // self.vPlateScale + 2)
+        if self.nPixDec is None:
+            self.nPixDec = int((decMax - decMin) // self.vPlateScale + 2)
 
     def generate_coordinate_grid(self):
         """
@@ -244,7 +262,7 @@ class SpatialDrizzler(Drizzler):
         # the oversampling should be selected to optimize total phase coverage to extract the most resolution at a
         # desired minimum S/N
 
-        self.offset = True # apply random spatial offset to each photon
+        self.randoffset = False # apply random spatial offset to each photon
         self.nPixRA = 250
         self.nPixDec = 250
         self.photWeights = None
@@ -266,30 +284,12 @@ class SpatialDrizzler(Drizzler):
 
         self.imageIsLoaded = False
 
-        print('Finding RA/dec ranges')
-        raMin, raMax, decMin, decMax = [], [], [], []
-        for photonlist in photonlists:
-            raMin.append(min(photonlist.photRARad))
-            raMax.append(max(photonlist.photRARad))
-            decMin.append(min(photonlist.photDecRad))
-            decMax.append(max(photonlist.photDecRad))
-        raMin = min(raMin)
-        raMax = max(raMax)
-        decMin = min(decMin)
-        decMax = max(decMax)
-
-        self.cenRA = (raMin + raMax) / 2.0
-        self.cenDec = (decMin + decMax) / 2.0
-
-        # Set size of virtual grid to accommodate.
-
-        if self.nPixRA is None:
-            # +1 for round up; +1 because coordinates are the boundaries of the virtual pixels, not the centers.
-            self.nPixRA = int((raMax - raMin) // self.vPlateScale + 2)
-        if self.nPixDec is None:
-            self.nPixDec = int((decMax - decMin) // self.vPlateScale + 2)
-
         self.generate_coordinate_grid()
+
+        #TODO implement something like this
+        # w = mkidcore.buildwcs(self.nPixRA, self.nPixDec, self.vPlateScale, self.cenRA, self.cenDec)
+        # TODO implement the PV distortion?
+        # eg w.wcs.set_pv([(2, 1, 45.0)])
 
         w = wcs.WCS(naxis=2)
         w.wcs.crpix = [self.nPixRA/2., self.nPixDec/2.]
@@ -299,11 +299,7 @@ class SpatialDrizzler(Drizzler):
         w._naxis1 = self.nPixRA
         w._naxis2 = self.nPixDec
 
-        #TODO implement the PV distortion
-        # eg w.wcs.set_pv([(2, 1, 45.0)])
-
         self.driz = stdrizzle.Drizzle(outwcs=w, pixfrac=pixfrac)
-        self.run()
 
     def run(self, save_file='drizzle.fits'):
         imageStack, detStack, expWeightStack, offset = [], [], [], []
@@ -311,11 +307,14 @@ class SpatialDrizzler(Drizzler):
 
             getLogger(__name__).debug('Processing %s', file)
             tic = time.clock()
-            hdu = self.drizzleImage(file, ix)
+            insci, inwcs = self.makeImage(file)
             getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
             # imageStack.append(self.image)
             detStack.append(self.detImage)
-            self.driz.add_fits_file(self.tempfile)
+
+            #TODO include weight matrix here eg bad pix mask
+            self.driz.add_image(insci, inwcs)
+            # self.driz.add_fits_file(self.tempfile)
 
             # ret = astropy.io.fits.ImageHDU(data=self.image)
             # ret.header['imgname'] = save_file
@@ -325,7 +324,7 @@ class SpatialDrizzler(Drizzler):
             # offset[ix] = 'dith%i.fits' % ix
             # hdul.writeto(os.path.join(self.config.paths.out, offset[ix]))
 
-        os.remove(self.tempfile)
+        # os.remove(self.tempfile)
         self.driz.write(save_file)
 
         # grid(imageStack, logAmp=True, width=5, nrows=len(self.files)//5, vmins=np.ones((len(imageStack)))*0.1, vmaxs=np.ones((len(imageStack)))*20, show=False)
@@ -346,13 +345,14 @@ class SpatialDrizzler(Drizzler):
         # return results
 
 
-    def drizzleImage(self, file, ditherInd=0, savePreStackImage=None):
+    def makeImage(self, file):
         nPhot = len(file.photRARad)
 
-        if self.offset:
+        if self.randoffset:
             # Add uniform random dither to each photon, distributed over a square
             # area of the same size and orientation as the originating pixel at
             # the time of observation (assume RA and dec are defined at center of pixel).
+            np.random.seed(42) # so random values always same
             xRand = np.random.rand(nPhot) * self.detPlateScale - self.detPlateScale / 2.0
             yRand = np.random.rand(nPhot) * self.detPlateScale - self.detPlateScale / 2.0  # Not the same array!
             ditherRAs = xRand * np.cos(file.photHAs) - yRand * np.sin(file.photHAs)
@@ -365,18 +365,6 @@ class SpatialDrizzler(Drizzler):
         photDecs = file.photDecRad + ditherDecs
 
         self.detImage, thisGridDec, thisGridRA = np.histogram2d(photDecs, photRAs, bins=146)
-        # plt.imshow(thisImage, norm=LogNorm())
-        # plt.show()
-        # plt.plot(self.gridDec, alpha=0.5)
-        # plt.plot(photDecs, alpha=0.5)
-        # plt.show(block=True)
-        # plt.plot(self.gridRA, alpha=0.5)
-        # plt.plot(photRAs, alpha=0.5)
-        # plt.show()
-        # plt.hist(photDecs, alpha=0.5)
-        # plt.show()
-        # plt.hist(photRAs, alpha =0.5)
-        # plt.show()
 
         # Make the image for this integration
         if self.photWeights:
@@ -387,19 +375,18 @@ class SpatialDrizzler(Drizzler):
             print('Making unweighted image')
             thisImage, thisGridDec, thisGridRA = np.histogram2d(photDecs, photRAs, [self.gridDec, self.gridRA])
 
-        # plt.imshow(thisImage, norm= LogNorm())
-        # plt.show()
-
         w = wcs.WCS(naxis=2)
         w.wcs.crpix = [0., 0.]
         w.wcs.cdelt = np.array([thisGridRA[1]-thisGridRA[0], thisGridDec[1]-thisGridDec[0]])
-        w.wcs.crval = [thisGridRA[0], thisGridDec[1]]
+        w.wcs.crval = [thisGridRA[0], thisGridDec[0]]
         w.wcs.ctype = ["RA---AIR", "DEC--AIR"]
-        header = w.to_header()
-        hdu = fits.PrimaryHDU(data = thisImage, header=header)
-        hdu.writeto(self.tempfile, clobber=True)
+        w._naxis1 = 250
+        w._naxis2 = 250
+        # header = w.to_header()
+        # hdu = fits.PrimaryHDU(data = thisImage, header=header)
+        # hdu.writeto(self.tempfile, clobber=True)
 
-        return hdu
+        return thisImage, w
 
 
 class photonlist(object):
@@ -416,7 +403,7 @@ class photonlist(object):
         self.doWeighted=False
         self.medCombine=False
         self.maxBadPixTimeFrac=None
-        self.integrationTime=5
+        self.integrationTime=1
         self.firstObsTime =0
 
         timestamps, xPhotonPixels, yPhotonPixels, _ = self.reduce_obs(obsfile, ditherdesc, ditherind)
@@ -537,7 +524,8 @@ class photonlist(object):
         # Now get the photons
         print('Getting photon coords')
 
-        photons = obsfile.query(startw=self.wvlMin, stopw=self.wvlMax, startt=1, stopt=26)
+        photons = obsfile.query(startw=self.wvlMin, stopw=self.wvlMax,
+                                startt=self.firstObsTime, stopt=self.firstObsTime+self.integrationTime)
 
         # And filter out photons to be masked out on the basis of the detector pixel mask
         print('Finding photons in masked detector pixels...')
@@ -669,9 +657,10 @@ if __name__ == '__main__':
     # Get dither offsets
     name = 'Trapezium'
     file = 'Trapezium.log'
-    ditherdesc = MKIDObservingDither(name, os.path.join(os.getenv('MKID_DATA_DIR'), name, 'wavecal', file))
-    getditherdata(ditherdesc)
-    DitherDescription(ditherdesc, rotate=False)
+    loc = os.path.join(os.getenv('MKID_DATA_DIR'), name, 'wavecal', file)
+    logdithdata = MKIDObservingDither(name, loc, None, None)
+    h5dithdata = getmetafromh5()
+    ditherdesc = DitherDescription(logdithdata, h5dithdata, rotate=False)
 
     # Quick save method for the reduced photon packets
     import pickle
@@ -686,7 +675,7 @@ if __name__ == '__main__':
         obsfiles = [ObsFile(file) for file in filenames]
 
         photonlists = []
-        for ditherind, obsfile in enumerate(obsfiles[:25]):
+        for ditherind, obsfile in enumerate(obsfiles[:5]):
             photonlists.append(photonlist(obsfile, ditherdesc, ditherind))
 
         with open(pkl_save, 'wb') as handle:
@@ -696,12 +685,12 @@ if __name__ == '__main__':
     scimaps = []
     for pixfrac in [1,0.5,0.1,0]:
         driz = SpatialDrizzler(photonlists, ditherdesc, pixfrac=pixfrac)
+        driz.run()
         scimaps.append(driz.driz.outsci)
     view_datacube(scimaps, logAmp=True, vmin=2, vmax=150)
-    # view_datacube(scimaps,logAmp=False, vmin=0, vmax=100)
+    view_datacube(scimaps,logAmp=False, vmin=0, vmax=100)
     # view_datacube(np.roll(scimaps, axis=0, shift=1)-scimaps)
     # view_datacube(np.roll(scimaps, axis=0, shift=1) - scimaps, logAmp=True)
     loop_frames(scimaps, logAmp=True, vmin=2, vmax=150)
-    # loop_frames(scimaps, logAmp=False, vmin=0, vmax=100)
+    loop_frames(scimaps, logAmp=False, vmin=0, vmax=100)
     # loop_frames(np.roll(scimaps, axis=0, shift=1)-scimaps, logAmp=True)
-    # plt.show(block=True)
