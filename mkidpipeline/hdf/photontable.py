@@ -330,6 +330,11 @@ class ObsFile(object):
         entry = self.info[self.titles.index(name)]
         return entry
 
+    @property
+    def pixelMask(self):
+        """A boolean image with true where pixel data isn't perfect (i.e. any flag is set)"""
+        return self.beamFlagImage > 0
+
     def pixelIsBad(self, xCoord, yCoord, forceWvl=False, forceWeights=False, forceTPFWeights=False):
         """
         Returns True if the pixel wasn't read out or if a given calibration failed when needed
@@ -1384,7 +1389,7 @@ class ObsFile(object):
         self.modifyHeaderEntry(headerTitle='isSpecCalibrated', headerValue=True)
 
     def flag(self, flag, xCoord=slice(None), yCoord=slice(None)):
-        """ Same as """
+        """ Same as apply flag"""
         flag = np.asarray(flag)
         pixelflags.valid(flag, error=True)
         if not np.isscalar(flag) and self.beamFlagImage[xCoord, yCoord].shape != flag.shape:
