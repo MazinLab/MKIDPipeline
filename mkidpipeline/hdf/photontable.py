@@ -628,7 +628,7 @@ class ObsFile(object):
 
     # TODO standardize between applyWeight and applySpecWeight throughout file!
     def getPixelCountImage(self, firstSec=0, integrationTime=None, wvlStart=None, wvlStop=None, applyWeight=False,
-                            applyTPFWeight=False, scaleByEffInt = False, flagToUse=0):
+                            applyTPFWeight=False, scaleByEffInt=False, flagToUse=0):
         """
         Returns an image of pixel counts over the entire array between firstSec and firstSec + integrationTime. Can specify calibration weights to apply as
         well as wavelength range.
