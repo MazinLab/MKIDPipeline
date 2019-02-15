@@ -1,14 +1,12 @@
 """
 TODO
+Spatial and Temporal drizzling
 Add ephem, pyguide, astropy_helpers, drizzle to yml. these were all pip installed
 PyGuide is just downloaded from github (no installation)
-Use con2pix functions from Isabel's code and remove from here
-Integrate form() into the drizzleing procedure
-Spatial and Temporal drizzling
+Get con2pix calibration from Isabel's code and remove from here
+Build form() wrapper
 Better handling of savestate of photonlists
 Use full integration time for each dither offset
-Add option to median combine
-
 
 Usage
 -----
@@ -17,8 +15,6 @@ python drizzle.py
 
 Author: Rupert Dodkins, Julian van Eyken            Date: Jan 2019
 
-Reads in obsfiles for dither offsets (preferably fully reduced and calibrated) as well as a dither log file and creates
-a stacked image.
 
 This code is adapted from Julian's testImageStack from the ARCONS pipeline.
 """
@@ -174,7 +170,7 @@ class DitherDescription(object):
 
     TODO implement center of rotation
     '''
-    def __init__(self, mkid_observing_dither, h5dithdata, observatory='greenwich', rotate=False):
+    def __init__(self, mkid_observing_dither, h5dithdata, observatory='greenwich', rotate=False, plotdithlocs=False):
         self.description = mkid_observing_dither
 
         # these definitions need to be redone
@@ -186,6 +182,10 @@ class DitherDescription(object):
         self.pos = mkid_observing_dither.pos
 
         xCentroids, yCentroids = ditherp_2_pixel(self.pos)
+        virxPixCen, viryPixCen = ditherp_2_pixel([(0,0)])
+        xCenRes, yCenRes = xCentroids - virxPixCen, yCentroids - viryPixCen
+
+
 
         if rotate:
             print('**** warning: the rotation seems to be around the wrong point ****')
@@ -194,7 +194,9 @@ class DitherDescription(object):
             LSTs = astropy.time.Time(val=times, format='unix').sidereal_time('mean', site.lon).radian
 
             #TODO RA is a function of xPos and yPos too right? The HA should depend on the position in the array
+
             self.hourAngles = LSTs - ephem.hours(self.cenRA).real
+            # self.hourAngles = LSTs-LSTs[0]
 
         else:
             self.hourAngles = np.zeros_like((mkid_observing_dither.obs), dtype=np.float)
@@ -203,8 +205,18 @@ class DitherDescription(object):
         self.rotationMatrix = np.array([[np.cos(self.hourAngles), -np.sin(self.hourAngles)],
                                         [np.sin(self.hourAngles), np.cos(self.hourAngles)]]).T
 
+        # self.centroidRotated = np.dot(self.rotationMatrix,
+        #                               np.array([xCentroids, yCentroids])).diagonal(axis1=0,axis2=2)
         self.centroidRotated = np.dot(self.rotationMatrix,
-                                      np.array([xCentroids, yCentroids])).diagonal(axis1=0,axis2=2)
+                                      np.array([xCenRes, yCenRes])).diagonal(axis1=0,axis2=2) + [virxPixCen, viryPixCen]
+
+        if plotdithlocs:
+            # plt.plot(np.array(self.pos)[:, 0], np.array(self.pos)[:, 1])
+            # plt.figure()
+            plt.plot(xCentroids, yCentroids)
+            plt.plot(virxPixCen, viryPixCen, marker='x')
+            plt.plot(self.centroidRotated[0], self.centroidRotated[1])
+            plt.show()
 
 class Drizzler(object):
     def __init__(self):
@@ -310,10 +322,9 @@ class SpatialDrizzler(Drizzler):
             insci, inwcs = self.makeImage(file)
             getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
             # imageStack.append(self.image)
-            detStack.append(self.detImage)
 
-            #TODO include weight matrix here eg bad pix mask
-            self.driz.add_image(insci, inwcs)
+            # self.driz.add_image(insci, inwcs, wt_scl = file.integrationTime, inwht=file.pixelMask)
+            self.driz.add_image(insci, inwcs, wt_scl = file.integrationTime, inwht=np.int_(np.logical_not(insci==0)))
             # self.driz.add_fits_file(self.tempfile)
 
             # ret = astropy.io.fits.ImageHDU(data=self.image)
@@ -324,12 +335,8 @@ class SpatialDrizzler(Drizzler):
             # offset[ix] = 'dith%i.fits' % ix
             # hdul.writeto(os.path.join(self.config.paths.out, offset[ix]))
 
-        # os.remove(self.tempfile)
-        self.driz.write(save_file)
+        # self.driz.write(save_file)
 
-        # grid(imageStack, logAmp=True, width=5, nrows=len(self.files)//5, vmins=np.ones((len(imageStack)))*0.1, vmaxs=np.ones((len(imageStack)))*20, show=False)
-        # grid(detStack, logAmp=True, width=5, nrows=len(self.files)//5, vmins=np.ones((len(detStack)))*0.1, vmaxs=np.ones((len(detStack)))*200, show=False)
-        # imageStack = np.array(imageStack)
         # # Save the results.
         # results = {'vim': self, 'imstack': imageStack}
 
@@ -364,7 +371,7 @@ class SpatialDrizzler(Drizzler):
         photRAs = file.photRARad + ditherRAs
         photDecs = file.photDecRad + ditherDecs
 
-        self.detImage, thisGridDec, thisGridRA = np.histogram2d(photDecs, photRAs, bins=146)
+        # self.detImage, thisGridDec, thisGridRA = np.histogram2d(photDecs, photRAs, bins=[146,140])
 
         # Make the image for this integration
         if self.photWeights:
@@ -577,7 +584,9 @@ class photonlist(object):
         # plt.imshow(thisImage, norm=LogNorm())
         # plt.show()
 
-        return [timestamps, xPhotonPixels, yPhotonPixels, photWavelengths]
+        # self.pixMask = obsfile.pixelMask # load pixel mask here direct from photontable
+
+        return [timestamps, xPhotonPixels, yPhotonPixels, photWavelengths, ]
 
     def get_wcs(self, timestamps, xPhotonPixels, yPhotonPixels, ditherind, ditherdesc):
         print('Calculating RA/Decs...')
@@ -586,11 +595,11 @@ class photonlist(object):
         for i in range(pixelCount):
             values[0, i] = i / self.nDPixRow
             values[1, i] = i % self.nDPixRow
-        rotatedValues = np.dot(ditherdesc.rotationMatrix, values)
+        # rotatedValues = np.dot(ditherdesc.rotationMatrix, values)
 
         xyPhotonPixel = np.array([xPhotonPixels, yPhotonPixels])  # 2 x nPhotons array of x,y pairs
 
-        inputLength = len(timestamps)
+        # inputLength = len(timestamps)
 
         binNumber = np.ones_like((timestamps), dtype=np.int8) * ditherind
         photHAs = ditherdesc.hourAngles[binNumber]
@@ -602,34 +611,20 @@ class photonlist(object):
 
         # NEW VERSION (calculate on the fly, no look-up table, can handle non-integers)
         for iBin in np.arange(np.min(binNumber), np.max(binNumber) + 1):
-            # print iBin
+            print(iBin)
             inThisBin = np.where(binNumber == iBin)[0]  # [0] just to move array result outside tuple
             if len(inThisBin) == 0: continue
             rotatedValues = np.dot(ditherdesc.rotationMatrix[iBin, :, :], xyPhotonPixel[:, inThisBin])
             xPhotonRotated[inThisBin] = rotatedValues[0, :]
             yPhotonRotated[inThisBin] = rotatedValues[1, :]
-            rotatedValues = np.dot(ditherdesc.rotationMatrix, values)
-
+        #     rotatedValues = np.dot(ditherdesc.rotationMatrix, values)
+        plt.plot(xPhotonRotated, yPhotonRotated)
+        plt.show()
         # Use the centroid as the zero point for ra and dec offsets
         rightAscensionOffset = -1*ditherdesc.platescale * (
                 xPhotonRotated - ditherdesc.centroidRotated[0][binNumber])
         declinationOffset = ditherdesc.platescale * (
                 yPhotonRotated - ditherdesc.centroidRotated[1][binNumber])
-
-        # thisImage, xedges, yedges = np.histogram2d(rightAscensionOffset, declinationOffset, bins=[140,146])
-        # plt.figure()
-        # plt.imshow(thisImage, norm=LogNorm())
-        # plt.figure()
-        # plt.imshow(thisImage-self.testimage, norm=LogNorm())
-        # plt.show()
-        # plt.plot(rightAscensionOffset, marker='o'); plt.show()
-        # plt.plot(declinationOffset, marker='o'); plt.show()
-        # plt.plot(xedges, marker='o'); plt.show()
-        # plt.plot(yedges, marker='o'); plt.show()
-        # plt.plot(ditherdesc.centroidRotated[0], marker='o'); plt.show()
-        # plt.plot(ditherdesc.centroidRotated[1], marker='o'); plt.show()
-        # plt.plot(xPhotonRotated, marker='o'); plt.show()
-        # plt.plot(yPhotonRotated, marker='o'); plt.show()
 
         # Convert centroid positions in DD:MM:SS.S and HH:MM:SS.S format to radians.
         centroidRightAscensionRadians = ephem.hours(ditherdesc.cenRA).real
@@ -660,7 +655,7 @@ if __name__ == '__main__':
     loc = os.path.join(os.getenv('MKID_DATA_DIR'), name, 'wavecal', file)
     logdithdata = MKIDObservingDither(name, loc, None, None)
     h5dithdata = getmetafromh5()
-    ditherdesc = DitherDescription(logdithdata, h5dithdata, rotate=False)
+    ditherdesc = DitherDescription(logdithdata, h5dithdata, rotate=True)
 
     # Quick save method for the reduced photon packets
     import pickle
@@ -675,7 +670,7 @@ if __name__ == '__main__':
         obsfiles = [ObsFile(file) for file in filenames]
 
         photonlists = []
-        for ditherind, obsfile in enumerate(obsfiles[:5]):
+        for ditherind, obsfile in enumerate(obsfiles[:25]):
             photonlists.append(photonlist(obsfile, ditherdesc, ditherind))
 
         with open(pkl_save, 'wb') as handle:
