@@ -83,13 +83,7 @@ import mkidcore.pixelflags as pixelflags
 
 
 def _calc_stdev(x):
-    xClean = x[~np.isnan(x)]
-    n = len(xClean)
-    if np.size(xClean) > 1 and xClean.min() != xClean.max():
-        return scipy.stats.tstd(xClean) * _stddev_bias_corr(n)
-    # Otherwise...
-    return np.nan
-
+    return np.nanstd(x) * _stddev_bias_corr((~np.isnan(x)).sum())
 
 def _stddev_bias_corr(n):
     if n == 1:
@@ -103,7 +97,7 @@ def _stddev_bias_corr(n):
 
 
 def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5,
-                       use_local_stdev=False, bkgd_percentile=50.0, dead_mask=None):
+                       use_local_stdev=False, bkgd_percentile=50.0, dead_mask=None, min_background_sigma=.01):
     """
     Robust!  NOTE:  This is a routine that was ported over from the ARCONS pipeline.
     Finds the hot and dead pixels in a for a 2D input array.
@@ -192,13 +186,13 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5,
             assert np.all(np.isfinite(nan_fixed_image))
             median_filter_image = spfilters.median_filter(nan_fixed_image, box_size, mode='mirror')
 
-            overall_median = np.median(raw_image[~np.isnan(raw_image)])
+            overall_median = np.nanmedian(raw_image)
             overall_bkgd = np.percentile(raw_image[~np.isnan(raw_image)], bkgd_percentile)
 
             # Estimate the background std. dev.
             standard_filter_image = utils.nearestNrobustSigmaFilter(raw_image, n=box_size ** 2 - 1)
-            overall_bkgd_sigma = max(.01, np.median(standard_filter_image[np.isfinite(standard_filter_image)]))
-            standard_filter_image[np.where(standard_filter_image < 1.)] = 1.
+            overall_bkgd_sigma = max(min_background_sigma, np.nanmedian(standard_filter_image))
+            standard_filter_image.clip(1, None, standard_filter_image)
 
             # Calculate difference between flux in each pixel and max_ratio * the median in the enclosing box.
             # Also calculate the error that would exist in a measurement of a pixel that *was* at the peak of a real PSF
@@ -236,7 +230,7 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5,
             raw_image[hot_mask] = np.nan
 
         # Finished with loop, make sure a pixel is not simultaneously hot and dead
-        assert np.all(hot_mask & ~dead_mask)
+        assert (~(hot_mask & dead_mask)).all()
 
     return {'hot_mask': hot_mask, 'image': raw_image,
             'median_filter_image': median_filter_image, 'max_ratio': max_ratio, 'difference_image': difference_image,
@@ -316,7 +310,8 @@ def hpm_median_movingbox(image, box_size=5, nsigma_hot=4.0, max_iter=5):
             nan_fixed_image = utils.replaceNaN(raw_image, mode='mean', boxsize=box_size)
             assert np.all(np.isfinite(nan_fixed_image))
             median_filter_image = spfilters.median_filter(nan_fixed_image, box_size, mode='mirror')
-            standard_filter_image = spfilters.generic_filter(nan_fixed_image, _calc_stdev, box_size, mode='mirror')
+            func = lambda x: np.nanstd(x) * _stddev_bias_corr((~np.isnan(x)).sum())
+            standard_filter_image = spfilters.generic_filter(nan_fixed_image, func, box_size, mode='mirror')
 
             threshold = median_filter_image + (nsigma_hot * standard_filter_image)
 
@@ -506,8 +501,7 @@ def hpm_cps_cut(image, sigma=5, max_cut=2450, cold_mask=False):
     return {'bad_mask': bad_mask, 'dead_mask': dead_mask, 'hot_mask': hot_mask, 'image': raw_image}
 
 
-def find_bad_pixels(obsfile, hpcutmethod='hpm_flux_threshold', time_step=30, start_time=0,
-                    end_time=None, **hpcutkwargs):
+def mask_hot_pixels(file, method='hpm_flux_threshold', step=30, startt=0, stopt=None, ncpu=1, **methodkw):
     """
     This routine is the main code entry point of the bad pixel masking code.
     Takes an obs. file as input and writes a 'bad pixel table' to that h5 file where each entry is an indicator of
@@ -518,10 +512,10 @@ def find_bad_pixels(obsfile, hpcutmethod='hpm_flux_threshold', time_step=30, sta
 
     Required Input:
     :param obsfile:           user passes an obsfile instance here
-    :param start_time         Scalar Integer.  Timestamp at which to begin bad pixel masking, default = 0
-    :param end_time           Scalar Integer.  Timestamp at which to finish bad pixel masking, default = -1
+    :param startt         Scalar Integer.  Timestamp at which to begin bad pixel masking, default = 0
+    :param stopt           Scalar Integer.  Timestamp at which to finish bad pixel masking, default = -1
                                                (run to the end of the file)
-    :param time_step          Scalar Integer.  Number of seconds to do the bad pixel masking over (should be an integer
+    :param step          Scalar Integer.  Number of seconds to do the bad pixel masking over (should be an integer
                                                number of steps through the obsfile), default = 30
     :param hpcutmethod        String.          Method to use to detect hot pixels.  Options are:
                                                hpm_median_movingbox
@@ -539,28 +533,31 @@ def find_bad_pixels(obsfile, hpcutmethod='hpm_flux_threshold', time_step=30, sta
             2 = Cold Pixel
             3 = Dead Pixel
     """
-    if end_time is None:
-        end_time = obsfile.getFromHeader('expTime')
-    assert start_time < end_time
-    assert time_step <= start_time-end_time
+    obsfile = ObsFile(file)
+    if stopt is None:
+        stopt = obsfile.getFromHeader('expTime')
+    assert startt < stopt
+    assert step <= stopt-startt
 
-    step_starts = np.arange(start_time, end_time, time_step)  # Start time for each step (in seconds).
-    step_ends = step_starts + time_step  # End time for each step
-    step_ends[step_ends > end_time] = end_time  # Clip any time steps that run over the end of the requested time range.
+    step_starts = np.arange(startt, stopt, step)  # Start time for each step (in seconds).
+    step_ends = step_starts + step  # End time for each step
+    step_ends[step_ends > stopt] = stopt  # Clip any time steps that run over the end of the requested time range.
 
     # Initialise stack of masks, one for each time step
     hot_masks = np.zeros([obsfile.nXPix, obsfile.nYPix, step_starts.size], dtype=bool)
-    method = getattr(__name__, hpcutmethod)
-    method = globals()[hpcutmethod]
+    func = globals()[method]
 
     # Generate a stack of bad pixel mask, one for each time step
     for i, each_time in enumerate(step_starts):
-        getLogger(__name__).info('Processing time slice: {} - {} s'.format(each_time, each_time + time_step))
-        raw_image_dict = obsfile.getPixelCountImage(firstSec=each_time, integrationTime=time_step,
+        getLogger(__name__).info('Processing time slice: {} - {} s'.format(each_time, each_time + step))
+        raw_image_dict = obsfile.getPixelCountImage(firstSec=each_time, integrationTime=step,
                                                     applyWeight=True, applyTPFWeight=True,
-                                                    scaleByEffInt=hpcutmethod == 'hpm_cps_cut')
-        bad_pixel_solution = method(raw_image_dict['image'], dead_mask=obsfile.pixelMask, **hpcutkwargs)
+                                                    scaleByEffInt=method == 'hpm_cps_cut')
+        bad_pixel_solution = func(raw_image_dict['image'], dead_mask=obsfile.pixelMask, **methodkw)
         hot_masks[:, :, i] = bad_pixel_solution['hot_mask']
 
     # Combine the bad pixel masks into a master mask
-    obsfile.applyFlag(np.any(hot_masks, axis=-1), pixelflags.badpixcal['hot'])
+    mask = np.any(hot_masks, axis=-1) * pixelflags.badpixcal['hot']
+    obsfile.enablewrite()
+    #obsfile.applyFlag(None, None, mask)
+    obsfile.disablewrite()
