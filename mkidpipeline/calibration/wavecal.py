@@ -1317,22 +1317,19 @@ class Solution(object):
 
     def load(self, file_path, overload=True):
         log.info("Loading solution from {}".format(file_path))
-        try:
-            keys = ('fit_array', 'configuration', 'beam_map', 'beam_map_flags')
-            npz_file = np.load(file_path)
-            for key in npz_file.keys():
-                assert key in keys, key
-            self.npz = npz_file
-            if overload:  # properties grab from self.npz if set to none
-                for attr in keys:
-                    setattr(self, attr, None)
-            self._file_path = file_path  # new file_path for the solution
-            self.name = os.path.basename(file_path)  # new name for saving
-            self._finish_init()
-            log.info("Complete")
-        except (OSError, AssertionError):
-            message = "Failed to interpret '{}' as a wavecal solution object"
-            raise OSError(message.format(file_path))
+        keys = ('fit_array', 'configuration', 'beam_map', 'beam_map_flags')
+        npz_file = np.load(file_path)
+        for key in keys:
+            if key not in npz_file.keys():
+                raise AttributeError('{} missing from {}, solution malformed'.format(key,file_path))
+        self.npz = npz_file
+        if overload:  # properties grab from self.npz if set to none
+            for attr in keys:
+                setattr(self, attr, None)
+        self._file_path = file_path  # new file_path for the solution
+        self.name = os.path.basename(file_path)  # new name for saving
+        self._finish_init()
+        log.info("Complete")
 
     @property
     def fit_array(self):
