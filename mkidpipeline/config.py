@@ -49,7 +49,9 @@ def configure_pipeline(*args, **kwargs):
     config = mkidcore.config.load(*args, **kwargs)
     return config
 
+
 load_data_description = mkidcore.config.load
+
 
 _COMMON_KEYS = ('comments', 'meta', 'header', 'out')
 
@@ -58,6 +60,10 @@ def _build_common(yaml_loader, yaml_node):
     # TODO flesh out as needed
     pairs = yaml_loader.construct_pairs(yaml_node)
     return {k: v for k, v in pairs if k in _COMMON_KEYS}
+
+
+def h5_for_MKIDodd(observing_data_desc):
+    return os.path.join(config.paths.out, '{}.h5'.format(observing_data_desc.start))
 
 
 class MKIDObservingDataDescription(object):
@@ -113,6 +119,10 @@ class MKIDObservingDataDescription(object):
     def timerange(self):
         return self.start, self.stop
 
+    @property
+    def h5(self):
+        return h5_for_MKIDodd(self)
+
 
 class MKIDWavedataDescription(object):
     yaml_tag = u'!wc'
@@ -158,6 +168,7 @@ class MKIDFlatdataDescription(object):
     def __str__(self):
         return '{}: {}'.format(self.name, self.ob if hasattr(self,'ob') else self.wavecal)
 
+
 class MKIDObservingDither(object):
     yaml_tag = '!dither'
 
@@ -186,7 +197,7 @@ class MKIDObservingDither(object):
         self.inttime = int(d['inttime'])
         self.nsteps = int(d['npos'])
         self.pos = list(zip(tofloat(d['xpos']), tofloat(d['ypos'])))
-        self.obs = [MKIDObservingDataDescription('{}_({})_{}'.format(self.name,os.path.basename(self.file), i),
+        self.obs = [MKIDObservingDataDescription('{}_({})_{}'.format(self.name, os.path.basename(self.file), i),
                                                  b, stop=e, wavecal=wavecal, flatcal=flatcal)
                     for i, (b, e) in enumerate(zip(tofloat(d['starttimes']), tofloat(d['endtimes'])))]
 
@@ -306,10 +317,6 @@ def logtoconsole():
     create_log('mkidpipeline')
     create_log('__main__')
 
-
-def assiciate_wavecals(dataset):
-    wcdict = {w.name: os.path.join(config.paths.database, w.id) for w in dataset.wavecals}
-    return [(o, wcdict.get(o.wavecal, o.wavecal)) for o in dataset.wavecalable if o.wavecal is not None]
 
 yaml.register_class(MKIDObservingDataDescription)
 yaml.register_class(MKIDWavedataDescription)
