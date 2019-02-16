@@ -261,9 +261,20 @@ class ObsFile(object):
         self.filterIsApplied = False
         # self.timeMaskExists = False
         # self.makeMaskVersion = None
-
+        self.ticksPerSec = int(1.0 / self.tickDuration)
+        self.intervalAll = interval[0.0, (1.0 / self.tickDuration) - 1]
+        self.photonTable = None
+        self.fullFileName = fileName
+        self.fileName = os.path.basename(fileName)
+        self.header = None
+        self.titles = None
+        self.info = None
+        self.defaultWvlBins = None
+        self.beamImage = None
+        self.beamFlagImage = None
+        self.nXPix = None
+        self.nYPix = None
         self.loadFile(fileName)
-        self.photonTable = self.file.get_node('/Photons/PhotonTable')
 
     def __del__(self):
         """
@@ -273,22 +284,22 @@ class ObsFile(object):
             self.file.close()
         except:
             pass
-        try:
-            self.wvlCalFile.close()
-        except:
-            pass
-        try:
-            self.flatCalFile.close()
-        except:
-            pass
-        try:
-            self.fluxCalFile.close()
-        except:
-            pass
-        try:
-            self.hotPixFile.close()
-        except:
-            pass
+
+    def enablewrite(self):
+        """USE CARE IN A THREADED ENVIRONMENT"""
+        if self.mode == 'write':
+            return
+        self.file.close()
+        self.mode = 'write'
+        self.loadFile(self.fullFileName)
+
+    def disablewrite(self):
+        """USE CARE IN A THREADED ENVIRONMENT"""
+        if self.mode == 'read':
+            return
+        self.file.close()
+        self.mode = 'read'
+        self.loadFile(self.fullFileName)
 
     def loadFile(self, fileName):
         """ Opens file and loads obs file attributes and beammap """
@@ -309,15 +320,11 @@ class ObsFile(object):
         self.defaultWvlBins = ObsFile.makeWvlBins(self.getFromHeader('energyBinWidth'),
                                                   self.getFromHeader('wvlBinStart'),
                                                   self.getFromHeader('wvlBinEnd'))
-        self.ticksPerSec = int(1.0 / self.tickDuration)
-        self.intervalAll = interval[0.0, (1.0 / self.tickDuration) - 1]
-
         # get the beam image.
         self.beamImage = self.file.get_node('/BeamMap/Map').read()
-        self.beamFlagImage = self.file.get_node('/BeamMap/Flag')
-        beamShape = self.beamImage.shape
-        self.nXPix = beamShape[0]
-        self.nYPix = beamShape[1]
+        self.beamFlagImage = self.file.get_node('/BeamMap/Flag')  #The absence of .read() here is correct
+        self.nXPix, self.nYPix = self.beamImage.shape
+        self.photonTable = self.file.get_node('/Photons/PhotonTable')
 
     def resIDs(self):
         return np.unique(self.beamImage.ravel())
@@ -333,7 +340,7 @@ class ObsFile(object):
     @property
     def pixelMask(self):
         """A boolean image with true where pixel data isn't perfect (i.e. any flag is set)"""
-        return self.beamFlagImage > 0
+        return np.array(self.beamFlagImage) > 0
 
     def pixelIsBad(self, xCoord, yCoord, forceWvl=False, forceWeights=False, forceTPFWeights=False):
         """
