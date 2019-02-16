@@ -116,15 +116,17 @@ def genphotonlist(Ic, Is, Ir, Ttot, tau, deadtime=0, interpmethod='cubic',
     tau: float, correlation time in seconds
 
     Optional arguments:
+    deadtime: float, units microseconds
     interpmethod: argument 'kind' to interpolate.interp1d 
     taufac: float, discretize intensity with bin width tau/taufac.  Doing so speeds up the code immensely.  Default 500 (intensity errors ~1e-3)
     return_IDs: return an array giving the distribution (MR or constant) that produced each photon?  Default False.
 
     Returns:
-    t, 1D array of photon arrival times
+        t, 1D array of photon arrival times
 
     Optional additional return:
-    p, 1D array, 0 if photon came from Ic/Is MR, 1 if photon came from Ir
+        t2, 1D array of photon arrival times if planet wasnt there (no deadtime from planet photons)
+        p, 1D array, 0 if photon came from Ic/Is MR, 1 if photon came from Ir
 
     """
 
@@ -161,12 +163,12 @@ def genphotonlist(Ic, Is, Ir, Ttot, tau, deadtime=0, interpmethod='cubic',
 
     # Go ahead and make the list with repeated times
     
-    tlist = t[np.where(n1 > 0)]
-    tlist_r = t[np.where(n2 > 0)]
+    tlist = t[(n1 > 0)]
+    tlist_r = t[(n2 > 0)]
 
     for i in range(1, max(np.amax(n1), np.amax(n2)) + 1):
-        tlist = np.concatenate((tlist, t[np.where(n1 > i)]))
-        tlist_r = np.concatenate((tlist_r, t[np.where(n2 > i)]))
+        tlist = np.concatenate((tlist, t[(n1 > i)]))
+        tlist_r = np.concatenate((tlist_r, t[(n2 > i)]))
 
     tlist_tot = np.concatenate((tlist, tlist_r))*1.
 
@@ -186,11 +188,13 @@ def genphotonlist(Ic, Is, Ir, Ttot, tau, deadtime=0, interpmethod='cubic',
     # produced a given photon; return this if desired.
         
     if return_IDs:
+        indx2 = indx[(indx<len(tlist))]
+        keep2 = utils.removedeadtime(tlist_tot[indx2], deadtime)
         plist1 = np.zeros(tlist.shape).astype(int)
         plist2 = np.ones(tlist_r.shape).astype(int)
         plist_tot = np.concatenate((plist1, plist2))
-        ikeep = np.where(keep)
-        return [tlist_tot[indx][ikeep], plist_tot[indx][ikeep]]
+        #ikeep = np.where(keep)
+        return [tlist_tot[indx][np.where(keep)], tlist_tot[indx2][np.where(keep2)], plist_tot[indx][np.where(keep)]]
     
     return tlist_tot[indx][np.where(keep)]
 
