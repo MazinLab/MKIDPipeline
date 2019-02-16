@@ -10,63 +10,401 @@ For example usage, see if __name__ == "__main__":
 """
 
 import matplotlib.pyplot as plt
+from matplotlib.patches import Polygon
 import numpy as np
+from scipy import integrate
 from scipy.optimize import minimize
 from statsmodels.base.model import GenericLikelihoodModel
 
-# from mkidpipeline.hdf.darkObsFile import ObsFile
+#from mkidpipeline.hdf.darkObsFile import ObsFile
 from mkidpipeline.speckle.genphotonlist_IcIsIr import genphotonlist
 
-
-class MR_SpeckleModel(GenericLikelihoodModel):
-    def __init__(self, ts, deadtime=10.):
-        """
-        Class for fitting maximum likelihood
-        
-        INPUTS:
-            ts - Photon arrival times [us]
-            deadtime - MKID deadtime after photon event [us]
-        """
-        dt = ts[1:] - ts[:-1]
-        dt=dt[np.where(dt<1.e6)]/10.**6
-        endog=np.asarray(dt, dtype=[('dt','float64')])
-        exog=np.ones(len(endog),dtype={'names':['Ic','Is','Ir'],'formats':['float64','float64','float64']})
-        score=lambda params: MRlogL_Jacobian(*params, dt=dt, deadtime=deadtime)
-        hess=lambda params: MRlogL_Hessian(*params, dt=dt, deadtime=deadtime)
-        loglike=lambda params: MRlogL(*params, dt=dt, deadtime=deadtime)
-        #hess=lambda params: MRlogL_Hessian(dt, params[0], params[1])
-        #loglike=lambda params: MRlogL(dt, *params, deadtime=deadtime, inttime=inttime)
-        super(MR_SpeckleModel, self).__init__(endog,exog=exog, loglike=loglike, score=score, hessian=hess)
-        #super(MR_SpeckleModel, self).__init__(endog,exog=exog, loglike=loglike)
+def plotROC(Ic, Is, Ir, Ttot, tau=0.1, deadtime=10):
+    print("[Ic, Is, Ir, Ttot, tau, deadTime]: "+str([Ic, Is, Ir, Ttot, tau, deadtime]))
+    ts_total, ts_star, pInds = genphotonlist(Ic, Is, Ir, Ttot, tau, deadtime, return_IDs=True)
+    dt_total = (ts_total[1:] - ts_total[:-1])*10.**-6.
+    dt_star = (ts_star[1:] - ts_star[:-1])*10.**-6.
+    deadtime*=10.**-6.
     
-    def fit(self, start_params=[1.,1.,1.], method='nm', **kwargs):
-        """
-        Find maximum log likelihood
-        
-        INPUTS:
-            start_params - Initial guess for [Ic, Is, Ir] floats
-            method - Optimization method
-            **kwargs - keywords for LikelihoodModel.fit(). 
-                       See www.statsmodels.org/stable/dev/generated/statsmodels.base.model.LikelihoodModel.fit.html
-        OUTPUTS:
-            GenericLikelihoodModelResults Object
-            See www.statsmodels.org/stable/dev/generated/statsmodels.base.model.GenericLikelihoodModelResults.html
-        """
-        return super(MR_SpeckleModel, self).fit(start_params,method=method,**kwargs)  
+    res = optimize_IcIsIr(dt_total, guessParams=[Ic,Is,Ir], deadtime=deadtime)
+    print(res.summary())
+    a=MRlogL(res.params, dt_total, deadtime)
+    
+    I1_list = np.arange(-3.*res.bse[0], 3.*res.bse[0], res.bse[0]/10.) + res.params[0]
+    I2_list = np.arange(-3.*res.bse[1], 3.*res.bse[1], res.bse[1]/10.) + res.params[1]
+    Ir_list = np.arange(-res.params[2], 5.*res.bse[2], res.bse[2]/10.) + res.params[2]
+    I1_list=np.asarray(I1_list)[np.asarray(I1_list)>=0]
+    I2_list=np.asarray(I2_list)[np.asarray(I2_list)>=0]
+    Ir_list=np.asarray(Ir_list)[np.asarray(Ir_list)>=0]
+    
+    print("Gathering lnL data for all photons...")
+    lnLMap=np.zeros([len(I1_list),len(I2_list),len(Ir_list)])
+    for i, I_i in enumerate(I1_list):
+        for j, I_j in enumerate(I2_list):
+            for k, I_k in enumerate(Ir_list):
+                lnLMap[i,j,k]=MRlogL([I_i,I_j,I_k], dt_total, deadtime)
+    lnLMap-=np.amax(lnLMap)
+    lnLMap=np.exp(lnLMap)
+    cumPDF_total = integrate.trapz(lnLMap,I1_list,axis=0)
+    cumPDF_total = integrate.trapz(cumPDF_total,I2_list,axis=0)
+    probDens_total=np.copy(cumPDF_total)
+    cumPDF_total = integrate.cumtrapz(cumPDF_total,Ir_list)
+    cumPDF_total/=cumPDF_total[-1]
+    
+    print("Gathering lnL data for only star photons...")
+    lnLMap_star=np.zeros([len(I1_list),len(I2_list),len(Ir_list)])
+    for i, I_i in enumerate(I1_list):
+        for j, I_j in enumerate(I2_list):
+            for k, I_k in enumerate(Ir_list):
+                lnLMap_star[i,j,k]=MRlogL([I_i,I_j,I_k], dt_star, deadtime)
+    lnLMap_star-=np.amax(lnLMap_star)
+    lnLMap_star=np.exp(lnLMap_star)
+    cumPDF_star = integrate.trapz(lnLMap_star,I1_list,axis=0)
+    cumPDF_star = integrate.trapz(cumPDF_star,I2_list,axis=0)
+    probDens_star=np.copy(cumPDF_star)
+    cumPDF_star = integrate.cumtrapz(cumPDF_star,Ir_list)
+    cumPDF_star/=cumPDF_star[-1]
+    
+    
+    plt.figure()
+    plt.plot(Ir_list, probDens_total, label='total')
+    plt.plot(Ir_list, probDens_star, label='star only')
+    plt.title("prob density")
+    plt.ylabel("Prob")
+    plt.xlabel("Ir")
+    plt.legend()
+    
+    plt.figure()
+    plt.plot(Ir_list[1:], cumPDF_total, label='total')
+    plt.plot(Ir_list[1:], cumPDF_star, label='star only')
+    plt.title("Cumulative prob dist")
+    plt.ylabel("Prob")
+    plt.xlabel("Ir")
+    plt.legend()
+    
+    plt.figure()
+    plt.plot(1.-cumPDF_star, 1.-cumPDF_total)
+    plt.plot([0,1],[0,1],'k--')
+    plt.title("ROC curve: Ic, Is, Ir, Ttot, tau, = "+str([Ic, Is, Ir, Ttot, tau]))
+    plt.ylabel("True Pos Rate")
+    plt.xlabel("False Pos Rate")
+    plt.legend()
+    
+    plt.show()
+    
+    
+    
+    
+    
+def plotLogLMap(dt, I1_list=None, I2_list=None, Ir_list=None, deadtime=1.e-5, x_ax=0, y_ax=2, I1Total=True, I2Total=False):
+    """
+    plots a map of the MR log likelihood function
+    
+    INPUTS:
+        dt - float, [seconds], list of photon inter-arrival times
+        I1_list - floats, [photons/second], list of Ic values (or I_total if I1Total==True)
+        I2_list - 
+        Ir_list - 
+        deadtime - float, [seconds], detector deadtime
+        x_ax - int, 0 means make I1 the x axis, 1-->I2, 2-->Ir
+        y_ax - int, 0 means make I1 the x axis, 1-->I2, 2-->Ir
+                    x_ax =/= y_ax
+                    The I not chosen will be taken as a slice and there will be nSlices plots
+                    ie. x_ax=0, y_ax=2 means it will be len(I2_list) plots of Ir vs I1 with I2_i held constant in each plot
+               
+        I1Total - bool, interpret I1 as Itotal if true. Otherwise I1=Ic
+        I2Total - bool, interpret I2 as Itotal if true. Otherwise I2=Is. 
+                        This parameter is ignored if I1Total==True
+    """
+    assert x_ax in [0,1,2] and y_ax in [0,1,2] and x_ax!=y_ax, "Choose a proper axis"
+    if I1Total: I2Total=False
+    const_ax = np.setdiff1d([0,1,2],[x_ax,y_ax])[0]
+    ax_labels = ['Ic', 'Is','Ir']
+    if I1Total: ax_labels[0]='It'
+    elif I2Total: ax_labels[1]='It'
+    I_total=[I1Total,I2Total,False]
+    
+    res = optimize_IcIsIr(dt, guessParams=[-1,-1,-1], deadtime=deadtime, I1Total=I1Total, I2Total=I2Total)
+    print(res.summary())
+    if I1_list is None:
+        if const_ax==0: I1_list = np.asarray([res.params[0]])
+        else:
+            I1_list = np.arange(-3.*res.bse[0], 3.*res.bse[0], 6.*res.bse[0]/50.) + res.params[0]
+    if I2_list is None:
+        if const_ax==1: I2_list = np.asarray([res.params[1]])
+        else:
+            I2_list = np.arange(-3.*res.bse[1], 3.*res.bse[1], 6.*res.bse[1]/50.) + res.params[1]
+    if Ir_list is None:
+        if const_ax==2: Ir_list = np.asarray([res.params[2]])
+        else:
+            Ir_list = np.arange(-5.*res.bse[2], 5.*res.bse[2], 10.*res.bse[2]/50.) + res.params[2]
+    I1_list=np.asarray(I1_list)[np.asarray(I1_list)>=0]
+    I2_list=np.asarray(I2_list)[np.asarray(I2_list)>=0]
+    Ir_list=np.asarray(Ir_list)[np.asarray(Ir_list)>=0]
+    I_lists = {0:I1_list[I1_list>=0], 1:I2_list, 2:Ir_list}
+    
+    
+    
+    for i,I_i in enumerate(I_lists[const_ax]):
+    
+        def _configParams(Ix,Iy):
+            p=np.asarray([Ix,Iy,I_i])[np.argsort([x_ax,y_ax,const_ax])]
+            if I1Total: p[0]=p[0] - np.sum(p[1:])    #convert It into Ic for function
+            elif I2Total: p[1] = p[1] - np.sum(p[::2]) #conver It into Is for function
+            return p
+    
+        print("Gathering Data, I_i="+str(I_i))
+        lnLMap=np.zeros([len(I_lists[x_ax]),len(I_lists[y_ax])])
+        for j, I_j in enumerate(I_lists[x_ax]):
+            for k, I_k in enumerate(I_lists[y_ax]):
+                p2=_configParams(I_j,I_k)
+                if np.any(p2<0): continue
+                #if I1Total:
+                #    if p2[0]<0: continue
+                #elif I2Total and ps2[1]<0: continue
+                lnLMap[j,k]=MRlogL(p2, dt, deadtime)
 
-def MRlogL_Jacobian(Ic, Is, Ir, dt, deadtime=0):
+    
+        print("Plotting, I_i="+str(I_i))
+        if i==0:
+            l_perc = np.percentile(lnLMap, 68)
+            l_max=np.amax(lnLMap)
+            l_min=np.amin(lnLMap)
+            print('lmin,lmax = '+str(l_min)+', '+str(l_max))
+            levels=np.linspace(l_perc,l_max,int(len(lnLMap.flatten())*.1))
+    
+        plt.figure()
+        plt.xlabel(ax_labels[x_ax]+' [/s]')
+        plt.ylabel(ax_labels[y_ax]+' [/s]')
+        plt.title('Map of log likelihood. '+ax_labels[const_ax]+'='+str(I_i)+' [/s]')
+        plt.contourf(I_lists[x_ax], I_lists[y_ax],lnLMap.T,levels=levels,extend='min',cmap='hot_r')
+        
+        #plot black dot at grid points
+        for xVal in I_lists[x_ax]:
+            plt.plot([xVal]*len(I_lists[y_ax]),I_lists[y_ax],'k.')
+        
+        #plot green X at optimized Ic,Is,Ir
+        xVal=res.params[x_ax]
+        if (x_ax==0 and I1Total) or (x_ax==1 and I2Total): xVal == np.sum(res.params)
+        yVal=res.params[y_ax]
+        if (y_ax==0 and I1Total) or (y_ax==1 and I2Total): yVal == np.sum(res.params)
+        plt.plot([xVal],[yVal],'gX')
+        
+        #plot blue x at max of grid spots
+        xInd,yInd=np.unravel_index(np.argmax(lnLMap, axis=None), lnLMap.shape)
+        plt.plot([I_lists[x_ax][xInd]],[I_lists[y_ax][yInd]],'bX')
+        
+        
+        
+        #Plot grey triangle
+        if (I1Total and (x_ax==0 or y_ax==0)) or (I2Total and (x_ax==1 or y_ax==1)):
+            #draw gray triangle in forbidden zone
+            lim = max(max(plt.gca().get_xlim()),max(plt.gca().get_ylim()))
+            print(lim)
+            print(I_i)
+            points = np.asarray([[I_i,0.],[lim+I_i,lim], [I_i,lim]])
+            if (I1Total and y_ax==0) or (I2Total and y_ax==1):
+                points=points[:,[1,0]]
+            triangle = Polygon(points, fill=True, color='grey')
+            plt.gca().add_patch(triangle)
+        
+        
+        
+    plt.show()
+    
+
+def optimize_IcIsIr(dt, guessParams=[-1,-1,-1], deadtime=1.e-5, method='ncg', paramsFixed=[False,False,False], I1Total=False, I2Total=False, **kwargs):
+    """
+    This function optimizes the loglikelihood for the bin-free SSD analysis.
+    It returns the model fit for the most likely I1, I2, Ir.
+    I1 can be interpreted as Ic or It = I_total = Ic+Is+Ir
+    I2 can be interpreted as Is or It = I_total = Ic+Is+Ir
+    You can force I1, I2, Ir to be fixed during the optimization
+    
+    INPUTS:
+        dt - Float, [seconds], list of photon inter-arrival times 
+        params - Floats, [1/seconds], list of initial guess for I1, I2, Ir
+                                    if the guess is <0 then equally distribute the total flux amongst all params with a guess <0
+        deadtime - float, [seconds], MKID deadtime after photon event
+        method - optimization method. 'nm'=Nelder-Mead, 'ncg'=Newton-conjugate gradient
+        paramsFixed - booleans, fix param_i during optimization to the initial guess
+        I1Total - boolean, if true then interpret I1 as the total I. Otherwise I1=Ic
+        I2Total - boolean, if true then interpret I2 as the total I. Otherwise I2=Is.
+                           If I1Total==True then this parameter is ignored
+        **kwargs - additional kwargs to GenericLikelihoodModel.fit()
+                   www.statsmodels.org/stable/dev/generated/statsmodels.base.model.LikelihoodModel.fit.html
+    
+    OUTPUTS:
+        GenericLikelihoodModelResults Object
+        See www.statsmodels.org/stable/dev/generated/statsmodels.base.model.GenericLikelihoodModelResults.html
+    """
+    
+    #Provide a reasonable guess everywhere that guessParams<0
+    #equally distributes the average flux amongst params<0
+    #ie. guess=[-1, 30, -1] and I_avg=330 then guess-->[150,30,150]. Or if I1 is interpreted as Itotal guess-->[330,30,150]
+    #    Have to be careful, if I2 is Itotal then I_avg is restricted to 30 and guess-->[15,30,15]
+    assert len(guessParams)==3, "Must provide a guess for I1, I2, Ir. Choose -1 for automatic guess."
+    guessParams=np.asarray(guessParams)
+    if np.any(guessParams<0):
+        I_avg=(len(dt)+1.)/np.sum(dt)
+        if I1Total:
+            if guessParams[0]>=0:I_avg=min(I_avg,guessParams[0])
+        elif I2Total and guessParams[1]>=0:I_avg=min(I_avg,guessParams[1])
+        I_guess = (I_avg-np.sum(guessParams[guessParams>=0])) /np.sum(guessParams<0)
+        tmp=np.copy(guessParams)
+        tmp[guessParams<0]=I_guess
+        if I1Total:
+            if guessParams[0]<0: tmp[0]=I_avg
+        elif I2Total and guessParams[1]<0: tmp[1]=I_avg
+        guessParams=tmp
+    
+    #print("Guessing "+str(guessParams))
+    
+    def score(p_opt):
+        #params = [I_i, (I_j)]
+        p2=np.copy(guessParams)
+        p2[np.logical_not(paramsFixed)]=p_opt
+        if I1Total: p2[0]=p2[0] - np.sum(p2[1:])    #convert It into Ic for function
+        elif I2Total: p2[1] = p2[1] - np.sum(p2[::2]) #conver It into Is for function
+        return MRlogL_Jacobian(p2, dt=dt, deadtime=deadtime)
+    def hess(p_opt):
+        p2=np.copy(guessParams)
+        p2[np.logical_not(paramsFixed)]=p_opt
+        if I1Total: p2[0]=p2[0] - np.sum(p2[1:])    #convert It into Ic for function
+        elif I2Total: p2[1] = p2[1] - np.sum(p2[::2]) #conver It into Is for function
+        return MRlogL_Hessian(p2, dt=dt, deadtime=deadtime)
+    def loglike(p_opt):
+        p2=np.copy(guessParams)
+        p2[np.logical_not(paramsFixed)]=p_opt
+        if I1Total: p2[0]=p2[0] - np.sum(p2[1:])    #convert It into Ic for function
+        elif I2Total: p2[1] = p2[1] - np.sum(p2[::2]) #conver It into Is for function
+        return MRlogL(p2, dt=dt, deadtime=deadtime)
+    #score=lambda params: MRlogL_Jacobian(params, dt=dt, deadtime=deadtime)
+    #hess=lambda params: MRlogL_Hessian(params, dt=dt, deadtime=deadtime)
+    #loglike=lambda params: MRlogL(params, dt=dt, deadtime=deadtime)
+    
+    #Setup model
+    endog=np.asarray(dt, dtype=[('dt','float64')])
+    names = np.asarray(['Ic','Is','Ir'])
+    if I1Total: names[0]='It'
+    elif I2Total: names[1]='It'
+    names=names[np.logical_not(paramsFixed)]
+    exog=np.ones(len(endog),dtype={'names':names,'formats':['float64']*len(names)})
+    model = GenericLikelihoodModel(endog,exog=exog, loglike=loglike, score=score, hessian=hess)
+    try: kwargs['disp']
+    except KeyError: kwargs['disp']=False   #change default disp kwarg to false
+    return model.fit(guessParams[np.logical_not(paramsFixed)],method=method,**kwargs)
+    
+'''
+def optimize_IcIsIr(dt, guess_params, deadtime=1.e-5, method='nm', **kwargs):
+    """
+    
+    INPUTS:
+        dt - list of photon inter-arrival times [seconds]
+        guess_params - initial starting values for Ic, Is, Ir (Ir optional)
+                       Units [seconds]
+                       If Ir guess not given then force Ir=0 in model
+        deadtime - MKID deadtime after photon event [seconds]
+        method - optimization method. 'nm'=newton method
+        **kwargs - additional kwargs to GenericLikelihoodModel.fit()
+                   www.statsmodels.org/stable/dev/generated/statsmodels.base.model.LikelihoodModel.fit.html
+    
+    OUTPUTS:
+        GenericLikelihoodModelResults Object
+        See www.statsmodels.org/stable/dev/generated/statsmodels.base.model.GenericLikelihoodModelResults.html
+    """
+    endog=np.asarray(dt, dtype=[('dt','float64')])
+    names = ['Ic','Is','Ir'] if len(guess_params)==3 else ['Ic','Is']
+    exog=np.ones(len(endog),dtype={'names':names,'formats':['float64']*len(names)})
+    score=lambda params: MRlogL_Jacobian(params, dt=dt, deadtime=deadtime)
+    hess=lambda params: MRlogL_Hessian(params, dt=dt, deadtime=deadtime)
+    loglike=lambda params: MRlogL(params, dt=dt, deadtime=deadtime)
+    
+    model = GenericLikelihoodModel(endog,exog=exog, loglike=loglike, score=score, hessian=hess)
+    try: kwargs['disp']
+    except KeyError: kwargs['disp']=False
+    return model.fit(guess_params,method=method,**kwargs)
+'''
+
+def MRlogL(params, dt, deadtime=1.e-5):
+    """
+    Given an array of photon interarrival times, calculate the Log likelihood that
+    those photons follow a modified Rician Intensity probability distribution with Ic, Is. 
+    
+    INPUTS:
+        params: 2 or 3 element list of Ic, Is, Ir
+            Ic - Coherent portion of MR [1/second]
+            Is - Speckle portion of MR [1/second]
+            (optional) Ir - Incoherent background [1/second]
+        dt: list of inter-arrival times [seconds]
+        deadtime: MKID deadtime [seconds]
+    OUTPUTS:
+        [float] the Log likelihood. 
+    """
+    Ic=params[0]
+    Is=params[1]
+    try: Ir=params[2]
+    except IndexError: Ir=0
+    
+    # Intensity should be strictly positive, and each Ic, Is, Ir should be nonnegative.
+    if Ic < 0 or Is < 0 or Ir < 0 or Ic + Is + Ir == 0:
+        return -1e100 
+    
+    nslice = 20
+    u = 1./(1 + dt*Is)
+    u2 = u*u
+    u3 = u2*u
+    u4 = u2*u2
+    u5 = u4*u
+    N = len(u)
+    
+    umax = 1./(1 + deadtime*Is)
+    arg_log = (Ic**2)*u5 + (4*Ic*Is)*u4 + (2*Is**2 + 2*Ir*Ic)*u3
+    if Ir > 0:
+        arg_log += (2*Ir*Is)*u2 + (Ir**2)*u
+    
+    ###################################################################
+    # Reshape the array and multiply along the short axis to reduce
+    # the number of calls to np.log.
+    ###################################################################
+
+    _n = (len(u)//nslice + 1)*nslice
+    _arg_log = np.ones(_n)
+    _arg_log[:len(u)] = arg_log
+    _arg_log = np.prod(np.reshape(_arg_log, (nslice, -1)), axis=0)
+    lnL = np.sum(np.log(_arg_log))
+
+    lnL += -Ir*np.sum(dt) + Ic/Is*np.sum(u) - N*Ic/Is
+    lnL -= N*(umax - 1)*(Ir + Ic*umax)/(Is*umax)
+    lnL -= N*np.log(Ic*umax**3 + Is*umax**2 + Ir*umax)
+    
+    if np.isfinite(lnL):
+        return lnL
+    else:
+        return -1e100
+
+def MRlogL_Jacobian(params, dt, deadtime=1.e-5):
     """
     Calculates the Jacobian of the MR log likelihood function.
     Also called a Gradient or Fisher's Score Function. 
     It's just the vector of first partial derivatives.
     
     INPUTS:
+        params: 2 or 3 element list of Ic, Is, Ir
+            Ic - Coherent portion of MR [1/second]
+            Is - Speckle portion of MR [1/second]
+            (optional) Ir - Incoherent background [1/second]
         dt: list of inter-arrival times [seconds]
-        Ic: Coherent portion of MR [1/second]
-        Is: Speckle portion of MR [1/second]
+        deadtime: MKID deadtime [seconds]
     OUTPUTS:
-        jacobian vector [dlnL/dIc, dlnL/dIs] at Ic, Is
+        jacobian vector [dlnL/dIc, dlnL/dIs, dlnL/dIr] at Ic, Is, Ir
+        if Ir not given in params then force Ir=0 and dlnL/dIr not calculated
     """
+    Ic=params[0]
+    Is=params[1]
+    try: Ir=params[2]
+    except IndexError: Ir=0
+    
     ###################################################################
     # Pre-compute combinations of variables
     ###################################################################
@@ -85,14 +423,8 @@ def MRlogL_Jacobian(Ic, Is, Ir, dt, deadtime=0):
     d_Ic -= N*umax**2/(Ic*umax**2 + Is*umax + Ir)
     d_Ic += N*(1 - umax)/Is
 
-    d_Ir = 2*np.sum((Ic*u2 + Is*u + Ir)*denom_inv)
-    d_Ir -= np.sum(dt)
-    d_Ir += N*deadtime
-    d_Ir -= N/(Ic*umax**2 + Is*umax + Ir)
-
     num = (4*Ic**2/Is)*u4*u + (12*Ic - 4*Ic**2/Is)*u4
     num += (4*Is - 8*Ic + 4*Ir*Ic/Is)*u3 + (2*Ir - 4*Ir*Ic/Is)*u2
-
     d_Is = np.sum(num*denom_inv)
     d_Is += Ic/Is**2*(np.sum(u2) - 2*sum_u + N)
     d_Is += (sum_u - N)/Is
@@ -100,21 +432,36 @@ def MRlogL_Jacobian(Ic, Is, Ir, dt, deadtime=0):
     d_Is -= N*(umax - 1)/Is
     d_Is -= N*umax**2*(2*Ic*(umax - 1)/Is + 1)/(Ic*umax**2 + Is*umax + Ir)
 
-    return np.asarray([d_Ic, d_Is, d_Ir])
+    if len(params)==3:
+        d_Ir = 2*np.sum((Ic*u2 + Is*u + Ir)*denom_inv)
+        d_Ir -= np.sum(dt)
+        d_Ir += N*deadtime
+        d_Ir -= N/(Ic*umax**2 + Is*umax + Ir)
 
-def MRlogL_Hessian(Ic, Is, Ir, dt, deadtime=0):
+        return np.asarray([d_Ic, d_Is, d_Ir])
+    return np.asarray([d_Ic, d_Is])
+
+def MRlogL_Hessian(params, dt, deadtime=1.e-5):
     """
     Calculates the Hessian matrix of the MR log likelihood function.
     It's just the matrix of second partial derivitives.
     It's the negative of Fisher's Observed Information Matrix
     
     INPUTS:
+        params: 2 or 3 element list of Ic, Is, Ir
+            Ic - Coherent portion of MR [1/second]
+            Is - Speckle portion of MR [1/second]
+            (optional) Ir - Incoherent background [1/second]
         dt: list of inter-arrival times [seconds]
-        Ic: Coherent portion of MR [1/second]
-        Is: Speckle portion of MR [1/second]
+        deadtime: MKID deadtime [seconds]
     OUTPUTS:
         Hessian matrix [[d2lnL/dIc2, d2lnL/dIcdIs], [d2lnL/dIsdIc, d2lnL/dIsdIs]] at Ic, Is
     """
+    Ic=params[0]
+    Is=params[1]
+    try: Ir=params[2]
+    except IndexError: Ir=0
+    
     ###################################################################
     # Pre-compute combinations of variables
     ###################################################################
@@ -137,15 +484,6 @@ def MRlogL_Hessian(Ic, Is, Ir, dt, deadtime=0):
     d_IcIc += 2*np.sum(u4*denom_inv)
     d_IcIc += N*(umax**2/(Ic*umax**2 + Is*umax + Ir))**2
 
-    num_Ir = Ic*u2 + Is*u + Ir
-    d_IrIr = -4*np.sum(num_Ir*num_Ir*denom2_inv)
-    d_IrIr += 2*np.sum(denom_inv)
-    d_IrIr += N/(Ic*umax**2 + Is*umax + Ir)**2
-
-    d_IcIr = -4*np.sum(num_Ir*num_Ic*denom2_inv)
-    d_IcIr += 2*np.sum(u2*denom_inv)
-    d_IcIr += N*(umax/(Ic*umax**2 + Is*umax + Ir))**2
-
     num_Is = (4*Ic**2/Is)*u5 + (12*Ic - 4*Ic**2/Is)*u4
     num_Is += (4*Is - 8*Ic + 4*Ir*Ic/Is)*u3 + (2*Ir - 4*Ir*Ic/Is)*u2
 
@@ -157,10 +495,6 @@ def MRlogL_Hessian(Ic, Is, Ir, dt, deadtime=0):
     d_IcIs -= N*((umax - 1)/Is)**2
     d_IcIs += N*umax**4*(2*Ic*(umax - 1)/Is + 1)/(Ic*umax**2 + Is*umax + Ir)**2
     d_IcIs -= 2*N*umax**2*(umax - 1)/Is/(Ic*umax**2 + Is*umax + Ir)
-
-    d_IrIs = np.sum(((4*Ic/Is)*u3 + (2 - 4*Ic/Is)*u2)*denom_inv)
-    d_IrIs -= 2*np.sum((Ic*u2 + Is*u + Ir)*num_Is*denom2_inv)
-    d_IrIs += N*umax**2*(2*Ic*(umax - 1)/Is + 1)/(Ic*umax**2 + Is*umax + Ir)**2
 
     argsum = u_m_1_sq*((5*Ic**2/Is**2)*u2 + (6*Ic/Is)*u + 3*Ic*Ir/Is**2)
     argsum += u_m_1*((6*Ic/Is)*u2 + 3*u + Ir/Is) + u
@@ -174,9 +508,28 @@ def MRlogL_Hessian(Ic, Is, Ir, dt, deadtime=0):
     d_IsIs += N*(umax**2*(2*Ic*(umax - 1)/Is + 1)/(Ic*umax**2 + Is*umax + Ir))**2
     d_IsIs -= N*(6*Ic*umax**2*(umax - 1)**2/Is**2 + 2*umax**2*(umax - 1)/Is)/(Ic*umax**2 + Is*umax + Ir)
 
-    return np.asarray([[d_IcIc, d_IcIs, d_IcIr],
+
+
+    if len(params)==3:
+
+        num_Ir = Ic*u2 + Is*u + Ir
+        d_IrIr = -4*np.sum(num_Ir*num_Ir*denom2_inv)
+        d_IrIr += 2*np.sum(denom_inv)
+        d_IrIr += N/(Ic*umax**2 + Is*umax + Ir)**2
+
+        d_IcIr = -4*np.sum(num_Ir*num_Ic*denom2_inv)
+        d_IcIr += 2*np.sum(u2*denom_inv)
+        d_IcIr += N*(umax/(Ic*umax**2 + Is*umax + Ir))**2
+        
+        d_IrIs = np.sum(((4*Ic/Is)*u3 + (2 - 4*Ic/Is)*u2)*denom_inv)
+        d_IrIs -= 2*np.sum((Ic*u2 + Is*u + Ir)*num_Is*denom2_inv)
+        d_IrIs += N*umax**2*(2*Ic*(umax - 1)/Is + 1)/(Ic*umax**2 + Is*umax + Ir)**2
+
+        return np.asarray([[d_IcIc, d_IcIs, d_IcIr],
                        [d_IcIs, d_IsIs, d_IrIs],
                        [d_IcIr, d_IrIs, d_IrIr]])
+                       
+    return np.asarray([[d_IcIc, d_IcIs],[d_IcIs, d_IsIs]])
 
 
 def MRlogL_opgCov(Ic, Is, Ir, dt, deadtime=0):
@@ -246,57 +599,7 @@ def MRlogL_sandwichCov(Ic, Is, Ir, dt, deadtime=0):
     return np.matmul(np.matmul(h_cov, opg_cov_inv),h_cov)
 
 
-def MRlogL(Ic, Is, Ir, dt, deadtime=0.):
-    """
-    Given an array of photon interarrival times, calculate the Log likelihood that
-    those photons follow a modified Rician Intensity probability distribution with Ic, Is. 
-    
-    INPUTS:
-        dt: list of inter-arrival times [seconds]
-        Ic: Coherent portion of MR [1/second]
-        Is: Speckle portion of MR [1/second]
-        Ir: Background companion [1/second]
-        deadtime: MKID deadtime [microseconds]
-    OUTPUTS:
-        [float] the Log likelihood. 
-    """
-    # Intensity should be strictly positive, and each Ic, Is, Ir should be nonnegative.
-    if Ic < 0 or Is < 0 or Ir < 0 or Ic + Is + Ir == 0:
-        return -1e100 
-    deadtime*=10.**-6.  #convert to seconds
-    
-    nslice = 20
-    u = 1./(1 + dt*Is)
-    u2 = u*u
-    u3 = u2*u
-    u4 = u2*u2
-    u5 = u4*u
-    N = len(u)
-    
-    umax = 1./(1 + deadtime*Is)
-    arg_log = (Ic**2)*u5 + (4*Ic*Is)*u4 + (2*Is**2 + 2*Ir*Ic)*u3
-    if Ir > 0:
-        arg_log += (2*Ir*Is)*u2 + (Ir**2)*u
-    
-    ###################################################################
-    # Reshape the array and multiply along the short axis to reduce
-    # the number of calls to np.log.
-    ###################################################################
 
-    _n = (len(u)//nslice + 1)*nslice
-    _arg_log = np.ones(_n)
-    _arg_log[:len(u)] = arg_log
-    _arg_log = np.prod(np.reshape(_arg_log, (nslice, -1)), axis=0)
-    lnL = np.sum(np.log(_arg_log))
-
-    lnL += -Ir*np.sum(dt) + Ic/Is*np.sum(u) - N*Ic/Is
-    lnL -= N*(umax - 1)*(Ir + Ic*umax)/(Is*umax)
-    lnL -= N*np.log(Ic*umax**3 + Is*umax**2 + Ir*umax)
-    
-    if np.isfinite(lnL):
-        return lnL
-    else:
-        return -1e100
 
 
 def maxMRlogL(ts, Ic_guess=1., Is_guess=1., method='Powell'):
@@ -343,53 +646,6 @@ def getPixelPhotonList(filename, xCoord, yCoord,**kwargs):
     del obs #make sure to close files nicely
     return times
 
-
-def plotLogLMap(ts, Ic_list, Is_list, deadtime=10, inttime=0):
-    """
-    plots a map of the MR log likelihood function over the range of Ic, Is
-    
-    INPUTS:
-        ts - list of photon arrival times [us]
-        Ic_list - list of Ic values [photons/second]
-        Is_list - list
-    OUTPUTS:
-        2d array of logL values at the given Ic, Is coorinates
-    """
-    dt = ts[1:] - ts[:-1]
-    dt=dt[np.where(dt<1.e6)]/10.**6     #remove negative values and convert into seconds
-    print('mean dt[s]: '+str(np.mean(dt)))
-    im = np.zeros((len(Ic_list),len(Is_list)))
-    for i, Ic in enumerate(Ic_list):
-        for j, Is in enumerate(Is_list):
-            lnL = MRlogL(dt, Ic, Is,deadtime=deadtime, inttime=inttime)
-            im[i,j] = lnL
-
-
-    Ic_ind, Is_ind=np.unravel_index(im.argmax(), im.shape)
-    print('Max at ('+str(Ic_ind)+', '+str(Is_ind)+')')
-    print("Ic="+str(Ic_list[Ic_ind])+", Is="+str(Is_list[Is_ind]))
-    print(im[Ic_ind, Is_ind])
-    
-    l_90 = np.percentile(im, 68)
-    l_max=np.amax(im)
-    l_min=np.amin(im)
-    levels=np.linspace(l_90,l_max,int(len(im.flatten())*.1))
-    
-    plt.figure()
-    plt.contourf(Ic_list, Is_list,im.T,levels=levels,extend='min')
-
-    plt.plot(Ic_list[Ic_ind],Is_list[Is_ind],"xr")
-    x_lim = plt.gca().get_xlim()
-    y_lim = plt.gca().get_ylim()
-    plt.plot(np.asarray(x_lim), -1.*np.asarray(x_lim)+Ic_list[Ic_ind]+Is_list[Is_ind],'r--')
-    
-    rad = np.sqrt(Ic_list[Ic_ind]+Is_list[Is_ind])
-    circ=plt.Circle((Ic_list[Ic_ind],Is_list[Is_ind]), rad, color='r', fill=False)
-    plt.gca().add_artist(circ)
-    
-    plt.xlabel('Ic [/s]')
-    plt.ylabel('Is [/s]')
-    plt.title('Map of log likelihood')
 
 
 
