@@ -28,7 +28,7 @@ import ephem
 import glob
 from astropy import wcs
 from astropy.io import fits
-from astropy.coordinates import EarthLocation
+from astropy.coordinates import EarthLocation, Angle
 import astropy
 from drizzle import drizzle as stdrizzle
 from mkidcore import pixelflags
@@ -182,39 +182,32 @@ class DitherDescription(object):
         self.pos = mkid_observing_dither.pos
 
         xCentroids, yCentroids = ditherp_2_pixel(self.pos)
-        virxPixCen, viryPixCen = ditherp_2_pixel([(0,0)])
-        xCenRes, yCenRes = xCentroids - virxPixCen, yCentroids - viryPixCen
-
-
+        self.virxPixCen, self.viryPixCen = ditherp_2_pixel([(0,0)])
+        self.xCenRes, self.yCenRes = xCentroids - self.virxPixCen, yCentroids - self.viryPixCen
 
         if rotate:
-            print('**** warning: the rotation seems to be around the wrong point ****')
             times = [o.start for o in mkid_observing_dither.obs]
             site = EarthLocation.of_site(observatory)
             LSTs = astropy.time.Time(val=times, format='unix').sidereal_time('mean', site.lon).radian
-
-            #TODO RA is a function of xPos and yPos too right? The HA should depend on the position in the array
-
-            self.hourAngles = LSTs - ephem.hours(self.cenRA).real
-            # self.hourAngles = LSTs-LSTs[0]
-
+            # self.hourAngles = LSTs - ephem.hours(self.cenRA).real
+            self.dithHAs = LSTs - LSTs[0] # in radians
         else:
-            self.hourAngles = np.zeros_like((mkid_observing_dither.obs), dtype=np.float)
-        getLogger(__name__).debug("HAs: %s", self.hourAngles)
+            self.dithHAs = np.zeros_like((mkid_observing_dither.obs), dtype=np.float)
+        getLogger(__name__).debug("HAs: %s", self.dithHAs)
 
-        self.rotationMatrix = np.array([[np.cos(self.hourAngles), -np.sin(self.hourAngles)],
-                                        [np.sin(self.hourAngles), np.cos(self.hourAngles)]]).T
-
+        # self.rotationMatrix = np.array([[np.cos(self.dithHAs), -np.sin(self.dithHAs)],
+        #                                 [np.sin(self.dithHAs), np.cos(self.dithHAs)]]).T
+        #
+        # # self.centroidRotated = np.dot(self.rotationMatrix,
+        # #                               np.array([xCentroids, yCentroids])).diagonal(axis1=0,axis2=2)
         # self.centroidRotated = np.dot(self.rotationMatrix,
-        #                               np.array([xCentroids, yCentroids])).diagonal(axis1=0,axis2=2)
-        self.centroidRotated = np.dot(self.rotationMatrix,
-                                      np.array([xCenRes, yCenRes])).diagonal(axis1=0,axis2=2) + [virxPixCen, viryPixCen]
+        #                               np.array([self.xCenRes, self.yCenRes])).diagonal(axis1=0,axis2=2) + [self.virxPixCen, self.viryPixCen]
 
         if plotdithlocs:
             # plt.plot(np.array(self.pos)[:, 0], np.array(self.pos)[:, 1])
             # plt.figure()
             plt.plot(xCentroids, yCentroids)
-            plt.plot(virxPixCen, viryPixCen, marker='x')
+            plt.plot(self.virxPixCen, self.viryPixCen, marker='x')
             plt.plot(self.centroidRotated[0], self.centroidRotated[1])
             plt.show()
 
@@ -277,7 +270,7 @@ class SpatialDrizzler(Drizzler):
         self.randoffset = False # apply random spatial offset to each photon
         self.nPixRA = 250
         self.nPixDec = 250
-        self.photWeights = None
+        # self.photWeights = None
         self.tempfile = 'temp.fits'
 
         self.config = None
@@ -334,7 +327,7 @@ class SpatialDrizzler(Drizzler):
             # hdul = astropy.io.fits.HDUList([astropy.io.fits.PrimaryHDU(), ret])
             # offset[ix] = 'dith%i.fits' % ix
             # hdul.writeto(os.path.join(self.config.paths.out, offset[ix]))
-
+        plt.show()
         # self.driz.write(save_file)
 
         # # Save the results.
@@ -374,13 +367,15 @@ class SpatialDrizzler(Drizzler):
         # self.detImage, thisGridDec, thisGridRA = np.histogram2d(photDecs, photRAs, bins=[146,140])
 
         # Make the image for this integration
-        if self.photWeights:
-            print('Making weighted image')
-            thisImage, thisGridDec, thisGridRA = np.histogram2d(photDecs, photRAs, [self.gridDec, self.gridRA],
-                                                                weights=self.photWeights)
-        else:
-            print('Making unweighted image')
-            thisImage, thisGridDec, thisGridRA = np.histogram2d(photDecs, photRAs, [self.gridDec, self.gridRA])
+        # if self.photWeights:
+        #     print('Making weighted image')
+        #     thisImage, thisGridDec, thisGridRA = np.histogram2d(photDecs, photRAs, [self.gridDec, self.gridRA],
+        #                                                         weights=self.photWeights)
+        # else:
+        thisImage, thisGridDec, thisGridRA = np.histogram2d(photDecs, photRAs, [self.gridDec, self.gridRA])
+
+        quicklook_im(thisImage, logAmp=True, vmax=30, vmin=5, show=False)
+
 
         w = wcs.WCS(naxis=2)
         w.wcs.crpix = [0., 0.]
@@ -410,12 +405,12 @@ class photonlist(object):
         self.doWeighted=False
         self.medCombine=False
         self.maxBadPixTimeFrac=None
-        self.integrationTime=1
+        self.integrationTime=0.2
         self.firstObsTime =0
 
         timestamps, xPhotonPixels, yPhotonPixels, _ = self.reduce_obs(obsfile, ditherdesc, ditherind)
 
-        self.photRARad, self.photDecRad, self.photHAs = self.get_wcs(timestamps, xPhotonPixels,
+        self.photRARad, self.photDecRad = self.get_wcs(timestamps, xPhotonPixels,
                                                                      yPhotonPixels, ditherind,
                                                                      ditherdesc)
 
@@ -589,42 +584,71 @@ class photonlist(object):
         return [timestamps, xPhotonPixels, yPhotonPixels, photWavelengths, ]
 
     def get_wcs(self, timestamps, xPhotonPixels, yPhotonPixels, ditherind, ditherdesc):
-        print('Calculating RA/Decs...')
+        print('Calculating RA/Decs for dither %i' % ditherind)
         pixelCount = self.nDPixCol * self.nDPixRow
         values = np.zeros((2, pixelCount))
         for i in range(pixelCount):
             values[0, i] = i / self.nDPixRow
             values[1, i] = i % self.nDPixRow
-        # rotatedValues = np.dot(ditherdesc.rotationMatrix, values)
 
         xyPhotonPixel = np.array([xPhotonPixels, yPhotonPixels])  # 2 x nPhotons array of x,y pairs
 
         # inputLength = len(timestamps)
 
         binNumber = np.ones_like((timestamps), dtype=np.int8) * ditherind
-        photHAs = ditherdesc.hourAngles[binNumber]
+        # photHAs = ditherdesc.hourAngles[binNumber]
 
-        indexArray = np.array(xPhotonPixels * self.nDPixRow + yPhotonPixels)
+        # indexArray = np.array(xPhotonPixels * self.nDPixRow + yPhotonPixels)
 
         xPhotonRotated = np.zeros(len(timestamps))
         yPhotonRotated = np.zeros(len(timestamps))
 
-        # NEW VERSION (calculate on the fly, no look-up table, can handle non-integers)
-        for iBin in np.arange(np.min(binNumber), np.max(binNumber) + 1):
-            print(iBin)
-            inThisBin = np.where(binNumber == iBin)[0]  # [0] just to move array result outside tuple
-            if len(inThisBin) == 0: continue
-            rotatedValues = np.dot(ditherdesc.rotationMatrix[iBin, :, :], xyPhotonPixel[:, inThisBin])
-            xPhotonRotated[inThisBin] = rotatedValues[0, :]
-            yPhotonRotated[inThisBin] = rotatedValues[1, :]
-        #     rotatedValues = np.dot(ditherdesc.rotationMatrix, values)
-        plt.plot(xPhotonRotated, yPhotonRotated)
-        plt.show()
-        # Use the centroid as the zero point for ra and dec offsets
-        rightAscensionOffset = -1*ditherdesc.platescale * (
-                xPhotonRotated - ditherdesc.centroidRotated[0][binNumber])
-        declinationOffset = ditherdesc.platescale * (
-                yPhotonRotated - ditherdesc.centroidRotated[1][binNumber])
+        photHAs = timestamps * 1e-6 * 1./86164.1 * 2*np.pi * 50
+
+        rotationMatrix = np.array([[np.cos(ditherdesc.dithHAs[ditherind] + photHAs),
+                                         -np.sin(ditherdesc.dithHAs[ditherind]+ photHAs)],
+                                        [np.sin(ditherdesc.dithHAs[ditherind] + photHAs),
+                                         np.cos(ditherdesc.dithHAs[ditherind] + photHAs)]]).T
+
+        # self.centroidRotated = np.dot(self.rotationMatrix,
+        #                               np.array([xCentroids, yCentroids])).diagonal(axis1=0,axis2=2)
+        # xCenRes, yCenRes = xPhotonPixels - self.virxPixCen, xPhotonPixels - self.viryPixCen
+        # centroidRotated = np.dot(rotationMatrix,
+        #                               np.array([ditherdesc.xCenRes[ditherind] + xPhotonPixels, ditherdesc.yCenRes[ditherind] + yPhotonPixels])).T + [ditherdesc.virxPixCen, ditherdesc.viryPixCen]
+        centroidRotated = np.dot(rotationMatrix,
+                                  np.array([-1*ditherdesc.xCenRes[ditherind] + xPhotonPixels - ditherdesc.xpix/2,
+                                            -1*ditherdesc.yCenRes[ditherind] + yPhotonPixels - ditherdesc.ypix/2])).diagonal(axis1=0,axis2=2)# + [ditherdesc.virxPixCen, ditherdesc.viryPixCen]
+
+        # print(photHAs)
+        # photRotMatrix = ditherdesc.rotationMatrix[ditherind] + np.array([[np.cos(photHAs), -np.sin(photHAs)],
+        #                                                                  [np.sin(photHAs), np.cos(photHAs)]]).T
+
+        # # NEW VERSION (calculate on the fly, no look-up table, can handle non-integers)
+        # for iBin in np.arange(np.min(binNumber), np.max(binNumber) + 1):
+        #     print(iBin)
+        #     inThisBin = range(len(timestamps))
+        #     # rotatedValues = np.dot(ditherdesc.rotationMatrix[iBin, :, :], xyPhotonPixel[:, inThisBin])
+        #     # rotatedValues = np.dot(ditherdesc.rotationMatrix[iBin, :, :], xyPhotonPixel])
+        #     # print(rotatedValues.shape)
+        #     # self.xCenRes, self.yCenRes = xCentroids - self.virxPixCen, yCentroids - self.viryPixCen
+        #     rotatedValues = np.dot(photRotMatrix, xyPhotonPixel)
+        #     print(rotatedValues.shape)
+        #     rotatedValues = rotatedValues.diagonal(axis1=0,axis2=2)
+        #     print(rotatedValues.shape)
+        #
+        #     xPhotonRotated[inThisBin] = rotatedValues[0, :]
+        #     yPhotonRotated[inThisBin] = rotatedValues[1, :]
+        #     plt.plot(timestamps, np.arctan2(yPhotonRotated, xPhotonRotated))
+        #     plt.show()
+        # plt.plot(xPhotonRotated, yPhotonRotated)
+        # plt.plot(centroidRotated[0], centroidRotated[1], '.')
+        # plt.show()
+        # # Use the centroid as the zero point for ra and dec offsets
+        # rightAscensionOffset = -1*ditherdesc.platescale * (xPhotonRotated - ditherdesc.centroidRotated[0][binNumber])
+        # declinationOffset = ditherdesc.platescale * (yPhotonRotated - ditherdesc.centroidRotated[1][binNumber])
+
+        rightAscensionOffset = -1*ditherdesc.platescale * centroidRotated[0]
+        declinationOffset = -1*ditherdesc.platescale * centroidRotated[1]
 
         # Convert centroid positions in DD:MM:SS.S and HH:MM:SS.S format to radians.
         centroidRightAscensionRadians = ephem.hours(ditherdesc.cenRA).real
@@ -646,7 +670,7 @@ class photonlist(object):
         photDecRad = (photonDeclinationArcseconds / 3600.0) * degreesToRadians
         photRARad = (photonRightAscensionArcseconds / 3600.0) * degreesToRadians
 
-        return photRARad, photDecRad, photHAs
+        return photRARad, photDecRad#, photHAs
 
 if __name__ == '__main__':
     # Get dither offsets
@@ -672,13 +696,13 @@ if __name__ == '__main__':
         photonlists = []
         for ditherind, obsfile in enumerate(obsfiles[:25]):
             photonlists.append(photonlist(obsfile, ditherdesc, ditherind))
-
+        plt.show()
         with open(pkl_save, 'wb') as handle:
             pickle.dump(photonlists, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     # Do the dither
     scimaps = []
-    for pixfrac in [1,0.5,0.1,0]:
+    for pixfrac in [1]:
         driz = SpatialDrizzler(photonlists, ditherdesc, pixfrac=pixfrac)
         driz.run()
         scimaps.append(driz.driz.outsci)
