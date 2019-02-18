@@ -958,21 +958,6 @@ class Worker(mp.Process):
         self.start()
 
     def run(self):
-        # import yappi
-        # yappi.stop()
-        # yappi.clear_stats()
-        # yappi.start()
-        self.do_work()
-        # yappi.stop()
-        # self.stats = yappi.convert2pstats(yappi.get_func_stats())
-        # try:
-        #     self.stats.dump_stats('wavecal_worker{}_{}.pstats'.format(self.name, self.method))
-        # except Exception:
-        #     pipelinelog.getLogger(__name__).error('stats save failed', exc_info=True)
-        # yappi.clear_stats()
-
-    def do_work(self):
-
         """This method gets called on the instantiation of the object."""
         try:
             while True:
