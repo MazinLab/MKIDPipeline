@@ -379,6 +379,10 @@ class Calibrator(object):
         for pixel in pixels.T:
             wavelength = None
             try:
+                if not self.solution.has_data(pixel=pixel).any():
+                    message = "({}, {}) : histogram fit failed because there is no data"
+                    log.debug(message.format(pixel[0], pixel[1]))
+                    continue
                 # update progress bar
                 self._update_progress(verbose=verbose)
                 models = self.solution.histogram_models(wavelengths, pixel=pixel)
@@ -497,6 +501,10 @@ class Calibrator(object):
         self._update_progress(number=pixels.shape[1], initialize=True, verbose=verbose)
         for pixel in pixels.T:
             try:
+                if not self.solution.has_data(pixel=pixel).any():
+                    message = "({}, {}) : calibration fit failed because there is no data"
+                    log.debug(message.format(pixel[0], pixel[1]))
+                    continue
                 # update progress bar
                 self._update_progress(verbose=verbose)
                 model = self.solution.calibration_model(pixel=pixel)
@@ -843,8 +851,7 @@ class Calibrator(object):
                 bar = pb.Bar()
                 timer = pb.Timer()
                 eta = pb.ETA()
-                self.progress = pb.ProgressBar(widgets=[percentage, bar, '  (',
-                                                        timer, ') ', eta, ' '],
+                self.progress = pb.ProgressBar(widgets=[percentage, bar, '  (', timer, ') ', eta, ' '],
                                                max_value=number).start()
                 self.progress_iteration = -1
             elif finish:
@@ -867,15 +874,21 @@ class Calibrator(object):
             return False
 
         return_dict = output_queue.get()
+        method = return_dict.pop('method', None)
         for pixel in return_dict.keys():
             fit_element = return_dict[pixel]
             # create model with proper flag if there was no data
             if fit_element is None:
                 for model in self.solution.histogram_models(pixel=pixel):
                     model.flag = 1  # no data
-            # add fit element to the solution class
+            # add fit element to the solution class in the right location
             else:
-                self.solution[pixel[0], pixel[1]] = fit_element
+                if method == 'fit_calibrations':
+                    self.solution[pixel[0], pixel[1]]['calibration'] = fit_element
+                elif method == 'make_histograms':
+                    self.solution[pixel[0], pixel[1]]['histograms'] = fit_element
+                else:
+                    self.solution[pixel[0], pixel[1]] = fit_element
             # increment counter
             self._acquired += 1
         return True
@@ -985,10 +998,15 @@ class Worker(mp.Process):
                     getattr(self.calibrator, self.method)(**kwargs)
                     # output data into queue if we are running one of the main methods
                     if pixels is not False and self.output_queue is not None:
-                        return_dict = {}
+                        return_dict = {'method': self.method}
                         for pixel in pixels.T:
                             if self.calibrator.solution.has_data(pixel=pixel).any():
-                                return_dict[(pixel[0], pixel[1])] = self.calibrator.solution[pixel[0], pixel[1]]
+                                fit_element = self.calibrator.solution[pixel[0], pixel[1]]
+                                if self.method == 'fit_calibrations':
+                                    fit_element = fit_element['calibration']
+                                elif self.method == 'make_histograms':
+                                    fit_element = fit_element['histograms']
+                                return_dict[(pixel[0], pixel[1])] = fit_element
                             else:
                                 return_dict[(pixel[0], pixel[1])] = None
                         self.output_queue.put(return_dict)
