@@ -189,9 +189,11 @@ class PartialLinearModel(object):
             raise SyntaxError(message.format(self.max_parameters))
 
     def __getstate__(self):
+        b = self.best_fit_result
+        r = (b.aic, b.success, b.params.dumps(), b.chisqr, b.errorbars, b.residual, b.nvarys) if b is not None else None
         state = {'pixel': self.pixel, 'res_id': self.res_id, 'x': self.x, 'y': self.y, 'variance': self.variance,
-                 'best_fit_result': pickle.dumps(self.best_fit_result),
-                 'best_fit_result_good': self.best_fit_result_good, 'flag': self.flag, 'phm': self.phm, 'nhm': self.nhm}
+                 'best_fit_result': r, 'best_fit_result_good': self.best_fit_result_good, 'flag': self.flag,
+                 'phm': self.phm, 'nhm': self.nhm}
         return state
 
     def __setstate__(self, state):
@@ -202,8 +204,10 @@ class PartialLinearModel(object):
         if state['best_fit_result'] is None:
             self.best_fit_result = None
         else:
-            result = pickle.loads(state['best_fit_result'])
-            self.best_fit_result = result
+            r = lm.model.ModelResult(self._full_model, lm.Parameters())
+            (r.aic, r.success, params, r.chisqr, r.errorbars, r.residual, r.nvarys) = state['best_fit_result']
+            r.params = lm.Parameters().loads(params)
+            self.best_fit_result = r
         self.best_fit_result_good = state['best_fit_result_good']
         self.flag = state['flag']
         self.phm = state['phm']
@@ -872,10 +876,11 @@ class XErrorsModel(object):
         self.min_x = None
 
     def __getstate__(self):
+        b = self.best_fit_result
+        r = (b.aic, b.success, b.params.dumps(), b.chisqr, b.errorbars, b.residual, b.nvarys) if b is not None else None
         state = {'pixel': self.pixel, 'res_id': self.res_id, 'x': self.x, 'y': self.y, 'variance': self.variance,
-                 'best_fit_result': pickle.dumps(self.best_fit_result),
-                 'best_fit_result_good': self.best_fit_result_good, 'flag': self.flag, 'max_x': self.max_x,
-                 'min_x': self.min_x}
+                 'best_fit_result': r, 'best_fit_result_good': self.best_fit_result_good, 'flag': self.flag,
+                 'max_x': self.max_x, 'min_x': self.min_x}
         return state
 
     def __setstate__(self, state):
@@ -883,7 +888,13 @@ class XErrorsModel(object):
         self.x = state['x']
         self.y = state['y']
         self.variance = state['variance']
-        self.best_fit_result = pickle.loads(state['best_fit_result'])
+        if state['best_fit_result'] is None:
+            self.best_fit_result = None
+        else:
+            r = lm.minimizer.MinimizerResult()
+            (r.aic, r.success, params, r.chisqr, r.errorbars, r.residual, r.nvarys) = state['best_fit_result']
+            r.params = lm.Parameters().loads(params)
+            self.best_fit_result = r
         self.best_fit_result_good = state['best_fit_result_good']
         self.flag = state['flag']
         self.max_x = state['max_x']
