@@ -1393,12 +1393,7 @@ class Solution(object):
         pixel, _ = self._parse_resonators(pixel, res_id)
         model = self.calibration_model(pixel=pixel)
 
-        # TODO Nick integrate with the model or delete this note. using this wrapper may have negatives for
-        #  introspection
-        def wave_cal_func(*args, **kwargs):
-            return PLANK_CONSTANT_EV * SPEED_OF_LIGHT_MS * 1e9/model.calibration_function(*args, **kwargs)
-
-        return model.calibration_function if not wavelength_units else wave_cal_func
+        return model.calibration_function if not wavelength_units else model.wavelength_function
 
     def calibration(self, pixel=None, res_id=None):
         """Returns a tuple of the  phases, energies, and phase errors (1 sigma) data
