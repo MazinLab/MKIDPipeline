@@ -567,6 +567,12 @@ class Calibrator(object):
         n_data = pixels.shape[1]
         cpu_count = mkidpipeline.config.n_cpus_available()
         log.info("Using {} additional cores".format(cpu_count))
+        # setup chunks (at least 2 chunks per process per feedline on MEC)
+        chunk_size = max(1, int(self.cfg.beammap.residmap.size / (2 * 10 * (cpu_count - 1 * bool(verbose)))))
+
+        def chunks():
+            for ii in range(0, pixels.shape[1], chunk_size):
+                yield pixels[:, ii: ii + chunk_size]
         # make input, output and progress queues
         workers = []
         progress_worker = None
@@ -590,14 +596,23 @@ class Calibrator(object):
                 progress_worker = Worker(self.cfg, "_update_progress", events[-1], progress_queue, name='progress')
                 progress_queue.put({"number": n_data, "initialize": True, "verbose": verbose})
             # assign data to workers
-            for pixel in pixels.T:
+            for pixel_group in chunks():
                 # skip if there's no data (but not if the data hasn't been made yet)
-                if (not self.solution.has_data(pixel=pixel).any()) and method != 'make_histograms':
-                    if verbose:
-                        progress_queue.put({"verbose": verbose})
-                    self._acquired += 1  # needed for _acquire_data() before joining workers
-                    continue
-                kwargs = {"pixel": pixel, "wavelengths": wavelengths, "verbose": verbose}
+                if method != 'make_histograms':
+                    # check each pixel in the chunk for data
+                    remove_indices = []
+                    for index, pixel in enumerate(pixel_group.T):
+                        if not self.solution.has_data(pixel=pixel).any():
+                            if verbose:  # update progress bar
+                                progress_queue.put({"verbose": verbose})
+                            remove_indices.append(index)
+                            self._acquired += 1  # needed for _acquire_data() before joining workers
+                    # remove empty pixels from the group
+                    pixel_group = np.delete(pixel_group, remove_indices, axis=-1)
+                    # if the group is empty continue to the next chunk
+                    if pixel_group.size == 0:
+                        continue
+                kwargs = {"pixels": pixel_group, "wavelengths": wavelengths, "verbose": verbose}
                 # grab the data if the queue is getting full
                 while input_queue.qsize() > self._max_queue_size / 2:
                     self._acquire_data(n_data, output_queue)
@@ -851,15 +866,18 @@ class Calibrator(object):
             self._acquired = 0
             return False
 
-        result = output_queue.get()
-        computed_pixel = result["pixel"]
-        fit_element = result.pop("fit_element", None)
-        if fit_element is None:
-            for model in self.solution.histogram_models(pixel=computed_pixel):
-                model.flag = 1  # no data
-        else:
-            self.solution[computed_pixel[0], computed_pixel[1]] = fit_element
-        self._acquired += 1
+        return_dict = output_queue.get()
+        for pixel in return_dict.keys():
+            fit_element = return_dict[pixel]
+            # create model with proper flag if there was no data
+            if fit_element is None:
+                for model in self.solution.histogram_models(pixel=pixel):
+                    model.flag = 1  # no data
+            # add fit element to the solution class
+            else:
+                self.solution[pixel[0], pixel[1]] = fit_element
+            # increment counter
+            self._acquired += 1
         return True
 
     def _clean_up(self, input_queue, output_queue, progress_queue, workers,
@@ -968,26 +986,30 @@ class Worker(mp.Process):
                     break
                 else:
                     # pop kwargs that may not be arguments to the requested method
-                    pixel = kwargs.pop("pixel", False)
+                    pixels = kwargs.pop("pixels", False)
                     wavelengths = kwargs.pop("wavelengths", False)
                     # get the verbose keyword to defer to the progress worker
                     verbose = kwargs.get("verbose", False)
                     # supplying pixel means we are running one of the three main methods
-                    if pixel is not False:
-                        pixel, wavelengths = self.calibrator._setup(pixel, wavelengths)
-                        kwargs['pixels'] = pixel
+                    if pixels is not False:
+                        pixels, wavelengths = self.calibrator._setup(pixels, wavelengths)
+                        kwargs['pixels'] = pixels
                         kwargs['wavelengths'] = wavelengths
                         kwargs['verbose'] = False
                     # run the requested method
                     getattr(self.calibrator, self.method)(**kwargs)
                     # output data into queue if we are running one of the main methods
-                    if pixel is not False and self.output_queue is not None:
-                        return_dict = {"pixel": pixel, "wavelengths": wavelengths}
-                        if self.calibrator.solution.has_data(pixel=pixel).any():
-                            return_dict.update({"fit_element": self.calibrator.solution[pixel[0], pixel[1]]})
+                    if pixels is not False and self.output_queue is not None:
+                        return_dict = {}
+                        for pixel in pixels.T:
+                            if self.calibrator.solution.has_data(pixel=pixel).any():
+                                return_dict[(pixel[0], pixel[1])] = self.calibrator.solution[pixel[0], pixel[1]]
+                            else:
+                                return_dict[(pixel[0], pixel[1])] = None
                         self.output_queue.put(return_dict)
                         if verbose and self.progress_queue is not None:
-                            self.progress_queue.put({"verbose": verbose})  # cumulative over 20k pixels ~5s
+                            for _ in pixels.T:
+                                self.progress_queue.put({"verbose": verbose})  # cumulative over 20k pixels ~5s
         except KeyboardInterrupt:
             self.finished.set()
             self.finished.wait()
