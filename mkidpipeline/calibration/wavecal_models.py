@@ -2,6 +2,7 @@ import os
 import copy
 import pickle
 import inspect
+import astropy
 import warnings
 import numpy as np
 import lmfit as lm
@@ -15,6 +16,8 @@ from scipy.special import erfc, erfcx
 from mkidcore import pixelflags
 import mkidcore.corelog as pipelinelog
 
+PLANK_CONSTANT_EV = astropy.constants.h.to('eV s').value
+SPEED_OF_LIGHT_MS = astropy.constants.c.to('m/s').value
 
 log = pipelinelog.getLogger('mkidpipeline.calibration.wavecal_models', setup=False)
 
@@ -916,6 +919,10 @@ class XErrorsModel(object):
     def calibration_function(self, x):
         self._check_fit()
         return self.fit_function(x, self.best_fit_result.params)
+
+    def wavelength_function(self, x):
+        self._check_fit()
+        return PLANK_CONSTANT_EV * SPEED_OF_LIGHT_MS * 1e9 / self.fit_function(x, self.best_fit_result.params)
 
     @staticmethod
     def chi_squared(parameters, x, y, variance, f, dfdx):
