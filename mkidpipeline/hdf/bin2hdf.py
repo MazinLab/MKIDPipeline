@@ -65,7 +65,10 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False):
 
     if timesort:
         photons.sort(order=('Time', 'ResID'))
-        getLogger(__name__).debug('Data sorted on time')
+        getLogger(__name__).Warning('Sorting photon data on time')
+    elif not np.all(photons['ResID'][:-1] <= photons['ResID'][1:]):
+        getLogger(__name__).warning('binprocessor.extract returned data that was not sorted on ResID, sorting')
+        photons.sort(order=('ResID', 'Time'))
 
     h5file = tables.open_file(cfg.h5file, mode="a", title="MKID Photon File")
     group = h5file.create_group("/", 'Photons', 'Photon Information')
