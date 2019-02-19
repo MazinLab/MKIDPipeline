@@ -377,15 +377,15 @@ class Calibrator(object):
             # check inputs and setup progress bar
             pixels, wavelengths = self._setup(pixels, wavelengths)
             # setup progress bar
-            self._update_progress(number=pixels.shape[1], initialize=True, verbose=False)
+            self._update_progress(number=pixels.shape[1], initialize=True, verbose=verbose)
             # fit histograms for each pixel in pixels and wavelength in wavelengths
             for pixel in pixels.T:
+                # update progress bar
+                self._update_progress(verbose=verbose)
                 if not self.solution.has_data(pixel=pixel).any():
                     message = "({}, {}) : histogram fit failed because there is no data"
                     log.debug(message.format(pixel[0], pixel[1]))
                     continue
-                # update progress bar
-                self._update_progress(verbose=verbose)
                 models = self.solution.histogram_models(wavelengths, pixel=pixel)
                 # fit the histograms of the higher energy data sets first and use good
                 # fits to inform the guesses to the lower energy data sets
@@ -503,12 +503,12 @@ class Calibrator(object):
             pixels, wavelengths = self._setup(pixels, wavelengths)
             self._update_progress(number=pixels.shape[1], initialize=True, verbose=verbose)
             for pixel in pixels.T:
+                # update progress bar
+                self._update_progress(verbose=verbose)
                 if not self.solution.has_data(pixel=pixel).any():
                     message = "({}, {}) : calibration fit failed because there is no data"
                     log.debug(message.format(pixel[0], pixel[1]))
                     continue
-                # update progress bar
-                self._update_progress(verbose=verbose)
                 model = self.solution.calibration_model(pixel=pixel)
                 # get data from histogram fits
                 histogram_models = self.solution.histogram_models(wavelengths, pixel)
@@ -2502,6 +2502,7 @@ if __name__ == "__main__":
     bin2hdf.buildtables(time_ranges, ymlcfg, ncpu=6, remake=args.force_h5, timesort=False)
     if args.h5_only:
         exit()
+    pixels = np.arange(40).reshape((2, 20))
     # run the wavelength calibration
     c = Calibrator(wcalcfg, solution_name='wavecal_solution_{}.npz'.format(timestamp))
-    c.run(verbose=args.progress)
+    c.run(verbose=args.progress, pixels=pixels)
