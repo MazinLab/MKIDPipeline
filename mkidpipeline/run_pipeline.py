@@ -37,8 +37,14 @@ def batch_apply_flatcals(flatcal_pairs, ncpu=None):
     pool.close()
 
 
-datafile = '/mnt/data0/baileyji/mec/data.yml'
-cfgfile = '/mnt/data0/baileyji/mec/pipe.yml'
+def batch_maskhot(obs, ncpu=None):
+    pool = mp.Pool(ncpu if ncpu is not None else mkidpipeline.config.n_cpus_available())
+    pool.map(badpix.mask_hot_pixels, set([o.h5 for o in obs]))
+    pool.close()
+
+
+datafile = '/scratch/baileyji/mec/data.yml'
+cfgfile = '/scratch/baileyji/mec/pipe.yml'
 
 mkidpipeline.config.logtoconsole()
 
@@ -47,14 +53,20 @@ dataset = mkidpipeline.config.load_data_description(datafile)
 
 
 getLogger('mkidpipeline.calibration.wavecal').setLevel('INFO')
-getLogger('mkidpipeline.hdf.photontable').setLevel('INFO')
+getLogger('mkidpipeline.hdf.photontable').setLevel('DEBUG')
 
 
-bin2hdf.buildtables(dataset.timeranges, ncpu=7, remake=False, timesort=False)
+bin2hdf.buildtables(dataset.timeranges, ncpu=15, remake=False, timesort=False)
+
 wavecal.fetch(dataset.wavecals, verbose=False)
 
 batch_apply_wavecals(dataset.wavecalable, 10)
+#
+# flatcal.fetch(dataset.flatcals)
+#
+# batch_apply_flatcals(dataset.science_observations, 10)
 
-flatcal.fetch(dataset.flatcals)
+# batch_maskhot(dataset.science_observations)
 
-batch_apply_flatcals(dataset.science_observations, 10)
+# for h5 in set([o.h5 for o in dataset.science_observations]): badpix.mask_hot_pixels(h5)
+
