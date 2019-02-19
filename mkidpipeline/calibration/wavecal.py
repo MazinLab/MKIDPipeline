@@ -288,13 +288,13 @@ class Calibrator(object):
                          wavelengths specified in the configuration object are used.
             verbose: a boolean specifying whether to print a progress bar to the stdout.
         """
-        # check inputs and setup progress bar
-        pixels, wavelengths = self._setup(pixels, wavelengths)
-        self._update_progress(number=pixels.shape[1], initialize=True, verbose=verbose)
-        # make histograms for each pixel in pixels and wavelength in wavelengths
-        for pixel in pixels.T:
-            wavelength = None
-            try:
+        wavelength, pixel = None, (None, None)
+        try:
+            # check inputs and setup progress bar
+            pixels, wavelengths = self._setup(pixels, wavelengths)
+            self._update_progress(number=pixels.shape[1], initialize=True, verbose=verbose)
+            # make histograms for each pixel in pixels and wavelength in wavelengths
+            for pixel in pixels.T:
                 # update progress bar
                 self._update_progress(verbose=verbose)
                 # histogram get models
@@ -348,17 +348,17 @@ class Calibrator(object):
                     model.variance = np.sqrt(counts**2 + 0.25) - 0.5
                     message = "({}, {}), : {} nm : histogram successfully computed"
                     log.debug(message.format(pixel[0], pixel[1], wavelength))
-            except KeyboardInterrupt:
-                raise KeyboardInterrupt
-            except Exception as error:
-                if wavelength is None:
-                    message = "({}, {}) : ".format(pixel[0], pixel[1])
-                else:
-                    message = ("({}, {}) : {} nm : ".format(pixel[0], pixel[1], wavelength))
-                log.error(message, exc_info=True)
-                raise error
-        # update progress bar
-        self._update_progress(finish=True, verbose=verbose)
+            # update progress bar
+            self._update_progress(finish=True, verbose=verbose)
+        except KeyboardInterrupt:
+            raise KeyboardInterrupt  # don't log keyboard interrupt
+        except Exception as error:
+            if wavelength is None:
+                message = "({}, {}) : ".format(pixel[0], pixel[1]) + + str(error)
+            else:
+                message = "({}, {}) : {} nm : ".format(pixel[0], pixel[1], wavelength) + str(error)
+            log.error(message, exc_info=True)
+            raise error
 
     def fit_histograms(self, pixels=None, wavelengths=None, verbose=False):
         """
@@ -372,13 +372,14 @@ class Calibrator(object):
                          wavelengths specified in the configuration object are used.
             verbose: a boolean specifying whether to print a progress bar to the stdout.
         """
-        # check inputs and setup progress bar
-        pixels, wavelengths = self._setup(pixels, wavelengths)
-        self._update_progress(number=pixels.shape[1], initialize=True, verbose=False)
-        # fit histograms for each pixel in pixels and wavelength in wavelengths
-        for pixel in pixels.T:
-            wavelength = None
-            try:
+        wavelength, pixel = None, (None, None)
+        try:
+            # check inputs and setup progress bar
+            pixels, wavelengths = self._setup(pixels, wavelengths)
+            # setup progress bar
+            self._update_progress(number=pixels.shape[1], initialize=True, verbose=False)
+            # fit histograms for each pixel in pixels and wavelength in wavelengths
+            for pixel in pixels.T:
                 if not self.solution.has_data(pixel=pixel).any():
                     message = "({}, {}) : histogram fit failed because there is no data"
                     log.debug(message.format(pixel[0], pixel[1]))
@@ -472,17 +473,17 @@ class Calibrator(object):
                         else:
                             # find the model with the best bad fit and save that one
                             self._assign_best_histogram_model(tried_models, wavelength, pixel)
-            except KeyboardInterrupt:
-                raise KeyboardInterrupt
-            except Exception as error:
-                if wavelength is None:
-                    message = "({}, {}) : ".format(pixel[0], pixel[1]) + str(error)
-                else:
-                    message = "({}, {}), : {} nm : ".format(pixel[0], pixel[1], wavelength) + str(error)
-                log.error(message, exc_info=True)
-                raise error
-        # update progress bar
-        self._update_progress(finish=True, verbose=verbose)
+            # update progress bar
+            self._update_progress(finish=True, verbose=verbose)
+        except KeyboardInterrupt:
+            raise KeyboardInterrupt  # don't log keyboard interrupt
+        except Exception as error:
+            if wavelength is None:
+                message = "({}, {}) : ".format(pixel[0], pixel[1]) + str(error)
+            else:
+                message = "({}, {}), : {} nm : ".format(pixel[0], pixel[1], wavelength) + str(error)
+            log.error(message, exc_info=True)
+            raise error
 
     def fit_calibrations(self, pixels=None, wavelengths=None, verbose=False):
         """
@@ -496,11 +497,12 @@ class Calibrator(object):
                          wavelengths specified in the configuration object are used.
             verbose: a boolean specifying whether to print a progress bar to the stdout.
         """
-        # check inputs and setup progress bar
-        pixels, wavelengths = self._setup(pixels, wavelengths)
-        self._update_progress(number=pixels.shape[1], initialize=True, verbose=verbose)
-        for pixel in pixels.T:
-            try:
+        pixel = (None, None)
+        try:
+            # check inputs and setup progress bar
+            pixels, wavelengths = self._setup(pixels, wavelengths)
+            self._update_progress(number=pixels.shape[1], initialize=True, verbose=verbose)
+            for pixel in pixels.T:
                 if not self.solution.has_data(pixel=pixel).any():
                     message = "({}, {}) : calibration fit failed because there is no data"
                     log.debug(message.format(pixel[0], pixel[1]))
@@ -556,13 +558,13 @@ class Calibrator(object):
                         log.debug(message.format(pixel[0], pixel[1], type(model).__name__))
                 # find model with the best fit and save that one
                 self._assign_best_calibration_model(tried_models, pixel)
-            except KeyboardInterrupt:
-                raise KeyboardInterrupt
-            except Exception as error:
-                log.error("({}, {}) : ".format(pixel[0], pixel[1]), exc_info=True)
-                raise error
-        # update progress bar
-        self._update_progress(finish=True, verbose=verbose)
+            # update progress bar
+            self._update_progress(finish=True, verbose=verbose)
+        except KeyboardInterrupt:
+            raise KeyboardInterrupt  # don't log keyboard interrupt
+        except Exception as error:
+            log.error("({}, {}) : ".format(pixel[0], pixel[1]), exc_info=True) + str(error)
+            raise error
 
     def _run(self, method, pixels=None, wavelengths=None, verbose=False, parallel=True):
         if parallel:
@@ -885,7 +887,7 @@ class Calibrator(object):
             else:
                 if method == 'fit_calibrations':
                     self.solution[pixel[0], pixel[1]]['calibration'] = fit_element
-                elif method == 'make_histograms':
+                elif method == 'make_histograms' or method == 'fit_histograms':
                     self.solution[pixel[0], pixel[1]]['histograms'] = fit_element
                 else:
                     self.solution[pixel[0], pixel[1]] = fit_element
@@ -1004,7 +1006,7 @@ class Worker(mp.Process):
                                 fit_element = self.calibrator.solution[pixel[0], pixel[1]]
                                 if self.method == 'fit_calibrations':
                                     fit_element = fit_element['calibration']
-                                elif self.method == 'make_histograms':
+                                elif self.method == 'make_histograms' or self.method == 'fit_histograms':
                                     fit_element = fit_element['histograms']
                                 return_dict[(pixel[0], pixel[1])] = fit_element
                             else:
