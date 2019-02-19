@@ -374,7 +374,7 @@ class SpatialDrizzler(Drizzler):
         # else:
         thisImage, thisGridDec, thisGridRA = np.histogram2d(photDecs, photRAs, [self.gridDec, self.gridRA])
 
-        quicklook_im(thisImage, logAmp=True, vmax=30, vmin=5, show=False)
+        # quicklook_im(thisImage, logAmp=True, vmax=10, vmin=5, show=False)
 
 
         w = wcs.WCS(naxis=2)
@@ -405,7 +405,7 @@ class photonlist(object):
         self.doWeighted=False
         self.medCombine=False
         self.maxBadPixTimeFrac=None
-        self.integrationTime=0.2
+        self.integrationTime=10
         self.firstObsTime =0
 
         timestamps, xPhotonPixels, yPhotonPixels, _ = self.reduce_obs(obsfile, ditherdesc, ditherind)
@@ -583,79 +583,53 @@ class photonlist(object):
 
         return [timestamps, xPhotonPixels, yPhotonPixels, photWavelengths, ]
 
-    def get_wcs(self, timestamps, xPhotonPixels, yPhotonPixels, ditherind, ditherdesc):
+    def get_wcs(self, timestamps, xPhotonPixels, yPhotonPixels, ditherind, ditherdesc, toa_rotation=False):
+        '''
+        :param timestamps:
+        :param xPhotonPixels:
+        :param yPhotonPixels:
+        :param ditherind:
+        :param ditherdesc:
+        :param toa_rotation:
+        If False each dither position is a fixed orientation. If True the HA of each photon receives an additional
+        contribution based on the TOA allowing for rotation effects during each dither integration.
+
+        :return:
+        '''
+
         print('Calculating RA/Decs for dither %i' % ditherind)
-        pixelCount = self.nDPixCol * self.nDPixRow
-        values = np.zeros((2, pixelCount))
-        for i in range(pixelCount):
-            values[0, i] = i / self.nDPixRow
-            values[1, i] = i % self.nDPixRow
 
-        xyPhotonPixel = np.array([xPhotonPixels, yPhotonPixels])  # 2 x nPhotons array of x,y pairs
+        if toa_rotation:
+            photHAs = timestamps * 1e-6 * 1./86164.1 * 2*np.pi #* 500
 
-        # inputLength = len(timestamps)
+            hourangles = ditherdesc.dithHAs[ditherind] + photHAs
 
-        binNumber = np.ones_like((timestamps), dtype=np.int8) * ditherind
-        # photHAs = ditherdesc.hourAngles[binNumber]
+            rotationMatrix = np.array([[np.cos(hourangles), -np.sin(hourangles)],
+                                       [np.sin(hourangles), np.cos(hourangles)]]).T
 
-        # indexArray = np.array(xPhotonPixels * self.nDPixRow + yPhotonPixels)
+            centroids = np.array([-1*ditherdesc.xCenRes[ditherind] + xPhotonPixels - ditherdesc.xpix/2,
+                                  -1*ditherdesc.yCenRes[ditherind] + yPhotonPixels - ditherdesc.ypix/2])
 
-        xPhotonRotated = np.zeros(len(timestamps))
-        yPhotonRotated = np.zeros(len(timestamps))
+            centroidRotated = np.dot(rotationMatrix, centroids).diagonal(axis1=0,axis2=2)
+        else:
+            hourangles = ditherdesc.dithHAs[ditherind]
 
-        photHAs = timestamps * 1e-6 * 1./86164.1 * 2*np.pi * 50
+            rotationMatrix = np.array([[np.cos(hourangles), -np.sin(hourangles)],
+                                       [np.sin(hourangles), np.cos(hourangles)]]).T
 
-        rotationMatrix = np.array([[np.cos(ditherdesc.dithHAs[ditherind] + photHAs),
-                                         -np.sin(ditherdesc.dithHAs[ditherind]+ photHAs)],
-                                        [np.sin(ditherdesc.dithHAs[ditherind] + photHAs),
-                                         np.cos(ditherdesc.dithHAs[ditherind] + photHAs)]]).T
+            centroids = np.array([-1*ditherdesc.xCenRes[ditherind] + xPhotonPixels - ditherdesc.xpix/2,
+                                  -1*ditherdesc.yCenRes[ditherind] + yPhotonPixels - ditherdesc.ypix/2])
 
-        # self.centroidRotated = np.dot(self.rotationMatrix,
-        #                               np.array([xCentroids, yCentroids])).diagonal(axis1=0,axis2=2)
-        # xCenRes, yCenRes = xPhotonPixels - self.virxPixCen, xPhotonPixels - self.viryPixCen
-        # centroidRotated = np.dot(rotationMatrix,
-        #                               np.array([ditherdesc.xCenRes[ditherind] + xPhotonPixels, ditherdesc.yCenRes[ditherind] + yPhotonPixels])).T + [ditherdesc.virxPixCen, ditherdesc.viryPixCen]
-        centroidRotated = np.dot(rotationMatrix,
-                                  np.array([-1*ditherdesc.xCenRes[ditherind] + xPhotonPixels - ditherdesc.xpix/2,
-                                            -1*ditherdesc.yCenRes[ditherind] + yPhotonPixels - ditherdesc.ypix/2])).diagonal(axis1=0,axis2=2)# + [ditherdesc.virxPixCen, ditherdesc.viryPixCen]
+            centroidRotated = np.dot(rotationMatrix, centroids)
 
-        # print(photHAs)
-        # photRotMatrix = ditherdesc.rotationMatrix[ditherind] + np.array([[np.cos(photHAs), -np.sin(photHAs)],
-        #                                                                  [np.sin(photHAs), np.cos(photHAs)]]).T
-
-        # # NEW VERSION (calculate on the fly, no look-up table, can handle non-integers)
-        # for iBin in np.arange(np.min(binNumber), np.max(binNumber) + 1):
-        #     print(iBin)
-        #     inThisBin = range(len(timestamps))
-        #     # rotatedValues = np.dot(ditherdesc.rotationMatrix[iBin, :, :], xyPhotonPixel[:, inThisBin])
-        #     # rotatedValues = np.dot(ditherdesc.rotationMatrix[iBin, :, :], xyPhotonPixel])
-        #     # print(rotatedValues.shape)
-        #     # self.xCenRes, self.yCenRes = xCentroids - self.virxPixCen, yCentroids - self.viryPixCen
-        #     rotatedValues = np.dot(photRotMatrix, xyPhotonPixel)
-        #     print(rotatedValues.shape)
-        #     rotatedValues = rotatedValues.diagonal(axis1=0,axis2=2)
-        #     print(rotatedValues.shape)
-        #
-        #     xPhotonRotated[inThisBin] = rotatedValues[0, :]
-        #     yPhotonRotated[inThisBin] = rotatedValues[1, :]
-        #     plt.plot(timestamps, np.arctan2(yPhotonRotated, xPhotonRotated))
-        #     plt.show()
-        # plt.plot(xPhotonRotated, yPhotonRotated)
-        # plt.plot(centroidRotated[0], centroidRotated[1], '.')
-        # plt.show()
-        # # Use the centroid as the zero point for ra and dec offsets
-        # rightAscensionOffset = -1*ditherdesc.platescale * (xPhotonRotated - ditherdesc.centroidRotated[0][binNumber])
-        # declinationOffset = ditherdesc.platescale * (yPhotonRotated - ditherdesc.centroidRotated[1][binNumber])
-
-        rightAscensionOffset = -1*ditherdesc.platescale * centroidRotated[0]
-        declinationOffset = -1*ditherdesc.platescale * centroidRotated[1]
+        rightAscensionOffset = -1*ditherdesc.platescale * (centroidRotated[0]) # -1 here just orientates the image
+        declinationOffset = ditherdesc.platescale * (centroidRotated[1])
 
         # Convert centroid positions in DD:MM:SS.S and HH:MM:SS.S format to radians.
         centroidRightAscensionRadians = ephem.hours(ditherdesc.cenRA).real
         centroidDeclinationRadians = ephem.degrees(ditherdesc.cenDec).real
 
         # Convert centroid position radians to arcseconds.
-
         degreesToRadians = np.pi / 180.0
         radiansToDegrees = 180.0 / np.pi
 
@@ -670,7 +644,7 @@ class photonlist(object):
         photDecRad = (photonDeclinationArcseconds / 3600.0) * degreesToRadians
         photRARad = (photonRightAscensionArcseconds / 3600.0) * degreesToRadians
 
-        return photRARad, photDecRad#, photHAs
+        return photRARad, photDecRad
 
 if __name__ == '__main__':
     # Get dither offsets
