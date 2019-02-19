@@ -628,9 +628,6 @@ class Calibrator(object):
                     self._acquire_data(n_data, output_queue)
                 # queue the job
                 input_queue.put(kwargs)
-                # TODO The final stage seems to be starved of data in the input queue, in general it looks like
-                #  the deepcopies required/implied? by going into the queues with fit/model objects is expensive
-                #  and may be taking ~50% to all the time for the second two phases.
             # tell each worker to stop after all the data has been processed
             for index in range(cpu_count - 1 * bool(verbose)):
                 while input_queue.qsize() > self._max_queue_size / 2:
@@ -2297,11 +2294,12 @@ class Solution(object):
     @staticmethod
     def load_frequency_files(config_file):
         """
+        Deprecated! Use the 'beammap' section with the 'freqfiles' key in the configuration yaml file.
+
         Gets the res_ids and frequencies from the templar configuration file
 
         Args:
-            config_file: full path and file name of the templar configuration file.
-                         (string)
+            config_file: full path and file name of the templar configuration file. (string)
         Returns:
             a numpy array of the frequency files that could be loaded from the templar
             configuration file vertically stacked. The first column is the res_id and the
@@ -2309,7 +2307,8 @@ class Solution(object):
         Raises:
             RuntimeError: if no frequency files could be loaded
         """
-        # TODO: Move this to a more general templar configuration management class
+        message = "Use the 'beammap' section with the 'freqfiles' key in the configuration yaml file"
+        warnings.warn(message, DeprecationWarning)
         configuration = ConfigParser()
         configuration.read(config_file)
         data = []
