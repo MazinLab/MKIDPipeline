@@ -364,7 +364,69 @@ class SpectralDrizzler(Drizzler):
 
 
 class TemporalDrizzler(Drizzler):
-    pass
+    """ Generate a spatially dithered fits hypercube from a set dithered dataset """
+    def __init__(self, photonlists, metadata, pixfrac=1):
+        self.nwvlbins = 8
+        self.timestep = 0.01 # seconds
+
+        self.wvlbins = np.linspace(metadata.wvlMin, metadata.wvlMax, self.nwvlbins+1)
+        self.ntimebins = int(metadata.integrationTime / self.timestep)
+        self.timebins = np.linspace(metadata.firstObsTime,
+                                    metadata.firstObsTime + metadata.integrationTime,
+                                    self.ntimebins+1) * 1e6  # timestamps are in microseconds
+
+        print(self.timebins, self.ntimebins)
+        Drizzler.__init__(self, photonlists, metadata)
+        self.drizhyper = [[stdrizzle.Drizzle(outwcs=self.w, pixfrac=pixfrac)] * self.nwvlbins] * self.ntimebins
+        # self.drizhyper = np.empty((self.ntimebins, self.nwvlbins), dtype=object)
+        # for it in range(self.ntimebins):
+        #     for iw in range(self.nwvlbins):
+        #         self.drizhyper[it, iw] = stdrizzle.Drizzle(outwcs=self.w, pixfrac=pixfrac)
+
+    def run(self, save_file=None):
+        tic = time.clock()
+        for ix, file in enumerate(self.files):
+
+            getLogger(__name__).debug('Processing %s', file)
+
+            insci, inwcs = self.makeHyper(file)
+            # for datacube in insci:
+            #     indep_images(datacube, logAmp=True)
+
+            for it in range(self.ntimebins):
+                for iw in range(self.nwvlbins):
+                    self.drizhyper[it][iw].add_image(insci[it,iw], inwcs, inwht=np.int_(np.logical_not(insci[it][iw]==0)))
+
+        self.hypercube = [self.drizhyper[it][iw].outsci for it in range(self.ntimebins) for iw in range(self.nwvlbins)]
+        getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
+        print('Image load done. Time taken (s): %s', time.clock() - tic)
+        # TODO add the wavelength WCS
+        # if save_file:
+        #     self.driz.write(save_file)
+
+    def makeHyper(self, file):
+        sample = np.vstack((file.timestamps, file.wavelengths, file.photDecRad, file.photRARad))
+        bins = np.array([self.timebins, self.wvlbins, self.gridDec, self.gridRA])
+        print(sample.shape)
+        hypercube, bins = np.histogramdd(sample.T, bins)
+        print(hypercube.shape)
+
+        times, wavelengths, thisGridDec, thisGridRA = bins
+
+        # for datacube in hypercube:
+        #     print(self.timebins, times)
+        #     indep_images(datacube, logAmp=True)
+
+        w = wcs.WCS(naxis=2)
+        w.wcs.crpix = [0., 0.]
+        w.wcs.cdelt = np.array([thisGridRA[1]-thisGridRA[0], thisGridDec[1]-thisGridDec[0]])
+        w.wcs.crval = [thisGridRA[0], thisGridDec[0]]
+        w.wcs.ctype = ["RA---AIR", "DEC--AIR"]
+        w._naxis1 = 250
+        w._naxis2 = 250
+
+
+        return hypercube, w
 
 
 class SpatialDrizzler(Drizzler):
@@ -733,7 +795,7 @@ if __name__ == '__main__':
     wvlMin = 850
     wvlMax = 1100
     firstObsTime = 0
-    integrationTime = 1
+    integrationTime = 4
     drizzleconfig = [wvlMin, wvlMax, firstObsTime, integrationTime]
 
     loc = os.path.join(os.getenv('MKID_DATA_DIR'), name, 'wavecal', file)
@@ -754,7 +816,7 @@ if __name__ == '__main__':
         obsfiles = [ObsFile(file) for file in filenames]
 
         photonlists = []
-        for ditherind, obsfile in enumerate(obsfiles[:9]):
+        for ditherind, obsfile in enumerate(obsfiles[:10]):
             photonlists.append(photonlist(obsfile, ditherdesc, ditherind))
         plt.show()
         with open(pkl_save, 'wb') as handle:
@@ -774,6 +836,10 @@ if __name__ == '__main__':
     # loop_frames(scimaps, logAmp=False, vmin=0, vmax=100)
     # # loop_frames(np.roll(scimaps, axis=0, shift=1)-scimaps, logAmp=True)
 
-    driz = SpectralDrizzler(photonlists, ditherdesc)
+    # driz = SpectralDrizzler(photonlists, ditherdesc)
+    # driz.run()
+    # indep_images(driz.cube)
+
+    driz = TemporalDrizzler(photonlists, ditherdesc)
     driz.run()
-    indep_images(driz.cube)
+    # grid(driz.hypercube, width=5, nrows=3, vmaxs=[20]*15, vmins=[1]*15)
