@@ -2502,7 +2502,6 @@ if __name__ == "__main__":
     bin2hdf.buildtables(time_ranges, ymlcfg, ncpu=6, remake=args.force_h5, timesort=False)
     if args.h5_only:
         exit()
-    pixels = np.arange(40).reshape((2, 20))
     # run the wavelength calibration
     c = Calibrator(wcalcfg, solution_name='wavecal_solution_{}.npz'.format(timestamp))
-    c.run(verbose=args.progress, pixels=pixels)
+    c.run(verbose=args.progress)
