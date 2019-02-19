@@ -2,6 +2,7 @@ import os
 import copy
 import pickle
 import inspect
+import astropy
 import warnings
 import numpy as np
 import lmfit as lm
@@ -15,6 +16,8 @@ from scipy.special import erfc, erfcx
 from mkidcore import pixelflags
 import mkidcore.corelog as pipelinelog
 
+PLANK_CONSTANT_EV = astropy.constants.h.to('eV s').value
+SPEED_OF_LIGHT_MS = astropy.constants.c.to('m/s').value
 
 log = pipelinelog.getLogger('mkidpipeline.calibration.wavecal_models', setup=False)
 
@@ -186,10 +189,11 @@ class PartialLinearModel(object):
             raise SyntaxError(message.format(self.max_parameters))
 
     def __getstate__(self):
+        b = self.best_fit_result
+        r = (b.aic, b.success, b.params.dumps(), b.chisqr, b.errorbars, b.residual, b.nvarys) if b is not None else None
         state = {'pixel': self.pixel, 'res_id': self.res_id, 'x': self.x, 'y': self.y, 'variance': self.variance,
-                 # 'best_fit_result': self.best_fit_result.dumps() if self.best_fit_result is not None else None,
-                 'best_fit_result': pickle.dumps(self.best_fit_result),
-                 'best_fit_result_good': self.best_fit_result_good, 'flag': self.flag, 'phm': self.phm, 'nhm': self.nhm}
+                 'best_fit_result': r, 'best_fit_result_good': self.best_fit_result_good, 'flag': self.flag,
+                 'phm': self.phm, 'nhm': self.nhm}
         return state
 
     def __setstate__(self, state):
@@ -200,17 +204,10 @@ class PartialLinearModel(object):
         if state['best_fit_result'] is None:
             self.best_fit_result = None
         else:
-            result = pickle.loads(state['best_fit_result'])
-            # TODO: use lmfit dumps() and loads()
-            # result = lm.model.ModelResult(self._full_model, lm.Parameters())
-            # result.loads(state['best_fit_result'], funcdefs={'full_fit_function': self.full_fit_function})
-            # # fix loading bug in lmfit
-            # result.data = result.userargs[0]
-            # result.weights = result.userargs[1]
-            # result.init_params = result.model.make_params(**result.init_values)
-            #
-            # result.residual = result.model._residual(result.params, y, weights, x=x)
-            self.best_fit_result = result
+            r = lm.model.ModelResult(self._full_model, lm.Parameters())
+            (r.aic, r.success, params, r.chisqr, r.errorbars, r.residual, r.nvarys) = state['best_fit_result']
+            r.params = lm.Parameters().loads(params)
+            self.best_fit_result = r
         self.best_fit_result_good = state['best_fit_result_good']
         self.flag = state['flag']
         self.phm = state['phm']
@@ -879,10 +876,11 @@ class XErrorsModel(object):
         self.min_x = None
 
     def __getstate__(self):
+        b = self.best_fit_result
+        r = (b.aic, b.success, b.params.dumps(), b.chisqr, b.errorbars, b.residual, b.nvarys) if b is not None else None
         state = {'pixel': self.pixel, 'res_id': self.res_id, 'x': self.x, 'y': self.y, 'variance': self.variance,
-                 'best_fit_result': pickle.dumps(self.best_fit_result),
-                 'best_fit_result_good': self.best_fit_result_good, 'flag': self.flag, 'max_x': self.max_x,
-                 'min_x': self.min_x}
+                 'best_fit_result': r, 'best_fit_result_good': self.best_fit_result_good, 'flag': self.flag,
+                 'max_x': self.max_x, 'min_x': self.min_x}
         return state
 
     def __setstate__(self, state):
@@ -890,7 +888,13 @@ class XErrorsModel(object):
         self.x = state['x']
         self.y = state['y']
         self.variance = state['variance']
-        self.best_fit_result = pickle.loads(state['best_fit_result'])
+        if state['best_fit_result'] is None:
+            self.best_fit_result = None
+        else:
+            r = lm.minimizer.MinimizerResult()
+            (r.aic, r.success, params, r.chisqr, r.errorbars, r.residual, r.nvarys) = state['best_fit_result']
+            r.params = lm.Parameters().loads(params)
+            self.best_fit_result = r
         self.best_fit_result_good = state['best_fit_result_good']
         self.flag = state['flag']
         self.max_x = state['max_x']
@@ -916,6 +920,10 @@ class XErrorsModel(object):
     def calibration_function(self, x):
         self._check_fit()
         return self.fit_function(x, self.best_fit_result.params)
+
+    def wavelength_function(self, x):
+        self._check_fit()
+        return PLANK_CONSTANT_EV * SPEED_OF_LIGHT_MS * 1e9 / self.fit_function(x, self.best_fit_result.params)
 
     @staticmethod
     def chi_squared(parameters, x, y, variance, f, dfdx):
