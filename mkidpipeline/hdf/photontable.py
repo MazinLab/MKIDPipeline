@@ -337,6 +337,32 @@ class ObsFile(object):
         entry = self.info[self.titles.index(name)]
         return entry
 
+    def print(self):
+        t=self.photonTable.read()
+        tinfo = repr(self.photonTable).replace('\n', '\n\t\t')
+        if np.all(t['Time'][:-1] <= t['Time'][1:]):
+            sort = 'Time '
+        elif np.all(t['ResID'][:-1] <= t['ResID'][1:]):
+            sort = 'ResID '
+        else:
+            sort = 'Un'
+
+        msg = ('{file}:\n'
+               '\t{nphot:.3g} photons, {sort}sorted\n'
+               '\tT= {start} - {stop} ({dur} s)\n'
+               '\tTable repr: {tbl}\n'
+               '\t{dirty}')
+
+        dirty = ', '.join([n for n in self.photonTable.colnames
+                           if self.photonTable.cols._g_col(n).index is not None and
+                           self.photonTable.cols._g_col(n).index.dirty])
+
+        s = msg.format(file=self.fullFileName, nphot=len(self.photonTable), sort=sort,tbl=tinfo,
+                       start=t['Time'].min(), stop=t['Time'].max(), dur=self.getFromHeader('expTime'),
+                       dirty='Column(s) {} have dirty indices.'.format(dirty) if dirty else 'No columns dirty')
+        print(s)
+        return s
+
     @property
     def pixelMask(self):
         """A boolean image with true where pixel data isn't perfect (i.e. any flag is set)"""
@@ -462,8 +488,8 @@ class ObsFile(object):
             except SyntaxError:
                 raise
             toc = time.time()
-            msg = 'Retrieved {} rows in {:.3f}s using indices {} for query {} \n\t st:{} et:{} sw:{} ew:{}'
-            getLogger(__name__).debug(msg.format(len(q), toc - tic,
+            msg = 'Feteched {}/{} rows in {:.3f}s using indices {} for query {} \n\t st:{} et:{} sw:{} ew:{}'
+            getLogger(__name__).debug(msg.format(len(q), len(self.photonTable), toc - tic,
                                                  tuple(self.photonTable.will_query_use_indexing(query)), query,
                                                  *map(lambda x: '{:.2f}'.format(x) if x is not None else 'None',
                                                       (startt, stopt, startw, stopw))))
