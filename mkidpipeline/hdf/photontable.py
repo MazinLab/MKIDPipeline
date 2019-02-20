@@ -1333,7 +1333,7 @@ class ObsFile(object):
                 weightUncertainties = calsoln['weightUncertainties'][index]
 
                 weights = np.array(weights).flatten()
-                weights = np.append((headsweight, weights), tailsweight)
+                weights = np.append(np.append(headsweight, weights), tailsweight)
 
                 weightUncertainties = np.array(weightUncertainties)
                 weightUncertainties = np.append((headsweight, weightUncertainties), tailsweight)
