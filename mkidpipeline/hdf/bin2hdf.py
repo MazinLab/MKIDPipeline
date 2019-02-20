@@ -417,7 +417,7 @@ class HDFBuilder(object):
             build_bin2hdf(self.cfg, self.exc, polltime=polltime)
             self.done.set()
 
-        getLogger(__name__).info('Created {} in {:.1}s'.format(self.cfg.h5file, time()-tic))
+        getLogger(__name__).info('Created {} in {:.1}s'.format(self.cfg.h5file, time.time()-tic))
 
 
 def runbuilder(b):
