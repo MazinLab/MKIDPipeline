@@ -351,15 +351,19 @@ class ObsFile(object):
                '\t{nphot:.3g} photons, {sort}sorted\n'
                '\tT= {start} - {stop} ({dur} s)\n'
                '\tTable repr: {tbl}\n'
-               '\t{dirty}')
+               '\t{dirty}\n'
+               '\twave: {wave}\n'
+               '\tflat: {flat}\n')
 
         dirty = ', '.join([n for n in self.photonTable.colnames
                            if self.photonTable.cols._g_col(n).index is not None and
                            self.photonTable.cols._g_col(n).index.dirty])
 
-        s = msg.format(file=self.fullFileName, nphot=len(self.photonTable), sort=sort,tbl=tinfo,
-                       start=t['Time'].min(), stop=t['Time'].max(), dur=self.getFromHeader('expTime'),
-                       dirty='Column(s) {} have dirty indices.'.format(dirty) if dirty else 'No columns dirty')
+        s = msg.format(file=self.fullFileName, nphot=len(self.photonTable), sort=sort, tbl=tinfo,
+                       start=t['Time'].min(), stop=t['Time'].max(), dur=self.info['expTime'],
+                       dirty='Column(s) {} have dirty indices.'.format(dirty) if dirty else 'No columns dirty',
+                       wave=self.info['wvlCalFile'], #self.info['isWvlCalibrated'] else 'None'
+                       flat=self.info['fltCalFile'] if 'fltCalFile' in self.info.dtype.names else 'None')
         print(s)
         return s
 
@@ -1061,11 +1065,15 @@ class ObsFile(object):
         """
         loads the wavelength cal coefficients from a given file and applies them to the
         wavelengths table for each pixel. ObsFile must be loaded in write mode. Dont call updateWavelengths !!!
+
+        Note that run-times longer than ~330s for a full MEC dither (~70M photons, 8kpix) is a regression and
+        something is wrong. -JB 2/19/19
         """
         # check file_name and status of obsFile
         if self.info['isWvlCalibrated']:
             getLogger(__name__).info('Data already calibrated using {}'.format(self.info['wvlCalFile']))
             return
+        getLogger(__name__).info('Applying {} to {}'.format(solution, self.fullFileName))
         self.photonTable.autoindex = False  # Don't reindex every time we change column
         # apply waveCal
         tic = time.time()
