@@ -50,7 +50,7 @@ def _get_dir_for_start(base, start):
         raise ValueError('No directory in {} found for start {}'.format(base, start))
 
 
-def build_pytables(cfg, index=('ultralight', 6), timesort=False):
+def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None):
     if cfg.starttime < 1518222559:
         raise ValueError('Data prior to 1518222559 not supported without added fixtimestamps')
 
@@ -65,18 +65,16 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False):
 
     if timesort:
         photons.sort(order=('Time', 'ResID'))
-        getLogger(__name__).Warning('Sorting photon data on time')
+        getLogger(__name__).warning('Sorting photon data on time')
     elif not np.all(photons['ResID'][:-1] <= photons['ResID'][1:]):
         getLogger(__name__).warning('binprocessor.extract returned data that was not sorted on ResID, sorting')
         photons.sort(order=('ResID', 'Time'))
 
     h5file = tables.open_file(cfg.h5file, mode="a", title="MKID Photon File")
     group = h5file.create_group("/", 'Photons', 'Photon Information')
-    filter = tables.Filters(complevel=1, complib='blosc', shuffle=True, bitshuffle=False,
-                            fletcher32=False)
-    table = h5file.create_table(group, name='PhotonTable', description=ObsFileCols,
-                                title="Photon Datatable", expectedrows=photons.shape[0],
-                                filters=filter)
+    filter = tables.Filters(complevel=1, complib='blosc', shuffle=True, bitshuffle=False, fletcher32=False)
+    table = h5file.create_table(group, name='PhotonTable', description=ObsFileCols, title="Photon Datatable",
+                                expectedrows=len(photons), filters=filter, chunkshape=chunkshape)
     table.append(photons)
 
     getLogger(__name__).debug('Table Populated')
@@ -411,12 +409,15 @@ class HDFBuilder(object):
         if self.done.is_set():
             return
 
+        tic = time.time()
         if usepytables:
             build_pytables(self.cfg, **self.kwargs)
             self.done.set()
         else:
             build_bin2hdf(self.cfg, self.exc, polltime=polltime)
             self.done.set()
+
+        getLogger(__name__).info('Created {} in {:.1}s'.format(self.cfg.h5file, time()-tic))
 
 
 def runbuilder(b):
@@ -449,7 +450,7 @@ def buildtables(timeranges, config=None, ncpu=1, asynchronous=False, remake=Fals
 
     if ncpu == 1:
         for b in builders:
-            b.run()
+            b.run(**kwargs)
         return timeranges, events
 
     pool = mp.Pool(min(ncpu, mp.cpu_count()))
