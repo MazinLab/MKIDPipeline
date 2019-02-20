@@ -484,6 +484,7 @@ class WhiteCalibrator(FlatCalibrator):
         self.fig = None  # TODO @Isabel lets talk about if this is really needed as a class attribute
 
     def loadData(self):
+        getLogger(__name__).info('Loading calibration data from {}'.format(self.h5file))
         self.obs = ObsFile(self.h5file)
         if not self.obs.wavelength_calibrated:
             raise RuntimeError('Photon data is not wavelength calibrated.')
@@ -529,6 +530,7 @@ class LaserCalibrator(WhiteCalibrator):
         super().__init__(*args, **kwargs)
 
     def loadData(self):
+        getLogger(__name__).info('Loading calibration data from {}'.format(self.wvlCalFile))
         self.sol = wavecal.load_solution(self.wvlCalFile)
         self.beamImage = self.sol.beam_map
         self.wvlFlags = self.sol.beam_map_flags
@@ -596,9 +598,7 @@ class LaserCalibrator(WhiteCalibrator):
 
 
 def summaryPlot(calsolnName, save_plot=False):
-    """
-        Writes a summary plot of the Flat Fielding
-        """
+    """ Writes a summary plot of the Flat Fielding """
     assert os.path.exists(calsolnName), "{0} does not exist".format(calsolnName)
     flat_cal = tables.open_file(calsolnName, mode='r')
     calsoln = flat_cal.root.flatcal.calsoln.read()
@@ -615,8 +615,6 @@ def summaryPlot(calsolnName, save_plot=False):
             res_id = beamImage[iRow][iCol]
             index = np.where(res_id == np.array(calsoln['resid']))
             weights = calsoln['weights'][index]
-            weightFlags = calsoln['weightFlags'][index]
-            weightUncertainties = calsoln['weightUncertainties'][index]
             spectrum = calsoln['spectrum'][index]
             weights = np.array(weights)
             weights = weights.flatten()
@@ -626,8 +624,6 @@ def summaryPlot(calsolnName, save_plot=False):
             spectrum = spectrum.flatten()
             meanSpec = np.nanmean(spectrum)
             meanSpecList[iRow, iCol] = meanSpec
-            weightUncertainties = np.array(weightUncertainties)
-            weightUncertainties = weightUncertainties.flatten()
     weightArrPerPixel[weightArrPerPixel == 0] = np.nan
     weightArrAveraged = np.nanmean(weightArrPerPixel, axis=(0, 1))
     weightArrStd = np.nanstd(weightArrPerPixel, axis=(0, 1))
@@ -636,13 +632,11 @@ def summaryPlot(calsolnName, save_plot=False):
     ax = fig.add_subplot(2, 2, 1)
     ax.set_title('Mean Flat weight across the array')
     maxValue = np.nanmean(meanWeightList) + 1 * np.nanstd(meanWeightList)
-    minValue = np.nanmean(meanWeightList) - 1 * np.nanstd(meanWeightList)
     plt.imshow(meanWeightList, cmap=plt.get_cmap('rainbow'), vmin=0, vmax=maxValue)
     plt.colorbar()
     ax = fig.add_subplot(2, 2, 2)
     ax.set_title('Mean Flat value across the array')
     maxValue = np.nanmean(meanSpecList) + 1 * np.nanstd(meanSpecList)
-    minValue = np.nanmean(meanSpecList) - 1 * np.nanstd(meanSpecList)
     plt.imshow(meanSpecList, cmap=plt.get_cmap('rainbow'), vmin=0, vmax=maxValue)
     plt.colorbar()
     ax = fig.add_subplot(2, 2, 3)
@@ -658,7 +652,7 @@ def summaryPlot(calsolnName, save_plot=False):
     if not save_plot:
         plt.show()
     else:
-        pdf = PdfPages(os.path.join(os.getcwd(), 'SummaryPlot_{}.pdf'.format(calsolnName)))
+        pdf = PdfPages(calsolnName+'.pdf')
         pdf.savefig(fig)
         pdf.close()
 
