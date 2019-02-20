@@ -1478,7 +1478,7 @@ class ObsFile(object):
             New value of entry
         """
         if self.mode != 'write':
-            raise Exception("Must open file in write mode to do this!")
+            raise IOError("Must open file in write mode to do this!")
         self.header.modify_column(column=headerValue, colname=headerTitle)
         self.header.flush()
         self.info = self.header[0]
