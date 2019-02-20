@@ -1337,11 +1337,15 @@ class ObsFile(object):
         """
         timestamp = datetime.utcnow().timestamp()
         baseh5path = calsolFile.split('.h5')
-        assert os.path.exists(calsolFile), "{0} does not exist".format(calsolFile)
-        assert not self.info['isSpecCalibrated'], \
-            "the data is already Flat calibrated"
+        if self.info['isFlatCalibrated']:
+            getLogger(__name__).info("the data is already Flat calibrated")
+            return
+        else:
+            getLogger(__name__).info('Applying {} to {}'.format(calsolFile, self.fullFileName))
+
+        tic = time.time()
+
         pdfFullPath = baseh5path[0] + 'flatcalsolnplots_{}.pdf'.format(timestamp)
-        pp = PdfPages(pdfFullPath)
         nPlotsPerRow = 2
         nPlotsPerCol = 4
         nPlotsPerPage = nPlotsPerRow * nPlotsPerCol
@@ -1358,23 +1362,26 @@ class ObsFile(object):
         tailsweight = np.zeros(len(tails) + 1) + 1
         bins = np.append(np.append(heads, bins), tails)
 
-        for (row, column), resID in np.ndenumerate(self.beamImage):
-            index = np.where(resID == np.array(calsoln['resid']))
-            if len(index[0]) == 1 and (calsoln['flag'][index] == 0):
-                photon_list = self.getPixelPhotonList(row, column)
+        import contextlib
+        @contextlib.contextmanager
+        def dummy_context_mgr():
+            yield None
+
+        with PdfPages(pdfFullPath) if save_plots else dummy_context_mgr() as pdf:
+            for (row, column), resID in np.ndenumerate(self.beamImage):
+                index = resID == calsoln['resid']
+                assert index.sum()<=1
+                if not (index.any() and calsoln['flag'][index] == 0):
+                    continue
+
+                photon_list = self.getPixelPhotonList(resid=resID)
                 phases = photon_list['Wavelength']
-                weights = calsoln['weights'][index]
-                weightUncertainties = calsoln['weightUncertainties'][index]
-
-                weights = np.array(weights).flatten()
-                weights = np.append(np.append(headsweight, weights), tailsweight)
-
-                weightUncertainties = np.array(weightUncertainties)
-                weightUncertainties = np.append((headsweight, weightUncertainties), tailsweight)
+                
+                weights = np.concatenate((headsweight,  calsoln['weights'][index].flatten(), tailsweight))
+                weightUncertainties = np.concatenate((headsweight, calsoln['weightUncertainties'][index], tailsweight))
 
                 weightArr = np.poly1d(np.polyfit(bins, weights, 10))(phases)
-                weightArr[phases < minwavelength] = 0.0
-                weightArr[phases > maxwavelength] = 0.0
+                weightArr[(phases < minwavelength) | (phases > maxwavelength) ] = 0
                 self.applySpecWeight(resID=resID, weightArr=weightArr)
 
                 if save_plots:
@@ -1386,48 +1393,20 @@ class ObsFile(object):
                     ax.plot(bins, weights, '-', label='weights')
                     ax.errorbar(bins, weights, yerr=weightUncertainties, label='weights')
                     ax.plot(phases, weightArr, '.', markersize=5)
-                    ax.set_title('p %d,%d' % (row, column))
+                    ax.set_title('p rID:{} ({}, {})'.format(resID, row, column))
                     ax.set_ylabel('weight')
 
                     if iPlot % nPlotsPerPage == nPlotsPerPage - 1 or (
                             row == self.nXPix - 1 and column == self.nYPix - 1):
-                        pdf = PdfPages(os.path.join(baseh5path[0], 'temp.pdf'))
-                        pdf.savefig(fig)
-                        pdf.close()
-
-                        temp_file = os.path.join(baseh5path[0], 'temp.pdf')
-
-                        if os.path.isfile(pdfFullPath):
-                            merger = PdfFileMerger()
-                            merger.append(PdfFileReader(open(pdfFullPath, 'rb')))
-                            merger.append(PdfFileReader(open(temp_file, 'rb')))
-                            merger.write(pdfFullPath)
-                            merger.close()
-                            os.remove(temp_file)
-                        else:
-                            os.rename(temp_file, pdfFullPath)
-                        saved = True
-                        plt.close('all')
+                        pdf.savefig()
+                        plt.close()
                     iPlot += 1
-        if not saved:
-            pdf = PdfPages(os.path.join(baseh5path[0], 'temp.pdf'))
-            pdf.savefig(fig)
-            pdf.close()
-            temp_file = os.path.join(baseh5path[0], 'temp.pdf')
 
-            if os.path.isfile(pdfFullPath):
-                merger = PdfFileMerger()
-                merger.append(PdfFileReader(open(pdfFullPath, 'rb')))
-                merger.append(PdfFileReader(open(temp_file, 'rb')))
-                merger.write(pdfFullPath)
-                merger.close()
-                os.remove(temp_file)
-            else:
-                os.rename(temp_file, pdfFullPath)
+        self.modifyHeaderEntry(headerTitle='isFlatCalibrated', headerValue=True)
+        #TODO add this line whe the metadata store of the hdf file is sorted out.
+        # self.modifyHeaderEntry(headerTitle='fltCalFile', headerValue=str.encode(calsolFile))
 
-        plt.close('all')
-
-        self.modifyHeaderEntry(headerTitle='isSpecCalibrated', headerValue=True)
+        getLogger(__name__).info('Flatcal applied in {:.2f}s'.format(time.time()-tic))
 
     def flag(self, flag, xCoord=slice(None), yCoord=slice(None)):
         """ Same as apply flag"""
