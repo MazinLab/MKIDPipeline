@@ -283,18 +283,18 @@ class MKIDObservingDataset(object):
 def load_data_description(file):
     dataset = MKIDObservingDataset(file)
     wcdict = {w.name: os.path.join(config.paths.database, w.id) for w in dataset.wavecals}
-    fcdict = {f.name: os.path.join(config.paths.database, f.id) for f in dataset.flatcals}
     for o in dataset.all_observations:
         o.wavecal = wcdict.get(o.wavecal, o.wavecal)
-    for o in dataset.science_observations:
-        o.flatcal = fcdict.get(o.flatcal, o.flatcal)
+
     for fc in dataset.flatcals:
         try:
             fc.wavecal = wcdict.get(fc.wavecal, fc.wavecal)
         except AttributeError:
             pass
-    return dataset
 
+    fcdict = {f.name: os.path.join(config.paths.database, f.id) for f in dataset.flatcals}
+    for o in dataset.science_observations:
+        o.flatcal = fcdict.get(o.flatcal, o.flatcal)
 
     return dataset
 
