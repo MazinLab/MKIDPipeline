@@ -317,9 +317,8 @@ class ObsFile(object):
         self.info = self.header[0]  # header is a table with one row
 
         # get important cal params
-        self.defaultWvlBins = ObsFile.makeWvlBins(self.getFromHeader('energyBinWidth'),
-                                                  self.getFromHeader('wvlBinStart'),
-                                                  self.getFromHeader('wvlBinEnd'))
+        self.defaultWvlBins = ObsFile.makeWvlBins(self.info['energyBinWidth'], self.info['wvlBinStart'],
+                                                  self.info['wvlBinEnd'])
         # get the beam image.
         self.beamImage = self.file.get_node('/BeamMap/Map').read()
         self.beamFlagImage = self.file.get_node('/BeamMap/Flag')  #The absence of .read() here is correct
@@ -394,12 +393,14 @@ class ObsFile(object):
             return True  # No resID was given during readout
         pixelFlags = self.beamFlagImage[xCoord, yCoord]
         deadFlags = h5FileFlags['noDacTone']
-        if forceWvl and self.getFromHeader('isWvlCalibrated'):
+        if forceWvl and self.info['isWvlCalibrated']:
             deadFlags |= h5FileFlags['waveCalFailed']
-        if forceWeights and self.getFromHeader('isFlatCalibrated'):
+        if forceWeights and self.info['isFlatCalibrated']:
             deadFlags |= h5FileFlags['flatCalFailed']
-        # if forceWeights and self.getFromHeader('isLinearityCorrected'): deadFlags+=h5FileFlags['linCalFailed']
-        # if forceTPFWeights and self.getFromHeader('isPhaseNoiseCorrected'): deadFlags+=h5FileFlags['phaseNoiseCalFailed']
+        # if forceWeights and self.info['isLinearityCorrected']:
+        #   deadFlags+=h5FileFlags['linCalFailed']
+        # if forceTPFWeights and self.info['isPhaseNoiseCorrected']:
+        #   deadFlags+=h5FileFlags['phaseNoiseCalFailed']
         return (pixelFlags & deadFlags) > 0
 
     def query(self, startw=None, stopw=None, startt=None, stopt=None, resid=None, intt=None):
@@ -526,7 +527,7 @@ class ObsFile(object):
             specifies the range of desired phase heights.
         forceRawPhase: bool
             If the ObsFile is not wavelength calibrated this flag does nothing.
-            If the ObsFile is wavelength calibrated (ObsFile.getFromHeader('isWvlCalibrated') = True) then:
+            If the ObsFile is wavelength calibrated (ObsFile.info['isWvlCalibrated'] = True) then:
              - forceRawPhase=True will return all the photons in the list (might be phase heights instead of wavelengths)
              - forceRawPhase=False is guarenteed to only return properly wavelength calibrated photons in the photon list
 
@@ -547,7 +548,7 @@ class ObsFile(object):
                 raise ValueError('Invalid wavelength range')
         except TypeError:
             pass
-        if firstSec is not None and firstSec > self.getFromHeader('expTime'):
+        if firstSec is not None and firstSec > self.info['expTime']:
             raise ValueError('Start time not in file.')
 
         resid = self.beamImage[xCoord, yCoord] if resid is None else resid
@@ -610,7 +611,7 @@ class ObsFile(object):
         try:
             intTime = kwargs['integrationTime']
         except KeyError:
-            intTime = self.getFromHeader('expTime')
+            intTime = self.info['expTime']
         intTime -= firstSec
         if applyTimeMask:
             raise NotImplementedError
@@ -650,7 +651,7 @@ class ObsFile(object):
             documentation for numpy.arange() ).
         """
         if lastSec == -1:
-            lastSec = self.getFromHeader('expTime')
+            lastSec = self.info['expTime']
         firstSec = kwargs.get('firstSec', 0)
         if 'integrationTime' in kwargs.keys():
             warnings.warn("Integration time is being set to keyword 'cadence'")
@@ -699,7 +700,7 @@ class ObsFile(object):
            `          accounted for.
         """
         if integrationTime is None:
-            integrationTime = self.getFromHeader('expTime')
+            integrationTime = self.info['expTime']
 
         image = np.zeros((self.nXPix, self.nYPix))
 
@@ -888,7 +889,7 @@ class ObsFile(object):
         nWvlBins = wvlBinEdges.size - 1
 
         if integrationTime == -1 or integrationTime is None:
-            integrationTime = self.getFromHeader('expTime')
+            integrationTime = self.info['expTime']
 
         cube = np.zeros((self.nXPix, self.nYPix, nWvlBins))
 
