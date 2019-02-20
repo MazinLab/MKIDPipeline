@@ -543,7 +543,7 @@ int main(int argc, char *argv[])
                 // add to HDF5 file
      	        ParseToMem(packet,k*8-pstart,tsOffs,FirstFile,i,nFiles,BeamMap,&nPhot,BeamFlag,mapflag,ResIdString,ptable,ptablect,beamCols,beamRows);
 		        pstart = k*8;   // move start location for next packet
-		        if( pcount%1000 == 0 ) { printf("."); fflush(stdout);}
+		        //if( pcount%1000 == 0 ) { printf("."); fflush(stdout);}
             }
         }
 
