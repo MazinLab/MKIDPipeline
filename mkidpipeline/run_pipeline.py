@@ -14,26 +14,28 @@ import multiprocessing as mp
 
 
 def wavecal_apply(o):
-    of = mkidpipeline.hdf.photontable.ObsFile(mkidpipeline.config.get_h5_path(o), mode='a')
+    of = mkidpipeline.hdf.photontable.ObsFile(o.h5, mode='a')
     of.applyWaveCal(wavecal.load_solution(o.wavecal))
     of.file.close()
 
 
 def flatcal_apply(o):
-    of = mkidpipeline.hdf.photontable.ObsFile(mkidpipeline.config.get_h5_path(o), mode='a')
-    of.applyFlatCal(wavecal.load_solution(o.flatcal))
+    of = mkidpipeline.hdf.photontable.ObsFile(o.h5, mode='a')
+    of.applyFlatCal(o.flatcal)
     of.file.close()
 
 
 def batch_apply_wavecals(wavecal_pairs, ncpu=None):
     pool = mp.Pool(ncpu if ncpu is not None else mkidpipeline.config.n_cpus_available())
+    #TODO filter so that any files don't get opened concurrently
     pool.map(wavecal_apply, wavecal_pairs)
     pool.close()
 
 
 def batch_apply_flatcals(flatcal_pairs, ncpu=None):
     pool = mp.Pool(ncpu if ncpu is not None else mkidpipeline.config.n_cpus_available())
-    pool.map(wavecal_apply, flatcal_pairs)
+    # TODO filter so that any files don't get opened concurrently
+    pool.map(flatcal_apply, flatcal_pairs)
     pool.close()
 
 
@@ -53,20 +55,19 @@ dataset = mkidpipeline.config.load_data_description(datafile)
 
 
 getLogger('mkidpipeline.calibration.wavecal').setLevel('INFO')
-getLogger('mkidpipeline.hdf.photontable').setLevel('DEBUG')
+getLogger('mkidpipeline.hdf.photontable').setLevel('INFO')
 
+ncpu=10
 
-bin2hdf.buildtables(dataset.timeranges, ncpu=15, remake=False, timesort=False)
+bin2hdf.buildtables(dataset.timeranges, ncpu=ncpu, remake=False, timesort=False)
 
 wavecal.fetch(dataset.wavecals, verbose=False)
+batch_apply_wavecals(dataset.wavecalable, ncpu=ncpu)
 
-batch_apply_wavecals(dataset.wavecalable, 10)
-#
-# flatcal.fetch(dataset.flatcals)
-#
-# batch_apply_flatcals(dataset.science_observations, 10)
+flatcal.fetch(dataset.flatcals)
 
-# batch_maskhot(dataset.science_observations)
+batch_apply_flatcals(dataset.science_observations, ncpu=ncpu)
 
-# for h5 in set([o.h5 for o in dataset.science_observations]): badpix.mask_hot_pixels(h5)
+batch_maskhot(dataset.science_observations)
+
 
