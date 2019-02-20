@@ -296,9 +296,7 @@ def load_data_description(file):
     return dataset
 
 
-def get_h5_path(obs_data_descr):
-    global config
-    return os.path.join(config.paths.out, '{}.h5'.format(obs_data_descr.start))
+    return dataset
 
 
 def n_cpus_available():

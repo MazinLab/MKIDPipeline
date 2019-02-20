@@ -18,13 +18,13 @@ from mkidpipeline.hdf.photontable import ObsFile
 
 
 def wavecal_apply(o):
-    of = mkidpipeline.hdf.photontable.ObsFile(mkidpipeline.config.get_h5_path(o), mode='a')
+    of = mkidpipeline.hdf.photontable.ObsFile(o.h5, mode='a')
     of.applyWaveCal(wavecal.load_solution(o.wavecal))
     of.file.close()
 
 
 def flatcal_apply(o):
-    of = mkidpipeline.hdf.photontable.ObsFile(mkidpipeline.config.get_h5_path(o), mode='a')
+    of = mkidpipeline.hdf.photontable.ObsFile(o.h5, mode='a')
     of.applyFlatCal(wavecal.load_solution(o.flatcal))
     of.file.close()
 
@@ -91,8 +91,6 @@ import mkidpipeline.config
 mkidpipeline.config.logtoconsole()
 # tsectest('/scratch/baileyji/mec/out/1545545212_slowtest.h5')
 tsectest('/scratch/baileyji/mec/out/1545544477_slowtest.h5')
-
-
 
 
 # from mkidpipeline.hdf.photontable import ObsFile
