@@ -1104,11 +1104,11 @@ class ObsFile(object):
                 getLogger(__name__).debug('Wavelength updated in {:.2f}s'.format(time.time() - tic2))
 
         self.modifyHeaderEntry(headerTitle='isWvlCalibrated', headerValue=True)
-        self.modifyHeaderEntry(headerTitle='wvlCalFile', headerValue=str.encode(solution.solution_name))
+        self.modifyHeaderEntry(headerTitle='wvlCalFile', headerValue=str.encode(solution.name))
         self.photonTable.reindex_dirty()  # recompute "dirty" wavelength index
         self.photonTable.autoindex = True  # turn on auto-indexing
         self.photonTable.flush()
-        getLogger(__name__).info('Wavecal application took {:.2f}s'.format(time.time()-tic))
+        getLogger(__name__).info('Wavecal applied in {:.2f}s'.format(time.time()-tic))
 
     @property
     def wavelength_calibrated(self):
