@@ -14,7 +14,7 @@ import time
 import mkidpipeline.speckle.genphotonlist_IcIsIr as gpl
 import mkidpipeline.speckle.binned_rician as binMR
 import mkidpipeline.speckle.optimize_IcIsIr as binfree
-import mkidpipeline.speckle.binFreeRicianEstimate as bf # alex's code
+# import mkidpipeline.speckle.binFreeRicianEstimate as bf # alex's code
 from scipy import optimize
 import pickle
 
@@ -52,11 +52,11 @@ class photon_list(object):
             self.setup_cube_lists()
             self.p0_get_simple()
             self.find_max_like()
-            self.get_cube()
-            self.p0_cube_max()
-            self.find_max_like()
+            # self.get_cube()
+            # self.p0_cube_max()
+            # self.find_max_like()
             self.loglike_true_params = -binfree.loglike([Ic, Is, Ir], self.dt, self.deadtime)
-            self.do_stats_models()
+            # self.do_stats_models()
 
 
     def load(self,filename):
