@@ -104,22 +104,15 @@ class FlatCalibrator(object):
         caltable = flatCalFile.create_table(calgroup, 'calsoln', descriptionDict, title='Flat Cal Table')
         for iRow in range(self.xpix):
             for iCol in range(self.ypix):
-                weights = self.flatWeights[iRow, iCol, :]
-                spectrum = self.countCubesToSave[iRow, iCol, :]
-                deltaWeights = self.deltaFlatWeights[iRow, iCol, :]
-                flags = self.flatFlags[iRow, iCol, :]
-                flag = np.any(self.flatFlags[iRow, iCol, :])
-                pixelName = self.beamImage[iRow, iCol]
                 entry = caltable.row
-                entry['resid'] = pixelName
+                entry['resid'] = self.beamImage[iRow, iCol]
                 entry['y'] = iRow
                 entry['x'] = iCol
-                entry['weight'] = weights.flatten()
-                entry['err'] = deltaWeights.flatten()
-                entry['spectrum'] = spectrum
-                entry['flag'] = flag
+                entry['weight'] = self.flatWeights[iRow, iCol, :].flatten()
+                entry['err'] = self.deltaFlatWeights[iRow, iCol, :].flatten()
+                entry['spectrum'] = self.countCubesToSave[iRow, iCol, :].flatten()
+                entry['flag'] = np.any(self.flatFlags[iRow, iCol, :])
                 entry.append()
-        flatCalFile.flush()
         flatCalFile.close()
         getLogger(__name__).info("Wrote to {}".format(self.flatCalFileName))
 

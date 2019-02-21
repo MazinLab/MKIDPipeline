@@ -1338,7 +1338,7 @@ class ObsFile(object):
         """
 
         if self.info['isFlatCalibrated']:
-            getLogger(__name__).info("H5 {} is already Flat calibrated".format(self.fullFileName))
+            getLogger(__name__).info("H5 {} is already flat calibrated".format(self.fullFileName))
             return
 
         getLogger(__name__).info('Applying {} to {}'.format(calsolFile, self.fullFileName))
