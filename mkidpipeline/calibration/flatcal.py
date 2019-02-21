@@ -75,7 +75,7 @@ class FlatCalibrator(object):
     def makeSummary(self):
         summaryPlot(calsolnName=self.flatCalFileName, save_plot=True)
 
-    def writeWeights(self):
+    def writeWeights(self, poly_power=2):
         """
         Writes an h5 file to put calculated flat cal factors in
         """
@@ -98,9 +98,9 @@ class FlatCalibrator(object):
                      title='Twilight spectrum indexed by pixelRow,pixelCol,wavelengthBin')
         tables.Array(calgroup, 'flags', obj=self.flatFlags,
                      title='Flat cal flags indexed by pixelRow,pixelCol,wavelengthBin. 0 is Good')
-        tables.Array(calgroup, 'wavelengthBins', obj=self.wvlBinEdges,
+        tables.Array(calgroup, 'wavelengthBins', obj=self.wvlBinEdges.flatten(),
                      title='Wavelength bin edges corresponding to third dimension of weights array')
-        descriptionDict = FlatCalSoln_Description(self.wvlBinSize)
+        descriptionDict = FlatCalSoln_Description(nWvlBins=self.wvlBinSize, max_power=poly_power)
         caltable = flatCalFile.create_table(calgroup, 'calsoln', descriptionDict, title='Flat Cal Table')
         for iRow in range(self.xpix):
             for iCol in range(self.ypix):
@@ -110,8 +110,10 @@ class FlatCalibrator(object):
                 entry['x'] = iCol
                 entry['weight'] = self.flatWeights[iRow, iCol, :].flatten()
                 entry['err'] = self.deltaFlatWeights[iRow, iCol, :].flatten()
+                entry['coeff'] = np.polyfit(self.wvlBinEdges[:-1]+np.diff(self.wvlBinEdges),
+                                            entry['weight'], poly_power, w=1/entry['err']**2)
                 entry['spectrum'] = self.countCubesToSave[iRow, iCol, :].flatten()
-                entry['flag'] = np.any(self.flatFlags[iRow, iCol, :])
+                entry['bad'] = np.any(self.flatFlags[iRow, iCol, :])
                 entry.append()
         flatCalFile.close()
         getLogger(__name__).info("Wrote to {}".format(self.flatCalFileName))
