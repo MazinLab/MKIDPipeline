@@ -1377,35 +1377,34 @@ class ObsFile(object):
                 assert index.sum()<=1
                 # if not (index.any() and calsoln['flag'][index] == 0):
                 #     continue
+                if calsoln['flag'][index] == 0:
+                    photon_list = self.getPixelPhotonList(resid=resID)
+                    phases = photon_list['Wavelength']
 
-                photon_list = self.getPixelPhotonList(resid=resID)
-                phases = photon_list['Wavelength']
-                
-                weights = np.concatenate((headsweight,  calsoln['weights'][index].flatten(), tailsweight))
-                weightUncertainties = np.concatenate((headsweight, calsoln['weightUncertainties'][index].flatten(),
-                                                      tailsweight))
+                    weights = np.concatenate((headsweight,  calsoln['weights'][index].flatten(), tailsweight))
+                    weightUncertainties = np.concatenate((headsweight, calsoln['weightUncertainties'][index].flatten(),
+                                                          tailsweight))
+                    weightArr = np.poly1d(np.polyfit(bins, weights, 10))(phases)
+                    weightArr[(phases < minwavelength) | (phases > maxwavelength) ] = 0
+                    self.applySpecWeight(resID=resID, weightArr=weightArr)
 
-                weightArr = np.poly1d(np.polyfit(bins, weights, 10))(phases)
-                weightArr[(phases < minwavelength) | (phases > maxwavelength) ] = 0
-                self.applySpecWeight(resID=resID, weightArr=weightArr)
+                    if save_plots:
+                        if iPlot % nPlotsPerPage == 0:
+                            fig = plt.figure(figsize=(10, 10), dpi=100)
+                        ax = fig.add_subplot(nPlotsPerCol, nPlotsPerRow, iPlot % nPlotsPerPage + 1)
+                        ax.set_ylim(0, 5)
+                        ax.set_xlim(minwavelength, maxwavelength)
+                        ax.plot(bins, weights, '-', label='weights')
+                        ax.errorbar(bins, weights, yerr=weightUncertainties, label='weights')
+                        ax.plot(phases, weightArr, '.', markersize=5)
+                        ax.set_title('p rID:{} ({}, {})'.format(resID, row, column))
+                        ax.set_ylabel('weight')
 
-                if save_plots:
-                    if iPlot % nPlotsPerPage == 0:
-                        fig = plt.figure(figsize=(10, 10), dpi=100)
-                    ax = fig.add_subplot(nPlotsPerCol, nPlotsPerRow, iPlot % nPlotsPerPage + 1)
-                    ax.set_ylim(0, 5)
-                    ax.set_xlim(minwavelength, maxwavelength)
-                    ax.plot(bins, weights, '-', label='weights')
-                    ax.errorbar(bins, weights, yerr=weightUncertainties, label='weights')
-                    ax.plot(phases, weightArr, '.', markersize=5)
-                    ax.set_title('p rID:{} ({}, {})'.format(resID, row, column))
-                    ax.set_ylabel('weight')
-
-                    if iPlot % nPlotsPerPage == nPlotsPerPage - 1 or (
-                            row == self.nXPix - 1 and column == self.nYPix - 1):
-                        pdf.savefig()
-                        plt.close()
-                    iPlot += 1
+                        if iPlot % nPlotsPerPage == nPlotsPerPage - 1 or (
+                                row == self.nXPix - 1 and column == self.nYPix - 1):
+                            pdf.savefig()
+                            plt.close()
+                        iPlot += 1
 
         self.modifyHeaderEntry(headerTitle='isFlatCalibrated', headerValue=True)
         #TODO add this line whe the metadata store of the hdf file is sorted out.
