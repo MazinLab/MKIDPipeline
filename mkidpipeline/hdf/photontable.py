@@ -1346,26 +1346,18 @@ class ObsFile(object):
 
         tic = time.time()
 
-        FLATPOLYORDER=1
-
         pdfFullPath = calsolFile + '_flatplot_{}.pdf'.format(timestamp)
         nPlotsPerRow = 2
         nPlotsPerCol = 4
         iPlot = 0
         nPlotsPerPage = nPlotsPerRow * nPlotsPerCol
-        # if save_plots:
-        #     matplotlib.rcParams['font.size'] = 4
-        #
+        if save_plots:
+            matplotlib.rcParams['font.size'] = 4
+
         flat_cal = tables.open_file(calsolFile, mode='r')
         calsoln = flat_cal.root.flatcal.calsoln.read()
-        bins = flat_cal.root.flatcal.wavelengthBins.read().flatten()
-        minwavelength = bins[0]
-        maxwavelength = bins[len(bins) - 1]
-        heads = np.arange(0, minwavelength, 100)
-        tails = np.arange(maxwavelength + 100, maxwavelength + 600, 100)
-        headsweight = np.zeros(len(heads)) + 1
-        tailsweight = np.zeros(len(tails) + 1) + 1
-        bins = np.concatenate((heads, bins, tails))
+        bins = flat_cal.root.flatcal.wavelengthBins.read()
+        minwavelength, maxwavelength = bins[0], bins[-1]
 
         import contextlib
         @contextlib.contextmanager
@@ -1374,51 +1366,39 @@ class ObsFile(object):
 
         with PdfPages(pdfFullPath) if save_plots else dummy_context_mgr() as pdf:
             for (row, column), resID in np.ndenumerate(self.beamImage):
-                index = resID == calsoln['resid']
-                nmatch = index.sum()
 
-                if nmatch > 1:
+                soln = calsoln[resID == calsoln['resid']]
+
+                if len(soln) > 1:
                     msg = 'Flatcal {} has non-unique resIDs'.format(calsolFile)
                     getLogger(__name__).critical(msg)
                     raise RuntimeError(msg)
 
-                #TODO set pixel flags to include flatcal flags and sort this out
-                # self.applyFlag(resID=resID, calsoln['flag'][index])
-                # if not nmatch and self.beamFlagImage[row,column] == flags.good:
-                #     getLogger(__name__).warning('No flat calibration for good pixel {}')
-
-                #TODO remove this once the flag stuf is sorted.
-                if not calsoln['flag'][index] or not nmatch:
+                if not len(soln) and self.beamFlagImage[row, column] == pixelflags.GOODPIXEL:
+                    getLogger(__name__).warning('No flat calibration for good pixel {}'.format(resID))
                     continue
 
-                # if calsoln['flag'][index] == mkidcore.flags.BAD_FLAT_CAL:
-                #     continue
+                if soln['bad']:
+                    getLogger(__name__).warning('No flat calibration bad for pixel {}'.format(resID))
+                    continue
 
-                #todo change to 'weight' and 'err' and get rid of flatten
-                weights = np.concatenate((headsweight,  calsoln['weights'][index].flatten(), tailsweight))
-                weightUncertainties = np.concatenate((headsweight, calsoln['weightUncertainties'][index].flatten(),
-                                                      tailsweight))
+                #TODO set pixel flags to include flatcal flags and handle all the various pixel edge cases
 
-                tic2 = time.time()
                 indices = self.photonTable.get_where_list('ResID==resID')
                 if not indices.size:
                     continue
 
-                if (np.diff(indices) == 1).all():  # This takes ~475s for ALL photons combined on a 70Mphot file.
+                if (np.diff(indices) == 1).all():  # This takes ~300s for ALL photons combined on a 70Mphot file.
                     # getLogger(__name__).debug('Using modify_column')
                     phases = self.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
-                    weightArr = np.poly1d(np.polyfit(bins, weights, FLATPOLYORDER))(phases)
-                    weightArr[(phases < minwavelength) | (phases > maxwavelength)] = 0
+                    weightArr = np.poly1d(soln['coeff'])(phases)
                     self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=weightArr,
                                                    colname='SpecWeight')
                 else:  # This takes 3.5s on a 70Mphot file!!!
                     raise NotImplementedError('This code path is impractically slow at present.')
                     getLogger(__name__).debug('Using modify_coordinates')
                     rows = self.photonTable.read_coordinates(indices)
-                    phases = rows['Wavelength']
-                    weightArr = np.poly1d(np.polyfit(bins, weights, FLATPOLYORDER))(phases)
-                    weightArr[(phases < minwavelength) | (phases > maxwavelength)] = 0
-                    rows['SpecWeight'] = weightArr
+                    rows['SpecWeight'] = np.poly1d(soln['coeff'])(rows['Wavelength'])
                     self.photonTable.modify_coordinates(indices, rows)
                     getLogger(__name__).debug('Flat weights updated in {:.2f}s'.format(time.time() - tic2))
 
