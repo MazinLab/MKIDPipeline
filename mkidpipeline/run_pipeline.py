@@ -57,7 +57,7 @@ dataset = mkidpipeline.config.load_data_description(datafile)
 getLogger('mkidpipeline.calibration.wavecal').setLevel('INFO')
 getLogger('mkidpipeline.hdf.photontable').setLevel('INFO')
 
-ncpu=10
+ncpu=20
 
 bin2hdf.buildtables(dataset.timeranges, ncpu=ncpu, remake=False, timesort=False)
 
@@ -68,6 +68,5 @@ flatcal.fetch(dataset.flatcals)
 
 batch_apply_flatcals(dataset.science_observations, ncpu=ncpu)
 
-batch_maskhot(dataset.science_observations)
-
+# batch_maskhot(dataset.science_observations)
 
