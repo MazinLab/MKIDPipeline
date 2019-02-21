@@ -112,12 +112,11 @@ class FlatCalibrator(object):
                 pixelName = self.beamImage[iRow, iCol]
                 entry = caltable.row
                 entry['resid'] = pixelName
-                entry['pixelrow'] = iRow
-                entry['pixelcol'] = iCol
-                entry['weights'] = weights
-                entry['weightUncertainties'] = deltaWeights
+                entry['y'] = iRow
+                entry['x'] = iCol
+                entry['weight'] = weights.flatten()
+                entry['err'] = deltaWeights.flatten()
                 entry['spectrum'] = spectrum
-                entry['weightFlags'] = flags
                 entry['flag'] = flag
                 entry.append()
         flatCalFile.flush()
