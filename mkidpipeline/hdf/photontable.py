@@ -37,7 +37,7 @@ makeWvlBins(energyBinWidth=.1, wvlStart=700, wvlStop=1500)
 ====Data write functions for calibrating====
 applyWaveCal(self, file_name)
 updateWavelengths(self, wvlCalArr, xCoord=None, yCoord=None, resid=None)
-__applyColWeight(self, resID, weightArr, colName)
+_applyColWeight(self, resID, weightArr, colName)
 applySpecWeight(self, resID, weightArr)
 applyTPFWeight(self, resID, weightArr)
 applyFlatCal(self, calSolnPath,verbose=False)
@@ -145,6 +145,7 @@ class ThreadsafeFile(tables.file.File):
 def synchronized_open_file(*args, **kwargs):
     with ThreadsafeFileRegistry.lock:
         return tables.file._original_open_file(*args, **kwargs)
+
 
 # monkey patch the tables package
 tables.file._original_open_file = tables.file.open_file
@@ -1250,7 +1251,7 @@ class ObsFile(object):
 
         getLogger(__name__).debug('Wavelengths updated in {:.2f}s'.format(time.time()-tic))
 
-    def __applyColWeight(self, resID, weightArr, colName):
+    def _applyColWeight(self, resID, weightArr, colName):
         """
         Applies a weight calibration to the column specified by colName.
         Call using applySpecWeight or applyTPFWeight.
@@ -1266,17 +1267,16 @@ class ObsFile(object):
         """
         if self.mode != 'write':
             raise Exception("Must open file in write mode to do this!")
-        if self.info['isWvlCalibrated']:
-            warnings.warn("Wavelength calibration already exists!")
-        pixelRowInds = self.photonTable.get_where_list('ResID==resID')
-        assert (len(pixelRowInds) - 1) == (pixelRowInds[-1] - pixelRowInds[0]), 'Table is not sorted by Res ID!'
-        assert len(pixelRowInds) == len(weightArr), 'Calibrated wavelength list does not match length of photon list!'
 
-        weightArr = np.array(weightArr)
-        curWeights = self.photonTable.query(resid=resID)['SpecWeight']
-        newWeights = weightArr * curWeights
-        self.photonTable.modify_column(start=pixelRowInds[0], stop=pixelRowInds[-1] + 1, column=newWeights,
-                                       colname=colName)
+        indices = self.photonTable.get_where_list('ResID==resID')
+
+        if not (np.diff(indices) == 1).all():
+            raise NotImplementedError('Table is not sorted by Res ID!')
+        if len(indices) != len(weightArr):
+            raise ValueError('weightArr length does not match length of photon list for resID!')
+
+        newWeights = self.query(resid=resID)['SpecWeight'] * np.asarray(weightArr)
+        self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=newWeights, colname=colName)
         self.photonTable.flush()
 
     def applySpecWeight(self, resID, weightArr):
@@ -1295,7 +1295,7 @@ class ObsFile(object):
         weightArr: array of floats
             Array of cal weights. Multiplied into the "SpecWeight" column.
         """
-        self.__applyColWeight(resID, weightArr, 'SpecWeight')
+        self._applyColWeight(resID, weightArr, 'SpecWeight')
 
     def applyTPFWeight(self, resID, weightArr):
         """
@@ -1313,7 +1313,7 @@ class ObsFile(object):
         weightArr: array of floats
             Array of cal weights. Multiplied into the "NoiseWeight" column.
         """
-        self.__applyColWeight(resID, weightArr, 'NoiseWeight')
+        self._applyColWeight(resID, weightArr, 'NoiseWeight')
 
     def applyFlatCal(self, calsolFile, save_plots=False):
         """
@@ -1336,32 +1336,35 @@ class ObsFile(object):
              with average weights overplotted to a pdf for pixels which have a successful FlatCal.
              Written to the calSolnPath+'FlatCalSolnPlotsPerPixel.pdf'
         """
-        timestamp = datetime.utcnow().timestamp()
-        baseh5path = calsolFile.split('.h5')
+
         if self.info['isFlatCalibrated']:
-            getLogger(__name__).info("the data is already Flat calibrated")
+            getLogger(__name__).info("H5 {} is already Flat calibrated".format(self.fullFileName))
             return
-        else:
-            getLogger(__name__).info('Applying {} to {}'.format(calsolFile, self.fullFileName))
+
+        getLogger(__name__).info('Applying {} to {}'.format(calsolFile, self.fullFileName))
+        timestamp = datetime.utcnow().timestamp()
 
         tic = time.time()
 
-        pdfFullPath = baseh5path[0] + 'flatcalsolnplots_{}.pdf'.format(timestamp)
+
+        pdfFullPath = calsolFile + '_flatplot_{}.pdf'.format(timestamp)
         nPlotsPerRow = 2
         nPlotsPerCol = 4
-        nPlotsPerPage = nPlotsPerRow * nPlotsPerCol
         iPlot = 0
-        matplotlib.rcParams['font.size'] = 4
+        nPlotsPerPage = nPlotsPerRow * nPlotsPerCol
+        # if save_plots:
+        #     matplotlib.rcParams['font.size'] = 4
+        #
         flat_cal = tables.open_file(calsolFile, mode='r')
         calsoln = flat_cal.root.flatcal.calsoln.read()
-        bins = np.array(flat_cal.root.flatcal.wavelengthBins.read()).flatten()
+        bins = flat_cal.root.flatcal.wavelengthBins.read().flatten()
         minwavelength = bins[0]
         maxwavelength = bins[len(bins) - 1]
         heads = np.arange(0, minwavelength, 100)
         tails = np.arange(maxwavelength + 100, maxwavelength + 600, 100)
         headsweight = np.zeros(len(heads)) + 1
         tailsweight = np.zeros(len(tails) + 1) + 1
-        bins = np.append(np.append(heads, bins), tails)
+        bins = np.concatenate((heads, bins, tails))
 
         import contextlib
         @contextlib.contextmanager
@@ -1372,14 +1375,15 @@ class ObsFile(object):
             for (row, column), resID in np.ndenumerate(self.beamImage):
                 index = resID == calsoln['resid']
                 assert index.sum()<=1
-                if not (index.any() and calsoln['flag'][index] == 0):
-                    continue
+                # if not (index.any() and calsoln['flag'][index] == 0):
+                #     continue
 
                 photon_list = self.getPixelPhotonList(resid=resID)
                 phases = photon_list['Wavelength']
                 
                 weights = np.concatenate((headsweight,  calsoln['weights'][index].flatten(), tailsweight))
-                weightUncertainties = np.concatenate((headsweight, calsoln['weightUncertainties'][index], tailsweight))
+                weightUncertainties = np.concatenate((headsweight, calsoln['weightUncertainties'][index].flatten(),
+                                                      tailsweight))
 
                 weightArr = np.poly1d(np.polyfit(bins, weights, 10))(phases)
                 weightArr[(phases < minwavelength) | (phases > maxwavelength) ] = 0
