@@ -1346,6 +1346,7 @@ class ObsFile(object):
 
         tic = time.time()
 
+        FLATPOLYORDER=1
 
         pdfFullPath = calsolFile + '_flatplot_{}.pdf'.format(timestamp)
         nPlotsPerRow = 2
@@ -1393,20 +1394,33 @@ class ObsFile(object):
                 # if calsoln['flag'][index] == mkidcore.flags.BAD_FLAT_CAL:
                 #     continue
 
-                photon_list = self.getPixelPhotonList(resid=resID)
-                if not len(photon_list):
-                    continue
-
-                phases = photon_list['Wavelength']
-
                 #todo change to 'weight' and 'err' and get rid of flatten
                 weights = np.concatenate((headsweight,  calsoln['weights'][index].flatten(), tailsweight))
                 weightUncertainties = np.concatenate((headsweight, calsoln['weightUncertainties'][index].flatten(),
                                                       tailsweight))
 
-                weightArr = np.poly1d(np.polyfit(bins, weights, 10))(phases)
-                weightArr[(phases < minwavelength) | (phases > maxwavelength) ] = 0
-                self.applySpecWeight(resID=resID, weightArr=weightArr)
+                tic2 = time.time()
+                indices = self.photonTable.get_where_list('ResID==resID')
+                if not indices.size:
+                    continue
+
+                if (np.diff(indices) == 1).all():  # This takes ~475s for ALL photons combined on a 70Mphot file.
+                    # getLogger(__name__).debug('Using modify_column')
+                    phases = self.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
+                    weightArr = np.poly1d(np.polyfit(bins, weights, FLATPOLYORDER))(phases)
+                    weightArr[(phases < minwavelength) | (phases > maxwavelength)] = 0
+                    self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=weightArr,
+                                                   colname='SpecWeight')
+                else:  # This takes 3.5s on a 70Mphot file!!!
+                    raise NotImplementedError('This code path is impractically slow at present.')
+                    getLogger(__name__).debug('Using modify_coordinates')
+                    rows = self.photonTable.read_coordinates(indices)
+                    phases = rows['Wavelength']
+                    weightArr = np.poly1d(np.polyfit(bins, weights, FLATPOLYORDER))(phases)
+                    weightArr[(phases < minwavelength) | (phases > maxwavelength)] = 0
+                    rows['SpecWeight'] = weightArr
+                    self.photonTable.modify_coordinates(indices, rows)
+                    getLogger(__name__).debug('Flat weights updated in {:.2f}s'.format(time.time() - tic2))
 
                 if save_plots:
                     if iPlot % nPlotsPerPage == 0:
