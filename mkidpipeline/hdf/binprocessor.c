@@ -323,7 +323,7 @@ long extract_photons(const char *binpath, unsigned long start_timestamp, unsigne
 
         fSize = st.st_size;
 
-        printf("\nReading %s - %ld Mb\n",fName,fSize/1024/1024);
+        printf("Reading %s - %ld Mb\n",fName,fSize/1024/1024);
         if (DATA_BUFFER_SIZE_BYTES<fSize) {
             printf("Bin file too large for buffer, did the max counts increase from 2500 cts/s\n");
             //TODO free all the crap

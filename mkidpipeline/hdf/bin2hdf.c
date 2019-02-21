@@ -500,7 +500,7 @@ int main(int argc, char *argv[])
         }
 
         fSize = st.st_size;
-        printf("\nReading %s - %ld Mb\n",fName,fSize/1024/1024);
+        printf("Reading %s - %ld Mb\n",fName,fSize/1024/1024);
         data = (uint64_t *) malloc(fSize);
         //dSize = (uint64_t) fSize;
 
