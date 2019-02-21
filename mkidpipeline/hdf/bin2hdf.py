@@ -50,7 +50,7 @@ def _get_dir_for_start(base, start):
         raise ValueError('No directory in {} found for start {}'.format(base, start))
 
 
-def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None):
+def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None, bitshuffle=False):
     if cfg.starttime < 1518222559:
         raise ValueError('Data prior to 1518222559 not supported without added fixtimestamps')
 
@@ -72,7 +72,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
 
     h5file = tables.open_file(cfg.h5file, mode="a", title="MKID Photon File")
     group = h5file.create_group("/", 'Photons', 'Photon Information')
-    filter = tables.Filters(complevel=1, complib='blosc', shuffle=True, bitshuffle=False, fletcher32=False)
+    filter = tables.Filters(complevel=1, complib='blosc', shuffle=True, bitshuffle=bitshuffle, fletcher32=False)
     table = h5file.create_table(group, name='PhotonTable', description=ObsFileCols, title="Photon Datatable",
                                 expectedrows=len(photons), filters=filter, chunkshape=chunkshape)
     table.append(photons)
@@ -417,7 +417,7 @@ class HDFBuilder(object):
             build_bin2hdf(self.cfg, self.exc, polltime=polltime)
             self.done.set()
 
-        getLogger(__name__).info('Created {} in {:.1}s'.format(self.cfg.h5file, time.time()-tic))
+        getLogger(__name__).info('Created {} in {:.0f}s'.format(self.cfg.h5file, time.time()-tic))
 
 
 def runbuilder(b):
