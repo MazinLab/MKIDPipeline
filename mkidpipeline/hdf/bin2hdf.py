@@ -127,7 +127,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
 
     getLogger(__name__).debug('Header Attached')
     h5file.close()
-    getLogger(__name__).debug('Done')
+    getLogger(__name__).debug('Done with {}'.format(cfg.h5file))
 
 
 def build_bin2hdf(cfg, exc, polltime=.1):
