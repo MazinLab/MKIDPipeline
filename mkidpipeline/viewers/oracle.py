@@ -525,7 +525,7 @@ class main_window(QMainWindow):
             try:
                 filename = self.file_list_raw[np.where(self.timestamp_list==self.spinbox_startTime.value())[0][0]]
             except:
-                print('filename does not exist in selfl.file_list_Raw')
+                print('filename does not exist in self.file_list_Raw')
                 self.updateLogLabel(file_exists=False)
             else:
                 self.filename = filename
@@ -534,6 +534,9 @@ class main_window(QMainWindow):
                 elif type(self.a).__name__ == 'img_object':
                     self.load_data_from_img(self.filename)
                 self.updateLogLabel()
+
+
+
 
 
 
@@ -563,6 +566,23 @@ class main_window(QMainWindow):
             # self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
 
             self.draw()
+
+
+
+
+    def update_color_bar_limit(self):
+        # colorbar auto
+        if self.checkbox_colorbar_auto.isChecked():
+            self.cbarLimits = np.array([0, np.amax(self.image)])
+            self.fig.cbar.set_clim(self.cbarLimits[0], self.cbarLimits[1])
+            self.fig.cbar.draw_all()
+        else:
+            self.cbarLimits = np.array([0, self.spinbox_colorBarMax.value()])
+            self.fig.cbar.set_clim(self.cbarLimits[0], self.cbarLimits[1])
+            self.fig.cbar.draw_all()
+
+        self.ax1.imshow(self.image, interpolation='none', vmin=self.cbarLimits[0], vmax=self.cbarLimits[1])
+        self.draw()
 
 
 
@@ -612,8 +632,8 @@ class main_window(QMainWindow):
 
             self.ax1.imshow(self.image,interpolation='none',vmin = self.cbarLimits[0],vmax = self.cbarLimits[1])
 
-            self.fig.cbar.set_clim(self.cbarLimits[0],self.cbarLimits[1])
-            self.fig.cbar.draw_all()
+            # self.fig.cbar.set_clim(self.cbarLimits[0],self.cbarLimits[1])
+            # self.fig.cbar.draw_all()
 
             self.ax1.set_title('Raw counts')
 
@@ -761,8 +781,8 @@ class main_window(QMainWindow):
         button_quickLoad.clicked.connect(self.quickLoadH5)
 
         # spinboxes for the start & stop times
-        self.spinbox_startTime = QSpinBox()
-        self.spinbox_integrationTime = QSpinBox()
+        self.spinbox_startTime = QDoubleSpinBox()
+        self.spinbox_integrationTime = QDoubleSpinBox()
 
         # labels for the start/stop time spinboxes
         label_startTime = QLabel('start time')
@@ -798,14 +818,14 @@ class main_window(QMainWindow):
         # make a checkbox for the colorbar autoscale
         self.checkbox_colorbar_auto = QCheckBox()
         self.checkbox_colorbar_auto.setChecked(False)
-        self.checkbox_colorbar_auto.stateChanged.connect(self.spinBoxValueChange)
+        self.checkbox_colorbar_auto.stateChanged.connect(self.update_color_bar_limit)
 
         label_checkbox_colorbar_auto = QLabel('Auto colorbar')
 
         self.spinbox_colorBarMax = QSpinBox()
         self.spinbox_colorBarMax.setRange(1, 2500)
         self.spinbox_colorBarMax.setValue(2000)
-        self.spinbox_colorBarMax.valueChanged.connect(self.spinBoxValueChange)
+        self.spinbox_colorBarMax.valueChanged.connect(self.update_color_bar_limit)
 
         # create a vertical box for the plot to go in.
         vbox_plot = QVBoxLayout()
