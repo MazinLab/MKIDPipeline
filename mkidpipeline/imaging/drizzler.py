@@ -1,7 +1,5 @@
 """
 TODO
-Spatial and Temporal drizzling
-
 Add ephem, pyguide, astropy_helpers, drizzle to yml. these were all pip installed except PyGuide is just downloaded
 from github (no installation)
 
@@ -26,13 +24,15 @@ This code is adapted from Julian's testImageStack from the ARCONS pipeline.
 
 import os
 import numpy as np
+# np.set_printoptions(threshold=np.inf)
 import time
 import matplotlib.pylab as plt
-from matplotlib.colors import LogNorm
-import ephem
+# from matplotlib.colors import LogNorm
+import copy
 import glob
+import ephem
 from astropy import wcs
-from astropy.io import fits
+# from astropy.io import fits
 from astropy.coordinates import EarthLocation, Angle
 import astropy
 from drizzle import drizzle as stdrizzle
@@ -41,9 +41,9 @@ from mkidpipeline.hdf.photontable import ObsFile
 from mkidcore.corelog import getLogger
 from mkidpipeline.config import MKIDObservingDataDescription, MKIDObservingDither
 
-import sys
-sys.path.append('/Users/dodkins/PythonProjects/MEDIS/')
-from medis.Utils.plot_tools import loop_frames, quicklook_im, view_datacube, compare_images, indep_images, grid
+# import sys
+# sys.path.append('/Users/dodkins/PythonProjects/MEDIS/')
+# from medis.Utils.plot_tools import loop_frames, quicklook_im, view_datacube, compare_images, indep_images, grid
 
 def con2pix(xCon, yCon):
     '''
@@ -163,7 +163,7 @@ def getmetafromh5():
     cenDec = 0.0951
     xpix = 140
     ypix = 146
-    platescale = 0.44
+    platescale = 0.1#0.44
 
     return (cenRA, cenDec, xpix, ypix, platescale)
 
@@ -175,7 +175,8 @@ class DitherDescription(object):
 
     TODO implement center of rotation
     '''
-    def __init__(self, mkid_observing_dither, h5dithdata, drizzleconfig, observatory='greenwich', rotate=False, plotdithlocs=False):
+    def __init__(self, mkid_observing_dither, h5dithdata, drizzleconfig,
+                 observatory='greenwich', rotate=False, plotdithlocs=False):
         self.description = mkid_observing_dither
         self.pos = mkid_observing_dither.pos
 
@@ -201,25 +202,24 @@ class DitherDescription(object):
             site = EarthLocation.of_site(observatory)
             LSTs = astropy.time.Time(val=times, format='unix').sidereal_time('mean', site.lon).radian
             # self.hourAngles = LSTs - ephem.hours(self.cenRA).real
-            self.dithHAs = LSTs - LSTs[0] # in radians
+            self.dithHAs = (LSTs - LSTs[0]) # in radians
         else:
             self.dithHAs = np.zeros_like((mkid_observing_dither.obs), dtype=np.float)
         getLogger(__name__).debug("HAs: %s", self.dithHAs)
 
-        # self.rotationMatrix = np.array([[np.cos(self.dithHAs), -np.sin(self.dithHAs)],
-        #                                 [np.sin(self.dithHAs), np.cos(self.dithHAs)]]).T
-        #
-        # # self.centroidRotated = np.dot(self.rotationMatrix,
-        # #                               np.array([xCentroids, yCentroids])).diagonal(axis1=0,axis2=2)
-        # self.centroidRotated = np.dot(self.rotationMatrix,
-        #                               np.array([self.xCenRes, self.yCenRes])).diagonal(axis1=0,axis2=2) + [self.virxPixCen, self.viryPixCen]
 
         if plotdithlocs:
+            self.rotationMatrix = np.array([[np.cos(self.dithHAs), -np.sin(self.dithHAs)],
+                                            [np.sin(self.dithHAs), np.cos(self.dithHAs)]]).T
+
+            self.centroidRotated = np.dot(self.rotationMatrix,
+                                          np.array([self.xCenRes, self.yCenRes])).diagonal(axis1=0,axis2=2) + [self.virxPixCen, self.viryPixCen]
+
             # plt.plot(np.array(self.pos)[:, 0], np.array(self.pos)[:, 1])
             # plt.figure()
-            plt.plot(xCentroids, yCentroids)
-            plt.plot(self.virxPixCen, self.viryPixCen, marker='x')
-            plt.plot(self.centroidRotated[0], self.centroidRotated[1])
+            plt.plot(-xCentroids, -yCentroids)
+            plt.plot(-self.virxPixCen, -self.viryPixCen, marker='x')
+            plt.plot(-self.centroidRotated[0], -self.centroidRotated[1])
             plt.show()
 
 class Drizzler(object):
@@ -233,14 +233,16 @@ class Drizzler(object):
         # desired minimum S/N
 
         # self.randoffset = False # apply random spatial offset to each photon
-        self.nPixRA = 250
-        self.nPixDec = 250
+        self.nPixRA = None
+        self.nPixDec = None
         # self.photWeights = None
 
         self.config = None
         self.files = photonlists
 
         # self.meta = metadata
+        self.xpix = metadata.xpix
+        self.ypix = metadata.ypix
         self.cenRA = metadata.cenRA
         self.cenDec = metadata.cenDec
         self.vPlateScale = metadata.platescale
@@ -330,11 +332,11 @@ class SpectralDrizzler(Drizzler):
         #     self.driz.write(save_file)
 
     def makeCube(self, file):
-        sample = np.vstack(( file.wavelengths, file.photDecRad, file.photRARad))
-        bins = np.array([self.wvlbins, self.gridDec, self.gridRA])
-        print(sample.shape)
+        sample = np.vstack((file.wavelengths, file.photDecRad, file.photRARad))
+        # bins = np.array([self.wvlbins, self.gridDec, self.gridRA])
+        bins = np.array([self.wvlbins, self.ypix, self.xpix])
+
         datacube, bins= np.histogramdd(sample.T, bins)
-        print(datacube.shape)
 
         wavelengths, thisGridDec, thisGridRA = bins
 
@@ -356,35 +358,41 @@ class SpectralDrizzler(Drizzler):
         w.wcs.cdelt = np.array([thisGridRA[1]-thisGridRA[0], thisGridDec[1]-thisGridDec[0]])
         w.wcs.crval = [thisGridRA[0], thisGridDec[0]]
         w.wcs.ctype = ["RA---AIR", "DEC--AIR"]
-        w._naxis1 = 250
-        w._naxis2 = 250
+        w._naxis1 = len(thisGridRA) - 1
+        w._naxis2 = len(thisGridDec) - 1
 
 
         return datacube, w
 
 
 class TemporalDrizzler(Drizzler):
-    """ Generate a spatially dithered fits hypercube from a set dithered dataset """
-    def __init__(self, photonlists, metadata, pixfrac=1):
-        self.nwvlbins = 8
-        self.timestep = 0.01 # seconds
+    """
+    Generate a spatially dithered fits 4D hypercube from a set dithered dataset. The cube size is
+    ntimebins * ndithers X nwvlbins X nPixRA X nPixDec.
+    """
+    def __init__(self, photonlists, metadata, pixfrac=0):
+        self.nwvlbins = 1
+        self.timestep = 0.1 # seconds
 
+        Drizzler.__init__(self, photonlists, metadata)
+        self.ndithers = len(self.files)
+        print(self.ndithers, 'ndithers')
+        self.pixfrac=pixfrac
         self.wvlbins = np.linspace(metadata.wvlMin, metadata.wvlMax, self.nwvlbins+1)
         self.ntimebins = int(metadata.integrationTime / self.timestep)
         self.timebins = np.linspace(metadata.firstObsTime,
                                     metadata.firstObsTime + metadata.integrationTime,
                                     self.ntimebins+1) * 1e6  # timestamps are in microseconds
 
-        print(self.timebins, self.ntimebins)
-        Drizzler.__init__(self, photonlists, metadata)
-        self.drizhyper = [[stdrizzle.Drizzle(outwcs=self.w, pixfrac=pixfrac)] * self.nwvlbins] * self.ntimebins
-        # self.drizhyper = np.empty((self.ntimebins, self.nwvlbins), dtype=object)
-        # for it in range(self.ntimebins):
-        #     for iw in range(self.nwvlbins):
-        #         self.drizhyper[it, iw] = stdrizzle.Drizzle(outwcs=self.w, pixfrac=pixfrac)
+        # self.drizhyper = [[stdrizzle.Drizzle(outwcs=self.w, pixfrac=pixfrac)
+        #                    for nw in range(self.nwvlbins)]
+        #                   for nt in range(self.ntimebins)]
 
     def run(self, save_file=None):
         tic = time.clock()
+
+        self.totHypCube = np.zeros((self.ntimebins * self.ndithers, self.nwvlbins, self.nPixDec, self.nPixRA))
+        self.totWeightCube = np.zeros((self.ntimebins, self.nwvlbins, self.nPixDec, self.nPixRA))
         for ix, file in enumerate(self.files):
 
             getLogger(__name__).debug('Processing %s', file)
@@ -393,11 +401,24 @@ class TemporalDrizzler(Drizzler):
             # for datacube in insci:
             #     indep_images(datacube, logAmp=True)
 
+            thishyper = np.zeros((self.ntimebins, self.nwvlbins, self.nPixDec, self.nPixRA), dtype=np.float32)
+
             for it in range(self.ntimebins):
                 for iw in range(self.nwvlbins):
-                    self.drizhyper[it][iw].add_image(insci[it,iw], inwcs, inwht=np.int_(np.logical_not(insci[it][iw]==0)))
+                    # The combination of insci with stdrizzle.drizzle.outsci is handled in cdrizzleapi.c so either we
+                    # can modify that file or just do the difference here. Is this a significant performance hit?
+                    drizhyper = stdrizzle.Drizzle(outwcs=self.w, pixfrac=self.pixfrac)
 
-        self.hypercube = [self.drizhyper[it][iw].outsci for it in range(self.ntimebins) for iw in range(self.nwvlbins)]
+                    # self.drizhyper[it][iw].add_image(insci[it,iw], inwcs, inwht=np.int_(np.logical_not(insci[it,iw]==0)))
+                    drizhyper.add_image(insci[it,iw], inwcs, inwht=np.int_(np.logical_not(insci[it,iw]==0)))
+
+                    thishyper[it,iw] = drizhyper.outsci
+
+                    self.totWeightCube[it, iw] += thishyper[it,iw] != 0
+
+            self.totHypCube[ix * self.ntimebins : (ix+1)*self.ntimebins] = thishyper
+
+        # self.hypercube = [self.drizhyper[it][iw].outsci for it in range(self.ntimebins) for iw in range(self.nwvlbins)]
         getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
         print('Image load done. Time taken (s): %s', time.clock() - tic)
         # TODO add the wavelength WCS
@@ -406,7 +427,8 @@ class TemporalDrizzler(Drizzler):
 
     def makeHyper(self, file):
         sample = np.vstack((file.timestamps, file.wavelengths, file.photDecRad, file.photRARad))
-        bins = np.array([self.timebins, self.wvlbins, self.gridDec, self.gridRA])
+        # bins = np.array([self.timebins, self.wvlbins, self.gridDec, self.gridRA])
+        bins = np.array([self.timebins, self.wvlbins, self.ypix, self.xpix])
         print(sample.shape)
         hypercube, bins = np.histogramdd(sample.T, bins)
         print(hypercube.shape)
@@ -422,9 +444,8 @@ class TemporalDrizzler(Drizzler):
         w.wcs.cdelt = np.array([thisGridRA[1]-thisGridRA[0], thisGridDec[1]-thisGridDec[0]])
         w.wcs.crval = [thisGridRA[0], thisGridDec[0]]
         w.wcs.ctype = ["RA---AIR", "DEC--AIR"]
-        w._naxis1 = 250
-        w._naxis2 = 250
-
+        w._naxis1 = len(thisGridRA) - 1
+        w._naxis2 = len(thisGridDec) - 1
 
         return hypercube, w
 
@@ -478,36 +499,19 @@ class SpatialDrizzler(Drizzler):
 
 
     def makeImage(self, file):
-        # nPhot = len(file.photRARad)
-        #
-        # if self.randoffset:
-        #     # Add uniform random dither to each photon, distributed over a square
-        #     # area of the same size and orientation as the originating pixel at
-        #     # the time of observation (assume RA and dec are defined at center of pixel).
-        #     np.random.seed(42) # so random values always same
-        #     xRand = np.random.rand(nPhot) * self.detPlateScale - self.detPlateScale / 2.0
-        #     yRand = np.random.rand(nPhot) * self.detPlateScale - self.detPlateScale / 2.0  # Not the same array!
-        #     ditherRAs = xRand * np.cos(file.photHAs) - yRand * np.sin(file.photHAs)
-        #     ditherDecs = yRand * np.cos(file.photHAs) + xRand * np.sin(file.photHAs)
-        # else:
-        #     ditherRAs = 0
-        #     ditherDecs = 0
-        #
-        # photRAs = file.photRARad + ditherRAs
-        # photDecs = file.photDecRad + ditherDecs
-
-        # self.detImage, thisGridDec, thisGridRA = np.histogram2d(photDecs, photRAs, bins=[146,140])
-
-        thisImage, thisGridDec, thisGridRA = np.histogram2d(file.photDecRad, file.photRARad, [self.gridDec, self.gridRA])
-        # quicklook_im(thisImage, logAmp=True, vmax=10, vmin=5, show=False)
+        thisImage, thisGridDec, thisGridRA = np.histogram2d(file.photDecRad, file.photRARad,
+                                                            bins=[self.ypix,self.xpix])
+        # thisImage, thisGridDec, thisGridRA = np.histogram2d(file.photDecRad, file.photRARad,
+        #                                                     [self.gridDec, self.gridRA])
+        # quicklook_im(thisImage, logAmp=True, vmax=10, vmin=0, show=True)
 
         w = wcs.WCS(naxis=2)
         w.wcs.crpix = [0., 0.]
         w.wcs.cdelt = np.array([thisGridRA[1]-thisGridRA[0], thisGridDec[1]-thisGridDec[0]])
         w.wcs.crval = [thisGridRA[0], thisGridDec[0]]
         w.wcs.ctype = ["RA---AIR", "DEC--AIR"]
-        w._naxis1 = 250
-        w._naxis2 = 250
+        w._naxis1 = len(thisGridRA) - 1
+        w._naxis2 = len(thisGridDec) - 1
         # header = w.to_header()
         # hdu = fits.PrimaryHDU(data = thisImage, header=header)
         # hdu.writeto(self.tempfile, clobber=True)
@@ -530,10 +534,10 @@ class photonlist(object):
         self.integrationTime=ditherdesc.integrationTime
         self.randoffset = False # apply random spatial offset to each photon
 
-        self.timestamps, xPhotonPixels, yPhotonPixels, self.wavelengths = self.reduce_obs(obsfile, ditherdesc, ditherind)
+        self.timestamps, self.xPhotonPixels, self.yPhotonPixels, self.wavelengths = self.reduce_obs(obsfile, ditherdesc, ditherind)
 
-        self.photRARad, self.photDecRad = self.get_wcs(self.timestamps, xPhotonPixels,
-                                                        yPhotonPixels, ditherind,
+        self.photRARad, self.photDecRad = self.get_wcs(self.timestamps, self.xPhotonPixels,
+                                                       self.yPhotonPixels, ditherind,
                                                         ditherdesc)
 
     def reduce_obs(self, obsfile, ditherdesc, ditherind):
@@ -545,15 +549,16 @@ class photonlist(object):
         '''
 
         # photTable = obsfile.file.root.Photons.PhotonTable  # Shortcut to table
+        # # print(photTable[::5000])
         # img = obsfile.getPixelCountImage(firstSec =0, integrationTime=1, wvlStart=self.wvlMin, wvlStop=self.wvlMax)
         # self.testimage = img['image']
-        # plt.imshow(self.testimage, aspect='equal', norm=LogNorm())
+        # plt.imshow(self.testimage, aspect='equal')
         # plt.show()
 
         # if expWeightTimeStep is not None:
         #    self.expWeightTimeStep=expWeightTimeStep
 
-        if obsfile.getFromHeader('timeMaskExists'):
+        if obsfile.info['timeMaskExists']:
             # If hot pixels time-mask data not already parsed in (presumably not), then parse it.
             if obsfile.hotPixTimeMask is None:
                 obsfile.parseHotPixTimeMask()  # Loads time mask dictionary into ObsFile.hotPixTimeMask
@@ -577,7 +582,7 @@ class photonlist(object):
         # True (1) = good; False (0) = dead
         # First on the basis of the wavelength cals:
 
-        if obsfile.getFromHeader('isWvlCalibrated'):
+        if obsfile.info['isWvlCalibrated']:
             # wvlCalFlagImage = ObsFile.getBadWvlCalFlags()
             print('This needs to be updated. No flags loaded')
             wvlCalFlagImage = np.zeros_like(beamFlagImage)
@@ -638,7 +643,7 @@ class photonlist(object):
         # Flatten the array in the same way as the previous arrays (1D array, nRow*nCol elements).
         # detExpTimes = (hp.getEffIntTimeImage(ObsFile.hotPixTimeMask, integrationTime=tEndFrames[iFrame]-tStartFrames[iFrame],
         #                                     self.firstObsTime=tStartFrames[iFrame]) * detPixMask).flatten()
-        if obsfile.getFromHeader('timeMaskExists'):
+        if obsfile.info['timeMaskExists']:
             self.detExpTimes = (obsfile.hotPixTimeMask.getEffIntTimeImage(firstSec=ditherdesc.obs[ditherind].start,
                                                                           integrationTime=ditherdesc.obs[ditherind].end -
                                                                                           ditherdesc.obs[ditherind].start) * detPixMask).flatten()
@@ -674,23 +679,35 @@ class photonlist(object):
         #########################################################################
 
         self.photWeights = None
-        if obsfile.getFromHeader('isFlatCalibrated') and ObsFile.getFromHeader('isSpecCalibrated'):
+        if obsfile.info['isFlatCalibrated'] and ObsFile.info['isSpecCalibrated']:
             print('INCLUDING FLUX WEIGHTS!')
             self.photWeights = photons['flatWeight'] * photons[
                 'fluxWeight']  # ********EXPERIMENTING WITH ADDING FLUX WEIGHT - NOT FULLY TESTED, BUT SEEMS OKAY....********
 
-        n_photons = len(photons)
-        timestamps = np.zeros(n_photons)
-        xPhotonPixels = np.zeros(n_photons)
-        yPhotonPixels = np.zeros(n_photons)
-        photWavelengths = np.zeros(n_photons)
+        # n_photons = len(photons)
+        # timestamps = np.zeros(n_photons)
+        # xPhotonPixels = np.zeros(n_photons)
+        # yPhotonPixels = np.zeros(n_photons)
+        # photWavelengths = np.zeros(n_photons)
+        #
+        # # Use for loop for now. Photons is a np.array of np.void values so hard to index across that axis...
+        # for p, photon in enumerate(photons):
+        #     if p % 100000 == 0: print(p)
+        #     timestamps[p] = photon[1]
+        #     xPhotonPixels[p], yPhotonPixels[p] = np.where(obsfile.beamImage == photon[0])
+        #     photWavelengths[p] = photon[2]
 
-        # Use for loop for now. Photons is a np.array of np.void values so hard to index across that axis...
-        for p, photon in enumerate(photons):
-            # print p, photon
-            timestamps[p] = photon[1]
-            xPhotonPixels[p], yPhotonPixels[p] = np.where(obsfile.beamImage == photon[0])
-            photWavelengths[p] = photon[2]
+        print(len(photons))
+        timestamps = photons["Time"]
+        # xPhotonPixels, yPhotonPixels = np.transpose([np.where(obsfile.beamImage == id) for id in photons["ResID"]])[0]
+        # print(obsfile.beamImage, photons["ResID"])
+        # plt.hist(obsfile.beamImage.flatten(), bins=500)
+        # plt.show()
+        flatbeam = obsfile.beamImage.flatten()
+        beamsorted = np.argsort(flatbeam)
+        ind = np.searchsorted(flatbeam[beamsorted], photons["ResID"])
+        xPhotonPixels, yPhotonPixels = np.unravel_index(beamsorted[ind],obsfile.beamImage.shape)
+        photWavelengths = photons["Wavelength"]
 
         if self.wvlMin is not None or self.wvlMax is not None:
             assert all(photWavelengths >= self.wvlMin) and all(photWavelengths <= self.wvlMax)
@@ -702,7 +719,8 @@ class photonlist(object):
         # plt.show()
 
         # self.pixMask = obsfile.pixelMask # load pixel mask here direct from photontable
-
+        # plt.hist(photWavelengths, bins=np.linspace(-500,500,1000))
+        # plt.show()
         return [timestamps, xPhotonPixels, yPhotonPixels, photWavelengths]
 
     def get_wcs(self, timestamps, xPhotonPixels, yPhotonPixels, ditherind, ditherdesc, toa_rotation=False):
@@ -745,7 +763,7 @@ class photonlist(object):
 
             centroidRotated = np.dot(rotationMatrix, centroids)
 
-        rightAscensionOffset = -1*ditherdesc.platescale * (centroidRotated[0]) # -1 here just orientates the image
+        rightAscensionOffset = ditherdesc.platescale * (centroidRotated[0]) # -1 here just orientates the final image
         declinationOffset = ditherdesc.platescale * (centroidRotated[1])
 
         # Convert centroid positions in DD:MM:SS.S and HH:MM:SS.S format to radians.
@@ -789,13 +807,17 @@ class photonlist(object):
 
 if __name__ == '__main__':
     # Get dither offsets
-    name = 'Trapezium'
-    file = 'Trapezium.log'
+    # name = 'Trapezium'
+    # file = 'Trapezium.log'
+    name = 'KappaAnd'
+    file = 'KAnd_1545626974_dither.log'
 
-    wvlMin = 850
-    wvlMax = 1100
+    # wvlMin = 850
+    # wvlMax = 1100
+    wvlMin = 0#-150 #-150#0
+    wvlMax = 25e12# -100#  #
     firstObsTime = 0
-    integrationTime = 4
+    integrationTime = 10
     drizzleconfig = [wvlMin, wvlMax, firstObsTime, integrationTime]
 
     loc = os.path.join(os.getenv('MKID_DATA_DIR'), name, 'wavecal', file)
@@ -805,7 +827,8 @@ if __name__ == '__main__':
 
     # Quick save method for the reduced photon packets
     import pickle
-    pkl_save = './phlist.pkl'
+    # pkl_save = 'ProcessedData/Trap.pkl'
+    pkl_save = 'ProcessedData/KAnd.pkl'
 
     if os.path.exists(pkl_save):
         with open(pkl_save, 'rb') as handle:
@@ -813,33 +836,45 @@ if __name__ == '__main__':
     else:
         dir = os.getenv('MKID_PROC_PATH')
         filenames = sorted(glob.glob(os.path.join(dir, name, 'wavecal', '*.h5')), key=os.path.getmtime)
+        print(filenames)
         obsfiles = [ObsFile(file) for file in filenames]
 
         photonlists = []
-        for ditherind, obsfile in enumerate(obsfiles[:10]):
+        for ditherind, obsfile in enumerate(obsfiles[:25]):
             photonlists.append(photonlist(obsfile, ditherdesc, ditherind))
         plt.show()
         with open(pkl_save, 'wb') as handle:
             pickle.dump(photonlists, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-    # Do the dither
-    # scimaps = []
-    # for pixfrac in [1]:
-    #     driz = SpatialDrizzler(photonlists, ditherdesc, pixfrac=pixfrac)
-    #     driz.run()
-    #     scimaps.append(driz.driz.outsci)
-    # view_datacube(scimaps, logAmp=True, vmin=2, vmax=150)
-    # view_datacube(scimaps,logAmp=False, vmin=0, vmax=100)
-    # # view_datacube(np.roll(scimaps, axis=0, shift=1)-scimaps)
-    # # view_datacube(np.roll(scimaps, axis=0, shift=1) - scimaps, logAmp=True)
-    # loop_frames(scimaps, logAmp=True, vmin=2, vmax=150)
-    # loop_frames(scimaps, logAmp=False, vmin=0, vmax=100)
-    # # loop_frames(np.roll(scimaps, axis=0, shift=1)-scimaps, logAmp=True)
+    for ip, photonlist in enumerate(photonlists):
+        photonlist.photRARad, photonlist.photDecRad = photonlist.get_wcs(photonlist.timestamps, photonlist.xPhotonPixels,
+                                                                         photonlist.yPhotonPixels, ip, ditherdesc)
+
+    # # Do the dither
+    scimaps = []
+    for pixfrac in [1]:
+        driz = SpatialDrizzler(photonlists, ditherdesc, pixfrac=pixfrac)
+        driz.run()
+        scimaps.append(driz.driz.outsci)
+    # # view_datacube(scimaps, logAmp=True, vmin=2, vmax=150)
+    # # view_datacube(scimaps,logAmp=False, vmin=0, vmax=100)
+    # loop_frames(scimaps, logAmp=True, vmin=10, vmax=2000)
+    # loop_frames(scimaps, logAmp=False, vmin=10, vmax=2000)
+    # loop_frames(np.roll(scimaps, axis=0, shift=1)-scimaps, logAmp=True)
 
     # driz = SpectralDrizzler(photonlists, ditherdesc)
     # driz.run()
     # indep_images(driz.cube)
 
-    driz = TemporalDrizzler(photonlists, ditherdesc)
+    driz = TemporalDrizzler(photonlists, ditherdesc, pixfrac=0.5)
     driz.run()
-    # grid(driz.hypercube, width=5, nrows=3, vmaxs=[20]*15, vmins=[1]*15)
+    print(np.shape(driz.totWeightCube))
+    print(np.shape(driz.totHypCube))
+    weights = np.sum(driz.totWeightCube, axis=0)[0]
+    # # quicklook_im( weights, logAmp=True)
+    # # quicklook_im(np.mean(driz.totHypCube, axis=0)[0], logAmp=True)
+    # # quicklook_im(np.sum(driz.totHypCube, axis=0)[0]/weights, logAmp=True)
+    # for datacube in np.transpose(driz.totHypCube, (1,0,2,3)):
+    #     loop_frames(datacube[:], logAmp=True, vmin=10, vmax=250)
+    # quicklook_im(np.sum(driz.totHypCube, axis=0)[0]/weights, logAmp=True,  vmin=1, vmax=200)
+    # quicklook_im(np.sum(driz.totHypCube, axis=0)[0]/weights,  vmin=1, vmax=200)
