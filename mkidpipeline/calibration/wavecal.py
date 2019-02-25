@@ -43,8 +43,8 @@ except ImportError as err:
     log.warning('Error importing wavecal_models: ' + str(err))
 
 
-PLANK_CONSTANT_EV = astropy.constants.h.to('eV s').value
-SPEED_OF_LIGHT_MS = astropy.constants.c.to('m/s').value
+PLANK_CONSTANT_EVS = astropy.constants.h.to('eV s').value
+SPEED_OF_LIGHT_NMS = astropy.constants.c.to('nm/s').value
 
 
 _loaded_solutions = {}  # storage for loaded wavelength solutions
@@ -519,7 +519,7 @@ class Calibrator(object):
                         histogram_model = histogram_models[index]
                         phases.append(histogram_model.signal_center.value)
                         variance.append(histogram_model.signal_center.stderr**2)
-                        energies.append(SPEED_OF_LIGHT_MS * PLANK_CONSTANT_EV / wavelength)
+                        energies.append(SPEED_OF_LIGHT_NMS * PLANK_CONSTANT_EVS / wavelength)
                         sigmas.append(histogram_model.signal_sigma.value)
                 # give data to model
                 if variance:
@@ -1413,7 +1413,8 @@ class Solution(object):
 
     def calibration_function(self, pixel=None, res_id=None, wavelength_units=False):
         """Returns a function of one argument that converts phase to fitted energy for a
-        particular resonator."""
+        particular resonator.
+        Note: wavelength_units=True returns a function from phase to wavelength in nanometers."""
         pixel, _ = self._parse_resonators(pixel, res_id)
         model = self.calibration_model(pixel=pixel)
 
@@ -2434,7 +2435,7 @@ def load_solution(wc, singleton_ok=True):
     if not singleton_ok:
         raise NotImplementedError('Must implement solution copying')
     if isinstance(wc, Solution):
-        return wc
+        return wc  # TODO: _loaded_solutions[wc._file_path] = wc
     wc = wc if os.path.isfile(wc) else os.path.join(mkidpipeline.config.config.paths.database, wc)
     try:
         return _loaded_solutions[wc]
@@ -2462,7 +2463,7 @@ def fetch(solution_descriptors, config=None, **kwargs):
             cal = Calibrator(wcfg, solution_name=sf)
             cal.run(**kwargs)
             # solutions.append(load_solution(sf))  # don't need to reload from file
-            solutions.append(cal.solution)
+            solutions.append(cal.solution)  # TODO: solutions.append(load_solution(cal.solution))
 
     return solutions
 
