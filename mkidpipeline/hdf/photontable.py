@@ -1391,14 +1391,15 @@ class ObsFile(object):
                 if (np.diff(indices) == 1).all():  # This takes ~300s for ALL photons combined on a 70Mphot file.
                     # getLogger(__name__).debug('Using modify_column')
                     phases = self.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
-                    weightArr = np.poly1d(soln['coeff'])(phases)
+                    weightArr = np.poly1d(soln['coeff'][0])(phases)
+                    print(weightArr)
                     self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=weightArr,
                                                    colname='SpecWeight')
                 else:  # This takes 3.5s on a 70Mphot file!!!
                     raise NotImplementedError('This code path is impractically slow at present.')
                     getLogger(__name__).debug('Using modify_coordinates')
                     rows = self.photonTable.read_coordinates(indices)
-                    rows['SpecWeight'] = np.poly1d(soln['coeff'])(rows['Wavelength'])
+                    rows['SpecWeight'] = np.poly1d(soln['coeff'][0])(rows['Wavelength'])
                     self.photonTable.modify_coordinates(indices, rows)
                     getLogger(__name__).debug('Flat weights updated in {:.2f}s'.format(time.time() - tic2))
 
