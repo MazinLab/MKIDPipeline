@@ -16,8 +16,8 @@ from scipy.special import erfc, erfcx
 from mkidcore import pixelflags
 import mkidcore.corelog as pipelinelog
 
-PLANK_CONSTANT_EV = astropy.constants.h.to('eV s').value
-SPEED_OF_LIGHT_MS = astropy.constants.c.to('m/s').value
+PLANK_CONSTANT_EVS = astropy.constants.h.to('eV s').value
+SPEED_OF_LIGHT_NMS = astropy.constants.c.to('nm/s').value
 
 log = pipelinelog.getLogger('mkidpipeline.calibration.wavecal_models', setup=False)
 
@@ -335,8 +335,8 @@ class PartialLinearModel(object):
         if x_label:
             axes.set_xlabel('phase [degrees]')
         if title:
-            axes.set_title("Model '{}'" + os.linesep + "Pixel ({}, {}) : ResID {}"
-                           .format(type(self).__name__, self.pixel[0], self.pixel[1],  self.res_id))
+            t = "Model '{}'" + os.linesep + "Pixel ({}, {}) : ResID {}"
+            axes.set_title(t.format(type(self).__name__, self.pixel[0], self.pixel[1],  self.res_id))
 
         # no data
         if self.x is None or self.y is None:
@@ -923,7 +923,7 @@ class XErrorsModel(object):
 
     def wavelength_function(self, x):
         self._check_fit()
-        return PLANK_CONSTANT_EV * SPEED_OF_LIGHT_MS * 1e9 / self.fit_function(x, self.best_fit_result.params)
+        return PLANK_CONSTANT_EVS * SPEED_OF_LIGHT_NMS / self.fit_function(x, self.best_fit_result.params)
 
     @staticmethod
     def chi_squared(parameters, x, y, variance, f, dfdx):
@@ -944,8 +944,8 @@ class XErrorsModel(object):
         if y_label:
             axes.set_ylabel('energy [eV]')
         if title:
-            axes.set_title("Model '{}'" + os.linesep + "Pixel ({}, {}) : ResID {}"
-                           .format(type(self).__name__, self.pixel[0], self.pixel[1], self.res_id))
+            t = "Model '{}'" + os.linesep + "Pixel ({}, {}) : ResID {}"
+            axes.set_title(t.format(type(self).__name__, self.pixel[0], self.pixel[1], self.res_id))
         # no data
         if self.x is None or self.y is None:
             if text:
