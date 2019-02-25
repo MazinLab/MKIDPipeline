@@ -34,6 +34,7 @@ import mkidcore.corelog
 from scipy.interpolate import CubicSpline
 import mkidpipeline.config
 import pkg_resources as pkg
+import pickle
 from mkidcore.utils import query
 
 DEFAULT_CONFIG_FILE = pkg.resource_filename('mkidpipeline.calibration.flatcal', 'flatcal.yml')
@@ -73,7 +74,7 @@ class FlatCalibrator(object):
         getLogger(__name__).info('Done')
 
     def makeSummary(self):
-        summaryPlot(calsolnName=self.flatCalFileName, save_plot=True)
+        summaryPlot(flatsol=self.flatCalFileName, save_plot=True)
 
     def writeWeights(self, poly_power=2):
         """
@@ -205,9 +206,16 @@ class FlatCalibrator(object):
 
         self.deltaFlatWeights = np.sqrt(summedAveragingWeights ** -1.)
         self.flatFlags = self.flatWeights.mask
+        self.checkForColdPix()
         wvlWeightMedians = np.ma.median(np.reshape(self.flatWeights, (-1, self.wvlBinSize)), axis=0)
         self.flatWeights = np.divide(self.flatWeights, wvlWeightMedians)
         self.flatWeightsforplot = np.ma.sum(self.flatWeights, axis=-1)
+
+    def checkForColdPix(self):
+        for iWvl in range(self.wvlBinSize):
+            weight_slice=self.flatWeights.data[:,:,iWvl]
+            err_slice=self.deltaFlatWeights.data[:,:,iWvl]
+            self.flatFlags[:,:,iWvl][weight_slice>=2]=True
 
     def plotFitbyPixel(self, pixbox=50):
         """
@@ -228,7 +236,6 @@ class FlatCalibrator(object):
             yrange=pixbox
         for iRow in range(xrange):
             for iCol in range(yrange):
-                print(iRow, iCol)
                 weights = self.flatWeights[iRow, iCol, :]
                 errors = self.deltaFlatWeights[iRow, iCol, :]
                 if not np.any(self.flatFlags[iRow, iCol, :]):
@@ -551,10 +558,10 @@ class LaserCalibrator(WhiteCalibrator):
         return spectralcube_wave, eff_int_time_3d_wave
 
 
-def summaryPlot(calsolnName, save_plot=False):
+def summaryPlot(flatsol, save_plot=False):
     """ Writes a summary plot of the Flat Fielding """
-    assert os.path.exists(calsolnName), "{0} does not exist".format(calsolnName)
-    flat_cal = tables.open_file(calsolnName, mode='r')
+    assert os.path.exists(flatsol), "{0} does not exist".format(flatsol)
+    flat_cal = tables.open_file(flatsol, mode='r')
     calsoln = flat_cal.root.flatcal.calsoln.read()
     weightArrPerPixel = flat_cal.root.flatcal.weights.read()
     beamImage = flat_cal.root.header.beamMap.read()
@@ -606,18 +613,18 @@ def summaryPlot(calsolnName, save_plot=False):
     if not save_plot:
         plt.show()
     else:
-        pdf = PdfPages(calsolnName.split('.h5')[0]+'_summary.pdf')
+        pdf = PdfPages(flatsol.split('.h5')[0]+'_summary.pdf')
         pdf.savefig(fig)
         pdf.close()
 
-def plotCalibrations(calsolnName, wvlCalFile, pixel):
+def plotCalibrations(flatsol, wvlCalFile, pixel):
     """
     Plot weights of each wavelength bin for every single pixel
     Makes a plot of wavelength vs weights, twilight spectrum, and wavecal solution for each pixel
     """
     wavesol = wavecal.Solution(wvlCalFile)
-    assert os.path.exists(calsolnName), "{0} does not exist".format(calsolnName)
-    flat_cal = tables.open_file(calsolnName, mode='r')
+    assert os.path.exists(flatsol), "{0} does not exist".format(flatsol)
+    flat_cal = tables.open_file(flatsol, mode='r')
     calsoln = flat_cal.root.flatcal.calsoln.read()
     wavelengths = flat_cal.root.flatcal.wavelengthBins.read()
     beamImage = flat_cal.root.header.beamMap.read()
@@ -625,23 +632,27 @@ def plotCalibrations(calsolnName, wvlCalFile, pixel):
     res_id = beamImage[pixel[0], pixel[1]]
     index = np.where(res_id == np.array(calsoln['resid']))
     weights = calsoln['weight'][index]
+    if len(weights[0,:])==len(wavelengths):
+        wave_bins=wavelengths
+    else:
+        wave_bins=wavelengths[0:-1]
     spectrum = calsoln['spectrum'][index]
     errors=calsoln['err'][index]
     if not calsoln['bad'][index]:
         fig= plt.figure(figsize=(20, 10), dpi=100)
         ax = fig.add_subplot(1, 3, 1)
-        ax.scatter(wavelengths, weights[0,:], label='weights', alpha=.7,color='red')
-        ax.errorbar(wavelengths, weights[0,:], yerr=errors[0,:], label='weights', color='k')
+        ax.scatter(wave_bins, weights[0,:], label='weights', alpha=.7,color='red')
+        ax.errorbar(wave_bins, weights[0,:], yerr=errors[0,:], label='weights', color='k')
         ax.set_title('p %d,%d' % (pixel[0], pixel[1]))
         ax.set_ylabel('weight')
         ax.set_xlabel(r'$\lambda$ ($\AA$)')
         ax.set_ylim(min(weights[0,:]) - 2 * np.nanstd(weights[0,:]),
                     max(weights[0,:]) + 2 * np.nanstd(weights[0,:]))
         splinefxn = CubicSpline(wavelengths, weights[0,:])
-        plt.plot(wavelengths, splinefxn(wavelengths))
+        plt.plot(wave_bins, splinefxn(wave_bins))
         # Put a plot of twilight spectrums for this pixel
         ax = fig.add_subplot(1, 3, 2)
-        ax.scatter(wavelengths, spectrum[0,:], label='spectrum', alpha=.7, color='blue')
+        ax.scatter(wave_bins, spectrum[0,:], label='spectrum', alpha=.7, color='blue')
         ax.set_title('p %d,%d' % (pixel[0], pixel[1]))
         ax.set_ylim(min(spectrum[0,:]) - 2 * np.nanstd(spectrum[0,:]),
                     max(spectrum[0,:]) + 2 * np.nanstd(spectrum[0,:]))
