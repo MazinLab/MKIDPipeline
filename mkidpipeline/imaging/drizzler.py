@@ -5,6 +5,8 @@ from github (no installation)
 
 Get con2pix calibration from Isabel's code and remove from here
 
+Convert print to logs
+
 Build form() wrapper
 
 Better handling of savestate of photonlists
@@ -209,17 +211,16 @@ class DitherDescription(object):
 
 
         if plotdithlocs:
-            self.rotationMatrix = np.array([[np.cos(self.dithHAs), -np.sin(self.dithHAs)],
+            rotationMatrix = np.array([[np.cos(self.dithHAs), -np.sin(self.dithHAs)],
                                             [np.sin(self.dithHAs), np.cos(self.dithHAs)]]).T
 
-            self.centroidRotated = np.dot(self.rotationMatrix,
-                                          np.array([self.xCenRes, self.yCenRes])).diagonal(axis1=0,axis2=2) + [self.virxPixCen, self.viryPixCen]
+            centroidRotated = np.dot(rotationMatrix,
+                                     np.array([self.xCenRes, self.yCenRes])).diagonal(axis1=0,axis2=2) + [self.virxPixCen, self.viryPixCen]
 
-            # plt.plot(np.array(self.pos)[:, 0], np.array(self.pos)[:, 1])
-            # plt.figure()
+
             plt.plot(-xCentroids, -yCentroids)
             plt.plot(-self.virxPixCen, -self.viryPixCen, marker='x')
-            plt.plot(-self.centroidRotated[0], -self.centroidRotated[1])
+            plt.plot(-centroidRotated[0], -centroidRotated[1])
             plt.show()
 
 class Drizzler(object):
@@ -235,12 +236,10 @@ class Drizzler(object):
         # self.randoffset = False # apply random spatial offset to each photon
         self.nPixRA = None
         self.nPixDec = None
-        # self.photWeights = None
 
         self.config = None
         self.files = photonlists
 
-        # self.meta = metadata
         self.xpix = metadata.xpix
         self.ypix = metadata.ypix
         self.cenRA = metadata.cenRA
@@ -309,7 +308,6 @@ class SpectralDrizzler(Drizzler):
     def __init__(self, photonlists, metadata, pixfrac=1):
         self.nwvlbins = 3
         self.wvlbins = np.linspace(metadata.wvlMin, metadata.wvlMax, self.nwvlbins+1)
-        print(self.wvlbins)
         Drizzler.__init__(self, photonlists, metadata)
         self.drizcube = [stdrizzle.Drizzle(outwcs=self.w, pixfrac=pixfrac)] * self.nwvlbins
 
@@ -319,7 +317,6 @@ class SpectralDrizzler(Drizzler):
             getLogger(__name__).debug('Processing %s', file)
             tic = time.clock()
             insci, inwcs = self.makeCube(file)
-            # indep_images(insci, logAmp=True)
             getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
             for iw in range(self.nwvlbins):
                 print(ix, iw)
@@ -340,8 +337,6 @@ class SpectralDrizzler(Drizzler):
 
         wavelengths, thisGridDec, thisGridRA = bins
 
-        # quicklook_im(datacube[0], logAmp=True, vmax=10, vmin=5, show=True)
-
         # w = wcs.WCS(naxis=3)
         # w.wcs.crpix = [0., 0., 0.]
         # w.wcs.cdelt = np.array([wavelengths[1] - wavelengths[0],
@@ -360,7 +355,6 @@ class SpectralDrizzler(Drizzler):
         w.wcs.ctype = ["RA---AIR", "DEC--AIR"]
         w._naxis1 = len(thisGridRA) - 1
         w._naxis2 = len(thisGridDec) - 1
-
 
         return datacube, w
 
@@ -384,10 +378,6 @@ class TemporalDrizzler(Drizzler):
                                     metadata.firstObsTime + metadata.integrationTime,
                                     self.ntimebins+1) * 1e6  # timestamps are in microseconds
 
-        # self.drizhyper = [[stdrizzle.Drizzle(outwcs=self.w, pixfrac=pixfrac)
-        #                    for nw in range(self.nwvlbins)]
-        #                   for nt in range(self.ntimebins)]
-
     def run(self, save_file=None):
         tic = time.clock()
 
@@ -398,18 +388,13 @@ class TemporalDrizzler(Drizzler):
             getLogger(__name__).debug('Processing %s', file)
 
             insci, inwcs = self.makeHyper(file)
-            # for datacube in insci:
-            #     indep_images(datacube, logAmp=True)
 
             thishyper = np.zeros((self.ntimebins, self.nwvlbins, self.nPixDec, self.nPixRA), dtype=np.float32)
 
             for it in range(self.ntimebins):
                 for iw in range(self.nwvlbins):
-                    # The combination of insci with stdrizzle.drizzle.outsci is handled in cdrizzleapi.c so either we
-                    # can modify that file or just do the difference here. Is this a significant performance hit?
                     drizhyper = stdrizzle.Drizzle(outwcs=self.w, pixfrac=self.pixfrac)
 
-                    # self.drizhyper[it][iw].add_image(insci[it,iw], inwcs, inwht=np.int_(np.logical_not(insci[it,iw]==0)))
                     drizhyper.add_image(insci[it,iw], inwcs, inwht=np.int_(np.logical_not(insci[it,iw]==0)))
 
                     thishyper[it,iw] = drizhyper.outsci
@@ -418,7 +403,6 @@ class TemporalDrizzler(Drizzler):
 
             self.totHypCube[ix * self.ntimebins : (ix+1)*self.ntimebins] = thishyper
 
-        # self.hypercube = [self.drizhyper[it][iw].outsci for it in range(self.ntimebins) for iw in range(self.nwvlbins)]
         getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
         print('Image load done. Time taken (s): %s', time.clock() - tic)
         # TODO add the wavelength WCS
@@ -429,15 +413,9 @@ class TemporalDrizzler(Drizzler):
         sample = np.vstack((file.timestamps, file.wavelengths, file.photDecRad, file.photRARad))
         # bins = np.array([self.timebins, self.wvlbins, self.gridDec, self.gridRA])
         bins = np.array([self.timebins, self.wvlbins, self.ypix, self.xpix])
-        print(sample.shape)
         hypercube, bins = np.histogramdd(sample.T, bins)
-        print(hypercube.shape)
 
         times, wavelengths, thisGridDec, thisGridRA = bins
-
-        # for datacube in hypercube:
-        #     print(self.timebins, times)
-        #     indep_images(datacube, logAmp=True)
 
         w = wcs.WCS(naxis=2)
         w.wcs.crpix = [0., 0.]
@@ -457,7 +435,6 @@ class SpatialDrizzler(Drizzler):
         self.driz = stdrizzle.Drizzle(outwcs=self.w, pixfrac=pixfrac)
 
     def run(self, save_file=None):
-        # imageStack, detStack, expWeightStack, offset = [], [], [], []
         for ix, file in enumerate(self.files):
 
             getLogger(__name__).debug('Processing %s', file)
@@ -503,7 +480,6 @@ class SpatialDrizzler(Drizzler):
                                                             bins=[self.ypix,self.xpix])
         # thisImage, thisGridDec, thisGridRA = np.histogram2d(file.photDecRad, file.photRARad,
         #                                                     [self.gridDec, self.gridRA])
-        # quicklook_im(thisImage, logAmp=True, vmax=10, vmin=0, show=True)
 
         w = wcs.WCS(naxis=2)
         w.wcs.crpix = [0., 0.]
@@ -679,7 +655,7 @@ class photonlist(object):
         #########################################################################
 
         self.photWeights = None
-        if obsfile.info['isFlatCalibrated'] and ObsFile.info['isSpecCalibrated']:
+        if obsfile.info['isFlatCalibrated'] and obsfile.info['isSpecCalibrated']:
             print('INCLUDING FLUX WEIGHTS!')
             self.photWeights = photons['flatWeight'] * photons[
                 'fluxWeight']  # ********EXPERIMENTING WITH ADDING FLUX WEIGHT - NOT FULLY TESTED, BUT SEEMS OKAY....********
@@ -689,20 +665,14 @@ class photonlist(object):
         # xPhotonPixels = np.zeros(n_photons)
         # yPhotonPixels = np.zeros(n_photons)
         # photWavelengths = np.zeros(n_photons)
-        #
-        # # Use for loop for now. Photons is a np.array of np.void values so hard to index across that axis...
         # for p, photon in enumerate(photons):
         #     if p % 100000 == 0: print(p)
         #     timestamps[p] = photon[1]
         #     xPhotonPixels[p], yPhotonPixels[p] = np.where(obsfile.beamImage == photon[0])
         #     photWavelengths[p] = photon[2]
 
-        print(len(photons))
+        getLogger(__name__).debug("Number of photons read from obsfile: %i", len(photons))
         timestamps = photons["Time"]
-        # xPhotonPixels, yPhotonPixels = np.transpose([np.where(obsfile.beamImage == id) for id in photons["ResID"]])[0]
-        # print(obsfile.beamImage, photons["ResID"])
-        # plt.hist(obsfile.beamImage.flatten(), bins=500)
-        # plt.show()
         flatbeam = obsfile.beamImage.flatten()
         beamsorted = np.argsort(flatbeam)
         ind = np.searchsorted(flatbeam[beamsorted], photons["ResID"])
@@ -718,9 +688,6 @@ class photonlist(object):
         # plt.imshow(thisImage, norm=LogNorm())
         # plt.show()
 
-        # self.pixMask = obsfile.pixelMask # load pixel mask here direct from photontable
-        # plt.hist(photWavelengths, bins=np.linspace(-500,500,1000))
-        # plt.show()
         return [timestamps, xPhotonPixels, yPhotonPixels, photWavelengths]
 
     def get_wcs(self, timestamps, xPhotonPixels, yPhotonPixels, ditherind, ditherdesc, toa_rotation=False):
@@ -817,7 +784,7 @@ if __name__ == '__main__':
     wvlMin = 0#-150 #-150#0
     wvlMax = 25e12# -100#  #
     firstObsTime = 0
-    integrationTime = 10
+    integrationTime = 0.1
     drizzleconfig = [wvlMin, wvlMax, firstObsTime, integrationTime]
 
     loc = os.path.join(os.getenv('MKID_DATA_DIR'), name, 'wavecal', file)
@@ -846,6 +813,7 @@ if __name__ == '__main__':
         with open(pkl_save, 'wb') as handle:
             pickle.dump(photonlists, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
+    # The WCS can be reassigned here rather than loading from obs each time
     for ip, photonlist in enumerate(photonlists):
         photonlist.photRARad, photonlist.photDecRad = photonlist.get_wcs(photonlist.timestamps, photonlist.xPhotonPixels,
                                                                          photonlist.yPhotonPixels, ip, ditherdesc)
