@@ -71,6 +71,7 @@ from mkidcore.corelog import getLogger
 import mkidcore.pixelflags as pixelflags
 from mkidcore.pixelflags import h5FileFlags
 from PyPDF2 import PdfFileMerger, PdfFileReader
+from scipy.interpolate import CubicSpline
 import SharedArray
 
 import tables.parameters
@@ -1391,9 +1392,16 @@ class ObsFile(object):
                 if (np.diff(indices) == 1).all():  # This takes ~300s for ALL photons combined on a 70Mphot file.
                     # getLogger(__name__).debug('Using modify_column')
                     phases = self.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
-                    weightArr = np.poly1d(soln['coeff'][0])(phases)
-                    print(weightArr)
-                    self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=weightArr,
+                    if len(soln['weight'][0, :]) == len(bins):
+                        wave_bins = bins
+                    else:
+                        wave_bins = bins[0:-1]
+
+                    weightArr_poly = np.poly1d(soln['coeff'][0])(phases)
+                    splinefxn = CubicSpline(wave_bins, soln['weight'][0])
+                    weightArr_spline= splinefxn(phases)
+                    print(weightArr_spline)
+                    self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=weightArr_spline,
                                                    colname='SpecWeight')
                 else:  # This takes 3.5s on a 70Mphot file!!!
                     raise NotImplementedError('This code path is impractically slow at present.')
