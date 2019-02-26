@@ -26,11 +26,8 @@ This code is adapted from Julian's testImageStack from the ARCONS pipeline.
 
 import os
 import numpy as np
-# np.set_printoptions(threshold=np.inf)
 import time
 import matplotlib.pylab as plt
-# from matplotlib.colors import LogNorm
-import copy
 import glob
 import ephem
 from astropy import wcs
@@ -42,19 +39,21 @@ from mkidcore import pixelflags
 from mkidpipeline.hdf.photontable import ObsFile
 from mkidcore.corelog import getLogger
 from mkidpipeline.config import MKIDObservingDataDescription, MKIDObservingDither
+import cPickle as pickle
 
 # import sys
 # sys.path.append('/Users/dodkins/PythonProjects/MEDIS/')
 # from medis.Utils.plot_tools import loop_frames, quicklook_im, view_datacube, compare_images, indep_images, grid
 
+
 def con2pix(xCon, yCon):
-    '''
+    """
     This is temporary. Should grab this conversion from elsewhere
 
     :param xCon:
     :param yCon:
     :return:
-    '''
+    """
     from scipy.optimize import curve_fit
 
     def func(x, slope, intercept):
@@ -114,50 +113,21 @@ def con2pix(xCon, yCon):
 
     return [xPos, yPos]
 
+
 def ditherp_2_pixel(positions):
     """ A function to convert the connex offset to pixel displacement"""
-    positions = np.array(positions)
-    pix = con2pix(positions[:,0], positions[:,1])
+    positions = np.asarray(positions)
+    pix = con2pix(positions[:, 0], positions[:, 1])
     return pix
 
-def form(observations, *args, cfg=None, **kwargs):
-    """
-    Form a (possibly drizzled) image from a set of observations. Forms a simple image for single observations.
-
-    TODO Sort out what arguments and kw arguments are needed
-    """
-    try:
-        iter(observations)
-    except:
-        observations = tuple(observations)
-
-    #Determine what we are drizzling onto
-    #e.g. 4d equivalent (sky_x, sky_y, wave, time) of an rdi.RADecImage
-
-    for obs in observations:
-        if isinstance(obs, MKIDObservingDataDescription):
-            #TODO formImage on a single obs per
-            raise NotImplementedError
-        elif isinstance(obs, MKIDObservingDither):
-            #TODO form from a dither
-            drizzleDither(obs, *args, **kwargs)
-        else:
-            #TODO do we need to enable drizzling lists of arbitrary observations?
-            raise ValueError('Unknown input')
-
-
-def drizzleDither(dither, *args, **kwargs):
-    """Form a drizzled image from a dither"""
-    drizzleddata = drizzle([ObsFile(get_h5_filename(ob)) for ob in dither], **kwargs)
-    drizzleddata.save(dither.name)
 
 def getmetafromh5():
-    '''
+    """
     Helper function not properly implemented yet. Hard coded values from Trap
 
     :param ditherdesc:
     :return:
-    '''
+    """
 
     # raise NotImplementedError
 
@@ -169,14 +139,15 @@ def getmetafromh5():
 
     return (cenRA, cenDec, xpix, ypix, platescale)
 
+
 class DitherDescription(object):
-    '''
+    """
     Info on the dither
 
     rotate determines if the effective integrations are pupil stablised or not
 
     TODO implement center of rotation
-    '''
+    """
     def __init__(self, mkid_observing_dither, h5dithdata, drizzleconfig,
                  observatory='greenwich', rotate=False, plotdithlocs=False):
         self.description = mkid_observing_dither
@@ -517,12 +488,12 @@ class photonlist(object):
                                                         ditherdesc)
 
     def reduce_obs(self, obsfile, ditherdesc, ditherind):
-        '''
+        """
         This function calibrates and queries an obsfile. A lot of copy pasta
 
         :returns
         list of photon times, positions, wavelengths
-        '''
+        """
 
         # photTable = obsfile.file.root.Photons.PhotonTable  # Shortcut to table
         # # print(photTable[::5000])
@@ -691,7 +662,7 @@ class photonlist(object):
         return [timestamps, xPhotonPixels, yPhotonPixels, photWavelengths]
 
     def get_wcs(self, timestamps, xPhotonPixels, yPhotonPixels, ditherind, ditherdesc, toa_rotation=False):
-        '''
+        """
         :param timestamps:
         :param xPhotonPixels:
         :param yPhotonPixels:
@@ -702,7 +673,7 @@ class photonlist(object):
         contribution based on the TOA allowing for rotation effects during each dither integration.
 
         :return:
-        '''
+        """
 
         print('Calculating RA/Decs for dither %i' % ditherind)
 
@@ -771,6 +742,39 @@ class photonlist(object):
         photDecRad = photDecRad + ditherDecs
 
         return photRARad, photDecRad
+
+
+
+def drizzle_dither(dither, *args, **kwargs):
+    """Form a drizzled image from a dither"""
+
+    obsfiles = [ObsFile(o.h5) for o in dither.obs]
+
+    photonlists = []
+    for ditherind, obsfile in enumerate(obsfiles[:25]):
+        photonlists.append(photonlist(obsfile, ditherdesc, ditherind))
+    plt.show()
+    with open(pkl_save, 'wb') as f:
+        pickle.dump(photonlists, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    # The WCS can be reassigned here rather than loading from obs each time
+    for ip, photonlist in enumerate(photonlists):
+        photonlist.photRARad, photonlist.photDecRad = photonlist.get_wcs(photonlist.timestamps, photonlist.xPhotonPixels,
+                                                                         photonlist.yPhotonPixels, ip, ditherdesc)
+
+    # # Do the dither
+    scimaps = []
+    for pixfrac in [1]:
+        driz = SpatialDrizzler(photonlists, ditherdesc, pixfrac=pixfrac)
+        driz.run()
+        scimaps.append(driz.driz.outsci)
+
+    driz = TemporalDrizzler(photonlists, ditherdesc, pixfrac=0.5)
+    driz.run()
+    weights = driz.totWeightCube.sum(axis=0)[0]
+
+    return scimaps, weights
+
 
 if __name__ == '__main__':
     # Get dither offsets
