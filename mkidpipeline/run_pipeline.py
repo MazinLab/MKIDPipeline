@@ -59,14 +59,16 @@ getLogger('mkidpipeline.hdf.photontable').setLevel('INFO')
 
 ncpu=20
 
-bin2hdf.buildtables(dataset.timeranges, ncpu=ncpu, remake=False, timesort=False)
+bin2hdf.buildtables(dataset.timeranges, ncpu=ncpu, remake=False, chunkshape=250)
 
 wavecal.fetch(dataset.wavecals, verbose=False)
+
 batch_apply_wavecals(dataset.wavecalable, ncpu=ncpu)
 
 flatcal.fetch(dataset.flatcals)
 
 batch_apply_flatcals(dataset.science_observations, ncpu=ncpu)
 
-# batch_maskhot(dataset.science_observations)
+getLogger('mkidpipeline.hdf.photontable').setLevel('DEBUG')
 
+batch_maskhot(dataset.science_observations, ncpu=ncpu)
