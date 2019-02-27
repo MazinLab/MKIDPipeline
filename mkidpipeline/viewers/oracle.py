@@ -601,15 +601,10 @@ class main_window(QMainWindow):
             # clear the axes
             self.ax1.clear()
 
-            if self.spinbox_integrationTime.value()==self.spinbox_integrationTime.maximum():
-                integrationTime = -1
-            else:
-                integrationTime = self.spinbox_integrationTime.value()
-
             if type(self.a).__name__ == 'ObsFile':
                 t1 = time.time()
                 temp = self.a.getPixelCountImage(firstSec=self.spinbox_startTime.value(),
-                                                 integrationTime=integrationTime, applyWeight=False, flagToUse=0,
+                                                 integrationTime=self.spinbox_integrationTime.value(), applyWeight=False, flagToUse=0,
                                                  wvlStart=self.spinbox_startLambda.value(),
                                                  wvlStop=self.spinbox_stopLambda.value())
                 print('\nTime for getPixelCountImage = ', time.time() - t1)
@@ -929,7 +924,7 @@ class main_window(QMainWindow):
         # The plot window calls this function
         self.canvas.draw()
         self.canvas.flush_events()
-        
+
 
     def hover_canvas(self,event):
         if event.inaxes is self.ax1:
