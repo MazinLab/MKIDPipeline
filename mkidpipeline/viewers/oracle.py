@@ -572,6 +572,9 @@ class main_window(QMainWindow):
 
     def update_color_bar_limit(self):
         # colorbar auto
+
+        self.ax1.clear()
+
         if self.checkbox_colorbar_auto.isChecked():
             self.cbarLimits = np.array([0, np.amax(self.image)])
             self.fig.cbar.set_clim(self.cbarLimits[0], self.cbarLimits[1])
@@ -580,9 +583,10 @@ class main_window(QMainWindow):
             self.cbarLimits = np.array([0, self.spinbox_colorBarMax.value()])
             self.fig.cbar.set_clim(self.cbarLimits[0], self.cbarLimits[1])
             self.fig.cbar.draw_all()
-
         self.ax1.imshow(self.image, interpolation='none', vmin=self.cbarLimits[0], vmax=self.cbarLimits[1])
         self.draw()
+
+
 
 
 
@@ -925,6 +929,7 @@ class main_window(QMainWindow):
         # The plot window calls this function
         self.canvas.draw()
         self.canvas.flush_events()
+        
 
     def hover_canvas(self,event):
         if event.inaxes is self.ax1:
