@@ -31,7 +31,6 @@ from mkidcore.headers import FlatCalSoln_Description
 from mkidpipeline.hdf.photontable import ObsFile
 from mkidcore.corelog import getLogger
 import mkidcore.corelog
-from scipy.interpolate import CubicSpline
 import mkidpipeline.config
 import pkg_resources as pkg
 import pickle
@@ -109,14 +108,14 @@ class FlatCalibrator(object):
                 entry['resid'] = self.beamImage[iRow, iCol]
                 entry['y'] = iRow
                 entry['x'] = iCol
-                entry['weight'] = self.flatWeights[iRow, iCol, :].flatten()
-                entry['err'] = self.deltaFlatWeights[iRow, iCol, :].flatten()
-                if self.sol:
+                entry['weight'] = self.flatWeights.data[iRow, iCol, :]
+                entry['err'] = self.deltaFlatWeights.data[iRow, iCol, :]
+                if self.sol:  #TODO:  this is to deal with the different meaning of wvlbinedges between lasercal and WL Cal, fix when Lasercal's init is fixed
                     entry['coeff'] = np.polyfit(self.wvlBinEdges, entry['weight'], poly_power, w=1 / entry['err'] ** 2)
                 else:
                     entry['coeff'] = np.polyfit(self.wvlBinEdges[:-1]+np.diff(self.wvlBinEdges),
                                             entry['weight'], poly_power, w=1/entry['err']**2)
-                entry['spectrum'] = self.countCubesToSave[iRow, iCol, :].flatten()
+                entry['spectrum'] = self.countCubesToSave.data[iRow, iCol, :]
                 entry['bad'] = np.any(self.flatFlags[iRow, iCol, :])
                 entry.append()
         flatCalFile.close()
@@ -217,7 +216,7 @@ class FlatCalibrator(object):
             err_slice=self.deltaFlatWeights.data[:,:,iWvl]
             self.flatFlags[:,:,iWvl][weight_slice>=2]=True
 
-    def plotFitbyPixel(self, pixbox=50):
+    def plotFitbyPixel(self, pixbox=50, poly_power=2):
         """
         Plot weights of each wavelength bin for every single pixel
         Makes a plot of wavelength vs weights, twilight spectrum, and wavecal solution for each pixel
@@ -236,20 +235,19 @@ class FlatCalibrator(object):
             yrange=pixbox
         for iRow in range(xrange):
             for iCol in range(yrange):
-                weights = self.flatWeights[iRow, iCol, :]
-                errors = self.deltaFlatWeights[iRow, iCol, :]
+                weights = self.flatWeights[iRow, iCol, :].data
+                errors = self.deltaFlatWeights[iRow, iCol, :].data
                 if not np.any(self.flatFlags[iRow, iCol, :]):
                     if self.iPlot % self.nPlotsPerPage == 0:
                         self.fig = plt.figure(figsize=(10, 10), dpi=100)
                     ax = self.fig.add_subplot(self.nPlotsPerCol, self.nPlotsPerRow, self.iPlot % self.nPlotsPerPage + 1)
-                    for iCube in range(nCubes):
-                        cubeWeights = self.maskedCubeWeights[iCube, iRow, iCol]
-                        ax.scatter(wavelengths, cubeWeights.data, label='weights %d' % iCube, alpha=.7,
-                                color=matplotlib.cm.Paired((iCube + 1.) / nCubes))
-                        ax.errorbar(wavelengths, weights.data, yerr=errors.data, label='weights', color='k')
-                        ax.set_ylim(min(weights.data)-2*np.nanstd(weights.data), max(weights.data)+2*np.nanstd(weights.data))
-                        splinefxn = CubicSpline(wavelengths, weights.data)
-                        plt.plot(wavelengths, splinefxn(wavelengths))
+                    ax.scatter(wavelengths, weights, label='weights', alpha=.7, color='green')
+                    ax.errorbar(wavelengths, weights, yerr=errors, label='weights', color='k', fmt='o')
+                    ax.set_ylim(min(weights)-2*np.nanstd(weights), max(weights)+2*np.nanstd(weights))
+                    wavelengths_expanded=np.linspace(wavelengths.min(), wavelengths.max(), 1000)
+                    weights_expanded = np.poly1d(np.polyfit(wavelengths, weights, poly_power, w=1 / errors ** 2))(
+                            wavelengths_expanded)
+                    ax.plot(wavelengths_expanded, weights_expanded)
                     ax.set_title('p %d,%d' % (iRow, iCol))
                     ax.set_ylabel('weight')
                     ax.set_xlabel(r'$\lambda$ ($\AA$)')
@@ -262,11 +260,9 @@ class FlatCalibrator(object):
                     if self.iPlot % self.nPlotsPerPage == 0:
                         self.fig = plt.figure(figsize=(10, 10), dpi=100)
                     ax = self.fig.add_subplot(self.nPlotsPerCol, self.nPlotsPerRow, self.iPlot % self.nPlotsPerPage + 1)
-                    for iCube in range(nCubes):
-                        spectrum = self.spectralCubes[iCube, iRow, iCol]
-                        ax.scatter(wavelengths, spectrum, label='spectrum %d' % iCube, alpha=.7,
-                                color=matplotlib.cm.Paired((iCube + 1.) / nCubes))
-                        ax.set_ylim(min(spectrum.data)-2*np.nanstd(spectrum.data), max(spectrum.data)+2*np.nanstd(spectrum.data))
+                    spectrum = self.countCubesToSave[iRow, iCol, :].data
+                    ax.scatter(wavelengths, spectrum, label='spectrum', alpha=.7, color='green')
+                    ax.set_ylim(min(spectrum)-2*np.nanstd(spectrum), max(spectrum)+2*np.nanstd(spectrum))
                     ax.set_title('p %d,%d' % (iRow, iCol))
                     ax.set_ylabel('spectrum')
                     ax.set_xlabel(r'$\lambda$ ($\AA$)')
@@ -481,7 +477,7 @@ class WhiteCalibrator(FlatCalibrator):
             cubeDict = self.obs.getSpectralCube(firstSec=firstSec, integrationTime=self.intTime, applySpecWeight=False,
                                                 applyTPFWeight=False, wvlBinEdges=self.wvlBinEdges)
             cube = cubeDict['cube'] / cubeDict['effIntTime'][:, :, None]
-            cube /= (1 - cube.sum(axis=2) * self.deadtime)[:, :, None]
+            cube /= (1 - cube.sum(axis=2) * self.deadtime)[:, :, None]  #TODO:  remove when we have deadtime removal code in pipeline
             bad = np.isnan(cube)  # TODO need to update maskes to note why these 0s appeared
             cube[bad] = 0
 
@@ -595,6 +591,7 @@ def summaryPlot(flatsol, save_plot=False):
     plt.imshow(meanSpecList.T, cmap=plt.get_cmap('viridis'), vmin=0, vmax=maxValue)
     plt.colorbar()
     ax = fig.add_subplot(2, 2, 3)
+    if wavelengths[0:len(wavelengths) - 1].shape == weightArrAveraged.shape:  #TODO:  this is to deal with the different meaning of wvlbinedges between lasercal and WL Cal, fix when Lasercal's init is fixed
     if wavelengths[0:len(wavelengths) - 1].shape == weightArrAveraged.shape:
         ax.scatter(wavelengths[0:len(wavelengths) - 1], weightArrAveraged)
     else:
@@ -631,31 +628,30 @@ def plotCalibrations(flatsol, wvlCalFile, pixel):
     matplotlib.rcParams['font.size'] = 10
     res_id = beamImage[pixel[0], pixel[1]]
     index = np.where(res_id == np.array(calsoln['resid']))
-    weights = calsoln['weight'][index]
-    if len(weights[0,:])==len(wavelengths):
+    weights = calsoln['weight'][index].flatten()
+    if len(weights)==len(wavelengths):  #TODO:  this is to deal with the different meaning of wvlbinedges between lasercal and WL Cal, fix when Lasercal's init is fixed
         wave_bins=wavelengths
     else:
         wave_bins=wavelengths[0:-1]
-    spectrum = calsoln['spectrum'][index]
-    errors=calsoln['err'][index]
+    spectrum = calsoln['spectrum'][index].flatten()
+    errors=calsoln['err'][index].flatten()
     if not calsoln['bad'][index]:
         fig= plt.figure(figsize=(20, 10), dpi=100)
         ax = fig.add_subplot(1, 3, 1)
-        ax.scatter(wave_bins, weights[0,:], label='weights', alpha=.7,color='red')
-        ax.errorbar(wave_bins, weights[0,:], yerr=errors[0,:], label='weights', color='k')
+        ax.scatter(wave_bins, weights, label='weights', alpha=.7,color='red')
+        ax.errorbar(wave_bins, weights, yerr=errors, label='weights', color='green', fmt='o')
         ax.set_title('p %d,%d' % (pixel[0], pixel[1]))
         ax.set_ylabel('weight')
         ax.set_xlabel(r'$\lambda$ ($\AA$)')
-        ax.set_ylim(min(weights[0,:]) - 2 * np.nanstd(weights[0,:]),
-                    max(weights[0,:]) + 2 * np.nanstd(weights[0,:]))
-        splinefxn = CubicSpline(wavelengths, weights[0,:])
-        plt.plot(wave_bins, splinefxn(wave_bins))
+        ax.set_ylim(min(weights) - 2 * np.nanstd(weights),
+                    max(weights) + 2 * np.nanstd(weights))
+        plt.plot(wave_bins, np.poly1d(calsoln[index]['coeff'][0])(wave_bins))
         # Put a plot of twilight spectrums for this pixel
         ax = fig.add_subplot(1, 3, 2)
-        ax.scatter(wave_bins, spectrum[0,:], label='spectrum', alpha=.7, color='blue')
+        ax.scatter(wave_bins, spectrum, label='spectrum', alpha=.7, color='blue')
         ax.set_title('p %d,%d' % (pixel[0], pixel[1]))
-        ax.set_ylim(min(spectrum[0,:]) - 2 * np.nanstd(spectrum[0,:]),
-                    max(spectrum[0,:]) + 2 * np.nanstd(spectrum[0,:]))
+        ax.set_ylim(min(spectrum) - 2 * np.nanstd(spectrum),
+                    max(spectrum) + 2 * np.nanstd(spectrum))
         ax.set_ylabel('spectrum')
         ax.set_xlabel(r'$\lambda$ ($\AA$)')
         # Plot wavecal solution
