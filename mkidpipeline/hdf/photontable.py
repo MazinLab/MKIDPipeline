@@ -71,7 +71,6 @@ from mkidcore.corelog import getLogger
 import mkidcore.pixelflags as pixelflags
 from mkidcore.pixelflags import h5FileFlags
 from PyPDF2 import PdfFileMerger, PdfFileReader
-from scipy.interpolate import CubicSpline
 import SharedArray
 
 import tables.parameters
@@ -1392,33 +1391,29 @@ class ObsFile(object):
                 if (np.diff(indices) == 1).all():  # This takes ~300s for ALL photons combined on a 70Mphot file.
                     # getLogger(__name__).debug('Using modify_column')
                     phases = self.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
-                    if len(soln['weight'][0, :]) == len(bins):
-                        wave_bins = bins
-                    else:
-                        wave_bins = bins[0:-1]
 
-                    weightArr_poly = np.poly1d(soln['coeff'][0])(phases)
-                    splinefxn = CubicSpline(wave_bins, soln['weight'][0])
-                    weightArr_spline= splinefxn(phases)
-                    print(weightArr_spline)
-                    self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=weightArr_spline,
+                    coeffs=soln['coeff'].flatten()
+                    weights = soln['weight'].flatten()
+                    errors = soln['err'].flatten()
+                    weightArr = np.poly1d(coeffs)(phases)
+                    self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=weightArr,
                                                    colname='SpecWeight')
                 else:  # This takes 3.5s on a 70Mphot file!!!
                     raise NotImplementedError('This code path is impractically slow at present.')
                     getLogger(__name__).debug('Using modify_coordinates')
                     rows = self.photonTable.read_coordinates(indices)
-                    rows['SpecWeight'] = np.poly1d(soln['coeff'][0])(rows['Wavelength'])
+                    rows['SpecWeight'] = np.poly1d(coeffs)(rows['Wavelength'])
                     self.photonTable.modify_coordinates(indices, rows)
                     getLogger(__name__).debug('Flat weights updated in {:.2f}s'.format(time.time() - tic2))
 
-                if save_plots:
+                if save_plots:  #TODO:  plotting is inefficient, speed up, turn into single pixel plotting fxn maybe
                     if iPlot % nPlotsPerPage == 0:
                         fig = plt.figure(figsize=(10, 10), dpi=100)
                     ax = fig.add_subplot(nPlotsPerCol, nPlotsPerRow, iPlot % nPlotsPerPage + 1)
                     ax.set_ylim(0, 5)
                     ax.set_xlim(minwavelength, maxwavelength)
                     ax.plot(bins, weights, '-', label='weights')
-                    ax.errorbar(bins, weights, yerr=weightUncertainties, label='weights')
+                    ax.errorbar(bins, weights, yerr=errors, label='weights', fmt='o', color='green')
                     ax.plot(phases, weightArr, '.', markersize=5)
                     ax.set_title('p rID:{} ({}, {})'.format(resID, row, column))
                     ax.set_ylabel('weight')
