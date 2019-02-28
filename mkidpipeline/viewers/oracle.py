@@ -748,9 +748,7 @@ class main_window(QMainWindow):
 
 
     def call_plot_method(self):
-        if self.radio_button_ic.isChecked() == True:
-            self.plot_noise_image()
-        elif self.radio_button_ic_is.isChecked() == True:
+        if self.radio_button_ic.isChecked() or self.radio_button_is.isChecked() or self.radio_button_ip.isChecked() or self.radio_button_ic_is.isChecked():
             self.plot_ssd_image()
         elif self.radio_button_beamFlagImage.isChecked() == True:
             self.plotBeamImage()
