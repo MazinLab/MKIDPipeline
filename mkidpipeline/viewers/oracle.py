@@ -26,9 +26,10 @@ from PyQt5.QtCore import pyqtSignal
 from mkidpipeline.hdf.photontable import ObsFile
 import mkidpipeline.hdf.binparse as binparse
 from scipy.optimize import curve_fit
+from scipy import optimize
 import os.path
-from mkidpipeline.utils import pdfs
 from mkidpipeline.speckle import binned_rician as binnedRE
+import mkidpipeline.speckle.optimize_IcIsIr as binfree
 from scipy.special import factorial
 import time
 import datetime
@@ -265,11 +266,14 @@ class intensityHistogram(subWindow):
         self.ax.clear()
 
         self.photonList = self.get_photon_list()
+        ts = self.photonList['Time']/1e6  # timestamps in seconds
+        dt = (ts[1:] - ts[:-1])
+        deadtime = 0
 
         self.eff_exp_time = self.spinbox_eff_exp_time.value()/1000
 
         if type(self.a).__name__ == 'ObsFile':
-            self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(self.photonList['Time']/1e6,self.spinbox_startTime.value(),self.spinbox_startTime.value()+self.spinbox_integrationTime.value(),self.eff_exp_time)
+            self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(ts,self.spinbox_startTime.value(),self.spinbox_startTime.value()+self.spinbox_integrationTime.value(),self.eff_exp_time)
         else:
             self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(
                 self.photonList['Time'] / 1e6, 0, self.spinbox_integrationTime.value(), self.eff_exp_time)
@@ -287,13 +291,21 @@ class intensityHistogram(subWindow):
             mu = np.mean(self.lightCurveIntensityCounts)
             var = np.var(self.lightCurveIntensityCounts)
 
-            k = np.arange(Nbins)
-            poisson= np.exp(-mu)*np.power(mu,k)/factorial(k)
-            self.ax.plot(np.arange(len(poisson)),poisson,'.-c',label = 'Poisson')
+            # k = np.arange(Nbins)
+            # poisson= np.exp(-mu)*np.power(mu,k)/factorial(k)
+            # self.ax.plot(np.arange(len(poisson)),poisson,'.-c',label = 'Poisson')
 
-            Ic_final,Is_final,covMatrix = binnedRE.fitBlurredMR(self.bins,self.intensityHist,self.eff_exp_time)
+            # Ic_final,Is_final,covMatrix = binnedRE.fitBlurredMR(self.bins,self.intensityHist,self.eff_exp_time)
 
-            self.ax.plot(np.arange(Nbins, step=sstep),binnedRE.blurredMR(np.arange(Nbins, step=sstep),Ic_final,Is_final),'.-k',label = 'blurred MR from curve_fit. Ic,Is = {:.2f}, {:.2f}'.format(Ic_final/self.eff_exp_time,Is_final/self.eff_exp_time))
+            # self.ax.plot(np.arange(Nbins, step=sstep),binnedRE.blurredMR(np.arange(Nbins, step=sstep),Ic_final,Is_final),'.-k',label = 'blurred MR from curve_fit. Ic,Is = {:.2f}, {:.2f}'.format(Ic_final/self.eff_exp_time,Is_final/self.eff_exp_time))
+
+            # get the bin-free fit of Ic, Is Ip
+            I = 1 / np.mean(dt)
+            p0 = I * np.ones(3) / 3.
+            p1 = optimize.minimize(binfree.loglike, p0, (dt, deadtime),
+                                   method='Newton-CG', jac=binfree._jacobean, hess=binfree._hessian).x
+
+            self.ax.plot(np.arange(Nbins, step = sstep), binnedRE.loglike_planet_blurredMR(np.arange(Nbins, step = sstep), p1[0]*self.eff_exp_time, p1[2]*self.eff_exp_time, p1[2]*self.eff_exp_time)[1], 'k.-', label = f'bin-free Ic, Is, Ip = {p1[0]:.2}, {p1[1]:.2}, {p1[2]:.2}')
 
             try:
                 IIc = np.sqrt(mu**2 - var + mu)
@@ -301,8 +313,6 @@ class intensityHistogram(subWindow):
                 pass
             else:
                 IIs = mu - IIc
-
-
                 self.ax.plot(np.arange(Nbins, step=sstep),binnedRE.blurredMR(np.arange(Nbins, step=sstep),IIc,IIs),'.-b',label = r'blurred MR from $\sigma$ and $\mu$. Ic,Is = {:.2f}, {:.2f}'.format(IIc/self.eff_exp_time,IIs/self.eff_exp_time))
 
             self.ax.set_title('pixel ({},{})' .format(self.activePixel[0],self.activePixel[1]))
@@ -406,7 +416,7 @@ class main_window(QMainWindow):
         self.create_main_frame()
         self.create_status_bar()
         self.createMenu()
-        self.plotNoise()
+        self.plot_noise_image()
         if len(argv[0]) > 1:
             if os.path.isfile(argv[0][1]):
                 self.filename = argv[0][1]
@@ -458,7 +468,7 @@ class main_window(QMainWindow):
                 self.beamFlagMask = self.beamFlagImage==0  #make a mask. 0 for good beam map
                 self.makeHotPixMask()
                 self.radio_button_beamFlagImage.setChecked(True)
-                self.callPlotMethod()
+                self.call_plot_method()
                 # set the max integration time to the h5 exp time in the header
                 self.expTime = self.a.getFromHeader('expTime')
                 self.wvlBinStart = self.a.getFromHeader('wvlBinStart')
@@ -497,10 +507,10 @@ class main_window(QMainWindow):
             try:
                 self.a = binparse.ParsedBin([self.filename], img_size)
             except:
-                print('coudnt load bin file')
+                print("coudn't load bin file")
             else:
                 self.radio_button_rawCounts.setChecked(True)
-                self.plotImage()
+                self.plot_count_image()
                 self.filename_label.setText(self.filename)
 
             self.beamFlagMask = np.zeros(img_size[0]*img_size[1]).reshape(img_size)  # make a mask. 0 for good beam map
@@ -512,15 +522,15 @@ class main_window(QMainWindow):
             try:
                self.a = img_object(self.filename)
             except:
-               print('coudnt load img file')
+               print("coudn't load img file")
             else:
-               self.radio_button_img.setChecked(True)
-               self.plotImage()
+               self.radio_button_rawCounts.setChecked(True)
+               self.plot_count_image()
                self.filename_label.setText(self.filename)
         
 
 
-    def spinBoxValueChange(self):
+    def spinbox_starttime_value_change(self):
         if type(self.a).__name__ == 'ParsedBin' or type(self.a).__name__ == 'img_object':
             try:
                 filename = self.file_list_raw[np.where(self.timestamp_list==self.spinbox_startTime.value())[0][0]]
@@ -571,15 +581,15 @@ class main_window(QMainWindow):
 
 
     def update_color_bar_limit(self):
-        # colorbar auto
-
         self.ax1.clear()
 
         if self.checkbox_colorbar_auto.isChecked():
+            # colorbar auto
             self.cbarLimits = np.array([0, np.amax(self.image)])
             self.fig.cbar.set_clim(self.cbarLimits[0], self.cbarLimits[1])
             self.fig.cbar.draw_all()
         else:
+            # colorbar manual
             self.cbarLimits = np.array([0, self.spinbox_colorBarMax.value()])
             self.fig.cbar.set_clim(self.cbarLimits[0], self.cbarLimits[1])
             self.fig.cbar.draw_all()
@@ -590,7 +600,7 @@ class main_window(QMainWindow):
 
 
 
-    def plotImage(self,*args):
+    def plot_count_image(self,*args):
         # check if file object exists
         try:
             self.a
@@ -631,9 +641,6 @@ class main_window(QMainWindow):
 
             self.ax1.imshow(self.image,interpolation='none',vmin = self.cbarLimits[0],vmax = self.cbarLimits[1])
 
-            # self.fig.cbar.set_clim(self.cbarLimits[0],self.cbarLimits[1])
-            # self.fig.cbar.draw_all()
-
             self.ax1.set_title('Raw counts')
 
             self.ax1.axis('off')
@@ -641,14 +648,12 @@ class main_window(QMainWindow):
             # TODO: fix the cursor. It was running super slow, so I turned it off.
             # self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
 
-            # self.ax1.plot(np.arange(10),np.arange(10)**2)
-
 
             self.draw()
 
 
 
-    def plotIcIs(self):
+    def plot_ssd_image(self):
         # check if obsfile object exists
         try:
             self.a
@@ -659,41 +664,57 @@ class main_window(QMainWindow):
             self.ax1.clear() # clear the axes
 
             for col in range(self.n_col):
-                print(col,'/80')
+                print(f'column: {col}')
                 for row in range(self.n_row):
-                    photonList = self.a.getPixelPhotonList(col, row, firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart=self.spinbox_startLambda.value(),wvlStop=self.spinbox_stopLambda.value())
 
-                    eff_exp_time = .00001 # 10 ms/1000
+                    self.photonList = self.a.getPixelPhotonList(col, row, firstSec=self.spinbox_startTime.value(),
+                                                           integrationTime=self.spinbox_integrationTime.value(),
+                                                           wvlStart=self.spinbox_startLambda.value(),
+                                                           wvlStop=self.spinbox_stopLambda.value())
+                    if len(self.photonList) == 0:
+                        # skip this pixel and move on to the next one
+                        continue
 
-                    lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes = binnedRE.getLightCurve(photonList['Time']/1e6,self.spinbox_startTime.value(),self.spinbox_startTime.value()+self.spinbox_integrationTime.value(),eff_exp_time)
+                    ts = self.photonList['Time'] / 1e6  # timestamps in seconds
+                    dt = (ts[1:] - ts[:-1])
+                    deadtime = 0
 
-                    intensityHist, bins = binnedRE.histogramLC(lightCurveIntensityCounts)
-                    # [self.intensityHist] = counts
+                    # get the bin-free fit of Ic, Is Ip
+                    I = 1 / np.mean(dt)
+                    p0 = I * np.ones(3) / 3.
+                    Ic, Is, Ip = optimize.minimize(binfree.loglike, p0, (dt, deadtime),
+                                           method='Newton-CG', jac=binfree._jacobean, hess=binfree._hessian).x
 
-                    Nbins = max(30,len(bins))
+                    self.Ic_map[row][col] = Ic
+                    self.Is_map[row][col] = Is
+                    self.Ip_map[row][col] = Ip
 
-                    if np.sum(lightCurveIntensityCounts) > 0:
+            if self.radio_button_ic.isChecked():
+                self.image = self.Ic_map
+            elif self.radio_button_is.isChecked():
+                self.image = self.Is_map
+            elif self.radio_button_ip.isChecked():
+                self.image = self.Ip_map
+            elif self.radio_button_ic_is.isChecked():
+                self.image = self.Ic_map/self.IsMap
+            else:
+                print('not sure how we got here')
+                return
 
 
-                        Ic_final,Is_final,covMatrix = binnedRE.fitBlurredMR(bins,intensityHist,eff_exp_time)
-
-                        self.IcMap[row][col] = Ic_final
-                        self.IsMap[row][col] = Is_final
-
-            self.image = self.IsMap
-            self.image[np.where(np.logical_not(np.isfinite(self.image)))]=0
+            # self.image[np.where(np.logical_not(np.isfinite(self.image)))]=0
             # self.image = self.rawCountsImage*self.beamFlagMask
             # self.image = self.rawCountsImage*self.beamFlagMask*self.hotPixMask
             # self.image = 1.0*self.image/self.spinbox_integrationTime.value()
 
-            self.cbarLimits = np.array([np.amin(self.image),np.amax(self.image)])
+            # self.cbarLimits = np.array([np.amin(self.image),np.amax(self.image)])
 
             self.ax1.imshow(self.image,interpolation='none',vmin = self.cbarLimits[0],vmax = self.cbarLimits[1])
 
             self.fig.cbar.set_clim(self.cbarLimits[0],self.cbarLimits[1])
             self.fig.cbar.draw_all()
 
-            self.ax1.set_title('Raw counts')
+            self.ax1.set_title('SSD image')
 
             self.ax1.axis('off')
 
@@ -704,7 +725,7 @@ class main_window(QMainWindow):
 
 
 
-    def plotNoise(self,*args):
+    def plot_noise_image(self,*args):
         # clear the axes
         self.ax1.clear()
 
@@ -726,17 +747,17 @@ class main_window(QMainWindow):
 
 
 
-    def callPlotMethod(self):
-        if self.radio_button_img.isChecked() == True:
-            self.plotNoise()
+    def call_plot_method(self):
+        if self.radio_button_ic.isChecked() == True:
+            self.plot_noise_image()
         elif self.radio_button_ic_is.isChecked() == True:
-            self.plotIcIs()
+            self.plot_ssd_image()
         elif self.radio_button_beamFlagImage.isChecked() == True:
             self.plotBeamImage()
         elif self.radio_button_rawCounts.isChecked() == True:
-            self.plotImage()
+            self.plot_count_image()
         else:
-            self.plotNoise()
+            self.plot_noise_image()
 
 
 
@@ -771,13 +792,7 @@ class main_window(QMainWindow):
         button_plot = QPushButton("Plot image")
         button_plot.setEnabled(True)
         button_plot.setToolTip('Click to update image.')
-        button_plot.clicked.connect(self.callPlotMethod)
-
-
-        button_quickLoad = QPushButton("Quick Load H5")
-        button_quickLoad.setEnabled(True)
-        button_quickLoad.setToolTip('Will change functionality later.')
-        button_quickLoad.clicked.connect(self.quickLoadH5)
+        button_plot.clicked.connect(self.call_plot_method)
 
         # spinboxes for the start & stop times
         self.spinbox_startTime = QDoubleSpinBox()
@@ -802,14 +817,13 @@ class main_window(QMainWindow):
         self.activePixel_label = QLabel('Active Pixel ({},{}) {}'.format(self.activePixel[0],self.activePixel[1],self.image[self.activePixel[1],self.activePixel[0]]))
 
         # make the radio buttons
-        # self.radio_button_noise = QRadioButton("Noise")
-        self.radio_button_img = QRadioButton(".IMG")
+        self.radio_button_ic = QRadioButton("Ic")
+        self.radio_button_is = QRadioButton("Is")
+        self.radio_button_ip = QRadioButton("Ip")
         self.radio_button_ic_is = QRadioButton("Ic/Is")
-        # self.radio_button_bin = QRadioButton(".bin")
-        # self.radio_button_decorrelationTime = QRadioButton("Decorrelation Time")
         self.radio_button_beamFlagImage = QRadioButton("Beam Flag Image")
         self.radio_button_rawCounts = QRadioButton("Raw Counts")
-        self.radio_button_img.setChecked(True)
+        self.radio_button_rawCounts.setChecked(True)
 
         # make a label to display timestamp in human readable format
         self.label_log = QLabel('foobar!')
@@ -847,7 +861,6 @@ class main_window(QMainWindow):
         # create an h box for the buttons
         hbox_buttons = QHBoxLayout()
         hbox_buttons.addWidget(button_plot)
-        # hbox_buttons.addWidget(button_quickLoad) #################################################
 
         # create an h box for the time and lambda v boxes
         hbox_time_lambda = QHBoxLayout()
@@ -868,11 +881,10 @@ class main_window(QMainWindow):
         # create a v box for the radio buttons
         vbox_radio_buttons = QVBoxLayout()
         vbox_radio_buttons.addLayout(hbox_autoscale)
-        # vbox_radio_buttons.addWidget(self.radio_button_noise)
-        vbox_radio_buttons.addWidget(self.radio_button_img)
+        vbox_radio_buttons.addWidget(self.radio_button_ic)
+        vbox_radio_buttons.addWidget(self.radio_button_is)
+        vbox_radio_buttons.addWidget(self.radio_button_ip)
         vbox_radio_buttons.addWidget(self.radio_button_ic_is)
-        # vbox_radio_buttons.addWidget(self.radio_button_bin)
-        # vbox_radio_buttons.addWidget(self.radio_button_decorrelationTime)
         vbox_radio_buttons.addWidget(self.radio_button_beamFlagImage)
         vbox_radio_buttons.addWidget(self.radio_button_rawCounts)
 
@@ -912,13 +924,6 @@ class main_window(QMainWindow):
 
         self.logPath = '/'
 
-
-
-
-    def quickLoadH5(self):
-        # self.filename = '/Users/clint/Documents/mazinlab/ScienceData/PAL2017b/20171004/1507175503_old.h5'
-        self.filename = '/Users/clint/Documents/mazinlab/ScienceData/PAL2017b/20171004/1507173006.h5'
-        self.load_data_from_h5()
 
     def draw(self):
         # The plot window calls this function
@@ -1101,7 +1106,7 @@ class main_window(QMainWindow):
         if type(self.a).__name__ == 'ParsedBin' or type(self.a).__name__ == 'img_object':
             self.spinbox_startTime.setMinimum(self.timestamp_list[0])
             self.spinbox_startTime.setMaximum(self.timestamp_list[-1])
-        self.spinbox_startTime.valueChanged.connect(self.spinBoxValueChange)
+        self.spinbox_startTime.valueChanged.connect(self.spinbox_starttime_value_change)
         self.spinbox_startTime.setValue(np.fromstring(os.path.basename(filename)[:-4], dtype=int, sep=' ')[0])
 
         self.spinbox_integrationTime.setMinimum(0)
