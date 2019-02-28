@@ -663,6 +663,10 @@ class main_window(QMainWindow):
         else:
             self.ax1.clear() # clear the axes
 
+            self.Ic_map = np.zeros(self.n_row,self.n_col)
+            self.Is_map = np.zeros(self.n_row,self.n_col)
+            self.Ip_map = np.zeros(self.n_row,self.n_col)
+
             for col in range(self.n_col):
                 print(f'column: {col}')
                 for row in range(self.n_row):
