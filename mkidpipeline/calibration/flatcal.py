@@ -592,7 +592,6 @@ def summaryPlot(flatsol, save_plot=False):
     plt.colorbar()
     ax = fig.add_subplot(2, 2, 3)
     if wavelengths[0:len(wavelengths) - 1].shape == weightArrAveraged.shape:  #TODO:  this is to deal with the different meaning of wvlbinedges between lasercal and WL Cal, fix when Lasercal's init is fixed
-    if wavelengths[0:len(wavelengths) - 1].shape == weightArrAveraged.shape:
         ax.scatter(wavelengths[0:len(wavelengths) - 1], weightArrAveraged)
     else:
         ax.scatter(wavelengths, weightArrAveraged)
