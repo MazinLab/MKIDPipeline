@@ -189,21 +189,21 @@ class subWindow(QMainWindow):
             # it's WAY faster to not specify start/stop wavelengths. If that cut isn't
             # necessary, don't specify those keywords.
             if wvlStart==self.minLambda and wvlStop==self.maxLambda:
-                photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value())
+                photonList = self.a.getPixelPhotonList(xCoord=self.activePixel[0], yCoord=self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value())
                 cmd = 'photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value())'
             elif wvlStart==self.minLambda:
-                photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart=self.spinbox_startLambda.value())
+                photonList = self.a.getPixelPhotonList(xCoord=self.activePixel[0], yCoord=self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart=self.spinbox_startLambda.value())
                 cmd = 'photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart=self.spinbox_startLambda.value())'
             elif wvlStop==self.maxLambda:
-                photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStop=self.spinbox_stopLambda.value())
+                photonList = self.a.getPixelPhotonList(xCoord=self.activePixel[0], yCoord=self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStop=self.spinbox_stopLambda.value())
                 cmd = 'photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStop=self.spinbox_stopLambda.value())'
             else:
-                photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart=self.spinbox_startLambda.value(),wvlStop=self.spinbox_stopLambda.value())
+                photonList = self.a.getPixelPhotonList(xCoord=self.activePixel[0], yCoord=self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart=self.spinbox_startLambda.value(),wvlStop=self.spinbox_stopLambda.value())
                 cmd = 'photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart=self.spinbox_startLambda.value(),wvlStop=self.spinbox_stopLambda.value())'
             t2 = time.time()
 
-            print('\ncmd = ' + cmd)
-            print('\nTime to getPixelPhotonList(): ', t2 - t1)
+            # print('\ncmd = ' + cmd)
+            # print('\nTime to getPixelPhotonList(): ', t2 - t1)
 
         return photonList
 
@@ -267,6 +267,7 @@ class intensityHistogram(subWindow):
 
         self.photonList = self.get_photon_list()
         ts = self.photonList['Time']/1e6  # timestamps in seconds
+        print(ts[0:3])
         dt = (ts[1:] - ts[:-1])
         deadtime = 0
 
@@ -372,7 +373,7 @@ class pulseHeightHistogram(subWindow):
     def plotData(self):
         self.ax.clear()
 
-        pulseHeights = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1])['Wavelength']
+        pulseHeights = self.a.getPixelPhotonList(xCoord=self.activePixel[0], yCoord=self.activePixel[1])['Wavelength']
 
         hist,binEdges = np.histogram(pulseHeights,bins=100)
 
@@ -440,14 +441,16 @@ class main_window(QMainWindow):
     def initialize_empty_arrays(self,n_col = 10,n_row = 10):
         self.n_col = n_col
         self.n_row = n_row
-        self.IcMap = np.zeros(self.n_row*self.n_col).reshape((self.n_row,self.n_col))
-        self.IsMap = np.zeros(self.n_row*self.n_col).reshape((self.n_row,self.n_col))
-        self.IcIsMap = np.zeros(self.n_row*self.n_col).reshape((self.n_row,self.n_col))
+        self.Ic_map = np.zeros(self.n_row * self.n_col).reshape(self.n_row, self.n_col)
+        self.Is_map = np.zeros(self.n_row * self.n_col).reshape(self.n_row, self.n_col)
+        self.Ip_map = np.zeros(self.n_row * self.n_col).reshape(self.n_row, self.n_col)
+        self.IcIs_map = np.zeros(self.n_row*self.n_col).reshape((self.n_row,self.n_col))
         self.rawCountsImage = np.zeros(self.n_row*self.n_col).reshape((self.n_row,self.n_col))
+        self.counts_image = np.zeros(self.n_row*self.n_col).reshape((self.n_row,self.n_col))
         self.hotPixMask = np.zeros(self.n_row*self.n_col).reshape((self.n_row,self.n_col))
         self.hotPixCut = 2300
         self.image = np.zeros(self.n_row*self.n_col).reshape((self.n_row,self.n_col))
-        self.activePixel = [0,0]
+        self.activePixel = [0,0] # [x, y] = [col, row]
         self.sWindowList = []
         self.path = '/'
         self.filename_extension = ''
@@ -461,6 +464,7 @@ class main_window(QMainWindow):
             except:
                 print('darkObsFile failed to load file. Check filename.\n',self.filename)
             else:
+                self.photontable = self.a.photonTable.read()
                 print('data loaded from .h5 file')
                 self.filename_label.setText(self.filename)
                 self.initialize_empty_arrays(len(self.a.beamImage),len(self.a.beamImage[0]))
@@ -489,8 +493,10 @@ class main_window(QMainWindow):
                 self.spinbox_startLambda.setMaximum(self.maxLambda)
                 self.spinbox_stopLambda.setMaximum(self.maxLambda)
                 self.spinbox_startLambda.setMinimum(self.minLambda)
-                self.spinbox_startLambda.setValue(self.minLambda)
-                self.spinbox_stopLambda.setValue(self.maxLambda)
+                # self.spinbox_startLambda.setValue(self.minLambda)
+                # self.spinbox_stopLambda.setValue(self.maxLambda)
+                self.spinbox_startLambda.setValue(900)
+                self.spinbox_stopLambda.setValue(1140)
 
                 # set the max value of the integration time spinbox
                 self.spinbox_startTime.setMinimum(0)
@@ -561,7 +567,7 @@ class main_window(QMainWindow):
             # clear the axes
             self.ax1.clear()
 
-            self.image = self.beamFlagImage
+            self.image = np.copy(self.beamFlagImage)
 
             self.cbarLimits = np.array([np.amin(self.image),np.amax(self.image)])
 
@@ -571,7 +577,7 @@ class main_window(QMainWindow):
 
             self.ax1.set_title('beam flag image')
 
-            self.ax1.axis('off')
+            # self.ax1.axis('off')
 
             # self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
 
@@ -619,15 +625,17 @@ class main_window(QMainWindow):
                                                  wvlStop=self.spinbox_stopLambda.value())
                 print('\nTime for getPixelCountImage = ', time.time() - t1)
                 self.rawCountsImage = np.transpose(temp['image'])
-                self.image = self.rawCountsImage
-                self.image[np.where(np.logical_not(np.isfinite(self.image)))] = 0
-                self.image = 1.0 * self.image / self.spinbox_integrationTime.value()
+                self.image = np.copy(self.rawCountsImage)
+                # self.image[np.where(np.logical_not(np.isfinite(self.image)))] = 0
+                # self.image = np.copy(1.0 * self.image / self.spinbox_integrationTime.value())
             elif type(self.a).__name__ == 'ParsedBin':
-                self.image = self.a.getPixelCountImage()
+                self.image = np.copy(self.a.getPixelCountImage())
             elif type(self.a).__name__ == 'img_object':
-                self.image = self.a.getPixelCountImage()
+                self.image = np.copy(self.a.getPixelCountImage())
             else:
                 print('unrecognized object type: type(self.a).__name__ = ',type(self.a).__name__)
+
+            self.counts_image = np.copy(self.image)
 
             # colorbar auto
             if self.checkbox_colorbar_auto.isChecked():
@@ -643,7 +651,7 @@ class main_window(QMainWindow):
 
             self.ax1.set_title('Raw counts')
 
-            self.ax1.axis('off')
+            # self.ax1.axis('off')
 
             # TODO: fix the cursor. It was running super slow, so I turned it off.
             # self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
@@ -663,23 +671,33 @@ class main_window(QMainWindow):
         else:
             self.ax1.clear() # clear the axes
 
-            self.Ic_map = np.zeros(self.n_row,self.n_col)
-            self.Is_map = np.zeros(self.n_row,self.n_col)
-            self.Ip_map = np.zeros(self.n_row,self.n_col)
-
             for col in range(self.n_col):
                 print(f'column: {col}')
                 for row in range(self.n_row):
 
-                    self.photonList = self.a.getPixelPhotonList(col, row, firstSec=self.spinbox_startTime.value(),
-                                                           integrationTime=self.spinbox_integrationTime.value(),
-                                                           wvlStart=self.spinbox_startLambda.value(),
-                                                           wvlStop=self.spinbox_stopLambda.value())
-                    if len(self.photonList) == 0:
-                        # skip this pixel and move on to the next one
+                    # if col < 98 or col > 101 or row < 63 or row > 65:
+                    #     continue
+
+                    if self.beamFlagImage[row][col] !=0:
                         continue
 
-                    ts = self.photonList['Time'] / 1e6  # timestamps in seconds
+                    ts = self.photontable[np.logical_and(self.photontable['ResID'] == self.a.beamImage[col][row],np.logical_and(np.logical_and(self.photontable['Wavelength']> self.spinbox_startLambda.value(), self.photontable['Wavelength']< self.spinbox_stopLambda.value()),    np.logical_and(self.photontable['Time']> self.spinbox_startTime.value()*1e6, self.photontable['Time']< self.spinbox_integrationTime.value()*1e6)))]['Time']*1e-6
+
+                    # junk = photontable[np.logical_and(photontable['ResID'] == a.beamImage[99][64], np.logical_and(
+                    #     np.logical_and(photontable['Wavelength'] > 900,
+                    #                    photontable['Wavelength'] < 1140),
+                    #     np.logical_and(photontable['Time'] > 0 * 1e6,
+                    #                    photontable['Time'] < 30 * 1e6)))]
+
+                    # ts = self.photontable['Time'][self.photontable['ResID'] == self.a.beamImage[col][row]]/1e6
+                    # print(f'first 3 timestamps for pixel (col,row) = ({col},{row}): {ts[0:3]}')
+
+                    if len(ts) == 0:
+                        # skip this pixel and move on to the next one
+                        print('photon list has zero length')
+                        continue
+
+                    # ts = self.photonList['Time'] / 1e6  # timestamps in seconds
                     dt = (ts[1:] - ts[:-1])
                     deadtime = 0
 
@@ -689,21 +707,25 @@ class main_window(QMainWindow):
                     Ic, Is, Ip = optimize.minimize(binfree.loglike, p0, (dt, deadtime),
                                            method='Newton-CG', jac=binfree._jacobean, hess=binfree._hessian).x
 
+                    # print(f'Ic, Is, Ip: {Ic:.2}, {Is:.2}, {Ip:.2}')
                     self.Ic_map[row][col] = Ic
                     self.Is_map[row][col] = Is
                     self.Ip_map[row][col] = Ip
+            self.IcIs_map = self.Ic_map/self.Is_map
+            self.IcIs_map[np.logical_not(np.isfinite(self.IcIs_map))] = 0
 
             if self.radio_button_ic.isChecked():
-                self.image = self.Ic_map
+                self.image = np.copy(self.Ic_map)
             elif self.radio_button_is.isChecked():
-                self.image = self.Is_map
+                self.image = np.copy(self.Is_map)
             elif self.radio_button_ip.isChecked():
-                self.image = self.Ip_map
+                self.image = np.copy(self.Ip_map)
             elif self.radio_button_ic_is.isChecked():
-                self.image = self.Ic_map/self.IsMap
+                self.image = np.copy(self.Ic_map/self.IsMap)
             else:
                 print('not sure how we got here')
                 return
+
 
 
             # self.image[np.where(np.logical_not(np.isfinite(self.image)))]=0
@@ -720,7 +742,7 @@ class main_window(QMainWindow):
 
             self.ax1.set_title('SSD image')
 
-            self.ax1.axis('off')
+            # self.ax1.axis('off')
 
             # self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
 
@@ -743,7 +765,33 @@ class main_window(QMainWindow):
 
         self.ax1.set_title('some generated noise...')
 
-        self.ax1.axis('off')
+        # self.ax1.axis('off')
+
+        # self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
+
+        self.draw()
+
+
+    def plot_generic_image(self,image = None, plot_title = None):
+        if image is None:
+            return
+
+        # clear the axes
+        self.ax1.clear()
+
+        self.image = np.copy(image)
+
+        self.ax1.imshow(self.image, interpolation='none', vmin=self.cbarLimits[0], vmax=self.cbarLimits[1])
+
+        self.fig.cbar.set_clim(self.cbarLimits[0], self.cbarLimits[1])
+        self.fig.cbar.draw_all()
+
+        if plot_title is not None:
+            self.ax1.set_title(plot_title)
+        else:
+            self.ax1.set_title('')
+
+        # self.ax1.axis('off')
 
         # self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
 
@@ -760,6 +808,22 @@ class main_window(QMainWindow):
             self.plot_count_image()
         else:
             self.plot_noise_image()
+
+
+    def radio_toggle(self):
+        if self.radio_button_ic.isChecked():
+            self.plot_generic_image(image = self.Ic_map, plot_title = 'Ic')
+        elif self.radio_button_is.isChecked():
+            self.plot_generic_image(image=self.Is_map, plot_title='Is')
+        elif self.radio_button_ip.isChecked():
+            self.plot_generic_image(image=self.Ip_map, plot_title='Ip')
+        elif self.radio_button_ic_is.isChecked():
+            self.plot_generic_image(image=self.IcIs_map, plot_title='Ic/Is')
+        elif self.radio_button_rawCounts.isChecked():
+            self.plot_generic_image(image=self.counts_image, plot_title='counts')
+        else:
+            self.plotBeamImage()
+
 
 
 
@@ -825,7 +889,16 @@ class main_window(QMainWindow):
         self.radio_button_ic_is = QRadioButton("Ic/Is")
         self.radio_button_beamFlagImage = QRadioButton("Beam Flag Image")
         self.radio_button_rawCounts = QRadioButton("Raw Counts")
+
+
+        # setup the action for when radio buttons are toggled
         self.radio_button_rawCounts.setChecked(True)
+        self.radio_button_ic.toggled.connect(self.radio_toggle)
+        self.radio_button_is.toggled.connect(self.radio_toggle)
+        self.radio_button_ip.toggled.connect(self.radio_toggle)
+        self.radio_button_ic_is.toggled.connect(self.radio_toggle)
+        self.radio_button_beamFlagImage.toggled.connect(self.radio_toggle)
+        self.radio_button_rawCounts.toggled.connect(self.radio_toggle)
 
         # make a label to display timestamp in human readable format
         self.label_log = QLabel('foobar!')
