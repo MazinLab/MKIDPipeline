@@ -1271,6 +1271,7 @@ class Solution(object):
             resolving_powers: an MxN array of resolving powers where M is the number of
                               res_ids the search criterion and N is the number of
                               wavelengths requested.
+            res_ids: an array of size M with the res ids in the same order as resolving_powers
         """
         wavelengths = self._parse_wavelengths(wavelengths)
         res_ids = self._parse_res_ids()
@@ -1362,6 +1363,7 @@ class Solution(object):
         Returns:
             responses: an MxN array of responses where M is the number of res_ids the
                        search criterion and N is the number of wavelengths requested.
+            res_ids: an array of size M with the res ids in the same order as responses
         """
         wavelengths = self._parse_wavelengths(wavelengths)
         res_ids = self._parse_res_ids()
@@ -1386,6 +1388,36 @@ class Solution(object):
         res_ids = res_ids[sorted_indices]
 
         return responses, res_ids
+
+    def find_calibrations(self, minimum=None, maximum=None, feedline=None):
+        """
+        Returns a tuple containing an array of calibration coefficients and a corresponding res_id
+        array.
+
+        Args:
+            minimum: only report median resolving powers above this value. No lower bound
+                     is used if it is not specified.
+            maximum: only report median resolving powers below this value. No upper bound
+                     is used if it is not specified.
+            feedline: integer corresponding to the feedline from which to use. All
+                      feedlines are used if it is not specified.
+        Returns:
+            calibrations: an MxN array of resolving powers where M is the number of
+                              res_ids the search criterion and N is the number of
+                              wavelengths requested.
+            res_ids: an array of size M with the res ids in the same order as responses
+        Note:
+            Only works if no models other than Quadratic and Linear are used for the calibration fit.
+        """
+        _, res_ids = find_resolving_powers(self, minimum=minimum, maximum=maximum, feedline=feedline)
+        calibrations = np.zeros((res_ids.size, 3))
+        for index, res_id in enumerate(res_ids):
+            params = self.calibration_parameters(res_id=res_id).valuesdict()
+            if 'c2' in params.keys():
+                calibrations[index, 0] = params['c2']
+            calibrations[index, 1] = params['c1']  # requires either Quadratic or Linear model
+            calibrations[index, 2] = params['c0']
+        return calibrations, res_ids
 
     def set_calibration_model(self, model, pixel=None, res_id=None):
         """Set the calibration model to model for the specified resonator."""
