@@ -683,13 +683,13 @@ class main_window(QMainWindow):
 
                     ts = self.photontable[np.logical_and(self.photontable['ResID'] == self.a.beamImage[col][row],np.logical_and(np.logical_and(self.photontable['Wavelength']> self.spinbox_startLambda.value(), self.photontable['Wavelength']< self.spinbox_stopLambda.value()),    np.logical_and(self.photontable['Time']> self.spinbox_startTime.value()*1e6, self.photontable['Time']< self.spinbox_integrationTime.value()*1e6)))]['Time']*1e-6
 
+                    # for testing in ipython
                     # junk = photontable[np.logical_and(photontable['ResID'] == a.beamImage[99][64], np.logical_and(
                     #     np.logical_and(photontable['Wavelength'] > 900,
                     #                    photontable['Wavelength'] < 1140),
                     #     np.logical_and(photontable['Time'] > 0 * 1e6,
                     #                    photontable['Time'] < 30 * 1e6)))]
 
-                    # ts = self.photontable['Time'][self.photontable['ResID'] == self.a.beamImage[col][row]]/1e6
                     # print(f'first 3 timestamps for pixel (col,row) = ({col},{row}): {ts[0:3]}')
 
                     if len(ts) == 0:
@@ -1130,7 +1130,7 @@ class main_window(QMainWindow):
         filename, _ = QFileDialog.getOpenFileName(self, 'Select One File', def_loc,filter = '*.bin')
 
         self.filename = filename
-        self.load_bin_filenames(self.filename)
+        self.load_filenames(self.filename)
 
 
     def load_filenames(self, filename):
