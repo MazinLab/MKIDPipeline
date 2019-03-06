@@ -1252,8 +1252,11 @@ class main_window(QMainWindow):
             if logFilename.endswith("telescope.log"):
                 continue
             elif logFilename.endswith(".log"):
-                logFilenameList.append(logFilename)
-                logTimestampList.append(np.fromstring(logFilename[:10], dtype=int, sep=' ')[0])
+                try:
+                    logFilenameList.append(logFilename)
+                    logTimestampList.append(np.fromstring(logFilename[:10], dtype=int, sep=' ')[0])
+                except:
+                    pass
 
         # the files may not be in chronological order, so let's enforce it
         logFilenameList = np.asarray(logFilenameList)
