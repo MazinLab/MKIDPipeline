@@ -81,10 +81,6 @@ import functools
 
 TBRERROR = RuntimeError('Function needs to be reviewed')
 
-WAVECAL_FAILED_FLAG = 0b00000010
-
-tables.parameters.MAX_NUMEXPR_THREADS = 16
-tables.parameters.MAX_BLOSC_THREADS = 4
 
 #These are little better than blind guesses and don't seem to impact performaace, but still need benchmarking
 # tables.parameters.CHUNK_CACHE_SIZE = 2 * 1024 * 1024 * 1024
@@ -1082,10 +1078,10 @@ class ObsFile(object):
         for (row, column), resID in np.ndenumerate(self.beamImage):
 
             if not solution.has_good_calibration_solution(res_id=resID):
-                self.applyFlag(row, column, WAVECAL_FAILED_FLAG)
+                self.applyFlag(row, column, pixelflags.h5FileFlags['waveCalFailed'])
                 continue
 
-            self.undoFlag(row, column, WAVECAL_FAILED_FLAG)
+            self.undoFlag(row, column, pixelflags.h5FileFlags['waveCalFailed'])
             calibration = solution.calibration_function(res_id=resID, wavelength_units=True)
 
             tic2 = time.time()
