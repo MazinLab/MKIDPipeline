@@ -1409,7 +1409,7 @@ class Solution(object):
         Note:
             Only works if no models other than Quadratic and Linear are used for the calibration fit.
         """
-        _, res_ids = find_resolving_powers(self, minimum=minimum, maximum=maximum, feedline=feedline)
+        _, res_ids = self.find_resolving_powers(self, minimum=minimum, maximum=maximum, feedline=feedline)
         calibrations = np.zeros((res_ids.size, 3))
         for index, res_id in enumerate(res_ids):
             params = self.calibration_parameters(res_id=res_id).valuesdict()
