@@ -68,7 +68,7 @@ wavecal.fetch(dataset.wavecals, verbose=False)
 
 batch_apply_wavecals(dataset.wavecalable, ncpu=ncpu)
 
-flatcal.fetch(dataset.flatcals)
+flatcal.fetch(dataset.flatcals, ncpu=ncpu)
 
 batch_apply_flatcals(dataset.science_observations, ncpu=ncpu)
 

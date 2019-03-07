@@ -18,6 +18,8 @@ import atexit
 import os
 import time
 from datetime import datetime
+import multiprocessing as mp
+
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -33,7 +35,6 @@ from mkidcore.corelog import getLogger
 import mkidcore.corelog
 import mkidpipeline.config
 import pkg_resources as pkg
-import pickle
 from mkidcore.utils import query
 
 DEFAULT_CONFIG_FILE = pkg.resource_filename('mkidpipeline.calibration.flatcal', 'flatcal.yml')
@@ -662,10 +663,16 @@ def plotCalibrations(flatsol, wvlCalFile, pixel):
     else:
         print('Pixel Failed Wavecal')
 
-def fetch(solution_descriptors, config=None, ncpu=1, async=False, remake=False):
-    cfg = mkidpipeline.config.config if config is None else config
 
+def _run(flattner):
+    getLogger(__name__).debug('Calling makeCalibration on {}'.format(flattner))
+    flattner.makeCalibration()
+
+
+def fetch(solution_descriptors, config=None, ncpu=np.inf, remake=False):
+    cfg = mkidpipeline.config.config if config is None else config
     solutions = []
+    flattners = []
     for sd in solution_descriptors:
         sf = os.path.join(cfg.paths.database, sd.id)
         if not os.path.exists(sf) or remake:
@@ -674,24 +681,35 @@ def fetch(solution_descriptors, config=None, ncpu=1, async=False, remake=False):
             else:
                 fcfg = cfg.copy()
 
+            fcfg.unregister('flatname')
+            fcfg.unregister('h5file')
+
             if hasattr(sd, 'wavecal'):
                 fcfg.register('wavesol', sd.wavecal, update=True)
                 fcfg.register('start_time', -1, update=True) #TODO get rid of this when lasercalibrator's init is fixed
                 fcfg.register('exposure_time',-1, update=True)
-                fcfg.unregister('flatname')
-                fcfg.unregister('h5file')
                 flattner = LaserCalibrator(fcfg, cal_file_name=sd.id)
             else:
                 fcfg.register('start_time', sd.ob.start, update=True)
                 fcfg.register('exposure_time', sd.ob.duration, update=True)
-                fcfg.unregister('flatname')
                 fcfg.unregister('wavesol')
-                fcfg.unregister('h5file')
                 flattner = WhiteCalibrator(fcfg, cal_file_name=sd.id)
-            flattner.makeCalibration()
-        solutions.append(sf)
+                
+            solutions.append(sf)
+            flattners.append(flattner)
+
+    ncpu = mkidpipeline.config.n_cpus_available(max=min(fcfg.ncpu, ncpu))
+    if ncpu == 1:
+        for f in flattners:
+            f.makeCalibration()
+    elif flattners:
+        pool = mp.Pool(ncpu)
+        pool.map(_run, flattners)
+        pool.close()
+        pool.join()
 
     return solutions
+
 
 if __name__ == '__main__':
 
