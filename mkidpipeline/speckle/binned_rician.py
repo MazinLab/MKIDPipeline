@@ -25,7 +25,8 @@ from scipy.special import eval_laguerre, eval_genlaguerre, factorial
 from scipy import optimize
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy.stats import poisson
-import mkidpipeline.speckle.optimize_IcIsIr as binfree
+#import mkidpipeline.speckle.optimize_IcIsIr as binfree
+import mkidpipeline.speckle.binFreeRicianEstimate as binfree
 import multiprocessing
 
 import time
@@ -668,7 +669,7 @@ def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_slice=0,sparse_ma
                     # call bin free loglike method
                     p = [Ic/effExpTime,Is/effExpTime,Ir_slice]
                     # print('\n',p,'\n')
-                    lnL = -binfree.loglike(p,dt,deadtime_us)
+                    lnL = binfree.MRLogL(p,dt,deadtime_us)
                 else:
                     # call binned loglike method
                     # lnL = binMRlogL(n, tmp, Is)[0]
@@ -730,7 +731,7 @@ def logLMap_binfree(t, x_list, Is_list, IcPlusIs = False,Ir_slice=0, deadtime = 
             # call bin free loglike method
             p = [Ic, Is, Ir_slice]
             # print('\n',p,'\n')
-            lnL = -binfree.loglike(p, dt, deadtime)
+            lnL = binfree.MRLogL(p, dt, deadtime)
 
             im[j, i] = lnL # first index is for Is, second index is for x = Ic + Is
 
@@ -779,7 +780,7 @@ def _logL_worker1(args):
         Ic = x - Is
     else:
         Ic = x
-    return -binfree.loglike([Ic, Is, Ip], dt, deadtime)
+    return binfree.MRLogL([Ic, Is, Ip], dt, deadtime)
 
 
 def _logL_worker2(args):
@@ -803,7 +804,7 @@ def _logL_worker3(args):
                 Ic = x - Is
             else:
                 Ic = x
-            loglike.append(-binfree.loglike([Ic, Is, Ip], dt, deadtime))
+            loglike.append(binfree.MRLogL([Ic, Is, Ip], dt, deadtime))
 
     else:
         dt, x, Is, Ip, deadtime, IcpIs_bool = args
@@ -811,7 +812,7 @@ def _logL_worker3(args):
             Ic = x - Is
         else:
             Ic = x
-        loglike = -binfree.loglike([Ic, Is, Ip], dt, deadtime)
+        loglike = binfree.MRLogL([Ic, Is, Ip], dt, deadtime)
 
     return loglike
 
@@ -982,7 +983,7 @@ def logLMap_binfree_sliceIs(t, x_list, Ir_list, IcPlusIs = False,Is_slice=.1, de
             # call bin free loglike method
             p = [Ic, Is_slice, Ir]
             # print('\n',p,'\n')
-            lnL = -binfree.loglike(p, dt, deadtime)
+            lnL = binfree.MRLogL(p, dt, deadtime)
 
             im[j, i] = lnL # first index is for Is, second index is for x = Ic + Is
 
@@ -1234,10 +1235,10 @@ def check_binfree_loglike_max(ts, p1, deadtime = 0):
              [0, 1, 1], [0, 1, highVal], [0, highVal, lowVal], [0, highVal, 1], [0, highVal, highVal]])
         for ii in range(9):
             IIc,IIs,IIr = scaleArray[ii] * p1
-            logLikeArray[ii] = binfree.loglike([IIc,IIs,IIr],dt,deadtime=deadtime)
+            logLikeArray[ii] = -binfree.MRLogL([IIc,IIs,IIr],dt,deadtime=deadtime)
         for ii in range(9):
             IIc, IIs, IIr = scaleArray[ii] * p1
-            logLikeArray[ii] = binfree.loglike([1, IIs, IIr], dt, deadtime=deadtime)
+            logLikeArray[ii] = -binfree.MRLogL([1, IIs, IIr], dt, deadtime=deadtime)
         if np.argmin(logLikeArray) == 4:
             return True
         else:
@@ -1255,7 +1256,7 @@ def check_binfree_loglike_max(ts, p1, deadtime = 0):
 
         for ii in range(len(logLikeArray)):
             IIc,IIs,IIr = scaleArray[ii] * p1
-            logLikeArray[ii] = binfree.loglike([IIc,IIs,IIr],dt,deadtime=deadtime)
+            logLikeArray[ii] = -binfree.MRLogL([IIc,IIs,IIr],dt,deadtime=deadtime)
 
         logLikeArray -= np.amax(logLikeArray)
         # plt.plot(np.arange(len(logLikeArray)), logLikeArray,'.-')
