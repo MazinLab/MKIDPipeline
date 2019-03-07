@@ -557,7 +557,6 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=30, startt=0, stopt=
         hot_masks[:, :, i] = bad_pixel_solution['hot_mask']
 
     # Combine the bad pixel masks into a master mask
-    mask = np.any(hot_masks, axis=-1) * pixelflags.badpixcal['hot']
     obsfile.enablewrite()
-    #obsfile.applyFlag(None, None, mask)
+    obsfile.applyFlag(None, None, pixelflags.HOTPIXE * np.any(hot_masks, axis=-1))
     obsfile.disablewrite()
