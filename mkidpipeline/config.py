@@ -299,9 +299,10 @@ def load_data_description(file):
     return dataset
 
 
-def n_cpus_available():
+def n_cpus_available(max=np.inf):
+    """Returns n threads -4 modulo pipelinesettings"""
     global config
-    mcpu = mp.cpu_count()*2 - 4
+    mcpu = min(mp.cpu_count()*2 - 4, max)
     try:
         mcpu = int(min(config.ncpu, mcpu))
     except Exception:
