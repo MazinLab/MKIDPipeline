@@ -575,7 +575,7 @@ class Calibrator(object):
     def _parallel(self, method, pixels=None, wavelengths=None, verbose=False):
         # configure number of processes
         n_data = pixels.shape[1]
-        cpu_count = mkidpipeline.config.n_cpus_available()
+        cpu_count = mkidpipeline.config.n_cpus_available(max=self.cfg.ncpu)
         log.info("Using {} additional cores".format(cpu_count))
         # setup chunks (at least 2 chunks per process per feedline on MEC)
         chunk_size = max(1, int(self.cfg.beammap.residmap.size / (2 * 10 * (cpu_count - 1 * bool(verbose)))))
@@ -2476,7 +2476,7 @@ def load_solution(wc, singleton_ok=True):
     return _loaded_solutions[wc]
 
 
-def fetch(solution_descriptors, config=None, **kwargs):
+def fetch(solution_descriptors, config=None, ncpu=None, **kwargs):
     cfg = mkidpipeline.config.config if config is None else config
 
     solutions = []
@@ -2492,6 +2492,8 @@ def fetch(solution_descriptors, config=None, **kwargs):
             wcfg.register('start_times', [x.start for x in sd.data], update=True)
             wcfg.register('exposure_times', [x.duration for x in sd.data], update=True)
             wcfg.register('wavelengths', [w for w in sd.wavelengths], update=True)
+            if ncpu is not None:
+                wcfg.ncpu = ncpu
             cal = Calibrator(wcfg, solution_name=sf)
             cal.run(**kwargs)
             # solutions.append(load_solution(sf))  # don't need to reload from file

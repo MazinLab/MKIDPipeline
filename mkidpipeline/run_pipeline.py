@@ -64,7 +64,7 @@ ncpu=20
 
 bin2hdf.buildtables(dataset.timeranges, ncpu=ncpu, remake=False, chunkshape=250)
 
-wavecal.fetch(dataset.wavecals, verbose=False)
+wavecal.fetch(dataset.wavecals, verbose=False, ncpu=ncpu)
 
 batch_apply_wavecals(dataset.wavecalable, ncpu=ncpu)
 
