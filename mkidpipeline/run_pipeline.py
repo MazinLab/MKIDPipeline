@@ -1,7 +1,10 @@
 import os
-os.environ['NUMEXPR_MAX_THREADS'] = '64'
-os.environ['NUMEXPR_NUM_THREADS'] = '32'
+os.environ['NUMEXPR_MAX_THREADS'] = '32'
+os.environ['NUMEXPR_NUM_THREADS'] = '16'
 os.environ["TMPDIR"] = '/mnt/data0/tmp/'
+
+import tables.parameters
+tables.parameters.MAX_BLOSC_THREADS = 4
 
 import mkidpipeline.hdf.bin2hdf as bin2hdf
 import mkidpipeline.calibration.wavecal as wavecal
@@ -25,17 +28,17 @@ def flatcal_apply(o):
     of.file.close()
 
 
-def batch_apply_wavecals(wavecal_pairs, ncpu=None):
+def batch_apply_wavecals(obs, ncpu=None):
     pool = mp.Pool(ncpu if ncpu is not None else mkidpipeline.config.n_cpus_available())
     #TODO filter so that any files don't get opened concurrently
-    pool.map(wavecal_apply, wavecal_pairs)
+    pool.map(wavecal_apply, obs)
     pool.close()
 
 
-def batch_apply_flatcals(flatcal_pairs, ncpu=None):
+def batch_apply_flatcals(obs, ncpu=None):
     pool = mp.Pool(ncpu if ncpu is not None else mkidpipeline.config.n_cpus_available())
     # TODO filter so that any files don't get opened concurrently
-    pool.map(flatcal_apply, flatcal_pairs)
+    pool.map(flatcal_apply, obs)
     pool.close()
 
 
