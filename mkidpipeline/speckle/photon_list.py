@@ -171,14 +171,14 @@ class photon_list(object):
         I = 1 / np.mean(self.dt)
         p0 = I*np.ones(3)/3.
         t1 = time.time()
-        m = bf.MR_SpeckleModel(self.ts, deadtime=self.deadtime)
-        res = m.fit(start_params=p0)
+        res = binfree.optimize_IcIsIr(self.dt, guessParams=p0, deadtime=self.deadtime, method='ncg')
         t2 = time.time()
         self.eval_time.append(t2 - t1)
-        self.logLike_statsModels = binfree.MRlogL([res.params[0], res.params[1], res.params[2]], self.dt, self.deadtime)
+        self.logLike_statsModels = binfree.MRlogL(res.params, self.dt, self.deadtime)
 
-        self.p0_list = np.append(self.p0_list, np.array([-1,-1,-1]))
-        self.p1_list = np.append(self.p1_list, np.array([res.params[0], res.params[1], res.params[2]]))
+        #self.p0_list = np.append(self.p0_list, np.array([-1,-1,-1]))
+        self.p0_list = np.append(self.p0_list, p0)
+        self.p1_list = np.append(self.p1_list, np.asarray(res.params))
 
 
 
