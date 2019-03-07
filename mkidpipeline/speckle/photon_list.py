@@ -13,8 +13,7 @@ import time
 
 import mkidpipeline.speckle.genphotonlist_IcIsIr as gpl
 import mkidpipeline.speckle.binned_rician as binMR
-import mkidpipeline.speckle.optimize_IcIsIr as binfree
-# import mkidpipeline.speckle.binFreeRicianEstimate as bf # alex's code
+import mkidpipeline.speckle.binFreeRicianEstimate as binfree # alex's code
 from scipy import optimize
 import pickle
 
@@ -55,7 +54,7 @@ class photon_list(object):
             # self.get_cube()
             # self.p0_cube_max()
             # self.find_max_like()
-            self.loglike_true_params = -binfree.loglike([Ic, Is, Ir], self.dt, self.deadtime)
+            self.loglike_true_params = binfree.MRlogL([Ic, Is, Ir], self.dt, self.deadtime)
             # self.do_stats_models()
 
 
@@ -92,8 +91,8 @@ class photon_list(object):
             print('you need to define a seed: self.p0')
             return
         t1 = time.time()
-        res = optimize.minimize(binfree.loglike, self.p0, (self.dt, self.deadtime), method='Newton-CG', jac=binfree._jacobean,
-                               hess=binfree._hessian)
+        res = optimize.minimize(binfree.MRlogL, self.p0, (self.dt, self.deadtime), method='Newton-CG', jac=binfree.MRlogL_Jacobian,
+                               hess=binfree.MRlogL_Hessian)
         t2 = time.time()
         self.eval_time.append(t2-t1)
         self.p1 = res.x
@@ -101,7 +100,7 @@ class photon_list(object):
         self.p0_list = np.append(self.p0_list, self.p0)
         self.p1_list = np.append(self.p1_list, self.p1)
         self.loglike_max_check = np.append(self.loglike_max_check, binMR.check_binfree_loglike_max(self.ts, self.p1, deadtime=self.deadtime))
-        self.loglike_max_list = np.append(self.loglike_max_list,-binfree.loglike(self.p1,self.dt,self.deadtime))
+        self.loglike_max_list = np.append(self.loglike_max_list,binfree.MRlogL(self.p1,self.dt,self.deadtime))
 
 
     def p0_get_simple(self):
@@ -161,7 +160,10 @@ class photon_list(object):
         res = m.fit(start_params=p0)
         t2 = time.time()
         self.eval_time.append(t2 - t1)
-        self.logLike_statsModels = -binfree.loglike([res.params[0], res.params[1], res.params[2]], self.dt, self.deadtime)
+        self.logLike_statsModels = binfree.MRlogL([res.params[0], res.params[1], res.params[2]], self.dt, self.deadtime)
 
         self.p0_list = np.append(self.p0_list, np.array([-1,-1,-1]))
         self.p1_list = np.append(self.p1_list, np.array([res.params[0], res.params[1], res.params[2]]))
+
+
+
