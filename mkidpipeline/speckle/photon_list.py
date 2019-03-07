@@ -19,21 +19,23 @@ import pickle
 
 
 class photon_list(object):
-    def __init__(self,Ic=-1,Is=-1,Ir=-1,Ttot=-1,tau=-1):
-        self.Ic = Ic # nominal Ic
+    def __init__(self,Ic=-1,Is=-1,Ir=-1,Ttot=-1,tau=-1, deadtime=0,return_IDs=False):
+        self.Ic = Ic # nominal Ic. phtons/second
         self.Is = Is
         self.Ir = Ir
         self.tau = tau # decorrelation time, seconds
         self.Ttot = Ttot # total length of photon list in seconds
-        self.ts = np.array([])  # units microseconds
+        self.ts = np.array([])  # units microseconds. Includes star+planet photons. 
+        self.ts_star = np.array([]) #ts except only includes star photons
         self.p0 = np.array([]) # seed for calling the optimize routine
         self.p1 = np.array([]) # result of the optimize routine
         self.cube = np.array([]) # this is a loglike cube
         self.Ic_list = np.array([])
         self.Is_list = np.array([])
         self.Ir_list = np.array([])
-        self.deadtime = 0
+        self.deadtime = deadtime    # seconds
         self.dt = np.array([])
+        self.dt_star = np.array([])
         self.cube_max_params = np.array([]) # [Ic, Is, Ir] that give the maximum loglike in self.cube
         self.p0_list = np.array([])
         self.p1_list = np.array([])
@@ -47,7 +49,7 @@ class photon_list(object):
 
 
         if Ic>0:
-            self.gen_plist(Ic,Is,Ir,Ttot,tau)
+            self.gen_plist(Ic,Is,Ir,Ttot,tau,deadtime,return_IDs)
             self.setup_cube_lists()
             self.p0_get_simple()
             self.find_max_like()
@@ -70,23 +72,36 @@ class photon_list(object):
     #     with open("/Users/clint/Dropbox/mazinlab/speckle/20181226/junk.p", "wb") as f:
     #         pickle.dump(self, f, pickle.HIGHEST_PROTOCOL)
 
-    def gen_plist(self,Ic,Is,Ir,Ttot,tau):
+    def gen_plist(self,Ic,Is,Ir,Ttot,tau,deadtime,return_IDs=False):
         self.Ic = Ic
         self.Is = Is
         self.Ir = Ir
         self.Ttot = Ttot
         self.tau = tau
-        self.ts = gpl.genphotonlist(Ic, Is, Ir, Ttot, tau)
-        self.dt = (self.ts[1:] - self.ts[:-1]) * 1e-6
+        self.deadtime=deadtime  #should be units of seconds
+        if return_IDs:
+            self.ts, self.ts_star, _ = gpl.genphotonlist(Ic, Is, Ir, Ttot, tau, deadtime*10.**6., return_IDs)
+            self.dt = (self.ts[1:] - self.ts[:-1]) * 1e-6
+            self.dt_star = (self.ts_star[1:] - self.ts_star[:-1]) * 1e-6
+        else:
+            self.ts = gpl.genphotonlist(Ic, Is, Ir, Ttot, tau, deadtime*10.**6., return_IDs)
+            self.dt = (self.ts[1:] - self.ts[:-1]) * 1e-6
 
-    def get_cube(self):
+    def get_cube(self, Ic_list=None, Is_list=None, Ir_list=None):
+        if Ic_list is not None:
+            self.Ic_list=Ic_list
+        if Is_list is not None:
+            self.Is_list=Is_list
+        if Ir_list is not None:
+            self.Ir_list=Ir_list
         if len(self.Ic_list) < 2 or len(self.Is_list) < 2 or len(self.Ir_list) < 2:
             print('one of the lists has a length < 2')
             return
         self.cube = binMR.logL_cube(self.ts, self.Ic_list, self.Is_list, self.Ir_list, partial_cube=True)
 
 
-    def find_max_like(self):
+    def find_max_like(self, p0=None):
+        if p0 is not None: self.p0=p0
         if self.p0.size == 0:
             print('you need to define a seed: self.p0')
             return
