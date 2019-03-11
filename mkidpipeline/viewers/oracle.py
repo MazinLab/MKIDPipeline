@@ -9,6 +9,10 @@ Created on Mon Jan 29 16:28:30 2018
 GO TO THE ENCLOSING DIRECTORY AND RUN IT FROM THE TERMINAL WITH THE FOLLOWING COMMAND:
 python oracle.py
 
+optional arguments: path to file you want to look at. It works with .h5, .bin, and .img
+
+python oracle.py /path/to/bin/file.bin
+
 """
 
 import matplotlib
@@ -25,6 +29,7 @@ from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import pyqtSignal
 from mkidpipeline.hdf.photontable import ObsFile
 import mkidpipeline.hdf.binparse as binparse
+from mkidpipeline.badpix import hpm_flux_threshold as hft
 from scipy.optimize import curve_fit
 from scipy import optimize
 import os.path
@@ -33,6 +38,46 @@ import mkidpipeline.speckle.optimize_IcIsIr as binfree
 from scipy.special import factorial
 import time
 import datetime
+import multiprocessing
+
+
+
+
+
+
+
+def ssd_worker(args):
+    # print('args = ', args)
+    print('ssd_worker started: ', multiprocessing.current_process())
+    photontable, beamImage, startLambda, stopLambda, startTime, integrationTime, coord_list = args
+
+    ssd_param_list = []
+    for pix in coord_list:
+        row, col = pix
+
+        ts = photontable[np.logical_and(photontable['ResID'] == beamImage[col][row], np.logical_and(
+            np.logical_and(photontable['Wavelength'] > startLambda, photontable['Wavelength'] < stopLambda),
+            np.logical_and(photontable['Time'] > startTime * 1e6,
+                           photontable['Time'] < integrationTime * 1e6)))]['Time'] * 1e-6
+
+        if row == -1 and col == -1:
+            ssd_param_list.append([0, 0, 0])
+            continue
+        else:
+            dt = (ts[1:] - ts[:-1])
+            deadtime = 0
+
+            # get the bin-free fit of Ic, Is Ip
+            I = 1 / np.mean(dt)
+            p0 = I * np.ones(3) / 3.
+            Ic, Is, Ip = optimize.minimize(binfree.loglike, p0, (dt, deadtime),
+                                   method='Newton-CG', jac=binfree._jacobean, hess=binfree._hessian).x
+            ssd_param_list.append([Ic,Is,Ip])
+
+    # print('ssd_param_list = ', ssd_param_list)
+    print('ssd_worker finished', multiprocessing.current_process())
+    return ssd_param_list
+
 
 
 
@@ -184,23 +229,19 @@ class subWindow(QMainWindow):
         else:
             wvlStart=self.spinbox_startLambda.value()
             wvlStop=self.spinbox_stopLambda.value()
-            t1 = time.time()
+            # t1 = time.time()
 
             # it's WAY faster to not specify start/stop wavelengths. If that cut isn't
             # necessary, don't specify those keywords.
             if wvlStart==self.minLambda and wvlStop==self.maxLambda:
                 photonList = self.a.getPixelPhotonList(xCoord=self.activePixel[0], yCoord=self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value())
-                cmd = 'photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value())'
             elif wvlStart==self.minLambda:
                 photonList = self.a.getPixelPhotonList(xCoord=self.activePixel[0], yCoord=self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart=self.spinbox_startLambda.value())
-                cmd = 'photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart=self.spinbox_startLambda.value())'
             elif wvlStop==self.maxLambda:
                 photonList = self.a.getPixelPhotonList(xCoord=self.activePixel[0], yCoord=self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStop=self.spinbox_stopLambda.value())
-                cmd = 'photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStop=self.spinbox_stopLambda.value())'
             else:
                 photonList = self.a.getPixelPhotonList(xCoord=self.activePixel[0], yCoord=self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart=self.spinbox_startLambda.value(),wvlStop=self.spinbox_stopLambda.value())
-                cmd = 'photonList = self.a.getPixelPhotonList(self.activePixel[0], self.activePixel[1], firstSec = self.spinbox_startTime.value(), integrationTime=self.spinbox_integrationTime.value(), wvlStart=self.spinbox_startLambda.value(),wvlStop=self.spinbox_stopLambda.value())'
-            t2 = time.time()
+            # t2 = time.time()
 
             # print('\ncmd = ' + cmd)
             # print('\nTime to getPixelPhotonList(): ', t2 - t1)
@@ -220,10 +261,6 @@ class timeStream(subWindow):
         self.setWindowTitle("Light Curve")
         self.plotData()
         self.draw()
-
-
-
-
 
     def plotData(self):
         self.ax.clear()
@@ -448,6 +485,7 @@ class main_window(QMainWindow):
         self.rawCountsImage = np.zeros(self.n_row*self.n_col).reshape((self.n_row,self.n_col))
         self.counts_image = np.zeros(self.n_row*self.n_col).reshape((self.n_row,self.n_col))
         self.hotPixMask = np.zeros(self.n_row*self.n_col).reshape((self.n_row,self.n_col))
+        self.image_mask = np.zeros(self.n_row*self.n_col).reshape((self.n_row,self.n_col))
         self.hotPixCut = 2300
         self.image = np.zeros(self.n_row*self.n_col).reshape((self.n_row,self.n_col))
         self.activePixel = [0,0] # [x, y] = [col, row]
@@ -470,7 +508,7 @@ class main_window(QMainWindow):
                 self.initialize_empty_arrays(len(self.a.beamImage),len(self.a.beamImage[0]))
                 self.beamFlagImage = np.transpose(self.a.beamFlagImage.read())
                 self.beamFlagMask = self.beamFlagImage==0  #make a mask. 0 for good beam map
-                self.makeHotPixMask()
+                self.make_hot_pix_mask()
                 self.radio_button_beamFlagImage.setChecked(True)
                 self.call_plot_method()
                 # set the max integration time to the h5 exp time in the header
@@ -603,6 +641,19 @@ class main_window(QMainWindow):
         self.draw()
 
 
+    def switch_mask_on_off(self):
+        self.ax1.clear()
+
+        if self.checkbox_apply_mask.isChecked():
+            # switching on
+            self.image = self.rawCountsImage*self.image_mask
+        else:
+            # switching off
+            self.image = self.rawCountsImage
+
+        self.update_color_bar_limit()
+
+
 
 
 
@@ -625,13 +676,27 @@ class main_window(QMainWindow):
                                                  wvlStop=self.spinbox_stopLambda.value())
                 print('\nTime for getPixelCountImage = ', time.time() - t1)
                 self.rawCountsImage = np.transpose(temp['image'])
-                self.image = np.copy(self.rawCountsImage)
+                if self.checkbox_apply_mask.isChecked():
+                    self.image = self.rawCountsImage*self.image_mask
+                else:
+                    self.image = np.copy(self.rawCountsImage)
                 # self.image[np.where(np.logical_not(np.isfinite(self.image)))] = 0
-                # self.image = np.copy(1.0 * self.image / self.spinbox_integrationTime.value())
+                self.image = np.copy(1.0 * self.image / self.spinbox_integrationTime.value())
             elif type(self.a).__name__ == 'ParsedBin':
-                self.image = np.copy(self.a.getPixelCountImage())
+                self.rawCountsImage = self.a.getPixelCountImage()
+                if self.checkbox_apply_mask.isChecked():
+                    print(self.rawCountsImage)
+                    print(self.image_mask)
+                    self.image = self.rawCountsImage*self.image_mask
+                else:
+                    self.image = np.copy(self.rawCountsImage)
+                    self.image = np.copy(1.0 * self.image / self.spinbox_integrationTime.value())
             elif type(self.a).__name__ == 'img_object':
-                self.image = np.copy(self.a.getPixelCountImage())
+                self.rawCountsImage = self.a.getPixelCountImage()
+                if self.checkbox_apply_mask.isChecked():
+                    self.image = self.rawCountsImage*self.image_mask
+                else:
+                    self.image = np.copy(self.rawCountsImage)
             else:
                 print('unrecognized object type: type(self.a).__name__ = ',type(self.a).__name__)
 
@@ -661,6 +726,11 @@ class main_window(QMainWindow):
 
 
 
+
+
+
+
+
     def plot_ssd_image(self):
         # check if obsfile object exists
         try:
@@ -670,68 +740,147 @@ class main_window(QMainWindow):
             return
         else:
             self.ax1.clear() # clear the axes
+            # print('self.image_mask = ',self.image_mask)
 
-            for col in range(self.n_col):
-                print(f'column: {col}')
-                for row in range(self.n_row):
+            # make a list of tuples containing the row, col of every good pixel we want to do SSD on
+            temp = np.argwhere(self.image_mask == 1)
+            # print('temp = ',temp)
+            coord_list = []
+            for el in temp: coord_list.append((el[0], el[1])) # coord_list is a list of tuples
 
-                    # if col < 98 or col > 101 or row < 63 or row > 65:
-                    #     continue
+            n_good_pix = len(coord_list)
+            # print('n_good_pix = ', n_good_pix)
+            n_cpu = multiprocessing.cpu_count() - 2
+            # print('n_cpu = ',n_cpu)
+            for ii in range(n_good_pix%n_cpu):
+                coord_list.append((-1,-1))
+            n = -(-n_good_pix//n_cpu) # ceiling division to get number of pixels to give to each process
+            # print('n = ', n)
+            # print('coord_list[0:10] = ', coord_list[0:10])
+            # print('coord_list[-10:-1] = ', coord_list[-10:-1])
+            params = [] # params will be a list of tuples
+            for cpu_number in range(n_cpu):
+                # print('coord_list[cpu_number*n:(cpu_number+1)*n] = ', coord_list[cpu_number*n:(cpu_number+1)*n])
+                params.append(tuple([self.photontable, self.a.beamImage, self.spinbox_startLambda.value(),
+                                     self.spinbox_stopLambda.value(), self.spinbox_startTime.value(),
+                                     self.spinbox_integrationTime.value(), coord_list[cpu_number*n:(cpu_number+1)*n]]))
+            # photontable, beamImage, startLambda, stopLambda, startTime, integrationTime, coord_list = args
+            t1 = time.time()
+            pool = multiprocessing.Pool(n_cpu)
+            foo = pool.map(ssd_worker,params)
+            t2 = time.time()
+            print('time for ssd calcs: ', t2 - t1)
+            # print('foo = ', foo)
+            flat_list = [item for sublist in foo for item in sublist]
+            # print('flat_list = ', flat_list)
+            # print(len(flat_list))
+            # print(n_good_pix)
 
-                    if self.beamFlagImage[row][col] !=0:
-                        continue
+            ssd_param_array = flat_list[0:n_good_pix]
+            # print(ssd_param_array)
+            # for ii, el in enumerate(coord_list):
+            #     if ii > n_good_pix-1:
+            #         break
+            #     # print(ii)
+            #     row, col = el
+            #     try:
+            #         self.Ic_map[row, col] = ssd_param_array[ii][0]
+            #         self.Is_map[row, col] = ssd_param_array[ii][1]
+            #         self.Ip_map[row, col] = ssd_param_array[ii][2]
+            #     except:
+            #         print('row, col, ii = ', row, col, ii)
+            #         print('len(ssd_param_array)', len(ssd_param_array))
+            #
 
-                    ts = self.photontable[np.logical_and(self.photontable['ResID'] == self.a.beamImage[col][row],np.logical_and(np.logical_and(self.photontable['Wavelength']> self.spinbox_startLambda.value(), self.photontable['Wavelength']< self.spinbox_stopLambda.value()),    np.logical_and(self.photontable['Time']> self.spinbox_startTime.value()*1e6, self.photontable['Time']< self.spinbox_integrationTime.value()*1e6)))]['Time']*1e-6
+            for ii, el in enumerate(ssd_param_array):
+                row, col = coord_list[ii]
+                try:
+                    self.Ic_map[row, col] = el[0]
+                    self.Is_map[row, col] = el[1]
+                    self.Ip_map[row, col] = el[2]
+                except:
+                    print('row, col, ii, el = ', row, col, ii, el)
+                    print('len(ssd_param_array)', len(ssd_param_array))
 
-                    # for testing in ipython
-                    # junk = photontable[np.logical_and(photontable['ResID'] == a.beamImage[99][64], np.logical_and(
-                    #     np.logical_and(photontable['Wavelength'] > 900,
-                    #                    photontable['Wavelength'] < 1140),
-                    #     np.logical_and(photontable['Time'] > 0 * 1e6,
-                    #                    photontable['Time'] < 30 * 1e6)))]
 
-                    # print(f'first 3 timestamps for pixel (col,row) = ({col},{row}): {ts[0:3]}')
 
-                    if len(ts) == 0:
-                        # skip this pixel and move on to the next one
-                        print('photon list has zero length')
-                        continue
-
-                    # ts = self.photonList['Time'] / 1e6  # timestamps in seconds
-                    dt = (ts[1:] - ts[:-1])
-                    deadtime = 0
-
-                    # get the bin-free fit of Ic, Is Ip
-                    I = 1 / np.mean(dt)
-                    p0 = I * np.ones(3) / 3.
-                    Ic, Is, Ip = optimize.minimize(binfree.loglike, p0, (dt, deadtime),
-                                           method='Newton-CG', jac=binfree._jacobean, hess=binfree._hessian).x
-
-                    # print(f'Ic, Is, Ip: {Ic:.2}, {Is:.2}, {Ip:.2}')
-                    self.Ic_map[row][col] = Ic
-                    self.Is_map[row][col] = Is
-                    self.Ip_map[row][col] = Ip
+            # for col in range(self.n_col):
+            #     print(f'column: {col}')
+            #     for row in range(self.n_row):
+            #
+            #         # if col < 98 or col > 101 or row < 63 or row > 65:
+            #         #     continue
+            #
+            #         if self.beamFlagImage[row][col] !=0:
+            #             continue
+            #
+            #         ts = self.photontable[np.logical_and(self.photontable['ResID'] == self.a.beamImage[col][row],np.logical_and(np.logical_and(self.photontable['Wavelength']> self.spinbox_startLambda.value(), self.photontable['Wavelength']< self.spinbox_stopLambda.value()),    np.logical_and(self.photontable['Time']> self.spinbox_startTime.value()*1e6, self.photontable['Time']< self.spinbox_integrationTime.value()*1e6)))]['Time']*1e-6
+            #
+            #         # for testing in ipython
+            #         # junk = photontable[np.logical_and(photontable['ResID'] == a.beamImage[99][64], np.logical_and(
+            #         #     np.logical_and(photontable['Wavelength'] > 900,
+            #         #                    photontable['Wavelength'] < 1140),
+            #         #     np.logical_and(photontable['Time'] > 0 * 1e6,
+            #         #                    photontable['Time'] < 30 * 1e6)))]
+            #
+            #         # print(f'first 3 timestamps for pixel (col,row) = ({col},{row}): {ts[0:3]}')
+            #
+            #         if len(ts) == 0:
+            #             # skip this pixel and move on to the next one
+            #             print('photon list has zero length')
+            #             continue
+            #
+            #         # ts = self.photonList['Time'] / 1e6  # timestamps in seconds
+            #         dt = (ts[1:] - ts[:-1])
+            #         deadtime = 0
+            #
+            #         # get the bin-free fit of Ic, Is Ip
+            #         I = 1 / np.mean(dt)
+            #         p0 = I * np.ones(3) / 3.
+            #         Ic, Is, Ip = optimize.minimize(binfree.loglike, p0, (dt, deadtime),
+            #                                method='Newton-CG', jac=binfree._jacobean, hess=binfree._hessian).x
+            #
+            #         # print(f'Ic, Is, Ip: {Ic:.2}, {Is:.2}, {Ip:.2}')
+            #         self.Ic_map[row][col] = Ic
+            #         self.Is_map[row][col] = Is
+            #         self.Ip_map[row][col] = Ip
             self.IcIs_map = self.Ic_map/self.Is_map
             self.IcIs_map[np.logical_not(np.isfinite(self.IcIs_map))] = 0
 
             if self.radio_button_ic.isChecked():
-                self.image = np.copy(self.Ic_map)
+                self.rawCountsImage = self.Ic_map
+                if self.checkbox_apply_mask.isChecked():
+                    self.image = self.rawCountsImage*self.image_mask
+                else:
+                    self.image = np.copy(self.rawCountsImage)
             elif self.radio_button_is.isChecked():
-                self.image = np.copy(self.Is_map)
+                self.rawCountsImage = self.Is_map
+                if self.checkbox_apply_mask.isChecked():
+                    self.image = self.rawCountsImage*self.image_mask
+                else:
+                    self.image = np.copy(self.rawCountsImage)
             elif self.radio_button_ip.isChecked():
-                self.image = np.copy(self.Ip_map)
+                self.rawCountsImage = self.Ip_map
+                if self.checkbox_apply_mask.isChecked():
+                    self.image = self.rawCountsImage*self.image_mask
+                else:
+                    self.image = np.copy(self.rawCountsImage)
             elif self.radio_button_ic_is.isChecked():
-                self.image = np.copy(self.Ic_map/self.IsMap)
+                self.rawCountsImage = self.Ic_map/self.IsMap
+                if self.checkbox_apply_mask.isChecked():
+                    self.image = self.rawCountsImage*self.image_mask
+                else:
+                    self.image = np.copy(self.rawCountsImage)
             else:
                 print('not sure how we got here')
                 return
 
 
 
-            # self.image[np.where(np.logical_not(np.isfinite(self.image)))]=0
-            # self.image = self.rawCountsImage*self.beamFlagMask
-            # self.image = self.rawCountsImage*self.beamFlagMask*self.hotPixMask
-            # self.image = 1.0*self.image/self.spinbox_integrationTime.value()
+            # # self.image[np.where(np.logical_not(np.isfinite(self.image)))]=0
+            # # self.image = self.rawCountsImage*self.beamFlagMask
+            # # self.image = self.rawCountsImage*self.beamFlagMask*self.hotPixMask
+            # # self.image = 1.0*self.image/self.spinbox_integrationTime.value()
 
             # self.cbarLimits = np.array([np.amin(self.image),np.amax(self.image)])
 
@@ -780,6 +929,11 @@ class main_window(QMainWindow):
         self.ax1.clear()
 
         self.image = np.copy(image)
+        self.rawCountsImage = image
+        if self.checkbox_apply_mask.isChecked():
+            self.image = self.rawCountsImage * self.image_mask
+        else:
+            self.image = np.copy(self.rawCountsImage)
 
         self.ax1.imshow(self.image, interpolation='none', vmin=self.cbarLimits[0], vmax=self.cbarLimits[1])
 
@@ -828,14 +982,44 @@ class main_window(QMainWindow):
 
 
 
-    def makeHotPixMask(self):
+    def make_hot_pix_mask(self):
         # if self.hotPixMask[row][col] = 0, it's a hot pixel. If 1, it's good.
-        temp = self.a.getPixelCountImage(firstSec = 0, integrationTime=1,applyWeight=False,flagToUse = 0)
-        rawCountsImage = np.transpose(temp['image'])
-        for col in range(self.n_col):
-            for row in range(self.n_row):
-                if rawCountsImage[row][col] < self.hotPixCut:
-                    self.hotPixMask[row][col] = 1
+        # temp = self.a.getPixelCountImage(firstSec = 0, integrationTime=1,applyWeight=False,flagToUse = 0)
+        # rawCountsImage = np.transpose(temp['image'])
+        # for col in range(self.n_col):
+        #     for row in range(self.n_row):
+        #         if rawCountsImage[row][col] < self.hotPixCut:
+        #             self.hotPixMask[row][col] = 1
+
+        print('making hot pixel mask')
+
+        data = self.a.getPixelCountImage(wvlStart=900, wvlStop=1140)
+        dead_mask = data['image'] == 0 # dead_mask = True for dead pixels
+        hpcal = hft(data['image'], fwhm=4, dead_mask=dead_mask)
+        self.hotPixMask = hpcal['hot_mask']
+
+        # print('dead_mask = ', dead_mask)
+        # print('self.hotPixMask = ', self.hotPixMask)
+
+        # self.image_mask = 1 for good pixels, 0 for bad
+        self.image_mask = np.logical_and(np.logical_not(np.nan_to_num(self.hotPixMask.T)), np.logical_not(dead_mask.T))  #TODO: I think there's a problem here.
+
+        # plt.imshow(dead_mask.T)
+        # plt.title('dead_mask.T')
+        # plt.show()
+        #
+        # plt.imshow(self.hotPixMask.T)
+        # plt.title('self.hotPixMask.T')
+        # plt.show()
+        #
+        # plt.imshow(self.image_mask)
+        # plt.title('self.image_mask')
+        # plt.show()
+
+        # print('self.image_mask = ', self.image_mask)
+
+        # hpcal[‘image’]= HP masked image
+        # hpcal['hot_mask'] = HPM. True if a HotPix, False if Not a Hot Pix
 
 
 
@@ -859,6 +1043,12 @@ class main_window(QMainWindow):
         button_plot.setEnabled(True)
         button_plot.setToolTip('Click to update image.')
         button_plot.clicked.connect(self.call_plot_method)
+
+        # checkbox for applying pixel mask
+        self.checkbox_apply_mask = QCheckBox()
+        self.checkbox_apply_mask.setChecked(False)
+        self.checkbox_apply_mask.stateChanged.connect(self.switch_mask_on_off)
+        label_apply_mask = QLabel('Apply pixel mask')
 
         # spinboxes for the start & stop times
         self.spinbox_startTime = QDoubleSpinBox()
@@ -933,7 +1123,7 @@ class main_window(QMainWindow):
         vbox_lambda.addWidget(self.label_stopLambda)
         vbox_lambda.addWidget(self.spinbox_stopLambda)
 
-        # create an h box for the buttons
+        # create an h box for the button
         hbox_buttons = QHBoxLayout()
         hbox_buttons.addWidget(button_plot)
 
@@ -942,8 +1132,14 @@ class main_window(QMainWindow):
         hbox_time_lambda.addLayout(vbox_timespan)
         hbox_time_lambda.addLayout(vbox_lambda)
 
+        # create h box for mask checkbox and label
+        hbox_mask = QHBoxLayout()
+        hbox_mask.addWidget(label_apply_mask)
+        hbox_mask.addWidget(self.checkbox_apply_mask)
+
         # create a v box combining spinboxes and buttons
         vbox_time_lambda_buttons = QVBoxLayout()
+        vbox_time_lambda_buttons.addLayout(hbox_mask)
         vbox_time_lambda_buttons.addLayout(hbox_time_lambda)
         vbox_time_lambda_buttons.addLayout(hbox_buttons)
 
