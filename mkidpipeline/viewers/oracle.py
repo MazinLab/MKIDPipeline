@@ -47,7 +47,6 @@ import multiprocessing
 
 
 def ssd_worker(args):
-    # print('args = ', args)
     print('ssd_worker started: ', multiprocessing.current_process())
     photontable, beamImage, startLambda, stopLambda, startTime, integrationTime, coord_list = args
 
@@ -65,8 +64,7 @@ def ssd_worker(args):
             continue
         else:
             dt = (ts[1:] - ts[:-1])
-            deadtime = 0
-
+            deadtime = 1e-5 # TODO: get rid of this hard-coding
             # get the bin-free fit of Ic, Is Ip
             I = 1 / np.mean(dt)
             p0 = I * np.ones(3) / 3.
@@ -74,7 +72,6 @@ def ssd_worker(args):
                                    method='Newton-CG', jac=binfree._jacobean, hess=binfree._hessian).x
             ssd_param_list.append([Ic,Is,Ip])
 
-    # print('ssd_param_list = ', ssd_param_list)
     print('ssd_worker finished', multiprocessing.current_process())
     return ssd_param_list
 
@@ -412,10 +409,9 @@ class pulseHeightHistogram(subWindow):
 
         pulseHeights = self.a.getPixelPhotonList(xCoord=self.activePixel[0], yCoord=self.activePixel[1])['Wavelength']
 
-        hist,binEdges = np.histogram(pulseHeights,bins=100)
+        hist,binEdges = np.histogram(pulseHeights,bins=50)
 
         binCenters = np.diff(binEdges)/2 + binEdges[:-1]
-
 
         self.ax.bar(binCenters,hist)
         self.ax.set_xlabel('raw phase [uncalibrated degrees]')
@@ -495,7 +491,6 @@ class main_window(QMainWindow):
 
 
     def load_data_from_h5(self,*args):
-        # a = ObsFile('/Users/clint/Documents/mazinlab/ScienceData/PAL2017b/20171004/1507175503.h5')
         if os.path.isfile(self.filename):
             try:
                 self.a = ObsFile(self.filename)
@@ -655,8 +650,6 @@ class main_window(QMainWindow):
 
 
 
-
-
     def plot_count_image(self,*args):
         # check if file object exists
         try:
@@ -671,7 +664,8 @@ class main_window(QMainWindow):
             if type(self.a).__name__ == 'ObsFile':
                 t1 = time.time()
                 temp = self.a.getPixelCountImage(firstSec=self.spinbox_startTime.value(),
-                                                 integrationTime=self.spinbox_integrationTime.value(), applyWeight=False, flagToUse=0,
+                                                 integrationTime=self.spinbox_integrationTime.value(),
+                                                 applyWeight=False, flagToUse=0,
                                                  wvlStart=self.spinbox_startLambda.value(),
                                                  wvlStop=self.spinbox_stopLambda.value())
                 print('\nTime for getPixelCountImage = ', time.time() - t1)
@@ -744,53 +738,26 @@ class main_window(QMainWindow):
 
             # make a list of tuples containing the row, col of every good pixel we want to do SSD on
             temp = np.argwhere(self.image_mask == 1)
-            # print('temp = ',temp)
             coord_list = []
             for el in temp: coord_list.append((el[0], el[1])) # coord_list is a list of tuples
 
             n_good_pix = len(coord_list)
-            # print('n_good_pix = ', n_good_pix)
             n_cpu = multiprocessing.cpu_count() - 2
-            # print('n_cpu = ',n_cpu)
             for ii in range(n_good_pix%n_cpu):
                 coord_list.append((-1,-1))
             n = -(-n_good_pix//n_cpu) # ceiling division to get number of pixels to give to each process
-            # print('n = ', n)
-            # print('coord_list[0:10] = ', coord_list[0:10])
-            # print('coord_list[-10:-1] = ', coord_list[-10:-1])
             params = [] # params will be a list of tuples
             for cpu_number in range(n_cpu):
-                # print('coord_list[cpu_number*n:(cpu_number+1)*n] = ', coord_list[cpu_number*n:(cpu_number+1)*n])
                 params.append(tuple([self.photontable, self.a.beamImage, self.spinbox_startLambda.value(),
                                      self.spinbox_stopLambda.value(), self.spinbox_startTime.value(),
                                      self.spinbox_integrationTime.value(), coord_list[cpu_number*n:(cpu_number+1)*n]]))
-            # photontable, beamImage, startLambda, stopLambda, startTime, integrationTime, coord_list = args
             t1 = time.time()
             pool = multiprocessing.Pool(n_cpu)
             foo = pool.map(ssd_worker,params)
             t2 = time.time()
             print('time for ssd calcs: ', t2 - t1)
-            # print('foo = ', foo)
             flat_list = [item for sublist in foo for item in sublist]
-            # print('flat_list = ', flat_list)
-            # print(len(flat_list))
-            # print(n_good_pix)
-
             ssd_param_array = flat_list[0:n_good_pix]
-            # print(ssd_param_array)
-            # for ii, el in enumerate(coord_list):
-            #     if ii > n_good_pix-1:
-            #         break
-            #     # print(ii)
-            #     row, col = el
-            #     try:
-            #         self.Ic_map[row, col] = ssd_param_array[ii][0]
-            #         self.Is_map[row, col] = ssd_param_array[ii][1]
-            #         self.Ip_map[row, col] = ssd_param_array[ii][2]
-            #     except:
-            #         print('row, col, ii = ', row, col, ii)
-            #         print('len(ssd_param_array)', len(ssd_param_array))
-            #
 
             for ii, el in enumerate(ssd_param_array):
                 row, col = coord_list[ii]
@@ -802,48 +769,6 @@ class main_window(QMainWindow):
                     print('row, col, ii, el = ', row, col, ii, el)
                     print('len(ssd_param_array)', len(ssd_param_array))
 
-
-
-            # for col in range(self.n_col):
-            #     print(f'column: {col}')
-            #     for row in range(self.n_row):
-            #
-            #         # if col < 98 or col > 101 or row < 63 or row > 65:
-            #         #     continue
-            #
-            #         if self.beamFlagImage[row][col] !=0:
-            #             continue
-            #
-            #         ts = self.photontable[np.logical_and(self.photontable['ResID'] == self.a.beamImage[col][row],np.logical_and(np.logical_and(self.photontable['Wavelength']> self.spinbox_startLambda.value(), self.photontable['Wavelength']< self.spinbox_stopLambda.value()),    np.logical_and(self.photontable['Time']> self.spinbox_startTime.value()*1e6, self.photontable['Time']< self.spinbox_integrationTime.value()*1e6)))]['Time']*1e-6
-            #
-            #         # for testing in ipython
-            #         # junk = photontable[np.logical_and(photontable['ResID'] == a.beamImage[99][64], np.logical_and(
-            #         #     np.logical_and(photontable['Wavelength'] > 900,
-            #         #                    photontable['Wavelength'] < 1140),
-            #         #     np.logical_and(photontable['Time'] > 0 * 1e6,
-            #         #                    photontable['Time'] < 30 * 1e6)))]
-            #
-            #         # print(f'first 3 timestamps for pixel (col,row) = ({col},{row}): {ts[0:3]}')
-            #
-            #         if len(ts) == 0:
-            #             # skip this pixel and move on to the next one
-            #             print('photon list has zero length')
-            #             continue
-            #
-            #         # ts = self.photonList['Time'] / 1e6  # timestamps in seconds
-            #         dt = (ts[1:] - ts[:-1])
-            #         deadtime = 0
-            #
-            #         # get the bin-free fit of Ic, Is Ip
-            #         I = 1 / np.mean(dt)
-            #         p0 = I * np.ones(3) / 3.
-            #         Ic, Is, Ip = optimize.minimize(binfree.loglike, p0, (dt, deadtime),
-            #                                method='Newton-CG', jac=binfree._jacobean, hess=binfree._hessian).x
-            #
-            #         # print(f'Ic, Is, Ip: {Ic:.2}, {Is:.2}, {Ip:.2}')
-            #         self.Ic_map[row][col] = Ic
-            #         self.Is_map[row][col] = Is
-            #         self.Ip_map[row][col] = Ip
             self.IcIs_map = self.Ic_map/self.Is_map
             self.IcIs_map[np.logical_not(np.isfinite(self.IcIs_map))] = 0
 
@@ -875,15 +800,7 @@ class main_window(QMainWindow):
                 print('not sure how we got here')
                 return
 
-
-
-            # # self.image[np.where(np.logical_not(np.isfinite(self.image)))]=0
-            # # self.image = self.rawCountsImage*self.beamFlagMask
-            # # self.image = self.rawCountsImage*self.beamFlagMask*self.hotPixMask
-            # # self.image = 1.0*self.image/self.spinbox_integrationTime.value()
-
-            # self.cbarLimits = np.array([np.amin(self.image),np.amax(self.image)])
-
+            self.cbarLimits = np.array([np.amin(self.image),np.amax(self.image)])
             self.ax1.imshow(self.image,interpolation='none',vmin = self.cbarLimits[0],vmax = self.cbarLimits[1])
 
             self.fig.cbar.set_clim(self.cbarLimits[0],self.cbarLimits[1])
@@ -892,7 +809,6 @@ class main_window(QMainWindow):
             self.ax1.set_title('SSD image')
 
             # self.ax1.axis('off')
-
             # self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
 
             self.draw()
@@ -915,7 +831,6 @@ class main_window(QMainWindow):
         self.ax1.set_title('some generated noise...')
 
         # self.ax1.axis('off')
-
         # self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
 
         self.draw()
@@ -946,7 +861,6 @@ class main_window(QMainWindow):
             self.ax1.set_title('')
 
         # self.ax1.axis('off')
-
         # self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
 
         self.draw()
@@ -980,17 +894,7 @@ class main_window(QMainWindow):
 
 
 
-
-
     def make_hot_pix_mask(self):
-        # if self.hotPixMask[row][col] = 0, it's a hot pixel. If 1, it's good.
-        # temp = self.a.getPixelCountImage(firstSec = 0, integrationTime=1,applyWeight=False,flagToUse = 0)
-        # rawCountsImage = np.transpose(temp['image'])
-        # for col in range(self.n_col):
-        #     for row in range(self.n_row):
-        #         if rawCountsImage[row][col] < self.hotPixCut:
-        #             self.hotPixMask[row][col] = 1
-
         print('making hot pixel mask')
 
         data = self.a.getPixelCountImage(wvlStart=900, wvlStop=1140)
@@ -998,29 +902,8 @@ class main_window(QMainWindow):
         hpcal = hft(data['image'], fwhm=4, dead_mask=dead_mask)
         self.hotPixMask = hpcal['hot_mask']
 
-        # print('dead_mask = ', dead_mask)
-        # print('self.hotPixMask = ', self.hotPixMask)
-
         # self.image_mask = 1 for good pixels, 0 for bad
-        self.image_mask = np.logical_and(np.logical_not(np.nan_to_num(self.hotPixMask.T)), np.logical_not(dead_mask.T))  #TODO: I think there's a problem here.
-
-        # plt.imshow(dead_mask.T)
-        # plt.title('dead_mask.T')
-        # plt.show()
-        #
-        # plt.imshow(self.hotPixMask.T)
-        # plt.title('self.hotPixMask.T')
-        # plt.show()
-        #
-        # plt.imshow(self.image_mask)
-        # plt.title('self.image_mask')
-        # plt.show()
-
-        # print('self.image_mask = ', self.image_mask)
-
-        # hpcal[‘image’]= HP masked image
-        # hpcal['hot_mask'] = HPM. True if a HotPix, False if Not a Hot Pix
-
+        self.image_mask = np.logical_and(np.logical_not(np.nan_to_num(self.hotPixMask.T)), np.logical_not(dead_mask.T))
 
 
 
@@ -1031,7 +914,7 @@ class main_window(QMainWindow):
         # Define the plot window.
         self.main_frame = QWidget()
         self.dpi = 100
-        self.fig = Figure((5.0, 10.0), dpi=self.dpi, tight_layout=True) #define the figure, set the size and resolution
+        self.fig = Figure((5.0, 10.0), dpi=self.dpi, tight_layout=True) # define the figure, set the size and resolution
         self.canvas = FigureCanvas(self.fig)
         self.canvas.setParent(self.main_frame)
         self.ax1 = self.fig.add_subplot(111)
@@ -1231,12 +1114,11 @@ class main_window(QMainWindow):
 
 
     def mouse_pressed(self,event):
-        # print('\nclick event registered!\n')
         if event.inaxes is self.ax1:  #check if the mouse-click was within the axes.
             # print('%s click: button=%d, x=%d, y=%d, xdata=%f, ydata=%f' %('double' if event.dblclick else 'single', event.button,event.x, event.y, event.xdata, event.ydata))
 
             if event.button == 1:
-                # print('\nit was the left button that was pressed!\n')
+                # left mouse button
                 col = int(round(event.xdata))
                 row = int(round(event.ydata))
                 self.activePixel = [col,row]
@@ -1245,9 +1127,10 @@ class main_window(QMainWindow):
                 self.updateActivePix.emit()  # emit a signal for other plots to update
 
             elif event.button == 3:
+                # right mouse button
                 print('\nit was the right button that was pressed!\n')
 
-        elif event.inaxes is self.fig.cbar.ax:   #reset the scale bar
+        elif event.inaxes is self.fig.cbar.ax:   # reset the scale bar
             if event.button == 1:
                 self.cbarLimits = np.array([np.amin(self.image),np.amax(self.image)])
                 self.fig.cbar.set_clim(self.cbarLimits[0],self.cbarLimits[1])
@@ -1256,7 +1139,6 @@ class main_window(QMainWindow):
                 self.draw()
         else:
             pass
-
 
 
 
