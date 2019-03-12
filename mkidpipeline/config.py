@@ -130,6 +130,7 @@ class MKIDWavedataDescription(object):
     def __init__(self, data):
         self.data = data
         self.data.sort(key=lambda x: x.start)
+        self.wavelengths
 
     @property
     def timeranges(self):
