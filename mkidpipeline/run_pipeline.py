@@ -5,7 +5,6 @@ os.environ["TMPDIR"] = '/mnt/data0/tmp/'
 import tables.parameters
 tables.parameters.MAX_BLOSC_THREADS = 4
 
-from logging
 import mkidpipeline.pipeline as pipe
 
 datafile = '/scratch/baileyji/mec/data.yml'
@@ -21,6 +20,7 @@ pipe.getLogger('mkidpipeline.calibration.wavecal').setLevel('INFO')
 pipe.getLogger('mkidpipeline.hdf.photontable').setLevel('INFO')
 
 ncpu=20
+
 
 pipe.bin2hdf.buildtables(dataset.timeranges, ncpu=ncpu, remake=False, chunkshape=250)
 

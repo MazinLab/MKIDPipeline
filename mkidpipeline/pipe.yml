@@ -1,6 +1,7 @@
 !configdict
 badpix: median
 
+#TODO move this to data.yml? -Jeb
 beammap: !bmap
   file: /mnt/data0/baileyji/mec/finalMap_20181218.bmap
   freqfiles: /mnt/data0/baileyji/mec/psfreq_dec/ps_freqs_FL*_clip.txt
