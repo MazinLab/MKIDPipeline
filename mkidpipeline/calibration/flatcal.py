@@ -19,6 +19,7 @@ import os
 import time
 from datetime import datetime
 import multiprocessing as mp
+import warnings
 
 
 import matplotlib
@@ -111,13 +112,22 @@ class FlatCalibrator(object):
                 entry['x'] = iCol
                 entry['weight'] = self.flatWeights.data[iRow, iCol, :]
                 entry['err'] = self.deltaFlatWeights.data[iRow, iCol, :]
+                fittable=len(np.nonzero(entry['weight'])[0])>=len(self.wvlBinEdges)
                 if self.sol:  #TODO:  this is to deal with the different meaning of wvlbinedges between lasercal and WL Cal, fix when Lasercal's init is fixed
-                    entry['coeff'] = np.polyfit(self.wvlBinEdges, entry['weight'], poly_power, w=1 / entry['err'] ** 2)
+                    if fittable:
+                        entry['coeff'] = np.polyfit(self.wvlBinEdges, entry['weight'], poly_power,w=1 / entry['err'] ** 2)
+                    else:
+                        getLogger(__name__).debug('pixel{} {} failed: data size {}, data were {} all finite, errors were {} all finite'.format(
+                            int(iRow), int(iCol), len(np.nonzero(entry['weight'])[0]), 'not ' if not np.isfinite(entry['weight']).all() else '', 'not ' if not np.isfinite(entry['err']).all() else ''))
+                        entry['bad'] = True
                 else:
-                    entry['coeff'] = np.polyfit(self.wvlBinEdges[:-1]+np.diff(self.wvlBinEdges),
-                                            entry['weight'], poly_power, w=1/entry['err']**2)
-                entry['spectrum'] = self.countCubesToSave.data[iRow, iCol, :]
-                entry['bad'] = np.any(self.flatFlags[iRow, iCol, :])
+                    if fittable:
+                        entry['coeff'] = np.polyfit(self.wvlBinEdges[:-1] + np.diff(self.wvlBinEdges),
+                                                        entry['weight'], poly_power, w=1 / entry['err'] ** 2)
+                    else:
+                        getLogger(__name__).debug('pixel{} {} failed: data size {}, data were {} all finite, errors were {} all finite'.format(
+                            int(iRow), int(iCol), len(np.nonzero(entry['weight'])[0]), 'not ' if not np.isfinite(entry['weight']).all() else '', 'not ' if not np.isfinite(entry['err']).all() else ''))
+                        entry['bad'] = True
                 entry.append()
         flatCalFile.close()
         getLogger(__name__).info("Wrote to {}".format(self.flatCalFileName))
