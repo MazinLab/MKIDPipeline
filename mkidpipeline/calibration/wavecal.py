@@ -2493,7 +2493,7 @@ def fetch(solution_descriptors, config=None, ncpu=None, **kwargs):
             wcfg.register('exposure_times', [x.duration for x in sd.data], update=True)
             wcfg.register('wavelengths', [w for w in sd.wavelengths], update=True)
             if ncpu is not None:
-                wcfg.ncpu = ncpu
+                wcfg.update('ncpu', ncpu)
             cal = Calibrator(wcfg, solution_name=sf)
             cal.run(**kwargs)
             # solutions.append(load_solution(sf))  # don't need to reload from file
