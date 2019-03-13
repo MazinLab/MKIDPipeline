@@ -5,7 +5,7 @@ os.environ["TMPDIR"] = '/mnt/data0/tmp/'
 import tables.parameters
 tables.parameters.MAX_BLOSC_THREADS = 4
 
-import mkidpipeline.pipeline as pipe
+import mkidpipeline as pipe
 
 datafile = '/scratch/baileyji/mec/data.yml'
 cfgfile = '/scratch/baileyji/mec/pipe.yml'
