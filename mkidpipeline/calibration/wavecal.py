@@ -2476,13 +2476,13 @@ def load_solution(wc, singleton_ok=True):
     return _loaded_solutions[wc]
 
 
-def fetch(solution_descriptors, config=None, ncpu=None, **kwargs):
+def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
     cfg = mkidpipeline.config.config if config is None else config
 
     solutions = []
     for sd in solution_descriptors:
         sf = os.path.join(cfg.paths.database, sd.id)
-        if os.path.exists(sf):
+        if os.path.exists(sf) and not remake:
             solutions.append(load_solution(sf))
         else:
             if 'wavecal' not in cfg:
