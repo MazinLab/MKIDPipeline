@@ -19,8 +19,6 @@ import os
 import time
 from datetime import datetime
 import multiprocessing as mp
-import warnings
-
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -69,7 +67,8 @@ class FlatCalibrator(object):
             getLogger(__name__).info('Plotting Weights by Wvl Slices at WeightsWvlSlices_{0}'.format(self.startTime))
             self.plotWeightsWvlSlices()
             getLogger(__name__).info(
-                'Plotting Weights by Pixel against the Wavelength Solution at WeightsByPixel_{0}'.format(self.startTime))
+                'Plotting Weights by Pixel against the Wavelength Solution at WeightsByPixel_{0}'.format(
+                    self.startTime))
             self.plotWeightsByPixelWvlCompare()
 
         getLogger(__name__).info('Done')
@@ -100,10 +99,14 @@ class FlatCalibrator(object):
                      title='Twilight spectrum indexed by pixelRow,pixelCol,wavelengthBin')
         tables.Array(calgroup, 'flags', obj=self.flatFlags,
                      title='Flat cal flags indexed by pixelRow,pixelCol,wavelengthBin. 0 is Good')
-        tables.Array(calgroup, 'wavelengthBins', obj=self.wvlBinEdges.flatten(),
+        # TODO this is a misnomer not bins but wavelengths of the calibration
+        tables.Array(calgroup, 'wavelengthBins', obj=self.wavelengths,
                      title='Wavelength bin edges corresponding to third dimension of weights array')
-        descriptionDict = FlatCalSoln_Description(nWvlBins=self.wvlBinSize, max_power=poly_power)
-        caltable = flatCalFile.create_table(calgroup, 'calsoln', descriptionDict, title='Flat Cal Table')
+        descriptionDict = FlatCalSoln_Description(nWvlBins=len(self.wavelengths), max_power=poly_power)
+        caltable = flatCalFile.create_table(calgroup, 'calsoln', descriptionDict, title='Flat Cal Table',
+                                            expectedrows=self.xpix*self.ypix)
+        import warnings
+        warnings.filterwarnings('error')
         for iRow in range(self.xpix):
             for iCol in range(self.ypix):
                 entry = caltable.row
@@ -112,22 +115,14 @@ class FlatCalibrator(object):
                 entry['x'] = iCol
                 entry['weight'] = self.flatWeights.data[iRow, iCol, :]
                 entry['err'] = self.deltaFlatWeights.data[iRow, iCol, :]
-                fittable=len(np.nonzero(entry['weight'])[0])>=len(self.wvlBinEdges)
-                if self.sol:  #TODO:  this is to deal with the different meaning of wvlbinedges between lasercal and WL Cal, fix when Lasercal's init is fixed
-                    if fittable:
-                        entry['coeff'] = np.polyfit(self.wvlBinEdges, entry['weight'], poly_power,w=1 / entry['err'] ** 2)
-                    else:
-                        getLogger(__name__).debug('pixel{} {} failed: data size {}, data were {} all finite, errors were {} all finite'.format(
-                            int(iRow), int(iCol), len(np.nonzero(entry['weight'])[0]), 'not ' if not np.isfinite(entry['weight']).all() else '', 'not ' if not np.isfinite(entry['err']).all() else ''))
-                        entry['bad'] = True
+                fittable = (entry['weight'] != 0) & np.isfinite(entry['weight']+entry['err'])
+                if fittable.sum() < poly_power+1:
+                    entry['bad'] = True
                 else:
-                    if fittable:
-                        entry['coeff'] = np.polyfit(self.wvlBinEdges[:-1] + np.diff(self.wvlBinEdges),
-                                                        entry['weight'], poly_power, w=1 / entry['err'] ** 2)
-                    else:
-                        getLogger(__name__).debug('pixel{} {} failed: data size {}, data were {} all finite, errors were {} all finite'.format(
-                            int(iRow), int(iCol), len(np.nonzero(entry['weight'])[0]), 'not ' if not np.isfinite(entry['weight']).all() else '', 'not ' if not np.isfinite(entry['err']).all() else ''))
-                        entry['bad'] = True
+                    entry['coeff'] = np.polyfit(self.wavelengths[fittable], entry['weight'][fittable], poly_power,
+                                                w=1 / entry['err'][fittable] ** 2)
+                    entry['bad'] = self.flatFlags[iRow, iCol, :].any()
+                entry['spectrum'] = self.countCubesToSave.data[iRow, iCol, :]
                 entry.append()
         flatCalFile.close()
         getLogger(__name__).info("Wrote to {}".format(self.flatCalFileName))
@@ -152,9 +147,9 @@ class FlatCalibrator(object):
         for iCube, cube in enumerate(self.spectralCubes):
             effIntTime = self.cubeEffIntTimes[iCube]
             # for each time chunk
-            wvlAverages = np.zeros(self.wvlBinSize)
-            spectra2d = np.reshape(cube, [self.xpix * self.ypix, self.wvlBinSize])
-            for iWvl in range(self.wvlBinSize):
+            wvlAverages = np.zeros_like(self.wavelengths)
+            spectra2d = np.reshape(cube, (self.xpix * self.ypix, self.wavelengths.size))
+            for iWvl in range(self.wavelengths.size):
                 wvlSlice = spectra2d[:, iWvl]
                 goodPixelWvlSlice = np.array(wvlSlice[wvlSlice != 0])
                 # dead pixels need to be taken out before calculating averages
@@ -209,23 +204,19 @@ class FlatCalibrator(object):
                                                                      returned=True)
             self.countCubesToSave = np.ma.sum(self.countCubes, axis=0)
 
-        """
-        Uncertainty in weighted average is sqrt(1/sum(averagingWeights))
-        Normalize weights at each wavelength bin
-        """
-
+        # Uncertainty in weighted average is sqrt(1/sum(averagingWeights)), normalize weights at each wavelength bin
         self.deltaFlatWeights = np.sqrt(summedAveragingWeights ** -1.)
         self.flatFlags = self.flatWeights.mask
         self.checkForColdPix()
-        wvlWeightMedians = np.ma.median(np.reshape(self.flatWeights, (-1, self.wvlBinSize)), axis=0)
+        wvlWeightMedians = np.ma.median(np.reshape(self.flatWeights, (-1, self.wavelengths.size)), axis=0)
         self.flatWeights = np.divide(self.flatWeights, wvlWeightMedians)
         self.flatWeightsforplot = np.ma.sum(self.flatWeights, axis=-1)
 
     def checkForColdPix(self):
-        for iWvl in range(self.wvlBinSize):
-            weight_slice=self.flatWeights.data[:,:,iWvl]
-            err_slice=self.deltaFlatWeights.data[:,:,iWvl]
-            self.flatFlags[:,:,iWvl][weight_slice>=2]=True
+        for iWvl in range(self.wavelengths.size):
+            weight_slice = self.flatWeights.data[:, :, iWvl]
+            # err_slice=self.deltaFlatWeights.data[:,:,iWvl]
+            self.flatFlags[:, :, iWvl][weight_slice >= 2] = True
 
     def plotFitbyPixel(self, pixbox=50, poly_power=2):
         """
@@ -236,14 +227,14 @@ class FlatCalibrator(object):
         self._setupPlots()
         # path to your wavecal solution file
         matplotlib.rcParams['font.size'] = 3
-        wavelengths = self.wvlBinEdges[0:self.wvlBinSize]
+        wavelengths = self.wavelengths
         nCubes = len(self.maskedCubeWeights)
-        if pixbox==None:
-            xrange=self.xpix
-            yrange=self.ypix
+        if pixbox == None:
+            xrange = self.xpix
+            yrange = self.ypix
         else:
-            xrange=pixbox
-            yrange=pixbox
+            xrange = pixbox
+            yrange = pixbox
         for iRow in range(xrange):
             for iCol in range(yrange):
                 weights = self.flatWeights[iRow, iCol, :].data
@@ -254,10 +245,10 @@ class FlatCalibrator(object):
                     ax = self.fig.add_subplot(self.nPlotsPerCol, self.nPlotsPerRow, self.iPlot % self.nPlotsPerPage + 1)
                     ax.scatter(wavelengths, weights, label='weights', alpha=.7, color='green')
                     ax.errorbar(wavelengths, weights, yerr=errors, label='weights', color='k', fmt='o')
-                    ax.set_ylim(min(weights)-2*np.nanstd(weights), max(weights)+2*np.nanstd(weights))
-                    wavelengths_expanded=np.linspace(wavelengths.min(), wavelengths.max(), 1000)
+                    ax.set_ylim(min(weights) - 2 * np.nanstd(weights), max(weights) + 2 * np.nanstd(weights))
+                    wavelengths_expanded = np.linspace(wavelengths.min(), wavelengths.max(), 1000)
                     weights_expanded = np.poly1d(np.polyfit(wavelengths, weights, poly_power, w=1 / errors ** 2))(
-                            wavelengths_expanded)
+                        wavelengths_expanded)
                     ax.plot(wavelengths_expanded, weights_expanded)
                     ax.set_title('p %d,%d' % (iRow, iCol))
                     ax.set_ylabel('weight')
@@ -273,7 +264,7 @@ class FlatCalibrator(object):
                     ax = self.fig.add_subplot(self.nPlotsPerCol, self.nPlotsPerRow, self.iPlot % self.nPlotsPerPage + 1)
                     spectrum = self.countCubesToSave[iRow, iCol, :].data
                     ax.scatter(wavelengths, spectrum, label='spectrum', alpha=.7, color='green')
-                    ax.set_ylim(min(spectrum)-2*np.nanstd(spectrum), max(spectrum)+2*np.nanstd(spectrum))
+                    ax.set_ylim(min(spectrum) - 2 * np.nanstd(spectrum), max(spectrum) + 2 * np.nanstd(spectrum))
                     ax.set_title('p %d,%d' % (iRow, iCol))
                     ax.set_ylabel('spectrum')
                     ax.set_xlabel(r'$\lambda$ ($\AA$)')
@@ -295,7 +286,7 @@ class FlatCalibrator(object):
         self.plotName = 'WeightsWvlSlices_{0}'.format(self.startTime)
         self._setupPlots()
         matplotlib.rcParams['font.size'] = 4
-        wavelengths = self.wvlBinEdges[0:self.wvlBinSize]
+        wavelengths = self.wavelengths
         for iWvl, wvl in enumerate(wavelengths):
             if self.iPlot % self.nPlotsPerPage == 0:
                 self.fig = plt.figure(figsize=(10, 10), dpi=100)
@@ -315,7 +306,7 @@ class FlatCalibrator(object):
             vmax = np.nanmean(image) + 3 * np.nanstd(image)
             plt.imshow(image.T, cmap=plt.get_cmap('viridis'), origin='lower', vmin=0, vmax=vmax)
             plt.colorbar()
-            if self.sol and iWvl==len(wavelengths)-1:
+            if self.sol and iWvl == len(wavelengths) - 1:
                 pdf = PdfPages(os.path.join(self.out_directory, 'temp.pdf'))
                 pdf.savefig(self.fig)
                 pdf.close()
@@ -332,7 +323,6 @@ class FlatCalibrator(object):
                     plt.close('all')
                 self.iPlot += 1
         self._closePlots()
-
 
     def _setupPlots(self):
         """
@@ -435,7 +425,7 @@ class WhiteCalibrator(FlatCalibrator):
         self.beamImage = None
         self.wvlFlags = None
         self.wvlBinEdges = None
-        self.wvlBinSize = None
+        self.wavelengths = None
 
         self.logging = log
         self.save_plots = self.cfg.flatcal.plots.lower() == 'all'
@@ -469,8 +459,9 @@ class WhiteCalibrator(FlatCalibrator):
         self.xpix = self.obs.nXPix
         self.ypix = self.obs.nYPix
         self.wvlBinEdges = ObsFile.makeWvlBins(self.energyBinWidth, self.wvlStart, self.wvlStop)
-        self.wvlBinSize = self.wvlBinEdges.size - 1
-        self.sol=False
+        self.wavelengths = self.wvlBinEdges[: -1] + np.diff(self.wvlBinEdges)
+        self.wavelengths = self.wavelengths.flatten()
+        self.sol = False
 
     def loadFlatSpectra(self):
         """
@@ -488,7 +479,8 @@ class WhiteCalibrator(FlatCalibrator):
             cubeDict = self.obs.getSpectralCube(firstSec=firstSec, integrationTime=self.intTime, applySpecWeight=False,
                                                 applyTPFWeight=False, wvlBinEdges=self.wvlBinEdges)
             cube = cubeDict['cube'] / cubeDict['effIntTime'][:, :, None]
-            cube /= (1 - cube.sum(axis=2) * self.deadtime)[:, :, None]  #TODO:  remove when we have deadtime removal code in pipeline
+            cube /= (1 - cube.sum(axis=2) * self.deadtime)[:, :,
+                    None]  # TODO:  remove when we have deadtime removal code in pipeline
             bad = np.isnan(cube)  # TODO need to update maskes to note why these 0s appeared
             cube[bad] = 0
 
@@ -514,9 +506,8 @@ class LaserCalibrator(WhiteCalibrator):
         self.xpix = self.sol.cfg.x_pixels
         self.ypix = self.sol.cfg.y_pixels
         self.wave_list = self.sol.cfg.wavelengths
+        self.wavelengths = np.array(self.sol.cfg.wavelengths)
         self.wave_inttime_list = self.sol.cfg.exposure_times
-        self.wvlBinEdges = np.array(self.wave_list)
-        self.wvlBinSize = self.wvlBinEdges.size
 
     @property
     def wvl_medians(self):
@@ -579,13 +570,13 @@ def summaryPlot(flatsol, save_plot=False):
     meanSpecList = np.zeros((xpix, ypix))
     fig = plt.figure(figsize=(10, 10), dpi=100)
     for (iRow, iCol), res_id in np.ndenumerate(beamImage):
-            index = np.where(res_id == np.array(calsoln['resid']))
-            weights = calsoln['weight'][index]
-            spectrum = calsoln['spectrum'][index]
-            meanWeight = np.nanmean(weights)
-            meanWeightList[iRow, iCol] = meanWeight
-            meanSpec = np.nanmean(spectrum)
-            meanSpecList[iRow, iCol] = meanSpec
+        index = np.where(res_id == np.array(calsoln['resid']))
+        weights = calsoln['weight'][index]
+        spectrum = calsoln['spectrum'][index]
+        meanWeight = np.nanmean(weights)
+        meanWeightList[iRow, iCol] = meanWeight
+        meanSpec = np.nanmean(spectrum)
+        meanSpecList[iRow, iCol] = meanSpec
     weightArrPerPixel[weightArrPerPixel == 0] = np.nan
     weightArrAveraged = np.nanmean(weightArrPerPixel, axis=(0, 1))
     weightArrStd = np.nanstd(weightArrPerPixel, axis=(0, 1))
@@ -602,27 +593,22 @@ def summaryPlot(flatsol, save_plot=False):
     plt.imshow(meanSpecList.T, cmap=plt.get_cmap('viridis'), vmin=0, vmax=maxValue)
     plt.colorbar()
     ax = fig.add_subplot(2, 2, 3)
-    if wavelengths[0:len(wavelengths) - 1].shape == weightArrAveraged.shape:  #TODO:  this is to deal with the different meaning of wvlbinedges between lasercal and WL Cal, fix when Lasercal's init is fixed
-        ax.scatter(wavelengths[0:len(wavelengths) - 1], weightArrAveraged)
-    else:
-        ax.scatter(wavelengths, weightArrAveraged)
+    ax.scatter(wavelengths, weightArrAveraged)
     ax.set_title('Mean Weight Versus Wavelength')
     ax.set_ylabel('Mean Weight')
     ax.set_xlabel(r'$\lambda$ ($\AA$)')
     ax = fig.add_subplot(2, 2, 4)
-    if wavelengths[0:len(wavelengths) - 1].shape == weightArrStd.shape:
-        ax.scatter(wavelengths[0:len(wavelengths) - 1], weightArrStd)
-    else:
-        ax.scatter(wavelengths, weightArrStd)
+    ax.scatter(wavelengths, weightArrStd)
     ax.set_title('Standard Deviation of Weight Versus Wavelength')
     ax.set_ylabel('Standard Deviation')
     ax.set_xlabel(r'$\lambda$ ($\AA$)')
     if not save_plot:
         plt.show()
     else:
-        pdf = PdfPages(flatsol.split('.h5')[0]+'_summary.pdf')
+        pdf = PdfPages(flatsol.split('.h5')[0] + '_summary.pdf')
         pdf.savefig(fig)
         pdf.close()
+
 
 def plotCalibrations(flatsol, wvlCalFile, pixel):
     """
@@ -639,26 +625,22 @@ def plotCalibrations(flatsol, wvlCalFile, pixel):
     res_id = beamImage[pixel[0], pixel[1]]
     index = np.where(res_id == np.array(calsoln['resid']))
     weights = calsoln['weight'][index].flatten()
-    if len(weights)==len(wavelengths):  #TODO:  this is to deal with the different meaning of wvlbinedges between lasercal and WL Cal, fix when Lasercal's init is fixed
-        wave_bins=wavelengths
-    else:
-        wave_bins=wavelengths[0:-1]
     spectrum = calsoln['spectrum'][index].flatten()
-    errors=calsoln['err'][index].flatten()
+    errors = calsoln['err'][index].flatten()
     if not calsoln['bad'][index]:
-        fig= plt.figure(figsize=(20, 10), dpi=100)
+        fig = plt.figure(figsize=(20, 10), dpi=100)
         ax = fig.add_subplot(1, 3, 1)
-        ax.scatter(wave_bins, weights, label='weights', alpha=.7,color='red')
-        ax.errorbar(wave_bins, weights, yerr=errors, label='weights', color='green', fmt='o')
+        ax.scatter(wavelengths, weights, label='weights', alpha=.7, color='red')
+        ax.errorbar(wavelengths, weights, yerr=errors, label='weights', color='green', fmt='o')
         ax.set_title('p %d,%d' % (pixel[0], pixel[1]))
         ax.set_ylabel('weight')
         ax.set_xlabel(r'$\lambda$ ($\AA$)')
         ax.set_ylim(min(weights) - 2 * np.nanstd(weights),
                     max(weights) + 2 * np.nanstd(weights))
-        plt.plot(wave_bins, np.poly1d(calsoln[index]['coeff'][0])(wave_bins))
+        plt.plot(wavelengths, np.poly1d(calsoln[index]['coeff'][0])(wavelengths))
         # Put a plot of twilight spectrums for this pixel
         ax = fig.add_subplot(1, 3, 2)
-        ax.scatter(wave_bins, spectrum, label='spectrum', alpha=.7, color='blue')
+        ax.scatter(wavelengths, spectrum, label='spectrum', alpha=.7, color='blue')
         ax.set_title('p %d,%d' % (pixel[0], pixel[1]))
         ax.set_ylim(min(spectrum) - 2 * np.nanstd(spectrum),
                     max(spectrum) + 2 * np.nanstd(spectrum))
@@ -696,23 +678,27 @@ def fetch(solution_descriptors, config=None, ncpu=np.inf, remake=False):
 
             if hasattr(sd, 'wavecal'):
                 fcfg.register('wavesol', sd.wavecal, update=True)
-                fcfg.register('start_time', -1, update=True) #TODO get rid of this when lasercalibrator's init is fixed
-                fcfg.register('exposure_time',-1, update=True)
+                fcfg.register('start_time', -1,
+                              update=True)  # TODO get rid of this when lasercalibrator's init is fixed
+                fcfg.register('exposure_time', -1, update=True)
                 flattner = LaserCalibrator(fcfg, cal_file_name=sd.id)
             else:
                 fcfg.register('start_time', sd.ob.start, update=True)
                 fcfg.register('exposure_time', sd.ob.duration, update=True)
                 fcfg.unregister('wavesol')
                 flattner = WhiteCalibrator(fcfg, cal_file_name=sd.id)
-                
+
             solutions.append(sf)
             flattners.append(flattner)
+
+    if not flattners:
+        return solutions
 
     ncpu = mkidpipeline.config.n_cpus_available(max=min(fcfg.ncpu, ncpu))
     if ncpu == 1:
         for f in flattners:
             f.makeCalibration()
-    elif flattners:
+    else:
         pool = mp.Pool(ncpu)
         pool.map(_run, flattners)
         pool.close()
