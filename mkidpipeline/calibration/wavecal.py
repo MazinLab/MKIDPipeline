@@ -105,7 +105,7 @@ class Configuration(object):
         if self.configuration_path is not None:
             # load in the configuration file
             cfg = mkidcore.config.load(self.configuration_path)
-
+            self.ncpu = cfg.ncpu
             self.beammap = cfg.beammap
             # load in the parameters
             self.x_pixels = cfg.beammap.ncols
