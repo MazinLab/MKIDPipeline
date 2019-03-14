@@ -1078,7 +1078,7 @@ class ObsFile(object):
         for (row, column), resID in np.ndenumerate(self.beamImage):
 
             if not solution.has_good_calibration_solution(res_id=resID):
-                self.applyFlag(row, column, pixelflags.h5FileFlags['waveCalFailed'])
+                self.flag(pixelflags.h5FileFlags['waveCalFailed'], row, column)
                 continue
 
             self.undoFlag(row, column, pixelflags.h5FileFlags['waveCalFailed'])
@@ -1427,15 +1427,6 @@ class ObsFile(object):
         getLogger(__name__).info('Flatcal applied in {:.2f}s'.format(time.time()-tic))
 
     def flag(self, flag, xCoord=slice(None), yCoord=slice(None)):
-        """ Same as apply flag"""
-        flag = np.asarray(flag)
-        pixelflags.valid(flag, error=True)
-        if not np.isscalar(flag) and self.beamFlagImage[xCoord, yCoord].shape != flag.shape:
-            raise RuntimeError('flag must be scalar or match the desired region selected by x & y coordinates')
-        self.beamFlagImage[xCoord, yCoord] |= flag
-        self.beamFlagImage.flush()
-
-    def applyFlag(self, xCoord, yCoord, flag):
         """
         Applies a flag to the selected pixel on the BeamFlag array. Flag is a bitmask;
         new flag is bitwise OR between current flag and provided flag. Flag definitions
@@ -1444,18 +1435,19 @@ class ObsFile(object):
         Parameters
         ----------
         xCoord: int
-            x-coordinate of pixel
+            x-coordinate of pixel or a slice
         yCoord: int
-            y-coordinate of pixel
+            y-coordinate of pixel or a slice
         flag: int
             Flag to apply to pixel
         """
         if self.mode != 'write':
             raise Exception("Must open file in write mode to do this!")
-
-        curFlag = self.beamFlagImage[xCoord, yCoord]
-        newFlag = curFlag | flag
-        self.beamFlagImage[xCoord, yCoord] = newFlag
+        flag = np.asarray(flag)
+        pixelflags.valid(flag, error=True)
+        if not np.isscalar(flag) and self.beamFlagImage[xCoord, yCoord].shape != flag.shape:
+            raise RuntimeError('flag must be scalar or match the desired region selected by x & y coordinates')
+        self.beamFlagImage[xCoord, yCoord] |= flag
         self.beamFlagImage.flush()
 
     def undoFlag(self, xCoord, yCoord, flag):
@@ -1475,11 +1467,7 @@ class ObsFile(object):
         """
         if self.mode != 'write':
             raise Exception("Must open file in write mode to do this!")
-
-        curFlag = self.beamFlagImage[xCoord, yCoord]
-        notFlag = ~flag
-        newFlag = curFlag & notFlag
-        self.beamFlagImage[xCoord, yCoord] = newFlag
+        self.beamFlagImage[xCoord, yCoord] &= ~flag
         self.beamFlagImage.flush()
 
     def modifyHeaderEntry(self, headerTitle, headerValue):
