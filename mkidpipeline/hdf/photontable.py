@@ -1375,7 +1375,7 @@ class ObsFile(object):
                     continue
 
                 if soln['bad']:
-                    getLogger(__name__).warning('No flat calibration bad for pixel {}'.format(resID))
+                    getLogger(__name__).debug('No flat calibration bad for pixel {}'.format(resID))
                     continue
 
                 #TODO set pixel flags to include flatcal flags and handle all the various pixel edge cases
