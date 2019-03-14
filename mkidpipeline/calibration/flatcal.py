@@ -84,7 +84,7 @@ class FlatCalibrator(object):
             os.makedirs(self.out_directory)
         try:
             flatCalFile = tables.open_file(self.flatCalFileName, mode='w')
-        except:
+        except IOError:
             getLogger(__name__).error("Couldn't create flat cal file: {} ", self.flatCalFileName)
             return
         header = flatCalFile.create_group(flatCalFile.root, 'header', 'Calibration information')
@@ -105,8 +105,6 @@ class FlatCalibrator(object):
         descriptionDict = FlatCalSoln_Description(nWvlBins=len(self.wavelengths), max_power=poly_power)
         caltable = flatCalFile.create_table(calgroup, 'calsoln', descriptionDict, title='Flat Cal Table',
                                             expectedrows=self.xpix*self.ypix)
-        import warnings
-        warnings.filterwarnings('error')
         for iRow in range(self.xpix):
             for iCol in range(self.ypix):
                 entry = caltable.row
@@ -695,7 +693,7 @@ def fetch(solution_descriptors, config=None, ncpu=np.inf, remake=False):
         return solutions
 
     ncpu = mkidpipeline.config.n_cpus_available(max=min(fcfg.ncpu, ncpu))
-    if ncpu == 1:
+    if ncpu == 1 or len(flattners) == 1:
         for f in flattners:
             f.makeCalibration()
     else:
