@@ -495,12 +495,14 @@ int main(int argc, char *argv[])
         sprintf(fName,"%s/%ld.bin",path,FirstFile+i);
         checkExists = stat(fName, &st);
         if(checkExists != 0){
-            printf("Warning: %d.bin doesn't exist");
+            printf("Warning: %d.bin doesn't exist\n");
+            fflush(stdout);
             continue;
         }
 
         fSize = st.st_size;
         printf("Reading %s - %ld Mb\n",fName,fSize/1024/1024);
+        fflush(stdout);
         data = (uint64_t *) malloc(fSize);
         //dSize = (uint64_t) fSize;
 
