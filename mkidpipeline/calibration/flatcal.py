@@ -556,7 +556,6 @@ class LaserCalibrator(WhiteCalibrator):
 
 def summaryPlot(flatsol, save_plot=False):
     """ Writes a summary plot of the Flat Fielding """
-    assert os.path.exists(flatsol), "{0} does not exist".format(flatsol)
     flat_cal = tables.open_file(flatsol, mode='r')
     calsoln = flat_cal.root.flatcal.calsoln.read()
     weightArrPerPixel = flat_cal.root.flatcal.weights.read()
@@ -564,48 +563,65 @@ def summaryPlot(flatsol, save_plot=False):
     xpix = flat_cal.root.header.xpix.read()
     ypix = flat_cal.root.header.ypix.read()
     wavelengths = flat_cal.root.flatcal.wavelengthBins.read()
+    flat_cal.close()
+
     meanWeightList = np.zeros((xpix, ypix))
     meanSpecList = np.zeros((xpix, ypix))
-    fig = plt.figure(figsize=(10, 10), dpi=100)
+
     for (iRow, iCol), res_id in np.ndenumerate(beamImage):
-        index = np.where(res_id == np.array(calsoln['resid']))
-        weights = calsoln['weight'][index]
-        spectrum = calsoln['spectrum'][index]
-        meanWeight = np.nanmean(weights)
-        meanWeightList[iRow, iCol] = meanWeight
-        meanSpec = np.nanmean(spectrum)
-        meanSpecList[iRow, iCol] = meanSpec
+        use = res_id == np.asarray(calsoln['resid'])
+        weights = calsoln['weight'][use]
+        spectrum = calsoln['spectrum'][use]
+        meanWeightList[iRow, iCol] = np.nanmean(weights)
+        meanSpecList[iRow, iCol] = np.nanmean(spectrum)
+
     weightArrPerPixel[weightArrPerPixel == 0] = np.nan
     weightArrAveraged = np.nanmean(weightArrPerPixel, axis=(0, 1))
     weightArrStd = np.nanstd(weightArrPerPixel, axis=(0, 1))
     meanSpecList[meanSpecList == 0] = np.nan
     meanWeightList[meanWeightList == 0] = np.nan
-    ax = fig.add_subplot(2, 2, 1)
-    ax.set_title('Mean Flat weight across the array')
-    maxValue = np.nanmean(meanWeightList) + 1 * np.nanstd(meanWeightList)
-    plt.imshow(meanWeightList.T, cmap=plt.get_cmap('viridis'), vmin=0, vmax=maxValue)
-    plt.colorbar()
-    ax = fig.add_subplot(2, 2, 2)
-    ax.set_title('Mean Flat value across the array')
-    maxValue = np.nanmean(meanSpecList) + 1 * np.nanstd(meanSpecList)
-    plt.imshow(meanSpecList.T, cmap=plt.get_cmap('viridis'), vmin=0, vmax=maxValue)
-    plt.colorbar()
-    ax = fig.add_subplot(2, 2, 3)
-    ax.scatter(wavelengths, weightArrAveraged)
-    ax.set_title('Mean Weight Versus Wavelength')
-    ax.set_ylabel('Mean Weight')
-    ax.set_xlabel(r'$\lambda$ ($\AA$)')
-    ax = fig.add_subplot(2, 2, 4)
-    ax.scatter(wavelengths, weightArrStd)
-    ax.set_title('Standard Deviation of Weight Versus Wavelength')
-    ax.set_ylabel('Standard Deviation')
-    ax.set_xlabel(r'$\lambda$ ($\AA$)')
+
+    class Dummy(object):
+        def __enter__(self):
+            return None
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
+        def savefig(self):
+            pass
+
+    with PdfPages(flatsol.split('.h5')[0] + '_summary.pdf') if save_plot else Dummy() as pdf:
+
+        fig = plt.figure(figsize=(10, 10))
+
+        ax = fig.add_subplot(2, 2, 1)
+        ax.set_title('Mean Flat weight across the array')
+        maxValue = np.nanmean(meanWeightList) + 1 * np.nanstd(meanWeightList)
+        plt.imshow(meanWeightList.T, cmap=plt.get_cmap('viridis'), vmin=0, vmax=maxValue)
+        plt.colorbar()
+
+        ax = fig.add_subplot(2, 2, 2)
+        ax.set_title('Mean Flat value across the array')
+        maxValue = np.nanmean(meanSpecList) + 1 * np.nanstd(meanSpecList)
+        plt.imshow(meanSpecList.T, cmap=plt.get_cmap('viridis'), vmin=0, vmax=maxValue)
+        plt.colorbar()
+
+        ax = fig.add_subplot(2, 2, 3)
+        ax.scatter(wavelengths, weightArrAveraged)
+        ax.set_title('Mean Weight Versus Wavelength')
+        ax.set_ylabel('Mean Weight')
+        ax.set_xlabel(r'$\lambda$ ($\AA$)')
+
+        ax = fig.add_subplot(2, 2, 4)
+        ax.scatter(wavelengths, weightArrStd)
+        ax.set_title('Standard Deviation of Weight Versus Wavelength')
+        ax.set_ylabel('Standard Deviation')
+        ax.set_xlabel(r'$\lambda$ ($\AA$)')
+        pdf.savefig(fig)
+
     if not save_plot:
         plt.show()
-    else:
-        pdf = PdfPages(flatsol.split('.h5')[0] + '_summary.pdf')
-        pdf.savefig(fig)
-        pdf.close()
 
 
 def plotCalibrations(flatsol, wvlCalFile, pixel):
