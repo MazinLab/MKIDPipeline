@@ -56,7 +56,7 @@ class FlatCalibrator(object):
         getLogger(__name__).info("Calculating weights")
         self.calculateWeights()
         getLogger(__name__).info("Writing weights")
-        self.writeWeights()
+        self.writeWeights(poly_power=self.cfg.flatcal.power)
 
         if self.summary_plot:
             getLogger(__name__).info('Making a summary plot')

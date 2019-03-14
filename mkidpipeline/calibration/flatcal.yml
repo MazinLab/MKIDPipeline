@@ -26,6 +26,7 @@ flatcal: !configdict
   #Integration time to break up larger h5 files into in seconds (number) (5 sec recommended)
   #Flatcal will calculate weights over EXPTIME/INTTIME time chunks and median-average them
   chunk_time: 30
+  power: 2
   plots: summary  # None|summary|all  (all will add ~30 min to the process!)
 
 instrument: !configdict
