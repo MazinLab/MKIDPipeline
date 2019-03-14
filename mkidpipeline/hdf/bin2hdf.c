@@ -30,6 +30,21 @@
 #include <dirent.h>
 #include "hdf5.h"
 #include "hdf5_hl.h"
+#if HAVE_BYTESWAP_H
+#include <byteswap.h>
+#else
+#define bswap_16(value) \
+((((value) & 0xff) << 8) | ((value) >> 8))
+
+#define bswap_32(value) \
+(((uint32_t)bswap_16((uint16_t)((value) & 0xffff)) << 16) | \
+(uint32_t)bswap_16((uint16_t)((value) >> 16)))
+
+#define __bswap_64(value) \
+(((uint64_t)bswap_32((uint32_t)((value) & 0xffffffff)) \
+<< 32) | \
+(uint64_t)bswap_32((uint32_t)((value) >> 32)))
+#endif
 
 //max number of characters in all strings
 #define STR_SIZE 200
@@ -357,15 +372,17 @@ int main(int argc, char *argv[])
     field_type[3] = H5T_NATIVE_FLOAT;
     field_type[4] = H5T_NATIVE_FLOAT;
 
+    start = clock();
+
     memset(packet, 0, sizeof(packet[0]) * 808 * 16);    // zero out array
 
     // Open config file and parse
     if( argc != 2 ) {
-        printf("Bin2HDF error - First command line argument must be the configuration file.\n");
+        fprintf(stderr, "Bin2HDF error - First command line argument must be the configuration file.\n"); fflush(stderr);
         exit(0);
     }
     if (ParseConfig(argc,argv,path,&FirstFile,&nFiles,BeamFile,&mapflag,&beamCols,&beamRows,outputDir) == 0 ) {
-        printf("Bin2HDF error - Config parsing error.\n");
+        fprintf(stderr, "Bin2HDF error - Config parsing error.\n"); fflush(stderr);
 		exit(1);
 	}
 
@@ -407,15 +424,11 @@ int main(int argc, char *argv[])
         ptable[i] = (photon**)malloc(beamRows * sizeof(photon*));
         ptablect[i] = (uint32_t*)calloc(beamRows , sizeof(uint32_t));
         ResIdString[i] = (char**)malloc(beamRows * sizeof(char*));
-        for(j=0; j<beamRows; j++)
-            ResIdString[i][j] = (char*)malloc(20 * sizeof(char));
+        for(j=0; j<beamRows; j++) ResIdString[i][j] = (char*)malloc(20 * sizeof(char));
 
     }
 
-    for(i=0; i<beamCols*beamRows; i++)
-    {
-            DiskBeamMap[i] = (long *)calloc(4, sizeof(long));
-    }
+    for(i=0; i<beamCols*beamRows; i++) DiskBeamMap[i] = (long *)calloc(4, sizeof(long));
 
     printf("Allocated ptable.\n"); fflush(stdout);
 
@@ -427,14 +440,12 @@ int main(int argc, char *argv[])
 
     for(i=0; i < beamCols; i++) {
 		for(j=0; j < beamRows; j++) {
-			if( BeamMap[i][j] == 0 )
-            {
-                printf("ResID 0 at (%d,%d)\n", i, j);
+			if( BeamMap[i][j] == 0 ) {
+                printf("ResID 0 at (%d,%d)\n", i, j); fflush(stdout);
             }
 
-            if(BeamMap[i][j] == beamMapInitVal)
-            {
-                printf("ResID N/A at (%d,%d)\n", i, j);
+            if(BeamMap[i][j] == beamMapInitVal) {
+                printf("ResID N/A at (%d,%d)\n", i, j); fflush(stdout);
                 continue;
             }
 
@@ -443,8 +454,11 @@ int main(int argc, char *argv[])
 	}
 
 	// Create H5 file and set attributes
-    start = clock();
-    sprintf(outfile,"%s/%d.h5",outputDir,FirstFile);
+    sprintf(outfile,"%s/%d.h5",outputDir,FirstFile); fflush(stdout);
+
+    //TODO create h5 file optimally
+    //This is where btree sizes and the like are seT!!!
+    //https://support.hdfgroup.org/HDF5/doc1.6/UG/08_TheFile.html
     file_id = H5Fcreate (outfile, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
 
     // put the beam map into the h5 file
@@ -477,24 +491,24 @@ int main(int argc, char *argv[])
 	printf("Made individual photon data tables.\n"); fflush(stdout);
 
     // Loop through the data files and parse the packets into separate data tables
-    start = clock();
     for(i=-1; i < nFiles+1; i++) {
         sprintf(fName,"%s/%ld.bin",path,FirstFile+i);
         checkExists = stat(fName, &st);
         if(checkExists != 0){
-            printf("Warning: %d.bin doesn't exist");
+            printf("Warning: %d.bin doesn't exist\n");
+            fflush(stdout);
             continue;
-
         }
 
         fSize = st.st_size;
-        printf("\nReading %s - %ld bytes\n",fName,fSize);
+        printf("Reading %s - %ld Mb\n",fName,fSize/1024/1024);
+        fflush(stdout);
         data = (uint64_t *) malloc(fSize);
         //dSize = (uint64_t) fSize;
 
         fp = fopen(fName, "rb");
         rd = fread( data, 1, fSize, fp);
-        if( rd != fSize) printf("Didn't read the entire file %s\n",fName);
+        if( rd != fSize) {printf("Didn't read the entire file %s\n",fName); fflush(stdout);}
         fclose(fp);
         //printf("rd=%ld\n",rd);
 
@@ -508,7 +522,7 @@ int main(int argc, char *argv[])
                 if (hdr->start == 0b11111111) {
                     firstHeader = j;
                     pstart = j;
-                    if( firstHeader != 0 ) printf("First header at %ld\n",firstHeader);
+                    if( firstHeader != 0 ) {printf("First header at %ld\n",firstHeader); fflush(stdout);}
                     break;
                 }
             }
@@ -531,7 +545,7 @@ int main(int argc, char *argv[])
                 // add to HDF5 file
      	        ParseToMem(packet,k*8-pstart,tsOffs,FirstFile,i,nFiles,BeamMap,&nPhot,BeamFlag,mapflag,ResIdString,ptable,ptablect,beamCols,beamRows);
 		        pstart = k*8;   // move start location for next packet
-		        if( pcount%1000 == 0 ) printf("."); fflush(stdout);
+		        //if( pcount%1000 == 0 ) { printf("."); fflush(stdout);}
             }
         }
 
@@ -546,26 +560,20 @@ int main(int argc, char *argv[])
 
         sprintf(imname,"/Images/%ld",i+FirstFile);
         H5IMmake_image_8bit( file_id, imname, (hsize_t)beamCols, (hsize_t)beamRows, smimage );
-        for(j=0; j<beamCols; j++)
-            memset(image[j], 0, beamRows*sizeof(uint16_t));
+        for(j=0; j<beamCols; j++) memset(image[j], 0, beamRows*sizeof(uint16_t));
 
     }
 
     diff = clock()-start;
     olddiff = diff;
 
-    //printf("\nSorting photon tables.\n");
-    //SortPhotonTables(ptable, ptablect, beamCols, beamRows);
-
-    printf("Read and parsed data in memory in %f ms.\n",(float)diff*1000.0/CLOCKS_PER_SEC);
+    printf("Read and parsed data in memory in %f s.\n",(float)diff/CLOCKS_PER_SEC);  fflush(stdout);
 
     // dump photon tables to H5
 
     // make just one photon table
     sprintf(tname,"/Photons/PhotonTable");
     H5TBmake_table( "Photon Data", file_id, tname, NFIELD, 0, dst_size, field_names, dst_offset, field_type,chunk_size, fill_data, compress, &p1);
-
-    // save in resID order
     for(j=0; j < beamCols*beamRows; j++) {
             x = DiskBeamMap[j][2];
             y = DiskBeamMap[j][3];
@@ -573,14 +581,16 @@ int main(int argc, char *argv[])
 			if( ptablect[x][y] == 0 ) continue;
 			//printf("%s %ld\n", ResIdString[j][k], ptablect[j][k]);
 			//printf("%d %d %s %ld\n", j, k, ResIdString[j][k], ptablect[j][k]); fflush(stdout);
-			H5TBappend_records(file_id, tname, ptablect[x][y], dst_size, dst_offset, dst_sizes, ptable[x][y] );
+			//H5TBappend_records (loc_id, dset_name, nrecords, type_size, field_offset, field_sizes, data)
+			H5TBappend_records(file_id, tname, ptablect[x][y], dst_size, dst_offset, dst_sizes, ptable[x][y]);
 			nPhot +=  ptablect[x][y];
 	}
 
     H5Gclose(gid_photons);
 
     diff = clock()-start;
-    printf("Parsed %ld photons in %f seconds: %9.1f photons/sec.\n",nPhot,(float)(diff+olddiff)/CLOCKS_PER_SEC,((float)nPhot)/((float)(diff+olddiff)/CLOCKS_PER_SEC));
+    printf("Parsed %ld photons in %f seconds: %9.1f photons/sec.\n",nPhot,((float)diff)/CLOCKS_PER_SEC,
+        ((float)nPhot)/((float)(diff)/CLOCKS_PER_SEC)); fflush(stdout);
 
     // Close up
     H5Gclose(gid_beammap);

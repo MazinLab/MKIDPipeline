@@ -1,6 +1,8 @@
 import os
 import copy
+import pickle
 import inspect
+import astropy
 import warnings
 import numpy as np
 import lmfit as lm
@@ -13,6 +15,8 @@ from scipy.special import erfc, erfcx
 
 import mkidcore.corelog as pipelinelog
 
+PLANK_CONSTANT_EVS = astropy.constants.h.to('eV s').value
+SPEED_OF_LIGHT_NMS = astropy.constants.c.to('nm/s').value
 
 log = pipelinelog.getLogger('mkidpipeline.calibration.wavecal_models', setup=False)
 
@@ -184,15 +188,11 @@ class PartialLinearModel(object):
                                        independent_vars=['x', 'y', 'variance'])
         self._full_model = lm.Model(self.full_fit_function, independent_vars=['x'])
         self._cycler = cycler('color', ['orange', 'purple', 'yellow', 'black'])
-        self.fit_result = None
-        self.initial_guess = None
         self.x = None
         self.y = None
         self.variance = None
         self.best_fit_result = None
-        self.best_fit_result_guess = None
         self.best_fit_result_good = None
-        self.used_last_fit = None
         self.flag = None  # flag for wavecal computation condition
         self.phm = None  # positive half width half max
         self.nhm = None  # negative half width half max
@@ -201,15 +201,40 @@ class PartialLinearModel(object):
             message = "no more than {} parameters are allowed in the full_fit_function"
             raise SyntaxError(message.format(self.max_parameters))
 
+    def __getstate__(self):
+        b = self.best_fit_result
+        r = (b.aic, b.success, b.params.dumps(), b.chisqr, b.errorbars, b.residual, b.nvarys) if b is not None else None
+        state = {'pixel': self.pixel, 'res_id': self.res_id, 'x': self.x, 'y': self.y, 'variance': self.variance,
+                 'best_fit_result': r, 'best_fit_result_good': self.best_fit_result_good, 'flag': self.flag,
+                 'phm': self.phm, 'nhm': self.nhm}
+        return state
+
+    def __setstate__(self, state):
+        self.__init__(state['pixel'], state['res_id'])
+        self.x = state['x']
+        self.y = state['y']
+        self.variance = state['variance']
+        if state['best_fit_result'] is None:
+            self.best_fit_result = None
+        else:
+            r = lm.model.ModelResult(self._full_model, lm.Parameters())
+            (r.aic, r.success, params, r.chisqr, r.errorbars, r.residual, r.nvarys) = state['best_fit_result']
+            r.params = lm.Parameters().loads(params)
+            self.best_fit_result = r
+        self.best_fit_result_good = state['best_fit_result_good']
+        self.flag = state['flag']
+        self.phm = state['phm']
+        self.nhm = state['nhm']
+
     def fit(self, guess):
         self._check_data()
         guess = add_fwhm(guess)
-        self.initial_guess = guess.copy()
         good_fit = True
         keep = (self.y != 0)
         x = self.x[keep]
         y = self.y[keep]
         variance = self.variance
+        fit_result = None
         if variance is not None:
             variance = variance[keep]
         try:
@@ -218,19 +243,14 @@ class PartialLinearModel(object):
                 # warnings.simplefilter("ignore", category=RuntimeWarning)
                 # solve the reduced weighted least squares optimization
                 if variance is None:
-                    fit_result = self._reduced_model.fit(y, params=guess, x=x, y=y,
-                                                         variance=[],
-                                                         scale_covar=True,
+                    fit_result = self._reduced_model.fit(y, params=guess, x=x, y=y, variance=[], scale_covar=True,
                                                          nan_policy='propagate')
                 else:
-                    fit_result = self._reduced_model.fit(y, params=guess, x=x, y=y,
-                                                         variance=variance,
-                                                         weights=1 / np.sqrt(variance),
-                                                         scale_covar=False,
+                    fit_result = self._reduced_model.fit(y, params=guess, x=x, y=y, variance=variance,
+                                                         weights=1 / np.sqrt(variance), scale_covar=False,
                                                          nan_policy='propagate')
             # find the linear amplitude coefficients
-            amplitudes = self._reduced_model.eval(fit_result.params, x=x, y=y,
-                                                  variance=variance,
+            amplitudes = self._reduced_model.eval(fit_result.params, x=x, y=y, variance=variance,
                                                   return_amplitudes=True)
             # set the minimum amplitude to be 0 for the full fit
             for amplitude in amplitudes.values():
@@ -245,7 +265,7 @@ class PartialLinearModel(object):
             # replace if we will be refitting or if both the old fit exists and if the
             # old fit has a better chi2
             if not good_fit:
-                self.fit_result = self.best_fit_result
+                fit_result = self.best_fit_result
             if good_fit or (old_best_fit is not None and
                             old_best_fit.chisqr < self.best_fit_result.chisqr):
                 self.best_fit_result = old_best_fit
@@ -261,24 +281,20 @@ class PartialLinearModel(object):
                 # suppress warning when fits sample bad parts of the parameter space
                 warnings.simplefilter("ignore", category=RuntimeWarning)
                 if variance is None:
-                    self.fit_result = self._full_model.fit(y, params=guess, x=x,
-                                                           scale_covar=True,
-                                                           nan_policy='propagate')
+                    fit_result = self._full_model.fit(y, params=guess, x=x, scale_covar=True, nan_policy='propagate')
                 else:
-                    self.fit_result = self._full_model.fit(y, params=guess, x=x,
-                                                           weights=1 / np.sqrt(variance),
-                                                           scale_covar=False,
-                                                           nan_policy='propagate')
+                    fit_result = self._full_model.fit(y, params=guess, x=x, weights=1 / np.sqrt(variance),
+                                                      scale_covar=False, nan_policy='propagate')
 
         # save the data in best_fit_result if it is better than previous fits
-        self.used_last_fit = good_fit and (self.best_fit_result is None or
-                                           self.fit_result.chisqr <
-                                           self.best_fit_result.chisqr)
-        if self.used_last_fit:
-            self.best_fit_result = self.fit_result
-            self.best_fit_result_guess = self.initial_guess
-            self.phm = self.fit_result.params['positive_half_max'].value
-            self.nhm = self.fit_result.params['negative_half_max'].value
+        used_last_fit = good_fit and (self.best_fit_result is None or fit_result.chisqr < self.best_fit_result.chisqr)
+        if used_last_fit:
+            # patch init_params and init_guess since they get over loaded during first fit
+            fit_result.init_params = guess
+            fit_result.init_values = fit_result.model._make_all_args(guess)
+            self.best_fit_result = fit_result
+            self.phm = fit_result.params['positive_half_max'].value
+            self.nhm = fit_result.params['negative_half_max'].value
             self.best_fit_result_good = None
             self.best_fit_result_good = self.has_good_solution()
 
@@ -315,8 +331,7 @@ class PartialLinearModel(object):
             raise RuntimeError(message)
         return self.best_fit_result.params['signal_center'].stderr
 
-    def plot(self, axes=None, legend=True, title=True, x_label=True, y_label=True,
-             best_fit=True, text=True):
+    def plot(self, axes=None, legend=True, title=True, x_label=True, y_label=True, text=True):
         # set up plot basics
         if axes is None:
             if legend and self.best_fit_result is not None:
@@ -333,9 +348,8 @@ class PartialLinearModel(object):
         if x_label:
             axes.set_xlabel('phase [degrees]')
         if title:
-            axes.set_title(("Model '{}'" + os.linesep + "Pixel ({}, {}) : ResID {}")
-                           .format(type(self).__name__, self.pixel[0],
-                                   self.pixel[1],  self.res_id))
+            t = "Model '{}'" + os.linesep + "Pixel ({}, {}) : ResID {}"
+            axes.set_title(t.format(type(self).__name__, self.pixel[0], self.pixel[1],  self.res_id))
 
         # no data
         if self.x is None or self.y is None:
@@ -352,22 +366,14 @@ class PartialLinearModel(object):
         axes.bar(self.x, self.y, widths)
         if y_label:
             axes.set_ylabel('counts per {:.1f} degrees'.format(np.mean(widths)))
-
         # no fit
         if self.best_fit_result is None:
             if text:
                 plot_text(axes, self.flag, color)
             return axes
-
-        # choose fit to plot
-        if best_fit:
-            fit_result = self.best_fit_result
-        else:
-            fit_result = self.fit_result
-
         # plot fit
         xx = np.linspace(self.x.min(), self.x.max(), 1000)
-        yy = fit_result.eval(x=xx)
+        yy = self.best_fit_result.eval(x=xx)
         axes.plot(xx, yy, color=color, label=label, zorder=3)
         all_parameters = self._full_model.make_params()
         reduced_parameters = self._reduced_model.make_params()
@@ -376,13 +382,12 @@ class PartialLinearModel(object):
             if parameter_name not in reduced_parameters:
                 amplitude_names.append(parameter_name)
         for amplitude_name in amplitude_names:
-            fit_parameters = fit_result.params.copy()
+            fit_parameters = self.best_fit_result.params.copy()
             for parameter_name in amplitude_names:
                 if parameter_name != amplitude_name:
                     fit_parameters[parameter_name].value = 0
-            axes.plot(xx, fit_result.eval(fit_parameters, x=xx),
-                      color=next(cycle)['color'], linestyle='--',
-                      label=amplitude_name)
+            axes.plot(xx, self.best_fit_result.eval(fit_parameters, x=xx),
+                      color=next(cycle)['color'], linestyle='--', label=amplitude_name)
 
         # make legend
         if legend:
@@ -874,37 +879,54 @@ class XErrorsModel(object):
     def __init__(self, pixel=None, res_id=None):
         self.pixel = pixel
         self.res_id = res_id
-        self.initial_guess = None
-        self.used_last_fit = None
-        self.best_fit_result = None
-        self.best_fit_result_guess = None
-        self.best_fit_result_good = None
-        self.fit_result = None
         self.x = None
         self.y = None
         self.variance = None
-        self.min_x = None
-        self.max_x = None
+        self.best_fit_result = None
+        self.best_fit_result_good = None
         self.flag = None  # flag for wavecal computation condition
+        self.max_x = None
+        self.min_x = None
+
+    def __getstate__(self):
+        b = self.best_fit_result
+        r = (b.aic, b.success, b.params.dumps(), b.chisqr, b.errorbars, b.residual, b.nvarys) if b is not None else None
+        state = {'pixel': self.pixel, 'res_id': self.res_id, 'x': self.x, 'y': self.y, 'variance': self.variance,
+                 'best_fit_result': r, 'best_fit_result_good': self.best_fit_result_good, 'flag': self.flag,
+                 'max_x': self.max_x, 'min_x': self.min_x}
+        return state
+
+    def __setstate__(self, state):
+        self.__init__(state['pixel'], state['res_id'])
+        self.x = state['x']
+        self.y = state['y']
+        self.variance = state['variance']
+        if state['best_fit_result'] is None:
+            self.best_fit_result = None
+        else:
+            r = lm.minimizer.MinimizerResult()
+            (r.aic, r.success, params, r.chisqr, r.errorbars, r.residual, r.nvarys) = state['best_fit_result']
+            r.params = lm.Parameters().loads(params)
+            self.best_fit_result = r
+        self.best_fit_result_good = state['best_fit_result_good']
+        self.flag = state['flag']
+        self.max_x = state['max_x']
+        self.min_x = state['min_x']
 
     def fit(self, guess):
         self._check_data()
-        self.initial_guess = guess.copy()
         scale = True
         variance = self.variance
         if self.variance is None:
             variance = np.ones(y.shape)
             scale = False
         arguments = (self.x, self.y, variance, self.fit_function, self.dfdx)
-        self.fit_result = lm.minimize(self.chi_squared, guess, args=arguments,
-                                      scale_covar=scale)
+        fit_result = lm.minimize(self.chi_squared, guess, args=arguments, scale_covar=scale)
 
         # save the data in best_fit_result if it is better than previous fits
-        self.used_last_fit = (self.best_fit_result is None or
-                              self.fit_result.chisqr < self.best_fit_result.chisqr)
-        if self.used_last_fit:
-            self.best_fit_result = self.fit_result
-            self.best_fit_result_guess = self.initial_guess
+        used_last_fit = (self.best_fit_result is None or fit_result.chisqr < self.best_fit_result.chisqr)
+        if used_last_fit:
+            self.best_fit_result = fit_result
             self.best_fit_result_good = None
             self.best_fit_result_good = self.has_good_solution()
 
@@ -912,12 +934,15 @@ class XErrorsModel(object):
         self._check_fit()
         return self.fit_function(x, self.best_fit_result.params)
 
+    def wavelength_function(self, x):
+        self._check_fit()
+        return PLANK_CONSTANT_EVS * SPEED_OF_LIGHT_NMS / self.fit_function(x, self.best_fit_result.params)
+
     @staticmethod
     def chi_squared(parameters, x, y, variance, f, dfdx):
         return (f(x, parameters) - y) / (dfdx(x, parameters) * np.sqrt(variance))
 
-    def plot(self, axes=None, legend=True, title=True, x_label=True, y_label=True,
-             best_fit=True, text=True):
+    def plot(self, axes=None, legend=True, title=True, x_label=True, y_label=True, text=True):
         # set up plot basics
         if axes is None:
             fig, axes = plt.subplots()
@@ -932,10 +957,8 @@ class XErrorsModel(object):
         if y_label:
             axes.set_ylabel('energy [eV]')
         if title:
-            axes.set_title(("Model '{}'" + os.linesep + "Pixel ({}, {}) : ResID {}")
-                           .format(type(self).__name__, self.pixel[0], self.pixel[1],
-                                   self.res_id))
-
+            t = "Model '{}'" + os.linesep + "Pixel ({}, {}) : ResID {}"
+            axes.set_title(t.format(type(self).__name__, self.pixel[0], self.pixel[1], self.res_id))
         # no data
         if self.x is None or self.y is None:
             if text:
@@ -946,26 +969,17 @@ class XErrorsModel(object):
         axes.errorbar(self.x, self.y, xerr=np.sqrt(self.variance), linestyle='--',
                       marker='o', markersize=5, markeredgecolor='black',
                       markeredgewidth=0.5, ecolor='black', capsize=3, elinewidth=0.5)
-
         # no fit
         if self.best_fit_result is None:
             if text:
                 plot_text(axes, self.flag, color)
             return axes
-
-        # choose fit to plot
-        if best_fit:
-            fit_result = self.best_fit_result
-        else:
-            fit_result = self.fit_result
-
         # plot fit
-        x_limit = [1.05 * min(self.x - np.sqrt(self.variance)),
-                   0.95 * max(self.x + np.sqrt(self.variance))]
+        x_limit = [1.05 * min(self.x - np.sqrt(self.variance)), 0.95 * max(self.x + np.sqrt(self.variance))]
         axes.set_xlim(x_limit)
         xx = np.linspace(x_limit[0], x_limit[1], 1000)
-        yy = self.fit_function(xx, fit_result.params)
-        axes.plot(xx, self.fit_function(xx, fit_result.params), color=color, label=label)
+        yy = self.fit_function(xx, self.best_fit_result.params)
+        axes.plot(xx, self.fit_function(xx, self.best_fit_result.params), color=color, label=label)
 
         y_limit = [0.95 * min(yy), max(yy) * 1.05]
         axes.set_ylim(y_limit)

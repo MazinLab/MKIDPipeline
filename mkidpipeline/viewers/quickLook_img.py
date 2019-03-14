@@ -39,8 +39,7 @@ class mainWindow(QMainWindow):
         self.create_status_bar()
         self.createMenu()
         #self.load_beam_map()
-        
-        
+
     def initializeEmptyArrays(self,nCol = 80,nRow = 125):
         self.nCol = nCol
         self.nRow = nRow
@@ -50,9 +49,6 @@ class mainWindow(QMainWindow):
         self.hotPixCut = 2400
         self.image = np.zeros(self.nRow*self.nCol).reshape((self.nRow,self.nCol))
         self.beamFlagMask = np.zeros(self.nRow*self.nCol).reshape((self.nRow,self.nCol))
-
-        
-        
 
     def get_nPixels(self,filename):	
         #140 x 146 for MEC
@@ -152,8 +148,6 @@ class mainWindow(QMainWindow):
         self.beamFlagMask[yPos[temp]][xPos[temp]]=1 #beamFlagMask is 1 when the pixel is not beam mapped
         #self.beamFlagMask = beamFlagMask
 
-
-
     def initialize_spinbox_values(self,filename):
         #set up the spinbox limits and start value, which will be the file you selected
         self.spinbox_imgTimestamp.setMinimum(self.timeStampList[0])
@@ -163,20 +157,17 @@ class mainWindow(QMainWindow):
         self.spinbox_darkStart.setMinimum(self.timeStampList[0])
         self.spinbox_darkStart.setMaximum(self.timeStampList[-10])
         self.spinbox_darkStart.setValue(np.fromstring(os.path.basename(filename)[:-4],dtype=int, sep=' ')[0])
-        
 
-        
-        
     def plotImage(self,filename = None):        
         
         if filename == None:
             filename = self.fileListRaw[np.where(self.timeStampList==self.spinbox_imgTimestamp.value())[0][0]]      
 
         self.ax1.clear()         
-        
-        self.rawImage = np.transpose(np.reshape(np.fromfile(open(filename, mode='rb'),dtype=np.uint16), (self.nCol,self.nRow)))        
-        
-        
+
+        with open(filename, mode='rb') as f:
+            self.rawImage = np.transpose(np.reshape(np.fromfile(f,dtype=np.uint16), (self.nCol,self.nRow)))
+
 #        image=np.fromfile(open(fn, mode='rb'),dtype=np.uint16)
 #        image = np.transpose(np.reshape(image, (self.nCols, self.nRows)))
         
