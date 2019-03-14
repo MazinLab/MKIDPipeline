@@ -179,7 +179,7 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5,
         iteration = -1
     else:
         for iteration in range(max_iter):
-            getLogger(__name__).info('Iteration: {}'.format(iteration))
+            getLogger(__name__).info('Doing iteration: {}'.format(iteration))
             # Remove all the NaNs in an image and calculate a median filtered image
             # each pixel takes the median of itself and the surrounding box_size x box_size box.
             nan_fixed_image = utils.replaceNaN(raw_image, mode='mean', boxsize=box_size)
@@ -202,10 +202,10 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5,
             #        flux > max_ratio*median - background*(max_ratio-1)
             # If the threshold is *lower* than the background, then set it equal to the background level instead
             # (a pixel below the background level is unlikely to be hot!)
-            getLogger(__name__).info('overall_median: {}'.format(overall_median))
-            getLogger(__name__).info('overall_bkgd: {}'.format(overall_bkgd))
-            getLogger(__name__).info('overall_bkgd_sigma: {}'.format(overall_bkgd_sigma))
-            getLogger(__name__).info('max_ratio: {}'.format(max_ratio))
+            getLogger(__name__).debug('overall_median: {}'.format(overall_median))
+            getLogger(__name__).debug('overall_bkgd: {}'.format(overall_bkgd))
+            getLogger(__name__).debug('overall_bkgd_sigma: {}'.format(overall_bkgd_sigma))
+            getLogger(__name__).debug('max_ratio: {}'.format(max_ratio))
             threshold = np.maximum((max_ratio * median_filter_image - (max_ratio - 1) * overall_bkgd), overall_bkgd)
             difference_image = raw_image - threshold
 
@@ -558,5 +558,5 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=30, startt=0, stopt=
 
     # Combine the bad pixel masks into a master mask
     obsfile.enablewrite()
-    obsfile.applyFlag(None, None, pixelflags.HOTPIXEL * np.any(hot_masks, axis=-1))
+    obsfile.flag(pixelflags.HOTPIXEL * np.any(hot_masks, axis=-1))
     obsfile.disablewrite()
