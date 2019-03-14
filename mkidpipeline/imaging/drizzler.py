@@ -1,7 +1,7 @@
 """
 TODO
-Add ephem, drizzle, SharedArray to setup.py/yml. ephem can be conda installed, drizzle and SharedArray need to be pip
-installed
+Add astroplan, ephem, drizzle, SharedArray to setup.py/yml. ephem can be conda installed, drizzle and SharedArray need to be pip
+installed. I found that  astroplan needed to be pip installed otherwise some astropy import fails
 
 Get con2pix calibration from Isabel's code and remove from here
 
@@ -23,6 +23,14 @@ Author: Rupert Dodkins, Julian van Eyken            Date: Jan 2019
 
 This code is adapted from Julian's testImageStack from the ARCONS pipeline.
 """
+# import matplotlib
+# print(matplotlib.matplotlib_fname())
+# matplotlib.use('QT5Agg', force=True)
+# matplotlib.rcParams['backend'] = 'Qt5Agg'
+# plt.plot(range(5))
+# plt.show()
+# # plt.switch_backend('Qt5Agg')
+# print(matplotlib.get_backend())
 
 import os
 import numpy as np
@@ -33,19 +41,18 @@ from matplotlib.colors import LogNorm
 import glob
 import ephem
 from astropy import wcs
-from astropy.coordinates import EarthLocation, Angle
+from astropy.coordinates import EarthLocation, Angle, SkyCoord
+import astropy.units as u
+from astroplan import Observer
 import astropy
 from drizzle import drizzle as stdrizzle
 from mkidcore import pixelflags
 from mkidpipeline.hdf.photontable import ObsFile
 from mkidcore.corelog import getLogger
 from mkidpipeline.config import MKIDObservingDataDescription, MKIDObservingDither
-import _pickle as pickle
+# import _pickle as pickle
+import pickle
 
-
-# import sys
-# sys.path.append('/Users/dodkins/PythonProjects/MEDIS/')
-# from medis.Utils.plot_tools import loop_frames, quicklook_im, view_datacube, compare_images, indep_images, grid
 
 
 def con2pix(xCon, yCon):
@@ -113,13 +120,15 @@ def con2pix(xCon, yCon):
 
     xPos, yPos = con2Pix(xCon, yCon, func)
 
-    return [xPos, yPos]
+    # return np.array([xPos, yPos]).T
+    return [-xPos, -yPos]
 
 
 def ditherp_2_pixel(positions):
     """ A function to convert the connex offset to pixel displacement"""
     positions = np.asarray(positions)
-    pix = con2pix(positions[:, 0], positions[:, 1])
+    # pix = con2pix(positions[:, 0], positions[:, 1]) #- con2pix(0, 0)
+    pix = (positions*150).T
     return pix
 
 
@@ -132,12 +141,12 @@ def getmetafromh5():
     """
     # raise NotImplementedError
     getLogger(__name__).warning('Using hard coded RA/Dec metadata in place of real h5 data.')
-    cenRA = 1.463
-    cenDec = 0.0951
+
     xpix = 140
     ypix = 146
-    platescale = 0.1  # 0.44
-    return cenRA, cenDec, xpix, ypix, platescale
+    platescale = 10 *u.mas #mas #0.44
+
+    return {'xpix': xpix, 'ypix': ypix, 'platescale': platescale}
 
 
 class DitherDescription(object):
@@ -148,19 +157,19 @@ class DitherDescription(object):
 
     TODO implement center of rotation
     """
-
-    def __init__(self, mkid_observing_dither, wvlMin=0, wvlMax=np.inf, startt=0, intt=1, rotate=False,
-                 observatory='greenwich'):
+    def __init__(self, mkid_observing_dither, wvlMin=0, wvlMax=np.inf, startt=0, intt=1,
+                 observatory='Subaru', target='* kap And', multiplier=1, plotdithlocs=False):
         self.description = mkid_observing_dither
         self.pos = mkid_observing_dither.pos
 
         # TODO these definitions need to be redone
+        self.coords = SkyCoord.from_name(target)
+        self.cenRA = self.coords.ra.deg
+        self.cenDec = self.coords.dec.deg
         h5dithdata = getmetafromh5()
-        self.cenRA = h5dithdata[0]
-        self.cenDec = h5dithdata[1]
-        self.xpix = h5dithdata[2]
-        self.ypix = h5dithdata[3]
-        self.platescale = h5dithdata[4]
+        self.xpix = h5dithdata['xpix']
+        self.ypix = h5dithdata['ypix']
+        self.platescale = h5dithdata['platescale'].to(u.deg).value
 
         # TODO these definitions need to be redone
         self.wvlMin = wvlMin
@@ -168,32 +177,67 @@ class DitherDescription(object):
         self.firstObsTime = startt
         self.integrationTime = intt
 
-        xCentroids, yCentroids = ditherp_2_pixel(self.pos)
-        self.virxPixCen, self.viryPixCen = ditherp_2_pixel([(0, 0)])
-        self.xCenRes, self.yCenRes = xCentroids - self.virxPixCen, yCentroids - self.viryPixCen
+        self.centroids = ditherp_2_pixel(self.pos)
+        self.virPixCen = ditherp_2_pixel([(0,0)]) #+ np.array([(-30,-30)]).T
 
-        if rotate:
-            times = [o.start for o in mkid_observing_dither.obs]
+        # self.virPixCen = np.array([(0,0)]).T
+        print('virPixCen', self.virPixCen)
+
+        if multiplier != 0:
+            times = np.array([o.start for o in mkid_observing_dither.obs])
             site = EarthLocation.of_site(observatory)
-            LSTs = astropy.time.Time(val=times, format='unix').sidereal_time('mean', site.lon).radian
-            self.dithHAs = (LSTs - LSTs[0])  # in radians
+            unixtimes = astropy.time.Time(val=times, format='unix')
+            LSTs = unixtimes.sidereal_time('mean', site.lon)
+            # print(LSTs)
+            radLSTs = LSTs.radian
+            # self.hourAngles = radLSTs - ephem.hours(self.cenRA).real
+
+            # target = SkyCoord(ra=355.1 * u.deg, dec=44.3 * u.deg)
+
+
+            # print(target)
+
+            apo = Observer.at_site(observatory)
+            altaz = apo.altaz(unixtimes, self.coords)
+
+            Earthrate = 2 * np.pi / u.sday.to(u.second) # * 500
+
+            # obs_const = Earthrate * np.cos(19.7 * np.pi / 180)
+            obs_const = Earthrate * np.cos(site.geodetic.lat.rad)
+            rot_rate = obs_const * np.cos(altaz.az.radian) / np.cos(altaz.alt.radian)
+            rot_rate = np.array(rot_rate)#*2
+
+            # self.dithHAs = direction*(radLSTs - radLSTs[0]) # in radians
+            if multiplier:
+                rot_rate = rot_rate*multiplier
+            # plt.plot(angles)
+            # plt.show()
+            self.dithHAs = np.cumsum(rot_rate*(times - times[0]))# * direction # in radians
+            self.dithHAs -= self.dithHAs[0]
+            print(self.dithHAs)
+
+            # self.dithHAs = np.trapz(rot_rate)#*(times - times[0])) * direction # in radians
+            # plt.plot(self.dithHAs)
+            # plt.show()
+
         else:
             self.dithHAs = np.zeros(len(mkid_observing_dither.obs), dtype=np.float)
         getLogger(__name__).debug("HAs: %s", self.dithHAs)
 
     def plot(self):
+        self.xCenRes, self.yCenRes = self.centroids[0] - self.virPixCen[0], self.centroids[1] - self.virPixCen[1]
         rotationMatrix = np.array([[np.cos(self.dithHAs), -np.sin(self.dithHAs)],
-                                   [np.sin(self.dithHAs), np.cos(self.dithHAs)]]).T
+                                        [np.sin(self.dithHAs), np.cos(self.dithHAs)]]).T
 
         centroidRotated = np.dot(rotationMatrix,
-                                 np.array([self.xCenRes, self.yCenRes])).diagonal(axis1=0, axis2=2) + [
-                              self.virxPixCen, self.viryPixCen]
+                            np.array([self.xCenRes, self.yCenRes])).diagonal(axis1=0,axis2=2) + [
+                            self.virPixCen[0], self.virPixCen[1]]
 
-        xCentroids, yCentroids = ditherp_2_pixel(self.pos)
-        plt.plot(-xCentroids, -yCentroids)
-        plt.plot(-self.virxPixCen, -self.viryPixCen, marker='x')
-        plt.plot(-centroidRotated[0], -centroidRotated[1])
 
+        plt.plot(-self.centroids[0], -self.centroids[1], '-o')
+        plt.plot(-self.virPixCen[0], -self.virPixCen[1], marker='x')
+        plt.plot(-centroidRotated[0], -centroidRotated[1], '-o')
+        plt.show()
 
 class Drizzler(object):
     def __init__(self, photonlists, metadata):
@@ -214,13 +258,13 @@ class Drizzler(object):
 
         self.xpix = metadata.xpix
         self.ypix = metadata.ypix
-        self.cenRA = metadata.cenRA
-        self.cenDec = metadata.cenDec
+        self.cenRA = metadata.coords.ra.deg
+        self.cenDec = metadata.coords.dec.deg
+        print(self.cenRA, self.cenDec, 'cenRA cenDec')
         self.vPlateScale = metadata.platescale
-        self.detPlateScale = metadata.platescale
 
-        self.vPlateScale = self.vPlateScale * 2 * np.pi / 1296000  # No. of radians on sky per virtual pixel.
-        self.detPlateScale = self.detPlateScale * 2 * np.pi / 1296000
+        # self.vPlateScale = self.vPlateScale * 2 * np.pi / 1296000  # No. of radians on sky per virtual pixel.
+        # self.detPlateScale = self.detPlateScale * 2 * np.pi / 1296000
 
         raMin, raMax, decMin, decMax = [], [], [], []
         for photonlist in photonlists:
@@ -233,16 +277,17 @@ class Drizzler(object):
         decMin = min(decMin)
         decMax = max(decMax)
 
-        self.cenRA = (raMin + raMax) / 2.0
-        self.cenDec = (decMin + decMax) / 2.0
-
-        # Set size of virtual grid to accommodate.
-
-        if self.nPixRA is None:
-            # +1 for round up; +1 because coordinates are the boundaries of the virtual pixels, not the centers.
-            self.nPixRA = int((raMax - raMin) // self.vPlateScale + 2)
-        if self.nPixDec is None:
-            self.nPixDec = int((decMax - decMin) // self.vPlateScale + 2)
+        # self.cenRA = (raMin + raMax) / 2.0
+        # self.cenDec = (decMin + decMax) / 2.0
+        #
+        # # Set size of virtual grid to accommodate.
+        #
+        # if self.nPixRA is None:
+        #     # +1 for round up; +1 because coordinates are the boundaries of the virtual pixels, not the centers.
+        #     self.nPixRA = int((raMax - raMin) // self.vPlateScale + 2)
+        # if self.nPixDec is None:
+        #     self.nPixDec = int((decMax - decMin) // self.vPlateScale + 2)
+        self.nPixRA, self.nPixDec = 500, 500#250, 250
 
         self.generate_coordinate_grid()
 
@@ -269,9 +314,10 @@ class Drizzler(object):
         self.w.wcs.crpix = [self.nPixRA / 2., self.nPixDec / 2.]
         self.w.wcs.cdelt = np.array([self.vPlateScale, self.vPlateScale])
         self.w.wcs.crval = [self.cenRA, self.cenDec]
-        self.w.wcs.ctype = ["RA---AIR", "DEC--AIR"]
+        self.w.wcs.ctype = ["RA-----", "DEC----"]
         self.w._naxis1 = self.nPixRA
         self.w._naxis2 = self.nPixDec
+        print(self.w)
 
 
 class SpectralDrizzler(Drizzler):
@@ -395,6 +441,9 @@ class SpatialDrizzler(Drizzler):
     def __init__(self, photonlists, metadata, pixfrac=1):
         Drizzler.__init__(self, photonlists, metadata)
         self.driz = stdrizzle.Drizzle(outwcs=self.w, pixfrac=pixfrac)
+        self.rotmat = np.array([[np.cos(metadata.dithHAs), np.sin(metadata.dithHAs)],
+                           [-np.sin(metadata.dithHAs), np.cos(metadata.dithHAs)]])
+        print(self.rotmat.shape, 'rotmat')
 
     def run(self, save_file=None):
         for ix, file in enumerate(self.files):
@@ -412,16 +461,28 @@ class SpatialDrizzler(Drizzler):
     def makeImage(self, file):
         thisImage, thisGridDec, thisGridRA = np.histogram2d(file['photDecRad'], file['photRARad'],
                                                             bins=[self.ypix, self.xpix])
-        # thisImage, thisGridDec, thisGridRA = np.histogram2d(file.photDecRad, file.photRARad,
+        # virImage, virGridDec, virGridRA = np.histogram2d(file['photDecRad'], file['photRARad'],
         #                                                     [self.gridDec, self.gridRA])
 
         w = wcs.WCS(naxis=2)
-        w.wcs.crpix = [0., 0.]
-        w.wcs.cdelt = np.array([thisGridRA[1] - thisGridRA[0], thisGridDec[1] - thisGridDec[0]])
-        w.wcs.crval = [thisGridRA[0], thisGridDec[0]]
-        w.wcs.ctype = ["RA---AIR", "DEC--AIR"]
-        w._naxis1 = len(thisGridRA) - 1
-        w._naxis2 = len(thisGridDec) - 1
+        w.wcs.crpix = [self.xpix/2., self.ypix/2.]
+        # w.wcs.crpix = [0, 0]
+        w.wcs.cdelt = np.array([thisGridRA[1]-thisGridRA[0], thisGridDec[1]-thisGridDec[0]])
+        # w.wcs.cdelt = np.array([self.vPlateScale, self.vPlateScale])
+        w.wcs.crval = [thisGridRA[self.xpix//2], thisGridDec[self.ypix//2]]
+        # w.wcs.crval = [thisGridRA[self.xpix//2], thisGridDec[self.ypix//2]]
+        w.wcs.ctype = ["RA-----", "DEC----"]
+
+        w._naxis1 = self.xpix
+        w._naxis2 = self.ypix
+        # w.wcs.cd = self.rotmat[:,:,ix] * self.vPlateScale
+        print(w)
+
+
+        # plt.imshow(virImage, origin='lower', extent=[min(virGridRA),max(virGridRA),min(virGridDec),max(virGridDec)], norm=LogNorm())#)
+        # # plt.xlim([-250, 250])
+        # # plt.ylim([-250, 250])
+        # plt.show()
 
         return thisImage, w
 
@@ -591,7 +652,12 @@ def get_wcs(timestamps, xPhotonPixels, yPhotonPixels, ditherind, ditherdesc, toa
     print('Calculating RA/Decs for dither %i' % ditherind)
 
     if toa_rotation:
-        photHAs = timestamps * 1e-6 / 86164.1 * 2 * np.pi  # * 500
+        # TODO update this rot_rate to altaz model
+        Earthrate = 1./86164.1 * 2*np.pi #* 500
+        obs_const = Earthrate * np.cos(19.7*np.pi/180)
+        rot_rate = obs_const * np.cos(az) / np.cos(alt)
+        photHAs = timestamps * 1e-6 * rot_rate
+
 
         hourangles = ditherdesc.dithHAs[ditherind] + photHAs
 
@@ -604,37 +670,60 @@ def get_wcs(timestamps, xPhotonPixels, yPhotonPixels, ditherind, ditherdesc, toa
         centroidRotated = np.dot(rotationMatrix, centroids).diagonal(axis1=0, axis2=2)
 
     else:
-        hourangles = ditherdesc.dithHAs[ditherind]
+        hourangle = ditherdesc.dithHAs[ditherind]
+        print('HAs', hourangle)
 
-        rotationMatrix = np.array([[np.cos(hourangles), -np.sin(hourangles)],
-                                   [np.sin(hourangles), np.cos(hourangles)]]).T
+        rotationMatrix = np.array([[np.cos(hourangle), -np.sin(hourangle)],
+                                   [np.sin(hourangle), np.cos(hourangle)]])
 
-        centroids = np.array([-ditherdesc.xCenRes[ditherind] + xPhotonPixels - ditherdesc.xpix / 2,
-                              -ditherdesc.yCenRes[ditherind] + yPhotonPixels - ditherdesc.ypix / 2])
+        # plt.plot(ditherdesc.centroids[0],ditherdesc.centroids[1])
+        # plt.show(block=True)
+        # print('lol', ditherdesc.virPixCen, rotationMatrix)
 
-        centroidRotated = np.dot(rotationMatrix, centroids)
+        # put each photon from the dither into its raster location on the virtual grid
+        vgrid_photons = np.array([ditherdesc.centroids[0][ditherind] + xPhotonPixels - ditherdesc.xpix/2,
+                                     ditherdesc.centroids[1][ditherind] + yPhotonPixels - ditherdesc.ypix/2])
 
-    rightAscensionOffset = ditherdesc.platescale * (centroidRotated[0])  # -1 here just orientates the final image
-    declinationOffset = ditherdesc.platescale * (centroidRotated[1])
+        # offset these to the center of rotation
+        cor_photons = vgrid_photons - ditherdesc.virPixCen
+
+        # rotate that virtual grid so that that those photons now occupy the part of the sky that was sampled
+        rotated_vgrid = np.dot(rotationMatrix, cor_photons)
+
+        # undo the COR offset
+        skyframe_photons = rotated_vgrid + ditherdesc.virPixCen
+
+        # thisImage, thisGridDec, thisGridRA = np.histogram2d(skyframe_photons[0],skyframe_photons[1],
+        #                                                     bins=[range(-250,250),range(-250,250)])
+        #
+        # plt.imshow(thisImage, origin='lower', extent=[min(thisGridRA),max(thisGridRA),min(thisGridDec),max(thisGridDec)], norm=LogNorm())#)
+        # plt.show(block=True)
+    rightAscensionOffset = ditherdesc.platescale * (skyframe_photons[0]) # -1 here just orientates the final image
+    declinationOffset = ditherdesc.platescale * (skyframe_photons[1])
+
+    # thisImage, thisGridDec, thisGridRA = np.histogram2d(rightAscensionOffset, declinationOffset, bins=[146,146])
+    #
+    # plt.imshow(thisImage, origin='lower', extent=[min(thisGridRA),max(thisGridRA),min(thisGridDec),max(thisGridDec)], norm=LogNorm())#)
+    # plt.show(block=True)
 
     # Convert centroid positions in DD:MM:SS.S and HH:MM:SS.S format to radians.
-    centroidRightAscensionRadians = ephem.hours(ditherdesc.cenRA).real
-    centroidDeclinationRadians = ephem.degrees(ditherdesc.cenDec).real
+    centroidRADeg = ephem.hours(ditherdesc.cenRA).real
+    centroidDecDeg = ephem.degrees(ditherdesc.cenDec).real
 
     # Convert centroid position radians to arcseconds.
-    degreesToRadians = np.pi / 180.0
-    radiansToDegrees = 180.0 / np.pi
+    # degreesToRadians = np.pi / 180.0
+    # radiansToDegrees = 180.0 / np.pi
 
-    centroidDeclinationArcseconds = centroidDeclinationRadians * radiansToDegrees * 3600.0
-    centroidRightAscensionArcseconds = centroidRightAscensionRadians * radiansToDegrees * 3600.0
+    # centroidDeclinationArcseconds = centroidDeclinationRadians * radiansToDegrees * 3600.0
+    # centroidRightAscensionArcseconds = centroidRightAscensionRadians * radiansToDegrees * 3600.0
 
     # Add the photon arcsecond offset to the centroid offset.
-    photonDeclinationArcseconds = centroidDeclinationArcseconds + declinationOffset
-    photonRightAscensionArcseconds = centroidRightAscensionArcseconds + rightAscensionOffset
+    photDecDeg = centroidDecDeg + declinationOffset
+    photRADeg = centroidRADeg + rightAscensionOffset
 
-    # Convert the photon positions from arcseconds to radians
-    photDecRad = (photonDeclinationArcseconds / 3600.0) * degreesToRadians
-    photRARad = (photonRightAscensionArcseconds / 3600.0) * degreesToRadians
+    # # Convert the photon positions from arcseconds to radians
+    # photDecRad = (photonDeclinationArcseconds / 3600.0) * degreesToRadians
+    # photRARad = (photonRightAscensionArcseconds / 3600.0) * degreesToRadians
 
     nPhot = 1
 
@@ -651,10 +740,10 @@ def get_wcs(timestamps, xPhotonPixels, yPhotonPixels, ditherind, ditherdesc, toa
         ditherRAs = 0
         ditherDecs = 0
 
-    photRARad = photRARad + ditherRAs
-    photDecRad = photDecRad + ditherDecs
+    photRADeg = photRADeg + ditherRAs
+    photDecDeg = photDecDeg + ditherDecs
 
-    return photRARad, photDecRad
+    return photRADeg, photDecDeg
 
 
 def drizzle_dither(dither, *args, **kwargs):
@@ -690,18 +779,22 @@ def drizzle_dither(dither, *args, **kwargs):
 
     return scimaps, weights
 
-
-if __name__ == '__main__':
+def form():
+    # TODO this needs to be implemented as a high level function
+    '''
+    This function has the sleeker multiprocessing suggestions from Jeb. It needs to be verified
+    :return:
+    '''
     # Get dither offsets
     # name = 'Trapezium'
-    # file = 'Trapezium.log'
+    # file = 'Trapezium_1547374552_dither.log'
     name = 'KappaAnd_dither+lasercal'
     file = 'KAnd_1545626974_dither.log'
 
     wvlMin = 850
     wvlMax = 1100
     firstObsTime = 0
-    integrationTime = 25
+    integrationTime = 10
     drizzleconfig = [wvlMin, wvlMax, ]
 
     # loc = os.path.join(os.getenv('MKID_DATA_DIR'), name, 'wavecal', file)
@@ -712,15 +805,20 @@ if __name__ == '__main__':
                                    startt=firstObsTime, intt=integrationTime, rotate=True)
 
     # Quick save method for the reduced photon packets
+    # pkl_save = 'Trap_%i.pkl' % integrationTime
+    pkl_save = 'KAnd_%i.pkl' % integrationTime
 
-    # pkl_save = 'ProcessedData/Trap.pkl'
-    pkl_save = 'KAnd.pkl'
-
-    if mkidpipeline.pipe.tempfile(some_identifying_string, exists=True):
-        data=mkidpipeline.pipe.tempfile(some_identifying_string)
+    # if mkidpipeline.pipe.tempfile(some_identifying_string, exists=True):
+    #     data = mkidpipeline.pipe.tempfile(some_identifying_string)
+    if os.path.exists(pkl_save):
+        with open(pkl_save, 'rb') as handle:
+            reduced_obslist = pickle.load(handle)
     else:
         begin = time.time()
-        filenames = sorted(glob.glob(os.path.join(datadir, 'out', name, 'wavecal_files', '*.h5')))[:25]
+        print(os.path.join(datadir, 'out/Singles', name, 'wavecal_files', '*.h5'))
+        filenames = sorted(glob.glob(os.path.join(datadir, 'out/Singles', name, 'wavecal_files', '*.h5')))
+        if filenames ==[]:
+            print('No obsfiles found')
         obsfiles = [ObsFile(file) for file in filenames]
 
 
@@ -738,34 +836,157 @@ if __name__ == '__main__':
 
         end = time.time()
         print('Time spent: %f' % (end - begin))
-        mkidpipeline.pipe.tempfile(some_identifying_string, data=data, overwrite=True)
+        # mkidpipeline.pipe.tempfile(some_identifying_string, data=data, overwrite=True)
+        with open(pkl_save, 'wb') as handle:
+            # pickle.dump(reduced_obslist, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(photlists, handle, protocol=-1)
 
-
+        # The WCS can be reassigned here rather than loading from obs each time
+        ditherdesc = DitherDescription(logdithdata, h5dithdata, drizzleconfig, multiplier=scale)
+        for ip, reduced_obs in enumerate(photlists):
+            reduced_obs['photRARad'], reduced_obs['photDecRad'] = get_wcs(reduced_obs['timestamps'],
+                                                                          reduced_obs['xPhotonPixels'],
+                                                                          reduced_obs['yPhotonPixels'],
+                                                                          ip, ditherdesc)
 
     # # Do the dither
     scimaps = []
-    for pixfrac in [1, 0.5, 0.1]:
-        driz = SpatialDrizzler(photlists, ditherdesc, pixfrac=pixfrac)
+    for i, pixfrac in enumerate([0.85]):
+        driz = SpatialDrizzler(photlists[:25], ditherdesc, pixfrac=pixfrac)
         driz.run()
         scimaps.append(driz.driz.outsci)
-    plt.imshow(scimaps[0], origin='lower', norm=LogNorm())
+        plt.imshow(scimaps[0], origin='lower', norm=LogNorm())
     plt.show(block=True)
 
     print(scimaps[0].shape)  # This is the shape of the drizzled image
     # >>> (268, 257)
 
-    driz = TemporalDrizzler(reduced_obslist, ditherdesc, pixfrac=0.5)
-    driz.run()
+    exit()
 
-    print(np.shape(driz.totHypCube))  # This is the shape of the drizzled hypercube
-    # >>> (2500, 2, 268, 257)  # 25 dither positions and integrationtime/frametime frames at each of them, nwvlbins
-    # spectral frame
-    for datacube in np.transpose(driz.totHypCube, (1, 0, 2, 3)):  # iterate through the time axis to produce a series of
-        # spectral cubes
-        for image in datacube:  # iterate through the wavelength axis
-            plt.imshow(image, origin='lower', norm=LogNorm())
-            plt.show(block=True)
+    # print(scimaps[0].shape)  # This is the shape of the drizzled image
+    # # >>> (268, 257)
+    #
+    # driz = TemporalDrizzler(reduced_obslist, ditherdesc, pixfrac=0.5)
+    # driz.run()
+    #
+    # print(np.shape(driz.totHypCube))  # This is the shape of the drizzled hypercube
+    # # >>> (6250, 2, 268, 257)  # 25 dither positions and integrationtime/frametime frames at each of them, nwvlbins
+    #                                                            # spectral frame
+    # for datacube in np.transpose(driz.totHypCube, (1,0,2,3))[::250]:  # iterate through the time axis to produce a series of
+    #                                                            # spectral cubes
+    #     for image in datacube:  #iterate through the wavelength axis
+    #         plt.imshow(image, origin='lower', norm=LogNorm())
+    #         plt.show()
+    #
+    # weights = np.sum(driz.totWeightCube, axis=0)[0]
+    # plt.imshow(np.sum(driz.totHypCube, axis=0)[0]/weights, origin='lower', norm=LogNorm())
+    # plt.show(block=True)  # This should plot the same 2d image as SpatialDrizzler(args).run().driz.outsci
 
-    weights = np.sum(driz.totWeightCube, axis=0)[0]
-    plt.imshow(np.sum(driz.totHypCube, axis=0)[0] / weights, origin='lower', norm=LogNorm())
-    plt.show(block=True)  # This should plot the same 2d image as SpatialDrizzler(args).run().driz.outsci
+
+if __name__ == '__main__':
+    # TODO cut this down so it uses form() once that works
+
+    # Get dither offsets
+    # name = 'Trapezium'
+    # file = 'Trapezium_1547374552_dither.log'
+    name = 'KappaAnd_dither+lasercal'
+    file = 'KAnd_1545626974_dither.log'
+
+    wvlMin = 850
+    wvlMax = 1100
+    firstObsTime = 0
+    integrationTime = 10
+    print(integrationTime)
+    drizzleconfig = [wvlMin, wvlMax, firstObsTime, integrationTime]
+
+    # loc = os.path.join(os.getenv('MKID_DATA_DIR'), name, 'wavecal', file)
+    datadir = '/mnt/data0/isabel/mec'
+    loc = os.path.join(datadir, 'dithers', file)
+
+    logdithdata = MKIDObservingDither(name, loc, None, None)
+    h5dithdata = getmetafromh5()
+    ditherdesc = DitherDescription(logdithdata, h5dithdata, drizzleconfig, multiplier=0)
+
+    # Quick save method for the reduced photon packets
+    # pkl_save = 'Trap_%i.pkl' % integrationTime
+    pkl_save = 'KAnd_%i.pkl' % integrationTime
+
+    if os.path.exists(pkl_save):
+        with open(pkl_save, 'rb') as handle:
+            reduced_obslist = pickle.load(handle)
+    else:
+
+        begin = time.time()
+        print(os.path.join(datadir, 'out/Singles', name, 'wavecal_files', '*.h5'))
+        filenames = sorted(glob.glob(os.path.join(datadir, 'out/Singles', name, 'wavecal_files', '*.h5')))
+        if filenames == []:
+            print('No obsfiles found')
+        obsfiles = [ObsFile(file) for file in filenames]
+
+
+        def mp_worker(arg, reduced_obs_queue):
+
+            obsfile, ditherdesc, ditherind = arg
+            timestamps, xPhotonPixels, yPhotonPixels, wavelengths = reduce_obs(obsfile, ditherdesc, ditherind)
+            photRARad, photDecRad = get_wcs(timestamps, xPhotonPixels, yPhotonPixels, ditherind, ditherdesc)
+            reduced_obs = {'ditherind': ditherind,
+                           'timestamps': timestamps,
+                           'xPhotonPixels': xPhotonPixels,
+                           'yPhotonPixels': yPhotonPixels,
+                           'wavelengths': wavelengths,
+                           'photRARad': photRARad,
+                           'photDecRad': photDecRad}
+            reduced_obs_queue.put(reduced_obs)
+
+
+        ndither = len(ditherdesc.pos)
+        print('stacking number of dithers: %i' % ndither)
+
+        jobs = []
+        reduced_obs_queue = mp.Queue()
+        for ditherind, obsfile in enumerate(obsfiles[:ndither]):
+            arg = ((obsfile, ditherdesc, ditherind))
+            p = mp.Process(target=mp_worker, args=(arg, reduced_obs_queue))
+            jobs.append(p)
+            p.daemon = True
+            p.start()
+            # p.join()
+
+        reduced_obslist = []
+        order = np.zeros(ndither)
+        for t in range(len(obsfiles[:ndither])):
+            reduced_obslist.append(reduced_obs_queue.get())
+            order[t] = reduced_obslist[t]['ditherind']
+        reduced_obslist = np.array(reduced_obslist)
+        sorted = np.argsort(order)
+        reduced_obslist = reduced_obslist[sorted]
+
+        end = time.time()
+        print('Time spent: %f' % (end - begin))
+
+        # with open(pkl_save, 'wb') as handle:
+        #     pickle.dump(reduced_obslist, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        #     # pickle.dump(reduced_obslist, handle, protocol=-1)
+
+    for scale in [1]:  # np.linspace(-1, 1, 5):
+
+        # The WCS can be reassigned here rather than loading from obs each time
+        ditherdesc = DitherDescription(logdithdata, h5dithdata, drizzleconfig, multiplier=scale)
+        for ip, reduced_obs in enumerate(reduced_obslist):
+            reduced_obs['photRARad'], reduced_obs['photDecRad'] = get_wcs(reduced_obs['timestamps'],
+                                                                          reduced_obs['xPhotonPixels'],
+                                                                          reduced_obs['yPhotonPixels'],
+                                                                          ip, ditherdesc)
+
+        # # Do the dither
+        scimaps = []
+        for i, pixfrac in enumerate([0.85]):
+            driz = SpatialDrizzler(reduced_obslist[:25], ditherdesc, pixfrac=pixfrac)
+            driz.run()
+            scimaps.append(driz.driz.outsci)
+            plt.imshow(scimaps[i], origin='lower', vmax=1750)  # , norm=LogNorm())
+            # plt.xlim([0,400])
+            # plt.ylim([0,400])
+        plt.show()
+
+    exit()
