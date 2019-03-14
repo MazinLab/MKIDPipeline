@@ -19,6 +19,9 @@ from statsmodels.base.model import GenericLikelihoodModel
 #from mkidpipeline.hdf.darkObsFile import ObsFile
 from mkidpipeline.speckle.genphotonlist_IcIsIr import genphotonlist
 
+
+
+
 def plotROC(Ic, Is, Ir, Ttot, tau=0.1, deadtime=10):
     print("[Ic, Is, Ir, Ttot, tau, deadTime]: "+str([Ic, Is, Ir, Ttot, tau, deadtime]))
     ts_total, ts_star, pInds = genphotonlist(Ic, Is, Ir, Ttot, tau, deadtime, return_IDs=True)
@@ -326,6 +329,94 @@ def optimize_IcIsIr(dt, guess_params, deadtime=1.e-5, method='nm', **kwargs):
     return model.fit(guess_params,method=method,**kwargs)
 '''
 
+'''
+def probIr(guess_params, dt, deadtime,stepsize=1.,cumulative=False):
+    """
+    This function returns the (cumulative) probability density of Ir. 
+    Essentially, it integrates the likelihood over Ic, Is for values of Ir.
+    It should be normalized
+
+    INPUTS:
+        guess_params - [Ic, Is, Ir] guesses so we can get a good list of Ir to calculate the probability density
+        dt - list of interarrival times
+        deadtime - 
+        stepsize - stepsize of Ir
+        cumulative - Calculate the cumulative probability density (THIS IS SLOW!)
+
+    OUTPUTS:
+        Ir_list - list of Ir values
+        intL - corresponding probability density
+    """
+
+
+    res = optimize_IcIsIr(dt, guessParams=guess_params, deadtime=deadtime)
+    print(res.summary())
+    maxL=MRlogL(res.params, dt, deadtime)
+
+    big=500.
+    #norm,_ = integrate.tplquad(_MRL, 0, big, lambda x: 0, lambda x: big,lambda x,y: 0, lambda x,y: big,args=[dt,deadtime,maxL])
+    #norm, _, _ = integrate.nquad(_MRL, ranges=[[0., big],[0.,big],[0., big]], args=[dt,deadtime,maxL], opts=[{'points':[res.params[0]]},{'points':[res.params[1]]},{'points':[res.params[2]]}], full_output=True)
+    #norm,_=integrate.dblquad(_MRL, 0, np.inf, lambda x: 0, lambda x: np.inf,args=[res.params[-1],dt,deadtime,maxL])
+    norm,_ = integrate.dblquad(_MRL, 0, big, lambda x: 0, lambda x: big,args=[res.params[-1],dt,deadtime,maxL])
+    print("maxL: "+str(maxL)+" norm: "+str(np.log(norm)))
+
+    print("Starting integration...")
+    intL=[]
+    Ir_list= []
+    r=res.params[-1]
+    int_val=0.5
+    # decreasing Ir until just before Ir=0
+    while int_val > 10.**-8.:
+        if cumulative:
+            int_val,_=integrate.tplquad(_MRL, 0, np.inf, lambda x: 0, lambda x: np.inf,lambda x,y: 0, lambda x,y: r,args=[dt,deadtime,maxL+np.log(norm)])
+        else:
+            #int_val,_=integrate.dblquad(_MRL, 0, np.inf, lambda x: 0, lambda x: np.inf,args=[r,dt,deadtime,maxL+np.log(norm)])
+            int_val,_=integrate.dblquad(_MRL, 0, big, lambda x: 0, lambda x: big,args=[r,dt,deadtime,maxL+np.log(norm)])
+        print('r: '+str(r)+' f: '+str(_MRL(res.params[0],res.params[1],r,dt,deadtime,maxL+np.log(norm)))+' integral(f): '+str(int_val))
+        intL.append(int_val)
+        Ir_list.append(r)
+        r-=stepsize
+        if r<=0.: break
+    # Ir=0
+    if res.params[-1]!=0.:
+        r=0.
+        if cumulative:
+            int_val,_=integrate.tplquad(_MRL, 0, np.inf, lambda x: 0, lambda x: np.inf,lambda x,y: 0, lambda x,y: r,args=[dt,deadtime,maxL+np.log(norm)])
+        else:
+            #int_val,_=integrate.dblquad(_MRL, 0, np.inf, lambda x: 0, lambda x: np.inf,args=[r,dt,deadtime,maxL+np.log(norm)])
+            int_val,_=integrate.dblquad(_MRL, 0, big, lambda x: 0, lambda x: big,args=[r,dt,deadtime,maxL+np.log(norm)])
+        print('r: '+str(r)+' f: '+str(_MRL(res.params[0],res.params[1],r,dt,deadtime,maxL+np.log(norm)))+' integral(f): '+str(int_val))
+        intL.append(int_val)
+        Ir_list.append(r)
+    # increasing Ir until integral becomes small
+    r=res.params[-1]+1.
+    while np.abs(cumulative - int_val) > 10.**-8.:
+        if cumulative:
+            int_val,_=integrate.tplquad(_MRL, 0, np.inf, lambda x: 0, lambda x: np.inf,lambda x,y: 0, lambda x,y: r,args=[dt,deadtime,maxL+np.log(norm)])
+        else:
+            #int_val,_=integrate.dblquad(_MRL, 0, np.inf, lambda x: 0, lambda x: np.inf,args=[r,dt,deadtime,maxL+np.log(norm)])
+            int_val,_=integrate.dblquad(_MRL, 0, big, lambda x: 0, lambda x: big,args=[r,dt,deadtime,maxL+np.log(norm)])
+        print('r: '+str(r)+' f: '+str(_MRL(res.params[0],res.params[1],r,dt,deadtime,maxL+np.log(norm)))+' integral(f): '+str(int_val))
+        intL.append(int_val)
+        Ir_list.append(r)
+        r+=stepsize
+    
+
+    inds = np.argsort(Ir_list)
+    intL=np.asarray(intL)[inds]
+    Ir_list=np.asarray(Ir_list)[inds]
+    #print(intL)
+    #print(Ir_list)
+    #plt.plot(Ir_list, intL)
+    #plt.show()
+    return Ir_list, intL
+
+def _MRL(Ic,Is,Ir,*args,**kwargs):
+    return MRL([Ic,Is,Ir],*args,**kwargs)
+def MRL(params, dt, deadtime, a=0):
+    return np.exp(MRlogL(params,dt,deadtime) - a)
+'''
+
 def MRlogL(params, dt, deadtime=1.e-5):
     """
     Given an array of photon interarrival times, calculate the Log likelihood that
@@ -346,8 +437,8 @@ def MRlogL(params, dt, deadtime=1.e-5):
     try: Ir=params[2]
     except IndexError: Ir=0
     
-    # Intensity should be strictly positive, and each Ic, Is, Ir should be nonnegative.
-    if Ic < 0 or Is < 0 or Ir < 0 or Ic + Is + Ir == 0:
+    # Stellar Intensity should be strictly positive, and each Ic, Is, Ir should be nonnegative.
+    if Ic < 0 or Is < 0 or Ir < 0 or Ic + Is== 0:
         return -1e100 
     
     nslice = 20
