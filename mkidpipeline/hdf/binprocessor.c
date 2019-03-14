@@ -317,15 +317,18 @@ long extract_photons(const char *binpath, unsigned long start_timestamp, unsigne
         sprintf(fName,"%s/%ld.bin",binpath,FirstFile+i);
         checkExists = stat(fName, &st);
         if(checkExists != 0){
-            printf("Warning: %s does not exist", fName);
+            printf("Warning: %s does not exist\n", fName);
+            fflush(stdout);
             continue;
         }
 
         fSize = st.st_size;
 
         printf("Reading %s - %ld Mb\n",fName,fSize/1024/1024);
+        fflush(stdout);
         if (DATA_BUFFER_SIZE_BYTES<fSize) {
             printf("Bin file too large for buffer, did the max counts increase from 2500 cts/s\n");
+            fflush(stdout);
             //TODO free all the crap
             return -1;
         }
@@ -503,7 +506,7 @@ long cparsebin(const char *fName, unsigned long max_len,
 	data = (uint64_t *) malloc(fSize);
     fp = fopen(fName, "rb");
     rd = fread( data, 1, fSize, fp);
-    if( rd != fSize) printf("Didn't read the entire file %s\n",fName);
+    if( rd != fSize) {printf("Didn't read the entire file %s\n",fName);fflush(stdout);}
     fclose(fp);
 
     //if not open
@@ -519,7 +522,7 @@ long cparsebin(const char *fName, unsigned long max_len,
 			pstart = i;
 			curtime = hdr->timestamp*500;
 			curroach = hdr->roach;
-			if( firstHeader != 0 ) printf("First header at %ld\n",firstHeader);
+			if( firstHeader != 0 ) {printf("First header at %ld\n",firstHeader);fflush(stdout);}
 			break;
 		}
 	}
