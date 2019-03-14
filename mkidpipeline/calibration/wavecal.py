@@ -1,16 +1,13 @@
 #!/bin/env python3
 from __future__ import print_function
 import os
-import ast
-import sys
+import queue
 import atexit
-import logging
 import argparse
 import warnings
 import numpy as np
 import multiprocessing as mp
 from datetime import datetime
-from astropy.constants import c, h
 from distutils.spawn import find_executable
 from six.moves.configparser import ConfigParser
 import matplotlib
@@ -19,23 +16,26 @@ from matplotlib.widgets import Button, Slider
 from matplotlib import cm, lines, pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from mpl_toolkits.axes_grid1 import axes_size, make_axes_locatable
-
+import time
 from mkidpipeline.hdf import bin2hdf
 import mkidcore.corelog as pipelinelog
-
-
+import mkidpipeline.config
+import mkidcore.config
+from mkidreadout.configuration.beammap.beammap import Beammap
+import astropy.constants
+import pkg_resources as pkg
 
 log = pipelinelog.getLogger('mkidpipeline.calibration.wavecal', setup=False)
 
 try:
     import progressbar as pb
-except Exception as err:
+except ImportError as err:
     log.warning('Error importing progressbar: ' + str(err))
 
 try:
-    from mkidpipeline.hdf.darkObsFile import ObsFile
-except Exception as err:
-    log.warning('Error importing darkObsFile: ' + str(err))
+    import mkidpipeline.hdf.photontable as photontable
+except ImportError as err:
+    log.warning('Error importing photontable: ' + str(err))
 
 try:
     import mkidpipeline.calibration.wavecal_models as wm
@@ -43,265 +43,141 @@ except ImportError as err:
     log.warning('Error importing wavecal_models: ' + str(err))
 
 
-def setup_logging(configuration, time_stamp=None):
+PLANK_CONSTANT_EVS = astropy.constants.h.to('eV s').value
+SPEED_OF_LIGHT_NMS = astropy.constants.c.to('nm/s').value
+
+
+_loaded_solutions = {}  # storage for loaded wavelength solutions
+
+
+def setup_logging(tologfile='', toconsole=True, time_stamp=None):
     """
-    Set up logging for the wavelength calibration module for running from the command
-    line.
+    Set up logging for the wavelength calibration module for running from the command line.
 
     Args:
-        configuration: wavelength calibration Configuration object
-        time_stamp: utc time stamp to name the log file
+        tologfile: directory where the logs folder will be placed. If empty, no logfile is made.
+        toconsole: boolean specifying if the console log is set up.
+        time_stamp: utc time stamp to name the log file.
     """
-    wavecal_name = 'mkidpipeline.calibration.wavecal'
-    models_name = 'mkidpipeline.calibration.wavecal_models'
-    wavecal_log = pipelinelog.getLogger(wavecal_name, setup=False)
-    wavecal_models_log = pipelinelog.getLogger(models_name, setup=False)
     if time_stamp is None:
         time_stamp = int(datetime.utcnow().timestamp())
-    if configuration.verbose:
+    if toconsole:
         log_format = "%(levelname)s : %(message)s"
-        wavecal_log = pipelinelog.create_log(wavecal_name, console=True, fmt=log_format,
-                                             level="INFO")
-        wavecal_models_log = pipelinelog.create_log(models_name, console=True,
-                                                    fmt=log_format, level="INFO")
-    if configuration.logging:
-        log_directory = os.path.join(configuration.out_directory, 'logs')
+        pipelinelog.create_log('mkidpipeline', console=True, fmt=log_format, level="INFO")
+
+    if tologfile:
+        log_directory = os.path.join(tologfile, 'logs')
         log_file = os.path.join(log_directory, '{:.0f}.log'.format(time_stamp))
         log_format = '%(asctime)s : %(funcName)s : %(levelname)s : %(message)s'
-        wavecal_log = pipelinelog.create_log(wavecal_name, logfile=log_file,
-                                             console=False, fmt=log_format, level="DEBUG")
-        wavecal_models_log = pipelinelog.create_log(models_name, logfile=log_file,
-                                                    console=False, fmt=log_format,
-                                                    level="DEBUG")
-    return wavecal_log, wavecal_models_log
+        pipelinelog.create_log('mkidpipeline', logfile=log_file, console=False, fmt=log_format, level="DEBUG")
 
 
 class Configuration(object):
     """Configuration class for the wavelength calibration analysis."""
-    def __init__(self, configuration_path, solution_name='solution.npz'):
+    yaml_tag = u'!wavecalconfig'
+
+    def __init__(self, configfile=None, start_times=tuple(), exposure_times=tuple(), wavelengths=tuple(),
+                 beammap=None, h5dir='', outdir='', bindir='', histogram_model_names=('GaussianAndExponential',),
+                 bin_width=2, histogram_fit_attempts=3, calibration_model_names=('Quadratic', 'Linear'), dt=500,
+                 parallel=True, parallel_prefetch=False, summary_plot=True, templarfile=''):
+
         # parse arguments
-        self.solution_name = solution_name
-        self.configuration_path = configuration_path
+        self.configuration_path = configfile
+        self.h5_directory = h5dir
+        self.out_directory = outdir
+        self.bin_directory = bindir
+        self.start_times = list(map(int, start_times))
+        self.h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.start_times]
+        self.exposure_times = list(map(int, exposure_times))
+        self.wavelengths = np.array(wavelengths, dtype=float)
 
-        assert os.path.isfile(self.configuration_path), \
-            self.configuration_path + " is not a valid configuration file"
+        # Things with defaults
+        self.histogram_model_names = list(histogram_model_names)
+        self.bin_width = float(bin_width)
+        self.histogram_fit_attempts = int(histogram_fit_attempts)
+        self.calibration_model_names = list(calibration_model_names)
+        self.dt = float(dt)
+        self.parallel = parallel
+        self.parallel_prefetch = parallel_prefetch
+        self.summary_plot = summary_plot
+        self.templar_configuration_path = templarfile
 
-        # load in the configuration file
-        self.config = ConfigParser()
-        self.config.read(self.configuration_path)
+        if self.configuration_path is not None:
+            # load in the configuration file
+            cfg = mkidcore.config.load(self.configuration_path)
+            self.ncpu = cfg.ncpu
+            self.beammap = cfg.beammap
+            # load in the parameters
+            self.x_pixels = cfg.beammap.ncols
+            self.y_pixels = cfg.beammap.nrows
+            self.beam_map_path = cfg.beammap.file
 
-        # check the configuration file format and load the parameters
-        self.check_sections()
+            self.h5_directory = cfg.paths.out
+            self.out_directory = cfg.paths.database
+            self.bin_directory = cfg.paths.data
 
-        # load in the parameters
-        self.x_pixels = ast.literal_eval(self.config['Data']['x_pixels'])
-        self.y_pixels = ast.literal_eval(self.config['Data']['y_pixels'])
-        self.bin_directory = ast.literal_eval(self.config['Data']['bin_directory'])
-        self.start_times = ast.literal_eval(self.config['Data']['start_times'])
-        self.exposure_times = ast.literal_eval(self.config['Data']['exposure_times'])
-        self.beam_map_path = ast.literal_eval(self.config['Data']['beam_map_path'])
-        self.h5_directory = ast.literal_eval(self.config['Data']['h5_directory'])
-        self.h5_file_names = ast.literal_eval(self.config['Data']['h5_file_names'])
-        self.wavelengths = ast.literal_eval(self.config['Data']['wavelengths'])
-        self.histogram_model_names = ast.literal_eval(
-            self.config['Fit']['histogram_model_names'])
-        self.bin_width = ast.literal_eval(self.config['Fit']['bin_width'])
-        self.histogram_fit_attempts = ast.literal_eval(
-            self.config['Fit']['histogram_fit_attempts'])
-        self.calibration_model_names = ast.literal_eval(
-            self.config['Fit']['calibration_model_names'])
-        self.dt = ast.literal_eval(self.config['Fit']['dt'])
-        self.parallel = ast.literal_eval(self.config['Fit']['parallel'])
-        self.out_directory = ast.literal_eval(self.config['Output']['out_directory'])
-        self.summary_plot = ast.literal_eval(self.config['Output']['summary_plot'])
-        self.templar_configuration_path = ast.literal_eval(
-            self.config['Output']['templar_configuration_path'])
-        self.verbose = ast.literal_eval(self.config['Output']['verbose'])
-        self.logging = ast.literal_eval(self.config['Output']['logging'])
+            self.start_times = list(map(int, cfg.start_times))
 
-        # check the parameter formats
-        self.check_parameters()
-        
-        # enforce consistency between h5 and bin file start times
-        self._config_changed = False
-        self.enforce_consistency()
+            try:
+                self.h5_file_names = [os.path.join(self.h5_directory, f) for f in cfg.h5_file_names]
+            except KeyError:
+                self.h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.start_times]
 
-        # write new config file if enforce_consistency() updated any parameters
-        if self._config_changed:
-            while True:
-                if os.path.isfile(self.configuration_path):
-                    directory = os.path.dirname(self.configuration_path)
-                    base_name = "".join(
-                        os.path.basename(self.configuration_path).split(".")[:-1])
-                    suffix = str(os.path.basename(self.configuration_path).split(".")[-1])
-                    self.configuration_path = os.path.join(directory,
-                                                           base_name + "_new." + suffix)
-                else:
-                    break
-            self.write(self.configuration_path)
+            self.exposure_times = list(map(int, cfg.exposure_times))
+            self.wavelengths = np.array(cfg.wavelengths, dtype=float)
 
-    def check_sections(self):
-        """Check if all sections and parameters exist in the configuration file."""
-        section = "'{0}' must be a configuration file section"
-        param = "'{0}' must be a parameter in the '{1}' section of the configuration file"
+            # Things with defaults
+            self.histogram_model_names = list(cfg.wavecal.fit.histogram_model_names)
+            self.bin_width = float(cfg.wavecal.fit.bin_width)
+            self.histogram_fit_attempts = int(cfg.wavecal.fit.histogram_fit_attempts)
+            self.calibration_model_names = list(cfg.wavecal.fit.calibration_model_names)
+            self.dt = float(cfg.wavecal.fit.dt)
+            self.parallel = cfg.wavecal.fit.parallel
+            self.parallel_prefetch = cfg.wavecal.fit.parallel_prefetch
+            self.summary_plot = cfg.wavecal.plots.lower() in ('all', 'summary')
 
-        assert 'Data' in self.config.sections(), section.format('Data')
-        assert 'x_pixels' in self.config['Data'].keys(), \
-            param.format('x_pixels', 'Data')
-        assert 'y_pixels' in self.config['Data'].keys(), \
-            param.format('y_pixels', 'Data')
-        assert 'bin_directory' in self.config['Data'].keys(), \
-            param.format('bin_directory', 'Data')
-        assert 'start_times' in self.config['Data'].keys(), \
-            param.format('start_times', 'Data')
-        assert 'exposure_times' in self.config['Data'].keys(), \
-            param.format('exposure_times', 'Data')
-        assert 'beam_map_path' in self.config['Data'].keys(), \
-            param.format('beam_map_path', 'Data')
-        assert 'h5_directory' in self.config['Data'].keys(), \
-            param.format('h5_directory', 'Data')
-        assert 'h5_file_names' in self.config['Data'].keys(), \
-            param.format('h5_file_names', 'Data')
-        assert 'wavelengths' in self.config['Data'].keys(), \
-            param.format('wavelengths', 'Data')
+            try:
+                self.templar_configuration_path = cfg.templar.file
+            except KeyError:
+                if self.beammap.frequencies is None:
+                    log.warning('Beammap loaded without frequencies and no templar config specified.')
+        else:
+            self.beammap = beammap if beammap is not None else Beammap(default='MEC')
+            self.x_pixels = beammap.ncols
+            self.y_pixels = beammap.nrows
+            self.beam_map_path = beammap.file
+            self.h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.start_times]
 
-        assert 'Fit' in self.config.sections(), section.format('Fit')
-        assert 'histogram_model_names' in self.config['Fit'].keys(), \
-            param.format('histogram_model_names', 'Fit')
-        assert 'bin_width' in self.config['Fit'].keys(), \
-            param.format('bin_width', 'Fit')
-        assert 'histogram_fit_attempts' in self.config['Fit'].keys(), \
-            param.format('histogram_fit_attempts', 'Fit')
-        assert 'calibration_model_names' in self.config['Fit'].keys(), \
-            param.format('calibration_model_names', 'Fit')
-        assert 'dt' in self.config['Fit'].keys(), \
-            param.format('dt', 'Fit')
-        assert 'parallel' in self.config['Fit'].keys(), \
-            param.format('parallel', 'Fit')
-
-        assert 'Output' in self.config.sections(), section.format('Output')
-        assert 'out_directory' in self.config['Output'], \
-            param.format('out_directory', 'Output')
-        assert 'summary_plot' in self.config['Output'], \
-            param.format('summary_plot', 'Output')
-        assert 'templar_configuration_path' in self.config['Output'], \
-            param.format('templar_configuration_path', 'Output')
-        assert 'verbose' in self.config['Output'], \
-            param.format('verbose', 'Output')
-        assert 'logging' in self.config['Output'], \
-            param.format('logging', 'Output')
-
-    def check_parameters(self):
-        """Type check configuration file parameters."""
-        assert type(self.x_pixels) is int, "x_pixels parameter must be an integer"
-        assert type(self.y_pixels) is int, "y_pixels parameter must be an integer"
-        assert os.path.isdir(self.bin_directory),\
-            "bin_directory parameter must be a string and a valid directory"
-        message = "start_times parameter must be a list of integers."
-        assert type(self.start_times) is list, message
-        for st in self.start_times:
-            assert type(st) is int, message
-        message = "exposure_times parameter must be a list of integers"
-        assert type(self.exposure_times) is list, message
-        for et in self.exposure_times:
-            assert type(et) is int, message
-        assert os.path.isfile(self.beam_map_path),\
-            "beam_map_path parameter must be a string and a valid path to a file"
-        assert os.path.isdir(self.h5_directory), \
-            "h5_directory parameter must be a string and a valid directory"
-        message = "h5_file_names parameter must be a list of strings or None."
-        assert isinstance(self.h5_file_names, (list, type(None))), message
-        if isinstance(self.h5_file_names, list):
-            for name in self.h5_file_names:
-                assert isinstance(name, str), message
-        message = "wavelengths parameter must be a list of numbers"
-        assert isinstance(self.wavelengths, (list, np.ndarray)), message
-        try:
-            self.wavelengths = np.array([float(wavelength)
-                                         for wavelength in self.wavelengths])
-        except ValueError:
-            raise AssertionError(message)
-        message = ("histogram_model_names parameter must be a list of subclasses of "
-                   "PartialLinearModel and be in wavecal_models.py")
-        assert isinstance(self.histogram_model_names, list), message
         for model in self.histogram_model_names:
-            assert issubclass(getattr(wm, model), wm.PartialLinearModel), message
-        try:
-            self.bin_width = float(self.bin_width)
-        except ValueError:
-            raise AssertionError("bin_width parameter must be an integer or float")
-        assert isinstance(self.histogram_fit_attempts, int), \
-            "histogram_fit_attempts parameter must be an integer"
-        message = ("calibration_model_names parameter must be a list of subclasses of "
-                   "XErrorsModel and be in wavecal_models.py")
-        assert isinstance(self.calibration_model_names, list), message
+            assert issubclass(getattr(wm, model), wm.PartialLinearModel), \
+                   '{} is not a subclass of wavecal_models.PartialLinearModel'.format(model)
+
         for model in self.calibration_model_names:
-            assert issubclass(getattr(wm, model), wm.XErrorsModel), message
-        try:
-            self.dt = float(self.dt)
-        except ValueError:
-            raise AssertionError("dt parameter must be an integer or float")
-        assert type(self.parallel) is bool, "parallel parameter must be a boolean"
-        assert os.path.isdir(self.out_directory), \
-            "out_directory parameter must be a string and a valid directory"
-        assert type(self.summary_plot) is bool, "summary_plot parameter must be a boolean"
-        assert os.path.isfile(self.templar_configuration_path),\
-            "templar_configuration_path parameter must be a string and a valid file path"
-        assert type(self.verbose) is bool, "verbose parameter bust be a boolean"
-        assert type(self.logging) is bool, "logging parameter must be a boolean"
+            assert issubclass(getattr(wm, model), wm.XErrorsModel), \
+                   '{} is not a subclass of wavecal_models.XErrorsModel'.format(model)
+
+        self._sort_wavelengths()
+
+    @classmethod
+    def to_yaml(cls, representer, node):
+        d = node.__dict__.copy()
+        d.pop('config')
+        d['wavelengths'] = [float(x) for x in node.wavelengths]
+        return representer.represent_mapping(cls.yaml_tag, d)
+
+    @classmethod
+    def from_yaml(cls, constructor, node):
+        d = mkidcore.config.extract_from_node(constructor, 'configuration_path', node)
+        return cls(d['configuration_path'])
 
     def hdf_exist(self):
         """Check if all hdf5 files specified exist."""
-        file_paths = [os.path.join(self.h5_directory, file_)
-                      for file_ in self.h5_file_names]
-        return all(map(os.path.isfile, file_paths))
-
-    def enforce_consistency(self):
-        """Make sure a partially specified configuration is fully defined"""
-        # check to see if h5 files were specified and compute their names otherwise
-        if self.h5_file_names is None:
-            self._config_changed = True
-            self.h5_file_names = self._compute_hdf_names()
-        # check that wavelengths are in ascending order and sort otherwise
-        if (sorted(self.wavelengths) != self.wavelengths).all():
-            self._config_changed = True
-            self._sort_wavelengths()
+        return all(map(os.path.isfile, self.h5_file_names))
 
     def write(self, file_):
         """Save the configuration to a file"""
         with open(file_, 'w') as f:
-            f.write('[Data]' + os.linesep +
-                    'x_pixels = {}'.format(self.x_pixels) + os.linesep +
-                    'y_pixels = {}'.format(self.y_pixels) + os.linesep +
-                    'bin_directory = "{}"'.format(self.bin_directory) + os.linesep +
-                    'start_times = {}'.format(self.start_times) + os.linesep +
-                    'exposure_times = {}'.format(self.exposure_times) + os.linesep +
-                    'beam_map_path = "{}"'.format(self.beam_map_path) + os.linesep +
-                    'h5_directory = "{}"'.format(self.h5_directory) + os.linesep +
-                    'h5_file_names = {}'.format(self.h5_file_names) + os.linesep +
-                    'wavelengths = {}'.format(list(self.wavelengths)) + os.linesep +
-                    os.linesep +
-                    '[Fit]' + os.linesep +
-                    'histogram_model_names = {}'.format(self.histogram_model_names) +
-                    os.linesep +
-                    'bin_width = {}'.format(self.bin_width) + os.linesep +
-                    'histogram_fit_attempts = {}'.format(self.histogram_fit_attempts) +
-                    os.linesep +
-                    'calibration_model_names = {}'.format(self.calibration_model_names) +
-                    os.linesep +
-                    'dt = {}'.format(self.dt) + os.linesep +
-                    'parallel = {}'.format(self.parallel) + os.linesep +
-                    os.linesep +
-                    '[Output]' + os.linesep +
-                    'out_directory = "{}"'.format(self.out_directory) + os.linesep +
-                    'summary_plot = {}'.format(self.summary_plot) + os.linesep +
-                    ('templar_configuration_path = "{}"'
-                     .format(self.templar_configuration_path)) + os.linesep +
-                    'verbose = {}'.format(self.verbose) + os.linesep +
-                    'logging = {}'.format(self.logging))
-
-    def _compute_hdf_names(self):
-        return ['%d' % st + '.h5' for st in self.start_times]
+            mkidcore.config.yaml.dump(self, f)
 
     def _sort_wavelengths(self):
         indices = np.argsort(self.wavelengths)
@@ -320,37 +196,32 @@ class Calibrator(object):
 
     Args:
         configuration: wavecal.py Configuration object
+        solution_name: save name for the Solution object (optional)
+        _shared_tables: shared memory for photon lists (optional)
+        fit_array: precomputed data from Solution object (optional)
+        main: boolean specifying if part of the main thread (default True)
 
     Created by: Nicholas Zobrist, January 2018
     """
-    def __init__(self, configuration):
+    def __init__(self, configuration, solution_name='solution.npz', _shared_tables=None, fit_array=None, main=True):
         # save configuration
-        self.cfg = configuration
-
-        # get beam map
-        obs_files = []
-        for index, _ in enumerate(self.cfg.wavelengths):
-            file_name = os.path.join(self.cfg.h5_directory,
-                                     self.cfg.h5_file_names[index])
-            obs_files.append(ObsFile(file_name))
-            message = "The beam map does not match the array dimensions"
-            assert (obs_files[-1].beamImage.shape ==
-                    (self.cfg.x_pixels, self.cfg.y_pixels)), message
-        beam_map = obs_files[0].beamImage.copy()
-        beam_map_flags = np.array(obs_files[0].beamFlagImage)
-        del obs_files
-
+        self.cfg = Configuration(configuration) if not isinstance(configuration, Configuration) else configuration
+        # define attributes
+        self.solution_name = solution_name  # solution name for saving
+        self.progress = None  # will be replaced with progress bar
+        self.progress_iteration = None  # will be replaced with progress bar counter
+        self._acquired = 0  # counter for number of pixel data sets acquired
+        self._max_queue_size = 300  # max queue size for _parallel() method
+        self._shared_tables = _shared_tables  # shared photon tables
+        self._obsfiles = {}  # container for opened obsfiles
         # initialize fit array
-        fit_array = np.empty((self.cfg.x_pixels, self.cfg.y_pixels), dtype=object)
-        self.solution = Solution(fit_array=fit_array, configuration=self.cfg,
-                                 beam_map=beam_map, beam_map_flags=beam_map_flags)
-        self.progress = None
-        self.progress_iteration = None
-        self._acquired = 0
-        self._max_queue_size = None
+        self.solution = Solution(configuration=self.cfg, fit_array=fit_array, beam_map=self.cfg.beammap.residmap,
+                                 beam_map_flags=self.cfg.beammap.flagmap, solution_name=self.solution_name)
+        if main:
+            log.info('Wave Calibrator configured with: {}'.format(self.cfg.configuration_path))
+            log.info('Parallel mode: {}'.format(self.cfg.parallel))
 
-    def run(self, pixels=None, wavelengths=None, verbose=True, parallel=True, save=True,
-            plot=True):
+    def run(self, pixels=None, wavelengths=None, verbose=False, parallel=None, save=True, plot=None):
         """
         Compute the wavelength calibration for the data specified in the configuration
         object. This method runs make_histograms(), fit_histograms(), and
@@ -370,25 +241,42 @@ class Calibrator(object):
         """
         # check inputs don't set up the progress bar yet
         pixels, wavelengths = self._setup(pixels, wavelengths)
+        if parallel is None:
+            parallel = self.cfg.parallel
+        # load in all the data from h5 files into shared memory if requested
+        if parallel and self.cfg.parallel_prefetch:
+            log.info("Prefetching ALL data")
+            self._shared_tables = [photontable.load_shareable_photonlist(f) for f in self.cfg.h5_file_names]
+        # run the main methods
         try:
             log.info("Computing phase histograms")
-            self._run("make_histograms", pixels=pixels, wavelengths=wavelengths,
-                      parallel=parallel, verbose=verbose, h5_safe=True)
+            self._run("make_histograms", pixels=pixels, wavelengths=wavelengths, parallel=parallel, verbose=verbose)
+            if self._shared_tables is not None:
+                del self._shared_tables
+                self._shared_tables = None
             log.info("Fitting phase histograms")
-            self._run("fit_histograms", pixels=pixels, wavelengths=wavelengths,
-                      parallel=parallel, verbose=verbose)
+            self._run("fit_histograms", pixels=pixels, wavelengths=wavelengths, parallel=parallel, verbose=verbose)
             log.info("Fitting phase-energy calibration")
-            self._run("fit_calibrations", pixels=pixels, wavelengths=wavelengths,
-                      parallel=parallel, verbose=verbose)
+            self._run("fit_calibrations", pixels=pixels, wavelengths=wavelengths, parallel=parallel, verbose=verbose)
             if save:
-                self.solution.save()
-            if plot:
-                save_name = self.cfg.solution_name.split(".")[0] + ".pdf"
+                self.solution.save(save_name=save if isinstance(save, str) else None)
+            if plot or (plot is None and self.cfg.summary_plot):
+                save_name = self.solution_name.rpartition(".")[0] + ".pdf"
                 self.solution.plot_summary(save_name=save_name)
         except KeyboardInterrupt:
             log.info("Keyboard shutdown requested ... exiting")
 
-    def make_histograms(self, pixels=None, wavelengths=None, verbose=True):
+    def fetch_obsfile(self, wavelength):
+        """Return an obsfile for the specified laser wavelength."""
+        try:
+            return self._obsfiles[wavelength]
+        except KeyError:
+            # wavelengths might be unordered, so we get the right order of h5 files
+            index = np.where(wavelength == np.asarray(self.cfg.wavelengths))[0].squeeze()
+            self._obsfiles[wavelength] = photontable.ObsFile(self.cfg.h5_file_names[index])
+        return self._obsfiles[wavelength]
+
+    def make_histograms(self, pixels=None, wavelengths=None, verbose=False):
         """
         Compute the phase pulse-height histograms for the data specified in the
         configuration file.
@@ -400,91 +288,79 @@ class Calibrator(object):
                          wavelengths specified in the configuration object are used.
             verbose: a boolean specifying whether to print a progress bar to the stdout.
         """
-        # TODO: parsebin should be much faster than multiprocessing getPixelPhotonList()
-        # check inputs and setup progress bar
-        pixels, wavelengths = self._setup(pixels, wavelengths)
-        self._update_progress(number=pixels.shape[1], initialize=True, verbose=verbose)
-        obs_files = []
+        wavelength, pixel = None, (None, None)
         try:
-            # make ObsFiles
-            for wavelength in wavelengths:
-                # wavelengths might be unordered, so we get the right order of h5 files
-                index = np.where(wavelength == self.cfg.wavelengths)[0].squeeze()
-                file_name = os.path.join(self.cfg.h5_directory,
-                                         self.cfg.h5_file_names[index])
-                obs_files.append(ObsFile(file_name))
+            # check inputs and setup progress bar
+            pixels, wavelengths = self._setup(pixels, wavelengths)
+            self._update_progress(number=pixels.shape[1], initialize=True, verbose=verbose)
             # make histograms for each pixel in pixels and wavelength in wavelengths
             for pixel in pixels.T:
-                wavelength = None
-                try:
-                    # update progress bar
-                    self._update_progress(verbose=verbose)
-                    # histogram get models
-                    models = self.solution.histogram_models(wavelengths, pixel=pixel)
-                    for index, wavelength in enumerate(wavelengths):
-                        model = models[index]
-                        # load the data
-                        photon_list = obs_files[index].getPixelPhotonList(*pixel)
-                        if photon_list.size < 2:
-                            model.flag = 1
-                            message = "({}, {}) : {} nm : there are no photons"
-                            log.debug(message.format(pixel[0], pixel[1], wavelength))
-                            continue
-                        # remove hot pixels
-                        rate = (len(photon_list['Wavelength']) * 1e6 /
-                                (max(photon_list['Time']) - min(photon_list['Time'])))
-                        if rate > 2000:
-                            model.flag = 2
-                            message = ("({}, {}) : {} nm : removed for being too hot "
-                                       "({:.2f} > 2000 cps)")
-                            log.debug(message.format(pixel[0], pixel[1], wavelength,
-                                                     rate))
-                            continue
-                        # remove photons too close together in time
-                        photon_list = self._remove_tail_riding_photons(photon_list)
-                        if photon_list.size == 0:
-                            model.flag = 3
-                            message = ("({}, {}) : {} nm : all the photons were removed "
-                                       "after the arrival time cut")
-                            log.debug(message.format(pixel[0], pixel[1], wavelength))
-                            continue
-                        # remove photons with positive peak heights
-                        phase_list = photon_list['Wavelength']
-                        phase_list = phase_list[phase_list < 0]
-                        if phase_list.size == 0:
-                            model.flag = 4
-                            message = ("({}, {}) : {} nm : all the photons were removed "
-                                       "after the negative phase only cut")
-                            log.debug(message.format(pixel[0], pixel[1], wavelength))
-                            continue
-                        # make histogram
-                        centers, counts = self._histogram(phase_list)
-                        # assign x, y and variance data to the fit model
-                        model.x = centers
-                        model.y = counts
-                        # gaussian mle for the variance of poisson distributed data
-                        # https://doi.org/10.1016/S0168-9002(00)00756-7
-                        model.variance = np.sqrt(counts**2 + 0.25) - 0.5
-                        message = "({}, {}), : {} nm : histogram successfully computed"
-                        log.debug(message.format(pixel[0], pixel[1], wavelength))
-                except KeyboardInterrupt:
-                    raise KeyboardInterrupt
-                except Exception as error:
-                    if wavelength is None:
-                        message = "({}, {}) : ".format(pixel[0], pixel[1]) + str(error)
+                # update progress bar
+                self._update_progress(verbose=verbose)
+                # histogram get models
+                models = self.solution.histogram_models(wavelengths, pixel=pixel)
+                for index, wavelength in enumerate(wavelengths):
+                    model = models[index]
+                    # load the data
+                    if self._shared_tables is None:
+                        photon_list = self.fetch_obsfile(wavelength).getPixelPhotonList(xCoord=pixel[0],
+                                                                                        yCoord=pixel[1])
                     else:
-                        message = ("({}, {}), : {} nm : ".format(pixel[0], pixel[1],
-                                                                 wavelength) + str(error))
-                    log.error(message)
-                    raise error
+                        table_data = self._shared_tables[index].data
+                        photon_list = table_data[table_data['ResID'] == self.solution.beam_map[tuple(pixel)]]
+                    # check for enough photons
+                    if photon_list.size < 2:
+                        model.flag = 1
+                        message = "({}, {}) : {} nm : there are no photons"
+                        log.debug(message.format(pixel[0], pixel[1], wavelength))
+                        continue
+                    # remove hot pixels
+                    rate = (len(photon_list['Wavelength']) * 1e6 /
+                            (max(photon_list['Time']) - min(photon_list['Time'])))
+                    if rate > 2000:
+                        model.flag = 2
+                        message = "({}, {}) : {} nm : removed for being too hot ({:.2f} > 2000 cps)"
+                        log.debug(message.format(pixel[0], pixel[1], wavelength, rate))
+                        continue
+                    # remove photons too close together in time
+                    photon_list = self._remove_tail_riding_photons(photon_list)
+                    if photon_list.size == 0:
+                        model.flag = 3
+                        message = "({}, {}) : {} nm : all the photons were removed after the arrival time cut"
+                        log.debug(message.format(pixel[0], pixel[1], wavelength))
+                        continue
+                    # remove photons with positive peak heights
+                    phase_list = photon_list['Wavelength']
+                    phase_list = phase_list[phase_list < 0]
+                    if phase_list.size == 0:
+                        model.flag = 4
+                        message = ("({}, {}) : {} nm : all the photons were removed "
+                                   "after the negative phase only cut")
+                        log.debug(message.format(pixel[0], pixel[1], wavelength))
+                        continue
+                    # make histogram
+                    centers, counts = self._histogram(phase_list)
+                    # assign x, y and variance data to the fit model
+                    model.x = centers
+                    model.y = counts
+                    # gaussian mle for the variance of poisson distributed data
+                    # https://doi.org/10.1016/S0168-9002(00)00756-7
+                    model.variance = np.sqrt(counts**2 + 0.25) - 0.5
+                    message = "({}, {}), : {} nm : histogram successfully computed"
+                    log.debug(message.format(pixel[0], pixel[1], wavelength))
             # update progress bar
             self._update_progress(finish=True, verbose=verbose)
-        finally:
-            # close obsFiles
-            for obs_file in obs_files:
-                obs_file.file.close()
+        except KeyboardInterrupt:
+            raise KeyboardInterrupt  # don't log keyboard interrupt
+        except Exception as error:
+            if wavelength is None:
+                message = "({}, {}) : ".format(pixel[0], pixel[1]) + + str(error)
+            else:
+                message = "({}, {}) : {} nm : ".format(pixel[0], pixel[1], wavelength) + str(error)
+            log.error(message, exc_info=True)
+            raise error
 
-    def fit_histograms(self, pixels=None, wavelengths=None, verbose=True):
+    def fit_histograms(self, pixels=None, wavelengths=None, verbose=False):
         """
         Fit the phase pulse-height histograms to a model by fitting each specified in the
         configuration object and selecting the best one.
@@ -496,30 +372,33 @@ class Calibrator(object):
                          wavelengths specified in the configuration object are used.
             verbose: a boolean specifying whether to print a progress bar to the stdout.
         """
-        # check inputs and setup progress bar
-        pixels, wavelengths = self._setup(pixels, wavelengths)
-        self._update_progress(number=pixels.shape[1], initialize=True, verbose=verbose)
-        # fit histograms for each pixel in pixels and wavelength in wavelengths
-        for pixel in pixels.T:
-            wavelength = None
-            try:
+        wavelength, pixel = None, (None, None)
+        try:
+            # check inputs and setup progress bar
+            pixels, wavelengths = self._setup(pixels, wavelengths)
+            # setup progress bar
+            self._update_progress(number=pixels.shape[1], initialize=True, verbose=verbose)
+            # fit histograms for each pixel in pixels and wavelength in wavelengths
+            for pixel in pixels.T:
                 # update progress bar
                 self._update_progress(verbose=verbose)
+                if not self.solution.has_data(pixel=pixel).any():
+                    message = "({}, {}) : histogram fit failed because there is no data"
+                    log.debug(message.format(pixel[0], pixel[1]))
+                    continue
                 models = self.solution.histogram_models(wavelengths, pixel=pixel)
                 # fit the histograms of the higher energy data sets first and use good
                 # fits to inform the guesses to the lower energy data sets
                 for index, wavelength in enumerate(wavelengths):
                     model = models[index]
                     if model.x is None or model.y is None:
-                        message = ("({}, {}) : {} nm : histogram fit failed because "
-                                   "there is no data")
+                        message = "({}, {}) : {} nm : histogram fit failed because there is no data"
                         log.debug(message.format(pixel[0], pixel[1], wavelength))
                         continue
                     if len(model.x) < model.max_parameters * 2:
                         model.flag = 5
-                        message = ("({}, {}) : {} nm : histogram fit failed because "
-                                   "there are less than 15 bins")
-                        log.debug(message.format(pixel[0], pixel[1], wavelength))
+                        message = "({}, {}) : {} nm : histogram fit failed because there are less than {} bins"
+                        log.debug(message.format(pixel[0], pixel[1], wavelength, model.max_parameters * 2))
                         continue
                     message = "({}, {}) : {} nm : beginning histogram fitting"
                     log.debug(message.format(pixel[0], pixel[1], wavelength))
@@ -528,18 +407,15 @@ class Calibrator(object):
                     for histogram_model in self.solution.histogram_model_list:
                         # update the model if needed
                         if not isinstance(model, histogram_model):
-                            model = self._update_histogram_model(wavelength,
-                                                                 histogram_model, pixel)
+                            model = self._update_histogram_model(wavelength, histogram_model, pixel)
                         # clear best_fit_result in case we are rerunning the fit
                         model.best_fit_result = None
                         model.best_fit_result_good = None
                         # if there are any good fits intelligently guess the signal_center
                         # parameter and set the other parameters equal to the average of
                         # those in the good fits
-                        good_solutions = self.solution.has_good_histogram_solutions(
-                            pixel=pixel)
-                        wavelength_index = np.where(
-                            wavelength == self.cfg.wavelengths)[0].squeeze()
+                        good_solutions = self.solution.has_good_histogram_solutions(pixel=pixel)
+                        wavelength_index = np.where(wavelength == np.asarray(self.cfg.wavelengths))[0].squeeze()
                         if np.any(good_solutions):
                             guess = self._guess(pixel, wavelength_index, good_solutions)
                             model.fit(guess)
@@ -548,8 +424,7 @@ class Calibrator(object):
                                 tried_models.append(model.copy())
                                 message = ("({}, {}) : {} nm : histogram fit successful "
                                            "with computed guess and model '{}'")
-                                log.debug(message.format(pixel[0], pixel[1], wavelength,
-                                                         type(model).__name__))
+                                log.debug(message.format(pixel[0], pixel[1], wavelength, type(model).__name__))
                                 continue
                         # try a guess based on the model if the computed guess didn't work
                         for fit_index in range(self.cfg.histogram_fit_attempts):
@@ -579,7 +454,7 @@ class Calibrator(object):
                     if model.has_good_solution():
                         continue
                     wavelength_index = np.where(
-                        wavelength == self.cfg.wavelengths)[0].squeeze()
+                        wavelength == np.asarray(self.cfg.wavelengths))[0].squeeze()
                     if np.any(good_solutions[wavelength_index + 1:]):
                         tried_models = []
                         for histogram_model in self.solution.histogram_model_list:
@@ -590,30 +465,27 @@ class Calibrator(object):
                             guess = self._guess(pixel, wavelength_index, good_solutions)
                             model.fit(guess)
                             if model.has_good_solution():
-                                message = ("({}, {}) : {} nm : histogram fit recomputed "
-                                           "and successful with model '{}'")
+                                message = "({}, {}) : {} nm : histogram fit recomputed and successful with model '{}'"
                                 log.debug(message.format(pixel[0], pixel[1], wavelength,
                                                          type(model).__name__))
                                 break
                             tried_models.append(model.copy())
                         else:
                             # find the model with the best bad fit and save that one
-                            self._assign_best_histogram_model(tried_models, wavelength,
-                                                              pixel)
-            except KeyboardInterrupt:
-                raise KeyboardInterrupt
-            except Exception as error:
-                if wavelength is None:
-                    message = "({}, {}) : ".format(pixel[0], pixel[1]) + str(error)
-                else:
-                    message = ("({}, {}), : {} nm : ".format(pixel[0], pixel[1],
-                                                             wavelength) + str(error))
-                log.error(message)
-                raise error
-        # update progress bar
-        self._update_progress(finish=True, verbose=verbose)
+                            self._assign_best_histogram_model(tried_models, wavelength, pixel)
+            # update progress bar
+            self._update_progress(finish=True, verbose=verbose)
+        except KeyboardInterrupt:
+            raise KeyboardInterrupt  # don't log keyboard interrupt
+        except Exception as error:
+            if wavelength is None:
+                message = "({}, {}) : ".format(pixel[0], pixel[1]) + str(error)
+            else:
+                message = "({}, {}), : {} nm : ".format(pixel[0], pixel[1], wavelength) + str(error)
+            log.error(message, exc_info=True)
+            raise error
 
-    def fit_calibrations(self, pixels=None, wavelengths=None, verbose=True):
+    def fit_calibrations(self, pixels=None, wavelengths=None, verbose=False):
         """
         Fit the phase to energy calibration for the detector by using the centers of each
         histogram fit.
@@ -625,13 +497,18 @@ class Calibrator(object):
                          wavelengths specified in the configuration object are used.
             verbose: a boolean specifying whether to print a progress bar to the stdout.
         """
-        # check inputs and setup progress bar
-        pixels, wavelengths = self._setup(pixels, wavelengths)
-        self._update_progress(number=pixels.shape[1], initialize=True, verbose=verbose)
-        for pixel in pixels.T:
-            try:
+        pixel = (None, None)
+        try:
+            # check inputs and setup progress bar
+            pixels, wavelengths = self._setup(pixels, wavelengths)
+            self._update_progress(number=pixels.shape[1], initialize=True, verbose=verbose)
+            for pixel in pixels.T:
                 # update progress bar
                 self._update_progress(verbose=verbose)
+                if not self.solution.has_data(pixel=pixel).any():
+                    message = "({}, {}) : calibration fit failed because there is no data"
+                    log.debug(message.format(pixel[0], pixel[1]))
+                    continue
                 model = self.solution.calibration_model(pixel=pixel)
                 # get data from histogram fits
                 histogram_models = self.solution.histogram_models(wavelengths, pixel)
@@ -642,8 +519,7 @@ class Calibrator(object):
                         histogram_model = histogram_models[index]
                         phases.append(histogram_model.signal_center.value)
                         variance.append(histogram_model.signal_center.stderr**2)
-                        energies.append(h.to('eV s').value * c.to('nm/s').value /
-                                        wavelength)
+                        energies.append(SPEED_OF_LIGHT_NMS * PLANK_CONSTANT_EVS / wavelength)
                         sigmas.append(histogram_model.signal_sigma.value)
                 # give data to model
                 if variance:
@@ -657,16 +533,14 @@ class Calibrator(object):
                 # don't fit if there's not enough data
                 if len(variance) < 3:
                     model.flag = 11
-                    message = ("({}, {}) : {} data points is not enough to make a "
-                               "calibration")
+                    message = "({}, {}) : {} data points is not enough to make a calibration"
                     log.debug(message.format(pixel[0], pixel[1], len(variance)))
                     continue
                 diff = np.diff(phases)
                 sigma = np.sqrt(variance)
                 if (diff < -4 * (sigma[:-1] + sigma[1:])).any():
                     model.flag = 12
-                    message = ("({}, {}) : fitted phase values are not monotonic enough "
-                               "to make a calibration")
+                    message = "({}, {}) : fitted phase values are not monotonic enough to make a calibration"
                     log.debug(message.format(pixel[0], pixel[1]))
                 # fit the data
                 message = "({}, {}) : beginning phase-energy calibration fitting"
@@ -680,102 +554,101 @@ class Calibrator(object):
                     model.fit(guess)
                     tried_models.append(model.copy())
                     if model.has_good_solution():
-                        message = ("({}, {}) : phase-energy calibration fit successful "
-                                   "with model '{}'")
-                        log.debug(message.format(pixel[0], pixel[1],
-                                                 type(model).__name__))
+                        message = "({}, {}) : phase-energy calibration fit successful with model '{}'"
+                        log.debug(message.format(pixel[0], pixel[1], type(model).__name__))
                 # find model with the best fit and save that one
                 self._assign_best_calibration_model(tried_models, pixel)
-            except KeyboardInterrupt:
-                raise KeyboardInterrupt
-            except Exception as error:
-                log.error("({}, {}) : ".format(pixel[0], pixel[1]) + str(error))
-                raise error
-        # update progress bar
-        self._update_progress(finish=True, verbose=verbose)
+            # update progress bar
+            self._update_progress(finish=True, verbose=verbose)
+        except KeyboardInterrupt:
+            raise KeyboardInterrupt  # don't log keyboard interrupt
+        except Exception as error:
+            log.error("({}, {}) : ".format(pixel[0], pixel[1]), exc_info=True) + str(error)
+            raise error
 
-    def _run(self, method, pixels=None, wavelengths=None, verbose=True, parallel=True,
-             h5_safe=False):
+    def _run(self, method, pixels=None, wavelengths=None, verbose=False, parallel=True):
         if parallel:
-            self._parallel(method, pixels=pixels, wavelengths=wavelengths,
-                           verbose=verbose, h5_safe=h5_safe)
+            self._parallel(method, pixels=pixels, wavelengths=wavelengths, verbose=verbose)
         else:
-            getattr(self, method)(pixels=pixels, wavelengths=wavelengths,
-                                  verbose=verbose)
+            getattr(self, method)(pixels=pixels, wavelengths=wavelengths, verbose=verbose)
 
-    def _parallel(self, method, pixels=None, wavelengths=None, verbose=True,
-                  h5_safe=False):
+    def _parallel(self, method, pixels=None, wavelengths=None, verbose=False):
         # configure number of processes
         n_data = pixels.shape[1]
-        if h5_safe:
-            cpu_count = np.min([len(wavelengths), np.ceil(mp.cpu_count() / 2)])
-            cpu_count = cpu_count.astype(int)
-            n_data *= len(wavelengths)
-        else:
-            cpu_count = np.ceil(mp.cpu_count() / 2).astype(int)
-        self._max_queue_size = int(np.ceil(max(50, 750 / len(wavelengths))))
+        cpu_count = mkidpipeline.config.n_cpus_available(max=self.cfg.ncpu)
+        log.info("Using {} additional cores".format(cpu_count))
+        # setup chunks (at least 2 chunks per process per feedline on MEC)
+        chunk_size = max(1, int(self.cfg.beammap.residmap.size / (2 * 10 * (cpu_count - 1 * bool(verbose)))))
+
+        def chunks():
+            for ii in range(0, pixels.shape[1], chunk_size):
+                yield pixels[:, ii: ii + chunk_size]
         # make input, output and progress queues
         workers = []
         progress_worker = None
-        input_queues = []
+        input_queue = mp.Queue(maxsize=self._max_queue_size)
         output_queue = mp.Queue(maxsize=self._max_queue_size)
         progress_queue = mp.Queue(maxsize=self._max_queue_size)
-        if h5_safe:
-            for _ in range(cpu_count):
-                input_queues.append(mp.Queue(maxsize=self._max_queue_size))
-        else:
-            input_queues.append(mp.Queue(maxsize=self._max_queue_size))
-        queue_length = len(input_queues)
+        # preload fit array for last two steps
+        fit_array = self.solution.fit_array if method != 'make_histograms' else None
         # make stopping events
         events = []
-        for _ in range(cpu_count + 1):
+        for _ in range(cpu_count):
             events.append(mp.Event())
         try:
             # make cpu_count number of workers to process the data
-            for index in range(cpu_count):
-                workers.append(Worker(self.cfg, method, events[index],
-                                      input_queues[index % queue_length], output_queue,
-                                      progress_queue))
+            for index in range(cpu_count - 1 * bool(verbose)):
+                workers.append(Worker(self.cfg, method, events[index], input_queue, output_queue,
+                                      progress_queue if verbose else None, fit_array=fit_array,
+                                      shared_tables=self._shared_tables, name=str(index)))
             # make a worker to handle the progress bar and start the progress bar
-            progress_worker = Worker(self.cfg, "_update_progress", events[-1],
-                                     progress_queue)
-            progress_queue.put({"number": n_data, "initialize": True, "verbose": verbose})
-
+            if verbose:
+                progress_worker = Worker(self.cfg, "_update_progress", events[-1], progress_queue, name='progress')
+                progress_queue.put({"number": n_data, "initialize": True, "verbose": verbose})
             # assign data to workers
-            for pixel in pixels.T:
-                if h5_safe:
-                    for wavelength_index, wavelength in enumerate(wavelengths):
-                        kwargs = {"pixel": pixel, "wavelengths": wavelength,
-                                  "verbose": verbose}
-                        input_queue = input_queues[wavelength_index % queue_length]
-                        while input_queue.qsize() > self._max_queue_size / 2:
-                            self._acquire_data(h5_safe, n_data, output_queue)
-                        input_queue.put(kwargs)
-                else:
-                    fit_element = self.solution[pixel[0], pixel[1]]
-                    kwargs = {"pixel": pixel, "wavelengths": wavelengths,
-                              "fit_element": fit_element, "verbose": verbose}
-                    while input_queues[0].qsize() > self._max_queue_size / 2:
-                        self._acquire_data(h5_safe, n_data, output_queue)
-                    input_queues[0].put(kwargs)
-            # tell each worker to stop after all the data has been processed
-            for index in range(cpu_count):
-                input_queue = input_queues[index % queue_length]
+            for pixel_group in chunks():
+                # skip if there's no data (but not if the data hasn't been made yet)
+                if method != 'make_histograms':
+                    # check each pixel in the chunk for data
+                    remove_indices = []
+                    for index, pixel in enumerate(pixel_group.T):
+                        if not self.solution.has_data(pixel=pixel).any():
+                            if verbose:  # update progress bar
+                                progress_queue.put({"verbose": verbose})
+                            remove_indices.append(index)
+                            self._acquired += 1  # needed for _acquire_data() before joining workers
+                    # remove empty pixels from the group
+                    pixel_group = np.delete(pixel_group, remove_indices, axis=-1)
+                    # if the group is empty continue to the next chunk
+                    if pixel_group.size == 0:
+                        continue
+                kwargs = {"pixels": pixel_group, "wavelengths": wavelengths, "verbose": verbose}
+                # grab the data if the queue is getting full
                 while input_queue.qsize() > self._max_queue_size / 2:
-                    self._acquire_data(h5_safe, n_data, output_queue)
+                    self._acquire_data(n_data, output_queue)
+                # queue the job
+                input_queue.put(kwargs)
+            # tell each worker to stop after all the data has been processed
+            for index in range(cpu_count - 1 * bool(verbose)):
+                while input_queue.qsize() > self._max_queue_size / 2:
+                    self._acquire_data(n_data, output_queue)
                 input_queue.put({"stop": True})
             # collect data from workers and assign to solution
-            while self._acquire_data(h5_safe, n_data, output_queue):
+            while self._acquire_data(n_data, output_queue):
                 pass
             # close processes when done
             for w in workers:
                 w.join()
-            progress_queue.put({"finish": True, "verbose": verbose})
-            progress_queue.put({"stop": True})
-            progress_worker.join()
+            if verbose:
+                progress_queue.put({"finish": True, "verbose": verbose})
+                progress_queue.put({"stop": True})
+                progress_worker.join()
+            log.info("{} cores released".format(cpu_count))
         except KeyboardInterrupt:
-            self._clean_up(input_queues, output_queue, progress_queue, workers,
-                           progress_worker, events, h5_safe, n_data)
+            log.debug('cleaning up workers')
+            self._clean_up(input_queue, output_queue, progress_queue, workers,
+                           progress_worker, events, n_data, cpu_count, verbose)
+            log.debug('cleaned up')
             raise KeyboardInterrupt
 
     def _remove_tail_riding_photons(self, photon_list):
@@ -798,19 +671,14 @@ class Calibrator(object):
         while max_count < 400 and update < 3:
             # update bin_width
             bin_width = self.cfg.bin_width * (2 ** update)
-
             # define bin edges being careful to start at the threshold cut
-            bin_edges = np.arange(max_phase, min_phase - bin_width,
-                                  -bin_width)[::-1]
-
+            bin_edges = np.arange(max_phase, min_phase - bin_width,  -bin_width)[::-1]
             # make histogram
             counts, x0 = np.histogram(phase_list, bins=bin_edges)
             centers = (x0[:-1] + x0[1:]) / 2.0
-
             # update counters
             max_count = np.max(counts)
             update += 1
-
         return centers, counts
 
     def _update_histogram_model(self, wavelength, histogram_model_class, pixel):
@@ -856,7 +724,7 @@ class Calibrator(object):
         signal_center parameter and set the other parameters equal to the average of
         those in the good fits."""
         # get initial guess
-        wavelengths = self.cfg.wavelengths
+        wavelengths = np.asarray(self.cfg.wavelengths)
         histogram_models = self.solution.histogram_models(pixel=pixel)
         parameters = self.solution.histogram_parameters(pixel=pixel)
         model = histogram_models[wavelength_index]
@@ -939,10 +807,8 @@ class Calibrator(object):
         if best_model.has_good_solution():
             best_model.flag = 0
             self.solution.set_histogram_models(best_model, wavelength, pixel=pixel)
-            message = ("({}, {}) : {} nm : histogram model '{}' chosen as "
-                       "the best successful fit")
-            log.debug(message.format(pixel[0], pixel[1], wavelength,
-                                     type(best_model).__name__))
+            message = "({}, {}) : {} nm : histogram model '{}' chosen as the best successful fit"
+            log.debug(message.format(pixel[0], pixel[1], wavelength, type(best_model).__name__))
         else:
             if not lowest_aic_model.best_fit_result.success:
                 lowest_aic_model.flag = 6  # did not converge
@@ -966,8 +832,7 @@ class Calibrator(object):
         if best_model.has_good_solution():
             best_model.flag = 10
             self.solution.set_calibration_model(best_model, pixel=pixel)
-            message = ("({}, {}) : energy-phase calibration model '{}' chosen as "
-                       "the best successful fit")
+            message = "({}, {}) : energy-phase calibration model '{}' chosen as the best successful fit"
             log.debug(message.format(pixel[0], pixel[1], type(best_model).__name__))
         else:
             if not lowest_aic_model.best_fit_result.success:
@@ -985,8 +850,7 @@ class Calibrator(object):
                 bar = pb.Bar()
                 timer = pb.Timer()
                 eta = pb.ETA()
-                self.progress = pb.ProgressBar(widgets=[percentage, bar, '  (',
-                                                        timer, ') ', eta, ' '],
+                self.progress = pb.ProgressBar(widgets=[percentage, bar, '  (', timer, ') ', eta, ' '],
                                                max_value=number).start()
                 self.progress_iteration = -1
             elif finish:
@@ -1003,162 +867,204 @@ class Calibrator(object):
         wavelengths = self.solution._parse_wavelengths(wavelengths)
         return pixels, wavelengths
 
-    def _acquire_data(self, h5_safe, n_data, output_queue):
+    def _acquire_data(self, n_data, output_queue):
         if self._acquired == n_data:
-            not_complete = False
             self._acquired = 0
-        else:
-            not_complete = True
-            result = output_queue.get()
-            computed_pixel = result["pixel"]
-            computed_wavelengths = result["wavelengths"]
-            fit_element = result["fit_element"]
-            if h5_safe:
-                dictionary = self.solution[computed_pixel[0], computed_pixel[1]]
-                histogram_models = dictionary['histograms']
-                for wavelength in computed_wavelengths:
-                    logic = (wavelength == self.cfg.wavelengths)
-                    model = fit_element['histograms'][logic][0]
-                    histogram_models[logic] = model
-            else:
-                self.solution[computed_pixel[0], computed_pixel[1]] = fit_element
-            self._acquired += 1
-        return not_complete
+            return False
 
-    def _clean_up(self, input_queues, output_queue, progress_queue, workers,
-                  progress_worker, events, h5_safe, n_data):
+        return_dict = output_queue.get()
+        method = return_dict.pop('method', None)
+        for pixel in return_dict.keys():
+            fit_element = return_dict[pixel]
+            # create model with proper flag if there was no data
+            if fit_element is None:
+                for model in self.solution.histogram_models(pixel=pixel):
+                    model.flag = 1  # no data
+            # add fit element to the solution class in the right location
+            else:
+                if method == 'fit_calibrations':
+                    self.solution[pixel[0], pixel[1]]['calibration'] = fit_element
+                elif method == 'make_histograms' or method == 'fit_histograms':
+                    self.solution[pixel[0], pixel[1]]['histograms'] = fit_element
+                else:
+                    self.solution[pixel[0], pixel[1]] = fit_element
+            # increment counter
+            self._acquired += 1
+        return True
+
+    def _clean_up(self, input_queue, output_queue, progress_queue, workers,
+                  progress_worker, events, n_data, cpu_count, verbose):
         # send an extra stop flag just in case
-        for index, input_queue in enumerate(input_queues):
+        for index in range(cpu_count - 1 * bool(verbose)):
             while input_queue.qsize() > max(0, self._max_queue_size - 2):
                 input_queue.get()
             input_queue.put({"stop": True})
+        log.debug("all workers asked to stop")
+        while progress_queue.qsize() > max(0, self._max_queue_size - 2):
+            progress_queue.get()
         progress_queue.put({"stop": True})
+        log.debug("progress bar asked to stop")
         # check that all process have stopped
         finished = False
         while not finished:
             finished_list = [event.is_set() for event in events]
             finished = len(finished_list) == 0 or np.all(finished_list)
+        log.debug("all processes stopped")
         # add sentinels to queues
-        for input_queue in input_queues:
-            input_queue.put(None)
+        input_queue.put(None)
         while output_queue.qsize() > max(0, self._max_queue_size - 1):
             # grab the last bit of data so that there is room in the queue for closing
-            self._acquire_data(h5_safe, n_data, output_queue)
+            self._acquire_data(n_data, output_queue)
+        log.debug("output queue drained")
         output_queue.put(None)
         progress_queue.put(None)
-        # clean up input queues
-        for input_queue in input_queues:
-            while input_queue.get() is not None:
+        # clean up input queue
+        try:  # sometimes the input queue doesn't register the sentinel for some reason
+            while input_queue.get_nowait() is not None:
                 pass
-            input_queue.close()
+        except queue.Empty:
+            pass
+        input_queue.close()
+        log.debug("input queue closed")
         # clean up output queue
         while output_queue.get() is not None:
             pass
         output_queue.close()
+        log.debug("output queue closed")
         # close progress queue
         while progress_queue.get() is not None:
             pass
         progress_queue.close()
+        log.debug("progress queue closed")
         # let all processes finish
         for event in events:
             event.set()
+        log.debug("events set")
         # close and join workers
         for worker in workers:
             log.info("PID {0} ... exiting".format(worker.pid))
             worker.terminate()
             worker.join()
+        log.debug("workers closed")
         if progress_worker is not None:
             log.info("PID {0} ... exiting".format(progress_worker.pid))
             progress_worker.terminate()
             progress_worker.join()
+        log.debug("progress worker closed")
+        log.info("{} cores released".format(cpu_count))
 
 
 class Worker(mp.Process):
     """Worker class for running methods in the wavelength calibration in parallel."""
     def __init__(self, configuration, method, event, input_queue, output_queue=None,
-                 progress_queue=None):
+                 progress_queue=None, shared_tables=None, fit_array=None, name=''):
         super(Worker, self).__init__()
-        self.calibrator = Calibrator(configuration)
+        self.calibrator = Calibrator(configuration, _shared_tables=shared_tables, fit_array=fit_array, main=False)
         self.method = method
         self.input_queue = input_queue
         self.output_queue = output_queue
         self.progress_queue = progress_queue
         self.finished = event
+        self.name = name
+        self.stats = None
         self.start()
 
     def run(self):
         """This method gets called on the instantiation of the object."""
         try:
-            while not self.finished.is_set():
+            while True:
                 # get next bit of data to analyze
                 kwargs = self.input_queue.get()
                 # check for stopping condition
                 stop = kwargs.pop("stop", False)
                 if stop:
+                    log.debug("stopping {}".format(self.pid))
                     self.finished.set()
+                    break
                 else:
                     # pop kwargs that may not be arguments to the requested method
-                    fit_element = kwargs.pop("fit_element", False)
-                    pixel = kwargs.pop("pixel", False)
+                    pixels = kwargs.pop("pixels", False)
                     wavelengths = kwargs.pop("wavelengths", False)
                     # get the verbose keyword to defer to the progress worker
                     verbose = kwargs.get("verbose", False)
-
                     # supplying pixel means we are running one of the three main methods
-                    if pixel is not False:
-                        pixel, wavelengths = self.calibrator._setup(pixel, wavelengths)
-                        kwargs['pixels'] = pixel
+                    if pixels is not False:
+                        pixels, wavelengths = self.calibrator._setup(pixels, wavelengths)
+                        kwargs['pixels'] = pixels
                         kwargs['wavelengths'] = wavelengths
                         kwargs['verbose'] = False
-
-                    # supplying fit_element means we are overloading the local fit element
-                    if fit_element is not False:
-                        self.calibrator.solution[pixel[0], pixel[1]] = fit_element
-
                     # run the requested method
                     getattr(self.calibrator, self.method)(**kwargs)
-
                     # output data into queue if we are running one of the main methods
-                    if pixel is not False and self.output_queue is not None:
-                        fit_element = self.calibrator.solution[pixel[0], pixel[1]]
-                        self.output_queue.put({"pixel": pixel, "wavelengths": wavelengths,
-                                               "fit_element": fit_element})
-                        self.progress_queue.put({"verbose": verbose})
+                    if pixels is not False and self.output_queue is not None:
+                        return_dict = {'method': self.method}
+                        for pixel in pixels.T:
+                            if self.calibrator.solution.has_data(pixel=pixel).any():
+                                fit_element = self.calibrator.solution[pixel[0], pixel[1]]
+                                if self.method == 'fit_calibrations':
+                                    fit_element = fit_element['calibration']
+                                elif self.method == 'make_histograms' or self.method == 'fit_histograms':
+                                    fit_element = fit_element['histograms']
+                                return_dict[(pixel[0], pixel[1])] = fit_element
+                            else:
+                                return_dict[(pixel[0], pixel[1])] = None
+                        self.output_queue.put(return_dict)
+                        if verbose and self.progress_queue is not None:
+                            for _ in pixels.T:
+                                self.progress_queue.put({"verbose": verbose})  # cumulative over 20k pixels ~5s
         except KeyboardInterrupt:
             self.finished.set()
             self.finished.wait()
         except Exception as error:
             self.finished.set()
             raise error
+        self.finished.set()
+        self.finished.wait()
 
 
 class Solution(object):
-    """Solution class for the wavelength calibration. Initialize with either the file_name
-    argument or both the fit_array and configuration arguments."""
-    def __init__(self, file_path=None, fit_array=None, configuration=None, beam_map=None,
-                 beam_map_flags=None):
-        # load in solution and configuration objects
-        if fit_array is not None and configuration is not None and beam_map is not None:
-            self._fit_array = fit_array
-            self.cfg = configuration
-            # TODO: integrate beam map object
-            self._beam_map = beam_map
-            self._beam_map_flags = beam_map_flags
-        elif file_path is not None:
-            self.load(file_path)
-        else:
-            message = ('provide either a file_path or both the fit_array and '
-                       'configuration arguments')
-            raise ValueError(message)
+    """
+    Solution class for the wavelength calibration. Initialize with some combination of the arguments.
+    If file_path is not specified, all other arguments must be provided.
 
+    Args:
+        file_path: relative file path to solution save file
+        fit_array: array of the same shape as the MKID array containing model objects
+        configuration: wavecal configuration object
+        beam_map: integer array e.g. beam_map[x_pix, y_pix] = res_id
+        beam_map_flags: array of the same shape as beam_map containing the flags
+        solution_name: Save name for the solution. Only used if file_path is not provided
+    """
+
+    yaml_tag = '!wsoln'
+
+    def __init__(self, file_path=None, fit_array=None, configuration=None, beam_map=None,
+                 beam_map_flags=None, solution_name='solution.npz'):
+        # default parameters
+        self._color_map = cm.get_cmap('viridis')
+        self._parse = True
+        # load in arguments
+        self._file_path = os.path.abspath(file_path) if file_path is not None else file_path
+        self.fit_array = fit_array
+        self.beam_map = beam_map.astype(int) if isinstance(beam_map, np.ndarray) else beam_map
+        self.beam_map_flags = beam_map_flags
+        self.cfg = configuration
+        # if we've specified a file load it without overloading previously set arguments
+        if self._file_path is not None:
+            self.load(self._file_path, overload=False)
+        # if not finish the init
+        else:
+            self.name = solution_name  # use the default or specified name for saving
+            self.npz = None  # no npz file so all the properties should be set
+            self._finish_init()
+
+    def _finish_init(self):
         # load in fitting models
         self.histogram_model_list = [getattr(wm, name) for _, name in
                                      enumerate(self.cfg.histogram_model_names)]
         self.calibration_model_list = [getattr(wm, name) for _, name in
                                        enumerate(self.cfg.calibration_model_names)]
-
-        self._parse = True
-        self._color_map = cm.get_cmap('viridis')
+        # create lookup tables
         x_pixels = np.indices(self.beam_map.shape)[0, :, :].ravel()
         y_pixels = np.indices(self.beam_map.shape)[1, :, :].ravel()
         lookup_table = np.array([self.beam_map.ravel(), x_pixels, y_pixels])
@@ -1167,82 +1073,146 @@ class Solution(object):
         self._reverse_beam_map = np.zeros((2, res_ids.size), dtype=int)
         indices = np.searchsorted(res_ids, lookup_table[0, :])
         self._reverse_beam_map[:, indices] = lookup_table[1:, :]
+        # quick vectorized type operation
         self._type = np.vectorize(type, otypes=[str])
 
+    @classmethod
+    def to_yaml(cls, representer, node):
+        return representer.represent_mapping(cls.yaml_tag, {'file': node._file_path})
+
+    @classmethod
+    def from_yaml(cls, constructor, node):
+        return load_solution(mkidcore.config.extract_from_node(constructor, 'file', node)['file'])
+
+    def __str__(self):
+        return self._file_path
+
     def __getitem__(self, key):
-        results = np.atleast_2d(self._fit_array[key])
+        # interpret all keys as shape preserving slices (does not work for numpy index arrays)
+        new_key = key
+        if not isinstance(key[0], slice):
+            index = new_key[0].item() if isinstance(new_key[0], np.ndarray) else new_key[0]
+            new_key = (slice(index, index + 1), new_key[1])
+        if not isinstance(key[1], slice):
+            index = new_key[1].item() if isinstance(new_key[1], np.ndarray) else new_key[1]
+            new_key = (new_key[0], slice(index, index + 1))
+        results = np.atleast_2d(self.fit_array[new_key])
+        # check if any requested indexes are None and replace their values with empty model classes
         empty = (results == np.array([None]))
         if empty.any():
-            new_key = key
-            if not isinstance(key[0], slice):
-                new_key = (slice(new_key[0], new_key[0] + 1), new_key[1])
-            if not isinstance(key[1], slice):
-                new_key = (new_key[0], slice(new_key[1], new_key[1] + 1))
             start0 = new_key[0].start if new_key[0].start is not None else 0
             start1 = new_key[1].start if new_key[1].start is not None else 0
             step0 = new_key[0].step if new_key[0].step is not None else 1
             step1 = new_key[1].step if new_key[1].step is not None else 1
             for index, entry in np.ndenumerate(results):
                 if empty[index]:
-                    pixel = np.array((index[0] * step0 + start0,
-                                      index[1] * step1 + start1)).squeeze()
+                    pixel = np.array((index[0] * step0 + start0, index[1] * step1 + start1)).squeeze()
                     pixel = (pixel[0], pixel[1])  # ensures pixel is a tuple of integers
                     res_id = self.beam_map[pixel[0], pixel[1]]
-                    histogram_models = np.array(
-                        [self.histogram_model_list[0](pixel=pixel, res_id=res_id)
-                         for _ in range(len(self.cfg.wavelengths))])
-                    calibration_model = self.calibration_model_list[0](pixel=pixel,
-                                                                       res_id=res_id)
-                    self._fit_array[pixel] = {'histograms': histogram_models,
-                                              'calibration': calibration_model}
-        results = self._fit_array[key]
+                    histogram_models = np.array([self.histogram_model_list[0](pixel=pixel, res_id=res_id)
+                                                 for _ in self.cfg.wavelengths])
+                    calibration_model = self.calibration_model_list[0](pixel=pixel, res_id=res_id)
+                    self.fit_array[pixel] = {'histograms': histogram_models, 'calibration': calibration_model}
+        results = self.fit_array[key]
+        # size one arrays return contained item not array
         if isinstance(results, np.ndarray) and results.size == 1:
             results = results[0]
         return results
 
     def __setitem__(self, key, value):
-        self._fit_array[key] = value
+        self.fit_array[key] = value
 
     def save(self, save_name=None):
-        """Save the solution to a file whose name is determined by the configuration."""
-        # TODO: saving and loading is slow: only save parts needed to recreate solution
+        """Save the solution to a file. The directory is given by the configuration."""
         if save_name is None:
-            save_path = os.path.join(self.cfg.out_directory, self.cfg.solution_name)
+            save_path = os.path.join(self.cfg.out_directory, self.name)
         else:
             save_path = os.path.join(self.cfg.out_directory, save_name)
         # make sure the configuration is pickleable if created from __main__
         if self.cfg.__class__.__module__ == "__main__":
             from mkidpipeline.calibration.wavecal import Configuration
-            self.cfg = Configuration(self.cfg.configuration_path,
-                                     solution_name=self.cfg.solution_name)
+            self.cfg = Configuration(self.cfg.configuration_path)
 
         log.info("Saving solution to {}".format(save_path))
-        np.savez(save_path, fit_array=self._fit_array,
-                 configuration=self.cfg, beam_map=self._beam_map,
-                 beam_map_flags=self._beam_map_flags)
+        np.savez(save_path, fit_array=self.fit_array, configuration=self.cfg, beam_map=self.beam_map,
+                 beam_map_flags=self.beam_map_flags)
+        self._file_path = save_path  # new file_path for the solution
 
-    def load(self, file_path):
+    def load(self, file_path, overload=True):
+        """
+        Load a solution from a file, optionally overloading previously defined attributes.
+        The data will not be pulled from the npz file until first access of the data which
+        can take a while.
+        """
         log.info("Loading solution from {}".format(file_path))
-        try:
-            npz_file = np.load(file_path)
-            self._fit_array = npz_file['fit_array']
-            self.cfg = npz_file['configuration'].item()
-            self._beam_map = npz_file['beam_map']
-            self._beam_map_flags = npz_file['beam_map_flags']
-        except (OSError, KeyError):
-            message = "Failed to interpret '{}' as a wavecal solution object"
-            raise OSError(message.format(file_path))
+        keys = ('fit_array', 'configuration', 'beam_map', 'beam_map_flags')
+        npz_file = np.load(file_path)
+        for key in keys:
+            if key not in npz_file.keys():
+                raise AttributeError('{} missing from {}, solution malformed'.format(key, file_path))
+        self.npz = npz_file
+        if overload:  # properties grab from self.npz if set to none
+            for attr in keys:
+                setattr(self, attr, None)
+        self._file_path = file_path  # new file_path for the solution
+        self.name = os.path.basename(file_path)  # new name for saving
+        self._finish_init()
+        log.info("Complete")
+
+    @property
+    def fit_array(self):
+        """Array of fit models of the same size as the MKID array."""
+        if self._fit_array is not None:
+            return self._fit_array
+        elif self.npz is not None:
+            self._fit_array = self.npz['fit_array']
+            return self._fit_array
+        else:
+            self._fit_array = np.empty((self.cfg.beammap.ncols, self.cfg.beammap.nrows), dtype=object)
+            return self._fit_array
+
+    @fit_array.setter
+    def fit_array(self, value):
+        self._fit_array = value
+
+    @property
+    def cfg(self):
+        """Configuration object for the wavecal."""
+        if self._cfg is not None:
+            return self._cfg
+        else:
+            self._cfg = self.npz['configuration'].item()
+            return self._cfg
+
+    @cfg.setter
+    def cfg(self, value):
+        self._cfg = value
 
     @property
     def beam_map(self):
         """ResIDs for the x and y positions on the array (beam_map[x_ind, y_ind])."""
-        return self._beam_map
+        if self._beam_map is not None:
+            return self._beam_map
+        else:
+            self._beam_map = self.npz['beam_map']
+            return self._beam_map
+
+    @beam_map.setter
+    def beam_map(self, value):
+        self._beam_map = value
 
     @property
     def beam_map_flags(self):
-        """Beam map flags for the x and y positions on the array
-         (beam_map_flags[x_ind, y_ind])."""
-        return self._beam_map_flags
+        """Beam map flags for the x and y positions on the array (beam_map_flags[x_ind, y_ind])."""
+        if self._beam_map_flags is not None:
+            return self._beam_map_flags
+        else:
+            self._beam_map_flags = self.npz['beam_map_flags']
+            return self._beam_map_flags
+
+    @beam_map_flags.setter
+    def beam_map_flags(self, value):
+        self._beam_map_flags = value
 
     def resolving_powers(self, pixel=None, res_id=None, wavelengths=None):
         """
@@ -1301,6 +1271,7 @@ class Solution(object):
             resolving_powers: an MxN array of resolving powers where M is the number of
                               res_ids the search criterion and N is the number of
                               wavelengths requested.
+            res_ids: an array of size M with the res ids in the same order as resolving_powers
         """
         wavelengths = self._parse_wavelengths(wavelengths)
         res_ids = self._parse_res_ids()
@@ -1392,6 +1363,7 @@ class Solution(object):
         Returns:
             responses: an MxN array of responses where M is the number of res_ids the
                        search criterion and N is the number of wavelengths requested.
+            res_ids: an array of size M with the res ids in the same order as responses
         """
         wavelengths = self._parse_wavelengths(wavelengths)
         res_ids = self._parse_res_ids()
@@ -1417,6 +1389,36 @@ class Solution(object):
 
         return responses, res_ids
 
+    def find_calibrations(self, minimum=None, maximum=None, feedline=None):
+        """
+        Returns a tuple containing an array of calibration coefficients and a corresponding res_id
+        array.
+
+        Args:
+            minimum: only report median resolving powers above this value. No lower bound
+                     is used if it is not specified.
+            maximum: only report median resolving powers below this value. No upper bound
+                     is used if it is not specified.
+            feedline: integer corresponding to the feedline from which to use. All
+                      feedlines are used if it is not specified.
+        Returns:
+            calibrations: an MxN array of resolving powers where M is the number of
+                              res_ids the search criterion and N is the number of
+                              wavelengths requested.
+            res_ids: an array of size M with the res ids in the same order as responses
+        Note:
+            Only works if no models other than Quadratic and Linear are used for the calibration fit.
+        """
+        _, res_ids = self.find_resolving_powers(self, minimum=minimum, maximum=maximum, feedline=feedline)
+        calibrations = np.zeros((res_ids.size, 3))
+        for index, res_id in enumerate(res_ids):
+            params = self.calibration_parameters(res_id=res_id).valuesdict()
+            if 'c2' in params.keys():
+                calibrations[index, 0] = params['c2']
+            calibrations[index, 1] = params['c1']  # requires either Quadratic or Linear model
+            calibrations[index, 2] = params['c0']
+        return calibrations, res_ids
+
     def set_calibration_model(self, model, pixel=None, res_id=None):
         """Set the calibration model to model for the specified resonator."""
         pixel, _ = self._parse_resonators(pixel, res_id)
@@ -1436,19 +1438,19 @@ class Solution(object):
         return model.best_fit_result.params
 
     def calibration_model_name(self, pixel=None, res_id=None):
-        """Returns the name of the model used for the calibration fit for a particular
-        resonator."""
+        """Returns the name of the model used for the calibration fit for a particular resonator."""
         pixel, _ = self._parse_resonators(pixel, res_id)
         model = self.calibration_model(pixel=pixel)
         return type(model).__name__
 
-    def calibration_function(self, pixel=None, res_id=None):
+    def calibration_function(self, pixel=None, res_id=None, wavelength_units=False):
         """Returns a function of one argument that converts phase to fitted energy for a
-        particular resonator."""
+        particular resonator.
+        Note: wavelength_units=True returns a function from phase to wavelength in nanometers."""
         pixel, _ = self._parse_resonators(pixel, res_id)
         model = self.calibration_model(pixel=pixel)
 
-        return model.calibration_function
+        return model.calibration_function if not wavelength_units else model.wavelength_function
 
     def calibration(self, pixel=None, res_id=None):
         """Returns a tuple of the  phases, energies, and phase errors (1 sigma) data
@@ -1462,7 +1464,7 @@ class Solution(object):
         """Returns True if the resonator has a good wavelength calibration fit. Returns
          False otherwise."""
         pixel, _ = self._parse_resonators(pixel, res_id)
-        if not isinstance(self._fit_array[pixel[0], pixel[1]][0], dict):
+        if self._is_empty(pixel):
             return False
         model = self.calibration_model(pixel=pixel)
         return model.has_good_solution()
@@ -1480,7 +1482,7 @@ class Solution(object):
         pixel, _ = self._parse_resonators(pixel, res_id)
         wavelengths = self._parse_wavelengths(wavelengths)
         models = self._parse_models(models, 'histograms', wavelengths=wavelengths)
-        logic = (wavelengths == self.cfg.wavelengths)
+        logic = (wavelengths == np.asarray(self.cfg.wavelengths))
         self[pixel[0], pixel[1]]['histograms'][logic] = models
 
     def histogram_models(self, wavelengths=None, pixel=None, res_id=None):
@@ -1488,7 +1490,7 @@ class Solution(object):
         resonator at the specified wavelengths wavelength."""
         pixel, _ = self._parse_resonators(pixel, res_id)
         wavelengths = self._parse_wavelengths(wavelengths)
-        logic = (wavelengths == self.cfg.wavelengths)
+        logic = (wavelengths == np.asarray(self.cfg.wavelengths))
         models = self[pixel[0], pixel[1]]['histograms'][logic]
         return models
 
@@ -1537,8 +1539,8 @@ class Solution(object):
         histogram fit and False otherwise for the corresponding wavelength.
         """
         pixel, _ = self._parse_resonators(pixel, res_id)
-        if not isinstance(self._fit_array[pixel[0], pixel[1]][0], dict):
-            return False
+        if self._is_empty(pixel):
+            return np.array([False] * len(wavelengths))
         models = self.histogram_models(wavelengths, pixel=pixel)
         good = np.array([model.has_good_solution() for model in models])
         return good
@@ -1549,8 +1551,8 @@ class Solution(object):
         wavelength."""
         pixel, _ = self._parse_resonators(pixel, res_id)
         wavelengths = self._parse_wavelengths(wavelengths)
-        if not isinstance(self._fit_array[pixel[0], pixel[1]][0], dict):
-            return False
+        if self._is_empty(pixel):
+            return np.array([False] * len(wavelengths))
         models = self.histogram_models(wavelengths, pixel=pixel)
         data = np.array([model.x is not None and model.y is not None for model in models])
         return data
@@ -1719,7 +1721,7 @@ class Solution(object):
             axes_grid.squeeze()
         return axes_grid
 
-    def plot_r_histogram(self, axes=None, wavelengths=None, feedline=None, r=None):
+    def plot_r_histogram(self, axes=None, wavelengths=None, feedline=None, minimum=None, maximum=None, r=None):
         """
         Plot a histogram of the energy resolution, R, for each wavelength in the
         wavelength calibration solution object.
@@ -1731,6 +1733,10 @@ class Solution(object):
                          The default is to use all.
             feedline: only resonators from this feedline will be used to make the plot.
                       All are used if set to None.
+            minimum: only histogram resolving powers above this value. No lower bound
+                     is used if it is not specified.
+            maximum: only histogram resolving powers below this value. No upper bound
+                     is used if it is not specified.
             r: a NxM array of resolving powers to histogram where M corresponds to the
                wavelengths list. If none, they are calculated from the solution object.
                feedline is ignored if used.
@@ -1740,23 +1746,33 @@ class Solution(object):
         log.debug("plotting resolving power histogram")
         # check inputs
         wavelengths = self._parse_wavelengths(wavelengths)
-        # make sure r is defined
-        if r is None:
-            r, _ = self.find_resolving_powers(wavelengths=wavelengths, feedline=feedline)
-        max_r = np.nanmax(r)
         # make sure axes is defined
         if axes is None:
             _, axes = plt.subplots()
+        # set axes labels
+        axes.set_xlabel(r'R [E/$\Delta$E]')
+        axes.set_ylabel('counts per bin width')
         # make a color bar if there are a lot of wavelengths
         color_bar = len(wavelengths) >= 10
         if color_bar:
             self._plot_color_bar(axes, wavelengths)
+        # make sure r is defined
+        if r is None:
+            r, _ = self.find_resolving_powers(wavelengths=wavelengths, feedline=feedline)
+        if r.size == 0:
+            return axes
+        max_r = np.nanmax(r)
         # plot each histogram
         max_counts = []
         for index, wavelength in enumerate(wavelengths):
             # pull out relevant data
             r_wavelength = r[:, index]
             r_wavelength = r_wavelength[np.logical_not(np.isnan(r_wavelength))]
+            # filter if needed
+            if minimum is not None:
+                r_wavelength = r_wavelength[r_wavelength >= minimum]
+            if maximum is not None:
+                r_wavelength = r_wavelength[r_wavelength <= maximum]
             # histogram data
             counts, edges = np.histogram(r_wavelength, bins=30, range=(0, 1.1 * max_r))
             bin_widths = np.diff(edges)
@@ -1778,8 +1794,6 @@ class Solution(object):
         # set up axis
         if np.max(max_counts) != 0:
             axes.set_ylim([0, 1.2 * np.max(max_counts)])
-        axes.set_xlabel(r'R [E/$\Delta$E]')
-        axes.set_ylabel('counts per bin width')
         # add legend if there's no color bar
         if not color_bar:
             axes.legend(fontsize=6)
@@ -1788,7 +1802,7 @@ class Solution(object):
 
         return axes
 
-    def plot_response_histogram(self, axes=None, wavelengths=None, feedline=None,
+    def plot_response_histogram(self, axes=None, wavelengths=None, feedline=None, minimum=None, maximum=None,
                                 responses=None):
         """
         Plot a histogram of the model phase distribution centers for the solution object.
@@ -1800,6 +1814,10 @@ class Solution(object):
                          The default is to use all.
             feedline: only resonators from this feedline will be used to make the plot.
                       All are used if set to None.
+            minimum: only histogram responses above this value. No lower bound is used
+                     if it is not specified.
+            maximum: only histogram responses below this value. No upper bound is used
+                     if it is not specified.
             responses: a NxM array of responses to histogram where M corresponds to the
                        wavelengths list. If none, they are calculated from the solution
                        object. feedline is ignored if used.
@@ -1828,7 +1846,11 @@ class Solution(object):
             wavelength_responses = responses[:, wavelength_index]
             logic = np.logical_not(np.isnan(wavelength_responses))
             wavelength_responses = wavelength_responses[logic]
-
+            # filter if needed
+            if minimum is not None:
+                wavelength_responses = wavelength_responses[wavelength_responses >= minimum]
+            if maximum is not None:
+                wavelength_responses = wavelength_responses[wavelength_responses <= maximum]
             # make histogram
             counts, edges = np.histogram(wavelength_responses, bins=30, range=(-150, -20))
             bin_width = np.diff(edges)[0]
@@ -1858,7 +1880,7 @@ class Solution(object):
         plt.tight_layout()
         return axes
 
-    def plot_r_vs_f(self, axes=None, feedline=None, r=None, res_ids=None):
+    def plot_r_vs_f(self, axes=None, feedline=None, minimum=None, maximum=None, r=None, res_ids=None):
         """
         Plot the median energy resolution over all wavelengths against the resonance
         frequency.
@@ -1868,6 +1890,10 @@ class Solution(object):
                   is provided a new figure will be made.
             feedline: only resonators from this feedline will be used to make the plot.
                       All are used if set to None. Ignored if r and res_ids is used.
+            minimum: only plot median resolving powers above this value. No lower bound
+                     is used if it is not specified.
+            maximum: only plot median resolving powers below this value. No upper bound
+                     is used if it is not specified.
             r: a NxM array of resolving powers to histogram where M corresponds to the
                wavelengths list. If none, they are calculated from the solution object.
                res_ids must also be specified. feedline is ignored if used.
@@ -1882,15 +1908,20 @@ class Solution(object):
             raise ValueError("either specify both r and res_ids or neither")
         # make sure r and res_ids are defined
         if r is None:
-            r, res_ids = self.find_resolving_powers(feedline=feedline)
+            r, res_ids = self.find_resolving_powers(feedline=feedline, maximum=maximum, minimum=minimum)
+            minimum = None  # don't filter again
+            maximum = None  # don't filter again
         # make sure axes is defined
         if axes is None:
             _, axes = plt.subplots()
         # load in the data
-        try:
-            data = self.load_frequency_files(self.cfg.templar_configuration_path)
-        except RuntimeError:
-            data = np.array([[np.nan, np.nan]])
+        if self.cfg.beammap.frequencies is not None:
+            data = np.array([self.cfg.beammap.resIDs, self.cfg.beammap.frequencies * 1e6]).T
+        else:
+            try:
+                data = self.load_frequency_files(self.cfg.templar_configuration_path)
+            except RuntimeError:
+                data = np.array([[np.nan, np.nan]])
         # find the median r values for plotting
         with warnings.catch_warnings():
             # rows with all nan values will give an unnecessary RuntimeWarning
@@ -1913,14 +1944,20 @@ class Solution(object):
         indices = np.argsort(frequencies)
         frequencies = frequencies[indices]
         resolutions = resolutions[indices]
+        # filter out data if needed
+        if minimum is not None:
+            resolutions = resolutions[resolutions >= minimum]
+        if maximum is not None:
+            resolutions = resolutions[resolutions <= maximum]
         # filter the data
         window = 0.3e9  # 200 MHz
         r = np.zeros(resolutions.shape)
         for index, _ in enumerate(resolutions):
-            points = np.where(np.logical_and(frequencies > frequencies[index] -
-                                             window / 2,
-                                             frequencies < frequencies[index] +
-                                             window / 2))
+            with warnings.catch_warnings():
+                # rows with all nan values will give an unnecessary RuntimeWarning
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                points = np.where(np.logical_and(frequencies > frequencies[index] - window / 2,
+                                                 frequencies < frequencies[index] + window / 2))
             if len(points[0]) > 0:
                 r[index] = np.median(resolutions[points])
             else:
@@ -1935,7 +1972,7 @@ class Solution(object):
         plt.tight_layout()
         return axes
 
-    def plot_resolution_image(self, axes=None, wavelength=None, r=None, res_ids=None):
+    def plot_resolution_image(self, axes=None, wavelength=None, minimum=None, maximum=None, r=None, res_ids=None):
         """
         Plots an image of the array with the energy resolution as a color for this
         solution object.
@@ -1946,6 +1983,10 @@ class Solution(object):
             wavelength: a specific wavelength to plot data for. If used the plot will not
                         be interactive. Specify zero to plot a boolean mask of good/bad
                         pixels
+            minimum: only plot resolving powers above this value. No lower bound is used
+                     if it is not specified. Ignored if wavelength=0.
+            maximum: only plot resolving powers below this value. No upper bound is used
+                     if it is not specified. Ignored if wavelength=0.
             r: a NxM array of resolving powers to histogram where M corresponds to the
                wavelengths list in the configuration file. If none, they are calculated
                from the solution object. If wavelength is specified, M needs to be 1.
@@ -1971,6 +2012,8 @@ class Solution(object):
         if wavelength == 0:
             wavelengths = []
             number = 2
+            minimum = None
+            maximum = None
         else:
             wavelengths = self._parse_wavelengths(wavelength)
             number = 11
@@ -1983,6 +2026,10 @@ class Solution(object):
                     r_cube[w_index, pixel[1], pixel[0]] = r[index, w_index]
                 r_cube[-1, pixel[1], pixel[0]] = 1
         r_cube[np.isnan(r_cube)] = 0
+        if minimum is not None:
+            r_cube[:, np.any(r_cube < minimum, axis=0)] = 0
+        if maximum is not None:
+            r_cube[:, np.any(r_cube > maximum, axis=0)] = 0
 
         if axes is None:
             _, axes = plt.subplots(figsize=(8, 8))
@@ -1998,7 +2045,7 @@ class Solution(object):
         if wavelength == 0:
             label = "Good / Bad"
         else:
-            label = "R [E/$\Delta$E]"
+            label = r"R [E/$\Delta$E]"
         cax.get_yaxis().labelpad = 15
         cax.set_ylabel(label, rotation=270)
         color_bar.draw_all()
@@ -2053,7 +2100,7 @@ class Solution(object):
                 if self.ind != len(wavelengths):
                     self.slider.label.set_text("Energy Resolution: {:.2f} nm"
                                                .format(wavelengths[self.ind]))
-                    cax.set_ylabel("R [E/$\Delta$E]", rotation=270)
+                    cax.set_ylabel(r"R [E/$\Delta$E]", rotation=270)
                 else:
                     self.slider.label.set_text("Wavelength Calibrated Pixels")
                     cax.set_ylabel("Good / Bad", rotation=270)
@@ -2070,8 +2117,8 @@ class Solution(object):
         indexer = Index(ax_slider, ax_prev, ax_next)
         return axes, indexer
 
-    def plot_summary(self, axes=None, feedline=None, save_name=None,
-                     resolution_images=True, use_latex=True):
+    def plot_summary(self, axes=None, feedline=None, save_name=None, resolution_images=True, use_latex=True, min_r=None,
+                     max_r=None, min_a=None, max_a=None):
         """
         Plot a summary of the wavelength calibration solution object.
 
@@ -2087,6 +2134,10 @@ class Solution(object):
                                these plots are appended to the returned axes array.
             use_latex: a boolean turning on or off latex compilation. Text will not print
                        nicely without a latex install.
+            min_r: minimum resolving power to show in plots
+            max_r: maximum resolving power to show in plots
+            min_a: minimum response to show in plots
+            max_a: maximum response to show in plots
         Returns:
             axes: an array of Axes objects if no save name is provided
         Notes:
@@ -2117,6 +2168,11 @@ class Solution(object):
                         r"\setlength{\parindent}{0cm}"  # no paragraph indent
                         r"\catcode`\_=12")  # escape underscores for file names
             matplotlib.rc('text.latex', preamble=preamble)
+        # reversibly turn off interactive mode
+        make_interactive = False
+        if save_name is not None and plt.isinteractive():
+            plt.interactive(False)
+            make_interactive = True
 
         # setup subplots
         figure_size = (8.5, 11)
@@ -2137,9 +2193,9 @@ class Solution(object):
             all_res_ids = all_res_ids[np.floor(all_res_ids / 10000) == feedline]
 
         # plot the results
-        self.plot_r_vs_f(axes=axes_list[0], r=r, res_ids=res_ids_r)
-        self.plot_r_histogram(axes=axes_list[1], r=r)
-        self.plot_response_histogram(axes=axes_list[2], responses=a)
+        self.plot_r_vs_f(axes=axes_list[0], r=r, minimum=min_r, maximum=max_r, res_ids=res_ids_r)
+        self.plot_r_histogram(axes=axes_list[1], minimum=min_r, maximum=max_r, r=r)
+        self.plot_response_histogram(axes=axes_list[2], minimum=min_a, maximum=max_a, responses=a)
         # get info on the solution
         histogram_names = []
         calibration_names = []
@@ -2176,14 +2232,14 @@ class Solution(object):
                  r"fits successful out of beam-mapped pixels & {:.2f} \% \\" +
                  r"\hline ")
         for model_name in self.cfg.histogram_model_names:
-            count = (np.array(histogram_names) == model_name).sum()
+            count = np.sum(np.array(histogram_names) == model_name)
             table += (r"fits using {:s} & {:.2f} \% \\"
                       .format(model_name, count / len(histogram_names) * 100))
         table = table.format(n_wavelengths,
                              histogram_success,
                              completely_successful / n_pixels * 100,
                              histogram_success / (n_pixels * n_wavelengths) * 100,
-                             histogram_success / photosensitive * 100,
+                             histogram_success / photosensitive * 100 if photosensitive != 0 else 0,
                              histogram_success / (beam_mapped * n_wavelengths) * 100)
         table_end = r"\end{tabular} \\ \\ \\"
         histogram_table = table_title + table_begin + table + table_end
@@ -2195,21 +2251,21 @@ class Solution(object):
                  r"fits successful out of beam-mapped pixels & {:.2f} \% \\" +
                  r"\hline ")
         for model_name in self.cfg.calibration_model_names:
-            count = (np.array(calibration_names) == model_name).sum()
+            count = np.sum(np.array(calibration_names) == model_name)
             table += (r"fits using {:s} & {:.2f} \% \\"
                       .format(model_name, count / len(calibration_names) * 100))
         table = table.format(calibration_success,
                              calibration_success / n_pixels * 100,
-                             calibration_success / photosensitive * n_wavelengths * 100,
+                             calibration_success / photosensitive * n_wavelengths * 100 if photosensitive != 0 else 0,
                              calibration_success / beam_mapped * 100)
         calibration_table = table_title + table_begin + table + table_end
         # set up additional text
         info = (r"\textbf{Solution File Name:} \\" +
-                r"{} \\ \\ \\".format(self.cfg.solution_name))
+                r"{} \\ \\ \\".format(self.name.replace('_', r'\_')))
         info += r" \begin{tabular}{@{}>{\raggedright}p{1.5in} | p{1.5in}}"
         info += r"\textbf{ObsFile Names:} & \textbf{Wavelengths [nm]:} \\"
         for index, file_name in enumerate(self.cfg.h5_file_names):
-            info += r"{} & {} \\".format(file_name, self.cfg.wavelengths[index])
+            info += r"{} & {} \\".format(os.path.basename(file_name), self.cfg.wavelengths[index])
         info += table_end
 
         # add text to axes
@@ -2229,13 +2285,12 @@ class Solution(object):
         figures = [figure]
         if resolution_images:
             figure, axes = plt.subplots(figsize=figure_size)
-            axes, _ = self.plot_resolution_image(axes=axes, wavelength=0, r=r,
-                                                 res_ids=res_ids_r)
+            axes, _ = self.plot_resolution_image(axes=axes, wavelength=0, r=r, res_ids=res_ids_r)
             axes_list = np.append(axes_list, axes)
             figures.append(figure)
             for wavelength in self.cfg.wavelengths:
                 figure, axes = plt.subplots(figsize=figure_size)
-                axes, _ = self.plot_resolution_image(axes=axes, wavelength=wavelength,
+                axes, _ = self.plot_resolution_image(axes=axes, wavelength=wavelength, minimum=min_r, maximum=max_r,
                                                      r=r, res_ids=res_ids_r)
                 axes_list = np.append(axes_list, axes)
                 figures.append(figure)
@@ -2249,24 +2304,22 @@ class Solution(object):
                     except (KeyError, RuntimeError, FileNotFoundError) as error:
                         # fall back to use_latex=False if the figure save fails
                         if isinstance(error, KeyError):
-                            message = ("Latex is missing a font. Falling back to"
-                                       "use_latex=False. Check the matplotlib log for "
-                                       "details.")
+                            message = ("Latex may be missing a font. Falling back to use_latex=False. Check the "
+                                       "matplotlib log for details.")
                         else:
-                            message = ("Latex generated an exception. Falling back to "
-                                       "use_latex=False.")
+                            message = "Latex generated an exception. Falling back to use_latex=False."
                         log.warning(message)
                         matplotlib.rcParams.update(old_rc)
-                        axes_list = self.plot_summary(feedline=feedline,
-                                                      save_name=save_name,
-                                                      resolution_images=resolution_images,
-                                                      use_latex=False)
+                        axes_list = self.plot_summary(feedline=feedline, save_name=save_name,
+                                                      resolution_images=resolution_images, use_latex=False)
                         return axes_list
 
-            # if saving close all figures and reset the rcParams
+            # if saving close all figures, reset the rcParams, and turn on interactive mode
             for axes in axes_list:
                 plt.close(axes.figure)
             matplotlib.rcParams.update(old_rc)
+            if make_interactive:
+                plt.interactive(True)
             # don't return the axes since they no longer will plot
             return
         return axes_list
@@ -2274,11 +2327,12 @@ class Solution(object):
     @staticmethod
     def load_frequency_files(config_file):
         """
+        Deprecated! Use the 'beammap' section with the 'freqfiles' key in the configuration yaml file.
+
         Gets the res_ids and frequencies from the templar configuration file
 
         Args:
-            config_file: full path and file name of the templar configuration file.
-                         (string)
+            config_file: full path and file name of the templar configuration file. (string)
         Returns:
             a numpy array of the frequency files that could be loaded from the templar
             configuration file vertically stacked. The first column is the res_id and the
@@ -2286,7 +2340,8 @@ class Solution(object):
         Raises:
             RuntimeError: if no frequency files could be loaded
         """
-        # TODO: Move this to a more general templar configuration management class
+        message = "Use the 'beammap' section with the 'freqfiles' key in the configuration yaml file"
+        warnings.warn(message, DeprecationWarning)
         configuration = ConfigParser()
         configuration.read(config_file)
         data = []
@@ -2335,14 +2390,12 @@ class Solution(object):
                 pixels = np.atleast_2d(pixels).T
             if pixels.size == 2 and pixels.shape[1] == 2:
                 pixels = pixels.T
-            bad_input = (not np.issubdtype(pixels.dtype, np.integer) or
-                         pixels.shape[0] != 2)
+            bad_input = (not np.issubdtype(pixels.dtype, np.integer) or pixels.shape[0] != 2)
             if bad_input:
-                raise ValueError("pixels must be a list of pairs of integers")
+                raise ValueError("pixels must be a list of pairs of integers: {}".format(pixels))
         else:
-            x_pixels = range(self.cfg.x_pixels)
-            y_pixels = range(self.cfg.y_pixels)
-            pixels = np.array([[x, y] for x in x_pixels for y in y_pixels]).T
+            pixels = np.array([[x, y] for x in range(self.cfg.beammap.ncols)
+                               for y in range(self.cfg.beammap.nrows)]).T
         return pixels
 
     def _parse_res_ids(self, res_ids=None):
@@ -2362,13 +2415,13 @@ class Solution(object):
         if not self._parse:
             return wavelengths
         if wavelengths is None:
-            wavelengths = self.cfg.wavelengths
+            wavelengths = np.asarray(self.cfg.wavelengths)
             return wavelengths
         if not isinstance(wavelengths, (list, tuple, np.ndarray)):
             wavelengths = np.array([wavelengths])
         if not isinstance(wavelengths, np.ndarray):
             wavelengths = np.array(wavelengths)
-        bad_wavelengths = np.logical_not(np.isin(wavelengths, self.cfg.wavelengths))
+        bad_wavelengths = np.logical_not(np.isin(wavelengths, np.asarray(self.cfg.wavelengths)))
         if bad_wavelengths.any():
             message = "invalid wavelengths: {} nm"
             raise ValueError(message.format(wavelengths[bad_wavelengths]))
@@ -2397,64 +2450,93 @@ class Solution(object):
         assert not np.isin(self._type(models), model_list).any(), message.format(models)
         return models
 
-    @staticmethod
-    def _plot_color_bar(axes, wavelengths):
+    def _plot_color_bar(self, axes, wavelengths):
         z = [[0, 0], [0, 0]]
         levels = np.arange(min(wavelengths), max(wavelengths), 1)
-        c = axes.contourf(z, levels, cmap=self._color_map)
-        plt.colorbar(c, ax=axes, label='wavelength [nm]', aspect=50)
+        contour_set = axes.contourf(z, levels, cmap=self._color_map)
+        plt.colorbar(contour_set, ax=axes, label='wavelength [nm]', aspect=50)
         axes.clear()
+
+    def _is_empty(self, pixel):
+        return not isinstance(self.fit_array[pixel[0], pixel[1]][0], dict)
+
+
+def load_solution(wc, singleton_ok=True):
+    """wc is a solution file or a Solution object"""
+    global _loaded_solutions
+    if not singleton_ok:
+        raise NotImplementedError('Must implement solution copying')
+    if isinstance(wc, Solution):
+        return wc  # TODO: _loaded_solutions[wc._file_path] = wc
+    wc = wc if os.path.isfile(wc) else os.path.join(mkidpipeline.config.config.paths.database, wc)
+    try:
+        return _loaded_solutions[wc]
+    except KeyError:
+        _loaded_solutions[wc] = Solution(file_path=wc)
+    return _loaded_solutions[wc]
+
+
+def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
+    cfg = mkidpipeline.config.config if config is None else config
+
+    solutions = []
+    for sd in solution_descriptors:
+        sf = os.path.join(cfg.paths.database, sd.id)
+        if os.path.exists(sf) and not remake:
+            solutions.append(load_solution(sf))
+        else:
+            if 'wavecal' not in cfg:
+                wcfg = mkidpipeline.config.load_task_config(pkg.resource_filename(__name__, 'wavecal.yml'))
+            else:
+                wcfg = cfg.copy()
+            wcfg.register('start_times', [x.start for x in sd.data], update=True)
+            wcfg.register('exposure_times', [x.duration for x in sd.data], update=True)
+            wcfg.register('wavelengths', [w for w in sd.wavelengths], update=True)
+            if ncpu is not None:
+                wcfg.update('ncpu', ncpu)
+            cal = Calibrator(wcfg, solution_name=sf)
+            cal.run(**kwargs)
+            # solutions.append(load_solution(sf))  # don't need to reload from file
+            solutions.append(cal.solution)  # TODO: solutions.append(load_solution(cal.solution))
+
+    return solutions
+
+
+mkidpipeline.config.yaml.register_class(Configuration)
+mkidpipeline.config.yaml.register_class(Solution)
 
 
 if __name__ == "__main__":
     timestamp = int(datetime.utcnow().timestamp())
-
+    # print execution time on exit
+    atexit.register(lambda: print('Time: {:.2f} minutes'.format((datetime.utcnow().timestamp() - timestamp) / 60)))
     # read in command line arguments
     parser = argparse.ArgumentParser(description='MKID Wavelength Calibration Utility')
     parser.add_argument('cfg_file', type=str, help='The configuration file')
-    parser.add_argument('--vet', action='store_true', dest='vet_only',
-                        help='Only verify the configuration file')
-    parser.add_argument('--h5', action='store_true', dest='h5_only',
-                        help='Only make the h5 files')
-    parser.add_argument('--force', action='store_true', dest='force_h5',
-                        help='Force h5 file creation')
-    parser.add_argument('-nc', type=int, dest='n_cpu', default=0,
-                        help="Number of CPUs to use for bin2hdf, " 
-                             "default is number of wavelengths")
-    parser.add_argument('--quiet', action='store_true', dest='quiet',
-                        help='Disable logging')
+    parser.add_argument('--vet', action='store_true', dest='vet_only', help='Only verify the configuration file')
+    parser.add_argument('--h5', action='store_true', dest='h5_only', help='Only make the h5 files')
+    parser.add_argument('--force', action='store_true', dest='force_h5', help='Force h5 file creation')
+    parser.add_argument('--ncpu', type=int, dest='n_cpu', default=0, help="Number of CPUs to use for bin2hdf, "
+                                                                          "default is number of wavelengths")
+    parser.add_argument('--progress', action='store_true', dest='progress', help='Enable the progress bar')
+    parser.add_argument('--quiet', action='store_true', dest='quiet', help="Don't log to the console")
     args = parser.parse_args()
-
-    # load the configuration file
-    config = Configuration(args.cfg_file,
-                           solution_name='wavecal_solution_{}.npz'.format(timestamp))
+    # load wavecal configuration file
+    wcalcfg = Configuration(args.cfg_file)
     # set up logging
-    if not args.quiet:
-        setup_logging(config, timestamp)
-
-    # print execution time on exit
-    atexit.register(lambda x: print('Execution took {:.2f} minutes'
-                                    .format((datetime.utcnow().timestamp() - x) / 60)),
-                    timestamp)
-
+    setup_logging(tologfile=wcalcfg.out_directory, toconsole=not args.quiet, time_stamp=timestamp)
+    # load as a task configuration
+    ymlcfg = mkidpipeline.config.load_task_config(args.cfg_file)
     # set up bin2hdf
     if args.n_cpu == 0:
-        args.n_cpu = len(config.wavelengths)
+        args.n_cpu = len(wcalcfg.wavelengths)
     if args.vet_only:
         exit()
-    if not config.hdf_exist() or args.force_h5:
-        b2h_configs = []
-        for wave, start_t, int_t in zip(config.wavelengths, config.start_times,
-                                        config.exposure_times):
-            b2h_configs.append(bin2hdf.Bin2HdfConfig(datadir=config.bin_directory,
-                                                     beamfile=config.beam_map_path,
-                                                     outdir=config.h5_directory,
-                                                     starttime=start_t, inttime=int_t,
-                                                     x=config.x_pixels,
-                                                     y=config.y_pixels))
-        bin2hdf.makehdf(b2h_configs, maxprocs=min(args.n_cpu, mp.cpu_count()))
+    time_ranges = [(ymlcfg.start_times[i], ymlcfg.start_times[i] + ymlcfg.exposure_times[i])
+                   for i in range(len(ymlcfg.start_times))]
+    bin2hdf.buildtables(time_ranges, ymlcfg, ncpu=6, remake=args.force_h5, timesort=False)
     if args.h5_only:
         exit()
     # run the wavelength calibration
-    Calibrator(config).run(parallel=config.parallel, plot=config.summary_plot,
-                           verbose=config.verbose)
+    c = Calibrator(wcalcfg, solution_name='wavecal_solution_{}.npz'.format(timestamp))
+    c.run(verbose=args.progress)

@@ -26,7 +26,7 @@ import matplotlib.pyplot as plt
 from mkidpipeline.utils.plottingTools import plot_array
 from mkidcore.utils.readdict import ReadDict
 
-import mkidpipeline.hotpix.generatebadpixmask as gbpm
+import mkidpipeline.badpix as gbpm
 
 import image_registration as ir
 from mkidpipeline.utils.loadStack import loadIMGStack, loadBINStack

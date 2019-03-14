@@ -1,35 +1,36 @@
 from __future__ import print_function
-import setuptools, sys
-import os
+import setuptools
 from setuptools.command.install import install
 from setuptools.command.develop import develop
 import subprocess
 import numpy
+from setuptools.extension import Extension
+from Cython.Build import cythonize
 
 #pip install -e git+http://github.com/mazinlab/mkidpipeline.git@develop#egg=mkidpipeline
 
-from setuptools.extension import Extension
-from Cython.Build import cythonize
-from Cython.Distutils import build_ext
-
-parsebin_extension = Extension(
-    name="mkidpipeline.hdf.parsebin",
-    sources=["mkidpipeline/hdf/parsebin.pyx","mkidpipeline/hdf/binlib.c"],
-    library_dirs=["mkidpipeline/hdf"], # Location of .o file
-    include_dirs=["mkidpipeline/hdf",numpy.get_include()], # Location of the .h file
-    extra_compile_args=["-std=c99"]
-)
 
 gen_photon_list_extension = Extension(
     name="mkidpipeline.speckle.photonstats_utils",
-    sources=['mkidpipeline/speckle/photonstats_utils.pyx']
+    sources=['mkidpipeline/speckle/photonstats_utils.pyx'],
+    include_dirs=[numpy.get_include()],
+    extra_compile_args=["-std=c99", "-O3", '-pthread']
 )
+
+mkidbin_extension = Extension(
+    name="mkidpipeline.hdf.mkidbin",
+    sources=["mkidpipeline/hdf/mkidbin.pyx", "mkidpipeline/hdf/binprocessor.c"],
+    library_dirs=["mkidpipeline/hdf"], # Location of .o file
+    include_dirs=["mkidpipeline/hdf", numpy.get_include()], # Location of the .h file
+    extra_compile_args=["-std=c99", "-O3", '-pthread']
+)
+
 
 def compile_and_install_software():
     """Used the subprocess module to compile/install the C software."""
     src_path = './mkidpipeline/hdf/'
     try:
-        subprocess.check_call('/usr/local/hdf5/bin/h5cc -shlib -pthread -g -o bin2hdf bin2hdf.c',
+        subprocess.check_call('/usr/local/hdf5/bin/h5cc -shlib -pthread -O3 -o bin2hdf bin2hdf.c',
                               cwd=src_path, shell=True)
 
     except Exception as e:
@@ -64,7 +65,7 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/MazinLab/MKIDPipeline",
     packages=setuptools.find_packages(),
-    ext_modules=cythonize([parsebin_extension,gen_photon_list_extension]),
+    ext_modules=cythonize([gen_photon_list_extension,mkidbin_extension]),
     classifiers=(
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",

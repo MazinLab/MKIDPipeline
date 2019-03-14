@@ -9,6 +9,62 @@ Makes and Plots final Image
 Will work for non-wavelength calibrated images, but you must set the wvlStart and wvlStop to None
 """
 
+"""
+Config Example:
+
+[Data]
+#Sample Configuration File to run Dither2HDF.py
+
+#XPIX (integer)
+XPIX = 140
+
+#YPIX (integer)
+YPIX = 146
+
+#Path to the Bin Files (string)
+binPath = '/mnt/data0/ScienceData/Subaru/20180829'
+
+#Path to write the output h5 files (string)
+outPath = '/mnt/data0/isabel/highcontrastimaging/GuyonMECProposal/'
+
+#Path and filename of the beammap file (string)
+beamFile = '/mnt/data0/isabel/pipelinetest/mecwavecalanalyses/bin2hdfdebug/finalMapV2_1.txt'
+
+#mapFlag (int)
+mapFlag = 1
+
+#Flag to use img files or pre-made numpy arrays instead of h5 files (bool)
+useImg = False
+
+#Path to the Bin2HDF code (string)
+b2hPath = '/home/isabel/src/mkidpipeline/mkidpipeline/hdf'
+
+#List of start times of each dither position (list of ints OR floats)
+startTimes = [1535642304.761, 1535642336.032, 1535642367.254, 1535642398.524, 1535642430.626, 1535642462.424, 1535642493.998, 1535642524.964, 1535642556.059, 1535642588.208, 1535642619.879, 1535642651.293, 1535642682.212, 1535642713.994, 1535642745.233, 1535642776.998, 1535642808.493, 1535642839.604, 1535642870.698, 1535642901.952, 1535642934.198, 1535642965.213, 1535642996.515, 1535643027.706, 1535643058.992]
+
+#List of stop times of each dither position (list of ints OR floats)
+stopTimes = [1535642334.793, 1535642366.065, 1535642397.287, 1535642428.557, 1535642460.658, 1535642492.457, 1535642524.03, 1535642554.998, 1535642586.092, 1535642618.24, 1535642649.912, 1535642681.325, 1535642712.245, 1535642744.027, 1535642775.265, 1535642807.032, 1535642838.525, 1535642869.636, 1535642900.73, 1535642931.984, 1535642964.231, 1535642995.245, 1535643026.546, 1535643057.738, 1535643089.025]
+
+#x location of each dither position (list of ints OR floats)
+#xPos = [-0.76, -0.76, -0.76, -0.76, -0.76, -0.57, -0.57, -0.57, -0.57, -0.57, -0.38, -0.38, -0.38, -0.38, -0.38, -0.19, -0.19, -0.19, -0.19, -0.19, 0.0, 0.0, 0.0, 0.0, 0.0]
+#          0       1     2      3      4      5      6       7     8      9      10     11      12     13    14     15     16     17     18      19   20   21   22   23   24
+
+xPos=[    108,   108,   108,   108,   108,   95,    95,    95,     95,    95,    83,    83,    83,    83,    83,    70,   70,    70,     70,    70,  58,  58,   58,   58,  58]
+#y location of each dither position (list of ints OR floats)
+#yPos = [-0.76, -0.38, 0.0, 0.38, 0.76, -0.76, -0.38, 0.0, 0.38, 0.76, -0.76, -0.38, 0.0, 0.38, 0.76, -0.76, -0.38, 0.0, 0.38, 0.76, -0.76, -0.38, 0.0, 0.38, 0.76]
+
+yPos  = [20,    45,    70,   95,  120,   20,    45,    70,   95,  120,   20,    45,    70,   95,  120, 20,    45,    70,   95,  120,  20,    45,    70,   95,  120]
+
+#Integration time of each dither position (int)
+intTime = 30
+
+#Total number of dither positions (int)
+nPos = 25
+"""
+
+
+#TODO TFD. Merge heart with image formation step of pipeline. Automate centroid.
+
 import glob
 import ast
 import argparse
@@ -16,11 +72,10 @@ import sys
 
 
 import numpy as np
-from mkidpipeline.hdf.darkObsFile import ObsFile as obs
+from mkidpipeline.hdf.photontable import ObsFile as obs
 from mkidpipeline.utils.plottingTools import plot_array
 from configparser import ConfigParser
 from mkidpipeline.utils import irUtils
-
 
 parser = argparse.ArgumentParser(description='Process a dither stack into a final rough-stacked image.')
 parser.add_argument('ditherName', metavar='file', nargs=1,
@@ -45,24 +100,17 @@ startTimes = ast.literal_eval(config['Data']['startTimes'])
 stopTimes =  ast.literal_eval(config['Data']['stopTimes'])
 xPos = ast.literal_eval(config['Data']['xPos'])
 yPos = ast.literal_eval(config['Data']['yPos'])
+#useImg = ast.literal_eval(config['Data']['useImg'])
 
-
-''' A function to convert the connex offset to pixel displacement'''#
-con2pix =np.array([[-20, 1], [1,-20]])
-conPos = np.array([xPos,yPos])
-pixOffarray= np.int_(np.matmul(conPos.T, con2pix)).T
-xPos=pixOffarray[0]
-yPos=pixOffarray[1]
 
 upSample = 2
 padFraction = 0.4
-wvlStart=0
-wvlStop=0
+wvlStart=900
+wvlStop=1140
 
-h5dir = outPath
-print(h5dir)
-outputDir = outPath
-outfileName='TrapSeeQuick'
+outputDir = '/mnt/data0/isabel/highcontrastimaging/Jan2019Run/20190112/51Eri/51EriDither1/51Eri_wavecalib/'
+outfileName='51EriYBand'
+h5dir=outputDir
 
 ObsFNList =glob.glob(h5dir+'15*.h5')
 print(ObsFNList)
@@ -133,7 +181,7 @@ for i in range(nPos):
         #pad frame with margin for shifting and stacking
         paddedFrame = irUtils.embedInLargerArray(processedIm,frameSize=padFraction)
         outfile=h5dir+outfileName+str(i)
-        np.save(outfile, paddedFrame)
+        #np.save(outfile, paddedFrame)
 
         #apply rough dX and dY shift to frame
         print("Shifting dither %i, frame %i by x=%i, y=%i"%(i,0,dXs[i], dYs[i]))
@@ -157,4 +205,4 @@ finalImage = irUtils.medianStack(shiftedFrames)
 
 plot_array(finalImage,title='final',origin='upper')
 outfile=h5dir+outfileName+'AlignedWaveCal'
-np.save(outfile, finalImage)
+#np.save(outfile, finalImage)

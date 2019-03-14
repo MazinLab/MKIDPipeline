@@ -12,7 +12,7 @@ import os
 import tables
 
 from mkidcore.headers  import CalLookup_Description
-from mkidpipeline.hdf.darkObsFile import ObsFile
+from mkidpipeline.hdf.photontable import ObsFile
 from mkidpipeline.utils import utils
 from mkidpipeline.utils.FileName import FileName
 

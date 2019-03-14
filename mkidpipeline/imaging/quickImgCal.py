@@ -44,7 +44,7 @@ import sys
 
 import numpy as np
 
-import mkidpipeline.hotpix.generatebadpixmask as gbpm
+import mkidpipeline.badpix as gbpm
 import mkidpipeline.utils.irUtils as irUtils
 from mkidpipeline.utils.plottingTools import plot_array
 from mkidpipeline.utils.loadStack import loadBINStack, loadIMGStack
@@ -114,7 +114,7 @@ else:
     print("No dark provided")
     dark = np.zeros((numRows, numCols),dtype=int)
 
-#if dark frames are provided, generate a hot pixel mask using generatebadpixmask.py
+#if dark frames are provided, generate a hot pixel mask using badpix.py
 if darkSpan[0]!='0':
     darkHPM = gbpm.quick_check_img(image=dark)['bad_mask']
 else:

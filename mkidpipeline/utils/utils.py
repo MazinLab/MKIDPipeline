@@ -853,7 +853,7 @@ def replaceNaN(inputarray, mode='mean', boxsize=3, iterate=True):
     """
     
     outputarray = numpy.copy(inputarray)
-    while numpy.sum(numpy.isnan(outputarray)) > 0 and numpy.all(numpy.isnan(outputarray)) == False:
+    while numpy.isnan(outputarray).sum() and not numpy.isnan(outputarray).all():
         
         #Calculate interpolates at *all* locations (because it's easier...)
         if mode=='mean':
@@ -867,7 +867,8 @@ def replaceNaN(inputarray, mode='mean', boxsize=3, iterate=True):
         
         #Then substitute those values in wherever there are NaN values.
         outputarray[numpy.isnan(outputarray)] = interpolates[numpy.isnan(outputarray)]
-        if not iterate: break 
+        if not iterate:
+            break
 
     return outputarray
 

@@ -1,0 +1,16 @@
+wavelength: 850, 1100
+tempfile: None
+pixfrac: 0.5
+
+
+"""
+TemporalDrizzler taks a list of dicts of:
+{'ditherind': ditherind,
+'timestamps': timestamps,
+'xPhotonPixels': xPhotonPixels,
+'yPhotonPixels': yPhotonPixels,
+'wavelengths': wavelengths,
+'photRARad': photRARad,
+'photDecRad': photDecRad}
+
+"""
