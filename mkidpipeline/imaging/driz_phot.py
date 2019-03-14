@@ -1,6 +1,5 @@
 import numpy as np
-import matplotlib.pylab as plt
-# import RADecImage as rdi
+import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 from astropy.convolution import AiryDisk2DKernel
@@ -91,10 +90,11 @@ def arange_into_cube(packets, size):
     # plt.hist(packets[:,1], bins=100)
     # plt.show()
     for ip, p in enumerate(packets):
-        x = np.int_(p[1])
-        y = np.int_(p[2])
+        x = np.int_(p[0])
+        y = np.int_(p[1])
         # cube[x][y].append([p[0],p[1]])
-        cube[x][y].append(p[0])
+        # print(x,y)
+        cube[x][y].append(1)
         # if len(packets)>=1e7 and ip%10000==0: misc.progressBar(value = ip, endvalue=len(packets))
     # print cube[x][y]
     # cube = time_sort(cube)
@@ -190,7 +190,8 @@ def make_check(length=250, spacing=5):
 
 def get_mona():
     import cv2
-    image_file = cv2.imread("/mnt/data0/dodkins/monalisa.jpg", 0)
+    # image_file = cv2.imread("/mnt/data0/dodkins/monalisa.jpg", 0)
+    image_file = cv2.imread("./monalisa.jpg", 0)
     image_file = image_file[:sky_span,:sky_span]
     image_file = image_file[::-1]
     # image_file = np.pad(image_file, ((0,0),(200,0)), mode = 'constant', constant_values=0)
@@ -231,25 +232,28 @@ def make_psf_array():
             ir += 1
     return sky_sample
 
-sky_sample = get_mona()
+image = get_mona()
 
-def get_photonImage(sky_sample):
+def get_photonImage(sky_sample,plot=False):
     '''In case you wanted to get some phootns and then covert them back into an image'''
     # plt.imshow(sky, interpolation='none', origin='lower', norm=LogNorm())
     # plt.show()
 
-    photons = sample_cube(sky_sample, int(1e4))
+    photons = sample_cube(sky_sample, int(1e6))
     # print photons, photons.shape
     packets = np.transpose(photons)
 
     # np.save('fakedata.npy', packets)
     # packets = np.load('fakedata.npy')
+    if plot:
+        cube = arange_into_cube(packets, (array_size[0], array_size[1]))
+        image = make_intensity_map(cube, (array_size[0], array_size[1]))
+        plt.imshow(image, origin='lower')
+        plt.show()
+    # return image
+    return packets
 
-    cube = arange_into_cube(packets, (array_size[0], array_size[1]))
-    image = make_intensity_map(cube, (array_size[0], array_size[1]))
-    return image
-
-image = sky_sample
+# photons = get_photonImage(sky_sample)
 # plt.imshow(image)
 # plt.show()
 
@@ -290,7 +294,7 @@ times = np.asarray([1545626973.913, 1545627075.141, 1545627177.153, 1545627278.2
          1545628292.356, 1545628393.472, 1545628495.468, 1545628596.664, 1545628697.956, 1545628799.12,
          1545628900.252, 1545629002.279, 1545629103.444, 1545629204.608, 1545629305.948, 1545629407.177])
 
-def get_rot_rates(observatory='Subaru', multiplier=250):
+def get_rot_rates(observatory='Subaru', multiplier=1):
     site = EarthLocation.of_site(observatory)
     unixtimes = time.Time(val=times, format='unix')
     coords = SkyCoord.from_name('* kap And')
@@ -301,7 +305,6 @@ def get_rot_rates(observatory='Subaru', multiplier=250):
     # TODO each dither potion will have its own altaz rather than the stars. Implement that
     Earthrate = 2 * np.pi / u.sday.to(u.second)
 
-
     obs_const = Earthrate * np.cos(site.geodetic.lat.rad)
     rot_rate = obs_const * np.cos(altaz.az.radian) / np.cos(altaz.alt.radian)
     # rot_rate = [0]*len(times)#obs_const * np.cos(altaz.az.radian) / np.cos(altaz.alt.radian)
@@ -310,14 +313,14 @@ def get_rot_rates(observatory='Subaru', multiplier=250):
         rot_rate = rot_rate * multiplier
     return rot_rate
 
-angles = np.cumsum(get_rot_rates())#*(times - times[0]))
+angles = np.cumsum(get_rot_rates()*(times - times[0]))
 angles -= angles[0]
 # plt.plot(angles)
 # plt.show()
 # angles = get_rot_rates() #*range(len(get_rot_rates()))
 print(angles)
 
-def get_offsets(con2pix=250):
+def get_offsets(con2pix=150):
     xPos = np.array([-0.75, -0.75, -0.75, -0.75, -0.75, -0.375, -0.375, -0.375, -0.375, -0.375, 0.0, 0.0, 0.0, 0.0, 0.0, 0.375,
             0.375, 0.375, 0.375, 0.375, 0.75, 0.75, 0.75, 0.75, 0.75])
     yPos = np.array([-0.75, -0.375, 0.0, 0.375, 0.75, -0.75, -0.375, 0.0, 0.375, 0.75, -0.75, -0.375, 0.0, 0.375, 0.75, -0.75,
@@ -326,10 +329,10 @@ def get_offsets(con2pix=250):
     yPos *= con2pix
     return np.column_stack((np.int_(np.round((xPos))),np.int_(np.round((yPos)))))
 
-xys = get_offsets()
 
-nVPix = 800
-width =150
+
+nVPix = 500
+width =146
 vPlateScale = 10e-3
 
 from astropy import wcs
@@ -351,22 +354,18 @@ def get_header():
 
     return w
 
-w = get_header()
-print(w)
-from drizzle import drizzle as stdrizzle
-driz = stdrizzle.Drizzle(outwcs=w, pixfrac=1)
-
 def makeImage(angle, xy, plot=False):
     x, y = xy
     # rot_sky, cent = rot(image, np.array([sky_span//2,sky_span//2]), np.rad2deg(angle))
-    rot_sky = rot(image, np.array([700,400]), np.rad2deg(angle))
+    rot_sky = rot(image, np.array([400,400]), np.rad2deg(angle))
     # rot_sky = image
     if plot:
         plt.imshow(rot_sky, origin='lower')
         plt.show()
-    left = rot_sky.shape[0]//2+x - width//2
+    left = np.round(rot_sky.shape[0]//2+x - width//2).astype(int)
+
     right = left+width
-    bottom = rot_sky.shape[1]//2+y - width//2
+    bottom = np.round(rot_sky.shape[1]//2+y - width//2).astype(int)
     top = bottom +width
     print(rot_sky.shape,x,y, left, right, bottom, top)
     dither = rot_sky[bottom:top, left:right]
@@ -389,8 +388,8 @@ def get_dith_header(angle, xy):
     # w.wcs.crval = np.array([coords.ra.deg + x * vPlateScale, coords.dec.deg + y * vPlateScale])
     w.wcs.crval = np.dot(np.array([(x-300) * vPlateScale,
                                    y * vPlateScale]),
-                         rotmat)    + np.array([coords.ra.deg + 300*vPlateScale,
-                                                coords.dec.deg])
+                         rotmat) + np.array([coords.ra.deg + 300*vPlateScale,
+                                             coords.dec.deg])
     w.wcs.ctype = ["RA-----", "DEC----"]
     w._naxis1 = width
     w._naxis2 = width
@@ -399,14 +398,76 @@ def get_dith_header(angle, xy):
     w.wcs.cd = rotmat.T*vPlateScale#*(np.cos(-angle) + np.sin(-angle))#np.asarray([[vPlateScale,0],[0,vPlateScale]])
     return w
 
+from drizzler import get_wcs, getmetafromh5, DitherDescription, SpatialDrizzler
+from mkidpipeline.config import MKIDObservingDataDescription, MKIDObservingDither
+
+name = 'KappaAnd_dither+lasercal'
+file = 'KAnd_1545626974_dither.log'
+
+wvlMin = 850
+wvlMax = 1100
+firstObsTime = 0
+integrationTime = 10
+print(integrationTime)
+drizzleconfig = [wvlMin, wvlMax, firstObsTime, integrationTime]
+
+# loc = os.path.join(os.getenv('MKID_DATA_DIR'), name, 'wavecal', file)
+# datadir = '/mnt/data0/isabel/mec'
+# loc = os.path.join(datadir, 'dithers', file)
+datadir = '/Users/dodkins/ProcessedData/KappaAnd/wavecal'
+loc = os.path.join(datadir, file)
+
+logdithdata = MKIDObservingDither(name, loc, None, None)
+h5dithdata = getmetafromh5()
+ditherdesc = DitherDescription(logdithdata, h5dithdata, drizzleconfig, multiplier=1)
+print(angles)
+reduced_obslist = []
+
+from drizzler import ditherp_2_pixel
+
+def get_offsets_():
+    return ditherp_2_pixel(logdithdata.pos)
+
+# xys = np.transpose(get_offsets())
+xys = get_offsets()
+print(xys)
+
 for d, (angle, (x,y)) in enumerate(zip(angles[0:],xys[0:])):
-    insci = makeImage(angle, (x,y))
-    inwcs = get_dith_header(angle, (x,y))
-    print(inwcs)
-    # driz = stdrizzle.Drizzle(outwcs=w, pixfrac=1)
-    driz.add_image(insci, inwcs)
-    # if d % 5 == 0:
-    if d == 24:
-        plt.imshow(driz.outsci, origin='lower', alpha=0.9)#, vmax=1750)
-        plt.imshow(sky_sample, origin='lower', alpha=0.2)
-        plt.show()
+    insci = makeImage(angle, (x,y), plot=False)
+    # plt.imshow(insci, origin='lower')
+    # plt.show()
+    photons = get_photonImage(insci, plot=False)
+    print(photons.shape)
+    # plt.hist(photons[:,0])
+    # plt.show()
+    # plt.hist(photons[:,1])
+    # plt.show()
+    photRADeg, photDecDeg = get_wcs(times[d], photons[:,1], photons[:,0], d, ditherdesc)
+
+
+    # thisImage, thisGridDec, thisGridRA = np.histogram2d(photDecDeg, photRADeg, bins=[146, 146])
+    # plt.imshow(thisImage, origin='lower', extent=[min(thisGridRA),max(thisGridRA),min(thisGridDec),max(thisGridDec)], norm=LogNorm())#)
+    # plt.show(block=True)
+
+    reduced_obs = {'ditherind': d,
+                   'timestamps': photons[0],
+                   'xPhotonPixels': photons[1],
+                   'yPhotonPixels': photons[2],
+                   'wavelengths': photons[3],
+                   'photRARad': photRADeg,
+                   'photDecRad': photDecDeg}
+    reduced_obslist.append(reduced_obs)
+    # inwcs = get_dith_header(angle, (x,y))
+    # print(inwcs)
+    # # driz = stdrizzle.Drizzle(outwcs=w, pixfrac=1)
+    # driz.add_image(insci, inwcs)
+    # # if d % 5 == 0:
+    # if d == 24:
+    #     plt.imshow(driz.outsci, origin='lower', alpha=0.9)#, vmax=1750)
+    #     plt.imshow(sky_sample, origin='lower', alpha=0.2)
+    #     plt.show()
+
+driz = SpatialDrizzler(reduced_obslist[:25], ditherdesc, pixfrac=1)
+driz.run()
+plt.imshow(driz.driz.outsci, origin='lower')
+plt.show()
