@@ -7,16 +7,19 @@ Photon list class for doing SSD analysis.
 import numpy as np
 import matplotlib.pyplot as plt
 
-import os
+from functools import partial
+
+import os, glob
 import datetime
 import time
+import multiprocessing
 
 from mkidpipeline.speckle.genphotonlist_IcIsIr import genphotonlist
 
 import mkidpipeline.speckle.genphotonlist_IcIsIr as gpl
 import mkidpipeline.speckle.binned_rician as binMR
 import mkidpipeline.speckle.binFreeRicianEstimate as binfree # alex's code
-from scipy import optimize
+from scipy import optimize, integrate
 import pickle
 
 
@@ -41,7 +44,7 @@ def probIr(logLcube, p_lists, cumulative = False):
     prob = integrate.trapz(likelihoodCube, p_lists[0],axis=0)   #integrate over Ic
     prob = integrate.trapz(prob, p_lists[1],axis=0)       #integrate over Is
     if cumulative:
-        prob=integrate.cumtrapz(prob,p_lists[2])               #cumulative integral over Ir
+        prob=integrate.cumtrapz(prob,p_lists[2],initial=0)               #cumulative integral over Ir
         norm=prob[-1]
     else:
         norm = integrate.trapz(prob, p_lists[2])         #integrate over Ir to get normalization
@@ -72,6 +75,7 @@ def getLogLCube(logLfunc, p_lists={0:[], 1:[], 2:[]}, relmin=10.**-8., p_opt=Non
                 Used to help auto-populate p_lists
                 p_opt is ignored if p_lists is given already
                 if p_lists[2] is empty for example then still give the entire p_opt=[Ic_opt, Is_opt, Ir_opt] (don't skip out on Ir_opt)
+                if any p_lists[i] is empty then give p_opt cannot be none
 
     OUTPUTS:
         logLmap - cube containing the logL. shape=( len(Ic_list), len(Is_list), len(Ir_list) )
@@ -86,26 +90,25 @@ def getLogLCube(logLfunc, p_lists={0:[], 1:[], 2:[]}, relmin=10.**-8., p_opt=Non
         p_inc[p_inc>sampling]=sampling   # minimum sampling of parameters
         maxLogL=logLfunc(p_opt)
 
-        
+        tmp_logL={}
         for k in range(3):
             if len(p_lists[k])==0:
                 p_lists[k]=[p_opt[k]]
                 populate_inds.append(k)
-
-        #p_lists={i:[p_opt[i]] for i in range(len(p_opt))} #This is the smart Ic, Is, Ir list that we'll use to populate the logL cube
-        if not (0 in p_lists[2]): p_lists[2].append(0)  #force at Ir=0
-        tmp_logL={i:[maxLogL] for i in populate_inds}
+                tmp_logL[k]=[maxLogL]
+            elif p_opt[k] not in p_lists[k]:
+                p_lists[k].append(p_opt[k])
 
         #populate p_lists
-        
         for ind in populate_inds:
             p_tmp=np.copy(p_opt)
             logL=maxLogL
-            loopSafety=2000 #just in case...
+            loopSafety=1000 #just in case...
             while loopSafety >=0:   
                 loopSafety-=1
                 
-                if logL>maxLogL*relmin and p_tmp[ind]-p_inc[ind]>0.:    #continue sweeping
+                #if logL>maxLogL*relmin and p_tmp[ind]+p_inc[ind]>0.:    #continue sweeping
+                if logL>(maxLogL + np.log(relmin)) and p_tmp[ind]+p_inc[ind]>0.:    #continue sweeping
                     p_tmp[ind]+=p_inc[ind]
                 else:   # finished sweeping in one direction
                     if p_inc[ind]<0.: # It was sweeping down. Sweep It up now!
@@ -117,41 +120,106 @@ def getLogLCube(logLfunc, p_lists={0:[], 1:[], 2:[]}, relmin=10.**-8., p_opt=Non
                 p_lists[ind].append(p_tmp[ind])
                 tmp_logL[ind].append(logL)
         
+        
+
+        #Force Ir=0 to be in logLmap
+        if (0 not in p_lists[2]):
+            p_lists[2].append(0)
+            if 2 in populate_inds: tmp_logL[2].append(-np.inf)
         #sort p_lists lists
         for k in p_lists.keys():
-            ind = np.argsort(p_lists[k])
-            p_lists[k]=p_lists[k][ind]
-            tmp_logL[k]=tmp_logL[k][ind]
+            sort_ind = np.argsort(p_lists[k])
+            p_lists[k]=np.asarray(p_lists[k])[sort_ind]
+            if k in populate_inds: tmp_logL[k]=np.asarray(tmp_logL[k])[sort_ind]
 
         # pre-populate log likelihood map
         logLmap = np.full([len(p_lists[i]) for i in range(len(p_opt))], -np.inf)
-        if 0 in populate_inds: logLmap[:, p_lists[1]==p_opt[1], p_lists[2]==p_opt[2]] = tmp_logL[0]
-        if 1 in populate_inds: logLmap[p_lists[0]==p_opt[0], :, p_lists[2]==p_opt[2]] = tmp_logL[1]
-        if 2 in populate_inds: logLmap[p_lists[0]==p_opt[0], p_lists[1]==p_opt[1], :] = tmp_logL[2]
+        if 0 in populate_inds: logLmap[:,p_lists[1]==p_opt[1],p_lists[2]==p_opt[2]] = tmp_logL[0][:,np.newaxis]
+        if 1 in populate_inds: logLmap[p_lists[0]==p_opt[0],:,p_lists[2]==p_opt[2]] = tmp_logL[1][np.newaxis,:]
+        if 2 in populate_inds: logLmap[p_lists[0]==p_opt[0],p_lists[1]==p_opt[1],:] = tmp_logL[2][np.newaxis,:]
+
     else:
         #p_opt=[-1,-1,-1]
         logLmap = np.full([len(p_lists[i]) for i in range(3)], -np.inf)
         
 
+    #print(logLmap.shape)
     # now fully populate the logL cube
-    for i,c in enumerate(p_lists[0]):
-        for j,s in enumerate(p_lists[1]):
-            for k,r in enumerate(p_lists[2]):
+    #for i,c in enumerate(p_lists[0]):
+    #    for j,s in enumerate(p_lists[1]):
+    #        for k,r in enumerate(p_lists[2]):
+    #            #if ((c==p_opt[0]) + (s==p_opt[1]) + (r==p_opt[2])) >=2: continue
+    #            if np.isfinite(logLmap[i,j,k]): continue
+    #            logLmap[i,j,k]=logLfunc([c,s,r])
+    #            
+    #return logLmap, p_lists
+
+    return _multiprocessGetLogLCube(logLmap, p_lists, logLfunc)
+
+def worker(arg_dict,logLfunc):
+    logLmap_slice=arg_dict['map_slice']
+    p_lists_slice=arg_dict['p_slice']
+    #logLfunc = arg_dict['logLfunc']
+    for i,c in enumerate(p_lists_slice[0]):
+        for j,s in enumerate(p_lists_slice[1]):
+            for k,r in enumerate(p_lists_slice[2]):
                 #if ((c==p_opt[0]) + (s==p_opt[1]) + (r==p_opt[2])) >=2: continue
-                if np.isfinite(logLmap[i,j,k]): continue
-                logLmap[i,j,k]=logLfunc([c,s,r])
-                
+                if np.isfinite(logLmap_slice[i,j,k]): continue
+                logLmap_slice[i,j,k]=logLfunc([c,s,r])
+                #logLmap_slice[i,j,k]=np.sum([c,s,r])
+    return logLmap_slice
+
+def _multiprocessGetLogLCube(logLmap, p_lists, logLfunc):
+
+    nProc = multiprocessing.cpu_count()-1
+    arg_dicts=[]
+    nSlices = int(np.ceil(1.0*logLmap.shape[-1]/nProc))
+    ind_sections = np.ceil(np.linspace(0,logLmap.shape[2],nSlices+1)[1:]).astype(np.int)
+    map_slices = np.array_split(logLmap, ind_sections,axis=2)
+    Ir_lists = np.array_split(p_lists[2], ind_sections)
+
+
+    map_slices_n = [map_slices[i] for i in np.where(list(map(lambda x: map_slices[x].shape[2]>0, range(len(map_slices)))))[0]]
+    Ir_lists_n=np.asarray(Ir_lists)[list(map(lambda x: len(Ir_lists[x])>0, range(len(Ir_lists))))]
+
+    for i in range(len(map_slices_n)):
+        p_slice=p_lists.copy()
+        p_slice[2]=Ir_lists_n[i]
+        arg_dicts.append({'map_slice':map_slices_n[i], 'p_slice':p_slice})#, 'logLfunc':logLfunc})
+        #print(arg_dicts[-1]['map_slice'].shape)
+        #print(arg_dicts[-1]['p_slice'][2].shape)
+        #print(arg_dicts[-1]['logLfunc'])
+
+    pool = multiprocessing.Pool(processes=nProc)
+    map_slices_3=pool.map(partial(worker,logLfunc=logLfunc), arg_dicts)
+
+    logLmap=np.concatenate(map_slices_3, 2, logLmap)
+
     return logLmap, p_lists
 
-def savePhotonlist(photonlist, fn):
+
+
+
+def _savePhotonlist(photonlist, fn):
+    os.makedirs(os.path.dirname(fn), exist_ok=True)
     with open(fn, 'wb') as output:
         pickle.dump(photonlist, output, pickle.HIGHEST_PROTOCOL)
+    print('saving: '+fn)
 
-def loadPhotonlist(fn):
+def _loadPhotonlist(fn):
     with open(fn, 'rb') as infile:
         photonlist = pickle.load(infile)
     return photonlist
 
+def savePhotonlist(photonlist, Ic, Is, Ir, Ttot, loc='/Data/SSD/logLmaps/'):
+    fn=loc+'data_{}_{}_{}_{}/{}.pickle'.format(Ic, Is, Ir, Ttot,int(time.time()))
+    _savePhotonlist(photonlist, fn)
+
+def loadPhotonlist(Ic, Is, Ir, Ttot, loc='/Data/SSD/logLmaps/'):
+    directory = loc+'data_{}_{}_{}_{}/'.format(Ic, Is, Ir, Ttot)
+    fns = glob.glob(directory+'*.pickle')
+    return [_loadPhotonlist(fn) for fn in fns]
+    
 
 class mock_photonlist():
     def __init__(self,Ic,Is,Ir,Ttot=30,tau=0.1, deadtime=10.e-6,return_IDs=True):
@@ -159,7 +227,7 @@ class mock_photonlist():
         self.Ttot=Ttot
         self.tau=tau
         self.deadtime=deadtime
-        self.ts, self.ts_star, _ = genphotonlist(Ic, Is, Ir, Ttot, tau, deadtime*10.**6., return_IDs)
+        self.ts, self.ts_star, _ = genphotonlist(Ic, Is, Ir, Ttot, tau, deadtime*10.**6., return_IDs=return_IDs)
         self.dt = (self.ts[1:] - self.ts[:-1]) * 1e-6
         self.dt_star = (self.ts_star[1:] - self.ts_star[:-1]) * 1e-6
 
@@ -171,10 +239,11 @@ class mock_photonlist():
         self.logLCubes_lists={} # list of p_lists for corresponding logLCubes
         self.logLCubes_star_lists={}
 
-    def save(fn):
-        savePhotonlist(self, fn)
+    def save(self,loc='/Data/SSD/logLmaps/'):
+        savePhotonlist(self, self.p_true[0], self.p_true[1], self.p_true[2], self.Ttot, loc=loc)
+        #savePhotonlist(self, fn)
 
-    def getLogLCubes(binSize_list, matchIr_lists=True, relmin=10.**-8.):
+    def getLogLCubes(self,binSize_list, matchIr_lists=True, relmin=10.**-8.):
         """
         Get a bunch of logLcubes for different binSizes. 
 
@@ -184,22 +253,25 @@ class mock_photonlist():
             relmin - passed to self.getLogLCube()
         """
         for b in binSize_list:
-            logLmap, p_lists, binSize = self.getLogLCube(b, star=False, relmin=relmin)
+            print("Getting data for star+planet")
+            logLmap, p_lists, binSize = self._getLogLCube(b, star=False, p_lists={0:[], 1:[], 2:[]},relmin=relmin)
             self.logLCubes[binSize]=logLmap
             self.logLCubes_lists[binSize]=p_lists
 
-            logLmap_star, p_lists_star, binSize = self.getLogLCube(b, star=True, relmin=relmin)
+            print("Getting data for star")
+            logLmap_star, p_lists_star, binSize = self._getLogLCube(b, star=True, p_lists={0:[], 1:[], 2:[]}, relmin=relmin)
             self.logLCubes_star[binSize]=logLmap_star
             self.logLCubes_star_lists[binSize]=p_lists_star
 
+            print("Matching Ir_lists")
             if matchIr_lists:
                 _, p_list_new, __ = self.appendVals2Cube(p_lists_star[2], 2, binSize, star=False, relmin=relmin)
                 _,__,___=self.appendVals2Cube(p_list_new[2], 2, binSize, star=True, relmin=relmin)
                 
 
-        return self.logLCubes, self.logLCubes_samples, self.logLCubes_star, self.logLCubes_star_samples
+        return self.logLCubes, self.logLCubes_lists, self.logLCubes_star, self.logLCubes_star_lists
 
-    def appendVals2Cube(I_list, ind, binSize, star=False, relmin=10.**-8.):
+    def appendVals2Cube(self,I_list, ind, binSize, star=False, relmin=10.**-8.):
         """
         This function is for when we've populated a logLCube but we want to add data points.
         ie. It ranges over Ir_list = [10,11,12,13] and we want to add Ir_list=[0,1,2,3]
@@ -222,11 +294,11 @@ class mock_photonlist():
         I_old = p_list[ind]
         #I_diff = np.setdiff1d(I_list, I_old, assume_unique=True)
         I_diff = np.setdiff1d(I_list, I_old)
-        p_list_diff = np.copy(p_list)
+        p_list_diff = p_list.copy()
         p_list_diff[ind]=I_diff
 
         #logLcube_diff, p_list_diff, binSize = getLogLCube(binSize, star=star, p_lists=p_list_diff, relmin=relmin)
-        logLcube_diff, _, __ = self.getLogLCube(binSize, star=star, p_lists=p_list_diff, relmin=relmin)
+        logLcube_diff, _, __ = self._getLogLCube(binSize, star=star, p_lists=p_list_diff, relmin=relmin)
         logLcube_new = np.append(logLcube, logLcube_diff, axis=ind)
         I_new = np.append(I_old, I_diff)
         sort_inds = np.argsort(I_new)
@@ -246,7 +318,7 @@ class mock_photonlist():
 
 
 
-    def getLogLCube(binSize, star=False, p_lists=None, relmin=10.**-8.):
+    def _getLogLCube(self,binSize, star=False, p_lists={0:[], 1:[], 2:[]}, relmin=10.**-8.):
         """
         This function maps out the log likelihood space for both the binned and binfree model.
         It calls the getLogLCube() that's defined outside of this class
@@ -263,8 +335,10 @@ class mock_photonlist():
                     p_lists[0] returns the Ic_list, etc...
             binSize - 
         """
+        #print("Starting _getLogLCube. p_lists= "+str(p_lists))
+
         p_seed=np.copy(self.p_seed)
-        if star: p_seed[2]=0.
+        if star: p_seed[2]=10.  # Ir is 0 in this case but guessing Ir=10. seems to work better...
 
         if np.isfinite(binSize) and binSize>0:  # binned case
             #p_opt=
@@ -273,13 +347,17 @@ class mock_photonlist():
         else:                                   # binfree case
             binSize=-1
             dt=self.dt_star if star else self.dt
-            if p_lists is None:
+            if len(p_lists[0])==0 or len(p_lists[1])==0 or len(p_lists[2])==0:
                 res = binfree.optimize_IcIsIr(dt, p_seed, self.deadtime)
                 p_opt=res.params
+                #print(res.summary())
             else: p_opt=None
-            logLfunc = lambda p: binfree.MRlogL(p, dt, self.deadtime)
+            #logLfunc = lambda p: binfree.MRlogL(p, dt, self.deadtime)
+            logLfunc = partial(binfree.MRlogL, dt=dt, deadtime=self.deadtime)
 
-        return getLogLCube(logLfunc, p_lists, relmin, p_opt), binSize
+
+        logLmap, p_lists_new = getLogLCube(logLfunc, p_lists, relmin, p_opt)
+        return logLmap, p_lists_new, binSize
 
 class photon_list(object):
     def __init__(self,Ic=-1,Is=-1,Ir=-1,Ttot=-1,tau=-1, deadtime=0,return_IDs=False):

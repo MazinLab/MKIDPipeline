@@ -186,7 +186,6 @@ def genphotonlist(Ic, Is, Ir, Ttot, tau, deadtime=0, interpmethod='cubic',
 
     # plist tells us which distribution (MR or constant) actually
     # produced a given photon; return this if desired.
-        
     if return_IDs:
         indx2 = indx[(indx<len(tlist))]
         keep2 = utils.removedeadtime(tlist_tot[indx2], deadtime)
@@ -194,7 +193,7 @@ def genphotonlist(Ic, Is, Ir, Ttot, tau, deadtime=0, interpmethod='cubic',
         plist2 = np.ones(tlist_r.shape).astype(int)
         plist_tot = np.concatenate((plist1, plist2))
         #ikeep = np.where(keep)
-        return [tlist_tot[indx][np.where(keep)], tlist_tot[indx2][np.where(keep2)], plist_tot[indx][np.where(keep)]]
+        return tlist_tot[indx][np.where(keep)], tlist_tot[indx2][np.where(keep2)], plist_tot[indx][np.where(keep)]
     
     return tlist_tot[indx][np.where(keep)]
 
