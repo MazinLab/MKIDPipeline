@@ -137,36 +137,39 @@ class DitherDescription(object):
 
     TODO implement center of rotation
     """
-    def __init__(self, dither, observatory='Subaru', target='* kap And', multiplier=1):
-        self.description = dither
-        self.pos = dither.pos
+    def __init__(self, dither, virPixCen=(25, 0), observatory='Subaru', target='* kap And', multiplier=1):
 
+        self.description = dither
         self.coords = dither.obs[0].lookup_coodinates(queryname=target)
+        self.cenRA, self.cenDec = self.coords.ra.deg, self.coords.dec.deg
+        self.virPixCen = np.array([list(virPixCen)]).T
 
         self.centroids = ditherp_2_pixel(dither.pos)
-        self.virPixCen = np.array([[25, 0]]).T#ditherp_2_pixel([(0,0)]) #+ np.array([(-30,-30)]).T
+        self.cenRes = self.centroids - self.virPixCen
+        self.xCenRes, self.yCenRes = self.cenRes
+        inst_info = dither.obs[0].instrument_info
+        self.xpix = inst_info.beammap.ncols
+        self.ypix = inst_info.beammap.nrows
+        self.platescale = inst_info.platescale
 
         times = np.array([o.start for o in dither.obs])
         site = EarthLocation.of_site(observatory)
-
         apo = Observer.at_site(observatory)
         altaz = apo.altaz(astropy.time.Time(val=times, format='unix'), self.coords)
-        Earthrate = 2 * np.pi / u.sday.to(u.second) # * 500
-        obs_const = Earthrate * np.cos(site.geodetic.lat.rad)
-        rot_rate = obs_const * np.cos(altaz.az.radian) / np.cos(altaz.alt.radian) * multiplier
+        earthrate = 2 * np.pi / u.sday.to(u.second)
+        rot_rate = earthrate * np.cos(site.geodetic.lat.rad) * np.cos(altaz.az.radian) / np.cos(altaz.alt.radian)
+        rot_rate *= multiplier
+
         self.dithHAs = [np.trapz(rot_rate[:ix], x=times[:ix] - times[0]) for ix in range(1, len(times)+1)]
 
         getLogger(__name__).debug("HAs: %s", self.dithHAs)
 
     def plot(self):
-        self.xCenRes, self.yCenRes = self.centroids[0] - self.virPixCen[0], self.centroids[1] - self.virPixCen[1]
         rotationMatrix = np.array([[np.cos(self.dithHAs), -np.sin(self.dithHAs)],
-                                        [np.sin(self.dithHAs), np.cos(self.dithHAs)]]).T
+                                   [np.sin(self.dithHAs), np.cos(self.dithHAs)]]).T
 
-        centroidRotated = np.dot(rotationMatrix,
-                            np.array([self.xCenRes, self.yCenRes])).diagonal(axis1=0,axis2=2) + [
-                            self.virPixCen[0], self.virPixCen[1]]
-
+        centroidRotated = (np.dot(rotationMatrix, np.array([self.xCenRes, self.yCenRes])).diagonal(axis1=0, axis2=2) +
+                           [self.virPixCen[0], self.virPixCen[1]])
 
         plt.plot(-self.centroids[0], -self.centroids[1], '-o')
         plt.plot(-self.virPixCen[0], -self.virPixCen[1], marker='x')
@@ -406,7 +409,8 @@ class SpatialDrizzler(Drizzler):
         return thisImage, w
 
 
-def get_wcs(time, x, y, coordinate_frame, toa_rotation=False, randoffset=False, nPhot=1, platescale=10.0):
+def get_wcs(x, y, ditherdesc, ditherind, nxpix=146, nypix=140, toa_rotation=False, randoffset=False, nPhot=1,
+            platescale=10.0):
     """
     :param timestamps:
     :param xPhotonPixels:
@@ -425,29 +429,30 @@ def get_wcs(time, x, y, coordinate_frame, toa_rotation=False, randoffset=False, 
     """
 
     if toa_rotation:
+        raise NotImplementedError
         # TODO update this rot_rate to altaz model
         earthrate = 1./86164.1 * 2*np.pi #* 500
         obs_const = earthrate * np.cos(np.deg2rad(19.7))
         rot_rate = obs_const * np.cos(az) / np.cos(alt)
         photHAs = time * 1e-6 * rot_rate
 
-        hourangles = coordinate_frame.ha + photHAs
+        hourangles = ha_ref + photHAs
 
         rotationMatrix = np.array([[np.cos(hourangles), -np.sin(hourangles)],
                                    [np.sin(hourangles), np.cos(hourangles)]]).T
 
-        centroids = np.array([-ditherdesc.xCenRes[ditherind] + x - ditherdesc.xpix / 2,
-                              -ditherdesc.yCenRes[ditherind] + y - ditherdesc.ypix / 2])
+        centroids = np.array([-ditherdesc.xCenRes[ditherind] + x - nxpix / 2,
+                              -ditherdesc.yCenRes[ditherind] + y - nypix / 2])
 
     else:
-        hourangles = coordinate_frame.ha
+        hourangles = ditherdesc.dithHAs[ditherind]
 
         rotationMatrix = np.array([[np.cos(hourangles), -np.sin(hourangles)],
                                    [np.sin(hourangles), np.cos(hourangles)]])
 
         # put each photon from the dither into its raster location on the virtual grid
-        vgrid_photons = np.array([ditherdesc.centroids[0][ditherind] + x - ditherdesc.xpix/2,
-                                  ditherdesc.centroids[1][ditherind] + y - ditherdesc.ypix/2])
+        vgrid_photons = np.array([ditherdesc.centroids[0][ditherind] + x - nxpix/2,
+                                  ditherdesc.centroids[1][ditherind] + y - nypix/2])
 
         # offset these to the center of rotation
         cor_photons = vgrid_photons - ditherdesc.virPixCen
@@ -483,7 +488,6 @@ def get_wcs(time, x, y, coordinate_frame, toa_rotation=False, randoffset=False, 
 
 
 if __name__ == '__main__':
-    # TODO cut this down so it uses form() once that works
 
     # Get dither offsets
     # name = 'Trapezium'
@@ -500,8 +504,7 @@ if __name__ == '__main__':
     pixfrac = .5
 
     dither = MKIDObservingDither('HD 34700', os.path.join(datadir, 'dithers', file), None, None)
-
-    ditherdesc = DitherDescription(dither, multiplier=1)
+    ndither = len(dither.obs)
 
     pkl_save = 'drizzler_tmp_{}.pk'.format(dither.name)
     try:
@@ -517,9 +520,9 @@ if __name__ == '__main__':
 
         def mp_worker(file, q, startt=None, intt=1):
             obsfile = ObsFile(file)
-            #TODO this probably needs to become getphotonlist
-            photons = obsfile.query(startw=wvlMin, stopw=wvlMax, startt=startt, intt=intt,
-                                    flagToUse=pixelflags.GOODPIXEL)  # hot, flat and wavelength masks?
+            usableResIDs = obsfile.beamImage[obsfile.beamFlagImage == pixelflags.GOODPIXEL]
+            photons = obsfile.query(startw=wvlMin, stopw=wvlMax, startt=startt, intt=intt, resid=usableResIDs)
+            weights = photons['SpecWeight'] * photons['NoiseWeight']
 
             getLogger(__name__).info("Fetched {} photons from {}".format(len(photons), file))
 
@@ -527,9 +530,9 @@ if __name__ == '__main__':
             obsfile.close()
 
             q.put({'file': file, 'timestamps': photons["Time"], 'xPhotonPixels': x, 'yPhotonPixels': y,
-                   'wavelengths':  photons["Wavelength"], 'weight': 0})
+                   'wavelengths':  photons["Wavelength"], 'weight': weights})
 
-        ndither = len(ditherdesc.pos)
+
         getLogger(__name__).info('stacking number of dithers: %i'.format(ndither))
 
         jobs = []
@@ -557,10 +560,15 @@ if __name__ == '__main__':
         with open(pkl_save, 'wb') as handle:
             pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-    for d in data:
-        d['photRARad'], d['photDecRad'] = get_wcs(d['file'],d['timestamps'], d['xPhotonPixels'], d['yPhotonPixels'])
-
     # Do the dither
+    ditherdesc = DitherDescription(dither, multiplier=1)
+    inst_info = dither.obs[0].instrument_info
+
+    for i, d in enumerate(data):
+        radec = get_wcs(d['xPhotonPixels'], d['yPhotonPixels'], ditherdesc, i,
+                        nxpix=inst_info.beammap.ncols, nypix=inst_info.beammap.nrows, toa_rotation=False,
+                        randoffset=False, nPhot=1, platescale=inst_info.platescale)
+        d['photRARad'], d['photDecRad'] = radec
 
     driz = SpatialDrizzler(data, ditherdesc, pixfrac=pixfrac)
     driz.run()
