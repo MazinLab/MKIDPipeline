@@ -1,11 +1,14 @@
+import sys
 
-import mkidpipeline.hdf.bin2hdf as bin2hdf
-import mkidpipeline.calibration.wavecal as wavecal
-import mkidpipeline.calibration.flatcal as flatcal
-import mkidpipeline.badpix as badpix
-import mkidpipeline.config as config
+if sys.version_info.major==3:
+    import mkidpipeline.hdf.bin2hdf as bin2hdf
+    import mkidpipeline.calibration.wavecal as wavecal
+    import mkidpipeline.calibration.flatcal as flatcal
+    import mkidpipeline.badpix as badpix
+    import mkidpipeline.config as config
 from mkidpipeline.config import configure_pipeline, load_data_description, load_task_config, logtoconsole
-import mkidpipeline.hdf.photontable
+if sys.version_info.major==3:
+    import mkidpipeline.hdf.photontable
 from mkidcore.config import getLogger
 import multiprocessing as mp
 

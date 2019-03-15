@@ -1,6 +1,7 @@
 #!/bin/env python3
 from __future__ import print_function
 import os
+import sys
 import queue
 import atexit
 import argparse
@@ -17,7 +18,6 @@ from matplotlib import cm, lines, pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from mpl_toolkits.axes_grid1 import axes_size, make_axes_locatable
 import time
-from mkidpipeline.hdf import bin2hdf
 import mkidcore.corelog as pipelinelog
 import mkidpipeline.config
 import mkidcore.config
@@ -27,21 +27,15 @@ import pkg_resources as pkg
 
 log = pipelinelog.getLogger('mkidpipeline.calibration.wavecal', setup=False)
 
-try:
+if sys.version_info.major==3:
     import progressbar as pb
-except ImportError as err:
-    log.warning('Error importing progressbar: ' + str(err))
-
-try:
     import mkidpipeline.hdf.photontable as photontable
-except ImportError as err:
-    log.warning('Error importing photontable: ' + str(err))
+    from mkidpipeline.hdf import bin2hdf
 
-try:
-    import mkidpipeline.calibration.wavecal_models as wm
-except ImportError as err:
-    log.warning('Error importing wavecal_models: ' + str(err))
+else:
+    log.warning("Using python 2. Only Configuration and Solution classes supported")
 
+import mkidpipeline.calibration.wavecal_models as wm
 
 PLANK_CONSTANT_EVS = astropy.constants.h.to('eV s').value
 SPEED_OF_LIGHT_NMS = astropy.constants.c.to('nm/s').value
@@ -1409,7 +1403,7 @@ class Solution(object):
         Note:
             Only works if no models other than Quadratic and Linear are used for the calibration fit.
         """
-        _, res_ids = self.find_resolving_powers(self, minimum=minimum, maximum=maximum, feedline=feedline)
+        _, res_ids = self.find_resolving_powers(minimum=minimum, maximum=maximum, feedline=feedline)
         calibrations = np.zeros((res_ids.size, 3))
         for index, res_id in enumerate(res_ids):
             params = self.calibration_parameters(res_id=res_id).valuesdict()
