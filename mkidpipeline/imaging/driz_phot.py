@@ -11,7 +11,8 @@ from astroplan import Observer
 import random
 from scipy import misc
 from scipy.ndimage import rotate
-from imaging import drizzler
+
+
 
 # from .distribution import Distribution
 
@@ -289,38 +290,8 @@ def get_photonImage(sky_sample,plot=False):
 #     plt.show()
 #     virtualImage.stackExposure(effExposure, ditherInd=ix, doStack=True)
 
-times = np.asarray([1545626973.913, 1545627075.141, 1545627177.153, 1545627278.285, 1545627379.466, 1545627481.493,
-         1545627583.6, 1545627684.731, 1545627785.88, 1545627887.044, 1545627989.008, 1545628090.251, 1545628191.399,
-         1545628292.356, 1545628393.472, 1545628495.468, 1545628596.664, 1545628697.956, 1545628799.12,
-         1545628900.252, 1545629002.279, 1545629103.444, 1545629204.608, 1545629305.948, 1545629407.177])
 
-def get_rot_rates(observatory='Subaru', multiplier=1):
-    site = EarthLocation.of_site(observatory)
-    unixtimes = time.Time(val=times, format='unix')
-    coords = SkyCoord.from_name('* kap And')
-
-    apo = Observer.at_site(observatory)
-    altaz = apo.altaz(unixtimes, coords)
-
-    # TODO each dither potion will have its own altaz rather than the stars. Implement that
-    Earthrate = 2 * np.pi / u.sday.to(u.second)
-
-    obs_const = Earthrate * np.cos(site.geodetic.lat.rad)
-    rot_rate = obs_const * np.cos(altaz.az.radian) / np.cos(altaz.alt.radian)
-    # rot_rate = [0]*len(times)#obs_const * np.cos(altaz.az.radian) / np.cos(altaz.alt.radian)
-
-    if multiplier:
-        rot_rate = rot_rate * multiplier
-    return rot_rate
-
-angles = np.cumsum(get_rot_rates()*(times - times[0]))
-angles -= angles[0]
-# plt.plot(angles)
-# plt.show()
-# angles = get_rot_rates() #*range(len(get_rot_rates()))
-print(angles)
-
-def get_offsets(con2pix=150):
+def get_offsets_simple(con2pix=150):
     xPos = np.array([-0.75, -0.75, -0.75, -0.75, -0.75, -0.375, -0.375, -0.375, -0.375, -0.375, 0.0, 0.0, 0.0, 0.0, 0.0, 0.375,
             0.375, 0.375, 0.375, 0.375, 0.75, 0.75, 0.75, 0.75, 0.75])
     yPos = np.array([-0.75, -0.375, 0.0, 0.375, 0.75, -0.75, -0.375, 0.0, 0.375, 0.75, -0.75, -0.375, 0.0, 0.375, 0.75, -0.75,
@@ -328,7 +299,6 @@ def get_offsets(con2pix=150):
     xPos *= con2pix
     yPos *= con2pix
     return np.column_stack((np.int_(np.round((xPos))),np.int_(np.round((yPos)))))
-
 
 
 nVPix = 500
@@ -357,7 +327,7 @@ def get_header():
 def makeImage(angle, xy, plot=False):
     x, y = xy
     # rot_sky, cent = rot(image, np.array([sky_span//2,sky_span//2]), np.rad2deg(angle))
-    rot_sky = rot(image, np.array([400,400]), np.rad2deg(angle))
+    rot_sky = rot(image, np.array([500,400]), np.rad2deg(angle))
     # rot_sky = image
     if plot:
         plt.imshow(rot_sky, origin='lower')
@@ -367,7 +337,7 @@ def makeImage(angle, xy, plot=False):
     right = left+width
     bottom = np.round(rot_sky.shape[1]//2+y - width//2).astype(int)
     top = bottom +width
-    print(rot_sky.shape,x,y, left, right, bottom, top)
+    # print(rot_sky.shape,x,y, left, right, bottom, top)
     dither = rot_sky[bottom:top, left:right]
     if plot:
         plt.imshow(dither, origin='lower')
@@ -398,7 +368,7 @@ def get_dith_header(angle, xy):
     w.wcs.cd = rotmat.T*vPlateScale#*(np.cos(-angle) + np.sin(-angle))#np.asarray([[vPlateScale,0],[0,vPlateScale]])
     return w
 
-from drizzler import get_wcs, getmetafromh5, DitherDescription, SpatialDrizzler
+from mkidpipeline.imaging.drizzler import get_wcs, getmetafromh5, DitherDescription, SpatialDrizzler
 from mkidpipeline.config import MKIDObservingDataDescription, MKIDObservingDither
 
 name = 'KappaAnd_dither+lasercal'
@@ -420,13 +390,50 @@ loc = os.path.join(datadir, file)
 logdithdata = MKIDObservingDither(name, loc, None, None)
 h5dithdata = getmetafromh5()
 ditherdesc = DitherDescription(logdithdata, h5dithdata, drizzleconfig, multiplier=1)
+
+
+# times = np.asarray([1545626973.913, 1545627075.141, 1545627177.153, 1545627278.285, 1545627379.466, 1545627481.493,
+#          1545627583.6, 1545627684.731, 1545627785.88, 1545627887.044, 1545627989.008, 1545628090.251, 1545628191.399,
+#          1545628292.356, 1545628393.472, 1545628495.468, 1545628596.664, 1545628697.956, 1545628799.12,
+#          1545628900.252, 1545629002.279, 1545629103.444, 1545629204.608, 1545629305.948, 1545629407.177])
+
+times = np.array([o.start for o in logdithdata.obs])
+def get_rot_rates(observatory='Subaru', multiplier=1):
+    site = EarthLocation.of_site(observatory)
+    unixtimes = time.Time(val=times, format='unix')
+    coords = SkyCoord.from_name('* kap And')
+
+    apo = Observer.at_site(observatory)
+    altaz = apo.altaz(unixtimes, coords)
+
+    # TODO each dither potion will have its own altaz rather than the stars. Implement that
+    Earthrate = 2 * np.pi / u.sday.to(u.second)
+
+    obs_const = Earthrate * np.cos(site.geodetic.lat.rad)
+    rot_rate = obs_const * np.cos(altaz.az.radian) / np.cos(altaz.alt.radian)
+    # rot_rate = [0]*len(times)#obs_const * np.cos(altaz.az.radian) / np.cos(altaz.alt.radian)
+
+    if multiplier:
+        rot_rate = rot_rate * multiplier
+    return rot_rate
+
+# angles = np.cumsum(get_rot_rates()*(times - times[0]))
+rot_rates = get_rot_rates()
+angles = [np.trapz(rot_rates[:ix], x= times[:ix] - times[0]) for ix in range(1, len(times)+1)]
+angles -= angles[0]
+# plt.plot(angles)
+# plt.show()
+# angles = get_rot_rates() #*range(len(get_rot_rates()))
+print(times)
+print(angles)
+
 print(angles)
 reduced_obslist = []
 
 from drizzler import ditherp_2_pixel
 
-def get_offsets_():
-    return ditherp_2_pixel(logdithdata.pos)
+def get_offsets():
+    return np.transpose(ditherp_2_pixel(logdithdata.pos))
 
 # xys = np.transpose(get_offsets())
 xys = get_offsets()
