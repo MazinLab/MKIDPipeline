@@ -368,6 +368,13 @@ class ObsFile(object):
         """A boolean image with true where pixel data isn't perfect (i.e. any flag is set)"""
         return np.array(self.beamFlagImage) > 0
 
+    def xy(self, photons):
+        """Return a tuple of two arrays corresponding to the x & y pixel positions of the given photons"""
+        flatbeam = self.beamImage.flatten()
+        beamsorted = np.argsort(flatbeam)
+        ind = np.searchsorted(flatbeam[beamsorted], photons["ResID"])
+        return np.unravel_index(beamsorted[ind], self.beamImage.shape)
+
     def pixelIsBad(self, xCoord, yCoord, forceWvl=False, forceWeights=False, forceTPFWeights=False):
         """
         Returns True if the pixel wasn't read out or if a given calibration failed when needed
