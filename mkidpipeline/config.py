@@ -10,6 +10,7 @@ import pkg_resources as pkg
 from mkidcore.objects import Beammap
 from astropy.coordinates import SkyCoord
 from collections import namedtuple
+import astropy.units as units
 
 InstrumentInfo = namedtuple('InstrumentInfo',('beammap','platescale'))
 
@@ -107,7 +108,7 @@ class MKIDObservingDataDescription(object):
 
     @property
     def instrument_info(self):
-        return InstrumentInfo(beammap=self.beammap, platescale=config.instrument.platescale)
+        return InstrumentInfo(beammap=self.beammap, platescale=config.instrument.platescale * units.mas)
 
     @property
     def beammap(self):
