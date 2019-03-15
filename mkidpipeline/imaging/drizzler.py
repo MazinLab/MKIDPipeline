@@ -496,143 +496,36 @@ class SpatialDrizzler(Drizzler):
         return thisImage, w
 
 
-def reduce_obs(obsfile, ditherdesc, ditherind):
+def reduce_obs(obsfile, ditherdesc):
     """
-    This function calibrates and queries an obsfile. A lot of copy pasta
+    This function calibrates and queries an obsfile
+
+    This function alters dithdesc.wvlMax and wvlMin if they are None
+
+    TODO implement hotpixel masking flatcal wavelengthcal masking
 
     :returns
     list of photon times, positions, wavelengths
     """
-
-    # photTable = obsfile.file.root.Photons.PhotonTable  # Shortcut to table
-    # # print(photTable[::5000])
-    # img = obsfile.getPixelCountImage(firstSec =0, integrationTime=1, wvlStart=self.wvlMin, wvlStop=self.wvlMax)
-    # self.testimage = img['image']
-    # plt.imshow(self.testimage, aspect='equal')
-    # plt.show()
-
-    # if expWeightTimeStep is not None:
-    #    self.expWeightTimeStep=expWeightTimeStep
-
-    doWeighted = False
-    medCombine = False
-    maxBadPixTimeFrac = None
-    randoffset = False
-
-    if obsfile.info['timeMaskExists']:
-        # If hot pixels time-mask data not already parsed in (presumably not), then parse it.
-        if obsfile.hotPixTimeMask is None:
-            obsfile.parseHotPixTimeMask()  # Loads time mask dictionary into ObsFile.hotPixTimeMask
 
     if ditherdesc.wvlMin is not None and ditherdesc.wvlMax is None:
         ditherdesc.wvlMax = np.inf
     if ditherdesc.wvlMin is None and ditherdesc.wvlMax is not None:
         ditherdesc.wvlMin = 0.0
 
-    # Figure out last second of integration
-    obsFileExpTime = obsfile.header.cols.expTime[0]
-    if ditherdesc.integrationTime == -1 or ditherdesc.firstObsTime + ditherdesc.integrationTime > obsFileExpTime:
-        lastObsTime = obsFileExpTime
-    else:
-        lastObsTime = ditherdesc.firstObsTime + ditherdesc.integrationTime
-
-    lastObsTime *= 1e6  # convert to microseconds
-
-    beamFlagImage = np.transpose(obsfile.beamFlagImage.read())
-    nDPixRow, nDPixCol = beamFlagImage.shape
-
-    # Make a boolean mask of dead (non functioning for whatever reason) pixels
-    # True (1) = good; False (0) = dead
-    # First on the basis of the wavelength cals:
-
-    if obsfile.info['isWvlCalibrated']:
-        # wvlCalFlagImage = ObsFile.getBadWvlCalFlags()
-        # print('This needs to be updated. No flags loaded')
-        wvlCalFlagImage = np.zeros_like(beamFlagImage)
-    else:
-        wvlCalFlagImage = np.zeros_like(beamFlagImage)
-
-    deadPixMask = np.where(wvlCalFlagImage == pixelflags.speccal, 1,
-                           0)  # 1.0 where flag is good; 0.0 otherwise. (Straight boolean mask would work, but not guaranteed for Python 4....)
-    # print('# Dead detector pixels to reject on basis of wavelength cal: ', np.sum(deadPixMask == 0))
-
-    # Next a mask on the basis of the flat cals (or all ones if weighting not requested)
-    if doWeighted:
-        flatCalFlagArray = obsfile.file.root.flatcal.flags.read()  # 3D array - nRow * nCol * nWavelength Bins.
-        flatWvlBinEdges = obsfile.file.root.flatcal.wavelengthBins.read()  # 1D array of wavelength bin edges for the flat cal.
-        lowerEdges = flatWvlBinEdges[0:-1]
-        upperEdges = flatWvlBinEdges[1:]
-        if ditherdesc.wvlMin is None and ditherdesc.wvlMax is None:
-            inRange = np.ones(len(lowerEdges), dtype=bool)  # (all bins in range implies all True)
-        else:
-            inRange = ((lowerEdges >= ditherdesc.wvlMin) & (lowerEdges < ditherdesc.wvlMax) |
-                       (upperEdges >= ditherdesc.wvlMin) & (
-                               lowerEdges < ditherdesc.wvlMax))  ####SOMETHING NOT RIGHT HERE? DELETE IF NO ASSERTION ERROR THROWN BELOW!##########
-            # Bug fix - I think this is totally equivalent - first term above is redundant, included in second term:
-            inRangeOld = np.copy(inRange)  # Can delete if no assertion error thrown below
-            inRange = (upperEdges >= ditherdesc.wvlMin) & (lowerEdges < ditherdesc.wvlMax)
-            assert np.all(inRange == inRangeOld)  # Can delete once satisfied this works.
-            # If this never complains, then can switch to the second form.
-
-        flatCalMask = np.where(np.all(flatCalFlagArray[:, :, inRange] == False, axis=2), 1,
-                               0)  # Should be zero where any pixel has a bad flag at any wavelength within the requested range; one otherwise. Spot checked, seems to work.
-        print('# Detector pixels to reject on basis of flatcals: ', np.sum(flatCalMask == 0))
-    else:
-        flatCalMask = np.ones((nDPixRow, nDPixCol))
-
-    # And now a mask based on how much hot pixel behaviour each pixel exhibits:
-    # if a given pixel is bad more than a fraction maxBadTimeFrac of the time,
-    # then write it off as permanently bad for the duration of the requested
-    # integration.
-    if maxBadPixTimeFrac is not None:
-        print('Rejecting pixels with more than ', 100 * maxBadPixTimeFrac, '% bad-flagged time')
-        detGoodIntTimes = obsfile.hotPixTimeMask.getEffIntTimeImage(firstSec=ditherdesc.firstObsTime,
-                                                                    integrationTime=lastObsTime - ditherdesc.firstObsTime)
-        badPixMask = np.where(detGoodIntTimes / (lastObsTime - ditherdesc.firstObsTime) > (1. - maxBadPixTimeFrac), 1,
-                              0)  # Again, 1 if okay, 0 bad. Use lastObsTime-self.firstObsTime instead of integrationTime in case integrationTime is -1.
-        print('# pixels to reject: ', np.sum(badPixMask == 0))
-        print('# pixels to reject with eff. int. time > 0: ', np.sum((badPixMask == 0) & (detGoodIntTimes > 0)))
-    else:
-        badPixMask = np.ones((nDPixRow, nDPixCol))
-
-    # Finally combine all the masks together into one detector pixel mask:
-    # detPixMask = deadPixMask * flatCalMask * badPixMask  # Combine masks
-    detPixMask = np.zeros_like(deadPixMask)
-    # print('Total detector pixels to reject: ', np.sum(
-    #     detPixMask), "(may not equal sum of the above since theres overlap!)")
-
-    # Get array of effective exposure times for each detector pixel based on the hot pixel time mask
-    # Multiply by the bad pixel mask and the flatcal mask so that non-functioning pixels have zero exposure time.
-    # Flatten the array in the same way as the previous arrays (1D array, nRow*nCol elements).
-    # detExpTimes = (hp.getEffIntTimeImage(ObsFile.hotPixTimeMask, integrationTime=tEndFrames[iFrame]-tStartFrames[iFrame],
-    #                                     self.firstObsTime=tStartFrames[iFrame]) * detPixMask).flatten()
-
-    # Now get the photons
-    # print('Getting photon coords')
-    photons = obsfile.query(startw=ditherdesc.wvlMin, stopw=ditherdesc.wvlMax,
-                            startt=ditherdesc.firstObsTime, stopt=ditherdesc.firstObsTime + ditherdesc.integrationTime)
-
-    # And filter out photons to be masked out on the basis of the detector pixel mask
-    # print('Finding photons in masked detector pixels...')
-    # Get a boolean array indicating photons whose packed x-y coordinate value is in the 'bad' list.
+    photons = obsfile.query(startw=ditherdesc.wvlMin,
+                            stopw=ditherdesc.wvlMax,
+                            startt=ditherdesc.firstObsTime,
+                            stopt=ditherdesc.firstObsTime + ditherdesc.integrationTime,
+                            flagToUse=ALL_FLAGS)  # hot, flat and wavelength masks?
 
     getLogger(__name__).debug("Number of photons read from obsfile: %i", len(photons))
-    print("Number of photons read from obsfile: %i" % len(photons))
     timestamps = photons["Time"]
     flatbeam = obsfile.beamImage.flatten()
     beamsorted = np.argsort(flatbeam)
     ind = np.searchsorted(flatbeam[beamsorted], photons["ResID"])
     xPhotonPixels, yPhotonPixels = np.unravel_index(beamsorted[ind], obsfile.beamImage.shape)
     photWavelengths = photons["Wavelength"]
-
-    if ditherdesc.wvlMin is not None or ditherdesc.wvlMax is not None:
-        assert all(photWavelengths >= ditherdesc.wvlMin) and all(photWavelengths <= ditherdesc.wvlMax)
-    # print('Min, max photon wavelengths found: ', np.min(photWavelengths), np.max(photWavelengths))
-
-    # plt.figure()
-    # thisImage, thisGridDec, thisGridRA = np.histogram2d(xPhotonPixels, yPhotonPixels, bins=[140,146])
-    # plt.imshow(thisImage, norm=LogNorm())
-    # plt.show()
 
     return [timestamps, xPhotonPixels, yPhotonPixels, photWavelengths]
 
@@ -927,7 +820,7 @@ if __name__ == '__main__':
         def mp_worker(arg, reduced_obs_queue):
 
             obsfile, ditherdesc, ditherind = arg
-            timestamps, xPhotonPixels, yPhotonPixels, wavelengths = reduce_obs(obsfile, ditherdesc, ditherind)
+            timestamps, xPhotonPixels, yPhotonPixels, wavelengths = reduce_obs(obsfile, ditherdesc)
             photRARad, photDecRad = get_wcs(timestamps, xPhotonPixels, yPhotonPixels, ditherind, ditherdesc)
             reduced_obs = {'ditherind': ditherind,
                            'timestamps': timestamps,
