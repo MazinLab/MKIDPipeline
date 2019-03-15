@@ -192,8 +192,11 @@ def _multiprocessGetLogLCube(logLmap, p_lists, logLfunc):
 
     pool = multiprocessing.Pool(processes=nProc)
     map_slices_3=pool.map(partial(worker,logLfunc=logLfunc), arg_dicts)
-
+    pool.close()    
+    pool.join()
+    
     logLmap=np.concatenate(map_slices_3, 2, logLmap)
+    
 
     return logLmap, p_lists
 
