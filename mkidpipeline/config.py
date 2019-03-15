@@ -8,6 +8,10 @@ import multiprocessing as mp
 from mkidcore.corelog import getLogger, create_log
 import pkg_resources as pkg
 from mkidcore.objects import Beammap
+from astropy.coordinates import SkyCoord
+from collections import namedtuple
+
+InstrumentInfo = namedtuple('InstrumentInfo',('beammap','platescale'))
 
 #Ensure that the beammap gets registered with yaml, technically the import does this
 #but without this note an IDE or human might remove the import
@@ -102,6 +106,15 @@ class MKIDObservingDataDescription(object):
         return datetime.utcfromtimestamp(self.start)
 
     @property
+    def instrument_info(self):
+        return InstrumentInfo(beammap=self.beammap, platescale=config.instrument.platescale)
+
+    @property
+    def beammap(self):
+        #TODO need to move beammap from pipe.yml to data.yml
+        return config.beammap
+
+    @property
     def duration(self):
         return self.stop-self.start
 
@@ -122,6 +135,10 @@ class MKIDObservingDataDescription(object):
     @property
     def h5(self):
         return h5_for_MKIDodd(self)
+
+    def lookup_coodinates(self, queryname=''):
+
+        return SkyCoord.from_name(queryname if queryname else self.name)
 
 
 class MKIDWavedataDescription(object):
