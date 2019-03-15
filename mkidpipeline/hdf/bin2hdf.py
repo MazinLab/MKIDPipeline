@@ -20,7 +20,7 @@ from glob import glob
 import warnings
 from mkidpipeline.hdf.photontable import ObsFile
 import mkidcore.utils
-from mkidreadout.configuration.beammap.beammap import Beammap
+from mkidcore.objects import Beammap
 
 
 _datadircache = {}

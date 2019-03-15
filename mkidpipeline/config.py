@@ -7,7 +7,7 @@ import astropy.units
 import multiprocessing as mp
 from mkidcore.corelog import getLogger, create_log
 import pkg_resources as pkg
-from mkidreadout.configuration.beammap.beammap import Beammap
+from mkidcore.objects import Beammap
 
 #Ensure that the beammap gets registered with yaml, technically the import does this
 #but without this note an IDE or human might remove the import

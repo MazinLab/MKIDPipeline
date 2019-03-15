@@ -21,7 +21,7 @@ from mkidpipeline.hdf import bin2hdf
 import mkidcore.corelog as pipelinelog
 import mkidpipeline.config
 import mkidcore.config
-from mkidreadout.configuration.beammap.beammap import Beammap
+from mkidcore.objects import Beammap
 import astropy.constants
 import pkg_resources as pkg
 
