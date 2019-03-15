@@ -1,4 +1,5 @@
 import os
+import sys
 import copy
 import pickle
 import inspect
@@ -9,7 +10,10 @@ import lmfit as lm
 from cycler import cycler
 import scipy.optimize as opt
 from scipy.stats import chi2
-from inspect import signature
+if sys.version_info.major == 3:
+    from inspect import signature
+else:
+    from funcsigs import signature
 from matplotlib import pyplot as plt
 from scipy.special import erfc, erfcx
 
@@ -484,7 +488,7 @@ class GaussianAndExponential(PartialLinearModel):
     def has_good_solution(self):
         if self.best_fit_result_good is not None:
             return self.best_fit_result_good
-        success = super(__class__, self).has_good_solution()
+        success = super(GaussianAndExponential, self).has_good_solution()
         if not success:
             return success
         p = self.best_fit_result.params
@@ -559,7 +563,7 @@ class GaussianAndGaussian(PartialLinearModel):
     def has_good_solution(self):
         if self.best_fit_result_good is not None:
             return self.best_fit_result_good
-        success = super(__class__, self).has_good_solution()
+        success = super(GaussianAndGaussian, self).has_good_solution()
         if not success:
             return success
         p = self.best_fit_result.params
@@ -662,7 +666,7 @@ class GaussianAndGaussianExponential(PartialLinearModel):
     def has_good_solution(self):
         if self.best_fit_result_good is not None:
             return self.best_fit_result_good
-        success = super(__class__, self).has_good_solution()
+        success = super(GaussianAndGaussianExponential, self).has_good_solution()
         if not success:
             return success
         p = self.best_fit_result.params
@@ -774,7 +778,7 @@ class SkewedGaussianAndGaussianExponential(PartialLinearModel):
     def has_good_solution(self):
         if self.best_fit_result_good is not None:
             return self.best_fit_result_good
-        success = super(__class__, self).has_good_solution()
+        success = super(SkewedGaussianAndGaussianExponential, self).has_good_solution()
         if not success:
             return success
         p = self.best_fit_result.params
@@ -1023,7 +1027,7 @@ class Quadratic(XErrorsModel):
     def has_good_solution(self):
         if self.best_fit_result_good is not None:
             return self.best_fit_result_good
-        success = super(__class__, self).has_good_solution()
+        success = super(Quadratic, self).has_good_solution()
         if not success:
             return success
 
@@ -1063,7 +1067,7 @@ class Linear(XErrorsModel):
     def has_good_solution(self):
         if self.best_fit_result_good is not None:
             return self.best_fit_result_good
-        success = super(__class__, self).has_good_solution()
+        success = super(Linear, self).has_good_solution()
         if not success:
             return success
         p = self.best_fit_result.params
