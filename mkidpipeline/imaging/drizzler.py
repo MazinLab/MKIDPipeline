@@ -315,7 +315,8 @@ class TemporalDrizzler(Drizzler):
     ntimebins * ndithers X nwvlbins X nPixRA X nPixDec.
     """
 
-    def __init__(self, photonlists, metadata, pixfrac=0, nwvlbins=2, timestep=0.1):
+    def __init__(self, photonlists, metadata, pixfrac=1., nwvlbins=2, timestep=0.1,
+                 wvlMin=0, wvlMax=np.inf, startt=0, intt=10):
 
         super().__init__(photonlists, metadata)
 
@@ -324,10 +325,10 @@ class TemporalDrizzler(Drizzler):
 
         self.ndithers = len(self.files)
         self.pixfrac = pixfrac
-        self.wvlbins = np.linspace(metadata.wvlMin, metadata.wvlMax, self.nwvlbins + 1)
-        self.ntimebins = int(metadata.integrationTime / self.timestep)
-        self.timebins = np.linspace(metadata.firstObsTime,
-                                    metadata.firstObsTime + metadata.integrationTime,
+        self.wvlbins = np.linspace(wvlMin, wvlMax, self.nwvlbins + 1)
+        self.ntimebins = int(intt / self.timestep)
+        self.timebins = np.linspace(startt,
+                                    startt + intt,
                                     self.ntimebins + 1) * 1e6  # timestamps are in microseconds
         self.totHypCube = None
         self.totWeightCube = None
@@ -356,32 +357,40 @@ class TemporalDrizzler(Drizzler):
         getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
         # TODO add the wavelength WCS
 
-    def makeHyper(self, file):
+    def makeHyper(self, file, applyweights=True, applymask=True):
+        if applyweights:
+            weights = file['weight']
+        else:
+            weights = None
         sample = np.vstack((file['timestamps'], file['wavelengths'], file['photDecRad'], file['photRARad']))
         bins = np.array([self.timebins, self.wvlbins, self.ypix, self.xpix])
-        hypercube, bins = np.histogramdd(sample.T, bins)
+        hypercube, bins = np.histogramdd(sample.T, bins, weights = weights,)
+
+        if applymask:
+            usablemask = np.int_(np.rot90(file['usablemask']))
+            hypercube *= np.logical_not(usablemask)
 
         times, wavelengths, thisGridDec, thisGridRA = bins
 
         w = wcs.WCS(naxis=2)
-        w.wcs.crpix = [0., 0.]
-        w.wcs.cdelt = np.array([thisGridRA[1] - thisGridRA[0], thisGridDec[1] - thisGridDec[0]])
-        w.wcs.crval = [thisGridRA[0], thisGridDec[0]]
-        w.wcs.ctype = ["RA---AIR", "DEC--AIR"]
-        w._naxis1 = len(thisGridRA) - 1
-        w._naxis2 = len(thisGridDec) - 1
+        w.wcs.crpix = [self.xpix/2., self.ypix/2.]
+        w.wcs.cdelt = np.array([thisGridRA[1]-thisGridRA[0], thisGridDec[1]-thisGridDec[0]])
+        w.wcs.crval = [thisGridRA[self.xpix//2], thisGridDec[self.ypix//2]]
+        w.wcs.ctype = ["RA-----", "DEC----"]
+        w._naxis1 = self.xpix
+        w._naxis2 = self.ypix
 
         return hypercube, w
 
 
 class SpatialDrizzler(Drizzler):
     """ Generate a spatially dithered fits image from a set dithered dataset """
-    def __init__(self, photonlists, metadata, pixfrac=1):
+    def __init__(self, photonlists, metadata, pixfrac=1.):
         Drizzler.__init__(self, photonlists, metadata)
         self.driz = stdrizzle.Drizzle(outwcs=self.w, pixfrac=pixfrac)
 
-        self.rotmat = np.array([[np.cos(metadata.dithHAs), np.sin(metadata.dithHAs)],
-                           [-np.sin(metadata.dithHAs), np.cos(metadata.dithHAs)]])
+        # self.rotmat = np.array([[np.cos(metadata.dithHAs), np.sin(metadata.dithHAs)],
+        #                    [-np.sin(metadata.dithHAs), np.cos(metadata.dithHAs)]])
 
     def run(self, save_file=None):
         for ix, file in enumerate(self.files):
@@ -417,14 +426,13 @@ class SpatialDrizzler(Drizzler):
         w.wcs.cdelt = np.array([thisGridRA[1]-thisGridRA[0], thisGridDec[1]-thisGridDec[0]])
         w.wcs.crval = [thisGridRA[self.xpix//2], thisGridDec[self.ypix//2]]
         w.wcs.ctype = ["RA-----", "DEC----"]
-
         w._naxis1 = self.xpix
         w._naxis2 = self.ypix
         return thisImage, w
 
 
 def get_wcs(x, y, ditherdesc, ditherind, nxpix=146, nypix=140, toa_rotation=False, randoffset=False, nPhot=1,
-            platescale=(10 * u.mas).to(u.deg).value):
+            platescale=0.01/3600.):
     """
     :param timestamps:
     :param xPhotonPixels:
@@ -581,7 +589,7 @@ if __name__ == '__main__':
             pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     # Do the dither
-    ditherdesc = DitherDescription(dither, multiplier=-1)
+    ditherdesc = DitherDescription(dither, multiplier=-1, target='HD 34700')
     # inst_info = dither.obs[0].instrument_info
 
     for i, d in enumerate(data):
@@ -590,14 +598,24 @@ if __name__ == '__main__':
                         randoffset=False, nPhot=1, platescale=(10 * u.mas).to(u.deg).value)
         d['photRARad'], d['photDecRad'] = radec
 
-    driz = SpatialDrizzler(data, ditherdesc, pixfrac=pixfrac)
-    driz.run()
+    # driz = SpatialDrizzler(data, ditherdesc, pixfrac=pixfrac)
+    # driz.run()
+    #
+    # plt.imshow(driz.driz.outsci, origin='lower', vmax=100)
+    # plt.show(block=True)
 
-    plt.imshow(driz.driz.outsci, origin='lower', vmax=100)
-    plt.show(block=True)
+    tdriz = TemporalDrizzler(data, ditherdesc, pixfrac=pixfrac, nwvlbins=1, timestep=1.,
+                             wvlMin=wvlMin, wvlMax=wvlMax, startt=startt, intt=intt)
+    tdriz.run()
+    weights = tdriz.totWeightCube.sum(axis=0)[0]
 
-    # tdriz = TemporalDrizzler(data, ditherdesc, pixfrac=pixfrac)
-    # tdriz.run()
-    # weights = tdriz.totWeightCube.sum(axis=0)[0]
+    print(tdriz.totHypCube.shape)
+    for t in range(ndither):
+        # ditherCube = tdriz.totHypCube[t*10:(t+1)*10,0]
+        # medDither = np.median(ditherCube, axis=0)
+        y = np.ma.masked_where(tdriz.totHypCube[:, 0] == 0, tdriz.totHypCube[:, 0])
+        medDither =np.ma.median(y, axis=0).filled(0)
+        plt.imshow(medDither, origin='lower', vmax=10)
 
+        plt.show(block=True)
 
