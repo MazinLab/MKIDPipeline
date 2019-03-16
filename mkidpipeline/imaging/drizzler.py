@@ -11,7 +11,7 @@ Build form() wrapper
 
 Better handling of savestate of photonlists
 
-Move photonlist class functions to photontable.py
+Move plotting functionality to another module
 
 Usage
 -----
@@ -38,6 +38,7 @@ import time
 import multiprocessing as mp
 import matplotlib.pylab as plt
 from matplotlib.colors import LogNorm
+import matplotlib.ticker as ticker
 import glob
 import ephem
 from astropy import wcs
@@ -224,7 +225,7 @@ class Drizzler(object):
         #     self.nPixRA = int((raMax - raMin) // self.vPlateScale + 2)
         # if self.nPixDec is None:
         #     self.nPixDec = int((decMax - decMin) // self.vPlateScale + 2)
-        self.nPixRA, self.nPixDec = 350, 350#250, 250
+        self.nPixRA, self.nPixDec = 300, 300#250, 250
 
         self.generate_coordinate_grid()
 
@@ -248,7 +249,7 @@ class Drizzler(object):
         # eg w.wcs.set_pv([(2, 1, 45.0)])
 
         self.w = wcs.WCS(naxis=2)
-        self.w.wcs.crpix = np.array([self.nPixRA / 2., self.nPixDec / 2.]) + np.array([self.virPixCen[0][0],self.virPixCen[1][0]])
+        self.w.wcs.crpix = np.array([self.nPixRA / 2., self.nPixDec / 2.]) + np.array([self.virPixCen[0][0], self.virPixCen[1][0]])
         self.w.wcs.cdelt = np.array([self.vPlateScale, self.vPlateScale])
         self.w.wcs.crval = [self.cenRA, self.cenDec]
         self.w.wcs.ctype = ["RA-----", "DEC----"]
@@ -357,7 +358,7 @@ class TemporalDrizzler(Drizzler):
         getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
         # TODO add the wavelength WCS
 
-    def makeHyper(self, file, applyweights=False, applymask=False, maxCountsCut=20):
+    def makeHyper(self, file, applyweights=False, applymask=False, maxCountsCut=15):
         if applyweights:
             weights = file['weight']
         else:
@@ -408,7 +409,7 @@ class SpatialDrizzler(Drizzler):
 
         # TODO introduce total_exp_time variable and complete these steps
 
-    def makeImage(self, file, applyweights=True, applymask=False, maxCountsCut=200):
+    def makeImage(self, file, applyweights=True, applymask=False, maxCountsCut=1200):
         if applyweights:
             weights = file['weight']
         else:
@@ -423,8 +424,6 @@ class SpatialDrizzler(Drizzler):
             # usablemask = np.int_(np.transpose(file['usablemask']))
             # thisImage *= np.logical_not(usablemask)
             thisImage *= usablemask
-        else:
-            print('not applying mask')
 
         if maxCountsCut:
             thisImage *= np.int_(thisImage<maxCountsCut)
@@ -516,6 +515,43 @@ def get_wcs(x, y, ditherdesc, ditherind, nxpix=146, nypix=140, toa_rotation=Fals
 
     return photRADeg, photDecDeg
 
+def annotate_axis(im, ax, width, platescale, cenCoords):
+    rad = platescale * width / 2
+    xticks = np.linspace(-rad, rad, 5) + cenCoords[0]
+    yticks = np.linspace(-rad, rad, 5) + cenCoords[1]
+    xticklabels = ["{:0.3f}".format(i) for i in xticks]
+    yticklabels = ["{:0.3f}".format(i) for i in yticks]
+    ax.set_xticks(np.linspace(-0.5, width - 0.5, 5))
+    ax.set_yticks(np.linspace(-0.5, width - 0.5, 5))
+    ax.set_xticklabels(xticklabels)
+    ax.set_yticklabels(yticklabels)
+    im.axes.tick_params(color='white', direction='in', which='both', right=True, top=True, width=1,
+                        length=10)  # , labelcolor=fg_color)
+    im.axes.tick_params(which='minor', length=5, width=0.5)
+    ax.xaxis.set_minor_locator(ticker.FixedLocator(np.linspace(-0.5, width - 0.5, 33)))
+    ax.yaxis.set_minor_locator(ticker.FixedLocator(np.linspace(-0.5, width - 0.5, 33)))
+
+    ax.set_xlabel('RA (")')
+    ax.set_ylabel('Dec (")')
+
+def prettyplot(image, log_scale=False, vmin=None, vmax=None):
+    if log_scale:
+        norm = LogNorm()
+    else:
+        norm = None
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    cax = ax.imshow(image, origin='lower', vmin=vmin, vmax=vmax, norm=norm)
+    annotate_axis(cax, ax, image.shape[0], ditherdesc.platescale * 3600, [ditherdesc.cenRA, ditherdesc.cenDec])
+    cb = plt.colorbar(cax)
+    cb.ax.set_title('Counts')
+    plt.show(block=True)
+
+def write_fits(image, filename):
+    from astropy.io import fits
+
+    hdu = fits.PrimaryHDU(image)
+    hdu.writeto(filename, clobber=True)
 
 if __name__ == '__main__':
 
@@ -524,21 +560,22 @@ if __name__ == '__main__':
     # file = 'Trapezium_1547374552_dither.log'
     # name = 'KappaAnd_dither+lasercal'
     # file = 'KAnd_1545626974_dither.log'
+    target = 'HD 34700'
     name = 'out/fordrizz/'
     file = 'HD34700_1547278116_dither.log'
     datadir = '/mnt/data0/isabel/mec/'
     wvlMin = 850
     wvlMax = 1100
     startt = 0
-    intt = 10
+    intt = 60
     pixfrac = .5
 
     load_task_config(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'pipe.yml'))
 
-    dither = MKIDObservingDither('HD 34700', os.path.join(datadir, 'dithers', file), None, None)
+    dither = MKIDObservingDither(target, os.path.join(datadir, 'dithers', file), None, None)
     ndither = len(dither.obs)
 
-    pkl_save = 'drizzler_tmp_{}.pkl'.format(dither.name)
+    pkl_save = 'drizzler_tmp_{}_60.pkl'.format(dither.name)
     # os.remove(pkl_save)
     try:
         with open(pkl_save, 'rb') as f:
@@ -597,7 +634,7 @@ if __name__ == '__main__':
             pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     # Do the dither
-    ditherdesc = DitherDescription(dither, multiplier=-1, target='HD 34700')
+    ditherdesc = DitherDescription(dither, multiplier=-1, target=target)
     # inst_info = dither.obs[0].instrument_info
 
     for i, d in enumerate(data):
@@ -609,8 +646,9 @@ if __name__ == '__main__':
     driz = SpatialDrizzler(data, ditherdesc, pixfrac=pixfrac)
     driz.run()
 
-    plt.imshow(driz.driz.outsci, origin='lower', vmax=100)
-    plt.show(block=True)
+    prettyplot(driz.driz.outsci, vmin=100, vmax=600)
+    write_fits(driz.driz.outsci, target+'_mean.fits')
+
 
     tdriz = TemporalDrizzler(data, ditherdesc, pixfrac=pixfrac, nwvlbins=1, timestep=1.,
                              wvlMin=wvlMin, wvlMax=wvlMax, startt=startt, intt=intt)
@@ -619,7 +657,14 @@ if __name__ == '__main__':
 
     y = np.ma.masked_where(tdriz.totHypCube[:, 0] == 0, tdriz.totHypCube[:, 0])
     medDither =np.ma.median(y, axis=0).filled(0)
-    plt.imshow(medDither, origin='lower', vmax=10)
 
-    plt.show(block=True)
+    prettyplot(medDither,vmin=1, vmax=10)
+    prettyplot(medDither, log_scale=True)
+    write_fits(medDither, target+'_med.fits')
+
+    # plt.imshow(medDither, origin='lower', vmin=10, vmax=60)
+    # plt.show(block=True)
+    #
+    # hdu = fits.PrimaryHDU(driz.driz.outsci)
+    # hdu.writeto(target+'_med.fits', clobber=True)
 
