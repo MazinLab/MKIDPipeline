@@ -50,8 +50,8 @@ from mkidcore import pixelflags
 from mkidpipeline.hdf.photontable import ObsFile
 from mkidcore.corelog import getLogger
 from mkidpipeline.config import MKIDObservingDataDescription, MKIDObservingDither
-import cPickle as pickle
-
+# import cPickle as pickle
+import pickle
 
 def con2pix(xCon, yCon):
     """
@@ -147,10 +147,14 @@ class DitherDescription(object):
         self.centroids = ditherp_2_pixel(dither.pos)
         self.cenRes = self.centroids - self.virPixCen
         self.xCenRes, self.yCenRes = self.cenRes
+        # TODO beammap is not being loaded getting NoneType error
         inst_info = dither.obs[0].instrument_info
         self.xpix = inst_info.beammap.ncols
         self.ypix = inst_info.beammap.nrows
         self.platescale = inst_info.platescale
+        # self.xpix = 140
+        # self.ypix = 146
+        # self.platescale = (10 * u.mas).to(u.deg).value
 
         times = np.array([o.start for o in dither.obs])
         site = EarthLocation.of_site(observatory)
@@ -388,7 +392,8 @@ class SpatialDrizzler(Drizzler):
             tic = time.clock()
             insci, inwcs = self.makeImage(file)
             getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
-            self.driz.add_image(insci, inwcs, inwht=(insci != 0).astype(int))
+            inwht = (insci != 0).astype(int)
+            self.driz.add_image(insci, inwcs, inwht=inwht)
         if save_file:
             self.driz.write(save_file)
 
@@ -396,8 +401,11 @@ class SpatialDrizzler(Drizzler):
 
     def makeImage(self, file):
         thisImage, thisGridDec, thisGridRA = np.histogram2d(file['photDecRad'], file['photRARad'],
-                                                            bins=[self.ypix, self.xpix])
-
+                                                            weights=file['weight'],
+                                                            bins=[self.ypix, self.xpix],
+                                                            normed=False)
+        # plt.hist(file['weight'])
+        # plt.show()
         w = wcs.WCS(naxis=2)
         w.wcs.crpix = [self.xpix/2., self.ypix/2.]
         w.wcs.cdelt = np.array([thisGridRA[1]-thisGridRA[0], thisGridDec[1]-thisGridDec[0]])
@@ -410,7 +418,7 @@ class SpatialDrizzler(Drizzler):
 
 
 def get_wcs(x, y, ditherdesc, ditherind, nxpix=146, nypix=140, toa_rotation=False, randoffset=False, nPhot=1,
-            platescale=10.0):
+            platescale=(10 * u.mas).to(u.deg).value):
     """
     :param timestamps:
     :param xPhotonPixels:
@@ -504,17 +512,18 @@ if __name__ == '__main__':
     pixfrac = .5
 
     dither = MKIDObservingDither('HD 34700', os.path.join(datadir, 'dithers', file), None, None)
-    ndither = len(dither.obs)
+    ndither = 25#len(dither.obs)
 
-    pkl_save = 'drizzler_tmp_{}.pk'.format(dither.name)
+    pkl_save = 'drizzler_tmp_{}.pkl'.format(dither.name)
+    # os.remove(pkl_save)
     try:
         with open(pkl_save, 'rb') as f:
             data = pickle.load(f)
-    except IOError:
+    except FileNotFoundError:
 
         begin = time.time()
         filenames = sorted(glob.glob(os.path.join(datadir, name, '*.h5')))
-
+        # print(filenames)
         if not filenames:
             print('No obsfiles found')
 
@@ -527,7 +536,7 @@ if __name__ == '__main__':
             getLogger(__name__).info("Fetched {} photons from {}".format(len(photons), file))
 
             x, y = obsfile.xy(photons)
-            obsfile.close()
+            del obsfile
 
             q.put({'file': file, 'timestamps': photons["Time"], 'xPhotonPixels': x, 'yPhotonPixels': y,
                    'wavelengths':  photons["Wavelength"], 'weight': weights})
@@ -537,7 +546,7 @@ if __name__ == '__main__':
 
         jobs = []
         data_q = mp.Queue()
-        if ndither > 20:
+        if ndither > 25:
             raise RuntimeError('Needs rewrite, will use too many cores')
 
         for f in filenames[:ndither]:
@@ -546,8 +555,8 @@ if __name__ == '__main__':
             p.daemon = True
             p.start()
 
-        for j in jobs:
-            j.join()
+        # for j in jobs:
+        #     j.join()
 
         data = []
         order = np.zeros(ndither)
@@ -561,21 +570,23 @@ if __name__ == '__main__':
             pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     # Do the dither
-    ditherdesc = DitherDescription(dither, multiplier=1)
-    inst_info = dither.obs[0].instrument_info
+    ditherdesc = DitherDescription(dither, multiplier=-1)
+    # inst_info = dither.obs[0].instrument_info
 
     for i, d in enumerate(data):
         radec = get_wcs(d['xPhotonPixels'], d['yPhotonPixels'], ditherdesc, i,
-                        nxpix=inst_info.beammap.ncols, nypix=inst_info.beammap.nrows, toa_rotation=False,
-                        randoffset=False, nPhot=1, platescale=inst_info.platescale)
+                        nxpix=140, nypix=146, toa_rotation=False,
+                        randoffset=False, nPhot=1, platescale=(10 * u.mas).to(u.deg).value)
         d['photRARad'], d['photDecRad'] = radec
 
     driz = SpatialDrizzler(data, ditherdesc, pixfrac=pixfrac)
     driz.run()
 
-    tdriz = TemporalDrizzler(data, ditherdesc, pixfrac=pixfrac)
-    tdriz.run()
-    weights = tdriz.totWeightCube.sum(axis=0)[0]
-
-    plt.imshow(driz.driz.outsci, origin='lower', vmax=300)
+    plt.imshow(driz.driz.outsci, origin='lower', vmax=10)
     plt.show(block=True)
+
+    # tdriz = TemporalDrizzler(data, ditherdesc, pixfrac=pixfrac)
+    # tdriz.run()
+    # weights = tdriz.totWeightCube.sum(axis=0)[0]
+
+
