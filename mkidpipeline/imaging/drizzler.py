@@ -147,14 +147,10 @@ class DitherDescription(object):
         self.centroids = ditherp_2_pixel(dither.pos)
         self.cenRes = self.centroids - self.virPixCen
         self.xCenRes, self.yCenRes = self.cenRes
-        # TODO beammap is not being loaded getting NoneType error
         inst_info = dither.obs[0].instrument_info
         self.xpix = inst_info.beammap.ncols
         self.ypix = inst_info.beammap.nrows
-        self.platescale = inst_info.platescale
-        # self.xpix = 140
-        # self.ypix = 146
-        # self.platescale = (10 * u.mas).to(u.deg).value
+        self.platescale = inst_info.platescale.to(u.deg).value  # 10 mas
 
         times = np.array([o.start for o in dither.obs])
         site = EarthLocation.of_site(observatory)
@@ -511,10 +507,10 @@ if __name__ == '__main__':
     integrationTime = 1
     pixfrac = .5
 
-    load_task_config('/mnt/data0/dodkins/pipe.yml')
+    load_task_config(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'pipe.yml'))
 
     dither = MKIDObservingDither('HD 34700', os.path.join(datadir, 'dithers', file), None, None)
-    ndither = 25#len(dither.obs)
+    ndither = len(dither.obs)
 
     pkl_save = 'drizzler_tmp_{}.pkl'.format(dither.name)
     # os.remove(pkl_save)
