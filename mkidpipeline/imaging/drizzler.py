@@ -357,7 +357,7 @@ class TemporalDrizzler(Drizzler):
         getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
         # TODO add the wavelength WCS
 
-    def makeHyper(self, file, applyweights=True, applymask=True):
+    def makeHyper(self, file, applyweights=False, applymask=False, maxCountsCut=20):
         if applyweights:
             weights = file['weight']
         else:
@@ -368,7 +368,10 @@ class TemporalDrizzler(Drizzler):
 
         if applymask:
             usablemask = np.int_(np.rot90(file['usablemask']))
-            hypercube *= np.logical_not(usablemask)
+            hypercube *= usablemask
+
+        if maxCountsCut:
+            hypercube *= np.int_(hypercube<maxCountsCut)
 
         times, wavelengths, thisGridDec, thisGridRA = bins
 
@@ -405,7 +408,7 @@ class SpatialDrizzler(Drizzler):
 
         # TODO introduce total_exp_time variable and complete these steps
 
-    def makeImage(self, file, applyweights=True, applymask=True):
+    def makeImage(self, file, applyweights=True, applymask=False, maxCountsCut=200):
         if applyweights:
             weights = file['weight']
         else:
@@ -414,13 +417,18 @@ class SpatialDrizzler(Drizzler):
                                                             weights = weights,
                                                             bins=[self.ypix, self.xpix],
                                                             normed=False)
-        # plt.imshow(thisImage, vmax=100)
-        # plt.show()
+
         if applymask:
             usablemask = np.int_(np.rot90(file['usablemask']))
+            # usablemask = np.int_(np.transpose(file['usablemask']))
+            # thisImage *= np.logical_not(usablemask)
             thisImage *= usablemask
-        # plt.imshow(thisImage, vmax=100)
-        # plt.show()
+        else:
+            print('not applying mask')
+
+        if maxCountsCut:
+            thisImage *= np.int_(thisImage<maxCountsCut)
+
         w = wcs.WCS(naxis=2)
         w.wcs.crpix = [self.xpix/2., self.ypix/2.]
         w.wcs.cdelt = np.array([thisGridRA[1]-thisGridRA[0], thisGridDec[1]-thisGridDec[0]])
@@ -598,24 +606,20 @@ if __name__ == '__main__':
                         randoffset=False, nPhot=1, platescale=(10 * u.mas).to(u.deg).value)
         d['photRARad'], d['photDecRad'] = radec
 
-    # driz = SpatialDrizzler(data, ditherdesc, pixfrac=pixfrac)
-    # driz.run()
-    #
-    # plt.imshow(driz.driz.outsci, origin='lower', vmax=100)
-    # plt.show(block=True)
+    driz = SpatialDrizzler(data, ditherdesc, pixfrac=pixfrac)
+    driz.run()
+
+    plt.imshow(driz.driz.outsci, origin='lower', vmax=100)
+    plt.show(block=True)
 
     tdriz = TemporalDrizzler(data, ditherdesc, pixfrac=pixfrac, nwvlbins=1, timestep=1.,
                              wvlMin=wvlMin, wvlMax=wvlMax, startt=startt, intt=intt)
     tdriz.run()
     weights = tdriz.totWeightCube.sum(axis=0)[0]
 
-    print(tdriz.totHypCube.shape)
-    for t in range(ndither):
-        # ditherCube = tdriz.totHypCube[t*10:(t+1)*10,0]
-        # medDither = np.median(ditherCube, axis=0)
-        y = np.ma.masked_where(tdriz.totHypCube[:, 0] == 0, tdriz.totHypCube[:, 0])
-        medDither =np.ma.median(y, axis=0).filled(0)
-        plt.imshow(medDither, origin='lower', vmax=10)
+    y = np.ma.masked_where(tdriz.totHypCube[:, 0] == 0, tdriz.totHypCube[:, 0])
+    medDither =np.ma.median(y, axis=0).filled(0)
+    plt.imshow(medDither, origin='lower', vmax=10)
 
-        plt.show(block=True)
+    plt.show(block=True)
 
