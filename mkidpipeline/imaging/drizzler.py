@@ -49,7 +49,7 @@ from drizzle import drizzle as stdrizzle
 from mkidcore import pixelflags
 from mkidpipeline.hdf.photontable import ObsFile
 from mkidcore.corelog import getLogger
-from mkidpipeline.config import MKIDObservingDataDescription, MKIDObservingDither
+from mkidpipeline.config import MKIDObservingDataDescription, MKIDObservingDither, load_task_config
 # import cPickle as pickle
 import pickle
 
@@ -510,6 +510,8 @@ if __name__ == '__main__':
     firstObsTime = 0
     integrationTime = 1
     pixfrac = .5
+
+    load_task_config('/mnt/data0/dodkins/pipe.yml')
 
     dither = MKIDObservingDither('HD 34700', os.path.join(datadir, 'dithers', file), None, None)
     ndither = 25#len(dither.obs)
