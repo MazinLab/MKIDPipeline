@@ -379,6 +379,7 @@ class SpatialDrizzler(Drizzler):
     def __init__(self, photonlists, metadata, pixfrac=1):
         Drizzler.__init__(self, photonlists, metadata)
         self.driz = stdrizzle.Drizzle(outwcs=self.w, pixfrac=pixfrac)
+
         self.rotmat = np.array([[np.cos(metadata.dithHAs), np.sin(metadata.dithHAs)],
                            [-np.sin(metadata.dithHAs), np.cos(metadata.dithHAs)]])
 
@@ -395,12 +396,21 @@ class SpatialDrizzler(Drizzler):
 
         # TODO introduce total_exp_time variable and complete these steps
 
-    def makeImage(self, file):
+    def makeImage(self, file, applyweights=True, applymask=True):
+        if applyweights:
+            weights = file['weight']
+        else:
+            weights = None
         thisImage, thisGridDec, thisGridRA = np.histogram2d(file['photDecRad'], file['photRARad'],
-                                                            weights=file['weight'],
+                                                            weights = weights,
                                                             bins=[self.ypix, self.xpix],
                                                             normed=False)
-        # plt.hist(file['weight'])
+        # plt.imshow(thisImage, vmax=100)
+        # plt.show()
+        if applymask:
+            usablemask = np.int_(np.rot90(file['usablemask']))
+            thisImage *= usablemask
+        # plt.imshow(thisImage, vmax=100)
         # plt.show()
         w = wcs.WCS(naxis=2)
         w.wcs.crpix = [self.xpix/2., self.ypix/2.]
@@ -503,8 +513,8 @@ if __name__ == '__main__':
     datadir = '/mnt/data0/isabel/mec/'
     wvlMin = 850
     wvlMax = 1100
-    firstObsTime = 0
-    integrationTime = 1
+    startt = 0
+    intt = 10
     pixfrac = .5
 
     load_task_config(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'pipe.yml'))
@@ -525,10 +535,13 @@ if __name__ == '__main__':
         if not filenames:
             print('No obsfiles found')
 
-        def mp_worker(file, q, startt=None, intt=1):
+        def mp_worker(file, q, startt=None, intt=intt):
             obsfile = ObsFile(file)
-            usableResIDs = obsfile.beamImage[obsfile.beamFlagImage == pixelflags.GOODPIXEL]
-            photons = obsfile.query(startw=wvlMin, stopw=wvlMax, startt=startt, intt=intt, resid=usableResIDs)
+            usableResIDs = obsfile.beamImage[np.array(obsfile.beamFlagImage) == pixelflags.GOODPIXEL]
+            usableMask = np.array(obsfile.beamFlagImage) == pixelflags.GOODPIXEL
+
+            # photons = obsfile.query(startw=wvlMin, stopw=wvlMax, startt=startt, intt=intt, resid=usableResIDs)
+            photons = obsfile.query(startw=wvlMin, stopw=wvlMax, startt=startt, intt=intt, resid=None)
             weights = photons['SpecWeight'] * photons['NoiseWeight']
 
             getLogger(__name__).info("Fetched {} photons from {}".format(len(photons), file))
@@ -537,7 +550,7 @@ if __name__ == '__main__':
             del obsfile
 
             q.put({'file': file, 'timestamps': photons["Time"], 'xPhotonPixels': x, 'yPhotonPixels': y,
-                   'wavelengths':  photons["Wavelength"], 'weight': weights})
+                   'wavelengths':  photons["Wavelength"], 'weight': weights, 'usablemask': usableMask})
 
 
         getLogger(__name__).info('stacking number of dithers: %i'.format(ndither))
@@ -580,7 +593,7 @@ if __name__ == '__main__':
     driz = SpatialDrizzler(data, ditherdesc, pixfrac=pixfrac)
     driz.run()
 
-    plt.imshow(driz.driz.outsci, origin='lower', vmax=10)
+    plt.imshow(driz.driz.outsci, origin='lower', vmax=100)
     plt.show(block=True)
 
     # tdriz = TemporalDrizzler(data, ditherdesc, pixfrac=pixfrac)
