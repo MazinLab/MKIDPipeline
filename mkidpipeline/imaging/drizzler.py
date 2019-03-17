@@ -5,10 +5,6 @@ installed. I found that  astroplan needed to be pip installed otherwise some ast
 
 Get con2pix calibration from Isabel's code and remove from here
 
-Convert print to logs
-
-Build form() wrapper
-
 Better handling of savestate of photonlists
 
 Move plotting functionality to another module
@@ -24,14 +20,9 @@ Author: Rupert Dodkins, Julian van Eyken            Date: Jan 2019
 This code is adapted from Julian's testImageStack from the ARCONS pipeline.
 """
 import matplotlib
-print(matplotlib.matplotlib_fname())
 matplotlib.use('QT5Agg', force=True)
 matplotlib.rcParams['backend'] = 'Qt5Agg'
 import matplotlib.pylab as plt
-
-# # plt.switch_backend('Qt5Agg')
-# print(matplotlib.get_backend())
-
 import os
 import numpy as np
 import time
@@ -201,7 +192,6 @@ class Drizzler(object):
         self.ypix = metadata.ypix
         self.cenRA = metadata.coords.ra.deg
         self.cenDec = metadata.coords.dec.deg
-        print(self.cenRA, self.cenDec, 'cenRA cenDec')
         self.vPlateScale = metadata.platescale
         self.virPixCen = metadata.virPixCen
 
@@ -250,7 +240,6 @@ class Drizzler(object):
         # TODO implement the PV distortion?
         # eg w.wcs.set_pv([(2, 1, 45.0)])
 
-        print(wcs)
         self.w = wcs.WCS(naxis=2)
         self.w.wcs.crpix = np.array([self.nPixRA / 2., self.nPixDec / 2.]) + np.array([self.virPixCen[0][0], self.virPixCen[1][0]])
         self.w.wcs.cdelt = np.array([self.vPlateScale, self.vPlateScale])
@@ -278,7 +267,6 @@ class SpectralDrizzler(Drizzler):
             insci, inwcs = self.makeCube(file)
             getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
             for iw in range(self.nwvlbins):
-                print(ix, iw)
                 self.drizcube[iw].add_image(insci[iw], inwcs, inwht=np.int_(np.logical_not(insci[iw] == 0)))
 
         self.cube = [d.outsci for d in self.drizcube]
@@ -361,14 +349,14 @@ class TemporalDrizzler(Drizzler):
         getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
         # TODO add the wavelength WCS
 
-    def makeHyper(self, file, applyweights=False, applymask=False, maxCountsCut=15):
+    def makeHyper(self, file, applyweights=False, applymask=False, maxCountsCut=200):
         if applyweights:
             weights = file['weight']
         else:
             weights = None
         sample = np.vstack((file['timestamps'], file['wavelengths'], file['photDecRad'], file['photRARad']))
         bins = np.array([self.timebins, self.wvlbins, self.ypix, self.xpix])
-        hypercube, bins = np.histogramdd(sample.T, bins, weights = weights,)
+        hypercube, bins = np.histogramdd(sample.T, bins, weights=weights,)
 
         if applymask:
             usablemask = np.int_(np.rot90(file['usablemask']))
@@ -396,14 +384,30 @@ class SpatialDrizzler(Drizzler):
         Drizzler.__init__(self, photonlists, metadata)
         self.driz = stdrizzle.Drizzle(outwcs=self.w, pixfrac=pixfrac)
 
-        # self.rotmat = np.array([[np.cos(metadata.dithHAs), np.sin(metadata.dithHAs)],
-        #                    [-np.sin(metadata.dithHAs), np.cos(metadata.dithHAs)]])
+    def identify_hotpix(self, metadata, dithfrac=0.1, min_count=500):
+        import numpy.ma as ma
+        ndithers = len(metadata.dithHAs)
+        hot_cube = np.zeros((ndithers, metadata.ypix, metadata.xpix))
+        dith_cube = np.zeros_like(hot_cube)
+        for ix, file in enumerate(self.files):
+            dith_cube[ix], _ = self.makeImage(file)
+            # plt.imshow(dith_cube[ix], origin='lower')
+            # plt.show()
+        # hot_cube[dith_cube > min_count] = ma.masked
+        hot_cube[dith_cube > min_count] = 1
+        hot_amount_map = np.sum(hot_cube, axis=0)#hot_cube.count(axis=0)
+        self.hot_mask = hot_amount_map/ndithers > dithfrac
+        plt.imshow(self.hot_mask, origin='lower')
+        plt.show(block=True)
 
-    def run(self, save_file=None):
+
+    def run(self, save_file=None, applymask=False):
         for ix, file in enumerate(self.files):
             getLogger(__name__).debug('Processing %s', file)
             tic = time.clock()
             insci, inwcs = self.makeImage(file)
+            if applymask:
+                insci *= np.logical_not(self.hot_mask)
             getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
             inwht = (insci != 0).astype(int)
             self.driz.add_image(insci, inwcs, inwht=inwht)
@@ -412,7 +416,7 @@ class SpatialDrizzler(Drizzler):
 
         # TODO introduce total_exp_time variable and complete these steps
 
-    def makeImage(self, file, applyweights=True, applymask=False, maxCountsCut=1200):
+    def makeImage(self, file, applyweights=True, applymask=False, maxCountsCut=10000):
         if applyweights:
             weights = file['weight']
         else:
@@ -520,12 +524,12 @@ def get_wcs(x, y, ditherdesc, ditherind, nxpix=146, nypix=140, toa_rotation=Fals
 
 
 def annotate_axis(im, ax, width, platescale, cenCoords):
-    rad = platescale * width / 2
+    rad = platescale * width / 2.
 
     xticks = np.linspace(-rad, rad, 5) + cenCoords[0]
     yticks = np.linspace(-rad, rad, 5) + cenCoords[1]
-    xticklabels = ["{:0.3f}".format(i) for i in xticks]
-    yticklabels = ["{:0.3f}".format(i) for i in yticks]
+    xticklabels = ["{:0.4f}".format(i) for i in xticks]
+    yticklabels = ["{:0.4f}".format(i) for i in yticks]
     ax.set_xticks(np.linspace(-0.5, width - 0.5, 5))
     ax.set_yticks(np.linspace(-0.5, width - 0.5, 5))
     ax.set_xticklabels(xticklabels)
@@ -536,11 +540,11 @@ def annotate_axis(im, ax, width, platescale, cenCoords):
     ax.xaxis.set_minor_locator(ticker.FixedLocator(np.linspace(-0.5, width - 0.5, 33)))
     ax.yaxis.set_minor_locator(ticker.FixedLocator(np.linspace(-0.5, width - 0.5, 33)))
 
-    ax.set_xlabel('RA (")')
-    ax.set_ylabel('Dec (")')
+    ax.set_xlabel('RA ($^{\circ}$)')
+    ax.set_ylabel('Dec ($^{\circ}$)')
 
 
-def prettyplot(image, platescale, cenCoords, log_scale=False, vmin=None, vmax=None):
+def pretty_plot(image, platescale, cenCoords, log_scale=False, vmin=None, vmax=None):
     if log_scale:
         norm = LogNorm()
     else:
@@ -563,50 +567,39 @@ def smooth(image, fwhm=1):
     return gaussian_filter(image, fwhm)
 
 
-def form(dim = 2, target = 'HD 34700', ditherlog = 'HD34700_1547278116_dither.log',
-         wvlMin = 850, wvlMax = 1100, startt = 0, intt = 60, pixfrac = .5):
-    '''
-
-    :param dim: 2->image, 3->spectral cube, 4->sequence of spectral cubes
-    :param target:
-    :param ditherlog:
-    :param wvlMin:
-    :param wvlMax:
-    :param startt:
-    :param intt:
-    :param pixfrac:
-
-    :return:
-    '''
-
-    datadir = '/mnt/data0/isabel/mec/'
-    name = 'out/fordrizz/'
-
-    load_task_config(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'pipe.yml'))
-
+def get_ditherdesc(target, datadir, ditherlog, rotate):
     dither = MKIDObservingDither(target, os.path.join(datadir, 'dithers', ditherlog), None, None)
-    ndither = len(dither.obs)
+    ditherdesc = DitherDescription(dither, multiplier=rotate, target=target)
+    return ditherdesc
 
-    pkl_save = 'drizzler_tmp_{}_60.pkl'.format(dither.name)
+
+def load_data(target, datadir, ditherdesc, obsdir, wvlMin, wvlMax, startt, intt):
+    ndither = len(ditherdesc.description.obs)  #len(dither.obs)
+    inst_info = ditherdesc.description.obs[0].instrument_info
+
+    pkl_save = 'drizzler_tmp_{}_1.pkl'.format(target)
+    # print(pkl_save)
     # os.remove(pkl_save)
     try:
         with open(pkl_save, 'rb') as f:
             data = pickle.load(f)
+        print('loaded', pkl_save)
     except FileNotFoundError:
-
         begin = time.time()
-        filenames = sorted(glob.glob(os.path.join(datadir, name, '*.h5')))
+        filenames = sorted(glob.glob(os.path.join(datadir, 'out', obsdir, '*.h5')))
+        # filenames = sorted(glob.glob('/mnt/data0/isabel/highcontrastimaging/Jan2019Run/20190112/Trapezium/trap_wavecalib/*.h5'))
         # print(filenames)
         if not filenames:
             print('No obsfiles found')
 
-        def mp_worker(file, q, startt=None, intt=intt):
+        def mp_worker(file, q, startt=startt, intt=intt):
             obsfile = ObsFile(file)
             # usableResIDs = obsfile.beamImage[np.array(obsfile.beamFlagImage) == pixelflags.GOODPIXEL]
             usableMask = np.array(obsfile.beamFlagImage) == pixelflags.GOODPIXEL
 
             # photons = obsfile.query(startw=wvlMin, stopw=wvlMax, startt=startt, intt=intt, resid=usableResIDs)
             photons = obsfile.query(startw=wvlMin, stopw=wvlMax, startt=startt, intt=intt, resid=None)
+            print(photons.shape)
             weights = photons['SpecWeight'] * photons['NoiseWeight']
 
             getLogger(__name__).info("Fetched {} photons from {}".format(len(photons), file))
@@ -636,7 +629,7 @@ def form(dim = 2, target = 'HD 34700', ditherlog = 'HD34700_1547278116_dither.lo
         #     j.join()
 
         data = []
-        order = np.zeros(ndither)
+        # order = np.zeros(ndither)
         for t in range(ndither):
             data.append(data_q.get())
         data.sort(key=lambda k: filenames.index(k['file']))
@@ -647,49 +640,77 @@ def form(dim = 2, target = 'HD 34700', ditherlog = 'HD34700_1547278116_dither.lo
             pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     # Do the dither
-    ditherdesc = DitherDescription(dither, multiplier=-1, target=target)
-    inst_info = dither.obs[0].instrument_info
-
     for i, d in enumerate(data):
         radec = get_wcs(d['xPhotonPixels'], d['yPhotonPixels'], ditherdesc, i,
                         nxpix=140, nypix=146, toa_rotation=False,
                         randoffset=False, nPhot=1, platescale=inst_info.platescale.to(u.deg).value)
         d['photRARad'], d['photDecRad'] = radec
 
-    if dim not in range(2,5):
-        raise AssertionError('dim must be either 2, 3 or 4')
+    return data
 
-    elif dim == 2:
-        driz = SpatialDrizzler(data, ditherdesc, pixfrac=pixfrac)
-        driz.run()
-        outsci = driz.driz.outsci
-        outwcs = driz.w
+def form(dim = 2, rotate=1, target = 'HD 34700', ditherlog = 'HD34700_1547278116_dither.log',
+         obsdir='fordrizz/', wvlMin = 850, wvlMax = 1100, startt = 0, intt = 60, pixfrac = .5, driz_sci=True):
+    '''
 
-    elif dim == 3:
-        # TODO implement
-        outsci = None
-        outwcs = None
-        raise NotImplementedError
-        # sdriz = SpectralDrizzler(data, ditherdesc, pixfrac=pixfrac)
-        # sdriz.run()
-        # outsci = sdriz.drizcube
-        # outwcs = sdriz.w
+    :param dim: 2->image, 3->spectral cube, 4->sequence of spectral cubes. If drizzle==False then dim is ignored
+    :param rotate: 0 or 1
+    :param target:
+    :param ditherlog:
+    :param obsdir:
+    :param wvlMin:
+    :param wvlMax:
+    :param startt:
+    :param intt:
+    :param pixfrac:
+    :param drizzle bool for output format
 
-    elif dim == 4:
-        tdriz = TemporalDrizzler(data, ditherdesc, pixfrac=pixfrac, nwvlbins=1, timestep=1.,
-                                 wvlMin=wvlMin, wvlMax=wvlMax, startt=startt, intt=intt)
-        tdriz.run()
-        outsci = tdriz.totHypCube
-        outwcs = tdriz.w
-        # weights = tdriz.totWeightCube.sum(axis=0)[0]
+    :return:
+    '''
 
-    return outsci, outwcs
+    datadir = '/mnt/data0/isabel/mec/'
+
+    load_task_config(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'pipe.yml'))
+
+    ditherdesc = get_ditherdesc(target, datadir, ditherlog, rotate)
+
+    data = load_data(target, datadir, ditherdesc, obsdir, wvlMin, wvlMax, startt, intt)
+
+    if not driz_sci:
+        return data
+
+    else:
+        if dim not in range(2,5):
+            raise AssertionError('dim must be either 2, 3 or 4')
+
+        elif dim == 2:
+            driz = SpatialDrizzler(data, ditherdesc, pixfrac=pixfrac)
+            # driz.identify_hotpix(ditherdesc)
+            driz.run(applymask=False)
+            outsci = driz.driz.outsci
+            outwcs = driz.w
+
+        elif dim == 3:
+            # TODO implement
+            outsci = None
+            outwcs = None
+            raise NotImplementedError
+            # sdriz = SpectralDrizzler(data, ditherdesc, pixfrac=pixfrac)
+            # sdriz.run()
+            # outsci = sdriz.drizcube
+            # outwcs = sdriz.w
+
+        elif dim == 4:
+            tdriz = TemporalDrizzler(data, ditherdesc, pixfrac=pixfrac, nwvlbins=1, timestep=1.,
+                                     wvlMin=wvlMin, wvlMax=wvlMax, startt=startt, intt=intt)
+            tdriz.run()
+            outsci = tdriz.totHypCube
+            outwcs = tdriz.w
+            # weights = tdriz.totWeightCube.sum(axis=0)[0]
+
+        return outsci, outwcs
 
 if __name__ == '__main__':
-    #
-    # # Get dither offsets
-    # # name = 'Trapezium'
-    # # file = 'Trapezium_1547374552_dither.log'
+
     # # name = 'KappaAnd_dither+lasercal'
     # # file = 'KAnd_1545626974_dither.log'
     target = 'HD 34700'
@@ -705,8 +726,8 @@ if __name__ == '__main__':
     image, drizwcs = form(2, target=target, ditherlog=ditherlog, wvlMin=wvlMin,
                       wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac)
 
-    # prettyplot(image, drizwcs.wcs.cdelt[0] * 3600, drizwcs.wcs.crval, vmin=100, vmax=600)
-    # write_fits(image, target+'_mean.fits')
+    pretty_plot(image, drizwcs.wcs.cdelt[0] * 3600, drizwcs.wcs.crval, vmin=100, vmax=600)
+    write_fits(image, target+'_mean.fits')
 
     tess, drizwcs = form(4, target=target, ditherlog=ditherlog, wvlMin=wvlMin,
                      wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac)
@@ -714,7 +735,8 @@ if __name__ == '__main__':
     y = np.ma.masked_where(tess[:, 0] == 0, tess[:, 0])
     medDither =np.ma.median(y, axis=0).filled(0)
 
-    prettyplot(medDither, drizwcs.wcs.cdelt[0] * 3600, drizwcs.wcs.crval, vmin=1, vmax=10)
-    prettyplot(medDither, drizwcs.wcs.cdelt[0] * 3600, drizwcs.wcs.crval, log_scale=True)
-    write_fits(medDither, target+'_med.fits')
+    pretty_plot(medDither, drizwcs.wcs.cdelt[0] * 3600, drizwcs.wcs.crval, vmin=1, vmax=10)
+    pretty_plot(medDither, drizwcs.wcs.cdelt[0] * 3600, drizwcs.wcs.crval, log_scale=True)
+    write_fits(smooth(medDither), target+'_med1.fits')
+    write_fits(smooth(medDither, 0.5), target+'_meddot5.fits')
 
