@@ -138,7 +138,6 @@ class MKIDObservingDataDescription(object):
         return h5_for_MKIDodd(self)
 
     def lookup_coodinates(self, queryname=''):
-
         return SkyCoord.from_name(queryname if queryname else self.name)
 
 

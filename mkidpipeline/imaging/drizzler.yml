@@ -1,16 +1,23 @@
-wavelength: 850, 1100
-tempfile: None
-pixfrac: 0.5
+!configdict
+beammap: !bmap
+  default: MEC
+
+paths: !configdict
+  data: /mnt/data0/ScienceData/Subaru/20180626/
+  out: /mnt/data0/baileyji/scratch/wavecal/
+  tmp: /mnt/data0/baileyji/mec/scratch/
+
+dither: !dither
+  name: Trapezium   #simbad resolvable for ra/dec, otherwise will assume at 0,0
+  file: trapezium.log
+
+drizzler: !configdict
+  plots: all
+  wavelength: 850, 1100
+  pixfrac: 0.5
+  mode: spatial
+
+ncpu: 20
 
 
-"""
-TemporalDrizzler taks a list of dicts of:
-{'ditherind': ditherind,
-'timestamps': timestamps,
-'xPhotonPixels': xPhotonPixels,
-'yPhotonPixels': yPhotonPixels,
-'wavelengths': wavelengths,
-'photRARad': photRARad,
-'photDecRad': photDecRad}
 
-"""
