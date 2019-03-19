@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 from scipy.ndimage import rotate
-from mkidpipeline.imaging.drizzler import form, pretty_plot, get_ditherdesc
+from mkidpipeline.imaging.drizzler import form, pretty_plot, get_ditherdesc, write_fits
 
 def rot_array(img, pivot,angle):
     padX = [img.shape[1] - pivot[0], pivot[0]]
@@ -23,7 +23,7 @@ if __name__ == '__main__':
     wvlMin = 850
     wvlMax = 1100
     startt = 0
-    intt = 1#60
+    intt = 100#60
     pixfrac = .5
 
     # get static psf of virtual grid
@@ -31,6 +31,9 @@ if __name__ == '__main__':
                          wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac, driz_sci=True)
     y = np.ma.masked_where(tess[:, 0] == 0, tess[:, 0])
     static_map = np.ma.median(y, axis=0).filled(0)
+
+    pretty_plot(static_map, drizwcs.wcs.cdelt[0], drizwcs.wcs.crval, vmin=0, vmax=1000)
+    write_fits(static_map, target+'_rot.fits')
 
     datadir = '/mnt/data0/isabel/mec/'
     ditherdesc = get_ditherdesc(target, datadir, ditherlog, rotate=1)
