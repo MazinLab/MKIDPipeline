@@ -9,7 +9,9 @@ paths: !configdict
 
 dither: !dither
   name: Trapezium   #simbad resolvable for ra/dec, otherwise will assume at 0,0
-  file: trapezium.log
+  file: /mnt/data0/isabel/mec/dithers/Trapezium_1547374552_dither.log
+  wavecal: placeholder
+  flatcal: placeholder
 
 drizzler: !configdict
   plots: all
@@ -18,6 +20,3 @@ drizzler: !configdict
   mode: spatial
 
 ncpu: 20
-
-
-

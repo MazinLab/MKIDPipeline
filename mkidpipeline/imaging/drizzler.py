@@ -3,8 +3,6 @@ TODO
 Add astroplan, ephem, drizzle, SharedArray to setup.py/yml. ephem can be conda installed, drizzle and SharedArray need to be pip
 installed. I found that  astroplan needed to be pip installed otherwise some astropy import fails
 
-Get con2pix calibration from Isabel's code and remove from here
-
 Better handling of savestate of photonlists
 
 Move plotting functionality to another module
@@ -40,11 +38,11 @@ from mkidcore import pixelflags
 from mkidpipeline.hdf.photontable import ObsFile
 from mkidcore.corelog import getLogger
 from mkidpipeline.config import MKIDObservingDataDescription, MKIDObservingDither
-import cPickle as pickle
+import pickle
 import mkidpipeline
 import numpy.ma as ma
 import pkg_resources as pkg
-from mkidreadout.hardware.conex import CONEX2PIXEL
+from mkidcore.instruments import CONEX2PIXEL
 import argparse
 
 
@@ -70,7 +68,7 @@ class DitherDescription(object):
         try:
             self.coords = dither.obs[0].lookup_coodinates(queryname=target)
         except astropy.coordinates.name_resolve.NameResolveError:
-            getLogger(__name__).warning(f'Unable to resolve coordinates for target name {target}, using (0,0).')
+            getLogger(__name__).warning('Unable to resolve coordinates for target name {target}, using (0,0).')
             self.coords = self.SkyCoord('0 deg', '0 deg')
         self.cenRA, self.cenDec = self.coords.ra.deg, self.coords.dec.deg
         self.virPixCen = np.array([list(virPixCen)]).T
@@ -500,12 +498,11 @@ def write_fits(image, filename):
     hdu.writeto(filename, clobber=True)
 
 
-def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{target}.pkl',
+def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{}.pkl',
               tempdir='', usecache=True, clearcache=False):
     ndither = len(ditherdesc.description.obs)  # len(dither.obs)
-    target = ditherdesc.target
 
-    pkl_save = os.path.join(tempdir, tempfile.format(target))
+    pkl_save = os.path.join(tempdir, tempfile.format(ditherdesc.target))
     if clearcache:  # TODO the cache must be autocleared if the query parameters would alter the contents
         os.remove(pkl_save)
     try:
@@ -627,7 +624,7 @@ if __name__ == '__main__':
     matplotlib.rcParams['backend'] = 'Qt5Agg'
     import matplotlib.pylab as plt
 
-    parser = argparse.ArgumentParser(description='MKID Wavelength Calibration Utility')
+    parser = argparse.ArgumentParser(description='Photon Drizzling Utility')
     parser.add_argument('cfg', type=str, help='The configuration file')
     parser.add_argument('-wl', type=float, dest='wvlMin', help='', default=850)
     parser.add_argument('-wh', type=float, dest='wvlMax', help='', default=1100)
@@ -645,12 +642,12 @@ if __name__ == '__main__':
     wvlMax = args.wvlMax
     startt = args.startt
     intt = args.intt
-    pixfrac = cfg.pixfrac
+    pixfrac = cfg.drizzler.pixfrac
     dither = cfg.dither
 
     image, drizwcs = form(dither, 'spatial', wvlMin=wvlMin, wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac)
 
-    pretty_plot(image, drizwcs.wcs.cdelt[0] * 3600, drizwcs.wcs.crval, vmin=100, vmax=600)
+    pretty_plot(image, drizwcs.wcs.cdelt[0], drizwcs.wcs.crval, vmin=100, vmax=600)
     write_fits(image, cfg.dither.target + '_mean.fits')
 
     tess, drizwcs = form(dither, 4, wvlMin=wvlMin, wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac)
@@ -658,7 +655,7 @@ if __name__ == '__main__':
     y = np.ma.masked_where(tess[:, 0] == 0, tess[:, 0])
     medDither = np.ma.median(y, axis=0).filled(0)
 
-    pretty_plot(medDither, drizwcs.wcs.cdelt[0] * 3600, drizwcs.wcs.crval, vmin=1, vmax=10)
-    pretty_plot(medDither, drizwcs.wcs.cdelt[0] * 3600, drizwcs.wcs.crval, log_scale=True)
+    pretty_plot(medDither, drizwcs.wcs.cdelt[0], drizwcs.wcs.crval, vmin=1, vmax=10)
+    pretty_plot(medDither, drizwcs.wcs.cdelt[0], drizwcs.wcs.crval, log_scale=True)
     write_fits(gaussian_filter(medDither, 1), cfg.dither.target + '_med1.fits')  # TODO WHY!!!!!!???
     write_fits(gaussian_filter(medDither, 0.5), cfg.dither.target + '_meddot5.fits')
