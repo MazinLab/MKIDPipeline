@@ -266,20 +266,19 @@ def optimize_IcIsIr(dt, guessParams=[-1,-1,-1], deadtime=1.e-5, method='ncg', pa
     def score(p_opt):
         #params = [I_i, (I_j)]
         p2=np.copy(guessParams)
-        p2[np.logical_not(paramsFixed)]=p_opt[np.logical_not(paramsFixed)]
+        p2[np.logical_not(paramsFixed)]=p_opt
         if I1Total: p2[0]=p2[0] - np.sum(p2[1:])    #convert It into Ic for function
         elif I2Total: p2[1] = p2[1] - np.sum(p2[::2]) #conver It into Is for function
         return MRlogL_Jacobian(p2, dt=dt, deadtime=deadtime)
     def hess(p_opt):
         p2=np.copy(guessParams)
-        p2[np.logical_not(paramsFixed)]=p_opt[np.logical_not(paramsFixed)]
+        p2[np.logical_not(paramsFixed)]=p_opt
         if I1Total: p2[0]=p2[0] - np.sum(p2[1:])    #convert It into Ic for function
         elif I2Total: p2[1] = p2[1] - np.sum(p2[::2]) #conver It into Is for function
         return MRlogL_Hessian(p2, dt=dt, deadtime=deadtime)
     def loglike(p_opt):
         p2=np.copy(guessParams)
-        p2[np.logical_not(paramsFixed)]=p_opt[np.logical_not(paramsFixed)]
-        print(p2)
+        p2[np.logical_not(paramsFixed)]=p_opt
         if I1Total: p2[0]=p2[0] - np.sum(p2[1:])    #convert It into Ic for function
         elif I2Total: p2[1] = p2[1] - np.sum(p2[::2]) #conver It into Is for function
         return MRlogL(p2, dt=dt, deadtime=deadtime)
@@ -297,7 +296,6 @@ def optimize_IcIsIr(dt, guessParams=[-1,-1,-1], deadtime=1.e-5, method='ncg', pa
     model = GenericLikelihoodModel(endog,exog=exog, loglike=loglike, score=score, hessian=hess)
     try: kwargs['disp']
     except KeyError: kwargs['disp']=False   #change default disp kwarg to false
-    print('guessParams[np.logical_not(paramsFixed)] = ', guessParams[np.logical_not(paramsFixed)])
     return model.fit(guessParams[np.logical_not(paramsFixed)],method=method,**kwargs)
     
 '''
