@@ -58,7 +58,7 @@ class DitherDescription(object):
     TODO implement center of rotation
     """
 
-    def __init__(self, dither, virPixCen=(25, 0), observatory='Subaru', target='* kap And', derotate=True):
+    def __init__(self, dither, virPixStar=None, observatory='Subaru', target='* kap And', derotate=True):
         self.description = dither
         self.target = target
         try:
@@ -66,11 +66,14 @@ class DitherDescription(object):
         except astropy.coordinates.name_resolve.NameResolveError:
             pipelinelog.getLogger(__name__).warning('Unable to resolve coordinates for target name {target}, using (0,0).')
             self.coords = self.SkyCoord('0 deg', '0 deg')
-        self.cenRA, self.cenDec = self.coords.ra.deg, self.coords.dec.deg
-        self.virPixCen = np.array([list(virPixCen)]).T
+        self.starRA, self.starDec = self.coords.ra.deg, self.coords.dec.deg
+        if virPixStar is None:
+            virPixStar = (0, 0)
+
+        self.virPixStar = np.array([list(virPixStar)]).T
 
         self.centroids = ditherp_2_pixel(dither.pos)
-        self.cenRes = self.centroids - self.virPixCen
+        self.cenRes = self.centroids - self.virPixStar
         self.xCenRes, self.yCenRes = self.cenRes
         inst_info = dither.obs[0].instrument_info
         self.xpix = inst_info.beammap.ncols
@@ -94,10 +97,10 @@ class DitherDescription(object):
                                    [np.sin(self.dithHAs), np.cos(self.dithHAs)]]).T
 
         centroidRotated = (np.dot(rotationMatrix, np.array([self.xCenRes, self.yCenRes])).diagonal(axis1=0, axis2=2) +
-                           [self.virPixCen[0], self.virPixCen[1]])
+                           [self.virPixStar[0], self.virPixStar[1]])
 
         plt.plot(-self.centroids[0], -self.centroids[1], '-o')
-        plt.plot(-self.virPixCen[0], -self.virPixCen[1], marker='x')
+        plt.plot(-self.virPixStar[0], -self.virPixStar[1], marker='x')
         plt.plot(-centroidRotated[0], -centroidRotated[1], '-o')
         plt.show()
 
@@ -115,18 +118,17 @@ class Drizzler(object):
         # self.randoffset = False # apply random spatial offset to each photon
         self.nPixRA = None
         self.nPixDec = None
-        # self.nPixRA = 300
-        # self.nPixDec = 300
+        self.square_grid = True
 
         self.config = None
         self.files = photonlists
 
         self.xpix = metadata.xpix
         self.ypix = metadata.ypix
-        self.cenRA = metadata.coords.ra.deg
-        self.cenDec = metadata.coords.dec.deg
+        self.starRA = metadata.coords.ra.deg
+        self.starDec = metadata.coords.dec.deg
         self.vPlateScale = metadata.platescale
-        self.virPixCen = metadata.virPixCen
+        self.virPixStar = metadata.virPixStar
 
         raMin, raMax, decMin, decMax = [], [], [], []
         for photonlist in photonlists:
@@ -139,15 +141,15 @@ class Drizzler(object):
         decMin = min(decMin)
         decMax = max(decMax)
 
-        # self.cenRA = (raMin + raMax) / 2.0
-        # self.cenDec = (decMin + decMax) / 2.0
-
         # Set size of virtual grid to accommodate.
         if self.nPixRA is None:
-            # +1 for round up; +1 because coordinates are the boundaries of the virtual pixels, not the centers.
-            self.nPixRA = int((raMax - raMin) // self.vPlateScale + 2)
+            self.nPixRA = (2 * np.max((raMax-self.starRA, self.starRA-raMin))//self.vPlateScale).astype(int)
         if self.nPixDec is None:
-            self.nPixDec = int((decMax - decMin) // self.vPlateScale + 2)
+            self.nPixDec = (2 * np.max((decMax-self.starDec, self.starDec-decMin))//self.vPlateScale).astype(int)
+
+        if self.square_grid:
+            nPix = max((self.nPixRA, self.nPixDec))
+            self.nPixRA, self.nPixDec = nPix, nPix
 
         self.generate_coordinate_grid()
 
@@ -157,25 +159,25 @@ class Drizzler(object):
         """
         Establish RA and dec coordinates for pixel boundaries in the virtual pixel grid,
         given the number of pixels in each direction (self.nPixRA and self.nPixDec), the
-        location of the centre of the array (self.cenRA, self.cenDec), and the plate scale
+        location of the centre of the array (self.starRA, self.starDec), and the plate scale
         (self.vPlateScale).
         """
         # Note - +1's are because these are pixel *boundaries*, not pixel centers:
-        self.gridRA = self.cenRA + (self.vPlateScale * (np.arange(self.nPixRA + 1) - ((self.nPixRA + 1) // 2)))
-        self.gridDec = self.cenDec + (self.vPlateScale * (np.arange(self.nPixDec + 1) - ((self.nPixDec + 1) // 2)))
+        self.gridRA = self.starRA + (self.vPlateScale * (np.arange(self.nPixRA + 1) - ((self.nPixRA + 1) // 2)))
+        self.gridDec = self.starDec + (self.vPlateScale * (np.arange(self.nPixDec + 1) - ((self.nPixDec + 1) // 2)))
 
     def get_header(self, center_on_star=True):
         # TODO implement something like this
-        # w = mkidcore.buildwcs(self.nPixRA, self.nPixDec, self.vPlateScale, self.cenRA, self.cenDec)
+        # w = mkidcore.buildwcs(self.nPixRA, self.nPixDec, self.vPlateScale, self.starRA, self.starDec)
         # TODO implement the PV distortion?
         # eg w.wcs.set_pv([(2, 1, 45.0)])
 
         self.w = wcs.WCS(naxis=2)
         self.w.wcs.crpix = np.array([self.nPixRA / 2., self.nPixDec / 2.])
         if center_on_star:
-            self.w.wcs.crpix -= np.array([self.virPixCen[0][0], self.virPixCen[1][0]])
+            self.w.wcs.crpix -= np.array([self.virPixStar[0][0], self.virPixStar[1][0]])
         self.w.wcs.cdelt = np.array([self.vPlateScale, self.vPlateScale])
-        self.w.wcs.crval = [self.cenRA, self.cenDec]
+        self.w.wcs.crval = [self.starRA, self.starDec]
         self.w.wcs.ctype = ["RA-----", "DEC----"]
         self.w._naxis1 = self.nPixRA
         self.w._naxis2 = self.nPixDec
@@ -291,7 +293,7 @@ class TemporalDrizzler(Drizzler):
         hypercube, bins = np.histogramdd(sample.T, bins, weights=weights, )
 
         if applymask:
-            usablemask = np.int_(np.rot90(file['usablemask']))
+            usablemask = file['usablemask'].T.astype(int)
             hypercube *= usablemask
 
         if maxCountsCut:
@@ -434,17 +436,17 @@ def get_wcs(x, y, ditherdesc, ditherind, nxpix=146, nypix=140, toa_rotation=Fals
                                   ditherdesc.centroids[1][ditherind] + y - nypix / 2])
 
         # offset these to the center of rotation
-        cor_photons = vgrid_photons - ditherdesc.virPixCen
+        cor_photons = vgrid_photons - ditherdesc.virPixStar
 
         # rotate that virtual grid so that that those photons now occupy the part of the sky that was sampled
         rotated_vgrid = np.dot(rotationMatrix, cor_photons)
 
         # undo the COR offset
-        skyframe_photons = rotated_vgrid + ditherdesc.virPixCen
+        skyframe_photons = rotated_vgrid + ditherdesc.virPixStar
 
     # Add the photon arcsecond offset to the centroid offset.
-    photDecDeg = ditherdesc.cenDec + platescale * skyframe_photons[1]
-    photRADeg = ditherdesc.cenRA + platescale * skyframe_photons[0]
+    photDecDeg = ditherdesc.starDec + platescale * skyframe_photons[1]
+    photRADeg = ditherdesc.starRA + platescale * skyframe_photons[0]
 
     if randoffset:
         np.random.seed(42)  # so random values always same
@@ -474,7 +476,7 @@ def annotate_axis(im, ax, width, platescale, cenCoords):
     ax.set_xticklabels(xticklabels)
     ax.set_yticklabels(yticklabels)
     im.axes.tick_params(color='white', direction='in', which='both', right=True, top=True, width=1,
-                        length=10)  # , labelcolor=fg_color)
+                        length=10)
     im.axes.tick_params(which='minor', length=5, width=0.5)
     ax.xaxis.set_minor_locator(ticker.FixedLocator(np.linspace(-0.5, width - 0.5, 33)))
     ax.yaxis.set_minor_locator(ticker.FixedLocator(np.linspace(-0.5, width - 0.5, 33)))
@@ -499,7 +501,7 @@ def pretty_plot(image, platescale, cenCoords, log_scale=False, vmin=None, vmax=N
 
 def write_fits(image, filename):
     hdu = fits.PrimaryHDU(image)
-    hdu.writeto(filename, clobber=True)
+    hdu.writeto(filename, overwrite=True)
 
 
 def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{}.pkl',
@@ -576,14 +578,12 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
     return data
 
 
-def form(dither, dim='spatial', derotate=True, target='', wvlMin=850, wvlMax=1100, startt=0, intt=60, pixfrac=.5):
+def form(dither, dim='spatial', derotate=True, virPixStar=None, wvlMin=850, wvlMax=1100, startt=0, intt=60, pixfrac=.5):
     """
 
     :param dim: 2->image, 3->spectral cube, 4->sequence of spectral cubes. If drizzle==False then dim is ignored
-    :param rotate: 0 or 1
-    :param target:
-    :param ditherlog:
-    :param obsdir:
+    :param derotate: 0 or 1
+    :param virPixStar: None or array/tuple
     :param wvlMin:
     :param wvlMax:
     :param startt:
@@ -594,8 +594,7 @@ def form(dither, dim='spatial', derotate=True, target='', wvlMin=850, wvlMax=110
     :return:
     """
 
-    target = dither.name if not target else target
-    ditherdesc = DitherDescription(dither, derotate=derotate, target=target)
+    ditherdesc = DitherDescription(dither, derotate=derotate, target=dither.name, virPixStar=virPixStar)
     data = load_data(ditherdesc, wvlMin, wvlMax, startt, intt)
 
     if dim not in ['spatial', 'spectral', 'temporal']:
@@ -603,8 +602,8 @@ def form(dither, dim='spatial', derotate=True, target='', wvlMin=850, wvlMax=110
 
     elif dim == 'spatial':
         driz = SpatialDrizzler(data, ditherdesc, pixfrac=pixfrac)
-        driz.get_persistant_bad(ditherdesc)
-        driz.run(applymask=True)
+        # driz.get_persistant_bad(ditherdesc)
+        driz.run(applymask=False)
         outsci = driz.driz.outsci
         outwcs = driz.w
 
@@ -624,6 +623,44 @@ def form(dither, dim='spatial', derotate=True, target='', wvlMin=850, wvlMax=110
 
     return outsci, outwcs
 
+
+def get_star_offset(dither, wvlMin, wvlMax, startt, intt):
+    '''
+    Get the virPixStar offset parameter for DitherDescription
+
+    :param dither:
+    :param wvlMin:
+    :param wvlMax:
+    :param startt:
+    :param intt:
+    :return:
+    '''
+
+    fig, ax = plt.subplots()
+
+    image, _ = form(dither=dither, dim='spatial', virPixStar=(0,0), derotate=False,
+                    wvlMin=wvlMin, wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=1)
+
+    print("Click on the four satellite speckles and the star")
+    cax = ax.imshow(image, origin='lower', norm=None)
+    cb = plt.colorbar(cax)
+    cb.ax.set_title('Counts')
+
+    xlocs, ylocs = [], []
+    def onclick(event):
+        xlocs.append(event.xdata)
+        ylocs.append(event.ydata)
+        running_mean = [np.mean(xlocs), np.mean(ylocs)]
+        print('xpix=%i, ypix=%i. Running mean=(%i,%i)'
+              % (event.xdata, event.ydata, running_mean[0], running_mean[1]))
+
+    fig.canvas.mpl_connect('button_press_event', onclick)
+    plt.show(block=True)
+
+    star_pix = np.array([np.mean(xlocs), np.mean(ylocs)]).astype(int)
+    virPixStar = star_pix - np.array(image.shape)//2
+
+    return virPixStar
 
 if __name__ == '__main__':
     matplotlib.use('QT5Agg', force=True)
@@ -653,12 +690,15 @@ if __name__ == '__main__':
     pixfrac = cfg.drizzler.pixfrac
     dither = cfg.dither
 
-    image, drizwcs = form(dither, 'spatial', wvlMin=wvlMin, wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac)
+    virPixStar = get_star_offset(dither, wvlMin, wvlMax, startt, intt)
+    image, drizwcs = form(dither, 'spatial', virPixStar=virPixStar, wvlMin=wvlMin,
+                          wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac)
 
     pretty_plot(image, drizwcs.wcs.cdelt[0], drizwcs.wcs.crval, vmin=5, vmax=600)
     write_fits(image, cfg.dither.name + '_mean.fits')
 
-    tess, drizwcs = form(dither, 'temporal', wvlMin=wvlMin, wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac)
+    tess, drizwcs = form(dither, 'temporal', virPixStar=virPixStar, wvlMin=wvlMin,
+                         wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac)
 
     y = np.ma.masked_where(tess[:, 0] == 0, tess[:, 0])
     medDither = np.ma.median(y, axis=0).filled(0)

@@ -4,12 +4,12 @@ beammap: !bmap
 
 paths: !configdict
   data: /mnt/data0/ScienceData/Subaru/20180626/
-  out: /mnt/data0/isabel/highcontrastimaging/Jan2019Run/20190112/Trapezium/trap_wavecalib
+  out: /mnt/data0/isabel/highcontrastimaging/Jan2019Run/20190112/Trapezium/trap_wavecalib   #/mnt/data0/isabel/mec/out/fordrizz
   tmp: /mnt/data0/baileyji/mec/scratch/
 
 dither: !dither
-  name: Trapezium   #simbad resolvable for ra/dec, otherwise will assume at 0,0
-  file: /mnt/data0/isabel/mec/dithers/Trapezium_1547374552_dither.log
+  name: Trapezium   #simbad resolvable for ra/dec, otherwise will assume at 0,0   #HD 34700
+  file: /mnt/data0/isabel/mec/dithers/Trapezium_1547374552_dither.log   #/mnt/data0/isabel/mec/dithers/HD34700_1547278116_dither.log
   wavecal: placeholder
   flatcal: placeholder
   badmask: True  #do we want the badmask toggle here?
