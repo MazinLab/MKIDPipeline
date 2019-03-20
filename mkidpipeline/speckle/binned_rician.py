@@ -313,7 +313,6 @@ def binMR_like(n, Ic, Is):
     return like, likeArray
 
 
-
 def loglike_planet_blurredMR(n,Ic,Is,Ip,n_unique = None):
     """
     Calculate the log likelihood of lightcurve that has both speckle Ic and Is,
@@ -401,6 +400,11 @@ def loglike_planet_blurredMR(n,Ic,Is,Ip,n_unique = None):
 
 def negloglike_planet_blurredMR(p,n):
     return -loglike_planet_blurredMR(n, p[0], p[1], p[2])[0]
+
+
+def _loglike_planet_blurredMR(params, n, n_unique = None):
+    Ic,Is,Ip = params
+    return loglike_planet_blurredMR(n,Ic,Is,Ip,n_unique=n_unique)
     
     
     
