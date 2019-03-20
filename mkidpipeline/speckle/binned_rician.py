@@ -735,7 +735,7 @@ def logLMap_binfree(t, x_list, Is_list, IcPlusIs = False,Ir_slice=0, deadtime = 
             # call bin free loglike method
             p = [Ic, Is, Ir_slice]
             # print('\n',p,'\n')
-            lnL = binfree.MRLogL(p, dt, deadtime)
+            lnL = binfree.MRlogL(p, dt, deadtime)
 
             im[j, i] = lnL # first index is for Is, second index is for x = Ic + Is
 
