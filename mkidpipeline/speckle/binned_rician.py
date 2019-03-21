@@ -725,8 +725,8 @@ def logL_array(ts, Ic_list, Is_list, Ip_list, IcpIs_list = None, deadtime = 0, e
     :param IcpIs_list:
     :param deadtime:
     :param bin_mr: boolean, do binned MR log likelihood
-    :param eff_exp_time: bin size for doing a bin-free log like map
-    :return: foo: the array containing the loglike values. First index is Ic, 2nd is Is, 3rd is Ip
+    :param eff_exp_time: bin size for doing a binned log like map
+    :return: cube: the array containing the loglike values. First index is Ic, 2nd is Is, 3rd is Ip
     """
     # pool = multiprocessing.Pool(multiprocessing.cpu_count() - 1)
     # pool = multiprocessing.Pool(4)
@@ -839,8 +839,14 @@ def logL_array(ts, Ic_list, Is_list, Ip_list, IcpIs_list = None, deadtime = 0, e
             flat_list = np.array([item for sublist in foo for item in sublist])
 
     pool.close()
+    pool.join()
 
-    return flat_list
+    if IcpIs_list is not None:
+        cube = flat_list.reshape(len(IcpIs_list), len(Is_list), len(Ip_list))
+    else:
+        cube = flat_list.reshape(len(Ic_list),len(Is_list),len(Ip_list))
+
+    return cube
 
 
 
