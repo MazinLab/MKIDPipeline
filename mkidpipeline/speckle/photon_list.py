@@ -387,16 +387,7 @@ class mock_photonlist():
             #I = 1 / np.mean(dt)
             #p0 = I * np.ones(3) / 3.
             if len(p_lists[0])==0 or len(p_lists[1])==0 or len(p_lists[2])==0:
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-                p_opt = optimize.minimize(negloglike_planet_blurredMR, p_seed, n,
-=======
-                p_opt = optimize.minimize(binMR.negloglike_planet_blurredMR, p0, n,
->>>>>>> Stashed changes
-=======
-                p_opt = optimize.minimize(binMR.negloglike_planet_blurredMR, p0, n,
->>>>>>> Stashed changes
-                                       bounds=((0.001, np.inf), (0.001, np.inf), (.001, np.inf))).x/binSize  # units are [cts/sec]
+                p_opt = optimize.minimize(binMR.negloglike_planet_blurredMR, p0, n,bounds=((0.001, np.inf), (0.001, np.inf), (.001, np.inf))).x/binSize  # units are [cts/sec]
             else: p_opt = None
             logLfunc = partial(binMR._loglike_planet_blurredMR(n=n, n_unique=n_unique))
 
