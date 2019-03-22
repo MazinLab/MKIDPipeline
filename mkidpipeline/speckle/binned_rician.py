@@ -70,8 +70,6 @@ def histogramLC(lightCurve):
     OUTPUTS:
         intensityHist - 1d array containing the histogram
         bins - 1d array specifying the bins (0 photon, 1 photon, etc.)
-
-
     """
     # Nbins=30  #smallest number of bins to show
 
@@ -240,7 +238,7 @@ def binMR_like(n, Ic, Is):
     k = -Ic/(Is**2 + Is)
     tmp = np.log(eval_laguerre(n,k))
     tmp -= k
-    likeArray = np.exp(np.log(1./(Is+1))  - 1.*Ic/Is + tmp + n*np.log(Is/(1.+Is)))
+    likeArray = np.exp(np.log(1./(Is+1)) - 1.*Ic/Is + tmp + n*np.log(Is/(1.+Is)))
     like = 1.
     tmp = mp.mpf(1)*likeArray
     for ii in tmp:

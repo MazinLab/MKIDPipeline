@@ -43,16 +43,29 @@ import multiprocessing
 
 def ssd_worker(args):
     print('ssd_worker started: ', multiprocessing.current_process())
-    photontable, beamImage, startLambda, stopLambda, startTime, integrationTime, coord_list = args
+    # photontable, beamImage, startLambda, stopLambda, startTime, integrationTime, coord_list = args
+    obsfile_object, beamImage, startLambda, stopLambda, startTime, integrationTime, coord_list = args
+
+    # photonList = self.a.getPixelPhotonList(xCoord=self.activePixel[0], yCoord=self.activePixel[1],
+    #                                        firstSec=self.spinbox_startTime.value(),
+    #                                        integrationTime=self.spinbox_integrationTime.value(),
+    #                                        wvlStart=self.spinbox_startLambda.value(),
+    #                                        wvlStop=self.spinbox_stopLambda.value())
 
     ssd_param_list = []
     for pix in coord_list:
         row, col = pix
 
-        ts = photontable[np.logical_and(photontable['ResID'] == beamImage[col][row], np.logical_and(
-            np.logical_and(photontable['Wavelength'] > startLambda, photontable['Wavelength'] < stopLambda),
-            np.logical_and(photontable['Time'] > startTime * 1e6,
-                           photontable['Time'] < integrationTime * 1e6)))]['Time'] * 1e-6
+        ts = obsfile_object.getPixelPhotonList(xCoord=col, yCoord=row,
+                                               firstSec=startTime,
+                                               integrationTime=integrationTime,
+                                               wvlStart=startLambda,
+                                               wvlStop=stopLambda)['Time'] * 1e-6
+
+        # ts = photontable[np.logical_and(photontable['ResID'] == beamImage[col][row], np.logical_and(
+        #     np.logical_and(photontable['Wavelength'] > startLambda, photontable['Wavelength'] < stopLambda),
+        #     np.logical_and(photontable['Time'] > startTime * 1e6,
+        #                    photontable['Time'] < integrationTime * 1e6)))]['Time'] * 1e-6
 
         if row == -1 and col == -1:
             ssd_param_list.append([0, 0, 0])
@@ -483,7 +496,7 @@ class main_window(QMainWindow):
             except:
                 print('darkObsFile failed to load file. Check filename.\n', self.filename)
             else:
-                self.photontable = self.a.photonTable.read()
+                # self.photontable = self.a.photonTable.read()
                 print('data loaded from .h5 file')
                 self.filename_label.setText(self.filename)
                 self.initialize_empty_arrays(len(self.a.beamImage), len(self.a.beamImage[0]))
@@ -712,7 +725,14 @@ class main_window(QMainWindow):
             n = -(-n_good_pix // n_cpu)  # ceiling division to get number of pixels to give to each process
             params = []  # params will be a list of tuples
             for cpu_number in range(n_cpu):
-                params.append(tuple([self.photontable, self.a.beamImage, self.spinbox_startLambda.value(),
+                # this version sends a large table to each of the multiprocessing workers. Can easily eat up
+                # all the RAM.
+                # params.append(tuple([self.photontable, self.a.beamImage, self.spinbox_startLambda.value(),
+                #                      self.spinbox_stopLambda.value(), self.spinbox_startTime.value(),
+                #                      self.spinbox_integrationTime.value(),
+                #                      coord_list[cpu_number * n:(cpu_number + 1) * n]]))
+                # This version sends the obsfile object to each of the workers
+                params.append(tuple([self.a, self.a.beamImage, self.spinbox_startLambda.value(),
                                      self.spinbox_stopLambda.value(), self.spinbox_startTime.value(),
                                      self.spinbox_integrationTime.value(),
                                      coord_list[cpu_number * n:(cpu_number + 1) * n]]))
