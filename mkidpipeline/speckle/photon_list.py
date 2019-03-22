@@ -375,10 +375,21 @@ class mock_photonlist():
         if star: p_seed[2]=10.  # Ir is 0 in this case but guessing Ir=10. seems to work better...
 
         if np.isfinite(binSize) and binSize>0:  # binned case
-            #p_opt=
-            #logLfunc=
-            raise NotImplementedError
-        else:                                   # binfree case
+            # n is the light curve
+            ts = self.ts_star if star else self.ts
+            ts *=1e-6 # change units seconds
+            dt = self.dt_star if star else self.dt
+            n = binMR.getLightCurve(photonTimeStamps=ts,startTime=ts[0],stopTime=ts[-1],effExpTime=binSize)[0] # get the light curve, units = [cts/bin]
+            n_unique = np.unique(n)
+            I = 1 / np.mean(dt)
+            p0 = I * np.ones(3) / 3.
+            if len(p_lists[0])==0 or len(p_lists[1])==0 or len(p_lists[2])==0:
+                p_opt = optimize.minimize(negloglike_planet_blurredMR, p0, n,
+                                       bounds=((0.001, np.inf), (0.001, np.inf), (.001, np.inf))).x/binSize  # units are [cts/sec]
+            else: p_opt = None
+            logLfunc = partial(binMR._loglike_planet_blurredMR(n=n, n_unique=n_unique))
+
+        else:  # binfree case
             binSize=-1
             dt=self.dt_star if star else self.dt
             if len(p_lists[0])==0 or len(p_lists[1])==0 or len(p_lists[2])==0:
@@ -406,7 +417,7 @@ class photon_list(object):
         # photonlist data
         self.ts = np.array([])  # units microseconds. Includes star+planet photons. 
         self.ts_star = np.array([]) #ts except only includes star photons
-        self.dt = np.array([])
+        self.dt = np.array([]) # units in seconds
         self.dt_star = np.array([])
         self.cube = np.array([]) # this is a loglike cube
         self.Ic_list = np.array([])
