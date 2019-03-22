@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Photon list class for doing SSD analysis.
+Author: Alex Walter; Clint Bockstiegel
+Date: March 15, 2019
+
+mock Photon list class for doing SSD analysis.
+The logL cubes that explore the Ic, Is, Ir parameter space take a while to calculate.
+This class is used to easily save and load the data later
+
 """
 
 import numpy as np
@@ -156,7 +162,10 @@ def getLogLCube(logLfunc, p_lists={0:[], 1:[], 2:[]}, relmin=10.**-8., p_opt=Non
 
     return _multiprocessGetLogLCube(logLmap, p_lists, logLfunc)
 
-def worker(arg_dict,logLfunc):
+def _worker(arg_dict,logLfunc):
+    """
+    Used in _multiprocessGetLogLCube
+    """
     logLmap_slice=arg_dict['map_slice']
     p_lists_slice=arg_dict['p_slice']
     #logLfunc = arg_dict['logLfunc']
@@ -170,6 +179,21 @@ def worker(arg_dict,logLfunc):
     return logLmap_slice
 
 def _multiprocessGetLogLCube(logLmap, p_lists, logLfunc):
+    """
+    This function fills in a logLCube with a pool of processes.
+    nProc = nCPU - 1
+    The logLCube is split on the Ir axis into nProc arrays and each one is sent to _worker() in a different process
+    The results are combined and returned
+
+    INPUTS:
+        logLmap - 3d array of shape ( len(p_lists[0]),len(p_lists[1]),len(p_lists[2]) )
+        p_lists - dictionary containing parameter lists
+                  p_lists[0] is the Ic_list etc...
+        logLfunc - function with signature logLfunc([Ic,Is,Ir]) that returns the log likelihood
+    OUTPUTS:
+        logLmap - same shape as input but now filled in
+        p_lists - identical to input
+    """
 
     nProc = multiprocessing.cpu_count()-1
     arg_dicts=[]
@@ -191,13 +215,11 @@ def _multiprocessGetLogLCube(logLmap, p_lists, logLfunc):
         #print(arg_dicts[-1]['logLfunc'])
 
     pool = multiprocessing.Pool(processes=nProc)
-    map_slices_3=pool.map(partial(worker,logLfunc=logLfunc), arg_dicts)
+    map_slices_3=pool.map(partial(_worker,logLfunc=logLfunc), arg_dicts)
     pool.close()    
     pool.join()
     
-    logLmap=np.concatenate(map_slices_3, 2, logLmap)
-    
-
+    logLmap=np.concatenate(map_slices_3, axis=2, out=logLmap)
     return logLmap, p_lists
 
 
@@ -225,6 +247,12 @@ def loadPhotonlist(Ic, Is, Ir, Ttot, loc='/Data/SSD/logLmaps/'):
     
 
 class mock_photonlist():
+    """
+    mock photonlist class to hold logLCubes and other miscellanious data
+    Is pickle-able for easy save / load
+
+    This class replaces photon_list() but I haven't deleted photon_list() yet for 
+    """
     def __init__(self,Ic,Is,Ir,Ttot=30,tau=0.1, deadtime=10.e-6,return_IDs=True):
         self.p_true = np.asarray([Ic, Is, Ir])
         self.Ttot=Ttot
@@ -280,17 +308,20 @@ class mock_photonlist():
         ie. It ranges over Ir_list = [10,11,12,13] and we want to add Ir_list=[0,1,2,3]
 
         INPUTS:
-            I_list - The additional points we want to append to a list
+            I_list - The additional points we want to append to a list. 
+                     If we've already calculated logL at some points then those points are ignored
             ind - 0 means interpret I_list as the additional Ic_list. Similiar for ind=1 or ind=2
             binSize - Used to grab the logLmap from self.logLCubes (_star)
             star - Used to grab the logLmap from self.logLCubes (_star)
-            relmin - passed to getLogCube()
+            relmin - argument passed to getLogCube()
 
         OUTPUTS:
             logLmap - cube containing the new logLmap
             p_lists - dictionary continaing Ic_list, Is_list, Ir_list
                       p_lists[0] returns the Ic_list, etc...
             binSize - 
+
+        It outputs the new cube but also updates it in the class attribute self.logLCubes (_star) so you don't need to
         """
         logLcube = self.logLCubes_star[binSize] if star else self.logLCubes[binSize]
         p_list = self.logLCubes_star_lists[binSize] if star else self.logLCubes_lists[binSize]
