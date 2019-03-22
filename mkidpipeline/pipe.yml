@@ -58,6 +58,7 @@ instrument: !configdict
   wvl_start: 700
   #Final Wavelength in nanometers (number)
   wvl_stop: 1500
+  platescale: 10 #mas
 
 templar: !configdict
   file: the_conf.yml

@@ -1,16 +1,23 @@
-wavelength: 850, 1100
-tempfile: None
-pixfrac: 0.5
+!configdict
+beammap: !bmap
+  default: MEC
 
+paths: !configdict
+  data: /mnt/data0/ScienceData/Subaru/20180626/
+  out: /mnt/data0/isabel/highcontrastimaging/Jan2019Run/20190112/Trapezium/trap_wavecalib   #/mnt/data0/isabel/mec/out/fordrizz
+  tmp: /mnt/data0/baileyji/mec/scratch/
 
-"""
-TemporalDrizzler taks a list of dicts of:
-{'ditherind': ditherind,
-'timestamps': timestamps,
-'xPhotonPixels': xPhotonPixels,
-'yPhotonPixels': yPhotonPixels,
-'wavelengths': wavelengths,
-'photRARad': photRARad,
-'photDecRad': photDecRad}
+dither: !dither
+  name: Trapezium   #simbad resolvable for ra/dec, otherwise will assume at 0,0   #HD 34700
+  file: /mnt/data0/isabel/mec/dithers/Trapezium_1547374552_dither.log   #/mnt/data0/isabel/mec/dithers/HD34700_1547278116_dither.log
+  wavecal: placeholder
+  flatcal: placeholder
+  badmask: True  #do we want the badmask toggle here?
 
-"""
+drizzler: !configdict
+  plots: all
+  wavelength: 850, 1100
+  pixfrac: 0.5
+  mode: spatial
+
+ncpu: 20
