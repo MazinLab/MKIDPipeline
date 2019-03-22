@@ -241,6 +241,9 @@ def savePhotonlist(photonlist, Ic, Is, Ir, Ttot, loc='/Data/SSD/logLmaps/'):
     _savePhotonlist(photonlist, fn)
 
 def loadPhotonlist(Ic, Is, Ir, Ttot, loc='/Data/SSD/logLmaps/'):
+    """
+    loads all photons list objects with the requested parameters
+    """
     directory = loc+'data_{}_{}_{}_{}/'.format(Ic, Is, Ir, Ttot)
     fns = glob.glob(directory+'*.pickle')
     return [_loadPhotonlist(fn) for fn in fns]
@@ -381,10 +384,10 @@ class mock_photonlist():
             dt = self.dt_star if star else self.dt
             n = binMR.getLightCurve(photonTimeStamps=ts,startTime=ts[0],stopTime=ts[-1],effExpTime=binSize)[0] # get the light curve, units = [cts/bin]
             n_unique = np.unique(n)
-            I = 1 / np.mean(dt)
-            p0 = I * np.ones(3) / 3.
+            #I = 1 / np.mean(dt)
+            #p0 = I * np.ones(3) / 3.
             if len(p_lists[0])==0 or len(p_lists[1])==0 or len(p_lists[2])==0:
-                p_opt = optimize.minimize(negloglike_planet_blurredMR, p0, n,
+                p_opt = optimize.minimize(negloglike_planet_blurredMR, p_seed, n,
                                        bounds=((0.001, np.inf), (0.001, np.inf), (.001, np.inf))).x/binSize  # units are [cts/sec]
             else: p_opt = None
             logLfunc = partial(binMR._loglike_planet_blurredMR(n=n, n_unique=n_unique))
