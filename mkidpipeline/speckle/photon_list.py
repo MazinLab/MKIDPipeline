@@ -58,7 +58,7 @@ def probIr(logLcube, p_lists, cumulative = False):
     return prob
 
 
-def getLogLCube(logLfunc, p_lists={0:[], 1:[], 2:[]}, relmin=10.**-8., p_opt=None):
+def getLogLCube(logLfunc, p_lists={0:[], 1:[], 2:[]}, relmin=10.**-8., p_opt=None, rounddec=2):
     """
     This function maps out the log likelihood space for both the binned and binfree model.
 
@@ -82,6 +82,8 @@ def getLogLCube(logLfunc, p_lists={0:[], 1:[], 2:[]}, relmin=10.**-8., p_opt=Non
                 p_opt is ignored if p_lists is given already
                 if p_lists[2] is empty for example then still give the entire p_opt=[Ic_opt, Is_opt, Ir_opt] (don't skip out on Ir_opt)
                 if any p_lists[i] is empty then give p_opt cannot be none
+        rounddec - round the new values of the parameters (Ic,Is,Ip) to the nearst rounddec decimals
+                   negative means no rounding
 
     OUTPUTS:
         logLmap - cube containing the logL. shape=( len(Ic_list), len(Is_list), len(Ir_list) )
@@ -94,6 +96,10 @@ def getLogLCube(logLfunc, p_lists={0:[], 1:[], 2:[]}, relmin=10.**-8., p_opt=Non
         sampling=-1./20.
         p_inc = np.sqrt(p_opt)*sampling
         p_inc[p_inc>sampling]=sampling   # minimum sampling of parameters
+        if rounddec>=0:
+            p_opt=p_opt.round(rounddec)
+            p_inc=p_inc.round(rounddec)
+            p_inc[p_inc==0]=-10.**-rounddec
         maxLogL=logLfunc(p_opt)
 
         tmp_logL={}
@@ -138,6 +144,19 @@ def getLogLCube(logLfunc, p_lists={0:[], 1:[], 2:[]}, relmin=10.**-8., p_opt=Non
             p_lists[k]=np.asarray(p_lists[k])[sort_ind]
             if k in populate_inds: tmp_logL[k]=np.asarray(tmp_logL[k])[sort_ind]
 
+            #plt.plot(p_lists[k], tmp_logL[k],'.-',label=k)
+        #plt.legend()
+        #print("\tshape: ({}, {}, {})".format(len(p_lists[0]),len(p_lists[1]),len(p_lists[2])))
+        #keep only 150 points so that the map isn't too big
+        maxListSize=150.
+        for k in p_lists.keys():
+            if len(p_lists[k])>maxListSize:
+                l = len(p_lists[k])
+                keep = np.floor(np.arange(l)%(1.0*l/maxListSize))==0
+                p_lists[k] = p_lists[k][keep]
+                tmp_logL[k] = tmp_logL[k][keep]
+                
+
         # pre-populate log likelihood map
         logLmap = np.full([len(p_lists[i]) for i in range(len(p_opt))], -np.inf)
         if 0 in populate_inds: logLmap[:,p_lists[1]==p_opt[1],p_lists[2]==p_opt[2]] = tmp_logL[0][:,np.newaxis]
@@ -159,6 +178,20 @@ def getLogLCube(logLfunc, p_lists={0:[], 1:[], 2:[]}, relmin=10.**-8., p_opt=Non
     #            logLmap[i,j,k]=logLfunc([c,s,r])
     #            
     #return logLmap, p_lists
+    
+    #print("\tlogLCube shape: "+str(logLmap.shape)+" p_opt: "+str(p_opt))
+    if p_opt is None:
+        print("\tCube: {}. Ic={:.3f}..?..{:.3f}, Is={:.3f}..?..{:.3f}, Ip={:.3f}..?..{:.3f}".format(logLmap.shape,
+            p_lists[0][0], p_lists[0][-1],
+            p_lists[1][0], p_lists[1][-1],
+            p_lists[2][0],  p_lists[2][-1]))
+    else:
+        print("\tCube: {}. Ic={:.3f}..{:.3f}..{:.3f}, Is={:.3f}..{:.3f}..{:.3f}, Ip={:.3f}..{:.3f}..{:.3f}".format(logLmap.shape,
+            p_lists[0][0], p_opt[0], p_lists[0][-1],
+            p_lists[1][0], p_opt[1], p_lists[1][-1],
+            p_lists[2][0], p_opt[2], p_lists[2][-1]))
+
+    plt.show()
 
     return _multiprocessGetLogLCube(logLmap, p_lists, logLfunc)
 
@@ -287,17 +320,17 @@ class mock_photonlist():
             relmin - passed to self.getLogLCube()
         """
         for b in binSize_list:
-            print("Getting data for star+planet")
+            print("Getting data for star+planet. BinSize: "+str(b))
             logLmap, p_lists, binSize = self._getLogLCube(b, star=False, p_lists={0:[], 1:[], 2:[]},relmin=relmin)
             self.logLCubes[binSize]=logLmap
             self.logLCubes_lists[binSize]=p_lists
 
-            print("Getting data for star")
+            print("Getting data for star. BinSize: "+str(b))
             logLmap_star, p_lists_star, binSize = self._getLogLCube(b, star=True, p_lists={0:[], 1:[], 2:[]}, relmin=relmin)
             self.logLCubes_star[binSize]=logLmap_star
             self.logLCubes_star_lists[binSize]=p_lists_star
 
-            print("Matching Ir_lists")
+            print("Matching Ir_lists. BinSize: "+str(b))
             if matchIr_lists:
                 _, p_list_new, __ = self.appendVals2Cube(p_lists_star[2], 2, binSize, star=False, relmin=relmin)
                 _,__,___=self.appendVals2Cube(p_list_new[2], 2, binSize, star=True, relmin=relmin)
@@ -331,6 +364,7 @@ class mock_photonlist():
         I_old = p_list[ind]
         #I_diff = np.setdiff1d(I_list, I_old, assume_unique=True)
         I_diff = np.setdiff1d(I_list, I_old)
+        if len(I_diff)==0: return logLcube, p_list, binSize
         p_list_diff = p_list.copy()
         p_list_diff[ind]=I_diff
 
@@ -380,16 +414,14 @@ class mock_photonlist():
         if np.isfinite(binSize) and binSize>0:  # binned case
             # n is the light curve
             ts = self.ts_star if star else self.ts
-            ts *=1e-6 # change units seconds
-            dt = self.dt_star if star else self.dt
-            n = binMR.getLightCurve(photonTimeStamps=ts,startTime=ts[0],stopTime=ts[-1],effExpTime=binSize)[0] # get the light curve, units = [cts/bin]
+            n = binMR.getLightCurve(photonTimeStamps=ts*1e-6,startTime=ts[0]*1e-6,stopTime=ts[-1]*1e-6,effExpTime=binSize)[0] # get the light curve, units = [cts/bin]
             n_unique = np.unique(n)
             #I = 1 / np.mean(dt)
             #p0 = I * np.ones(3) / 3.
             if len(p_lists[0])==0 or len(p_lists[1])==0 or len(p_lists[2])==0:
-                p_opt = optimize.minimize(binMR.negloglike_planet_blurredMR, p0, n,bounds=((0.001, np.inf), (0.001, np.inf), (.001, np.inf))).x/binSize  # units are [cts/sec]
+                p_opt = optimize.minimize(binMR.negloglike_planet_blurredMR, p_seed, n,bounds=((0.001, np.inf), (0.001, np.inf), (.001, np.inf))).x/binSize  # units are [cts/sec]
             else: p_opt = None
-            logLfunc = partial(binMR._loglike_planet_blurredMR(n=n, n_unique=n_unique))
+            logLfunc = partial(binMR._loglike_planet_blurredMR, n=n, n_unique=n_unique, return_components=False)
 
         else:  # binfree case
             binSize=-1
