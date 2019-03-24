@@ -34,7 +34,8 @@ from scipy.optimize import curve_fit
 from scipy import optimize
 import os.path
 from mkidpipeline.speckle import binned_rician as binnedRE
-import mkidpipeline.speckle.optimize_IcIsIr as binfree
+# import mkidpipeline.speckle.optimize_IcIsIr as binfree
+import mkidpipeline.speckle.binFreeRicianEstimate as binfree
 from scipy.special import factorial
 import time
 import datetime
@@ -76,8 +77,8 @@ def ssd_worker(args):
             # get the bin-free fit of Ic, Is Ip
             I = 1 / np.mean(dt)
             p0 = I * np.ones(3) / 3.
-            Ic, Is, Ip = optimize.minimize(binfree.loglike, p0, (dt, deadtime),
-                                           method='Newton-CG', jac=binfree._jacobean, hess=binfree._hessian).x
+            Ic, Is, Ip = optimize.minimize(binfree.MRlogL, p0, (dt, deadtime),
+                                           method='Newton-CG', jac=binfree.MRlogL_Jacobian, hess=binfree.MRlogL_Hessian).x
             ssd_param_list.append([Ic, Is, Ip])
 
     print('ssd_worker finished', multiprocessing.current_process())
@@ -356,8 +357,8 @@ class intensityHistogram(subWindow):
             # get the bin-free fit of Ic, Is Ip
             I = 1 / np.mean(dt)
             p0 = I * np.ones(3) / 3.
-            p1 = optimize.minimize(binfree.loglike, p0, (dt, deadtime),
-                                   method='Newton-CG', jac=binfree._jacobean, hess=binfree._hessian).x
+            p1 = optimize.minimize(binfree.MRlogL, p0, (dt, deadtime),
+                                   method='Newton-CG', jac=binfree.MRlogL_Jacobian, hess=binfree.MRlogL_Hessian).x
 
             self.ax.plot(np.arange(Nbins, step=sstep),
                          binnedRE.loglike_planet_blurredMR(np.arange(Nbins, step=sstep), p1[0] * self.eff_exp_time,
