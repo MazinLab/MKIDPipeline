@@ -548,6 +548,9 @@ class main_window(QMainWindow):
                 print("coudn't load bin file")
             else:
                 self.radio_button_rawCounts.setChecked(True)
+                self.spinbox_integrationTime.setMinimum(1)
+                self.spinbox_integrationTime.setMaximum(1)
+                self.spinbox_integrationTime.setValue(1)
                 self.plot_count_image()
                 self.filename_label.setText(self.filename)
 
@@ -1238,6 +1241,7 @@ class main_window(QMainWindow):
 
     def initialize_spinbox_values(self, filename):
         # set the max and min values for the lambda spinboxes
+        # TODO: call this before plotting image for bin files
         self.minLambda = -200
         self.maxLambda = 200
         self.label_startLambda.setText('start phase [uncal degrees]')
