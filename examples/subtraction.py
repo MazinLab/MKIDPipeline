@@ -1,12 +1,16 @@
-'''First median collapsing a time cube of all the raw dither images to a get a static PSF of the virtual grid.
-For each dither derotate the static PSF and isolate the relevant area.
-Subtract that static reference from the median of the derorated dither '''
+# TODO move this functionality to an analysis/postprocessing package rather than an example?
 
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
-from scipy.ndimage import rotate
-from mkidpipeline.imaging.drizzler import form, pretty_plot, get_ditherdesc, write_fits
+import matplotlib
+from astropy.io import fits
+from scipy.ndimage import rotate, zoom
+import argparse
+# from vip_hci import pca
+from mkidpipeline.imaging.drizzler import form, pretty_plot, write_fits
+import mkidpipeline
+import mkidcore.corelog as pipelinelog
 
 def rot_array(img, pivot,angle):
     padX = [img.shape[1] - pivot[0], pivot[0]]
@@ -15,7 +19,65 @@ def rot_array(img, pivot,angle):
     imgR = rotate(imgP, angle, reshape=False)
     return imgR[padY[0] : -padY[1], padX[0] : -padX[1]]
 
-if __name__ == '__main__':
+
+def clipped_zoom(img, zoom_factor, **kwargs):
+    """ Courtesy of
+    https://stackoverflow.com/questions/37119071/scipy-rotate-and-zoom-an-image-without-changing-its-dimensions """
+
+    h, w = img.shape[:2]
+    # For multichannel images we don't want to apply the zoom factor to the RGB
+    # dimension, so instead we create a tuple of zoom factors, one per array
+    # dimension, with 1's for any trailing dimensions after the width and height.
+    zoom_tuple = (zoom_factor,) * 2 + (1,) * (img.ndim - 2)
+
+    # Zooming out
+    if zoom_factor < 1:
+        # Bounding box of the zoomed-out image within the output array
+        zh = int(np.round(h * zoom_factor))
+        zw = int(np.round(w * zoom_factor))
+        top = (h - zh) // 2
+        left = (w - zw) // 2
+        # Zero-padding
+        out = np.zeros_like(img)
+        out[top:top + zh, left:left + zw] = zoom(img, zoom_tuple, **kwargs)
+
+    # Zooming in
+    elif zoom_factor > 1:
+        # Bounding box of the zoomed-in region within the input array
+        zh = int(np.round(h / zoom_factor))
+        zw = int(np.round(w / zoom_factor))
+        top = (h - zh) // 2
+        left = (w - zw) // 2
+        out = zoom(img[top:top + zh, left:left + zw], zoom_tuple, **kwargs)
+        # `out` might still be slightly larger than `img` due to rounding, so
+        # trim off any extra pixels at the edges
+        trim_top = ((out.shape[0] - h) // 2)
+        trim_left = ((out.shape[1] - w) // 2)
+        if trim_top < 0 or trim_left < 0:
+            temp = np.zeros_like(img)
+            temp[:out.shape[0], :out.shape[1]] = out
+            out = temp
+        else:
+            out = out[trim_top:trim_top + h, trim_left:trim_left + w]
+
+    # If zoom_factor == 1, just return the input array
+    else:
+        out = img
+    return out
+
+
+def ADI():
+    """
+
+    This function needs to be updated!!!
+
+    First median collapsing a time cube of all the raw dither images to a get a static PSF of the virtual grid. For
+    each dither derotate the static PSF and isolate the relevant area. Subtract that static reference from the
+    median of the derorated dither
+
+    :return:
+    """
+
     obsdir = 'Singles/KappaAnd_dither+lasercal/wavecal_files'
     ditherlog = 'KAnd_1545626974_dither.log'
     target = '* Kap And'
@@ -63,3 +125,80 @@ if __name__ == '__main__':
     plt.imshow(diff, origin='lower')
     plt.show()
 
+
+def SDI():
+    """
+
+    Median collapse a tesseract along the time dimension to produce a spectral cube with minimal hot pixels. Then
+    radially scale the channels and median collapse to produce the reference PSF. Scale and bubtract that PSF from the
+    spectral cube and median collpase to form an image. Needs to be verified
+
+    """
+
+    matplotlib.use('QT5Agg', force=True)
+    matplotlib.rcParams['backend'] = 'Qt5Agg'
+
+    parser = argparse.ArgumentParser(description='Photon Drizzling Utility')
+    parser.add_argument('cfg', type=str, help='The configuration file')
+    parser.add_argument('-wl', type=float, dest='wvlMin', help='', default=850)
+    parser.add_argument('-wh', type=float, dest='wvlMax', help='', default=1100)
+    parser.add_argument('-t0', type=int, dest='startt', help='', default=0)
+    parser.add_argument('-it', type=int, dest='intt', help='', default=60)
+    args = parser.parse_args()
+
+    # set up logging
+    # mkidpipeline.logtoconsole()
+    log_format = "%(levelname)s : %(message)s"
+    pipelinelog.create_log('mkidpipeline', console=True, fmt=log_format, level="INFO")
+
+    # getLogger('mkidpipeline.hdf.photontable').setLevel('info')
+
+    # load as a task configuration
+    cfg = mkidpipeline.config.load_task_config(args.cfg)
+
+    wvlMin = args.wvlMin
+    wvlMax = args.wvlMax
+    startt = args.startt
+    intt = args.intt
+    pixfrac = cfg.drizzler.pixfrac
+    dither = cfg.dither
+
+    nwvlbins = 5
+    wsamples = np.linspace(wvlMin, wvlMax, nwvlbins + 1)
+    scale_list = wsamples[::-1] * 2. / (wvlMax + wvlMin)
+
+    # Get tesseract of data
+    tess, drizwcs = form(dither, 'temporal', virPixStar=(20, 20), wvlMin=wvlMin, wvlMax=wvlMax,
+                         startt=startt, intt=intt, pixfrac=pixfrac, nwvlbins=nwvlbins)
+
+    # Get median spectral cube
+    mask_tess = np.ma.masked_where(tess == 0, tess)
+    medDither = np.ma.median(mask_tess, axis=0).filled(0)
+
+    # Inspect the spectral cube
+    for i in range(nwvlbins):
+        show = True if i == nwvlbins - 1 else False
+        pretty_plot(medDither[i], drizwcs.wcs.cdelt[0], drizwcs.wcs.crval, vmin=1, vmax=10, show=show)
+
+    fits.writeto(cfg.dither.name + '_med.fits', medDither, drizwcs.to_header(), overwrite=True)
+
+    # Using PCA doesn't appear to work well
+    # SDI = pca.pca(medDither, angle_list=np.zeros((medDither.shape[0])), scale_list=scale_list)
+
+    # Do it manually
+    scale_cube = np.zeros_like(medDither)
+    for i in range(nwvlbins):
+        scale_cube[i] = clipped_zoom(medDither[i], scale_list[i])
+        show = True if i == nwvlbins - 1 else False
+        pretty_plot(scale_cube[i], drizwcs.wcs.cdelt[0], drizwcs.wcs.crval, vmin=1, vmax=10, show=show)
+
+    ref = np.median(scale_cube, axis=0)
+    SDI = medDither - ref
+
+    pretty_plot(SDI, drizwcs.wcs.cdelt[0], drizwcs.wcs.crval, vmin=1, vmax=10)
+
+    fits.writeto(cfg.dither.name + '_SDI.fits', SDI, drizwcs.to_header(), overwrite=True)
+
+
+if __name__ == '__main__':
+    SDI()
