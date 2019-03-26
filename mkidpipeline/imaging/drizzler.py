@@ -55,10 +55,13 @@ class DitherDescription(object):
 
     rotate determines if the effective integrations are pupil stablised or not
 
-    TODO implement center of rotation
+
+    [1] Smart, W. M. 1962, Spherical Astronomy, (Cambridge: Cambridge University Press), p. 55
+
     """
 
-    def __init__(self, dither, virPixStar=None, observatory='Subaru', target='* kap And', derotate=True):
+    def __init__(self, dither, ConnexOrigin2COR=None, observatory='Subaru', target='* kap And',
+                 determine_min_timestep=False, suggested_time_step=1):
         self.description = dither
         self.target = target
         try:
@@ -67,42 +70,185 @@ class DitherDescription(object):
             pipelinelog.getLogger(__name__).warning('Unable to resolve coordinates for target name {target}, using (0,0).')
             self.coords = self.SkyCoord('0 deg', '0 deg')
         self.starRA, self.starDec = self.coords.ra.deg, self.coords.dec.deg
-        if virPixStar is None:
-            virPixStar = (0, 0)
+        if ConnexOrigin2COR is None:
+            ConnexOrigin2COR = (0, 0)
+        assert suggested_time_step < dither.inttime, 'You must have at least a time sample per dither'
 
-        self.virPixStar = np.array([list(virPixStar)]).T
+        self.ConnexOrigin2COR = np.array([list(ConnexOrigin2COR)]).T
 
-        self.centroids = ditherp_2_pixel(dither.pos)
-        self.cenRes = self.centroids - self.virPixStar
+        self.dith_pix_offset = ditherp_2_pixel(dither.pos)
+        self.cenRes = self.dith_pix_offset - self.ConnexOrigin2COR
         self.xCenRes, self.yCenRes = self.cenRes
         inst_info = dither.obs[0].instrument_info
         self.xpix = inst_info.beammap.ncols
         self.ypix = inst_info.beammap.nrows
         self.platescale = inst_info.platescale.to(u.deg).value  # 10 mas
+        self.apo = Observer.at_site(observatory)
 
-        times = np.array([o.start for o in dither.obs])
-        site = EarthLocation.of_site(observatory)
-        apo = Observer.at_site(observatory)
-        altaz = apo.altaz(astropy.time.Time(val=times, format='unix'), self.coords)
+        if determine_min_timestep:
+            min_timestep = self.calc_min_timesamp()
+
+            # sometimes the min timestep can be ~100s of seconds. We need it to be at least shorter
+            # than the dith exposure time
+            self.timestep = min(suggested_time_step, min_timestep)
+        else:
+            self.timestep = suggested_time_step
+
+        pipelinelog.getLogger(__name__).debug(
+            "Timestep to be used {}".format(self.timestep))
+
+    def calc_min_timesamp(self):
+        # get the field rotation rate at the start of each dither
+        dith_start_times = np.array([o.start for o in dither.obs])
+
+        site = EarthLocation.of_site(self.observatory)
+        altaz = self.apo.altaz(astropy.time.Time(val=dith_start_times, format='unix'), self.coords)
         earthrate = 2 * np.pi / u.sday.to(u.second)
-        rot_rate = earthrate * np.cos(site.geodetic.lat.rad) * np.cos(altaz.az.radian) / np.cos(altaz.alt.radian)
-        rot_rate *= derotate
 
-        self.dithHAs = [np.trapz(rot_rate[:ix], x=times[:ix] - times[0]) for ix in range(1, len(times) + 1)]
+        lat = site.geodetic.lat.rad
+        az = altaz.az.radian
+        alt = altaz.alt.radian
 
-        pipelinelog.getLogger(__name__).debug("HAs: %s", self.dithHAs)
+        # Smart 1962
+        dith_start_rot_rates = earthrate * np.cos(lat) * np.cos(az) / np.cos(alt)
 
-    def plot(self):
-        rotationMatrix = np.array([[np.cos(self.dithHAs), -np.sin(self.dithHAs)],
-                                   [np.sin(self.dithHAs), np.cos(self.dithHAs)]]).T
+        # get the minimum required timestep. One that would produce 1 pixel displacement at the
+        # center of furthest dither
+        dith_dists = np.sqrt(self.xCenRes**2 + self.yCenRes**2)
+        pix_disp = 1.
+        dith_angle = np.arctan(pix_disp/dith_dists)
+        min_timestep = min(dith_angle/abs(dith_start_rot_rates))
 
-        centroidRotated = (np.dot(rotationMatrix, np.array([self.xCenRes, self.yCenRes])).diagonal(axis1=0, axis2=2) +
-                           [self.virPixStar[0], self.virPixStar[1]])
+        pipelinelog.getLogger(__name__).debug("Minimum required time step calculated to be {}".format(min_timestep))
 
-        plt.plot(-self.centroids[0], -self.centroids[1], '-o')
-        plt.plot(-self.virPixStar[0], -self.virPixStar[1], marker='x')
-        plt.plot(-centroidRotated[0], -centroidRotated[1], '-o')
-        plt.show()
+        return min_timestep
+
+    # def plot(self):
+    #     rotationMatrix = np.array([[np.cos(self.parallactic_angles), -np.sin(self.parallactic_angles)],
+    #                                [np.sin(self.parallactic_angles), np.cos(self.parallactic_angles)]]).T
+    #
+    #     centroidRotated = (np.dot(rotationMatrix, np.array([self.xCenRes, self.yCenRes])).diagonal(axis1=0, axis2=2) +
+    #                        [self.ConnexOrigin2COR[0], self.ConnexOrigin2COR[1]])
+    #
+    #     plt.plot(-self.dith_pix_offset[0], -self.dith_pix_offset[1], '-o')
+    #     plt.plot(-self.ConnexOrigin2COR[0], -self.ConnexOrigin2COR[1], marker='x')
+    #     plt.plot(-centroidRotated[0], -centroidRotated[1], '-o')
+    #     plt.show()
+
+def get_wcs(x, y, ditherdesc, ditherind, nxpix=146, nypix=140, platescale=0.01 / 3600., derotate=True):
+    dither = ditherdesc.description
+    sample_times = np.arange(dither.obs[ditherind].start,
+                             dither.obs[ditherind].stop,
+                             ditherdesc.timestep)
+
+    if derotate:
+        reformatted_times = astropy.time.Time(val=sample_times, format='unix')
+        parallactic_angles = ditherdesc.apo.parallactic_angle(reformatted_times, ditherdesc.coords).value  # radians
+
+    else:
+        reformatted_mid_time = astropy.time.Time(val=(dither.obs[0].start + dither.obs[-1].stop)/2, format='unix')
+        parallactic_angles = np.ones_like(sample_times) * ditherdesc.apo.parallactic_angle(reformatted_mid_time,
+                                                                                           ditherdesc.coords).value  # radians
+
+    pipelinelog.getLogger(__name__).debug("Parallactic angles: %s", parallactic_angles)
+
+    obs_wcs_seq = np.empty(sample_times)
+    for t, pa in enumerate(parallactic_angles):
+        rotation_matrix = np.array([[np.cos(pa), -np.sin(pa)],
+                                   [np.sin(pa), np.cos(pa)]])
+
+        offset_connex_frame = ditherdesc.dith_pix_offset[ditherind]
+        offset_COR_frame = offset_connex_frame - ditherdesc.ConnexOrigin2COR
+        offset_derotate_frame = np.dot(rotation_matrix, offset_COR_frame)
+
+        w = wcs.WCS(naxis=2)
+        w.wcs.crpix = [nxpix / 2., nypix / 2.]
+        w.wcs.ctype = ["RA-----", "DEC----"]
+        w._naxis1 = nxpix
+        w._naxis2 = nypix
+
+        w.wcs.crval = offset_derotate_frame * platescale + np.array([ditherdesc.coords.ra.deg,
+                                                                     ditherdesc.coords.dec.deg])
+        w.wcs.cd = rotation_matrix.T * platescale
+        print(w)
+        obs_wcs_seq[t] = w
+
+    return obs_wcs_seq
+
+#
+# def get_wcs2(x, y, ditherdesc, ditherind, nxpix=146, nypix=140, toa_rotation=False, randoffset=False, nPhot=1,
+#             platescale=0.01 / 3600.):
+#     """
+#     :param timestamps:
+#     :param xPhotonPixels:
+#     :param yPhotonPixels:
+#     :param ditherind:
+#     :param ditherdesc:
+#     :param toa_rotation:
+#     If False each dither position is a fixed orientation. If True the HA of each photon receives an additional
+#     contribution based on the TOA allowing for rotation effects during each dither integration.
+#
+#     Add uniform random dither to each photon, distributed over a square
+#     area of the same size and orientation as the originating pixel at
+#     the time of observation (assume RA and dec are defined at center of pixel).
+#
+#     :return:
+#     """
+#
+#     if toa_rotation:
+#         raise NotImplementedError
+#         # TODO update this rot_rate to altaz model
+#         earthrate = 1. / 86164.1 * 2 * np.pi  # * 500
+#         obs_const = earthrate * np.cos(np.deg2rad(19.7))
+#         rot_rate = obs_const * np.cos(az) / np.cos(alt)
+#         photHAs = time * 1e-6 * rot_rate
+#
+#         hourangles = ha_ref + photHAs
+#
+#         parallactic_angles = np.array([[np.cos(parallactic_angles), -np.sin(parallactic_angles)],
+#                                        [np.sin(parallactic_angles), np.cos(parallactic_angles)]]).T
+#
+#         dith_pix_offset = np.array([-ditherdesc.xCenRes[ditherind] + x - nxpix / 2,
+#                               -ditherdesc.yCenRes[ditherind] + y - nypix / 2])
+#
+#     else:
+#
+#         parallactic_angle = ditherdesc.parallactic_angles[ditherind]
+#
+#         rotationMatrix = np.array([[np.cos(parallactic_angle), -np.sin(parallactic_angle)],
+#                                    [np.sin(parallactic_angle), np.cos(parallactic_angle)]])
+#
+#         # put each photon from the dither into its raster location on the virtual grid
+#         vgrid_photons = np.array([ditherdesc.dith_pix_offset[0][ditherind] + x - nxpix / 2,
+#                                   ditherdesc.dith_pix_offset[1][ditherind] + y - nypix / 2])
+#
+#         # offset these to the center of rotation
+#         cor_photons = vgrid_photons - ditherdesc.ConnexOrigin2COR
+#
+#         # rotate that virtual grid so that that those photons now occupy the part of the sky that was sampled
+#         rotated_vgrid = np.dot(rotationMatrix, cor_photons)
+#
+#         # undo the COR offset
+#         skyframe_photons = rotated_vgrid + ditherdesc.ConnexOrigin2COR
+#
+#     # Add the photon arcsecond offset to the centroid offset.
+#     photDecDeg = ditherdesc.starDec + platescale * skyframe_photons[1]
+#     photRADeg = ditherdesc.starRA + platescale * skyframe_photons[0]
+#
+#     if randoffset:
+#         np.random.seed(42)  # so random values always same
+#         xRand = np.random.rand(nPhot) * plateScale - plateScale / 2.0
+#         yRand = np.random.rand(nPhot) * plateScale - plateScale / 2.0  # Not the same array!
+#         ditherRAs = xRand * np.cos(hourangles) - yRand * np.sin(hourangles)
+#         ditherDecs = yRand * np.cos(hourangles) + xRand * np.sin(hourangles)
+#     else:
+#         ditherRAs = 0
+#         ditherDecs = 0
+#
+#     photRADeg = photRADeg + ditherRAs
+#     photDecDeg = photDecDeg + ditherDecs
+#
+#     return photRADeg, photDecDeg
 
 
 class Drizzler(object):
@@ -128,7 +274,7 @@ class Drizzler(object):
         self.starRA = metadata.coords.ra.deg
         self.starDec = metadata.coords.dec.deg
         self.vPlateScale = metadata.platescale
-        self.virPixStar = metadata.virPixStar
+        self.ConnexOrigin2COR = metadata.ConnexOrigin2COR
 
         raMin, raMax, decMin, decMax = [], [], [], []
         for photonlist in photonlists:
@@ -175,7 +321,7 @@ class Drizzler(object):
         self.w = wcs.WCS(naxis=2)
         self.w.wcs.crpix = np.array([self.nPixRA / 2., self.nPixDec / 2.])
         if center_on_star:
-            self.w.wcs.crpix -= np.array([self.virPixStar[0][0], self.virPixStar[1][0]])
+            self.w.wcs.crpix -= np.array([self.ConnexOrigin2COR[0][0], self.ConnexOrigin2COR[1][0]])
         self.w.wcs.cdelt = np.array([self.vPlateScale, self.vPlateScale])
         self.w.wcs.crval = [self.starRA, self.starDec]
         self.w.wcs.ctype = ["RA-----", "DEC----"]
@@ -283,7 +429,7 @@ class TemporalDrizzler(Drizzler):
         pipelinelog.getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
         # TODO add the wavelength WCS
 
-    def makeHyper(self, file, applyweights=False, applymask=False, maxCountsCut=200):
+    def makeHyper(self, file, applyweights=False, applymask=True, maxCountsCut=10):
         if applyweights:
             weights = file['weight']
         else:
@@ -318,28 +464,42 @@ class SpatialDrizzler(Drizzler):
     def __init__(self, photonlists, metadata, pixfrac=1.):
         Drizzler.__init__(self, photonlists, metadata)
         self.driz = stdrizzle.Drizzle(outwcs=self.w, pixfrac=pixfrac)
+        self.timestep = ditherdesc.description.timestep
 
     def run(self, save_file=None, applymask=False):
         for ix, file in enumerate(self.files):
             pipelinelog.getLogger(__name__).debug('Processing %s', file)
+
             tic = time.clock()
-            insci, inwcs = self.makeImage(file, applymask=True)
-            if applymask:
-                insci *= ~self.hot_mask
-            pipelinelog.getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
-            inwht = (insci != 0).astype(int)
-            self.driz.add_image(insci, inwcs, inwht=inwht)
-        if save_file:
-            self.driz.write(save_file)
+            # insci, inwcs = self.makeImage(file, applymask=True)
+
+            times = np.arange(0, len(file['obs_wcs_seq']) + 1, self.timestep)
+            for t, inwcs in enumerate(file['obs_wcs_seq']):
+                insci = self.makeImage(file, (times[t], times[t+1]),  applymask=True)
+
+                if applymask:
+                    insci *= ~self.hot_mask
+                pipelinelog.getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
+                inwht = (insci != 0).astype(int)
+                self.driz.add_image(insci, inwcs, inwht=inwht)
+            if save_file:
+                self.driz.write(save_file)
 
         # TODO introduce total_exp_time variable and complete these steps
 
-    def makeImage(self, file, applyweights=True, applymask=False, maxCountsCut=10000):
+    def makeImage(self, file, (start, stop), applyweights=True, applymask=True, maxCountsCut=10000):
 
         weights = file['weight'] if applyweights else None
 
         # TODO mixing pixels and radians per variable names
-        thisImage, thisGridDec, thisGridRA = np.histogram2d(file['photDecRad'], file['photRARad'],
+        # thisImage, thisGridDec, thisGridRA = np.histogram2d(file['photDecRad'], file['photRARad'],
+        #                                                     weights=weights,
+        #                                                     bins=[self.ypix, self.xpix],
+        #                                                     normed=False)
+        #
+
+        exposure =
+        thisImage, _, _ = np.histogram2d(file['xPhotonPixels'], file['yPhotonPixels'],
                                                             weights=weights,
                                                             bins=[self.ypix, self.xpix],
                                                             normed=False)
@@ -355,14 +515,14 @@ class SpatialDrizzler(Drizzler):
             pipelinelog.getLogger(__name__).debug("Applying max pixel count cut")
             thisImage *= thisImage < maxCountsCut
 
-        w = wcs.WCS(naxis=2)
-        w.wcs.crpix = [self.xpix / 2., self.ypix / 2.]
-        w.wcs.cdelt = np.array([thisGridRA[1] - thisGridRA[0], thisGridDec[1] - thisGridDec[0]])
-        w.wcs.crval = [thisGridRA[self.xpix // 2], thisGridDec[self.ypix // 2]]
-        w.wcs.ctype = ["RA-----", "DEC----"]
-        w._naxis1 = self.xpix
-        w._naxis2 = self.ypix
-        return thisImage, w
+        # w = wcs.WCS(naxis=2)
+        # w.wcs.crpix = [self.xpix / 2., self.ypix / 2.]
+        # w.wcs.cdelt = np.array([thisGridRA[1] - thisGridRA[0], thisGridDec[1] - thisGridDec[0]])
+        # w.wcs.crval = [thisGridRA[self.xpix // 2], thisGridDec[self.ypix // 2]]
+        # w.wcs.ctype = ["RA-----", "DEC----"]
+        # w._naxis1 = self.xpix
+        # w._naxis2 = self.ypix
+        return thisImage
 
     def get_persistant_bad(self, metadata, dithfrac=0.1, min_count=500, plot=True):
         '''
@@ -375,7 +535,7 @@ class SpatialDrizzler(Drizzler):
         :return:
 
         '''
-        ndithers = len(metadata.dithHAs)
+        ndithers = len(metadata.parallactic_angles)
         hot_cube = np.zeros((ndithers, metadata.ypix, metadata.xpix))
         dith_cube = np.zeros_like(hot_cube)
         for ix, file in enumerate(self.files):
@@ -389,79 +549,6 @@ class SpatialDrizzler(Drizzler):
         if plot:
             plt.imshow(self.hot_mask, origin='lower')
             plt.show(block=True)
-
-def get_wcs(x, y, ditherdesc, ditherind, nxpix=146, nypix=140, toa_rotation=False, randoffset=False, nPhot=1,
-            platescale=0.01 / 3600.):
-    """
-    :param timestamps:
-    :param xPhotonPixels:
-    :param yPhotonPixels:
-    :param ditherind:
-    :param ditherdesc:
-    :param toa_rotation:
-    If False each dither position is a fixed orientation. If True the HA of each photon receives an additional
-    contribution based on the TOA allowing for rotation effects during each dither integration.
-
-    Add uniform random dither to each photon, distributed over a square
-    area of the same size and orientation as the originating pixel at
-    the time of observation (assume RA and dec are defined at center of pixel).
-
-    :return:
-    """
-
-    if toa_rotation:
-        raise NotImplementedError
-        # TODO update this rot_rate to altaz model
-        earthrate = 1. / 86164.1 * 2 * np.pi  # * 500
-        obs_const = earthrate * np.cos(np.deg2rad(19.7))
-        rot_rate = obs_const * np.cos(az) / np.cos(alt)
-        photHAs = time * 1e-6 * rot_rate
-
-        hourangles = ha_ref + photHAs
-
-        rotationMatrix = np.array([[np.cos(hourangles), -np.sin(hourangles)],
-                                   [np.sin(hourangles), np.cos(hourangles)]]).T
-
-        centroids = np.array([-ditherdesc.xCenRes[ditherind] + x - nxpix / 2,
-                              -ditherdesc.yCenRes[ditherind] + y - nypix / 2])
-
-    else:
-        hourangles = ditherdesc.dithHAs[ditherind]
-
-        rotationMatrix = np.array([[np.cos(hourangles), -np.sin(hourangles)],
-                                   [np.sin(hourangles), np.cos(hourangles)]])
-
-        # put each photon from the dither into its raster location on the virtual grid
-        vgrid_photons = np.array([ditherdesc.centroids[0][ditherind] + x - nxpix / 2,
-                                  ditherdesc.centroids[1][ditherind] + y - nypix / 2])
-
-        # offset these to the center of rotation
-        cor_photons = vgrid_photons - ditherdesc.virPixStar
-
-        # rotate that virtual grid so that that those photons now occupy the part of the sky that was sampled
-        rotated_vgrid = np.dot(rotationMatrix, cor_photons)
-
-        # undo the COR offset
-        skyframe_photons = rotated_vgrid + ditherdesc.virPixStar
-
-    # Add the photon arcsecond offset to the centroid offset.
-    photDecDeg = ditherdesc.starDec + platescale * skyframe_photons[1]
-    photRADeg = ditherdesc.starRA + platescale * skyframe_photons[0]
-
-    if randoffset:
-        np.random.seed(42)  # so random values always same
-        xRand = np.random.rand(nPhot) * plateScale - plateScale / 2.0
-        yRand = np.random.rand(nPhot) * plateScale - plateScale / 2.0  # Not the same array!
-        ditherRAs = xRand * np.cos(hourangles) - yRand * np.sin(hourangles)
-        ditherDecs = yRand * np.cos(hourangles) + xRand * np.sin(hourangles)
-    else:
-        ditherRAs = 0
-        ditherDecs = 0
-
-    photRADeg = photRADeg + ditherRAs
-    photDecDeg = photDecDeg + ditherDecs
-
-    return photRADeg, photDecDeg
 
 
 def annotate_axis(im, ax, width, platescale, cenCoords):
@@ -485,7 +572,7 @@ def annotate_axis(im, ax, width, platescale, cenCoords):
     ax.set_ylabel('Dec ($^{\circ}$)')
 
 
-def pretty_plot(image, platescale, cenCoords, log_scale=False, vmin=None, vmax=None):
+def pretty_plot(image, platescale, cenCoords, log_scale=False, vmin=None, vmax=None, show=True):
     if log_scale:
         norm = LogNorm()
     else:
@@ -496,12 +583,12 @@ def pretty_plot(image, platescale, cenCoords, log_scale=False, vmin=None, vmax=N
     annotate_axis(cax, ax, image.shape[0], platescale, cenCoords)
     cb = plt.colorbar(cax)
     cb.ax.set_title('Counts')
-    plt.show(block=True)
+    if show:
+        plt.show(block=True)
 
 
-def write_fits(image, filename):
-    hdu = fits.PrimaryHDU(image)
-    hdu.writeto(filename, overwrite=True)
+# def write_fits(data, hdr, filename):
+#     fits.writeto(filename, image, hdr, overwrite=True)
 
 
 def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{}.pkl',
@@ -516,13 +603,12 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
             raise FileNotFoundError
         with open(pkl_save, 'rb') as f:
             data = pickle.load(f)
-        print('loaded', pkl_save)
+            pipelinelog.getLogger(__name__).info('loaded', pkl_save)
     except FileNotFoundError:
         begin = time.time()
         filenames = [o.h5 for o in ditherdesc.description.obs]
         if not filenames:
-            # TODO use logging!
-            print('No obsfiles found')
+            pipelinelog.getLogger(__name__).info('No obsfiles found')
 
         def mp_worker(file, q, startt=startt, intt=intt, startw=wvlMin, stopw=wvlMax):
             obsfile = ObsFile(file)
@@ -537,7 +623,7 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
 
             q.put({'file': file, 'timestamps': photons["Time"], 'xPhotonPixels': x, 'yPhotonPixels': y,
                    'wavelengths': photons["Wavelength"], 'weight': weights, 'usablemask': usableMask})
-            pipelinelog.getLogger(__name__).info('got to here')
+
         pipelinelog.getLogger(__name__).info('stacking number of dithers: %i'.format(ndither))
 
         jobs = []
@@ -570,20 +656,21 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
 
     # Do the dither
     for i, d in enumerate(data):
-        radec = get_wcs(d['xPhotonPixels'], d['yPhotonPixels'], ditherdesc, i,
-                        nxpix=ditherdesc.xpix, nypix=ditherdesc.ypix, toa_rotation=False,
-                        randoffset=False, nPhot=1, platescale=ditherdesc.platescale)
-        d['photRARad'], d['photDecRad'] = radec
+        d['obs_wcs_seq'] = get_wcs(d['xPhotonPixels'], d['yPhotonPixels'], ditherdesc, i,
+                                   nxpix=ditherdesc.xpix, nypix=ditherdesc.ypix,
+                                   platescale=ditherdesc.platescale)
+        # d['photRARad'], d['photDecRad'] = radec
 
     return data
 
 
-def form(dither, dim='spatial', derotate=True, virPixStar=None, wvlMin=850, wvlMax=1100, startt=0, intt=60, pixfrac=.5):
+def form(dither, dim='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=850, wvlMax=1100, startt=0, intt=60, pixfrac=.5,
+         nwvlbins=1, timestep=1.):
     """
 
     :param dim: 2->image, 3->spectral cube, 4->sequence of spectral cubes. If drizzle==False then dim is ignored
     :param derotate: 0 or 1
-    :param virPixStar: None or array/tuple
+    :param ConnexOrigin2COR: None or array/tuple
     :param wvlMin:
     :param wvlMax:
     :param startt:
@@ -594,7 +681,7 @@ def form(dither, dim='spatial', derotate=True, virPixStar=None, wvlMin=850, wvlM
     :return:
     """
 
-    ditherdesc = DitherDescription(dither, derotate=derotate, target=dither.name, virPixStar=virPixStar)
+    ditherdesc = DitherDescription(dither, derotate=derotate, target=dither.name, ConnexOrigin2COR=ConnexOrigin2COR)
     data = load_data(ditherdesc, wvlMin, wvlMax, startt, intt)
 
     if dim not in ['spatial', 'spectral', 'temporal']:
@@ -612,7 +699,7 @@ def form(dither, dim='spatial', derotate=True, virPixStar=None, wvlMin=850, wvlM
         raise NotImplementedError
 
     elif dim == 'temporal':
-        tdriz = TemporalDrizzler(data, ditherdesc, pixfrac=pixfrac, nwvlbins=1, timestep=1.,
+        tdriz = TemporalDrizzler(data, ditherdesc, pixfrac=pixfrac, nwvlbins=nwvlbins, timestep=timestep,
                                  wvlMin=wvlMin, wvlMax=wvlMax, startt=startt, intt=intt)
         tdriz.run()
         outsci = tdriz.totHypCube
@@ -626,7 +713,7 @@ def form(dither, dim='spatial', derotate=True, virPixStar=None, wvlMin=850, wvlM
 
 def get_star_offset(dither, wvlMin, wvlMax, startt, intt):
     '''
-    Get the virPixStar offset parameter for DitherDescription
+    Get the ConnexOrigin2COR offset parameter for DitherDescription
 
     :param dither:
     :param wvlMin:
@@ -638,7 +725,7 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt):
 
     fig, ax = plt.subplots()
 
-    image, _ = form(dither=dither, dim='spatial', virPixStar=(0,0), derotate=False,
+    image, _ = form(dither=dither, dim='spatial', ConnexOrigin2COR=(0,0), derotate=False,
                     wvlMin=wvlMin, wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=1)
 
     print("Click on the four satellite speckles and the star")
@@ -658,9 +745,10 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt):
     plt.show(block=True)
 
     star_pix = np.array([np.mean(xlocs), np.mean(ylocs)]).astype(int)
-    virPixStar = star_pix - np.array(image.shape)//2
+    ConnexOrigin2COR = star_pix - np.array(image.shape)//2
 
-    return virPixStar
+    return ConnexOrigin2COR
+
 
 if __name__ == '__main__':
     matplotlib.use('QT5Agg', force=True)
@@ -676,9 +764,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # set up logging
-    # mkidpipeline.logtoconsole()
-    log_format = "%(levelname)s : %(message)s"
-    pipelinelog.create_log('mkidpipeline', console=True, fmt=log_format, level="INFO")
+    mkidpipeline.logtoconsole()
+
+    pipelinelog.getLogger('mkidpipeline.hdf.photontable').setLevel('INFO')
 
     # load as a task configuration
     cfg = mkidpipeline.config.load_task_config(args.cfg)
@@ -690,20 +778,21 @@ if __name__ == '__main__':
     pixfrac = cfg.drizzler.pixfrac
     dither = cfg.dither
 
-    virPixStar = get_star_offset(dither, wvlMin, wvlMax, startt, intt)
-    image, drizwcs = form(dither, 'spatial', virPixStar=virPixStar, wvlMin=wvlMin,
+    # ConnexOrigin2COR = get_star_offset(dither, wvlMin, wvlMax, startt, intt)
+    ConnexOrigin2COR = (20,20)
+
+    image, drizwcs = form(dither, 'spatial', ConnexOrigin2COR=ConnexOrigin2COR, wvlMin=wvlMin,
                           wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac)
 
     pretty_plot(image, drizwcs.wcs.cdelt[0], drizwcs.wcs.crval, vmin=5, vmax=600)
-    write_fits(image, cfg.dither.name + '_mean.fits')
 
-    tess, drizwcs = form(dither, 'temporal', virPixStar=virPixStar, wvlMin=wvlMin,
-                         wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac)
+    fits.writeto(cfg.dither.name + '_mean.fits', image, drizwcs.to_header(), overwrite=True)
 
-    y = np.ma.masked_where(tess[:, 0] == 0, tess[:, 0])
-    medDither = np.ma.median(y, axis=0).filled(0)
+    tess, drizwcs = form(dither, 'temporal', ConnexOrigin2COR=ConnexOrigin2COR, wvlMin=wvlMin,
+                         wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac, nwvlbins=1)
+
+    #Get median collpased image
+    mask_cube = np.ma.masked_where(tess[:, 0] == 0, tess[:, 0])
+    medDither = np.ma.median(mask_cube, axis=0).filled(0)
 
     pretty_plot(medDither, drizwcs.wcs.cdelt[0], drizwcs.wcs.crval, vmin=1, vmax=10)
-    pretty_plot(medDither, drizwcs.wcs.cdelt[0], drizwcs.wcs.crval, log_scale=True)
-    write_fits(gaussian_filter(medDither, 1), cfg.dither.target + '_med1.fits')  # TODO WHY!!!!!!???
-    write_fits(gaussian_filter(medDither, 0.5), cfg.dither.target + '_meddot5.fits')
