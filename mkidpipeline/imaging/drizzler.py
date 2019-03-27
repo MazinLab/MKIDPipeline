@@ -143,7 +143,7 @@ def get_wcs(x, y, ditherdesc, ditherind, nxpix=146, nypix=140, platescale=0.01 /
 
     if derotate:
         reformatted_times = astropy.time.Time(val=sample_times, format='unix')
-        parallactic_angles = ditherdesc.apo.parallactic_angle(reformatted_times, ditherdesc.coords).value  # radians
+        parallactic_angles = ditherdesc.apo.parallactic_angle(reformatted_times, ditherdesc.coords).value # radians
 
     else:
         reformatted_mid_time = astropy.time.Time(val=(dither.obs[0].start + dither.obs[-1].stop)/2, format='unix')
@@ -152,13 +152,13 @@ def get_wcs(x, y, ditherdesc, ditherind, nxpix=146, nypix=140, platescale=0.01 /
 
     pipelinelog.getLogger(__name__).debug("Parallactic angles: %s", parallactic_angles)
 
-    obs_wcs_seq = np.empty(sample_times)
+    obs_wcs_seq = []#np.empty(sample_times)
     for t, pa in enumerate(parallactic_angles):
         rotation_matrix = np.array([[np.cos(pa), -np.sin(pa)],
                                    [np.sin(pa), np.cos(pa)]])
 
-        offset_connex_frame = ditherdesc.dith_pix_offset[ditherind]
-        offset_COR_frame = offset_connex_frame - ditherdesc.ConnexOrigin2COR
+        offset_connex_frame = ditherdesc.dith_pix_offset[:, ditherind]
+        offset_COR_frame = offset_connex_frame - ditherdesc.ConnexOrigin2COR.reshape(2)
         offset_derotate_frame = np.dot(rotation_matrix, offset_COR_frame)
 
         w = wcs.WCS(naxis=2)
@@ -167,11 +167,11 @@ def get_wcs(x, y, ditherdesc, ditherind, nxpix=146, nypix=140, platescale=0.01 /
         w._naxis1 = nxpix
         w._naxis2 = nypix
 
-        w.wcs.crval = offset_derotate_frame * platescale + np.array([ditherdesc.coords.ra.deg,
-                                                                     ditherdesc.coords.dec.deg])
+        derotated_sky = offset_derotate_frame * platescale
+        w.wcs.crval = derotated_sky + np.array([ditherdesc.coords.ra.deg, ditherdesc.coords.dec.deg])
         w.wcs.cd = rotation_matrix.T * platescale
         print(w)
-        obs_wcs_seq[t] = w
+        obs_wcs_seq.append(w)
 
     return obs_wcs_seq
 
@@ -276,22 +276,29 @@ class Drizzler(object):
         self.vPlateScale = metadata.platescale
         self.ConnexOrigin2COR = metadata.ConnexOrigin2COR
 
-        raMin, raMax, decMin, decMax = [], [], [], []
-        for photonlist in photonlists:
-            raMin.append(min(photonlist['photRARad']))
-            raMax.append(max(photonlist['photRARad']))
-            decMin.append(min(photonlist['photDecRad']))
-            decMax.append(max(photonlist['photDecRad']))
-        raMin = min(raMin)
-        raMax = max(raMax)
-        decMin = min(decMin)
-        decMax = max(decMax)
+        if self.nPixRA is None or self.nPixDec is None:
+            dith_cellestial_min = np.zeros((len(photonlists), 2))
+            dith_cellestial_max = np.zeros((len(photonlists), 2))
+            for ip, photonlist in enumerate(photonlists):
+                # find the max and min coordinate for each dither (assuming those occur at the beginning/end of
+                # the dither)
+                dith_cellestial_span = np.vstack((photonlist['obs_wcs_seq'][0].wcs.crval,
+                                                  photonlist['obs_wcs_seq'][-1].wcs.crval))
+                dith_cellestial_min[ip] = np.min(dith_cellestial_span, axis=0)  # takes the min of both ra and dec
+                dith_cellestial_max[ip] = np.max(dith_cellestial_span, axis=0)
 
-        # Set size of virtual grid to accommodate.
-        if self.nPixRA is None:
-            self.nPixRA = (2 * np.max((raMax-self.starRA, self.starRA-raMin))//self.vPlateScale).astype(int)
-        if self.nPixDec is None:
-            self.nPixDec = (2 * np.max((decMax-self.starDec, self.starDec-decMin))//self.vPlateScale).astype(int)
+            # find the min and max coordinate of all dithers
+            raMin = min(dith_cellestial_min[:, 0])
+            raMax = max(dith_cellestial_max[:, 0])
+            decMin = min(dith_cellestial_min[:, 1])
+            decMax = max(dith_cellestial_max[:, 1])
+
+            # Set size of virtual grid to accommodate.
+            max_detector_dist = np.sqrt(self.xpix ** 2 + self.ypix **2)
+            self.nPixRA = (2 * np.max((raMax-self.starRA, self.starRA-raMin))/self.vPlateScale + max_detector_dist).astype(int)
+            self.nPixDec = (2 * np.max((decMax-self.starDec, self.starDec-decMin))/self.vPlateScale + max_detector_dist).astype(int)
+
+
 
         if self.square_grid:
             nPix = max((self.nPixRA, self.nPixDec))
@@ -464,7 +471,7 @@ class SpatialDrizzler(Drizzler):
     def __init__(self, photonlists, metadata, pixfrac=1.):
         Drizzler.__init__(self, photonlists, metadata)
         self.driz = stdrizzle.Drizzle(outwcs=self.w, pixfrac=pixfrac)
-        self.timestep = ditherdesc.description.timestep
+        self.timestep = metadata.timestep
 
     def run(self, save_file=None, applymask=False):
         for ix, file in enumerate(self.files):
@@ -474,20 +481,22 @@ class SpatialDrizzler(Drizzler):
             # insci, inwcs = self.makeImage(file, applymask=True)
 
             times = np.arange(0, len(file['obs_wcs_seq']) + 1, self.timestep)
-            for t, inwcs in enumerate(file['obs_wcs_seq']):
-                insci = self.makeImage(file, (times[t], times[t+1]),  applymask=True)
+            for t, inwcs in enumerate(file['obs_wcs_seq'][:1]):
+                insci = self.makeImage(file, (times[t], times[t+1]), applymask=False)
 
                 if applymask:
                     insci *= ~self.hot_mask
                 pipelinelog.getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
                 inwht = (insci != 0).astype(int)
                 self.driz.add_image(insci, inwcs, inwht=inwht)
+            plt.imshow(self.driz.outsci, origin='lower', vmax=300)
+            plt.show()
             if save_file:
                 self.driz.write(save_file)
 
         # TODO introduce total_exp_time variable and complete these steps
 
-    def makeImage(self, file, (start, stop), applyweights=True, applymask=True, maxCountsCut=10000):
+    def makeImage(self, file, span, applyweights=False, applymask=False, maxCountsCut=10000):
 
         weights = file['weight'] if applyweights else None
 
@@ -498,11 +507,11 @@ class SpatialDrizzler(Drizzler):
         #                                                     normed=False)
         #
 
-        exposure =
         thisImage, _, _ = np.histogram2d(file['xPhotonPixels'], file['yPhotonPixels'],
                                                             weights=weights,
                                                             bins=[self.ypix, self.xpix],
                                                             normed=False)
+        thisImage = thisImage[:,::-1]
 
         if applymask:
             pipelinelog.getLogger(__name__).debug("Applying bad pixel mask")
@@ -592,8 +601,8 @@ def pretty_plot(image, platescale, cenCoords, log_scale=False, vmin=None, vmax=N
 
 
 def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{}.pkl',
-              tempdir='', usecache=True, clearcache=False):
-    ndither = len(ditherdesc.description.obs)  # len(dither.obs)
+              tempdir='', usecache=True, clearcache=False, derotate=True):
+    ndither = len(ditherdesc.description.obs)
 
     pkl_save = os.path.join(tempdir, tempfile.format(ditherdesc.target))
     if clearcache:  # TODO the cache must be autocleared if the query parameters would alter the contents
@@ -658,7 +667,7 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
     for i, d in enumerate(data):
         d['obs_wcs_seq'] = get_wcs(d['xPhotonPixels'], d['yPhotonPixels'], ditherdesc, i,
                                    nxpix=ditherdesc.xpix, nypix=ditherdesc.ypix,
-                                   platescale=ditherdesc.platescale)
+                                   platescale=ditherdesc.platescale, derotate=derotate)
         # d['photRARad'], d['photDecRad'] = radec
 
     return data
@@ -681,8 +690,8 @@ def form(dither, dim='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=850
     :return:
     """
 
-    ditherdesc = DitherDescription(dither, derotate=derotate, target=dither.name, ConnexOrigin2COR=ConnexOrigin2COR)
-    data = load_data(ditherdesc, wvlMin, wvlMax, startt, intt)
+    ditherdesc = DitherDescription(dither, target=dither.name, ConnexOrigin2COR=ConnexOrigin2COR)
+    data = load_data(ditherdesc, wvlMin, wvlMax, startt, intt, derotate=derotate)
 
     if dim not in ['spatial', 'spectral', 'temporal']:
         raise ValueError('Not calling one of the available functions')
