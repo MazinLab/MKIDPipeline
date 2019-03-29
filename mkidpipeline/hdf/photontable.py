@@ -30,8 +30,8 @@ getPixelLightCurve(self,*args,lastSec=-1, cadence=1, scaleByEffInt=True, **kwarg
 getPixelCountImage(self, firstSec=0, integrationTime= -1, wvlStart=None,wvlStop=None,applyWeight=True, applyTPFWeight=True, applyTimeMask=False, scaleByEffInt=False, flagToUse=0)
 getCircularAperturePhotonList(self, centerXCoord, centerYCoord, radius, firstSec=0, integrationTime=-1, wvlStart=None,wvlStop=None, flagToUse=0)
 _makePixelSpectrum(self, photonList, **kwargs)
-getSpectralCube(self, firstSec=0, integrationTime=-1, applySpecWeight=False, applyTPFWeight=False, wvlStart=700, wvlStop=1500,wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None, timeSpacingCut=None, flagToUse=0)
-getPixelSpectrum(self, xCoord, yCoord, firstSec=0, integrationTime= -1,applySpecWeight=False, applyTPFWeight=False, wvlStart=None, wvlStop=None,wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None,timeSpacingCut=None)
+getSpectralCube(self, firstSec=0, integrationTime=-1, applyWeight=False, applyTPFWeight=False, wvlStart=700, wvlStop=1500,wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None, timeSpacingCut=None, flagToUse=0)
+getPixelSpectrum(self, xCoord, yCoord, firstSec=0, integrationTime= -1,applyWeight=False, applyTPFWeight=False, wvlStart=None, wvlStop=None,wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None,timeSpacingCut=None)
 makeWvlBins(energyBinWidth=.1, wvlStart=700, wvlStop=1500)
 
 ====Data write functions for calibrating====
@@ -50,7 +50,6 @@ modifyHeaderEntry(self, headerTitle, headerValue)
 
 
 """
-import glob
 import os
 import warnings
 import time
@@ -70,12 +69,13 @@ from mkidcore.headers import PhotonCType, PhotonNumpyType
 from mkidcore.corelog import getLogger
 import mkidcore.pixelflags as pixelflags
 from mkidcore.pixelflags import h5FileFlags
-from PyPDF2 import PdfFileMerger, PdfFileReader
 import SharedArray
 
 import tables.parameters
 import tables.file
 import mkidcore.utils
+
+from astropy.io import fits
 
 import functools
 
@@ -668,9 +668,8 @@ class ObsFile(object):
         else:
             return np.asarray([x['counts'] for x in data])
 
-    # TODO standardize between applyWeight and applySpecWeight throughout file!
     def getPixelCountImage(self, firstSec=0, integrationTime=None, wvlStart=None, wvlStop=None, applyWeight=False,
-                            applyTPFWeight=False, scaleByEffInt=False, flagToUse=0):
+                            applyTPFWeight=False, scaleByEffInt=False, flagToUse=0, hdu=False):
         """
         Returns an image of pixel counts over the entire array between firstSec and firstSec + integrationTime. Can specify calibration weights to apply as
         well as wavelength range.
@@ -739,7 +738,11 @@ class ObsFile(object):
         toc2 = time.time()
         getLogger(__name__).debug('Histogrammed data in {:.2f} s, reformatting in {:.2f}'.format(toc2 - tic,
                                                                                                  toc2 - toc))
-        return {'image': image, 'effIntTime': effIntTime}
+        if hdu:
+            ret = fits.ImageHDU(data=image)
+            return ret
+        else:
+            return {'image': image, 'effIntTime': effIntTime}
 
     def getCircularAperturePhotonList(self, centerXCoord, centerYCoord, radius,
                                       firstSec=0, integrationTime=-1, wvlStart=None,
@@ -820,7 +823,7 @@ class ObsFile(object):
         """
         Makes a histogram using the provided photon list
         """
-        applySpecWeight = kwargs.pop('applySpecWeight', False)
+        applyWeight = kwargs.pop('applyWeight', False)
         applyTPFWeight = kwargs.pop('applyTPFWeight', False)
         wvlStart = kwargs.pop('wvlStart', None)
         wvlStop = kwargs.pop('wvlStop', None)
@@ -838,7 +841,7 @@ class ObsFile(object):
 
         weights = np.ones(len(wvlList))
 
-        if applySpecWeight:
+        if applyWeight:
             weights *= photonList['SpecWeight']
 
         if applyTPFWeight:
@@ -849,7 +852,7 @@ class ObsFile(object):
             spectrum, wvlBinEdges = np.histogram(wvlList, bins=self.defaultWvlBins, weights=weights)
 
         else:  # use specified bins
-            if applySpecWeight and self.info['isFlatCalibrated']:
+            if applyWeight and self.info['isFlatCalibrated']:
                 raise ValueError('Using flat cal, so flat cal bins must be used')
             elif wvlBinEdges is not None:
                 assert wvlBinWidth is None and energyBinWidth is None, 'Histogram bins are overspecified!'
@@ -872,9 +875,9 @@ class ObsFile(object):
         # if getEffInt is True:
         return {'spectrum': spectrum, 'wvlBinEdges': wvlBinEdges, 'rawCounts': rawCounts}
 
-    def getSpectralCube(self, firstSec=0, integrationTime=None, applySpecWeight=False, applyTPFWeight=False,
+    def getSpectralCube(self, firstSec=0, integrationTime=None, applyWeight=False, applyTPFWeight=False,
                         wvlStart=700, wvlStop=1500, wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None,
-                        flagToUse=0):
+                        flagToUse=0, hdu=False):
         """
         Return a time-flattened spectral cube of the counts integrated from firstSec to firstSec+integrationTime.
         If integration time is -1, all time after firstSec is used.
@@ -925,7 +928,7 @@ class ObsFile(object):
         # 3.8692047595977783 2.829094648361206
 
         weights = None
-        if applySpecWeight:
+        if applyWeight:
             weights = masterPhotonList['SpecWeight']
         if applyTPFWeight:
             if weights is not None:
@@ -968,17 +971,24 @@ class ObsFile(object):
         #     flag = self.beamFlagImage[xCoord, yCoord]
         #     #all the time
         #     photonList = masterPhotonList[resIDs == resID] if (flag | flagToUse) == flagToUse else emptyPhotonList
-        #     x = self._makePixelSpectrum(photonList, applySpecWeight=applySpecWeight, applyTPFWeight=applyTPFWeight,
+        #     x = self._makePixelSpectrum(photonList, applyWeight=applyWeight, applyTPFWeight=applyTPFWeight,
         #                                 wvlBinEdges=wvlBinEdges)
         #     cube2[xCoord, yCoord, :] = x['spectrum']
         #     rawCounts[xCoord, yCoord] = x['rawCounts']
         # toc = time.time()
         # getLogger(__name__).debug(('Cubed data in {:.2f} s using old'
         #                           ' approach. Cubes same {}').format(toc - tic, (cube==cube2).all()))
-        return {'cube': cube, 'wvlBinEdges': wvlBinEdges, 'effIntTime': effIntTime}
+
+        if hdu:
+            ret = fits.ImageHDU(data=cube)
+            getLogger(__name__).warning('Must integrate wavelength info into ImageHDU ctype kw and finish building hdu')
+            #TODO finish returning hdu
+            return ret
+        else:
+            return {'cube': cube, 'wvlBinEdges': wvlBinEdges, 'effIntTime': effIntTime}
 
     def getPixelSpectrum(self, xCoord, yCoord, firstSec=0, integrationTime=-1,
-                         applySpecWeight=False, applyTPFWeight=False, wvlStart=None, wvlStop=None,
+                         applyWeight=False, applyTPFWeight=False, wvlStart=None, wvlStop=None,
                          wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None, timeSpacingCut=None):
         """
         returns a spectral histogram of a given pixel integrated from firstSec to firstSec+integrationTime,
@@ -1000,7 +1010,7 @@ class ObsFile(object):
             Start time of integration, in seconds relative to beginning of file
         integrationTime: float
             Total integration time in seconds. If -1, everything after firstSec is used
-        applySpecWeight: bool
+        applyWeight: bool
             If True, weights counts by spectral/flat/linearity weight
         applyTPFWeight: bool
             If True, weights counts by true positive fraction (noise weight)
@@ -1032,7 +1042,7 @@ class ObsFile(object):
         """
 
         photonList = self.getPixelPhotonList(xCoord, yCoord, firstSec=firstSec, integrationTime=integrationTime)
-        return self._makePixelSpectrum(photonList, applySpecWeight=applySpecWeight,
+        return self._makePixelSpectrum(photonList, applyWeight=applyWeight,
                                        applyTPFWeight=applyTPFWeight, wvlStart=wvlStart, wvlStop=wvlStop,
                                        wvlBinWidth=wvlBinWidth, energyBinWidth=energyBinWidth,
                                        wvlBinEdges=wvlBinEdges, timeSpacingCut=timeSpacingCut)
