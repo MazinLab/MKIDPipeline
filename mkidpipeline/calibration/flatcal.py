@@ -474,7 +474,7 @@ class WhiteCalibrator(FlatCalibrator):
         self.spectralCubes = []
         self.cubeEffIntTimes = []
         for firstSec in range(0, self.expTime, self.intTime):  # for each time chunk
-            cubeDict = self.obs.getSpectralCube(firstSec=firstSec, integrationTime=self.intTime, applySpecWeight=False,
+            cubeDict = self.obs.getSpectralCube(firstSec=firstSec, integrationTime=self.intTime, applyWeight=False,
                                                 applyTPFWeight=False, wvlBinEdges=self.wvlBinEdges)
             cube = cubeDict['cube'] / cubeDict['effIntTime'][:, :, None]
             cube /= (1 - cube.sum(axis=2) * self.deadtime)[:, :,
