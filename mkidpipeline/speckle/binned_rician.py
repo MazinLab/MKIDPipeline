@@ -253,7 +253,7 @@ def binMR_like(n, Ic, Is):
 
 
 
-def loglike_planet_blurredMR(n,Ic,Is,Ip,n_unique = None, return_components=True):
+def loglike_planet_blurredMR(n,Ic,Is,Ip,n_unique = None, return_components=True, mlut = None, plut = None):
     """
     Calculate the log likelihood of lightcurve that has both speckle Ic and Is,
     as well as planet light Ip.
@@ -296,12 +296,16 @@ def loglike_planet_blurredMR(n,Ic,Is,Ip,n_unique = None, return_components=True)
 
     # make a lookup table
     lutSize = int(np.amax(inds))+1
-    lut = np.zeros(lutSize)
+    # lut = np.zeros(lutSize)
 
     # make lookup tables for poisson and binMRlogL
     # Ic, Is, and Ip are constant inside this function
-    mlut = np.exp(binMRlogL(np.arange(lutSize),Ic,Is)[1])
-    plut = poisson.pmf(np.arange(lutSize), Ip)
+    if (mlut is None) or (plut is None):
+        mlut = np.exp(binMRlogL(np.arange(lutSize),Ic,Is)[1])
+        plut = poisson.pmf(np.arange(lutSize), Ip)
+    else:
+        assert len(plut)==len(mlut), "binMR and poisson lookup tables don't have same length"
+
 
     if np.isinf(np.sum(mlut)):
         print('lutSize is: ',lutSize,'\n')
@@ -310,9 +314,10 @@ def loglike_planet_blurredMR(n,Ic,Is,Ip,n_unique = None, return_components=True)
         # print('binMRlogL is: ', binMRlogL(np.arange(lutSize),Ic,Is)[1])
     # print('\n\nplut is: ',plut)
 
-    for ii in inds:
-        for mm in np.arange(ii+1):  # convolve the binned MR likelihood with a poisson
-            lut[ii] += plut[mm]*mlut[ii-mm]
+    # for ii in inds:
+    #     for mm in np.arange(ii+1):  # convolve the binned MR likelihood with a poisson
+    #         lut[ii] += plut[mm]*mlut[ii-mm]
+    lut = np.convolve(mlut,plut)[0:len(mlut)]
 
     loglut = np.zeros(lutSize)  # initialize the array for storing log likelihood values
     # lut[np.isnan(lut)] = 0  # if an element of lut is nan or inf, then ignore it.
