@@ -114,6 +114,8 @@ class ParsedBin(object):
         # Saving List of File Names
         self.obs_files = files
         self.pix_shape = pix_shape
+        self.nXPix = pix_shape[1] # keeping notation consistent with the beammap class
+        self.nYPix = pix_shape[0]
 
         self.vb = verbose
 
