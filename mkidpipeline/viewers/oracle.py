@@ -36,6 +36,7 @@ import os.path
 from mkidpipeline.speckle import binned_rician as binnedRE
 # import mkidpipeline.speckle.optimize_IcIsIr as binfree
 import mkidpipeline.speckle.binFreeRicianEstimate as binfree
+from mkidcore.objects import Beammap
 from scipy.special import factorial
 import time
 import datetime
@@ -89,9 +90,9 @@ class img_object():
     def __init__(self, filename, verbose=False):
         self.verbose = verbose
         self.filename = filename
-        self.n_col, self.n_row = self.get_npixels(self.filename)
+        self.nXPix, self.nYPix = self.get_npixels(self.filename)
         with open(filename, mode='rb') as f:
-            self.image = np.transpose(np.reshape(np.fromfile(f, dtype=np.uint16), (self.n_col, self.n_row)))
+            self.image = np.transpose(np.reshape(np.fromfile(f, dtype=np.uint16), (self.nXPix, self.nYPix)))
 
     def get_npixels(self, filename):
         # 146 row x 140 col for MEC
@@ -451,26 +452,45 @@ class main_window(QMainWindow):
         self.create_status_bar()
         self.createMenu()
         self.plot_noise_image()
-        if len(argv[0]) > 1:
-            if os.path.isfile(argv[0][1]):
-                self.filename = argv[0][1]
-                if self.filename.endswith(".h5"):
-                    self.load_data_from_h5(self.filename)
-                elif self.filename.endswith(".img"):
-                    print('handling of img files coming soon!')
-                    self.load_log_filenames(self.filename)
-                    self.load_data_from_img(self.filename)
-                    self.load_filenames(self.filename)
-                elif self.filename.endswith(".bin"):
-                    self.load_log_filenames(self.filename)
-                    self.load_data_from_bin(self.filename)
-                    self.load_filenames(self.filename)
-                else:
-                    print('unrecognized file extension')
-            else:
-                print('file does not exist: \n', argv[0][1])
 
-    def initialize_empty_arrays(self, n_col=10, n_row=10):
+        # check whether bmap file was given as argument
+        if len(argv[0]) > 1:
+            for arg in argv[0][1:]:
+                if os.path.isfile(arg):
+                    if arg.endswith(".bmap"):
+                        self.beam_map_filename = arg
+                        self.bmap = Beammap(self.beam_map_filename, xydim=(140,146))
+                        print('loaded beam map file: ', self.beam_map_filename)
+                        self.beamFlagImage = self.bmap.flagmap.T
+                        self.beamFlagMask = self.beamFlagImage == 0 # True for good pixels
+
+
+        # parse the arguments and load data
+        if len(argv[0]) > 1:
+            for arg in argv[0][1:]:
+                if os.path.isfile(arg):
+                    if arg.endswith(".h5"):
+                        self.filename = arg
+                        self.load_data_from_h5(self.filename)
+                    elif arg.endswith(".img"):
+                        self.filename = arg
+                        self.load_log_filenames(self.filename)
+                        self.load_data_from_img(self.filename)
+                        self.load_filenames(self.filename)
+                    elif arg.endswith(".bin"):
+                        self.filename = arg
+                        self.load_log_filenames(self.filename)
+                        self.load_data_from_bin(self.filename)
+                        self.load_filenames(self.filename)
+                    elif arg.endswith(".bmap"):
+                        pass
+                    else:
+                        print('unrecognized file extension')
+                else:
+                    print('file does not exist: \n', arg)
+
+
+    def initialize_empty_arrays(self, n_col=140, n_row=146):
         self.n_col = n_col
         self.n_row = n_row
         self.Ic_map = np.zeros(self.n_row * self.n_col).reshape(self.n_row, self.n_col)
@@ -481,7 +501,7 @@ class main_window(QMainWindow):
         self.counts_image = np.zeros(self.n_row * self.n_col).reshape((self.n_row, self.n_col))
         self.counts_per_second_image = np.zeros(self.n_row * self.n_col).reshape((self.n_row, self.n_col))
         self.hotPixMask = np.zeros(self.n_row * self.n_col).reshape((self.n_row, self.n_col))
-        self.image_mask = np.zeros(self.n_row * self.n_col).reshape((self.n_row, self.n_col))
+        self.image_mask = np.ones(self.n_row * self.n_col).reshape((self.n_row, self.n_col)) # 1 for good, 0 for bad
         self.user_mask = np.ones(self.n_row * self.n_col).reshape((self.n_row, self.n_col))
         self.hotPixCut = 2300
         self.image = np.zeros(self.n_row * self.n_col).reshape((self.n_row, self.n_col))
@@ -500,7 +520,7 @@ class main_window(QMainWindow):
                 # self.photontable = self.a.photonTable.read()
                 print('data loaded from .h5 file')
                 self.filename_label.setText(self.filename)
-                self.initialize_empty_arrays(len(self.a.beamImage), len(self.a.beamImage[0]))
+                self.initialize_empty_arrays(self.a.nXPix, self.a.nYPix)
                 self.beamFlagImage = np.transpose(self.a.beamFlagImage.read())
                 self.beamFlagMask = self.beamFlagImage == 0  # make a mask. 0 for good beam map
                 self.radio_button_beamFlagImage.setChecked(True)
@@ -539,7 +559,9 @@ class main_window(QMainWindow):
                 self.make_hot_pix_mask()
 
     def load_data_from_bin(self, filename):
-        img_size = (146, 140)  # TODO: get rid of this hard coding
+        nXPix = 140  # TODO: get rid of this hard coding
+        nYPix = 146
+        img_size = (nYPix, nXPix)
 
         if os.path.isfile(self.filename):
             try:
@@ -554,8 +576,12 @@ class main_window(QMainWindow):
                 self.plot_count_image()
                 self.filename_label.setText(self.filename)
 
-            self.beamFlagMask = np.zeros(img_size[0] * img_size[1]).reshape(
-                img_size)  # make a mask. 0 for good beam map
+            try:
+                self.beamFlagMask
+            except:
+                print('Warning: There was no beamflagmask specified. Creating default beamflagmask.')
+                self.beamFlagMask = np.ones(self.a.nYPix * self.a.nXPix).reshape(
+                    self.a.nYPix, self.a.nXPix)  # make a mask. 0 for good beam map
 
     def load_data_from_img(self, filename):
         if os.path.isfile(self.filename):
@@ -567,6 +593,12 @@ class main_window(QMainWindow):
                 self.radio_button_rawCounts.setChecked(True)
                 self.plot_count_image()
                 self.filename_label.setText(self.filename)
+
+            try:
+                self.beamFlagMask
+            except:
+                self.beamFlagMask = np.ones(self.a.nXPix * self.a.nYPix).reshape(
+                    self.a.nXPix,self.a.nYPix)  # make a mask. 0 for good beam map
 
     def spinbox_starttime_value_change(self):
         if type(self.a).__name__ == 'ParsedBin' or type(self.a).__name__ == 'img_object':
@@ -582,6 +614,13 @@ class main_window(QMainWindow):
                 elif type(self.a).__name__ == 'img_object':
                     self.load_data_from_img(self.filename)
                 self.updateLogLabel()
+
+
+    def load_beam_map(self):
+        # load in a beam map, for use with bin or img files for masking pixels
+        #Todo: implement a menu option for the user to load a beam map file once oracle is open
+        pass
+
 
     def plotBeamImage(self):
         # check if obsfile object exists
@@ -602,7 +641,8 @@ class main_window(QMainWindow):
             self.fig.cbar.set_clim(np.amin(self.image), np.amax(self.image))
             self.fig.cbar.draw_all()
 
-            self.ax1.set_title('beam flag image')
+            self.title = 'beam flag image'
+            self.ax1.set_title(self.title)
 
             # self.ax1.axis('off')
 
@@ -611,6 +651,7 @@ class main_window(QMainWindow):
             self.draw()
 
     def update_color_bar_limit(self):
+
         self.ax1.clear()
 
         if self.checkbox_colorbar_auto.isChecked():
@@ -624,6 +665,7 @@ class main_window(QMainWindow):
             self.fig.cbar.set_clim(self.cbarLimits[0], self.cbarLimits[1])
             self.fig.cbar.draw_all()
         self.ax1.imshow(self.image, interpolation='none', vmin=self.cbarLimits[0], vmax=self.cbarLimits[1])
+        self.ax1.set_title(self.title)
         self.draw()
 
     def switch_mask_on_off(self):
@@ -631,10 +673,10 @@ class main_window(QMainWindow):
 
         if self.checkbox_apply_mask.isChecked():
             # switching on
-            self.image = self.unmasked_image * self.image_mask
+            self.image = (self.unmasked_image * self.image_mask) * self.beamFlagMask
         else:
             # switching off
-            self.image = self.unmasked_image
+            self.image = self.unmasked_image * self.beamFlagMask
 
         self.update_color_bar_limit()
 
@@ -672,15 +714,39 @@ class main_window(QMainWindow):
                 self.unmasked_image = self.a.getPixelCountImage()
                 if self.checkbox_apply_mask.isChecked():
                     self.image = self.unmasked_image * self.image_mask
+                    try:
+                        self.bmap.flagmap  # check if there is a beam flag image
+                    except:
+                        pass
+                    else:
+                        self.image = self.image * (self.bmap.flagmap.T == 0)
                 else:
                     self.image = np.copy(self.unmasked_image)
                     self.image = np.copy(1.0 * self.image / self.spinbox_integrationTime.value())
+                    try:
+                        self.bmap.flagmap  # check if there is a beam flag image
+                    except:
+                        pass
+                    else:
+                        self.image = self.image * (self.bmap.flagmap.T == 0)
             elif type(self.a).__name__ == 'img_object':
                 self.unmasked_image = self.a.getPixelCountImage()
                 if self.checkbox_apply_mask.isChecked():
                     self.image = self.unmasked_image * self.image_mask
+                    try:
+                        self.bmap.flagmap  # check if there is a beam flag image
+                    except:
+                        pass
+                    else:
+                        self.image = self.image * self.bmap.flagmap.T == 0
                 else:
                     self.image = np.copy(self.unmasked_image)
+                    try:
+                        self.bmap.flagmap  # check if there is a beam flag image
+                    except:
+                        pass
+                    else:
+                        self.image = self.image * self.bmap.flagmap.T == 0
             else:
                 print('unrecognized object type: type(self.a).__name__ = ', type(self.a).__name__)
 
@@ -696,7 +762,8 @@ class main_window(QMainWindow):
 
             self.ax1.imshow(self.image, interpolation='none', vmin=self.cbarLimits[0], vmax=self.cbarLimits[1])
 
-            self.ax1.set_title('Raw counts')
+            self.title = 'Raw counts'
+            self.ax1.set_title(self.title)
 
             # self.ax1.axis('off')
 
@@ -717,7 +784,14 @@ class main_window(QMainWindow):
             # print('self.image_mask = ',self.image_mask)
 
             # make a list of tuples containing the row, col of every good pixel we want to do SSD on
-            temp = np.argwhere(self.image_mask == 1)
+            try:
+                self.bmap.flagmap # check if there is a beam flag image
+            except:
+                temp = np.argwhere(self.image_mask == 1) # if nots, just use the image mask
+            else:
+                # if yes, then use the existing image mask and the flagmap
+                temp = np.logical_and(np.argwhere(self.image_mask == 1), self.bmap.flagmap.T == 0)
+
             coord_list = []
             for el in temp: coord_list.append((el[0], el[1]))  # coord_list is a list of tuples
 
@@ -797,7 +871,8 @@ class main_window(QMainWindow):
             self.fig.cbar.set_clim(self.cbarLimits[0], self.cbarLimits[1])
             self.fig.cbar.draw_all()
 
-            self.ax1.set_title('SSD image')
+            self.title = 'SSD image'
+            self.ax1.set_title(self.title)
 
             # self.ax1.axis('off')
             # self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
@@ -816,7 +891,8 @@ class main_window(QMainWindow):
         self.fig.cbar.set_clim(self.cbarLimits[0], self.cbarLimits[1])
         self.fig.cbar.draw_all()
 
-        self.ax1.set_title('some generated noise...')
+        self.title = 'some generated noise...'
+        self.ax1.set_title(self.title)
 
         # self.ax1.axis('off')
         # self.cursor = Cursor(self.ax1, useblit=True, color='red', linewidth=.5)
@@ -832,6 +908,12 @@ class main_window(QMainWindow):
 
         self.image = np.copy(image)
         self.unmasked_image = image
+        try:
+            self.bmap.flagmap
+        except:
+            pass
+        else:
+            self.unmasked_image *= self.bmap.flagmap.T==0
         if self.checkbox_apply_mask.isChecked():
             self.image = self.unmasked_image * self.image_mask
         else:
@@ -890,13 +972,13 @@ class main_window(QMainWindow):
         # self.image_mask = 1 for good pixels, 0 for bad
         self.image_mask = np.logical_and(np.logical_not(np.nan_to_num(self.hotPixMask.T)), np.logical_not(dead_mask.T))
 
-    def image_mask_add(self):
+    def image_mask_add_pixel(self):
         # add a pixel to the user mask to hide it
         self.user_mask[self.activePixel[1], self.activePixel[0]] = 0
         self.image_mask[self.activePixel[1], self.activePixel[0]] = 0
         self.radio_toggle()
 
-    def image_mask_remove(self):
+    def image_mask_remove_pixel(self):
         # remove a pixel from the user mask to show it
         self.user_mask[self.activePixel[1], self.activePixel[0]] = 1
         self.image_mask[self.activePixel[1], self.activePixel[0]] = 1
@@ -926,7 +1008,7 @@ class main_window(QMainWindow):
         self.checkbox_apply_mask = QCheckBox()
         self.checkbox_apply_mask.setChecked(False)
         self.checkbox_apply_mask.stateChanged.connect(self.switch_mask_on_off)
-        label_apply_mask = QLabel('Apply pixel mask')
+        label_apply_mask = QLabel('Apply hot pixel mask')
 
         # spinboxes for the start & stop times
         self.spinbox_startTime = QDoubleSpinBox()
@@ -1179,9 +1261,9 @@ class main_window(QMainWindow):
         # make a menu for masking
         self.mask_menu = self.menubar.addMenu("&Mask")
         mask_pixel_button = QAction('Mask Pixel', self)
-        mask_pixel_button.triggered.connect(self.image_mask_add)
+        mask_pixel_button.triggered.connect(self.image_mask_add_pixel)
         unmask_pixel_button = QAction('Unmask Pixel', self)
-        unmask_pixel_button.triggered.connect(self.image_mask_remove)
+        unmask_pixel_button.triggered.connect(self.image_mask_remove_pixel)
         self.mask_menu.addAction(mask_pixel_button)
         self.mask_menu.addAction(unmask_pixel_button)
 
