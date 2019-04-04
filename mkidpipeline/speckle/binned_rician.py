@@ -766,7 +766,8 @@ def logL_array(ts, Ic_list, Is_list, Ip_list, IcpIs_list = None, deadtime = 0, e
     # return foo
 
     # n_cpu = multiprocessing.cpu_count() - 1
-    n_cpu = 6
+    n_cpu = min(20, n_params)
+
     pool = multiprocessing.Pool(n_cpu)
     if eff_exp_time is None:
         # bin-free
@@ -777,7 +778,6 @@ def logL_array(ts, Ic_list, Is_list, Ip_list, IcpIs_list = None, deadtime = 0, e
                       for Is in Is_list
                       for Ip in Ip_list]
             n_params = len(simple_params)
-            n_cpu = min(7, n_params)
             for ii in range(n_params % n_cpu):
                 simple_params.append((0, 0, 0,0,0))
             n = -(-n_params // n_cpu)  # upside down floor division (ceiling division)
@@ -800,7 +800,6 @@ def logL_array(ts, Ic_list, Is_list, Ip_list, IcpIs_list = None, deadtime = 0, e
                       for Is in Is_list
                       for Ip in Ip_list]
             n_params = len(simple_params)
-            n_cpu = min(7, n_params)
             for ii in range(n_params % n_cpu):
                 simple_params.append((0, 0, 0,0,0))
             n = -(-n_params // n_cpu)  # upside down floor division (ceiling division)
