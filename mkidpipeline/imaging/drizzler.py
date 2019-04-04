@@ -5,9 +5,7 @@ installed otherwise some astropy import fails
 
 Move plotting functionality to another module
 
-Update photon TOA positioning after derotation functionality
-
-Sort out centering of frame vs center of rotation (star)
+Update temporaldrizzler (and spectral?) to the new several wcs per dither format
 
 Usage
 -----
@@ -23,7 +21,8 @@ import time
 import multiprocessing as mp
 import matplotlib.pylab as plt
 from matplotlib.colors import LogNorm
-import matplotlib.ticker as ticker
+import pickle
+from scipy.misc import imrotate
 from astropy import wcs
 from astropy.coordinates import EarthLocation, Angle, SkyCoord
 import astropy.units as u
@@ -34,7 +33,6 @@ from drizzle import drizzle as stdrizzle
 from mkidcore import pixelflags
 from mkidpipeline.hdf.photontable import ObsFile
 import mkidcore.corelog as pipelinelog
-import pickle
 import mkidpipeline
 from mkidcore.instruments import CONEX2PIXEL
 import argparse
@@ -121,17 +119,6 @@ class DitherDescription(object):
 
         return min_timestep
 
-    # def plot(self):
-    #     rotationMatrix = np.array([[np.cos(self.parallactic_angles), -np.sin(self.parallactic_angles)],
-    #                                [np.sin(self.parallactic_angles), np.cos(self.parallactic_angles)]]).T
-    #
-    #     centroidRotated = (np.dot(rotationMatrix, np.array([self.xCenRes, self.yCenRes])).diagonal(axis1=0, axis2=2) +
-    #                        [self.ConnexOrigin2COR[0], self.ConnexOrigin2COR[1]])
-    #
-    #     plt.plot(-self.dith_pix_offset[0], -self.dith_pix_offset[1], '-o')
-    #     plt.plot(-self.ConnexOrigin2COR[0], -self.ConnexOrigin2COR[1], marker='x')
-    #     plt.plot(-centroidRotated[0], -centroidRotated[1], '-o')
-    #     plt.show()
 
 def get_device_orientation(ditherdesc, fits_filename, separation = 0.938, pa = 253):
     """
@@ -158,7 +145,6 @@ def get_device_orientation(ditherdesc, fits_filename, separation = 0.938, pa = 2
     update = True
     position_angle = 0
     hdu1 = fits.open(fits_filename)[0]
-    from scipy.misc import imrotate
 
     field = hdu1.data
     while update:
@@ -198,7 +184,9 @@ def get_wcs(x, y, ditherdesc, ditherind, nxpix=146, nypix=140, platescale=0.01 /
     """
     dither = ditherdesc.description
     sample_times = np.arange(dither.obs[ditherind].start,
-                             dither.obs[ditherind].stop,
+                             # -1 so that when timestep == stop-start there is one sample_time and inttime for
+                             # consistancy between dithers
+                             dither.obs[ditherind].start + dither.inttime - 1,
                              ditherdesc.timestep)
 
     if derotate:
@@ -207,8 +195,8 @@ def get_wcs(x, y, ditherdesc, ditherind, nxpix=146, nypix=140, platescale=0.01 /
         corrected_sky_angles = -parallactic_angles -device_orientation
 
     else:
-        # reformatted_mid_time = astropy.time.Time(val=(dither.obs[0].start + dither.obs[-1].stop)/2, format='unix')
-        corrected_sky_angles = np.ones_like(sample_times) * -device_orientation
+        reformatted_mid_time = astropy.time.Time(val=(dither.obs[0].start + dither.obs[-1].stop)/2, format='unix')
+        corrected_sky_angles = np.ones_like(sample_times) * -(reformatted_mid_time + device_orientation)
 
     pipelinelog.getLogger(__name__).debug("Correction angles: %s", corrected_sky_angles)
 
@@ -240,9 +228,6 @@ def get_wcs(x, y, ditherdesc, ditherind, nxpix=146, nypix=140, platescale=0.01 /
 
 class Drizzler(object):
     def __init__(self, photonlists, metadata):
-        # TODO Implement
-        # Assume obsfiles either have their metadata or needed metadata is passed, e.g. WCS information, target info,
-        # etc
 
         # TODO determine appropirate value from area coverage of dataset and oversampling, even longerterm there
         # the oversampling should be selected to optimize total phase coverage to extract the most resolution at a
@@ -367,6 +352,8 @@ class SpectralDrizzler(Drizzler):
 
 class TemporalDrizzler(Drizzler):
     """
+    TODO this needs to be updated to the new several WCS per dither format
+
     Generate a spatially dithered fits 4D hypercube from a set dithered dataset. The cube size is
     ntimebins * ndithers X nwvlbins X nPixRA X nPixDec.
     """
@@ -449,18 +436,16 @@ class SpatialDrizzler(Drizzler):
         Drizzler.__init__(self, photonlists, metadata)
         self.driz = stdrizzle.Drizzle(outwcs=self.w, pixfrac=pixfrac)
         self.timestep = metadata.timestep
+        self.inttime = metadata.description.inttime
+        self.times = np.arange(0, self.inttime + 1, self.timestep) * 1e6
 
     def run(self, save_file=None, applymask=False):
         for ix, file in enumerate(self.files):
             pipelinelog.getLogger(__name__).debug('Processing %s', file)
 
             tic = time.clock()
-            # insci, inwcs = self.makeImage(file, applymask=True)
-
-            times = np.arange(0, len(file['obs_wcs_seq']) + 1, self.timestep)
-            for t, inwcs in enumerate(file['obs_wcs_seq'][:1]):
-                insci = self.makeImage(file, (times[t], times[t+1]), applymask=False)
-
+            for t, inwcs in enumerate(file['obs_wcs_seq']):
+                insci = self.makeImage(file, (self.times[t], self.times[t+1]), applymask=False)
                 if applymask:
                     insci *= ~self.hot_mask
                 pipelinelog.getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
@@ -471,20 +456,17 @@ class SpatialDrizzler(Drizzler):
 
         # TODO introduce total_exp_time variable and complete these steps
 
-    def makeImage(self, file, span, applyweights=False, applymask=False, maxCountsCut=10000):
+    def makeImage(self, file, timespan, applyweights=False, applymask=False, maxCountsCut=10000):
 
         weights = file['weight'] if applyweights else None
 
         # TODO mixing pixels and radians per variable names
-        # thisImage, thisGridDec, thisGridRA = np.histogram2d(file['photDecRad'], file['photRARad'],
-        #                                                     weights=weights,
-        #                                                     bins=[self.ypix, self.xpix],
-        #                                                     normed=False)
 
-        thisImage, _, _ = np.histogram2d(file['xPhotonPixels'], file['yPhotonPixels'],
-                                                            weights=weights,
-                                                            bins=[self.ypix, self.xpix],
-                                                            normed=False)
+        timespan_ind = np.where(np.logical_and(file['timestamps'] >= timespan[0],
+                                               file['timestamps'] <= timespan[1]))[0]
+
+        thisImage, _, _ = np.histogram2d(file['xPhotonPixels'][timespan_ind], file['yPhotonPixels'][timespan_ind],
+                                         weights=weights, bins=[self.ypix, self.xpix], normed=False)
         thisImage = thisImage[:, ::-1]
 
         if applymask:
@@ -714,8 +696,6 @@ if __name__ == '__main__':
     parser.add_argument('-it', type=int, dest='intt', help='', default=60)
     args = parser.parse_args()
 
-
-
     # set up logging
     mkidpipeline.logtoconsole()
 
@@ -734,8 +714,9 @@ if __name__ == '__main__':
     # ConnexOrigin2COR = get_star_offset(dither, wvlMin, wvlMax, startt, intt)
     ConnexOrigin2COR = (20,20)
 
-    ditherdesc = DitherDescription(dither, target=dither.name, ConnexOrigin2COR=ConnexOrigin2COR)
+    # ditherdesc = DitherDescription(dither, target=dither.name, ConnexOrigin2COR=ConnexOrigin2COR)
     # get_device_orientation(ditherdesc, 'Theta1 Orionis B_mean.fits')
+
     image, drizwcs = form(dither, 'spatial', ConnexOrigin2COR=ConnexOrigin2COR, wvlMin=wvlMin,
                           wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac)
 
