@@ -695,29 +695,20 @@ def _logL_worker2(args):
 
 
 def _logL_worker3(args):
-    # print(args[0])
-    if type(args[0]) == tuple:
-        loglike = []
-        for el in args:
-            # print(el)
-            dt, x, Is, Ip, deadtime, IcpIs_bool = el
-            if x==0 and Is==0 and Ip==0:
-                continue
-            if IcpIs_bool:
-                Ic = x - Is
-            else:
-                Ic = x
-            loglike.append(binfree.MRlogL([Ic, Is, Ip], dt, deadtime))
-
-    else:
-        dt, x, Is, Ip, deadtime, IcpIs_bool = args
+    dt = args[0]
+    loglike = []
+    for el in args[1]:
+        x, Is, Ip, deadtime, IcpIs_bool = el
+        if x == 0 and Is == 0 and Ip == 0:
+            continue
         if IcpIs_bool:
             Ic = x - Is
         else:
             Ic = x
-        loglike = binfree.MRlogL([Ic, Is, Ip], dt, deadtime)
+        loglike.append(binfree.MRlogL([Ic, Is, Ip], dt, deadtime))
 
     return loglike
+
 
 
 # def _logL_worker4(args):
@@ -781,19 +772,20 @@ def logL_array(ts, Ic_list, Is_list, Ip_list, IcpIs_list = None, deadtime = 0, e
         # bin-free
         dt = (ts[1:] - ts[:-1])
         if IcpIs_list is not None:
-            simple_params = [(dt, x, Is, Ip, deadtime, True)
+            simple_params = [(x, Is, Ip, deadtime, True) # list of tuples
                       for x in IcpIs_list
                       for Is in Is_list
                       for Ip in Ip_list]
             n_params = len(simple_params)
             n_cpu = min(7, n_params)
             for ii in range(n_params % n_cpu):
-                simple_params.append((0, 0, 0))
+                simple_params.append((0, 0, 0,0,0))
             n = -(-n_params // n_cpu)  # upside down floor division (ceiling division)
 
             params = []
             for cpu_number in range(n_cpu):
-                params.append(tuple(simple_params[cpu_number * n:(cpu_number + 1) * n]))
+                params.append(tuple([dt, simple_params[cpu_number * n:(cpu_number + 1) * n]]))
+                # params is a list of tuples containing lists of tuples
 
             # print('\nprinting params')
             # for jj in params:
@@ -803,19 +795,19 @@ def logL_array(ts, Ic_list, Is_list, Ip_list, IcpIs_list = None, deadtime = 0, e
             # print(foo)
             flat_list = np.array([item for sublist in foo for item in sublist])
         else:
-            simple_params = [(dt, Ic, Is, Ip, deadtime, False)
+            simple_params = [(Ic, Is, Ip, deadtime, False)
                       for Ic in Ic_list
                       for Is in Is_list
                       for Ip in Ip_list]
             n_params = len(simple_params)
             n_cpu = min(7, n_params)
             for ii in range(n_params % n_cpu):
-                simple_params.append((0, 0, 0,0,0,0))
+                simple_params.append((0, 0, 0,0,0))
             n = -(-n_params // n_cpu)  # upside down floor division (ceiling division)
 
             params = []
             for cpu_number in range(n_cpu):
-                params.append(tuple(simple_params[cpu_number * n:(cpu_number + 1) * n]))
+                params.append(tuple([dt, simple_params[cpu_number * n:(cpu_number + 1) * n]]))
 
             # print('\nprinting params')
             # for jj in params:
