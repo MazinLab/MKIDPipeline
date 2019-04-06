@@ -415,13 +415,13 @@ class mock_photonlist():
             # n is the light curve
             ts = self.ts_star if star else self.ts
             n = binMR.getLightCurve(photonTimeStamps=ts*1e-6,startTime=ts[0]*1e-6,stopTime=ts[-1]*1e-6,effExpTime=binSize)[0] # get the light curve, units = [cts/bin]
-            n_unique = np.unique(n)
+            dist = np.bincount(n)
             #I = 1 / np.mean(dt)
             #p0 = I * np.ones(3) / 3.
             if len(p_lists[0])==0 or len(p_lists[1])==0 or len(p_lists[2])==0:
-                p_opt = optimize.minimize(binMR.negloglike_planet_blurredMR, p_seed, n,bounds=((0.001, np.inf), (0.001, np.inf), (.001, np.inf))).x/binSize  # units are [cts/sec]
+                p_opt = optimize.minimize(binMR._bin_logL, p_seed, dist, bounds=((0.001, np.inf), (0.001, np.inf), (.001, np.inf))).x / binSize  # units are [cts/sec]
             else: p_opt = None
-            logLfunc = partial(binMR._loglike_planet_blurredMR, n=n, n_unique=n_unique, return_components=False)
+            logLfunc = partial(binMR.bin_logL, dist)
 
         else:  # binfree case
             binSize=-1
