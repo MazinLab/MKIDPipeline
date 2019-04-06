@@ -288,8 +288,7 @@ def bin_logL(params, dist):
 
 
 
-def negloglike_planet_blurredMR(p,dist):
-    # return -loglike_planet_blurredMR(n, p[0], p[1], p[2])[0]
+def _bin_logL(p, dist):
     return -bin_logL(p, dist)
 
 
