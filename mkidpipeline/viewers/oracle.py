@@ -361,11 +361,6 @@ class intensityHistogram(subWindow):
             p1 = optimize.minimize(binfree.MRlogL, p0, (dt, deadtime),
                                    method='Newton-CG', jac=binfree.MRlogL_Jacobian, hess=binfree.MRlogL_Hessian).x
 
-            self.ax.plot(np.arange(Nbins, step=sstep),
-                         binnedRE.loglike_planet_blurredMR(np.arange(Nbins, step=sstep), p1[0] * self.eff_exp_time,
-                                                           p1[2] * self.eff_exp_time, p1[2] * self.eff_exp_time)[1],
-                         'k.-', label=f'bin-free Ic, Is, Ip = {p1[0]:.2}, {p1[1]:.2}, {p1[2]:.2}')
-
             try:
                 IIc = np.sqrt(mu ** 2 - var + mu)
             except:

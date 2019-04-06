@@ -33,7 +33,7 @@ import time
 
 
 
-def getLightCurve(photonTimeStamps, startTime=0, stopTime=10, effExpTime=.01):
+def getLightCurve(photonTimeStamps, startTime=None, stopTime=None, effExpTime=.01):
     """
     Takes a 1d array of arrival times and bins it up with the given effective exposure
     time to make a light curve.
@@ -49,6 +49,10 @@ def getLightCurve(photonTimeStamps, startTime=0, stopTime=10, effExpTime=.01):
         lightCurveTimes - array with times corresponding to the bin
                             centers of the light curve. Float.
     """
+    if startTime is None:
+        startTime = photonTimeStamps[0]
+    if stopTime is None:
+        stopTime = photonTimeStamps[-1]
     histBinEdges = np.arange(startTime, stopTime, effExpTime)
 
     hist, _ = np.histogram(photonTimeStamps, bins=histBinEdges)  # if histBinEdges has N elements, hist has N-1
@@ -68,7 +72,7 @@ def histogramLC(lightCurve):
     INPUTS:
         lightCurve - 1d array specifying number of photons in each bin
     OUTPUTS:
-        intensityHist - 1d array containing the histogram
+        intensityHist - 1d array containing the histogram. It's normalized, so the area under the curve is 1.
         bins - 1d array specifying the bins (0 photon, 1 photon, etc.)
     """
     # Nbins=30  #smallest number of bins to show
@@ -253,108 +257,40 @@ def binMR_like(n, Ic, Is):
 
 
 
-def loglike_planet_blurredMR(n,Ic,Is,Ip,n_unique = None, return_components=True, mlut = None, plut = None):
+def bin_logL(params, dist):
     """
     Calculate the log likelihood of lightcurve that has both speckle Ic and Is,
     as well as planet light Ip.
-    
+
     This might break if you give it values of Ic Is Ip that are too big. mpmath
     might give complex answers when calling the mpmath.log(tiny number)
 
-    The light curve is an array of integers, where each element is the number of
-    photons recorded in that bin. There will be many repeated numbers in this
-    light curve. We can reduce computation time by calculating the likelihood for
-    each of the unique values in the light curve one time each. I'll store these
-    values in a lookup table (lut), where the index is the number of counts in a
-    particular bin. For example, the likelihood of receiving 4 counts in a bin
-    can be accessed from the lookup table via lut[4].
-
-    There may be many unused elements in the lut, especially when the bin size
-    is large and the average number of photons per bin becomes large.
-
-    I'll also create some lookup tables for the poisson distribution and for the
-    MR distribution, so that we're not calling those functions more than we need
-    to.
-
-    INPUTS:
-        n - the light curve. [counts/bin]
-        Ic - [counts/bin]
-        Is - [counts/bin]
-        Ip - [counts/bin]
-        n_unique - optional argument to speed things up.
-                    If passed, n_unique = np.unique(n)
-    OUTPUTS:
-        loglike - the log likelihood of the entire light curve
-        likeArray - an array with likelihood values corresponding to every element of
-                    the light curve array. Has the same length as the light curve array.
-
+    :param params: array of floats. [Ic, Is, Ip], units all cts/bin
+    :param dist: numpy array, the distribution of a light curve in counts.
+        e.g.  dist = np.bincount(binMR.getLightCurve(ts,effExpTime = .0001)[0])
+    :return: loglike, float, the log likelihood of the light curve
     """
-    if n_unique is None:
-        inds = np.unique(n).astype(int) # get the indexes we will use in the lookup table.
-    else:
-        inds = n_unique
-
-    # make a lookup table
-    lutSize = int(np.amax(inds))+1
-    # lut = np.zeros(lutSize)
 
     # make lookup tables for poisson and binMRlogL
-    # Ic, Is, and Ip are constant inside this function
-    if (mlut is None) or (plut is None):
-        mlut = np.exp(binMRlogL(np.arange(lutSize),Ic,Is)[1])
-        plut = poisson.pmf(np.arange(lutSize), Ip)
-    else:
-        assert len(plut)==len(mlut), "binMR and poisson lookup tables don't have same length"
+    Ic, Is, Ip = params
+    lutSize = len(dist)
+    mlut = np.exp(binMRlogL(np.arange(lutSize), Ic, Is)[1])
+    plut = poisson.pmf(np.arange(lutSize), Ip)
 
-
-    if np.isinf(np.sum(mlut)):
-        print('lutSize is: ',lutSize,'\n')
-        print('Ic, Is, Ip are: ', Ic, Is, Ip,'\n')
-        print('\n\nmlut is: ',mlut)
-        # print('binMRlogL is: ', binMRlogL(np.arange(lutSize),Ic,Is)[1])
-    # print('\n\nplut is: ',plut)
-
-    # for ii in inds:
-    #     for mm in np.arange(ii+1):  # convolve the binned MR likelihood with a poisson
-    #         lut[ii] += plut[mm]*mlut[ii-mm]
-    lut = np.convolve(mlut,plut)[0:len(mlut)]
+    lut = np.convolve(mlut, plut)[0:len(mlut)]
 
     loglut = np.zeros(lutSize)  # initialize the array for storing log likelihood values
-    # lut[np.isnan(lut)] = 0  # if an element of lut is nan or inf, then ignore it.
-    # lut[np.isinf(lut)] = 0
-    loglut[lut!=0] = np.log(lut[lut!=0])  # calculate the log of the lut array, but not
-                                        # on elements where lut = 0. We're not using them
-                                        # anyway
+    loglut[lut != 0] = np.log(lut[lut != 0])    # calculate the log of the lut array, but not
+                                                # on elements where lut = 0. We're not using them anyway
+    loglike = np.sum(loglut*dist)
 
-    likeArray = lut[n]  # this is an array with one likelihood value for each element in the light curve array
-
-    loglike = np.sum(loglut[n])
-
-    # if np.isnan(loglike):
-    #     print('\n==============================================\nloglike is: ', loglike)
-    #     print('\n==============================================\nlikeArray is: ', likeArray)
-    #     print('\n==============================================\nlut is: ', lut)
-    #     print('\n==============================================\nmlut is: ', mlut)
-    #     print('\n==============================================\nplut is: ', plut)
-    #     print('\n==============================================\nbinMRlogL(np.arange(lutSize),Ic,Is)[1]',binMRlogL(np.arange(lutSize),Ic,Is)[1])
-    #     print('Ic,Is = ', Ic,Is)
-
-    if return_components:
-        return loglike, likeArray
-    else:
-        return loglike
-
-
-def negloglike_planet_blurredMR(p,n):
-    return -loglike_planet_blurredMR(n, p[0], p[1], p[2])[0]
-
-
-def _loglike_planet_blurredMR(params, n, n_unique = None,return_components=True):
-    Ic,Is,Ip = params
-    return loglike_planet_blurredMR(n,Ic,Is,Ip,n_unique=n_unique,return_components=return_components)
+    return loglike
 
 
 
+def negloglike_planet_blurredMR(p,dist):
+    # return -loglike_planet_blurredMR(n, p[0], p[1], p[2])[0]
+    return -bin_logL(p, dist)
 
 
 
@@ -458,147 +394,6 @@ def nLogLikeHess(p,n):
     return -binMRlogL_hessian(n,p[0], p[1])
 
 
-def logLMap(n, x_list, Is_list, effExpTime,IcPlusIs = False,Ir_slice=0,sparse_map=False, bin_free = False, t = np.array([])):
-    """
-    makes a map of the MR log likelihood function over the range of Ic, Is
-
-    INPUTS:
-        n - light curve [counts/bin]
-        x_list - list of x-axis values [photons/second]. Could be either Ic (IcPlusIs = False) or Ic + Is (IcPlusIs = True)
-        Is_list - list of Is values to map [photons/second]
-        effExpTime - the bin size of the light curve. [seconds]
-        IcPlusIs - bool flag indicating whether the x axis of the plots should be
-                    Ic or Ic+Is
-        Ir_slice - The value to be used for Ir when calculating the log likelihood.
-                    i.e. the Ir at which we're slicing the log-likelihood function.
-                    [counts/second]
-        sparse_map - bool flag specifying whether to map out only a subsection of the
-                    map in order to save time. Might cause maps to cut off if
-                    the log like function is very long in one direction compared to the
-                    other
-        bin_free - bool flag specifying whether to use a bin-free log likelihood.
-        t - array of photon timestamps. Ignored if not doing a bin-free map. [microseconds]
-    OUTPUTS:
-        X - meshgrid of x coords
-        Y - meshgrid of y coords
-        im - log likelihood map
-    """
-
-    # TODO: clean this function up, there's a lot of extra crap that doesn't work
-    x_list_countsperbin = x_list * effExpTime  # convert from cps to counts/bin
-    Is_list_countsperbin = Is_list * effExpTime
-    Ir_countsperbin = Ir_slice*effExpTime
-
-    im = np.zeros((len(x_list), len(Is_list))) #initialize an empty image
-    n_unique = np.unique(n).astype(int)  # get the indexes we will use in the lookup table.
-    if len(t)>0:
-        dt = (t[1:] - t[:-1])*1e-6
-        deadtime_us = 0
-
-    if sparse_map:
-        # Find the location of the maximum likelihood.
-        # Then we'll use that as a starting point for making maps.
-        mu, var = get_muVar(n)  # mu, var have same units as light curve
-        guessIcIs = np.array(
-            muVar_to_IcIs(mu, var, effExpTime)) * effExpTime  # this will be the guess for the optimize.minimize
-        p0 = (guessIcIs[0], guessIcIs[1], np.sum(guessIcIs) / 10)  # units are [counts/bin]
-        p1 = optimize.minimize(negloglike_planet_blurredMR, p0, n,
-                               bounds=((0.001, np.inf), (0.001, np.inf), (.001, np.inf))).x  # units are [cts/bin]
-
-
-
-    # check if the estimate of the max-likelihood location from optimize.minimize is within the plot window. If not, then just map out the full space.
-    if sparse_map and x_list_countsperbin[0] < p1[0]+p1[1]<x_list_countsperbin[-1] and Is_list_countsperbin[0] < p1[1]<Is_list_countsperbin[-1] and not bin_free:
-        thresh = 10
-
-        # units of p1 should be counts/bin
-        lnLmax = loglike_planet_blurredMR(n,p1[0],p1[1],p1[2])[0]
-
-        #do a spiral around p1. When we find that all the new values of a row or column
-        # don't meet the threshold, then stop.
-
-        #first, snap the values of p1 to the grid passed to logLMap
-        y_offset = np.argmin(np.abs(p1[1] - Is_list_countsperbin))
-        x_offset = np.argmin(np.abs(p1[0] + p1[1] - x_list_countsperbin))
-
-        #now do the spiral starting at p1. Keep track of the maximum log likelihood.
-        dx = 0
-        dy = -1
-        n_xpoints = len(x_list)
-        n_ypoints = len(Is_list)
-        x = 0
-        y = 0
-        x_max = 0
-
-        same_count = 0  #count for moving in the same direction
-
-        lnl_list = np.array([])
-        for i in 4*np.arange(n_xpoints*n_ypoints):
-            if 0  < (x + x_offset) < n_xpoints  and 0 < (y + y_offset) < n_ypoints:
-                Is = Is_list_countsperbin[y + y_offset]
-                Ic = x_list_countsperbin[x+x_offset] - Is
-                if Ic < 0:
-                    continue
-                lnL = loglike_planet_blurredMR(n,Ic,Is,Ir_countsperbin,n_unique=n_unique)[0]
-                im[y + y_offset, x + x_offset] = lnL
-                lnl_list = np.append(lnl_list,lnL)
-                lnLmax = np.amax(lnl_list)
-            if x == y or (x < 0 and x == -y) or (x > 0 and x == 1 - y):
-                dx, dy = -dy, dx
-                same_count = 0
-            else:
-                same_count+=1
-            if same_count > 5 and np.all(lnl_list[-4*2*x_max:] < (lnLmax - thresh)):
-                break
-            x, y = x + dx, y + dy
-            if x>x_max:
-                x_max = x
-
-
-    else:
-        if sparse_map and not x_list_countsperbin[0] < p1[0]+p1[1]<x_list_countsperbin[-1] and Is_list_countsperbin[0] < p1[1]<Is_list_countsperbin[-1]:
-            print('\nLocation of maximum likelihood estimated by optimize.minimize was outside of the range of Ic,Is values specified for the plots.\n')
-
-        for j, Is in enumerate(Is_list_countsperbin):
-            for i, x in enumerate(x_list_countsperbin):
-                if IcPlusIs == True:
-                    Ic = x - Is
-                    if Ic < 0.000001:
-                        continue
-                else:
-                    Ic = x
-                if bin_free:
-                    # call bin free loglike method
-                    p = [Ic/effExpTime,Is/effExpTime,Ir_slice]
-                    # print('\n',p,'\n')
-                    lnL = binfree.MRlogL(p,dt,deadtime_us)
-                else:
-                    # call binned loglike method
-                    # lnL = binMRlogL(n, tmp, Is)[0]
-                    lnL = loglike_planet_blurredMR(n,Ic,Is,Ir_countsperbin,n_unique=n_unique)[0]
-                im[j,i] = lnL
-                # print('Ic+Is, Is, Ir_slice = ', (Ic+Is), Is, Ir_countsperbin)
-
-    # if there were parts of im where the loglikelihood wasn't calculated,
-    # for example if Ic or Is were less than zero, then set those parts
-    # of im to a value less than the maximum so that the maximum still
-    # stands out
-    # print('\n\nim is: ',im)
-    im[im==0] = np.amax(im[im!=0])-8
-
-
-    Ic_ind, Is_ind = np.unravel_index(im.argmax(), im.shape)
-    # print('Max at (' + str(Ic_ind) + ', ' + str(Is_ind) + ')')
-    # print("Ic=" + str(x_list[Ic_ind]) + ", Is=" + str(Is_list[Is_ind]))
-    # print(im[Ic_ind, Is_ind])
-
-    X, Y = np.meshgrid(x_list, Is_list)
-    sigmaLevels = np.array([8.36, 4.78, 2.1])
-
-    return X,Y,im
-
-
-
 def logLMap_binfree(t, x_list, Is_list, IcPlusIs = False,Ir_slice=0, deadtime = 0):
     """
     makes a map of the bin-free log likelihood function over the range of Ic, Is
@@ -693,11 +488,10 @@ def _logL_worker2(args):
     #     Ic = x
     # return loglike_planet_blurredMR(light_curve_counts_per_bin, Ic, Is, Ip, n_unique)[0]
 
-    light_curve_counts_per_bin = args[0]
-    print('light_curve_counts_per_bin',light_curve_counts_per_bin)
+    dist = args[0]
     loglike = []
     for el in args[1]:
-        x, Is, Ip, n_unique, IcpIs_bool = el
+        x, Is, Ip, IcpIs_bool = el
         # print(x, Is, Ip, n_unique, IcpIs_bool)
         if x == 0 and Is == 0 and Ip == 0:
             continue
@@ -705,7 +499,8 @@ def _logL_worker2(args):
             Ic = x - Is
         else:
             Ic = x
-        loglike.append(loglike_planet_blurredMR(light_curve_counts_per_bin, Ic, Is, Ip, n_unique)[0])
+        # loglike.append(loglike_planet_blurredMR(light_curve_counts_per_bin, Ic, Is, Ip, n_unique)[0])
+        loglike.append(bin_logL([Ic, Is, Ip], dist))
 
     return loglike
 
@@ -839,42 +634,61 @@ def logL_array(ts, Ic_list, Is_list, Ip_list, IcpIs_list = None, deadtime = 0, e
     else:
         # bin MR
         light_curve_counts_per_bin = getLightCurve(ts, ts[0], ts[-1], effExpTime=eff_exp_time)[0]
+        dist = np.bincount(light_curve_counts_per_bin)
         n_unique = np.unique(light_curve_counts_per_bin)
         if IcpIs_list is not None:
-            params = [(light_curve_counts_per_bin, x, Is, Ip, n_unique, True)
+            # params = [(light_curve_counts_per_bin, x, Is, Ip, n_unique, True)
+            #           for x in IcpIs_list * eff_exp_time
+            #           for Is in Is_list * eff_exp_time
+            #           for Ip in Ip_list * eff_exp_time]
+            # n_params = len(params)
+            # n_cpu = min(min(n_cpu_max, n_params), multiprocessing.cpu_count() - 1)
+            # pool = multiprocessing.Pool(n_cpu)
+            # foo = np.array(pool.map(_logL_worker2, params)).reshape(len(IcpIs_list), len(Is_list), len(Ip_list))
+            # flat_list = np.array([item for sublist in foo for item in sublist])
+
+            simple_params = [(x, Is, Ip, True)
                       for x in IcpIs_list * eff_exp_time
                       for Is in Is_list * eff_exp_time
                       for Ip in Ip_list * eff_exp_time]
-            n_params = len(params)
-            n_cpu = min(min(n_cpu_max, n_params), multiprocessing.cpu_count() - 1)
-            pool = multiprocessing.Pool(n_cpu)
-            foo = np.array(pool.map(_logL_worker2, params)).reshape(len(IcpIs_list), len(Is_list), len(Ip_list))
-            flat_list = np.array([item for sublist in foo for item in sublist])
-        else:
-            simple_params = [(Ic, Is, Ip, n_unique, False)
-                      for Ic in Ic_list * eff_exp_time
-                      for Is in Is_list * eff_exp_time
-                      for Ip in Ip_list * eff_exp_time]
             n_params = len(simple_params)
-            print(n_params)
             n_cpu = min(min(n_cpu_max, n_params), multiprocessing.cpu_count() - 1)
             pool = multiprocessing.Pool(n_cpu)
             for ii in range(n_params % n_cpu):
-                simple_params.append((0, 0, 0,0,0))
+                simple_params.append((0, 0, 0,0))
             n = -(-n_params // n_cpu)  # upside down floor division (ceiling division)
 
             params = []
             for cpu_number in range(n_cpu):
-                params.append(tuple([light_curve_counts_per_bin, simple_params[cpu_number * n:(cpu_number + 1) * n]]))
+                params.append(tuple([dist, simple_params[cpu_number * n:(cpu_number + 1) * n]]))
                 # params is a list of tuples containing lists of tuples
 
+            foo = np.array(pool.map(_logL_worker2, params))
+            flat_list = np.array([item for sublist in foo for item in sublist])
+
+
+        else:
+            simple_params = [(Ic, Is, Ip, False)
+                      for Ic in Ic_list * eff_exp_time
+                      for Is in Is_list * eff_exp_time
+                      for Ip in Ip_list * eff_exp_time]
+            n_params = len(simple_params)
+            n_cpu = min(min(n_cpu_max, n_params), multiprocessing.cpu_count() - 1)
+            pool = multiprocessing.Pool(n_cpu)
+            for ii in range(n_params % n_cpu):
+                simple_params.append((0, 0, 0,0))
+            n = -(-n_params // n_cpu)  # upside down floor division (ceiling division)
+
+            params = []
+            for cpu_number in range(n_cpu):
+                params.append(tuple([dist, simple_params[cpu_number * n:(cpu_number + 1) * n]]))
+                # params is a list of tuples containing lists of tuples
 
             foo = np.array(pool.map(_logL_worker2, params))
             flat_list = np.array([item for sublist in foo for item in sublist])
 
     pool.close()
     pool.join()
-    print('n_cpu = ',n_cpu)
 
     if IcpIs_list is not None:
         cube = flat_list.reshape(len(IcpIs_list), len(Is_list), len(Ip_list))
