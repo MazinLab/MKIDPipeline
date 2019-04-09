@@ -421,7 +421,7 @@ class mock_photonlist():
             if len(p_lists[0])==0 or len(p_lists[1])==0 or len(p_lists[2])==0:
                 p_opt = optimize.minimize(binMR._bin_logL, p_seed, dist, bounds=((0.001, np.inf), (0.001, np.inf), (.001, np.inf))).x / binSize  # units are [cts/sec]
             else: p_opt = None
-            logLfunc = partial(binMR.bin_logL, dist)
+            logLfunc = partial(binMR.bin_logL, dist=dist)
 
         else:  # binfree case
             binSize=-1

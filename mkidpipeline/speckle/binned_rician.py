@@ -469,36 +469,17 @@ def logL_cube(ts, Ic_list, Is_list, Ir_list, deadtime = 0,partial_cube = False):
     return cube
 
 
-
-def _logL_worker1(args):
-    dt, x, Is, Ip, deadtime, IcpIs_bool = args
-    if IcpIs_bool:
-        Ic = x - Is
-    else:
-        Ic = x
-    return binfree.MRlogL([Ic, Is, Ip], dt, deadtime)
-
-
 def _logL_worker2(args):
-    # light_curve_counts_per_bin, x, Is, Ip, n_unique, IcpIs_bool = args
-    # if IcpIs_bool:
-    #     Ic = x - Is
-    # else:
-    #     Ic = x
-    # return loglike_planet_blurredMR(light_curve_counts_per_bin, Ic, Is, Ip, n_unique)[0]
-
     dist = args[0]
     loglike = []
     for el in args[1]:
         x, Is, Ip, IcpIs_bool = el
-        # print(x, Is, Ip, n_unique, IcpIs_bool)
         if x == 0 and Is == 0 and Ip == 0:
             continue
         if IcpIs_bool:
             Ic = x - Is
         else:
             Ic = x
-        # loglike.append(loglike_planet_blurredMR(light_curve_counts_per_bin, Ic, Is, Ip, n_unique)[0])
         loglike.append(bin_logL([Ic, Is, Ip], dist))
 
     return loglike
@@ -520,11 +501,7 @@ def _logL_worker3(args):
     return loglike
 
 
-
-# def _logL_worker4(args):
-
-
-def logL_array(ts, Ic_list, Is_list, Ip_list, IcpIs_list = None, deadtime = 0, eff_exp_time = None):
+def logL_array(ts, Ic_list, Is_list, Ip_list, IcpIs_list = None, deadtime = 1.e-5, eff_exp_time = -1):
     """
     :param ts: timestamps, units seconds
     :param Ic_list:
@@ -536,49 +513,9 @@ def logL_array(ts, Ic_list, Is_list, Ip_list, IcpIs_list = None, deadtime = 0, e
     :param eff_exp_time: bin size for doing a binned log like map
     :return: cube: the array containing the loglike values. First index is Ic, 2nd is Is, 3rd is Ip
     """
-    # pool = multiprocessing.Pool(multiprocessing.cpu_count() - 1)
-    # pool = multiprocessing.Pool(4)
-    # if eff_exp_time is None:
-    #     # bin-free
-    #     dt = (ts[1:] - ts[:-1])
-    #     if IcpIs_list is not None:
-    #         params = [(dt, x, Is, Ip, deadtime, True)
-    #                   for x in IcpIs_list
-    #                   for Is in Is_list
-    #                   for Ip in Ip_list]
-    #         foo = np.array(pool.map(_logL_worker1, params)).reshape(len(IcpIs_list),len(Is_list),len(Ip_list))
-    #     else:
-    #         params = [(dt, Ic, Is, Ip, deadtime, False)
-    #                   for Ic in Ic_list
-    #                   for Is in Is_list
-    #                   for Ip in Ip_list]
-    #         foo = np.array(pool.map(_logL_worker1, params)).reshape(len(Ic_list),len(Is_list),len(Ip_list))
-    #
-    # else:
-    #     # bin MR
-    #     light_curve_counts_per_bin = getLightCurve(ts, ts[0], ts[-1], effExpTime=eff_exp_time)[0]
-    #     n_unique = np.unique(light_curve_counts_per_bin)
-    #     if IcpIs_list is not None:
-    #         params = [(light_curve_counts_per_bin, x, Is, Ip, n_unique, True)
-    #                   for x in IcpIs_list*eff_exp_time
-    #                   for Is in Is_list*eff_exp_time
-    #                   for Ip in Ip_list*eff_exp_time]
-    #         foo = np.array(pool.map(_logL_worker2, params)).reshape(len(IcpIs_list),len(Is_list),len(Ip_list))
-    #     else:
-    #         params = [(light_curve_counts_per_bin, Ic, Is, Ip, n_unique, False)
-    #                   for Ic in Ic_list*eff_exp_time
-    #                   for Is in Is_list*eff_exp_time
-    #                   for Ip in Ip_list*eff_exp_time]
-    #         foo = np.array(pool.map(_logL_worker2, params)).reshape(len(Ic_list),len(Is_list),len(Ip_list))
-    #
-    # pool.close()
-    #
-    # return foo
-
-    # n_cpu = multiprocessing.cpu_count() - 1
     n_cpu_max = 28
 
-    if eff_exp_time is None:
+    if eff_exp_time <= 0:
         # bin-free
         dt = (ts[1:] - ts[:-1])
         if IcpIs_list is not None:
@@ -598,12 +535,7 @@ def logL_array(ts, Ic_list, Is_list, Ip_list, IcpIs_list = None, deadtime = 0, e
                 params.append(tuple([dt, simple_params[cpu_number * n:(cpu_number + 1) * n]]))
                 # params is a list of tuples containing lists of tuples
 
-            # print('\nprinting params')
-            # for jj in params:
-            #     print(jj)
-
             foo = pool.map(_logL_worker3, params)
-            # print(foo)
             flat_list = np.array([item for sublist in foo for item in sublist])
         else:
             simple_params = [(Ic, Is, Ip, deadtime, False)
@@ -621,12 +553,7 @@ def logL_array(ts, Ic_list, Is_list, Ip_list, IcpIs_list = None, deadtime = 0, e
             for cpu_number in range(n_cpu):
                 params.append(tuple([dt, simple_params[cpu_number * n:(cpu_number + 1) * n]]))
 
-            # print('\nprinting params')
-            # for jj in params:
-            #     print(jj)
-
             foo = pool.map(_logL_worker3, params)
-            # print(foo)
             flat_list = np.array([item for sublist in foo for item in sublist])
 
 
@@ -636,16 +563,6 @@ def logL_array(ts, Ic_list, Is_list, Ip_list, IcpIs_list = None, deadtime = 0, e
         dist = np.bincount(light_curve_counts_per_bin)
         n_unique = np.unique(light_curve_counts_per_bin)
         if IcpIs_list is not None:
-            # params = [(light_curve_counts_per_bin, x, Is, Ip, n_unique, True)
-            #           for x in IcpIs_list * eff_exp_time
-            #           for Is in Is_list * eff_exp_time
-            #           for Ip in Ip_list * eff_exp_time]
-            # n_params = len(params)
-            # n_cpu = min(min(n_cpu_max, n_params), multiprocessing.cpu_count() - 1)
-            # pool = multiprocessing.Pool(n_cpu)
-            # foo = np.array(pool.map(_logL_worker2, params)).reshape(len(IcpIs_list), len(Is_list), len(Ip_list))
-            # flat_list = np.array([item for sublist in foo for item in sublist])
-
             simple_params = [(x, Is, Ip, True)
                       for x in IcpIs_list * eff_exp_time
                       for Is in Is_list * eff_exp_time
