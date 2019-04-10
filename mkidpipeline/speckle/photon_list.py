@@ -31,6 +31,54 @@ from scipy import optimize, integrate
 import pickle
 
 
+def _worker(arg_list):
+        t=time.time()
+        Ic = arg_list['Ic']
+        Is = arg_list['Is']
+        Ip = arg_list['Ip']
+        Ttot = arg_list['Ttot']
+        tau = arg_list['tau']
+        deadtime = arg_list['deadtime']
+        binning = arg_list['binning']
+        saveLoc = arg_list['saveLoc']
+        try:
+            m=mock_photonlist(Ic, Is, Ip, Ttot, tau,deadtime)
+            m.getLogLCubes(binning)
+            m.save(saveLoc)
+        except: traceback.print_exc()    #just in case...
+
+        print("\n{} s. Made photon list with [Ic,Is,Ip,Ttot,tau] = [{},\t{},\t{},\t{},\t{}]".format(int(time.time()-t),Ic,Is,Ip,Ttot,tau))
+
+def collectDataForPaper():
+    sumIcIs=[30., 100., 300., 1000., 2000.]
+    ratioIc2Is=[1./10., 1./5., 1./2., 1., 2., 5., 10.]
+    ratioIp2sum=[1.,1./10.,1./20.,1./100.]
+    binning=[-1,10.**-4, 10.**-3, 10.**-2, 0.1, 1.]
+    Ttot=30.
+    tau=0.1
+    deadtime=10.e-6
+
+    saveLoc = '/home/data/SSD/logLmaps/'
+    numPhotonlists=1
+
+    #binning=[-1]
+
+    arg_dicts = []
+    for i in sumIcIs:
+        for j in ratioIc2Is:
+            for k in ratioIp2sum:
+                Ic=round(i/(1.+1/j),3)
+                Is=round(i/(1.+j),3)
+                Ip=round(i*k,3)
+                arg_dicts.append({'Ic':Ic, 'Is':Is, 'Ip':Ip, 'Ttot':Ttot, 'tau':tau, 'deadtime':deadtime, 'binning':binning, 'saveLoc':saveLoc})
+    arg_dicts = np.tile(arg_dicts, numPhotonlists)
+
+    nProc = multiprocessing.cpu_count()-1
+    pool = multiprocessing.Pool(processes=nProc)
+    pool.map(_worker, arg_dicts)
+    pool.close()    
+    pool.join()
+
 def probIr(logLcube, p_lists, cumulative = False):
     """
     This function returns the (cumulative) probability density of Ir. 
@@ -298,7 +346,7 @@ def _getLogLpoints_Irslice(logLfunc, p_opt, p_inc, maxLogL, relmin=10.**-8.):
         loopSafety-=1
 
         #print("\tStarting slice Ip={}, Ic={}".format(p_tmp[2], p_tmp[0]))
-        data=_getLogLpoints_IrIcslice(logLfunc, p_opt, p_inc, maxLogL, relmin)
+        data=_getLogLpoints_IrIcslice(logLfunc, p_tmp, p_inc.copy(), maxLogL, relmin)
         ret = np.append(ret, data, axis=0)
         #print("\t\tIs={}..{}".format(np.amin(data[:,1]), np.amax(data[:,1])))
         
@@ -335,6 +383,7 @@ def getLogLpoints(logLfunc, p_opt, relmin=10.**-8.):
     p_opt[p_opt==0]=0.5 
     maxLogL = logLfunc(p_opt)
     logLpoints = np.asarray([[p_opt[0], p_opt[1], p_opt[2], maxLogL]])
+    
 
     # get initial step size    
     sampling=-1./20.
@@ -354,9 +403,9 @@ def getLogLpoints(logLfunc, p_opt, relmin=10.**-8.):
     if not np.array_equal(p_opt, logLpoints[0][:3]):
     #if np.asarray([p_opt[0], p_opt[1], p_opt[2]]) != logLpoints[0][:3]:
         logLpoints =np.append(logLpoints,np.append(p_opt, logLfunc(p_opt))[np.newaxis],axis=0)
-        maxLogL = np.amax(logLpoints[:,-1])
+    #    maxLogL = np.amax(logLpoints[:,-1])
 
-    # sample along all three axes
+    # sample along all three axes as a test
     data = {0:[], 1:[], 2:[]}
     for ind in range(len(p_opt)):
         p_tmp=np.copy(p_opt)
@@ -382,7 +431,7 @@ def getLogLpoints(logLfunc, p_opt, relmin=10.**-8.):
     print("Ir len: "+str(len(data[2])))
 
     # refine step size so it's not too small.
-    numSteps = 100.         #roughly 100 points per dimension should sample the space adequately 
+    numSteps = 50.         #roughly 100 points per dimension should sample the space adequately 
     p_inc=np.abs(p_inc)*-1
     for i in range(len(p_inc)):
         if len(data[i]) > numSteps:
@@ -393,11 +442,13 @@ def getLogLpoints(logLfunc, p_opt, relmin=10.**-8.):
                 p_inc[i] = round(p_inc[i],2)
                 if p_inc[i]==0: p_inc[i]=-0.01
     maxInd = np.argmax(logLpoints[:,-1])
-    p_opt = logLpoints[maxInd, :3]
+    if maxInd!=0: p_opt = logLpoints[maxInd, :3]
     maxLogL = logLpoints[maxInd, -1]
 
     print("p_opt: "+str(p_opt))
     print("p_inc: "+str(p_inc))
+
+    logLpoints = np.empty((0,len(p_opt)+1)) #ignore previous points that aren't on grid
 
     # loop through Ip slices
     p_tmp=np.copy(p_opt)
@@ -408,7 +459,7 @@ def getLogLpoints(logLfunc, p_opt, relmin=10.**-8.):
         loopSafety-=1
 
         #print("Starting slice Ip={}".format(p_tmp[2]))
-        data=_getLogLpoints_Irslice(logLfunc, p_tmp, p_inc, maxLogL, relmin)
+        data=_getLogLpoints_Irslice(logLfunc, p_tmp, p_inc.copy(), maxLogL, relmin)
         logLpoints = np.append(logLpoints, data, axis=0)
         
         maxInd = np.argmax(data[:,-1])
@@ -451,7 +502,9 @@ def loadPhotonlist(Ic, Is, Ir, Ttot, loc='/Data/SSD/logLmaps/', uuid=None):
     return [_loadPhotonlist(fn) for fn in fns]
     
 class imageCubeSliceViewer():
-    def __init__(self, imageCube, lists, ind=2):
+    def __init__(self, imageCube, lists, ind=2, points=None):
+        if points is not None: self.points=np.asarray(points)
+        else: raise NotImplementedError
         self.lists=lists
         self.imageCube=imageCube
         self.ind = int(ind)%self.imageCube.ndim
@@ -466,13 +519,20 @@ class imageCubeSliceViewer():
         print((np.amin(lists[2]),np.amax(lists[2])))
 
         fig, self.ax = plt.subplots(1, 1)
-        norm=matplotlib.colors.LogNorm()
-        norm.autoscale(imageCube)
+        #norm=matplotlib.colors.LogNorm()
+        norm=matplotlib.colors.Normalize()
+        norm.autoscale(imageCube[np.isfinite(imageCube)])
+        cmap = matplotlib.cm.viridis
+        cmap.set_bad(cmap(0))
 
         self.ax.set_title('Image Slice along {} = {:.3f}'.format(self.axLabels[self.ind],self.lists[self.ind][self.num]))
         newImage, x_extent, y_extent=self.getData()
-        self.im = self.ax.imshow(newImage.T,origin='lower', extent=x_extent+y_extent, norm=norm)
-        self.l, = self.ax.plot(self.lists[2 if self.ind!=2 else 1][self.maxInd[2 if self.ind!=2 else 1]], self.lists[0 if self.ind!=0 else 1][self.maxInd[0 if self.ind!=0 else 1]], 'kx')
+        self.im = self.ax.imshow(newImage.T,origin='lower', extent=x_extent+y_extent, norm=norm, cmap=cmap)
+        xPoints, yPoints = self.getPointsData()
+        self.p, = self.ax.plot(xPoints, yPoints, 'k.', markersize=2)
+        if points is None:
+            self.p.set_markersize(0)
+        self.l, = self.ax.plot(self.lists[2 if self.ind!=2 else 1][self.maxInd[2 if self.ind!=2 else 1]], self.lists[0 if self.ind!=0 else 1][self.maxInd[0 if self.ind!=0 else 1]], 'gx')
         self.ax.set_ylabel("{}".format(self.axLabels[0 if self.ind!=0 else 1]))
         self.ax.set_xlabel("{}".format(self.axLabels[2 if self.ind!=2 else 1]))
         #self.update()
@@ -481,9 +541,22 @@ class imageCubeSliceViewer():
         fig.canvas.mpl_connect('key_press_event', self.onkeypress)
         plt.show()
 
+    def getPointsData(self):
+        val = self.lists[self.ind][self.num]
+        pVal = self.points[np.argmin(np.abs(self.points[:,self.ind] - val)), self.ind]
+        #print("{} --> {}".format(val,pVal))
+
+        #inds = np.where(self.points[:,self.ind]==pVal)[0]
+        inds = np.isclose(self.points[:,self.ind], pVal)
+        
+
+        return self.points[inds, 2 if self.ind!=2 else 1], self.points[inds, 0 if self.ind!=0 else 1]
+
+
     def getData(self):
         image=np.take(self.imageCube,self.num, axis=self.ind)
 
+        '''
         #regrid incase the imageCube isn't on an evenly spaced grid
         yVals = self.lists[0 if self.ind!=0 else 1]
         xVals = self.lists[2 if self.ind!=2 else 1]
@@ -493,7 +566,14 @@ class imageCubeSliceViewer():
         newImage = scipy.interpolate.griddata(points, image.T.flatten(), (gridX, gridY),method='nearest')
         x_extent = (np.amin(xVals), np.amax(xVals))
         y_extent = (np.amin(yVals), np.amax(yVals))
+        
         return newImage, x_extent, y_extent
+        '''
+        yVals = self.lists[0 if self.ind!=0 else 1]
+        yStep = scipy.stats.mode(np.diff(yVals))[0][0]
+        xVals = self.lists[2 if self.ind!=2 else 1]
+        xStep = scipy.stats.mode(np.diff(xVals))[0][0]
+        return image.T, (np.amin(xVals)-xStep/2., np.amax(xVals)+xStep/2.), (np.amin(yVals)-yStep/2., np.amax(yVals)+yStep/2.)
 
     def onscroll(self, event):
         #print("%s %s" % (event.button, event.step))
@@ -506,18 +586,27 @@ class imageCubeSliceViewer():
 
     def onkeypress(self, event):
         #print(event.key)
+        if event.key=='p':
+            sz=self.p.get_markersize()
+            self.p.set_markersize(2 if sz==0 else 0)
         try:    #pressed a number
             self.ind=int(event.key)%self.imageCube.ndim
             #self.num = (self.num)%self.imageCube.shape[self.ind]
             self.num=self.maxInd[self.ind]
             self.l.set_xdata(self.lists[2 if self.ind!=2 else 1][self.maxInd[2 if self.ind!=2 else 1]])
             self.l.set_ydata(self.lists[0 if self.ind!=0 else 1][self.maxInd[0 if self.ind!=0 else 1]])
+
         except:
             pass
         self.update()
 
     def update(self):
         self.ax.set_title('Image Slice along {} = {:.3f}'.format(self.axLabels[self.ind],self.lists[self.ind][self.num]))
+
+        xPoints, yPoints = self.getPointsData()
+        self.p.set_xdata(xPoints)
+        self.p.set_ydata(yPoints)
+
         newImage, x_extent, y_extent=self.getData()
         self.im.set_data(newImage.T)
         self.im.set_extent(x_extent+y_extent)
@@ -556,11 +645,44 @@ class mock_photonlist():
         #self.logLCubes_lists={} # list of p_lists for corresponding logLCubes
         #self.logLCubes_star_lists={}
 
-    def viewCube(self,ind=2):
 
+    def getCube(self, binSize, star=False, method='linear'):
+        #Assume the points are on a regular grid
+        points = self.logLpoints_star[binSize][:,:3].copy() if star else self.logLpoints[binSize][:,:3].copy()
+        values = self.logLpoints_star[binSize][:,-1] if star else self.logLpoints[binSize][:,-1]
+
+        #print(values)
+
+        p_lists = {0:np.unique(np.round(points[:,0],8)), 1:np.unique(np.round(points[:,1],8)), 2:np.unique(np.round(points[:,2],8))} 
+        logLcube = np.full((len(p_lists[0]),len(p_lists[1]),len(p_lists[2])), -np.inf)
+
+        for i in [0,1,2]:
+            points[:,i] -= p_lists[i][0]
+            points[:,i] /= scipy.stats.mode(np.diff(p_lists[i]))[0][0]
+        points=points.astype(np.int)
+
+        logLcube[points[:,0], points[:,1], points[:,2]] = values
         
+        return logLcube, p_lists
 
-        imageCubeSliceViewer(imageCube, lists, ind)
+    def getCube_scattered(self, binSize, star=False, method='linear', maxPoints=500):
+        """
+        Super slow for 3d data...
+        """
+        points = self.logLpoints_star[binSize][:,:3] if star else self.logLpoints[binSize][:,:3]
+        values = self.logLpoints_star[binSize][:,-1] if star else self.logLpoints[binSize][:,-1]
+        #print(len(np.unique(points[:,0])))
+        #print(len(np.unique(points[:,1])))
+        #print(len(np.unique(points[:,2])))
+        nPoints = [min(int(len(np.unique(points[:,0]))), maxPoints), min(int(len(np.unique(points[:,1]))), maxPoints), min(int(len(np.unique(points[:,2]))), maxPoints)]
+        gridX, gridY, gridZ = np.mgrid[np.amin(points[:,0]):np.amax(points[:,0]):nPoints[0]*1j,
+                                       np.amin(points[:,1]):np.amax(points[:,1]):nPoints[1]*1j,
+                                       np.amin(points[:,2]):np.amax(points[:,2]):nPoints[2]*1j]
+        logLcube = scipy.interpolate.griddata(points, values, (gridX, gridY, gridZ),method=method, fill_value=-np.inf)
+        
+        p_lists = {0:gridX[:,0,0], 1:gridY[0,:,0], 2:gridZ[0,0,:]}
+        return logLcube, p_lists
+        
 
 
     def save(self,loc='/Data/SSD/logLmaps/'):
@@ -706,7 +828,7 @@ class mock_photonlist():
             try: 
                 res = binfree.optimize_IcIsIr(dt, p_seed, self.deadtime)
                 p_opt=res.params
-                print(res.summary())
+                #print(res.summary())
             except:
                 p_opt=p_seed
             #if len(p_lists[0])==0 or len(p_lists[1])==0 or len(p_lists[2])==0:
@@ -893,5 +1015,8 @@ class photon_list(object):
         self.p0_list = np.append(self.p0_list, p0)
         self.p1_list = np.append(self.p1_list, np.asarray(res.params))
 
+
+if __name__=='__main__':
+    collectDataForPaper()
 
 
