@@ -11,11 +11,13 @@ This class is used to easily save and load the data later
 """
 
 import numpy as np
+import scipy
 import matplotlib.pyplot as plt
+import matplotlib
 
 from functools import partial
 
-import os, glob
+import os, glob, uuid
 import datetime
 import time
 import multiprocessing
@@ -58,6 +60,7 @@ def probIr(logLcube, p_lists, cumulative = False):
     return prob
 
 
+'''
 def getLogLCube(logLfunc, p_lists={0:[], 1:[], 2:[]}, relmin=10.**-8., p_opt=None, rounddec=2):
     """
     This function maps out the log likelihood space for both the binned and binfree model.
@@ -254,8 +257,173 @@ def _multiprocessGetLogLCube(logLmap, p_lists, logLfunc):
     
     logLmap=np.concatenate(map_slices_3, axis=2, out=logLmap)
     return logLmap, p_lists
+'''
 
+def _getLogLpoints_IrIcslice(logLfunc, p_opt, p_inc, maxLogL, relmin=10.**-8.):
+    """
+    
+    """
+    # loop through Is with Ic, Ip fixed
+    p_tmp=np.copy(p_opt)
+    ind=1   #Is
+    ret=np.empty((0,len(p_opt)+1))
+    loopSafety=0 #just in case...
+    while loopSafety <=1000:
+        loopSafety+=1
 
+        logL = logLfunc(p_tmp)
+        ret = np.append(ret, np.append(p_tmp, logL)[np.newaxis], axis=0)
+        if (logL>(maxLogL + np.log(relmin)) or loopSafety==1) and p_tmp[ind]+p_inc[ind]>0.:    #continue sweeping
+            p_tmp[ind]+=p_inc[ind]
+        else:   # finished sweeping in one direction
+            if p_inc[ind]<0.: # It was sweeping down. Sweep It up now!
+                p_inc[ind]*=-1
+                p_tmp = p_opt.copy()
+                p_tmp[ind]=p_opt[ind]+p_inc[ind]
+            else: break     #done!
+    return ret
+    
+
+def _getLogLpoints_Irslice(logLfunc, p_opt, p_inc, maxLogL, relmin=10.**-8.):
+    """
+    
+    """
+
+    # loop through Ic with Ip fixed
+    p_tmp=np.copy(p_opt)
+    ind=0   #Ic
+    ret=np.empty((0,len(p_opt)+1))
+    loopSafety=1000 #just in case...
+    while loopSafety >=0:
+        loopSafety-=1
+
+        #print("\tStarting slice Ip={}, Ic={}".format(p_tmp[2], p_tmp[0]))
+        data=_getLogLpoints_IrIcslice(logLfunc, p_opt, p_inc, maxLogL, relmin)
+        ret = np.append(ret, data, axis=0)
+        #print("\t\tIs={}..{}".format(np.amin(data[:,1]), np.amax(data[:,1])))
+        
+        maxInd = np.argmax(data[:,-1])
+        p_tmp[1] = data[maxInd,1]     # the argmax Is might shift a little in the Ir,Ic slice as we incremenet Ic
+        #maxLogL = np.amax(logLpoints[:,-1])
+        if np.any(data[:,-1]>(maxLogL + np.log(relmin))) and p_tmp[ind]+p_inc[ind]>0.:    #continue sweeping
+            p_tmp[ind]+=p_inc[ind]
+        else:   # finished sweeping in one direction
+            if p_inc[ind]<0.: # It was sweeping down. Sweep It up now!
+                p_inc[ind]*=-1
+                p_tmp = p_opt.copy()
+                p_tmp[ind]=p_opt[ind]+p_inc[ind]
+            else: break     #done!
+    return ret
+
+def getLogLpoints(logLfunc, p_opt, relmin=10.**-8.):
+    """
+    This function fully samples the logL space. 
+
+    INPUTS:
+        logLfunc - function that takes parameters p=[Ic, Is, Ip] and outputs logL
+        p_opt - parameters that give maximum logL. [Ic, Is, Ip]
+        relmin - starting at the p_opt, continue mapping out in Ic/Is/Ir until logL is less than maxLogL*relmin
+
+    OUTPUTS:
+        logLpoints - 2d numpy array of shape (N, 4). 
+                     N points of [Ic, Is, Ip, logL]
+
+        **Note - Array might have duplicate [Ic, Is, Ip] points...
+                 This doesn't bother scipy.interpolate.griddata
+    """
+    #starting point
+    p_opt[p_opt==0]=0.5 
+    maxLogL = logLfunc(p_opt)
+    logLpoints = np.asarray([[p_opt[0], p_opt[1], p_opt[2], maxLogL]])
+
+    # get initial step size    
+    sampling=-1./20.
+    p_inc = np.sqrt(p_opt)*sampling
+    for i in range(len(p_inc)):
+        if p_inc[i]<=-1.:
+            p_inc[i] = round(p_inc[i],0)
+            p_opt[i] = round(p_opt[i],0)
+        elif p_inc[i]<=-0.1:
+            p_inc[i] = round(p_inc[i],1)
+            p_opt[i] = round(p_opt[i],1)
+        else:
+            p_inc[i] = round(p_inc[i],2)
+            p_opt[i] = round(p_opt[i],2)
+            if p_inc[i]==0: p_inc[i]=-0.01
+            if p_opt[i]==0: p_opt[i]=0.01
+    if not np.array_equal(p_opt, logLpoints[0][:3]):
+    #if np.asarray([p_opt[0], p_opt[1], p_opt[2]]) != logLpoints[0][:3]:
+        logLpoints =np.append(logLpoints,np.append(p_opt, logLfunc(p_opt))[np.newaxis],axis=0)
+        maxLogL = np.amax(logLpoints[:,-1])
+
+    # sample along all three axes
+    data = {0:[], 1:[], 2:[]}
+    for ind in range(len(p_opt)):
+        p_tmp=np.copy(p_opt)
+        logL=maxLogL
+        loopSafety=1000 #just in case...
+        while loopSafety >=0:
+            loopSafety-=1
+            
+            if logL>(maxLogL + np.log(relmin)) and p_tmp[ind]+p_inc[ind]>0.:    #continue sweeping
+                p_tmp[ind]+=p_inc[ind]
+            else:   # finished sweeping in one direction
+                if p_inc[ind]<0.: # It was sweeping down. Sweep It up now!
+                    p_inc[ind]*=-1
+                    p_tmp[ind]=p_opt[ind]+p_inc[ind]
+                else: break     # move on to next parameter
+                    
+            logL=logLfunc(p_tmp)
+            data[ind].append(np.append(p_tmp, logL))
+        logLpoints=np.append(logLpoints, data[ind], axis=0)
+
+    print("Ic len: "+str(len(data[0])))
+    print("Is len: "+str(len(data[1])))
+    print("Ir len: "+str(len(data[2])))
+
+    # refine step size so it's not too small.
+    numSteps = 100.         #roughly 100 points per dimension should sample the space adequately 
+    p_inc=np.abs(p_inc)*-1
+    for i in range(len(p_inc)):
+        if len(data[i]) > numSteps:
+            p_inc[i] = p_inc[i]*len(data[i])/numSteps
+            if p_inc[i]<=-1.: p_inc[i] = round(p_inc[i],0)
+            elif p_inc[i]<=-0.1: p_inc[i] = round(p_inc[i],1)
+            else: 
+                p_inc[i] = round(p_inc[i],2)
+                if p_inc[i]==0: p_inc[i]=-0.01
+    maxInd = np.argmax(logLpoints[:,-1])
+    p_opt = logLpoints[maxInd, :3]
+    maxLogL = logLpoints[maxInd, -1]
+
+    print("p_opt: "+str(p_opt))
+    print("p_inc: "+str(p_inc))
+
+    # loop through Ip slices
+    p_tmp=np.copy(p_opt)
+    ind=2   #Ir
+    #data=logLpoints
+    loopSafety=1000 #just in case...
+    while loopSafety >=0:
+        loopSafety-=1
+
+        #print("Starting slice Ip={}".format(p_tmp[2]))
+        data=_getLogLpoints_Irslice(logLfunc, p_tmp, p_inc, maxLogL, relmin)
+        logLpoints = np.append(logLpoints, data, axis=0)
+        
+        maxInd = np.argmax(data[:,-1])
+        p_tmp[:2] = data[maxInd,:2]     # the argmax Ic, Is might shift a little in the Ir slice as we incremenet Ir
+        #maxLogL = np.amax(logLpoints[:,-1])
+        if np.any(data[:,-1]>(maxLogL + np.log(relmin))) and p_tmp[ind]+p_inc[ind]>0.:    #continue sweeping
+            p_tmp[ind]+=p_inc[ind]
+        else:   # finished sweeping in one direction
+            if p_inc[ind]<0.: # It was sweeping down. Sweep It up now!
+                p_inc[ind]*=-1
+                p_tmp = p_opt.copy()
+                p_tmp[ind]=p_opt[ind]+p_inc[ind]
+            else: break     #done!
+        
+    return logLpoints
 
 
 def _savePhotonlist(photonlist, fn):
@@ -269,48 +437,137 @@ def _loadPhotonlist(fn):
         photonlist = pickle.load(infile)
     return photonlist
 
-def savePhotonlist(photonlist, Ic, Is, Ir, Ttot, loc='/Data/SSD/logLmaps/'):
-    fn=loc+'data_{}_{}_{}_{}/{}.pickle'.format(Ic, Is, Ir, Ttot,int(time.time()))
+def savePhotonlist(photonlist, loc='/Data/SSD/logLmaps/'):
+    fn=loc+'data_{}_{}_{}_{}/{}.pickle'.format(photonlist.p_true[0], photonlist.p_true[1], photonlist.p_true[2], photonlist.Ttot, photonlist.uuid)
     _savePhotonlist(photonlist, fn)
 
-def loadPhotonlist(Ic, Is, Ir, Ttot, loc='/Data/SSD/logLmaps/'):
+def loadPhotonlist(Ic, Is, Ir, Ttot, loc='/Data/SSD/logLmaps/', uuid=None):
     """
     loads all photons list objects with the requested parameters
     """
     directory = loc+'data_{}_{}_{}_{}/'.format(Ic, Is, Ir, Ttot)
-    fns = glob.glob(directory+'*.pickle')
+    f = '*'+str(uuid)+'.pickle' if uuid is not None else '*.pickle'
+    fns = glob.glob(directory+f)
     return [_loadPhotonlist(fn) for fn in fns]
     
+class imageCubeSliceViewer():
+    def __init__(self, imageCube, lists, ind=2):
+        self.lists=lists
+        self.imageCube=imageCube
+        self.ind = int(ind)%self.imageCube.ndim
+        self.maxInd = np.unravel_index(np.argmax(imageCube),imageCube.shape)
+        #self.num=int(num)%self.imageCube.shape[self.ind]
+        self.num=self.maxInd[self.ind]
+        self.axLabels=['Ic', 'Is', 'Ip']
+
+        print(self.imageCube.shape)
+        print((np.amin(lists[0]),np.amax(lists[0])))
+        print((np.amin(lists[1]),np.amax(lists[1])))
+        print((np.amin(lists[2]),np.amax(lists[2])))
+
+        fig, self.ax = plt.subplots(1, 1)
+        norm=matplotlib.colors.LogNorm()
+        norm.autoscale(imageCube)
+
+        self.ax.set_title('Image Slice along {} = {:.3f}'.format(self.axLabels[self.ind],self.lists[self.ind][self.num]))
+        newImage, x_extent, y_extent=self.getData()
+        self.im = self.ax.imshow(newImage.T,origin='lower', extent=x_extent+y_extent, norm=norm)
+        self.l, = self.ax.plot(self.lists[2 if self.ind!=2 else 1][self.maxInd[2 if self.ind!=2 else 1]], self.lists[0 if self.ind!=0 else 1][self.maxInd[0 if self.ind!=0 else 1]], 'kx')
+        self.ax.set_ylabel("{}".format(self.axLabels[0 if self.ind!=0 else 1]))
+        self.ax.set_xlabel("{}".format(self.axLabels[2 if self.ind!=2 else 1]))
+        #self.update()
+
+        fig.canvas.mpl_connect('scroll_event', self.onscroll)
+        fig.canvas.mpl_connect('key_press_event', self.onkeypress)
+        plt.show()
+
+    def getData(self):
+        image=np.take(self.imageCube,self.num, axis=self.ind)
+
+        #regrid incase the imageCube isn't on an evenly spaced grid
+        yVals = self.lists[0 if self.ind!=0 else 1]
+        xVals = self.lists[2 if self.ind!=2 else 1]
+        points = [(x,y) for x in xVals for y in yVals]
+        gridX, gridY = np.mgrid[np.amin(xVals):np.amax(xVals):int(len(xVals)*1.1)*1j,
+                           np.amin(yVals):np.amax(yVals):int(len(yVals)*1.1)*1j]
+        newImage = scipy.interpolate.griddata(points, image.T.flatten(), (gridX, gridY),method='nearest')
+        x_extent = (np.amin(xVals), np.amax(xVals))
+        y_extent = (np.amin(yVals), np.amax(yVals))
+        return newImage, x_extent, y_extent
+
+    def onscroll(self, event):
+        #print("%s %s" % (event.button, event.step))
+        if event.button == 'up':
+            self.num=(self.num+1)%self.imageCube.shape[self.ind]
+        else:
+            self.num=(self.num-1)%self.imageCube.shape[self.ind]
+        #print(self.num)
+        self.update()
+
+    def onkeypress(self, event):
+        #print(event.key)
+        try:    #pressed a number
+            self.ind=int(event.key)%self.imageCube.ndim
+            #self.num = (self.num)%self.imageCube.shape[self.ind]
+            self.num=self.maxInd[self.ind]
+            self.l.set_xdata(self.lists[2 if self.ind!=2 else 1][self.maxInd[2 if self.ind!=2 else 1]])
+            self.l.set_ydata(self.lists[0 if self.ind!=0 else 1][self.maxInd[0 if self.ind!=0 else 1]])
+        except:
+            pass
+        self.update()
+
+    def update(self):
+        self.ax.set_title('Image Slice along {} = {:.3f}'.format(self.axLabels[self.ind],self.lists[self.ind][self.num]))
+        newImage, x_extent, y_extent=self.getData()
+        self.im.set_data(newImage.T)
+        self.im.set_extent(x_extent+y_extent)
+        self.ax.set_xlim(x_extent)
+        self.ax.set_ylim(y_extent)
+        
+        self.ax.set_ylabel("{}".format(self.axLabels[0 if self.ind!=0 else 1]))
+        self.ax.set_xlabel("{}".format(self.axLabels[2 if self.ind!=2 else 1]))
+        self.im.axes.figure.canvas.draw()
 
 class mock_photonlist():
     """
     mock photonlist class to hold logLCubes and other miscellanious data
     Is pickle-able for easy save / load
-
-    This class replaces photon_list() but I haven't deleted photon_list() yet for 
     """
-    def __init__(self,Ic,Is,Ir,Ttot=30,tau=0.1, deadtime=10.e-6,return_IDs=True):
+    def __init__(self,Ic,Is,Ir,Ttot=30,tau=0.1, deadtime=10.e-6):
         self.p_true = np.asarray([Ic, Is, Ir])
         self.Ttot=Ttot
         self.tau=tau
         self.deadtime=deadtime
-        self.ts, self.ts_star, _ = genphotonlist(Ic, Is, Ir, Ttot, tau, deadtime*10.**6., return_IDs=return_IDs)
+        self.ts, self.ts_star, _ = genphotonlist(Ic, Is, Ir, Ttot, tau, deadtime*10.**6., return_IDs=True)
         self.dt = (self.ts[1:] - self.ts[:-1]) * 1e-6
         self.dt_star = (self.ts_star[1:] - self.ts_star[:-1]) * 1e-6
 
         #self.p_seed=np.asarray([len(self.ts)/self.Ttot/3.]*3)   # I/3
         self.p_seed=np.copy(self.p_true)
 
-        self.logLCubes={}         # list of logLCubes. key:value --> binsize:logLCube.
-        self.logLCubes_star={}
-        self.logLCubes_lists={} # list of p_lists for corresponding logLCubes
-        self.logLCubes_star_lists={}
+
+        self.logLpoints={}
+        self.logLpoints_star={}
+
+        self.uuid = uuid.uuid4()    #used for unique identifier when saving 
+
+        #self.logLCubes={}         # list of logLCubes. key:value --> binsize:logLCube.
+        #self.logLCubes_star={}
+        #self.logLCubes_lists={} # list of p_lists for corresponding logLCubes
+        #self.logLCubes_star_lists={}
+
+    def viewCube(self,ind=2):
+
+        
+
+        imageCubeSliceViewer(imageCube, lists, ind)
+
 
     def save(self,loc='/Data/SSD/logLmaps/'):
-        savePhotonlist(self, self.p_true[0], self.p_true[1], self.p_true[2], self.Ttot, loc=loc)
-        #savePhotonlist(self, fn)
+        savePhotonlist(self, loc=loc)
 
-    def getLogLCubes(self,binSize_list, matchIr_lists=True, relmin=10.**-8.):
+    #def getLogLCubes(self,binSize_list, matchIr_lists=True, relmin=10.**-8.):
+    def getLogLCubes(self,binSize_list, relmin=10.**-8.):
         """
         Get a bunch of logLcubes for different binSizes. 
 
@@ -321,23 +578,39 @@ class mock_photonlist():
         """
         for b in binSize_list:
             print("Getting data for star+planet. BinSize: "+str(b))
-            logLmap, p_lists, binSize = self._getLogLCube(b, star=False, p_lists={0:[], 1:[], 2:[]},relmin=relmin)
-            self.logLCubes[binSize]=logLmap
-            self.logLCubes_lists[binSize]=p_lists
+            t=time.time()
+            #logLmap, p_lists, binSize = self._getLogLCube(b, star=False, p_lists={0:[], 1:[], 2:[]},relmin=relmin)
+            #self.logLCubes[binSize]=logLmap
+            #self.logLCubes_lists[binSize]=p_lists
+            logLpoints, binSize = self._getLogLCube(b, star=False,relmin=relmin)
+            if binSize in self.logLpoints.keys():
+                self.logLpoints[binSize] = np.append(self.logLpoints[binSize], logLpoints, axis=0)
+            else:
+                self.logLpoints[binSize] = logLpoints
+            print("\tFinished binSize {} in {} seconds. Npoints={}".format(b, int(time.time()-t), logLpoints.shape[0]))
 
             print("Getting data for star. BinSize: "+str(b))
-            logLmap_star, p_lists_star, binSize = self._getLogLCube(b, star=True, p_lists={0:[], 1:[], 2:[]}, relmin=relmin)
-            self.logLCubes_star[binSize]=logLmap_star
-            self.logLCubes_star_lists[binSize]=p_lists_star
+            t=time.time()
+            #logLmap_star, p_lists_star, binSize = self._getLogLCube(b, star=True, p_lists={0:[], 1:[], 2:[]}, relmin=relmin)
+            #self.logLCubes_star[binSize]=logLmap_star
+            #self.logLCubes_star_lists[binSize]=p_lists_star
+            logLpoints, binSize = self._getLogLCube(b, star=True,relmin=relmin)
+            if binSize in self.logLpoints_star.keys():
+                self.logLpoints_star[binSize] = np.append(self.logLpoints_star[binSize], logLpoints, axis=0)
+            else:
+                self.logLpoints_star[binSize] = logLpoints
+            print("\tFinished binSize {} in {} seconds. Npoints={}".format(b, int(time.time()-t), logLpoints.shape[0]))
 
-            print("Matching Ir_lists. BinSize: "+str(b))
-            if matchIr_lists:
-                _, p_list_new, __ = self.appendVals2Cube(p_lists_star[2], 2, binSize, star=False, relmin=relmin)
-                _,__,___=self.appendVals2Cube(p_list_new[2], 2, binSize, star=True, relmin=relmin)
+            #print("Matching Ir_lists. BinSize: "+str(b))
+            #if matchIr_lists:
+            #    _, p_list_new, __ = self.appendVals2Cube(p_lists_star[2], 2, binSize, star=False, relmin=relmin)
+            #    _,__,___=self.appendVals2Cube(p_list_new[2], 2, binSize, star=True, relmin=relmin)
                 
 
-        return self.logLCubes, self.logLCubes_lists, self.logLCubes_star, self.logLCubes_star_lists
+        #return self.logLCubes, self.logLCubes_lists, self.logLCubes_star, self.logLCubes_star_lists
+        return self.logLpoints, self.logLpoints_star
 
+    '''
     def appendVals2Cube(self,I_list, ind, binSize, star=False, relmin=10.**-8.):
         """
         This function is for when we've populated a logLCube but we want to add data points.
@@ -386,10 +659,11 @@ class mock_photonlist():
             self.logLCubes_lists[binSize] = p_list_new
 
         return logLcube_new, p_list_new, binSize
+    '''
 
 
-
-    def _getLogLCube(self,binSize, star=False, p_lists={0:[], 1:[], 2:[]}, relmin=10.**-8.):
+    #def _getLogLCube(self,binSize, star=False, p_lists={0:[], 1:[], 2:[]}, relmin=10.**-8.):
+    def _getLogLCube(self,binSize, star=False, relmin=10.**-8.):
         """
         This function maps out the log likelihood space for both the binned and binfree model.
         It calls the getLogLCube() that's defined outside of this class
@@ -416,29 +690,43 @@ class mock_photonlist():
             ts = self.ts_star if star else self.ts
             n = binMR.getLightCurve(photonTimeStamps=ts*1e-6,startTime=ts[0]*1e-6,stopTime=ts[-1]*1e-6,effExpTime=binSize)[0] # get the light curve, units = [cts/bin]
             dist = np.bincount(n)
-            #I = 1 / np.mean(dt)
-            #p0 = I * np.ones(3) / 3.
-            if len(p_lists[0])==0 or len(p_lists[1])==0 or len(p_lists[2])==0:
+
+            try:
                 p_opt = optimize.minimize(binMR._bin_logL, p_seed, dist, bounds=((0.001, np.inf), (0.001, np.inf), (.001, np.inf))).x / binSize  # units are [cts/sec]
-            else: p_opt = None
+            except:
+                p_opt=p_seed
+            #if len(p_lists[0])==0 or len(p_lists[1])==0 or len(p_lists[2])==0:
+            #    p_opt = optimize.minimize(binMR._bin_logL, p_seed, dist, bounds=((0.001, np.inf), (0.001, np.inf), (.001, np.inf))).x / binSize  # units are [cts/sec]
+            #else: p_opt = None
             logLfunc = partial(binMR.bin_logL, dist=dist)
 
         else:  # binfree case
             binSize=-1
             dt=self.dt_star if star else self.dt
-            if len(p_lists[0])==0 or len(p_lists[1])==0 or len(p_lists[2])==0:
+            try: 
                 res = binfree.optimize_IcIsIr(dt, p_seed, self.deadtime)
                 p_opt=res.params
-                #print(res.summary())
-            else: p_opt=None
-            #logLfunc = lambda p: binfree.MRlogL(p, dt, self.deadtime)
+                print(res.summary())
+            except:
+                p_opt=p_seed
+            #if len(p_lists[0])==0 or len(p_lists[1])==0 or len(p_lists[2])==0:
+            #    res = binfree.optimize_IcIsIr(dt, p_seed, self.deadtime)
+            #    p_opt=res.params
+            #    #print(res.summary())
+            #else: p_opt=None
+
             logLfunc = partial(binfree.MRlogL, dt=dt, deadtime=self.deadtime)
 
-
-        logLmap, p_lists_new = getLogLCube(logLfunc, p_lists, relmin, p_opt)
-        return logLmap, p_lists_new, binSize
+        #logLmap, p_lists_new = getLogLCube(logLfunc, p_lists, relmin, p_opt)
+        #return logLmap, p_lists_new, binSize
+        data = getLogLpoints(logLfunc, p_opt, relmin)
+        return data, binSize
 
 class photon_list(object):
+    """
+    Depreciated
+    """
+
     def __init__(self,Ic=-1,Is=-1,Ir=-1,Ttot=-1,tau=-1, deadtime=0,return_IDs=False):
         # attributes to create original photonlist
         self.Ic = Ic # nominal Ic. phtons/second
