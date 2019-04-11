@@ -291,7 +291,8 @@ def bin_logL(params, dist):
 def _bin_logL(p, dist):
     return -bin_logL(p, dist)
 
-
+def _bin_logL_pfixed(p, binsize, dist):
+    return bin_logL(p*binsize, dist)
 
 def binMRlogL_jacobian(n,Ic,Is):
     """

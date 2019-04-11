@@ -20,7 +20,7 @@ from functools import partial
 import os, glob, uuid
 import datetime
 import time
-import multiprocessing
+import multiprocessing, threading
 
 from mkidpipeline.speckle.genphotonlist_IcIsIr import genphotonlist
 
@@ -59,9 +59,7 @@ def collectDataForPaper():
     deadtime=10.e-6
 
     saveLoc = '/home/data/SSD/logLmaps/'
-    numPhotonlists=1
-
-    #binning=[-1]
+    numPhotonlists=1000
 
     arg_dicts = []
     for i in sumIcIs:
@@ -341,9 +339,9 @@ def _getLogLpoints_Irslice(logLfunc, p_opt, p_inc, maxLogL, relmin=10.**-8.):
     p_tmp=np.copy(p_opt)
     ind=0   #Ic
     ret=np.empty((0,len(p_opt)+1))
-    loopSafety=1000 #just in case...
-    while loopSafety >=0:
-        loopSafety-=1
+    loopSafety=0 #just in case...
+    while loopSafety <=1000:
+        loopSafety+=1
 
         #print("\tStarting slice Ip={}, Ic={}".format(p_tmp[2], p_tmp[0]))
         data=_getLogLpoints_IrIcslice(logLfunc, p_tmp, p_inc.copy(), maxLogL, relmin)
@@ -352,6 +350,7 @@ def _getLogLpoints_Irslice(logLfunc, p_opt, p_inc, maxLogL, relmin=10.**-8.):
         
         maxInd = np.argmax(data[:,-1])
         p_tmp[1] = data[maxInd,1]     # the argmax Is might shift a little in the Ir,Ic slice as we incremenet Ic
+        if loopSafety==1: p_opt[1] = p_tmp[1]
         #maxLogL = np.amax(logLpoints[:,-1])
         if np.any(data[:,-1]>(maxLogL + np.log(relmin))) and p_tmp[ind]+p_inc[ind]>0.:    #continue sweeping
             p_tmp[ind]+=p_inc[ind]
@@ -410,9 +409,9 @@ def getLogLpoints(logLfunc, p_opt, relmin=10.**-8.):
     for ind in range(len(p_opt)):
         p_tmp=np.copy(p_opt)
         logL=maxLogL
-        loopSafety=1000 #just in case...
-        while loopSafety >=0:
-            loopSafety-=1
+        loopSafety=0 #just in case...
+        while loopSafety <=1000:
+            loopSafety+=1
             
             if logL>(maxLogL + np.log(relmin)) and p_tmp[ind]+p_inc[ind]>0.:    #continue sweeping
                 p_tmp[ind]+=p_inc[ind]
@@ -454,9 +453,9 @@ def getLogLpoints(logLfunc, p_opt, relmin=10.**-8.):
     p_tmp=np.copy(p_opt)
     ind=2   #Ir
     #data=logLpoints
-    loopSafety=1000 #just in case...
-    while loopSafety >=0:
-        loopSafety-=1
+    loopSafety=0 #just in case...
+    while loopSafety <=1000:
+        loopSafety+=1
 
         #print("Starting slice Ip={}".format(p_tmp[2]))
         data=_getLogLpoints_Irslice(logLfunc, p_tmp, p_inc.copy(), maxLogL, relmin)
@@ -464,6 +463,7 @@ def getLogLpoints(logLfunc, p_opt, relmin=10.**-8.):
         
         maxInd = np.argmax(data[:,-1])
         p_tmp[:2] = data[maxInd,:2]     # the argmax Ic, Is might shift a little in the Ir slice as we incremenet Ir
+        if loopSafety==1: p_opt[:2] = p_tmp[:2]
         #maxLogL = np.amax(logLpoints[:,-1])
         if np.any(data[:,-1]>(maxLogL + np.log(relmin))) and p_tmp[ind]+p_inc[ind]>0.:    #continue sweeping
             p_tmp[ind]+=p_inc[ind]
@@ -492,14 +492,32 @@ def savePhotonlist(photonlist, loc='/Data/SSD/logLmaps/'):
     fn=loc+'data_{}_{}_{}_{}/{}.pickle'.format(photonlist.p_true[0], photonlist.p_true[1], photonlist.p_true[2], photonlist.Ttot, photonlist.uuid)
     _savePhotonlist(photonlist, fn)
 
-def loadPhotonlist(Ic, Is, Ir, Ttot, loc='/Data/SSD/logLmaps/', uuid=None):
+def loadPhotonlist_old(Ic, Is, Ir, Ttot, loc='/Data/SSD/logLmaps/', uuid=None):
     """
     loads all photons list objects with the requested parameters
     """
     directory = loc+'data_{}_{}_{}_{}/'.format(Ic, Is, Ir, Ttot)
     f = '*'+str(uuid)+'.pickle' if uuid is not None else '*.pickle'
     fns = glob.glob(directory+f)
-    return [_loadPhotonlist(fn) for fn in fns]
+    for fn in fns:
+        yield _loadPhotonlist(fn)
+    #return [_loadPhotonlist(fn) for fn in fns]
+
+class loadPhotonlist():
+    def __init__(self, Ic, Is, Ir, Ttot, loc='/Data/SSD/logLmaps/', uuid=None):
+        directory = loc+'data_{}_{}_{}_{}/'.format(Ic, Is, Ir, Ttot)
+        f = '*'+str(uuid)+'.pickle' if uuid is not None else '*.pickle'
+        self.fns = glob.glob(directory+f)
+        self.i=-1
+        self.lock = threading.Lock()
+    def __iter__(self): return self
+    def __len__(self): return len(self.fns)
+    def __getitem__(self, j):
+        return _loadPhotonlist(self.fns[j])
+    def next(self):
+        with self.lock:
+            self.i+=1
+            return _loadPhotonlist(self.fns[self.i])
     
 class imageCubeSliceViewer():
     def __init__(self, imageCube, lists, ind=2, points=None):
@@ -627,6 +645,7 @@ class mock_photonlist():
         self.Ttot=Ttot
         self.tau=tau
         self.deadtime=deadtime
+        np.random.seed()    # need this when making many mock_photonlists simultaneously with multiprocessing
         self.ts, self.ts_star, _ = genphotonlist(Ic, Is, Ir, Ttot, tau, deadtime*10.**6., return_IDs=True)
         self.dt = (self.ts[1:] - self.ts[:-1]) * 1e-6
         self.dt_star = (self.ts_star[1:] - self.ts_star[:-1]) * 1e-6
@@ -646,7 +665,7 @@ class mock_photonlist():
         #self.logLCubes_star_lists={}
 
 
-    def getCube(self, binSize, star=False, method='linear'):
+    def getCube(self, binSize, star=False):
         #Assume the points are on a regular grid
         points = self.logLpoints_star[binSize][:,:3].copy() if star else self.logLpoints[binSize][:,:3].copy()
         values = self.logLpoints_star[binSize][:,-1] if star else self.logLpoints[binSize][:,-1]
@@ -654,12 +673,14 @@ class mock_photonlist():
         #print(values)
 
         p_lists = {0:np.unique(np.round(points[:,0],8)), 1:np.unique(np.round(points[:,1],8)), 2:np.unique(np.round(points[:,2],8))} 
+        #have to round because of numerical precision. Actual values are only 2 decimal places though so it's fine
         logLcube = np.full((len(p_lists[0]),len(p_lists[1]),len(p_lists[2])), -np.inf)
 
         for i in [0,1,2]:
             points[:,i] -= p_lists[i][0]
-            points[:,i] /= scipy.stats.mode(np.diff(p_lists[i]))[0][0]
-        points=points.astype(np.int)
+            #points[:,i] /= scipy.stats.mode(np.diff(p_lists[i]))[0][0]
+            points[:,i] /= p_lists[i][1] - p_lists[i][0]
+        points=np.round(points).astype(np.int)  #have to round for numerical precision
 
         logLcube[points[:,0], points[:,1], points[:,2]] = values
         
@@ -820,7 +841,8 @@ class mock_photonlist():
             #if len(p_lists[0])==0 or len(p_lists[1])==0 or len(p_lists[2])==0:
             #    p_opt = optimize.minimize(binMR._bin_logL, p_seed, dist, bounds=((0.001, np.inf), (0.001, np.inf), (.001, np.inf))).x / binSize  # units are [cts/sec]
             #else: p_opt = None
-            logLfunc = partial(binMR.bin_logL, dist=dist)
+            #logLfunc = partial(binMR.bin_logL, dist=dist)
+            logLfunc = partial(binMR._bin_logL_pfixed, binsize=binSize, dist=dist)
 
         else:  # binfree case
             binSize=-1
