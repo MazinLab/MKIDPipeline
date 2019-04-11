@@ -814,7 +814,7 @@ class mock_photonlist():
             dist = np.bincount(n)
 
             try:
-                p_opt = optimize.minimize(binMR._bin_logL, p_seed, dist, bounds=((0.001, np.inf), (0.001, np.inf), (.001, np.inf))).x / binSize  # units are [cts/sec]
+                p_opt = optimize.minimize(binMR._bin_logL, p_seed*binSize, dist, bounds=((0.001, np.inf), (0.001, np.inf), (.001, np.inf))).x / binSize  # units are [cts/sec]
             except:
                 p_opt=p_seed
             #if len(p_lists[0])==0 or len(p_lists[1])==0 or len(p_lists[2])==0:
