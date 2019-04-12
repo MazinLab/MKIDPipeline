@@ -38,6 +38,13 @@ from mkidcore.instruments import CONEX2PIXEL
 import argparse
 
 
+# set up logging
+mkidpipeline.logtoconsole()
+
+# log = pipelinelog.getLogger('mkidpipeline.imaging.drizzler', setup=False)
+log = pipelinelog.create_log('mkidpipeline.imaging.drizzler', console=True, level="INFO")
+
+
 def ditherp_2_pixel(positions):
     """ A function to convert the connex offset to pixel displacement"""
     positions = np.asarray(positions)
@@ -58,6 +65,15 @@ class DitherDescription(object):
 
     def __init__(self, dither, ConnexOrigin2COR=None, observatory='Subaru', target='* kap And',
                  use_min_timestep=True, suggested_time_step=1):
+        """
+
+        :param dither:
+        :param ConnexOrigin2COR:
+        :param observatory:
+        :param target:
+        :param use_min_timestep:
+        :param suggested_time_step:
+        """
         self.description = dither
         self.target = target
         try:
@@ -70,7 +86,7 @@ class DitherDescription(object):
             ConnexOrigin2COR = (0, 0)
         assert suggested_time_step < dither.inttime, 'You must have at least a time sample per dither'
 
-        self.ConnexOrigin2COR = np.array([list(ConnexOrigin2COR)]).T
+        self.ConnexOrigin2COR = np.array([list(ConnexOrigin2COR)]).T  #neccessary hideous reformatting
 
         self.dith_pix_offset = ditherp_2_pixel(dither.pos)
         self.cenRes = self.dith_pix_offset - self.ConnexOrigin2COR
@@ -91,10 +107,15 @@ class DitherDescription(object):
         else:
             self.timestep = suggested_time_step
 
-        pipelinelog.getLogger(__name__).debug(
+        log.debug(
             "Timestep to be used {}".format(self.timestep))
 
     def calc_min_timesamp(self, max_pix_disp=1.):
+        """
+
+        :param max_pix_disp: the resolution element threshold
+        :return: min_timestep:
+        """
         # get the field rotation rate at the start of each dither
         dith_start_times = np.array([o.start for o in dither.obs])
 
@@ -115,19 +136,20 @@ class DitherDescription(object):
         dith_angle = np.arctan(max_pix_disp/dith_dists)
         min_timestep = min(dith_angle/abs(dith_start_rot_rates))
 
-        pipelinelog.getLogger(__name__).debug("Minimum required time step calculated to be {}".format(min_timestep))
+        log.debug("Minimum required time step calculated to be {}".format(min_timestep))
 
         return min_timestep
 
 
-def get_device_orientation(ditherdesc, fits_filename, separation = 0.938, pa = 253):
+def get_device_orientation(ditherdesc, fits_filename='Theta1 Orionis B_mean.fits', separation=0.938, pa=253):
     """
     Given the position angle and offset of secondary calculate its RA and dec then
     continually update the FITS with different rotation matricies to tune for device orientation
 
     Default pa and offset for Trap come from https://arxiv.org/pdf/1308.4155.pdf figures 7 and 11
 
-    B1 vs B2B3 barycenter separation is 0.938 and the position angle is 253 degrees"""
+    B1 vs B2B3 barycenter separation is 0.938 and the position angle is 253 degrees
+    """
 
     angle_from_east = 270-pa
 
@@ -143,32 +165,36 @@ def get_device_orientation(ditherdesc, fits_filename, separation = 0.938, pa = 2
     print('Target RA {} and dec {}'.format(Angle(companion_ra*u.deg).hms,Angle(companion_dec*u.deg).dms))
 
     update = True
-    position_angle = 0
+    device_orientation = 0
     hdu1 = fits.open(fits_filename)[0]
 
     field = hdu1.data
     while update:
 
+        pipelinelog.getLogger(__name__).info('Close this figure')
         ax1 = plt.subplot(111, projection=wcs.WCS(hdu1.header))
         ax1.imshow(field, norm=LogNorm(), origin='lower', vmin=1)
         # plt.colorbar()
         plt.show()
 
-        user_input = input('Enter new angle (deg) or F to end: ')
+        user_input = input(' *** INPUT REQUIRED *** \nEnter new angle (deg) or F to end: ')
         if user_input == 'F':
             update = False
         else:
-            position_angle += float(user_input)
+            device_orientation += float(user_input)
 
-        field = imrotate(hdu1.data, position_angle, interp='bilinear')
-        print(position_angle)
+        field = imrotate(hdu1.data, device_orientation, interp='bilinear')
 
-    return position_angle
+    pipelinelog.getLogger(__name__).info('Using position angle {} deg for device'.format(device_orientation))
+
+    return np.deg2rad(device_orientation)
 
 
 def get_wcs(x, y, ditherdesc, ditherind, nxpix=146, nypix=140, platescale=0.01 / 3600., derotate=True,
-            device_orientation=-48*np.pi/180):
+            device_orientation=-48):
     """
+    TODO adapt and make this a class function of photontable?
+
     Default device_orientation obtained with get_device_orientation using Trapezium observations
 
     :param x:
@@ -178,8 +204,12 @@ def get_wcs(x, y, ditherdesc, ditherind, nxpix=146, nypix=140, platescale=0.01 /
     :param nxpix:
     :param nypix:
     :param platescale:
-    :param derotate:
-    :param device_orientation:
+    :param derotate: [True, False, None]
+                     True:  align each wcs solution to position angle = 0
+                     False: rotate all wcs solutions so the position angle of the middle wcs solution matches its
+                            parallactic angle
+                     None:  no correction angle
+    :param device_orientation_deg:
     :return:
     """
     dither = ditherdesc.description
@@ -189,16 +219,19 @@ def get_wcs(x, y, ditherdesc, ditherind, nxpix=146, nypix=140, platescale=0.01 /
                              dither.obs[ditherind].start + dither.inttime - 1,
                              ditherdesc.timestep)
 
-    if derotate:
+    device_orientation = np.deg2rad(device_orientation)
+    if derotate is True:
         reformatted_times = astropy.time.Time(val=sample_times, format='unix')
-        parallactic_angles = ditherdesc.apo.parallactic_angle(reformatted_times, ditherdesc.coords).value # radians
+        parallactic_angles = ditherdesc.apo.parallactic_angle(reformatted_times, ditherdesc.coords).value  # radians
         corrected_sky_angles = -parallactic_angles -device_orientation
-
-    else:
+    elif derotate is False:
         reformatted_mid_time = astropy.time.Time(val=(dither.obs[0].start + dither.obs[-1].stop)/2, format='unix')
-        corrected_sky_angles = np.ones_like(sample_times) * -(reformatted_mid_time + device_orientation)
+        parallactic_angle = ditherdesc.apo.parallactic_angle(reformatted_mid_time, ditherdesc.coords).value
+        corrected_sky_angles = np.ones_like(sample_times) * -(parallactic_angle + device_orientation)
+    else:
+        corrected_sky_angles = np.zeros_like(sample_times)
 
-    pipelinelog.getLogger(__name__).debug("Correction angles: %s", corrected_sky_angles)
+    log.debug("Correction angles: %s", corrected_sky_angles)
 
     obs_wcs_seq = []
     for t, ca in enumerate(corrected_sky_angles):
@@ -219,7 +252,9 @@ def get_wcs(x, y, ditherdesc, ditherind, nxpix=146, nypix=140, platescale=0.01 /
         w.wcs.crval = np.array([ditherdesc.coords.ra.deg, ditherdesc.coords.dec.deg])
         w.wcs.crpix = np.array([nxpix / 2., nypix / 2.]) + offset_inv_frame
 
-        w.wcs.cd = rotation_matrix * platescale
+        w.wcs.pc = rotation_matrix
+        w.wcs.cdelt = [platescale,platescale]
+        w.wcs.cunit = ["deg", "deg"]
 
         obs_wcs_seq.append(w)
 
@@ -228,12 +263,15 @@ def get_wcs(x, y, ditherdesc, ditherind, nxpix=146, nypix=140, platescale=0.01 /
 
 class Drizzler(object):
     def __init__(self, photonlists, metadata):
+        """
+        TODO determine appropirate value from area coverage of dataset and oversampling, even longerterm there
+        the oversampling should be selected to optimize total phase coverage to extract the most resolution at a
+        desired minimum S/N
 
-        # TODO determine appropirate value from area coverage of dataset and oversampling, even longerterm there
-        # the oversampling should be selected to optimize total phase coverage to extract the most resolution at a
-        # desired minimum S/N
+        :param photonlists:
+        :param metadata:
+        """
 
-        # self.randoffset = False # apply random spatial offset to each photon
         self.nPixRA = None
         self.nPixDec = None
         self.square_grid = True
@@ -254,8 +292,8 @@ class Drizzler(object):
             for ip, photonlist in enumerate(photonlists):
                 # find the max and min coordinate for each dither (assuming those occur at the beginning/end of
                 # the dither)
-                dith_cellestial_span = np.vstack((photonlist['obs_wcs_seq'][0].wcs.crval,
-                                                  photonlist['obs_wcs_seq'][-1].wcs.crval))
+                dith_cellestial_span = np.vstack((photonlist['obs_wcs_seq'][0].wcs.crpix,
+                                                  photonlist['obs_wcs_seq'][-1].wcs.crpix))
                 dith_cellestial_min[ip] = np.min(dith_cellestial_span, axis=0)  # takes the min of both ra and dec
                 dith_cellestial_max[ip] = np.max(dith_cellestial_span, axis=0)
 
@@ -265,12 +303,11 @@ class Drizzler(object):
             decMin = min(dith_cellestial_min[:, 1])
             decMax = max(dith_cellestial_max[:, 1])
 
-            # Set size of virtual grid to accommodate.
-            max_detector_dist = np.sqrt(self.xpix ** 2 + self.ypix **2)
-            self.nPixRA = (2 * np.max((raMax-self.starRA, self.starRA-raMin))/self.vPlateScale + max_detector_dist).astype(int)
-            self.nPixDec = (2 * np.max((decMax-self.starDec, self.starDec-decMin))/self.vPlateScale + max_detector_dist).astype(int)
-
-
+            # Set size of virtual grid to accommodate the limits of the offsets.
+            # max_detector_dist = np.sqrt(self.xpix ** 2 + self.ypix **2)
+            self.nPixRA = (2 * np.max((raMax-raMin)) + self.xpix).astype(int)
+            self.nPixDec = (2 * np.max((decMax-decMin)) + self.ypix).astype(int)
+            print(self.nPixRA, self.nPixDec, 'here')
 
         if self.square_grid:
             nPix = max((self.nPixRA, self.nPixDec))
@@ -291,7 +328,7 @@ class Drizzler(object):
         self.gridRA = self.starRA + (self.vPlateScale * (np.arange(self.nPixRA + 1) - ((self.nPixRA + 1) // 2)))
         self.gridDec = self.starDec + (self.vPlateScale * (np.arange(self.nPixDec + 1) - ((self.nPixDec + 1) // 2)))
 
-    def get_header(self, center_on_star=True):
+    def get_header(self, center_on_star=False):
         # TODO implement something like this
         # w = mkidcore.buildwcs(self.nPixRA, self.nPixDec, self.vPlateScale, self.starRA, self.starDec)
         # TODO implement the PV distortion?
@@ -305,9 +342,10 @@ class Drizzler(object):
         self.w.wcs.ctype = ["RA--TAN", "DEC-TAN"]
         self.w._naxis1 = self.nPixRA
         self.w._naxis2 = self.nPixDec
-        self.w.wcs.cd = np.array([[1,0],[0,1]]) * self.vPlateScale
+        self.w.wcs.pc = np.array([[1,0],[0,1]])
+        self.w.wcs.cdelt = [self.vPlateScale,self.vPlateScale]
         self.w.wcs.cunit = ["deg", "deg"]
-        pipelinelog.getLogger(__name__).debug(self.w)
+        log.debug(self.w)
 
 
 class SpectralDrizzler(Drizzler):
@@ -322,10 +360,10 @@ class SpectralDrizzler(Drizzler):
     def run(self, save_file=None):
         for ix, file in enumerate(self.files):
 
-            pipelinelog.getLogger(__name__).debug('Processing %s', file)
+            log.debug('Processing %s', file)
             tic = time.clock()
             insci, inwcs = self.makeCube(file)
-            pipelinelog.getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
+            log.debug('Image load done. Time taken (s): %s', time.clock() - tic)
             for iw in range(self.nwvlbins):
                 self.drizcube[iw].add_image(insci[iw], inwcs, inwht=np.int_(np.logical_not(insci[iw] == 0)))
 
@@ -383,7 +421,7 @@ class TemporalDrizzler(Drizzler):
         self.totWeightCube = np.zeros((self.ntimebins, self.nwvlbins, self.nPixDec, self.nPixRA))
         for ix, file in enumerate(self.files):
 
-            pipelinelog.getLogger(__name__).debug('Processing %s', file)
+            log.debug('Processing %s', file)
 
             insci, inwcs = self.makeHyper(file)
 
@@ -397,7 +435,7 @@ class TemporalDrizzler(Drizzler):
 
             self.totHypCube[ix * self.ntimebins: (ix + 1) * self.ntimebins] = thishyper
 
-        pipelinelog.getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
+        log.debug('Image load done. Time taken (s): %s', time.clock() - tic)
         # TODO add the wavelength WCS
 
     def makeHyper(self, file, applyweights=False, applymask=True, maxCountsCut=10):
@@ -441,14 +479,14 @@ class SpatialDrizzler(Drizzler):
 
     def run(self, save_file=None, applymask=False):
         for ix, file in enumerate(self.files):
-            pipelinelog.getLogger(__name__).debug('Processing %s', file)
+            log.debug('Processing %s', file)
 
             tic = time.clock()
             for t, inwcs in enumerate(file['obs_wcs_seq']):
                 insci = self.makeImage(file, (self.times[t], self.times[t+1]), applymask=False)
                 if applymask:
                     insci *= ~self.hot_mask
-                pipelinelog.getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
+                log.debug('Image load done. Time taken (s): %s', time.clock() - tic)
                 inwht = (insci != 0).astype(int)
                 self.driz.add_image(insci, inwcs, inwht=inwht)
             if save_file:
@@ -470,14 +508,14 @@ class SpatialDrizzler(Drizzler):
         thisImage = thisImage[:, ::-1]
 
         if applymask:
-            pipelinelog.getLogger(__name__).debug("Applying bad pixel mask")
+            log.debug("Applying bad pixel mask")
             # usablemask = np.rot90(file['usablemask']).astype(int)
             usablemask = file['usablemask'].T.astype(int)
             # thisImage *= ~usablemask
             thisImage *= usablemask
 
         if maxCountsCut:
-            pipelinelog.getLogger(__name__).debug("Applying max pixel count cut")
+            log.debug("Applying max pixel count cut")
             thisImage *= thisImage < maxCountsCut
 
         return thisImage
@@ -529,7 +567,7 @@ def pretty_plot(image, inwcs, log_scale=False, vmin=None, vmax=None, show=True):
 
 
 def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{}.pkl',
-              tempdir='', usecache=True, clearcache=False, derotate=True):
+              tempdir='', usecache=True, clearcache=False, derotate=True, device_orientation=-43):
     ndither = len(ditherdesc.description.obs)
 
     pkl_save = os.path.join(tempdir, tempfile.format(ditherdesc.target))
@@ -540,12 +578,12 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
             raise FileNotFoundError
         with open(pkl_save, 'rb') as f:
             data = pickle.load(f)
-            pipelinelog.getLogger(__name__).info('loaded', pkl_save)
+            log.info('loaded {}'.format(pkl_save))
     except FileNotFoundError:
         begin = time.time()
         filenames = [o.h5 for o in ditherdesc.description.obs]
         if not filenames:
-            pipelinelog.getLogger(__name__).info('No obsfiles found')
+            log.info('No obsfiles found')
 
         def mp_worker(file, q, startt=startt, intt=intt, startw=wvlMin, stopw=wvlMax):
             obsfile = ObsFile(file)
@@ -553,7 +591,7 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
 
             photons = obsfile.query(startw=startw, stopw=stopw, startt=startt, intt=intt)
             weights = photons['SpecWeight'] * photons['NoiseWeight']
-            pipelinelog.getLogger(__name__).info("Fetched {} photons from {}".format(len(photons), file))
+            log.info("Fetched {} photons from {}".format(len(photons), file))
 
             x, y = obsfile.xy(photons)
             del obsfile
@@ -561,7 +599,7 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
             q.put({'file': file, 'timestamps': photons["Time"], 'xPhotonPixels': x, 'yPhotonPixels': y,
                    'wavelengths': photons["Wavelength"], 'weight': weights, 'usablemask': usableMask})
 
-        pipelinelog.getLogger(__name__).info('stacking number of dithers: %i'.format(ndither))
+        log.info('stacking number of dithers: %i'.format(ndither))
 
         jobs = []
         data_q = mp.Queue()
@@ -586,7 +624,7 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
 
         data.sort(key=lambda k: filenames.index(k['file']))
 
-        pipelinelog.getLogger(__name__).debug('Time spent: %f' % (time.time() - begin))
+        log.debug('Time spent: %f' % (time.time() - begin))
 
         with open(pkl_save, 'wb') as handle:
             pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
@@ -595,17 +633,18 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
     for i, d in enumerate(data):
         d['obs_wcs_seq'] = get_wcs(d['xPhotonPixels'], d['yPhotonPixels'], ditherdesc, i,
                                    nxpix=ditherdesc.xpix, nypix=ditherdesc.ypix,
-                                   platescale=ditherdesc.platescale, derotate=derotate)
+                                   platescale=ditherdesc.platescale, derotate=derotate,
+                                   device_orientation=device_orientation)
         # d['photRARad'], d['photDecRad'] = radec
 
     return data
 
 
-def form(dither, dim='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=850, wvlMax=1100, startt=0, intt=60, pixfrac=.5,
-         nwvlbins=1, timestep=1.):
+def form(dither, mode='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=850, wvlMax=1100, startt=0, intt=60, pixfrac=.5,
+         nwvlbins=1, timestep=1., device_orientation=-43):
     """
 
-    :param dim: 2->image, 3->spectral cube, 4->sequence of spectral cubes. If drizzle==False then dim is ignored
+    :param mode: 2->image, 3->spectral cube, 4->sequence of spectral cubes. If drizzle==False then mode is ignored
     :param derotate: 0 or 1
     :param ConnexOrigin2COR: None or array/tuple
     :param wvlMin:
@@ -619,23 +658,24 @@ def form(dither, dim='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=850
     """
 
     ditherdesc = DitherDescription(dither, target=dither.name, ConnexOrigin2COR=ConnexOrigin2COR)
-    data = load_data(ditherdesc, wvlMin, wvlMax, startt, intt, derotate=derotate)
+    data = load_data(ditherdesc, wvlMin, wvlMax, startt, intt, derotate=derotate,
+                     device_orientation=device_orientation)
 
-    if dim not in ['spatial', 'spectral', 'temporal']:
+    if mode not in ['spatial', 'spectral', 'temporal']:
         raise ValueError('Not calling one of the available functions')
 
-    elif dim == 'spatial':
+    elif mode == 'spatial':
         driz = SpatialDrizzler(data, ditherdesc, pixfrac=pixfrac)
         # driz.get_persistant_bad(ditherdesc)
         driz.run(applymask=False)
         outsci = driz.driz.outsci
         outwcs = driz.w
 
-    elif dim == 'spectral':
+    elif mode == 'spectral':
         # TODO implement, is this even necessary. On hold till interface specification and dataproduct definition
         raise NotImplementedError
 
-    elif dim == 'temporal':
+    elif mode == 'temporal':
         tdriz = TemporalDrizzler(data, ditherdesc, pixfrac=pixfrac, nwvlbins=nwvlbins, timestep=timestep,
                                  wvlMin=wvlMin, wvlMax=wvlMax, startt=startt, intt=intt)
         tdriz.run()
@@ -648,7 +688,7 @@ def form(dither, dim='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=850
     return outsci, outwcs
 
 
-def get_star_offset(dither, wvlMin, wvlMax, startt, intt):
+def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=[0,0]):
     '''
     Get the ConnexOrigin2COR offset parameter for DitherDescription
 
@@ -660,17 +700,10 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt):
     :return:
     '''
 
-    fig, ax = plt.subplots()
+    update = True
 
-    image, _ = form(dither=dither, dim='spatial', ConnexOrigin2COR=(0,0), derotate=False,
-                    wvlMin=wvlMin, wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=1)
+    ConnexOrigin2COR = start_guess
 
-    print("Click on the four satellite speckles and the star")
-    cax = ax.imshow(image, origin='lower', norm=None)
-    cb = plt.colorbar(cax)
-    cb.ax.set_title('Counts')
-
-    xlocs, ylocs = [], []
     def onclick(event):
         xlocs.append(event.xdata)
         ylocs.append(event.ydata)
@@ -678,11 +711,37 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt):
         print('xpix=%i, ypix=%i. Running mean=(%i,%i)'
               % (event.xdata, event.ydata, running_mean[0], running_mean[1]))
 
-    fig.canvas.mpl_connect('button_press_event', onclick)
-    plt.show(block=True)
+    iteration = 0
+    while update:
+        fig, ax = plt.subplots()
 
-    star_pix = np.array([np.mean(xlocs), np.mean(ylocs)]).astype(int)
-    ConnexOrigin2COR = star_pix - np.array(image.shape)//2
+        image, _ = form(dither=dither, mode='spatial', ConnexOrigin2COR=ConnexOrigin2COR, wvlMin=wvlMin,
+                        wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=1, derotate=None)
+
+        print("Click on the four satellite speckles and the star")
+        cax = ax.imshow(image, origin='lower', norm=LogNorm())
+        lims = np.array(image.shape) * iteration * 0.2
+        ax.set_xlim((lims[0], image.shape[0] - lims[0]))  # w/o adding size first iteration the upper limit would be set to -0
+        ax.set_ylim((lims[1], image.shape[1] - lims[1]))
+        cb = plt.colorbar(cax)
+        cb.ax.set_title('Counts')
+
+        xlocs, ylocs = [], []
+
+        fig.canvas.mpl_connect('button_press_event', onclick)
+        plt.show(block=True)
+
+        star_pix = np.array([np.mean(xlocs), np.mean(ylocs)]).astype(int)
+        ConnexOrigin2COR += (star_pix - np.array(image.shape)//2)[::-1] * np.array([1,-1])
+        log.info('ConnexOrigin2COR: {}'.format(ConnexOrigin2COR))
+
+        user_input = input(' *** INPUT REQUIRED *** \nDo you wish to continue looping [Y/n]: \n')
+        if user_input == 'n':
+            update = False
+
+        iteration += 1
+
+    log.info('ConnexOrigin2COR: {}'.format(ConnexOrigin2COR))
 
     return ConnexOrigin2COR
 
@@ -690,16 +749,19 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Photon Drizzling Utility')
     parser.add_argument('cfg', type=str, help='The configuration file')
-    parser.add_argument('-wl', type=float, dest='wvlMin', help='', default=850)
-    parser.add_argument('-wh', type=float, dest='wvlMax', help='', default=1100)
-    parser.add_argument('-t0', type=int, dest='startt', help='', default=0)
-    parser.add_argument('-it', type=int, dest='intt', help='', default=60)
+    parser.add_argument('-wl', type=float, dest='wvlMin', help='minimum wavelength', default=850)
+    parser.add_argument('-wh', type=float, dest='wvlMax', help='maximum wavelength', default=1100)
+    parser.add_argument('-t0', type=int, dest='startt', help='start time', default=0)
+    parser.add_argument('-it', type=int, dest='intt', help='end time', default=60)
+    parser.add_argument('--get-offset', nargs='+', type=int, dest='gso', help='Runs get_star_offset eg 0 0 ')
+    parser.add_argument('--get-orientation', type=str, dest='gdo', help='Runs get_device_orientation',
+                        default='Theta1 Orionis B_mean.fits')
+    parser.add_argument('--write', type=str, dest='write', help='Save a fits file with this name appended',
+                        default='drizzle-mean')
+
     args = parser.parse_args()
 
-    # set up logging
-    mkidpipeline.logtoconsole()
 
-    pipelinelog.getLogger('mkidpipeline.hdf.photontable').setLevel('INFO')
 
     # load as a task configuration
     cfg = mkidpipeline.config.load_task_config(args.cfg)
@@ -710,28 +772,30 @@ if __name__ == '__main__':
     intt = args.intt
     pixfrac = cfg.drizzler.pixfrac
     dither = cfg.dither
+    ConnexOrigin2COR = np.int_(cfg.drizzler.connexorigin2cor.split(','))
+    device_orientation = cfg.drizzler.device_orientation
 
-    # ConnexOrigin2COR = get_star_offset(dither, wvlMin, wvlMax, startt, intt)
-    ConnexOrigin2COR = (20,20)
+    if args.gso:
+        if type(args.gso) is list:
+            ConnexOrigin2COR = np.array(args.gso)
+            ConnexOrigin2COR = get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=ConnexOrigin2COR)
 
-    # ditherdesc = DitherDescription(dither, target=dither.name, ConnexOrigin2COR=ConnexOrigin2COR)
-    # get_device_orientation(ditherdesc, 'Theta1 Orionis B_mean.fits')
-
-    image, drizwcs = form(dither, 'spatial', ConnexOrigin2COR=ConnexOrigin2COR, wvlMin=wvlMin,
-                          wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac)
+    # main function of drizzler
+    image, drizwcs = form(dither, mode=cfg.drizzler.mode, ConnexOrigin2COR=ConnexOrigin2COR, wvlMin=wvlMin,
+                          wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac,
+                          device_orientation=device_orientation)
 
     pretty_plot(image, drizwcs, vmin=5, vmax=600)
 
-    hdu = fits.PrimaryHDU(image, header=drizwcs.to_header())
-    hdu.writeto(cfg.dither.name + '_mean.fits', overwrite=True)
+    if args.write:
+        hdu = fits.PrimaryHDU(image, header=drizwcs.to_header())
+        hdu.writeto('{}_{}.fits'.format(cfg.dither.name, args.write), overwrite=True)
 
-    # # fits.writeto(cfg.dither.name + '_mean.fits', image, drizwcs.to_header(), overwrite=True)
-    #
-    # # tess, drizwcs = form(dither, 'temporal', ConnexOrigin2COR=ConnexOrigin2COR, wvlMin=wvlMin,
-    # #                      wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac, nwvlbins=1)
-    # #
-    # # #Get median collpased image
-    # # mask_cube = np.ma.masked_where(tess[:, 0] == 0, tess[:, 0])
-    # # medDither = np.ma.median(mask_cube, axis=0).filled(0)
-    # #
-    # # pretty_plot(medDither, drizwcs.wcs.cdelt[0], drizwcs.wcs.crval, vmin=1, vmax=10)
+    if args.gdo:
+        if not os.path.exists(args.gdo):
+            log.info("Can't find {} Create the fits image "
+                                                 "using the default orientation first".format(args.gdo))
+        else:
+            ditherdesc = DitherDescription(dither, target=dither.name, ConnexOrigin2COR=ConnexOrigin2COR)
+            get_device_orientation(ditherdesc, args.gdo)
+
