@@ -16,8 +16,10 @@ dither: !dither
 
 drizzler: !configdict
   plots: all
-  wavelength: 850, 1100
+  wavelength: 850, 1100  # nm
   pixfrac: 0.5
   mode: spatial
+  connexorigin2cor: 52, 21  # pix, pix
+  device_orientation: -48  # deg
 
 ncpu: 20
