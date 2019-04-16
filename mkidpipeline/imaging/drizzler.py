@@ -21,6 +21,7 @@ import time
 import multiprocessing as mp
 import matplotlib.pylab as plt
 from matplotlib.colors import LogNorm
+from matplotlib import gridspec
 import pickle
 from scipy.misc import imrotate
 from astropy import wcs
@@ -68,7 +69,7 @@ class DitherDescription(object):
         """
 
         :param dither:
-        :param ConnexOrigin2COR:
+        :param ConnexOrigin2COR: the vector that transforms the origin of connex frame to the center of rotation frame
         :param observatory:
         :param target:
         :param use_min_timestep:
@@ -103,12 +104,12 @@ class DitherDescription(object):
 
             # sometimes the min timestep can be ~100s of seconds. We need it to be at least shorter
             # than the dith exposure time
-            self.timestep = min(dither.inttime, min_timestep)
+            self.wcs_timestep = min(dither.inttime, min_timestep)
         else:
-            self.timestep = suggested_time_step
+            self.wcs_timestep = suggested_time_step
 
         log.debug(
-            "Timestep to be used {}".format(self.timestep))
+            "Timestep to be used {}".format(self.wcs_timestep))
 
     def calc_min_timesamp(self, max_pix_disp=1.):
         """
@@ -217,7 +218,7 @@ def get_wcs(x, y, ditherdesc, ditherind, nxpix=146, nypix=140, platescale=0.01 /
                              # -1 so that when timestep == stop-start there is one sample_time and inttime for
                              # consistancy between dithers
                              dither.obs[ditherind].start + dither.inttime - 1,
-                             ditherdesc.timestep)
+                             ditherdesc.wcs_timestep)
 
     device_orientation = np.deg2rad(device_orientation)
     if derotate is True:
@@ -390,7 +391,6 @@ class SpectralDrizzler(Drizzler):
 
 class TemporalDrizzler(Drizzler):
     """
-    TODO this needs to be updated to the new several WCS per dither format
 
     Generate a spatially dithered fits 4D hypercube from a set dithered dataset. The cube size is
     ntimebins * ndithers X nwvlbins X nPixRA X nPixDec.
@@ -407,7 +407,13 @@ class TemporalDrizzler(Drizzler):
         self.ndithers = len(self.files)
         self.pixfrac = pixfrac
         self.wvlbins = np.linspace(wvlMin, wvlMax, self.nwvlbins + 1)
+
+        self.wcs_timestep = metadata.wcs_timestep
+        inttime = metadata.description.inttime
+        self.wcs_times = np.arange(0, inttime + 1, self.wcs_timestep) * 1e6
+
         self.ntimebins = int(intt / self.timestep)
+        self.nchunktimebins =self.ntimebins // (len(self.wcs_times) - 1)
         self.timebins = np.linspace(startt,
                                     startt + intt,
                                     self.ntimebins + 1) * 1e6  # timestamps are in microseconds
@@ -423,49 +429,78 @@ class TemporalDrizzler(Drizzler):
 
             log.debug('Processing %s', file)
 
-            insci, inwcs = self.makeHyper(file)
-
             thishyper = np.zeros((self.ntimebins, self.nwvlbins, self.nPixDec, self.nPixRA), dtype=np.float32)
 
-            for it, iw in np.ndindex(self.ntimebins, self.nwvlbins):
-                drizhyper = stdrizzle.Drizzle(outwcs=self.w, pixfrac=self.pixfrac)
-                drizhyper.add_image(insci[it, iw], inwcs, inwht=np.int_(np.logical_not(insci[it, iw] == 0)))
-                thishyper[it, iw] = drizhyper.outsci
-                self.totWeightCube[it, iw] += thishyper[it, iw] != 0
+            for t, inwcs in enumerate(file['obs_wcs_seq']):
+                print(t, self.wcs_times[t], self.wcs_times[t+1], self.ntimebins)
+                insci = self.makeTess(file, (self.wcs_times[t], self.wcs_times[t+1]), applymask=False)
+
+
+                for it, iw in np.ndindex(self.nchunktimebins, self.nwvlbins):
+                    print(it, iw)
+                    drizhyper = stdrizzle.Drizzle(outwcs=self.w, pixfrac=self.pixfrac)
+                    drizhyper.add_image(insci[it, iw], inwcs, inwht=np.int_(np.logical_not(insci[it, iw] == 0)))
+                    thishyper[it + t*self.nchunktimebins, iw] = drizhyper.outsci
+                    self.totWeightCube[it + t*self.nchunktimebins, iw] += thishyper[it + t*self.nchunktimebins, iw] != 0
 
             self.totHypCube[ix * self.ntimebins: (ix + 1) * self.ntimebins] = thishyper
 
         log.debug('Image load done. Time taken (s): %s', time.clock() - tic)
         # TODO add the wavelength WCS
 
-    def makeHyper(self, file, applyweights=False, applymask=True, maxCountsCut=10):
-        if applyweights:
-            weights = file['weight']
-        else:
-            weights = None
-        sample = np.vstack((file['timestamps'], file['wavelengths'], file['photDecRad'], file['photRARad']))
+    def makeTess(self, file, timespan, applyweights=False, applymask=True, maxCountsCut=50):
+
+        weights = file['weight'] if applyweights else None
+
+        timespan_ind = np.where(np.logical_and(file['timestamps'] >= timespan[0],
+                                               file['timestamps'] <= timespan[1]))[0]
+
+        sample = np.vstack((file['timestamps'][timespan_ind],
+                            file['wavelengths'][timespan_ind],
+                            file['xPhotonPixels'][timespan_ind],
+                            file['yPhotonPixels'][timespan_ind]))
         bins = np.array([self.timebins, self.wvlbins, self.ypix, self.xpix])
-        hypercube, bins = np.histogramdd(sample.T, bins, weights=weights, )
+        hypercube, _ = np.histogramdd(sample.T, bins, weights=weights, )
+
+        hypercube = hypercube[:, :, :, ::-1]
 
         if applymask:
+            log.debug("Applying bad pixel mask")
             usablemask = file['usablemask'].T.astype(int)
             hypercube *= usablemask
 
         if maxCountsCut:
+            log.debug("Applying max pixel count cut")
             hypercube *= np.int_(hypercube < maxCountsCut)
 
-        times, wavelengths, thisGridDec, thisGridRA = bins
+        return hypercube
 
-        w = wcs.WCS(naxis=2)
-        w.wcs.crpix = [self.xpix / 2., self.ypix / 2.]
-        w.wcs.cdelt = np.array([thisGridRA[1] - thisGridRA[0], thisGridDec[1] - thisGridDec[0]])
-        w.wcs.crval = [thisGridRA[self.xpix // 2], thisGridDec[self.ypix // 2]]
-        w.wcs.ctype = ["RA-----", "DEC----"]
-        w._naxis1 = self.xpix
-        w._naxis2 = self.ypix
+    def header_4d(self):
+        """
+        Add to the extra elements to the header
 
-        return hypercube, w
+        Its not clear how to increase the number of dimensions of a 2D wcs.WCS() after its created so just create
+        a new object, read the original parameters where needed, and overwrite
 
+        :return:
+        """
+
+        w4d = wcs.WCS(naxis=4)
+        w4d.wcs.crpix = [self.w.wcs.crpix[0], self.w.wcs.crpix[1], 1, 1]
+        w4d.wcs.crval = [self.w.wcs.crval[0], self.w.wcs.crval[1], self.wvlbins[0]/1e9, self.timebins[0]/1e6]
+        w4d.wcs.ctype = [self.w.wcs.ctype[0], self.w.wcs.ctype[1], "WAVE", "TIME"]
+        w4d._naxis1 = self.w._naxis1
+        w4d._naxis2 = self.w._naxis2
+        w4d._naxis3 = self.nwvlbins
+        w4d._naxis4 = self.ntimebins
+        w4d.wcs.pc = np.eye(4)
+        w4d.wcs.cdelt = [self.w.wcs.cdelt[0], self.w.wcs.cdelt[1],
+                         (self.wvlbins[1] - self.wvlbins[0])/1e9,
+                         (self.timebins[1] - self.timebins[0])/1e6]
+        w4d.wcs.cunit = [self.w.wcs.cunit[0], self.w.wcs.cunit[1], "m", "sec"]
+
+        self.w = w4d
+        print(w4d)
 
 class SpatialDrizzler(Drizzler):
     """ Generate a spatially dithered fits image from a set dithered dataset """
@@ -473,9 +508,9 @@ class SpatialDrizzler(Drizzler):
     def __init__(self, photonlists, metadata, pixfrac=1.):
         Drizzler.__init__(self, photonlists, metadata)
         self.driz = stdrizzle.Drizzle(outwcs=self.w, pixfrac=pixfrac)
-        self.timestep = metadata.timestep
-        self.inttime = metadata.description.inttime
-        self.times = np.arange(0, self.inttime + 1, self.timestep) * 1e6
+        self.wcs_timestep = metadata.wcs_timestep
+        inttime = metadata.description.inttime
+        self.wcs_times = np.arange(0, inttime + 1, self.wcs_timestep) * 1e6
 
     def run(self, save_file=None, applymask=False):
         for ix, file in enumerate(self.files):
@@ -483,7 +518,7 @@ class SpatialDrizzler(Drizzler):
 
             tic = time.clock()
             for t, inwcs in enumerate(file['obs_wcs_seq']):
-                insci = self.makeImage(file, (self.times[t], self.times[t+1]), applymask=False)
+                insci = self.makeImage(file, (self.wcs_times[t], self.wcs_times[t+1]), applymask=False)
                 if applymask:
                     insci *= ~self.hot_mask
                 log.debug('Image load done. Time taken (s): %s', time.clock() - tic)
@@ -549,25 +584,79 @@ class SpatialDrizzler(Drizzler):
             plt.show(block=True)
 
 
-def pretty_plot(image, inwcs, log_scale=False, vmin=None, vmax=None, show=True):
+def quick_pretty_plot(scidata, inwcs, log_scale=True, vmin=None, vmax=None, show=True, max_times=8):
+    """
+    Make an image (or array of images) with celestial coordinates (deg)
+
+    :param scidata: image, spectralcube, or sequence of spectralcubes
+    :param inwcs: single wcs solution
+    :param log_scale:
+    :param vmin:
+    :param vmax:
+    :param show:
+    :param max_times: only display the first max_times frames
+    :return:
+    """
     if log_scale:
         norm = LogNorm()
     else:
         norm = None
     fig = plt.figure()
-    ax = fig.add_subplot(111, projection=inwcs)
-    cax = ax.imshow(image, origin='lower', vmin=vmin, vmax=vmax, norm=norm)
-    ax.coords.grid(True, color='white', ls='solid')
-    ax.coords[0].set_axislabel('Right Ascension (J2000)')
-    ax.coords[1].set_axislabel('Declination (J2000)')
-    cb = plt.colorbar(cax)
+
+    # a way of identifying the non-spatial axes
+    dims = len(scidata.shape)
+    dim_ind = np.arange(dims)
+    multiplots = np.where(dim_ind < dims-2)[0]
+
+    if len(multiplots) == 0:
+        ax = fig.add_subplot(111, projection=inwcs)
+        axes = [ax]
+        ind = [...]
+    else:
+        print(' *** Only displaying first {} timesteps ***'.format(max_times))
+        scidata = scidata[:max_times]
+        [ntimes, nwaves] = np.array(scidata.shape)[multiplots]
+        gs = gridspec.GridSpec(nwaves,ntimes)
+        for n in range(ntimes*nwaves):
+            fig.add_subplot(gs[n], projection=inwcs)
+        axes = np.array(fig.axes)#.reshape(ntimes, nwaves)
+        ind = [(t,w) for t in range(ntimes) for w in range(nwaves)]
+
+    for ia, ax in enumerate(axes):
+        im = ax.imshow(scidata[ind[ia]], origin='lower', vmin=vmin, vmax=vmax, norm=norm)
+        ax.coords.grid(True, color='white', ls='solid')
+        ax.coords[0].set_axislabel('Right Ascension (J2000)')
+        ax.coords[1].set_axislabel('Declination (J2000)')
+
+    cax = fig.add_axes([0.92, 0.09 + 0.277, 0.025, 0.25])
+    cb = plt.colorbar(im, cax=cax)
     cb.ax.set_title('Counts')
+    plt.tight_layout()
     if show:
         plt.show(block=True)
 
 
 def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{}.pkl',
               tempdir='', usecache=True, clearcache=False, derotate=True, device_orientation=-43):
+    """
+    Load the photons either by querying the obsfiles in parrallel or loading from pkl if it exists. The wcs
+    solutions are added to this photon data dictionary but will likely be integrated into photontable.py directly
+
+    TODO intergrate get_wcs into photontable
+
+    :param ditherdesc:
+    :param wvlMin:
+    :param wvlMax:
+    :param startt:
+    :param intt:
+    :param tempfile:
+    :param tempdir:
+    :param usecache:
+    :param clearcache:
+    :param derotate:
+    :param device_orientation:
+    :return:
+    """
     ndither = len(ditherdesc.description.obs)
 
     pkl_save = os.path.join(tempdir, tempfile.format(ditherdesc.target))
@@ -635,7 +724,6 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
                                    nxpix=ditherdesc.xpix, nypix=ditherdesc.ypix,
                                    platescale=ditherdesc.platescale, derotate=derotate,
                                    device_orientation=device_orientation)
-        # d['photRARad'], d['photDecRad'] = radec
 
     return data
 
@@ -671,6 +759,8 @@ def form(dither, mode='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=85
         outsci = driz.driz.outsci
         outwcs = driz.w
 
+        return outsci, outwcs
+
     elif mode == 'spectral':
         # TODO implement, is this even necessary. On hold till interface specification and dataproduct definition
         raise NotImplementedError
@@ -679,16 +769,20 @@ def form(dither, mode='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=85
         tdriz = TemporalDrizzler(data, ditherdesc, pixfrac=pixfrac, nwvlbins=nwvlbins, timestep=timestep,
                                  wvlMin=wvlMin, wvlMax=wvlMax, startt=startt, intt=intt)
         tdriz.run()
+        tdriz.header_4d()
         outsci = tdriz.totHypCube
         outwcs = tdriz.w
-        # weights = tdriz.totWeightCube.sum(axis=0)[0]
+        weights = tdriz.totWeightCube.sum(axis=0)[0]
         # TODO: While we can still have a reference-point WCS solution this class needs a drizzled WCS helper as the
         # WCS solution changes with time, right?
 
-    return outsci, outwcs
+
+        return (outsci, weights), outwcs
 
 
-def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=[0,0]):
+
+
+def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=[0,0], zoom=2.):
     '''
     Get the ConnexOrigin2COR offset parameter for DitherDescription
 
@@ -697,6 +791,8 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=[0,0]):
     :param wvlMax:
     :param startt:
     :param intt:
+    :param start_guess:
+    :param zoom: after each loop the figure zooms on the centre of the image. zoom==2 yields the middle quadrant on 1st iteration
     :return:
     '''
 
@@ -720,9 +816,9 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=[0,0]):
 
         print("Click on the four satellite speckles and the star")
         cax = ax.imshow(image, origin='lower', norm=LogNorm())
-        lims = np.array(image.shape) * iteration * 0.2
-        ax.set_xlim((lims[0], image.shape[0] - lims[0]))  # w/o adding size first iteration the upper limit would be set to -0
-        ax.set_ylim((lims[1], image.shape[1] - lims[1]))
+        lims = np.array(image.shape) / zoom**iteration
+        ax.set_xlim((image.shape[0]//2 - lims[0]//2, image.shape[0]//2 + lims[0]//2 - 1))
+        ax.set_ylim((image.shape[1]//2 - lims[1]//2, image.shape[1]//2 + lims[1]//2 - 1))
         cb = plt.colorbar(cax)
         cb.ax.set_title('Counts')
 
@@ -731,6 +827,8 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=[0,0]):
         fig.canvas.mpl_connect('button_press_event', onclick)
         plt.show(block=True)
 
+        if xlocs == []:  # if the user doesn't click on the figure don't change ConnexOrigin2COR's value
+            xlocs, ylocs = np.array(image.shape)//2, np.array(image.shape)//2
         star_pix = np.array([np.mean(xlocs), np.mean(ylocs)]).astype(int)
         ConnexOrigin2COR += (star_pix - np.array(image.shape)//2)[::-1] * np.array([1,-1])
         log.info('ConnexOrigin2COR: {}'.format(ConnexOrigin2COR))
@@ -756,12 +854,10 @@ if __name__ == '__main__':
     parser.add_argument('--get-offset', nargs='+', type=int, dest='gso', help='Runs get_star_offset eg 0 0 ')
     parser.add_argument('--get-orientation', type=str, dest='gdo', help='Runs get_device_orientation',
                         default='Theta1 Orionis B_mean.fits')
-    parser.add_argument('--write', type=str, dest='write', help='Save a fits file with this name appended',
-                        default='drizzle-mean')
+    # parser.add_argument('--write', type=str, dest='write', help='Save a fits file with this name appended',
+    #                     default='drizzle-mean')
 
     args = parser.parse_args()
-
-
 
     # load as a task configuration
     cfg = mkidpipeline.config.load_task_config(args.cfg)
@@ -775,21 +871,31 @@ if __name__ == '__main__':
     ConnexOrigin2COR = np.int_(cfg.drizzler.connexorigin2cor.split(','))
     device_orientation = cfg.drizzler.device_orientation
 
+    if intt > dither.inttime:  #user input is longer than the duration of each dither
+        intt = dither.inttime
+
     if args.gso:
         if type(args.gso) is list:
             ConnexOrigin2COR = np.array(args.gso)
             ConnexOrigin2COR = get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=ConnexOrigin2COR)
 
     # main function of drizzler
-    image, drizwcs = form(dither, mode=cfg.drizzler.mode, ConnexOrigin2COR=ConnexOrigin2COR, wvlMin=wvlMin,
+    scidata, drizwcs = form(dither, mode=cfg.drizzler.mode, ConnexOrigin2COR=ConnexOrigin2COR, wvlMin=wvlMin,
                           wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac,
                           device_orientation=device_orientation)
 
-    pretty_plot(image, drizwcs, vmin=5, vmax=600)
+    if cfg.drizzler.mode == 'temporal':
+        image = np.sum(scidata[0], axis=(0, 1)) / scidata[1]
+        hdul = fits.HDUList([fits.PrimaryHDU(header=drizwcs.to_header()),
+                             fits.ImageHDU(data=scidata[0], header=drizwcs.to_header()),
+                             fits.ImageHDU(data=image, header=drizwcs.to_header())])
+    elif cfg.drizzler.mode == 'spatial':
+        hdul = fits.HDUList([fits.PrimaryHDU(header=drizwcs.to_header()),
+                             fits.ImageHDU(data=scidata, header=drizwcs.to_header())])
 
-    if args.write:
-        hdu = fits.PrimaryHDU(image, header=drizwcs.to_header())
-        hdu.writeto('{}_{}.fits'.format(cfg.dither.name, args.write), overwrite=True)
+    # quick_pretty_plot(image, drizwcs, vmin=5, vmax=600)
+
+    hdul.writeto('{}_{}.fits'.format(cfg.dither.name, cfg.paths.fits_suffix), overwrite=True)
 
     if args.gdo:
         if not os.path.exists(args.gdo):
