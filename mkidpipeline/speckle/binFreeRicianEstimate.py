@@ -239,6 +239,11 @@ def MRlogL(params, dt, deadtime=1.e-5):
     else:
         return -1e100
 
+
+def _MRlogL(params, dt, deadtime=1.e-5):
+    return -MRlogL(params, dt, deadtime=deadtime)
+
+
 def MRlogL_Jacobian(params, dt, deadtime=1.e-5):
     """
     Calculates the Jacobian of the MR log likelihood function.
@@ -296,6 +301,11 @@ def MRlogL_Jacobian(params, dt, deadtime=1.e-5):
 
         return np.asarray([d_Ic, d_Is, d_Ir])
     return np.asarray([d_Ic, d_Is])
+
+
+def _MRlogL_Jacobian(params, dt, deadtime=1.e-5):
+    return -MRlogL_Jacobian(params, dt, deadtime=deadtime)
+
 
 def MRlogL_Hessian(params, dt, deadtime=1.e-5):
     """
@@ -386,6 +396,10 @@ def MRlogL_Hessian(params, dt, deadtime=1.e-5):
                        [d_IcIr, d_IrIs, d_IrIr]])
 
     return np.asarray([[d_IcIc, d_IcIs],[d_IcIs, d_IsIs]])
+
+
+def _MRlogL_Hessian(params, dt, deadtime=1.e-5):
+    return -MRlogL_Hessian(params, dt, deadtime=deadtime)
 
 
 def MRlogL_opgCov(Ic, Is, Ir, dt, deadtime=0):
