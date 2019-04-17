@@ -6,7 +6,6 @@ paths: !configdict
   data: /mnt/data0/ScienceData/Subaru/20180626/
   out: /mnt/data0/isabel/highcontrastimaging/Jan2019Run/20190112/Trapezium/trap_wavecalib
   tmp: /mnt/data0/baileyji/mec/scratch/
-  fits_suffix: 150419  # fits filename suffix leading to{target}_{fits_suffix}.fits
 
 dither: !dither
   name: Theta1 Orionis B  #Trapezium   #simbad resolvable for ra/dec, otherwise will assume at 0,0
@@ -17,10 +16,11 @@ dither: !dither
 
 drizzler: !configdict
   plots: all
-  wavelength: 850, 1100  # nm
+  wavelength: [850, 1100]  # nm
   pixfrac: 0.5
-  mode: temporal
-  connexorigin2cor: 52, 18  # (pix, pix) the vector that transforms the origin of connex frame to the center of rotation frame
+  mode: temporal  # temporal | spatial
+  connexorigin2cor: [52, 18]  # (pix, pix) the vector that transforms the origin of connex frame to the center of rotation frame
   device_orientation: -48  # (deg) the rotation angle that is applied to align the device position angle to the parallactic angle
+  output: fits  # list of 1 or more of: fits|photonlist. photonlist is only supported for mode temporal
 
 ncpu: 20
