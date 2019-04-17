@@ -53,6 +53,126 @@ def ditherp_2_pixel(positions):
     return pix
 
 
+def get_device_orientation(ditherdesc, fits_filename='Theta1 Orionis B_mean.fits', separation=0.938, pa=253):
+    """
+    Given the position angle and offset of secondary calculate its RA and dec then
+    continually update the FITS with different rotation matricies to tune for device orientation
+
+    Default pa and offset for Trap come from https://arxiv.org/pdf/1308.4155.pdf figures 7 and 11
+
+    B1 vs B2B3 barycenter separation is 0.938 and the position angle is 253 degrees
+    """
+
+    angle_from_east = 270-pa
+
+    companion_ra_arcsec = np.cos(np.deg2rad(angle_from_east)) * separation
+    companion_ra_offset = (companion_ra_arcsec * u.arcsec).to(u.deg).value
+    companion_ra = ditherdesc.coords.ra.deg + companion_ra_offset
+
+    companion_dec_arcsec = np.sin(np.deg2rad(angle_from_east)) * separation
+    companion_dec_offset = (companion_dec_arcsec * u.arcsec).to(u.deg).value
+    #minus sign here since reference object is below central star
+    companion_dec = ditherdesc.coords.dec.deg - companion_dec_offset
+
+    print('Target RA {} and dec {}'.format(Angle(companion_ra*u.deg).hms,Angle(companion_dec*u.deg).dms))
+
+    update = True
+    device_orientation = 0
+    hdu1 = fits.open(fits_filename)[0]
+
+    field = hdu1.data
+    while update:
+
+        pipelinelog.getLogger(__name__).info('Close this figure')
+        ax1 = plt.subplot(111, projection=wcs.WCS(hdu1.header))
+        ax1.imshow(field, norm=LogNorm(), origin='lower', vmin=1)
+        # plt.colorbar()
+        plt.show()
+
+        user_input = input(' *** INPUT REQUIRED *** \nEnter new angle (deg) or F to end: ')
+        if user_input == 'F':
+            update = False
+        else:
+            device_orientation += float(user_input)
+
+        field = imrotate(hdu1.data, device_orientation, interp='bilinear')
+
+    pipelinelog.getLogger(__name__).info('Using position angle {} deg for device'.format(device_orientation))
+
+    return np.deg2rad(device_orientation)
+
+
+def get_wcs(x, y, ditherdesc, ditherind, nxpix=146, nypix=140, platescale=0.01 / 3600., derotate=True,
+            device_orientation=-48):
+    """
+    TODO adapt and make this a class function of photontable?
+
+    Default device_orientation obtained with get_device_orientation using Trapezium observations
+
+    :param device_orientation:
+    :param x:
+    :param y:
+    :param ditherdesc:
+    :param ditherind:
+    :param nxpix:
+    :param nypix:
+    :param platescale:
+    :param derotate: [True, False, None]
+                     True:  align each wcs solution to position angle = 0
+                     False: rotate all wcs solutions so the position angle of the middle wcs solution matches its
+                            parallactic angle
+                     None:  no correction angle
+    :return:
+    """
+    dither = ditherdesc.description
+    sample_times = np.arange(dither.obs[ditherind].start,
+                             # -1 so that when timestep == stop-start there is one sample_time and inttime for
+                             # consistancy between dithers
+                             dither.obs[ditherind].start + dither.inttime - 1,
+                             ditherdesc.wcs_timestep)
+
+    device_orientation = np.deg2rad(device_orientation)
+    if derotate is True:
+        reformatted_times = astropy.time.Time(val=sample_times, format='unix')
+        parallactic_angles = ditherdesc.apo.parallactic_angle(reformatted_times, ditherdesc.coords).value  # radians
+        corrected_sky_angles = -parallactic_angles -device_orientation
+    elif derotate is False:
+        reformatted_mid_time = astropy.time.Time(val=(dither.obs[0].start + dither.obs[-1].stop)/2, format='unix')
+        parallactic_angle = ditherdesc.apo.parallactic_angle(reformatted_mid_time, ditherdesc.coords).value
+        corrected_sky_angles = np.ones_like(sample_times) * -(parallactic_angle + device_orientation)
+    else:
+        corrected_sky_angles = np.zeros_like(sample_times)
+
+    log.debug("Correction angles: %s", corrected_sky_angles)
+
+    obs_wcs_seq = []
+    for t, ca in enumerate(corrected_sky_angles):
+        rotation_matrix = np.array([[np.cos(ca), -np.sin(ca)],
+                                   [np.sin(ca), np.cos(ca)]])
+
+        offset_connex_frame = ditherdesc.dith_pix_offset[:, ditherind]
+        offset_COR_frame = offset_connex_frame - ditherdesc.ConnexOrigin2COR.reshape(2)
+
+        # TODO not sure why the axis flip and only one axis flip is neccessary?
+        offset_inv_frame = offset_COR_frame[::-1] * np.array([1, -1])
+
+        w = wcs.WCS(naxis=2)
+        w.wcs.ctype = ["RA--TAN", "DEC-TAN"]
+        w._naxis1 = nxpix
+        w._naxis2 = nypix
+
+        w.wcs.crval = np.array([ditherdesc.coords.ra.deg, ditherdesc.coords.dec.deg])
+        w.wcs.crpix = np.array([nxpix / 2., nypix / 2.]) + offset_inv_frame
+
+        w.wcs.pc = rotation_matrix
+        w.wcs.cdelt = [platescale,platescale]
+        w.wcs.cunit = ["deg", "deg"]
+
+        obs_wcs_seq.append(w)
+
+    return obs_wcs_seq
+
+
 class DitherDescription(object):
     """
     Info on the dither
@@ -140,126 +260,6 @@ class DitherDescription(object):
         log.debug("Minimum required time step calculated to be {}".format(min_timestep))
 
         return min_timestep
-
-
-def get_device_orientation(ditherdesc, fits_filename='Theta1 Orionis B_mean.fits', separation=0.938, pa=253):
-    """
-    Given the position angle and offset of secondary calculate its RA and dec then
-    continually update the FITS with different rotation matricies to tune for device orientation
-
-    Default pa and offset for Trap come from https://arxiv.org/pdf/1308.4155.pdf figures 7 and 11
-
-    B1 vs B2B3 barycenter separation is 0.938 and the position angle is 253 degrees
-    """
-
-    angle_from_east = 270-pa
-
-    companion_ra_arcsec = np.cos(np.deg2rad(angle_from_east)) * separation
-    companion_ra_offset = (companion_ra_arcsec * u.arcsec).to(u.deg).value
-    companion_ra = ditherdesc.coords.ra.deg + companion_ra_offset
-
-    companion_dec_arcsec = np.sin(np.deg2rad(angle_from_east)) * separation
-    companion_dec_offset = (companion_dec_arcsec * u.arcsec).to(u.deg).value
-    #minus sign here since reference object is below central star
-    companion_dec = ditherdesc.coords.dec.deg - companion_dec_offset
-
-    print('Target RA {} and dec {}'.format(Angle(companion_ra*u.deg).hms,Angle(companion_dec*u.deg).dms))
-
-    update = True
-    device_orientation = 0
-    hdu1 = fits.open(fits_filename)[0]
-
-    field = hdu1.data
-    while update:
-
-        pipelinelog.getLogger(__name__).info('Close this figure')
-        ax1 = plt.subplot(111, projection=wcs.WCS(hdu1.header))
-        ax1.imshow(field, norm=LogNorm(), origin='lower', vmin=1)
-        # plt.colorbar()
-        plt.show()
-
-        user_input = input(' *** INPUT REQUIRED *** \nEnter new angle (deg) or F to end: ')
-        if user_input == 'F':
-            update = False
-        else:
-            device_orientation += float(user_input)
-
-        field = imrotate(hdu1.data, device_orientation, interp='bilinear')
-
-    pipelinelog.getLogger(__name__).info('Using position angle {} deg for device'.format(device_orientation))
-
-    return np.deg2rad(device_orientation)
-
-
-def get_wcs(x, y, ditherdesc, ditherind, nxpix=146, nypix=140, platescale=0.01 / 3600., derotate=True,
-            device_orientation=-48):
-    """
-    TODO adapt and make this a class function of photontable?
-
-    Default device_orientation obtained with get_device_orientation using Trapezium observations
-
-    :param x:
-    :param y:
-    :param ditherdesc:
-    :param ditherind:
-    :param nxpix:
-    :param nypix:
-    :param platescale:
-    :param derotate: [True, False, None]
-                     True:  align each wcs solution to position angle = 0
-                     False: rotate all wcs solutions so the position angle of the middle wcs solution matches its
-                            parallactic angle
-                     None:  no correction angle
-    :param device_orientation_deg:
-    :return:
-    """
-    dither = ditherdesc.description
-    sample_times = np.arange(dither.obs[ditherind].start,
-                             # -1 so that when timestep == stop-start there is one sample_time and inttime for
-                             # consistancy between dithers
-                             dither.obs[ditherind].start + dither.inttime - 1,
-                             ditherdesc.wcs_timestep)
-
-    device_orientation = np.deg2rad(device_orientation)
-    if derotate is True:
-        reformatted_times = astropy.time.Time(val=sample_times, format='unix')
-        parallactic_angles = ditherdesc.apo.parallactic_angle(reformatted_times, ditherdesc.coords).value  # radians
-        corrected_sky_angles = -parallactic_angles -device_orientation
-    elif derotate is False:
-        reformatted_mid_time = astropy.time.Time(val=(dither.obs[0].start + dither.obs[-1].stop)/2, format='unix')
-        parallactic_angle = ditherdesc.apo.parallactic_angle(reformatted_mid_time, ditherdesc.coords).value
-        corrected_sky_angles = np.ones_like(sample_times) * -(parallactic_angle + device_orientation)
-    else:
-        corrected_sky_angles = np.zeros_like(sample_times)
-
-    log.debug("Correction angles: %s", corrected_sky_angles)
-
-    obs_wcs_seq = []
-    for t, ca in enumerate(corrected_sky_angles):
-        rotation_matrix = np.array([[np.cos(ca), -np.sin(ca)],
-                                   [np.sin(ca), np.cos(ca)]])
-
-        offset_connex_frame = ditherdesc.dith_pix_offset[:, ditherind]
-        offset_COR_frame = offset_connex_frame - ditherdesc.ConnexOrigin2COR.reshape(2)
-
-        # TODO not sure why the axis flip and only one axis flip is neccessary?
-        offset_inv_frame = offset_COR_frame[::-1] * np.array([1, -1])
-
-        w = wcs.WCS(naxis=2)
-        w.wcs.ctype = ["RA--TAN", "DEC-TAN"]
-        w._naxis1 = nxpix
-        w._naxis2 = nypix
-
-        w.wcs.crval = np.array([ditherdesc.coords.ra.deg, ditherdesc.coords.dec.deg])
-        w.wcs.crpix = np.array([nxpix / 2., nypix / 2.]) + offset_inv_frame
-
-        w.wcs.pc = rotation_matrix
-        w.wcs.cdelt = [platescale,platescale]
-        w.wcs.cunit = ["deg", "deg"]
-
-        obs_wcs_seq.append(w)
-
-    return obs_wcs_seq
 
 
 class Drizzler(object):
@@ -556,7 +556,7 @@ class SpatialDrizzler(Drizzler):
         return thisImage
 
     def get_persistant_bad(self, metadata, dithfrac=0.1, min_count=500, plot=True):
-        '''
+        """
         Could never really get this to work well. Requires a lot of tuning dithfrac vs min_count. Remove?
 
         Compare the same pixels at different dithers to determine if they are bad
@@ -567,7 +567,7 @@ class SpatialDrizzler(Drizzler):
         :param plot:
         :return:
 
-        '''
+        """
         ndithers = len(metadata.parallactic_angles)
         hot_cube = np.zeros((ndithers, metadata.ypix, metadata.xpix))
         dith_cube = np.zeros_like(hot_cube)
@@ -728,10 +728,14 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
     return data
 
 
-def form(dither, mode='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=850, wvlMax=1100, startt=0, intt=60, pixfrac=.5,
-         nwvlbins=1, timestep=1., device_orientation=-43):
+def form(dither, mode='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=850, wvlMax=1100, startt=0, intt=60,
+         pixfrac=.5, nwvlbins=1, timestep=1., device_orientation=-43):
     """
 
+    :param dither:
+    :param nwvlbins:
+    :param timestep:
+    :param device_orientation:
     :param mode: 2->image, 3->spectral cube, 4->sequence of spectral cubes. If drizzle==False then mode is ignored
     :param derotate: 0 or 1
     :param ConnexOrigin2COR: None or array/tuple
@@ -740,8 +744,6 @@ def form(dither, mode='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=85
     :param startt:
     :param intt:
     :param pixfrac:
-    :param drizzle: Bool for output format
-
     :return:
     """
 
@@ -776,14 +778,13 @@ def form(dither, mode='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=85
         # TODO: While we can still have a reference-point WCS solution this class needs a drizzled WCS helper as the
         # WCS solution changes with time, right?
 
-
         return (outsci, weights), outwcs
 
 
 
 
-def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=[0,0], zoom=2.):
-    '''
+def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0,0), zoom=2.):
+    """
     Get the ConnexOrigin2COR offset parameter for DitherDescription
 
     :param dither:
@@ -794,7 +795,7 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=[0,0], zoo
     :param start_guess:
     :param zoom: after each loop the figure zooms on the centre of the image. zoom==2 yields the middle quadrant on 1st iteration
     :return:
-    '''
+    """
 
     update = True
 
@@ -827,7 +828,7 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=[0,0], zoo
         fig.canvas.mpl_connect('button_press_event', onclick)
         plt.show(block=True)
 
-        if xlocs == []:  # if the user doesn't click on the figure don't change ConnexOrigin2COR's value
+        if xlocs == []:  # if the user doesn't click on the figure don't change connexOrigin2COR's value
             xlocs, ylocs = np.array(image.shape)//2, np.array(image.shape)//2
         star_pix = np.array([np.mean(xlocs), np.mean(ylocs)]).astype(int)
         ConnexOrigin2COR += (star_pix - np.array(image.shape)//2)[::-1] * np.array([1,-1])
@@ -844,6 +845,10 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=[0,0], zoo
     return ConnexOrigin2COR
 
 
+def drizzler_cfg_descr_str(drizzlercfg):
+    return 'TODO_drizzler_cfg_descr'
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Photon Drizzling Utility')
     parser.add_argument('cfg', type=str, help='The configuration file')
@@ -851,8 +856,10 @@ if __name__ == '__main__':
     parser.add_argument('-wh', type=float, dest='wvlMax', help='maximum wavelength', default=1100)
     parser.add_argument('-t0', type=int, dest='startt', help='start time', default=0)
     parser.add_argument('-it', type=int, dest='intt', help='end time', default=60)
-    parser.add_argument('--get-offset', nargs='+', type=int, dest='gso', help='Runs get_star_offset eg 0 0 ')
-    parser.add_argument('--get-orientation', type=str, dest='gdo', help='Runs get_device_orientation',
+    parser.add_argument('-p', action='store_true', dest='plot', help='Plot the result', default=False)
+    parser.add_argument('--get-offset', nargs=2, type=int, dest='gso', help='Runs get_star_offset eg 0 0 ')
+    parser.add_argument('--get-orientation', type=lambda x: os.path.isfile(x), dest='gdo',
+                        help='Run get_device_orientation on a fits file, first created with the default orientation.',
                         default='Theta1 Orionis B_mean.fits')
     # parser.add_argument('--write', type=str, dest='write', help='Save a fits file with this name appended',
     #                     default='drizzle-mean')
@@ -865,43 +872,39 @@ if __name__ == '__main__':
     wvlMin = args.wvlMin
     wvlMax = args.wvlMax
     startt = args.startt
-    intt = args.intt
     pixfrac = cfg.drizzler.pixfrac
     dither = cfg.dither
-    ConnexOrigin2COR = np.int_(cfg.drizzler.connexorigin2cor.split(','))
     device_orientation = cfg.drizzler.device_orientation
 
-    if intt > dither.inttime:  #user input is longer than the duration of each dither
-        intt = dither.inttime
+    intt = min(dither.inttime, args.intt)  # user input is longer than the duration of each dither
 
     if args.gso:
-        if type(args.gso) is list:
-            ConnexOrigin2COR = np.array(args.gso)
-            ConnexOrigin2COR = get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=ConnexOrigin2COR)
+        connexOrigin2COR = get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=args.gso)
+    else:
+        connexOrigin2COR = cfg.drizzler.connexorigin2cor
+
+    if args.gdo:
+        ditherdesc = DitherDescription(dither, target=dither.name, ConnexOrigin2COR=connexOrigin2COR)
+        get_device_orientation(ditherdesc, args.gdo)
+        exit()
 
     # main function of drizzler
-    scidata, drizwcs = form(dither, mode=cfg.drizzler.mode, ConnexOrigin2COR=ConnexOrigin2COR, wvlMin=wvlMin,
-                          wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac,
-                          device_orientation=device_orientation)
+    scidata, drizwcs = form(dither, mode=cfg.drizzler.mode, ConnexOrigin2COR=connexOrigin2COR, wvlMin=wvlMin,
+                            wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac,
+                            device_orientation=device_orientation)
 
     if cfg.drizzler.mode == 'temporal':
         image = np.sum(scidata[0], axis=(0, 1)) / scidata[1]
         hdul = fits.HDUList([fits.PrimaryHDU(header=drizwcs.to_header()),
                              fits.ImageHDU(data=scidata[0], header=drizwcs.to_header()),
                              fits.ImageHDU(data=image, header=drizwcs.to_header())])
-    elif cfg.drizzler.mode == 'spatial':
+    else:
         hdul = fits.HDUList([fits.PrimaryHDU(header=drizwcs.to_header()),
                              fits.ImageHDU(data=scidata, header=drizwcs.to_header())])
 
-    # quick_pretty_plot(image, drizwcs, vmin=5, vmax=600)
+    hdul.writeto('{}_{}.fits'.format(cfg.dither.name, drizzler_cfg_descr_str(cfg.drizzler), overwrite=True)
 
-    hdul.writeto('{}_{}.fits'.format(cfg.dither.name, cfg.paths.fits_suffix), overwrite=True)
+    if args.plot:
+        quick_pretty_plot(image, drizwcs, vmin=5, vmax=600)
 
-    if args.gdo:
-        if not os.path.exists(args.gdo):
-            log.info("Can't find {} Create the fits image "
-                                                 "using the default orientation first".format(args.gdo))
-        else:
-            ditherdesc = DitherDescription(dither, target=dither.name, ConnexOrigin2COR=ConnexOrigin2COR)
-            get_device_orientation(ditherdesc, args.gdo)
 

@@ -53,7 +53,7 @@
   file: dithers/trapezium.log
   comments:
     - Test
-  out: photonlist
+  out: photonlist(wave, flat, noise, mask), drizzledlist, drizzledfits, stackedfits
 - !dither
   name: HIP 10680
   file: dithers/HD10680_1545544478_dither.log
