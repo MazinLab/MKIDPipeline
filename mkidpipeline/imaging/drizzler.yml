@@ -12,7 +12,6 @@ dither: !dither
   file: /mnt/data0/isabel/mec/dithers/Trapezium_1547374552_dither.log 
   wavecal: placeholder
   flatcal: placeholder
-  badmask: True  #do we want the badmask toggle here?
 
 drizzler: !configdict
   plots: all
