@@ -20,7 +20,7 @@ gen_photon_list_extension = Extension(
 mkidbin_extension = Extension(
     name="mkidpipeline.hdf.mkidbin",
     sources=["mkidpipeline/hdf/mkidbin.pyx", "mkidpipeline/hdf/binprocessor.c"],
-    library_dirs=["mkidpipeline/hdf"], # Location of .o file
+    library_dirs=["mkidpipeline/hdf"],  # Location of .o file
     include_dirs=["mkidpipeline/hdf", numpy.get_include()], # Location of the .h file
     extra_compile_args=["-std=c99", "-O3", '-pthread']
 )
