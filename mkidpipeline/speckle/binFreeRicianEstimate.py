@@ -244,6 +244,75 @@ def _MRlogL(params, dt, deadtime=1.e-5):
     return -MRlogL(params, dt, deadtime=deadtime)
 
 
+def posterior(params, dt, bic = None, bicsig = None, deadtime=1.e-5):
+    """
+    Given an array of photon interarrival times, calculate the posterior using the
+    Log likelihood that
+    those photons follow a modified Rician Intensity probability distribution with Ic, Is
+    and a prior for Ic. The prior is .5*((Ic - Ic*)/sigma_Ic)**2
+
+    INPUTS:
+        params: 2 or 3 element list of Ic, Is, Ir
+            Ic - Coherent portion of MR [1/second]
+            Is - Speckle portion of MR [1/second]
+            (optional) Ir - Incoherent background [1/second]
+        dt: list of inter-arrival times [seconds]
+        deadtime: MKID deadtime [seconds]
+    OUTPUTS:
+        [float] the posterior probability.
+    """
+    if bic is None or bicsig is None:
+        raise
+
+    Ic=params[0]
+    Is=params[1]
+    try: Ir=params[2]
+    except IndexError: Ir=0
+
+    # Stellar Intensity should be strictly positive, and each Ic, Is, Ir should be nonnegative.
+    if Ic < 0 or Is < 0 or Ir < 0 or Ic + Is== 0:
+        return -1e100
+
+    nslice = 20
+    u = 1./(1 + dt*Is)
+    u2 = u*u
+    u3 = u2*u
+    u4 = u2*u2
+    u5 = u4*u
+    N = len(u)
+
+    umax = 1./(1 + deadtime*Is)
+    arg_log = (Ic**2)*u5 + (4*Ic*Is)*u4 + (2*Is**2 + 2*Ir*Ic)*u3
+    if Ir > 0:
+        arg_log += (2*Ir*Is)*u2 + (Ir**2)*u
+
+    ###################################################################
+    # Reshape the array and multiply along the short axis to reduce
+    # the number of calls to np.log.
+    ###################################################################
+
+    _n = (len(u)//nslice + 1)*nslice
+    _arg_log = np.ones(_n)
+    _arg_log[:len(u)] = arg_log
+    _arg_log = np.prod(np.reshape(_arg_log, (nslice, -1)), axis=0)
+    lnL = np.sum(np.log(_arg_log))
+
+    lnL += -Ir*np.sum(dt) + Ic/Is*np.sum(u) - N*Ic/Is
+    lnL -= N*(umax - 1)*(Ir + Ic*umax)/(Is*umax)
+    lnL -= N*np.log(Ic*umax**3 + Is*umax**2 + Ir*umax)
+
+    posterior = lnL -.5*((Ic - bic)/bicsig)**2
+
+    if np.isfinite(posterior):
+        return posterior
+    else:
+        return -1e100
+
+
+def _posterior(params, dt, bic = None, bicsig = None, deadtime=1.e-5):
+    return -posterior(params, dt, bic = bic, bicsig = bicsig, deadtime=deadtime)
+
+
 def MRlogL_Jacobian(params, dt, deadtime=1.e-5):
     """
     Calculates the Jacobian of the MR log likelihood function.
@@ -305,6 +374,72 @@ def MRlogL_Jacobian(params, dt, deadtime=1.e-5):
 
 def _MRlogL_Jacobian(params, dt, deadtime=1.e-5):
     return -MRlogL_Jacobian(params, dt, deadtime=deadtime)
+
+
+def posterior_jacobian(params, dt, bic = None, bicsig = None, deadtime=1.e-5):
+    """
+    Calculates the Jacobian of the MR log likelihood function.
+    Also called a Gradient or Fisher's Score Function.
+    It's just the vector of first partial derivatives.
+
+    INPUTS:
+        params: 2 or 3 element list of Ic, Is, Ir
+            Ic - Coherent portion of MR [1/second]
+            Is - Speckle portion of MR [1/second]
+            (optional) Ir - Incoherent background [1/second]
+        dt: list of inter-arrival times [seconds]
+        deadtime: MKID deadtime [seconds]
+    OUTPUTS:
+        jacobian vector [dlnL/dIc, dlnL/dIs, dlnL/dIr] at Ic, Is, Ir
+        if Ir not given in params then force Ir=0 and dlnL/dIr not calculated
+    """
+    Ic = params[0]
+    Is = params[1]
+    try:
+        Ir = params[2]
+    except IndexError:
+        Ir = 0
+
+    ###################################################################
+    # Pre-compute combinations of variables
+    ###################################################################
+
+    u = 1. / (1 + dt * Is)
+    umax = 1. / (1 + deadtime * Is)
+    u2 = u * u
+    u3 = u2 * u
+    u4 = u2 * u2
+    sum_u = np.sum(u)
+    N = len(u)
+    denom_inv = 1 / (Ic ** 2 * u4 + 4 * Ic * Is * u3 + (2 * Is ** 2 + 2 * Ir * Ic) * u2 + 2 * Ir * Is * u + Ir ** 2)
+
+    d_Ic = 2 * np.sum((Ic * u4 + 2 * Is * u3 + Ir * u2) * denom_inv)
+    d_Ic += (sum_u - N) / Is
+    d_Ic -= N * umax ** 2 / (Ic * umax ** 2 + Is * umax + Ir)
+    d_Ic += N * (1 - umax) / Is
+    d_Ic -= (Ic - bic)/bicsig**2
+
+    num = (4 * Ic ** 2 / Is) * u4 * u + (12 * Ic - 4 * Ic ** 2 / Is) * u4
+    num += (4 * Is - 8 * Ic + 4 * Ir * Ic / Is) * u3 + (2 * Ir - 4 * Ir * Ic / Is) * u2
+    d_Is = np.sum(num * denom_inv)
+    d_Is += Ic / Is ** 2 * (np.sum(u2) - 2 * sum_u + N)
+    d_Is += (sum_u - N) / Is
+    d_Is -= N * Ic * ((umax - 1) / Is) ** 2
+    d_Is -= N * (umax - 1) / Is
+    d_Is -= N * umax ** 2 * (2 * Ic * (umax - 1) / Is + 1) / (Ic * umax ** 2 + Is * umax + Ir)
+
+    if len(params) == 3:
+        d_Ir = 2 * np.sum((Ic * u2 + Is * u + Ir) * denom_inv)
+        d_Ir -= np.sum(dt)
+        d_Ir += N * deadtime
+        d_Ir -= N / (Ic * umax ** 2 + Is * umax + Ir)
+
+        return np.asarray([d_Ic, d_Is, d_Ir])
+    return np.asarray([d_Ic, d_Is])
+
+
+def _posterior_jacobian(params, dt, bic = None, bicsig = None, deadtime=1.e-5):
+    return -posterior_jacobian(params, dt, bic=bic, bicsig=bicsig, deadtime=deadtime)
 
 
 def MRlogL_Hessian(params, dt, deadtime=1.e-5):
@@ -400,6 +535,103 @@ def MRlogL_Hessian(params, dt, deadtime=1.e-5):
 
 def _MRlogL_Hessian(params, dt, deadtime=1.e-5):
     return -MRlogL_Hessian(params, dt, deadtime=deadtime)
+
+
+def posterior_hessian(params, dt, bic = None, bicsig = None, deadtime=1.e-5):
+    """
+    Calculates the Hessian matrix of the MR log likelihood function.
+    It's just the matrix of second partial derivitives.
+    It's the negative of Fisher's Observed Information Matrix
+
+    INPUTS:
+        params: 2 or 3 element list of Ic, Is, Ir
+            Ic - Coherent portion of MR [1/second]
+            Is - Speckle portion of MR [1/second]
+            (optional) Ir - Incoherent background [1/second]
+        dt: list of inter-arrival times [seconds]
+        deadtime: MKID deadtime [seconds]
+    OUTPUTS:
+        Hessian matrix [[d2lnL/dIc2, d2lnL/dIcdIs], [d2lnL/dIsdIc, d2lnL/dIsdIs]] at Ic, Is
+    """
+    Ic = params[0]
+    Is = params[1]
+    try:
+        Ir = params[2]
+    except IndexError:
+        Ir = 0
+
+    ###################################################################
+    # Pre-compute combinations of variables
+    ###################################################################
+
+    u = 1. / (1 + dt * Is)
+    umax = 1. / (1 + deadtime * Is)
+    u2 = u * u
+    u3 = u2 * u
+    u4 = u2 * u2
+    u5 = u4 * u
+    u_m_1 = u - 1.
+    u_m_1_sq = u_m_1 * u_m_1
+    N = len(u)
+
+    denom_inv = 1. / (
+                (Ic ** 2) * u4 + (4 * Ic * Is) * u3 + (2 * Is ** 2 + 2 * Ir * Ic) * u2 + (2 * Ir * Is) * u + Ir ** 2)
+    denom2_inv = denom_inv * denom_inv
+
+    num_Ic = Ic * u4 + (2 * Is) * u3 + Ir * u2
+    d_IcIc = -4 * np.sum(num_Ic * num_Ic * denom2_inv)
+    d_IcIc += 2 * np.sum(u4 * denom_inv)
+    d_IcIc += N * (umax ** 2 / (Ic * umax ** 2 + Is * umax + Ir)) ** 2
+    d_IcIc -= 1/bicsig**2
+
+    num_Is = (4 * Ic ** 2 / Is) * u5 + (12 * Ic - 4 * Ic ** 2 / Is) * u4
+    num_Is += (4 * Is - 8 * Ic + 4 * Ir * Ic / Is) * u3 + (2 * Ir - 4 * Ir * Ic / Is) * u2
+
+    argsum = (u_m_1 * ((2. * Ic / Is) * u2 + 3. * u + Ir / Is) + u) * denom_inv
+    argsum -= ((Ic / 2.) * u2 + Is * u + Ir / 2.) * num_Is * denom2_inv
+    d_IcIs = 4 * np.sum(u2 * argsum)
+    d_IcIs += np.sum(u_m_1_sq) / Is ** 2
+
+    d_IcIs -= N * ((umax - 1) / Is) ** 2
+    d_IcIs += N * umax ** 4 * (2 * Ic * (umax - 1) / Is + 1) / (Ic * umax ** 2 + Is * umax + Ir) ** 2
+    d_IcIs -= 2 * N * umax ** 2 * (umax - 1) / Is / (Ic * umax ** 2 + Is * umax + Ir)
+
+    argsum = u_m_1_sq * ((5 * Ic ** 2 / Is ** 2) * u2 + (6 * Ic / Is) * u + 3 * Ic * Ir / Is ** 2)
+    argsum += u_m_1 * ((6 * Ic / Is) * u2 + 3 * u + Ir / Is) + u
+    d_IsIs = 4 * np.sum(u2 * argsum * denom_inv)
+
+    d_IsIs -= np.sum(num_Is * num_Is * denom2_inv)
+    d_IsIs += 2 * Ic / Is ** 3 * np.sum(u_m_1_sq * u_m_1)
+    d_IsIs += np.sum(u_m_1_sq) / Is ** 2
+    d_IsIs -= 2 * N * Ic * ((umax - 1) / Is) ** 3
+    d_IsIs -= N * ((umax - 1) / Is) ** 2
+    d_IsIs += N * (umax ** 2 * (2 * Ic * (umax - 1) / Is + 1) / (Ic * umax ** 2 + Is * umax + Ir)) ** 2
+    d_IsIs -= N * (6 * Ic * umax ** 2 * (umax - 1) ** 2 / Is ** 2 + 2 * umax ** 2 * (umax - 1) / Is) / (
+                Ic * umax ** 2 + Is * umax + Ir)
+
+    if len(params) == 3:
+        num_Ir = Ic * u2 + Is * u + Ir
+        d_IrIr = -4 * np.sum(num_Ir * num_Ir * denom2_inv)
+        d_IrIr += 2 * np.sum(denom_inv)
+        d_IrIr += N / (Ic * umax ** 2 + Is * umax + Ir) ** 2
+
+        d_IcIr = -4 * np.sum(num_Ir * num_Ic * denom2_inv)
+        d_IcIr += 2 * np.sum(u2 * denom_inv)
+        d_IcIr += N * (umax / (Ic * umax ** 2 + Is * umax + Ir)) ** 2
+
+        d_IrIs = np.sum(((4 * Ic / Is) * u3 + (2 - 4 * Ic / Is) * u2) * denom_inv)
+        d_IrIs -= 2 * np.sum((Ic * u2 + Is * u + Ir) * num_Is * denom2_inv)
+        d_IrIs += N * umax ** 2 * (2 * Ic * (umax - 1) / Is + 1) / (Ic * umax ** 2 + Is * umax + Ir) ** 2
+
+        return np.asarray([[d_IcIc, d_IcIs, d_IcIr],
+                           [d_IcIs, d_IsIs, d_IrIs],
+                           [d_IcIr, d_IrIs, d_IrIr]])
+
+    return np.asarray([[d_IcIc, d_IcIs], [d_IcIs, d_IsIs]])
+
+
+def _posterior_hessian(params, dt, bic = None, bicsig = None, deadtime=1.e-5):
+    return -posterior_hessian(params, dt, bic = bic, bicsig = bicsig, deadtime=deadtime)
 
 
 def MRlogL_opgCov(Ic, Is, Ir, dt, deadtime=0):
