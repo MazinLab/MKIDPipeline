@@ -902,7 +902,7 @@ if __name__ == '__main__':
         hdul = fits.HDUList([fits.PrimaryHDU(header=drizwcs.to_header()),
                              fits.ImageHDU(data=scidata, header=drizwcs.to_header())])
 
-    hdul.writeto('{}_{}.fits'.format(cfg.dither.name, drizzler_cfg_descr_str(cfg.drizzler), overwrite=True)
+    hdul.writeto('{}_{}.fits'.format(cfg.dither.name, drizzler_cfg_descr_str(cfg.drizzler), overwrite=True))
 
     if args.plot:
         quick_pretty_plot(image, drizwcs, vmin=5, vmax=600)
