@@ -44,11 +44,6 @@ applyFlatCal(self, calSolnPath,verbose=False)
 applyFlag(self, xCoord, yCoord, flag)
 undoFlag(self, xCoord, yCoord, flag)
 modifyHeaderEntry(self, headerTitle, headerValue)
-
-
-
-
-
 """
 import os
 import warnings
@@ -70,17 +65,14 @@ from mkidcore.corelog import getLogger
 import mkidcore.pixelflags as pixelflags
 from mkidcore.pixelflags import h5FileFlags
 import SharedArray
-
 import tables.parameters
 import tables.file
-import mkidcore.utils
-
+from astropy.coordinates import SkyCoord
+from astropy import wcs
+from astroplan import Observer
+from mkidcore.instruments import CONEX2PIXEL
 from astropy.io import fits
-
 import functools
-
-TBRERROR = RuntimeError('Function needs to be reviewed')
-
 
 #These are little better than blind guesses and don't seem to impact performaace, but still need benchmarking
 # tables.parameters.CHUNK_CACHE_SIZE = 2 * 1024 * 1024 * 1024
@@ -221,13 +213,10 @@ class SharedPhotonList(object):
             getLogger(__name__).debug('Deleting '+self._name)
             SharedArray.delete("shm://{}".format(self._name))
 
-PLANK_CONSTANT_EV = astropy.constants.h.to('eV s').value
-SPEED_OF_LIGHT_MS = astropy.constants.c.to('m/s').value
-
 
 class ObsFile(object):
-    h = PLANK_CONSTANT_EV # 4.135668e-15 #eV s
-    c = SPEED_OF_LIGHT_MS  # '2.998e8 #m/s
+    h = astropy.constants.h.to('eV s').value
+    c = astropy.constants.c.to('m/s').value
     nCalCoeffs = 3
     tickDuration = 1e-6  # each integer value is 1 microsecond
 
@@ -411,10 +400,11 @@ class ObsFile(object):
         """
         intt takes precedence, All none is a null result
 
+        :param stopt:
+        :param intt:
         :param startw: number or none
         :param stopw: number or none
         :param startt: number or none
-        :param endt: number or none
         :param resid: number, list/array or None
         :return:
         """
@@ -504,6 +494,89 @@ class ObsFile(object):
                                                       (startt, stopt, startw, stopw))))
             return q
 
+    def get_wcs(self, platescale=0.01/3600., derotate=True, device_orientation=-48, timestep=None,
+                target_coordinates=None, observatory='Subaru', target_center_at_ref=(52, 18),
+                conex_ref=(0,0), conex_pos=(0,0)):
+        """
+        Default device_orientation obtained with get_device_orientation using Trapezium observations
+
+        :param timestep:
+        :param target_coordinates: SkyCoord or string to query for
+        :param observatory:
+        :param target_center_at_ref:
+        :param conex_ref:
+        :param conex_pos:
+        :param device_orientation:
+        :param platescale:
+        :param derotate: [True, False, None]
+                         True:  align each wcs solution to position angle = 0
+                         False: rotate all wcs solutions so the position angle of the middle wcs solution matches its
+                                parallactic angle
+                         None:  no correction angle
+        :return:
+        """
+
+        if not isinstance(target_coordinates, SkyCoord):
+            target_coordinates = SkyCoord.from_name(target_coordinates)
+
+        def dither_pixel_vector(positions, center=(0, 0)):
+            """ A function to convert the connex offset to pixel displacement"""
+            positions = np.asarray(positions)
+            print('photontable', positions, CONEX2PIXEL(positions[0], positions[1]), np.array(CONEX2PIXEL(*center)))#.reshape(2,1))
+            pix = np.asarray(CONEX2PIXEL(positions[0], positions[1])) - np.array(CONEX2PIXEL(*center))#.reshape(2,1)
+            return pix
+
+        apo = Observer.at_site(observatory)
+
+        if timestep is None:
+            timestep = self.info['expTime']
+
+        # sample_times upper boundary is limited to the user defined end time
+        sample_times = np.arange(self.info['startTime'], self.info['startTime']+timestep, timestep)
+        getLogger(__name__).debug("sample_times: %s", sample_times)
+
+        device_orientation = np.deg2rad(device_orientation)
+        if derotate is True:
+            times = astropy.time.Time(val=sample_times, format='unix')
+            parallactic_angles = apo.parallactic_angle(times, target_coordinates).value  # radians
+            corrected_sky_angles = -parallactic_angles - device_orientation
+        elif derotate is False:
+            # TODO this is calculating the midtime of each dither not the whole observation
+            # midtime = astropy.time.Time(self.info['startTime']+self.info['expTime']/2, format='unix')
+            # parallactic_angle = apo.parallactic_angle(midtime, target_coordinates).value
+            # corrected_sky_angles = np.ones_like(sample_times) * -(parallactic_angle + device_orientation)
+            corrected_sky_angles = np.ones_like(sample_times) * -device_orientation
+        else:
+            corrected_sky_angles = np.zeros_like(sample_times)
+
+        getLogger(__name__).debug("Correction angles: %s", corrected_sky_angles)
+
+        obs_wcs_seq = []
+        for t, ca in enumerate(corrected_sky_angles):
+            rotation_matrix = np.array([[np.cos(ca), -np.sin(ca)],
+                                        [np.sin(ca), np.cos(ca)]])
+
+            ref_pixel = dither_pixel_vector(conex_pos, conex_ref) - np.asarray(target_center_at_ref).reshape(2)
+            ref_pixel = ref_pixel[::-1] * np.array([1, -1])
+
+            w = wcs.WCS(naxis=2)
+            w.wcs.ctype = ["RA--TAN", "DEC-TAN"]
+            w._naxis1 = self.nXPix  # these may get set to 0 during pickling
+            w._naxis2 = self.nYPix  #
+            w.naxis1 = self.nXPix   # store non-private attributes to redefine later
+            w.naxis2 = self.nYPix
+
+            w.wcs.crval = np.array([target_coordinates.ra.deg, target_coordinates.dec.deg])
+            w.wcs.crpix = ref_pixel
+
+            w.wcs.pc = rotation_matrix
+            w.wcs.cdelt = [platescale, platescale]
+            w.wcs.cunit = ["deg", "deg"]
+
+            obs_wcs_seq.append(w)
+
+        return obs_wcs_seq
+
     def getPixelPhotonList(self, xCoord=None, yCoord=None, resid=None, firstSec=0, integrationTime=-1, wvlStart=None,
                            wvlStop=None, forceRawPhase=False):
         """
@@ -545,6 +618,7 @@ class ObsFile(object):
         Wavelength is in degrees of phase height or nanometers
         SpecWeight is a float in [0,1]
         NoiseWeight is a float in [0,1]
+        :param resid:
 
         """
         try:
@@ -583,6 +657,8 @@ class ObsFile(object):
             'counts':int, number of photon counts
             'effIntTime':float, effective integration time after time-masking is
            `          accounted for.
+           :param x:
+           :param y:
         """
         raise RuntimeError("Clean up the arguemnts/kwarguments, bug Jeb if you aren't sure.")
         try:
@@ -701,6 +777,9 @@ class ObsFile(object):
             'image': 2D numpy array, image of pixel counts
             'effIntTimes':2D numpy array, image effective integration times after time-masking is
            `          accounted for.
+           :param wvlStart:
+           :param wvlStop:
+           :param hdu:
         """
         if integrationTime is None:
             integrationTime = self.info['expTime']
@@ -785,6 +864,8 @@ class ObsFile(object):
                 Image of effective pixel weight inside aperture. "Pixel weight"
                 for now is just the area of overlap w/ aperture, with dead
                 pixels set to 0.
+                :param wvlStart:
+                :param wvlStop:
 
         """
 
@@ -1039,6 +1120,7 @@ class ObsFile(object):
                            after accounting for hot-pixel time-masking.
             'rawCounts' - The total number of photon triggers (including from
                             the noise tail) during the effective exposure.
+                            :param wvlStop:
         """
 
         photonList = self.getPixelPhotonList(xCoord, yCoord, firstSec=firstSec, integrationTime=integrationTime)
@@ -1231,6 +1313,9 @@ class ObsFile(object):
         wvlCalArr: array of floats
             Array of calibrated wavelengths. Replaces "Wavelength" column of this pixel's
             photon list.
+            :param xCoord:
+            :param yCoord:
+            :param flush:
         """
         if resID is None:
             resID = self.beamImage[xCoord, yCoord]
@@ -1348,6 +1433,8 @@ class ObsFile(object):
         Will write plots of flatcal solution (5 second increments over a single flat exposure) 
              with average weights overplotted to a pdf for pixels which have a successful FlatCal.
              Written to the calSolnPath+'FlatCalSolnPlotsPerPixel.pdf'
+             :param calsolFile:
+             :param save_plots:
         """
 
         if self.info['isFlatCalibrated']:
@@ -1568,8 +1655,3 @@ def repackArray(array, slices):
         retval[iPt:iPtNew] = array[s0:s1]
         iPt = iPtNew
     return retval
-
-
-# Temporary test
-if __name__ == "__main__":
-    pass
