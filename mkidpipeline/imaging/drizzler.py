@@ -1,4 +1,14 @@
 """
+*** Warning ***
+The STScI drizzle module appears to have a bug. Line 474 (as of 4/23/19) should change from
+
+self.outcon = np.append(self.outcon, plane, axis=0)
+
+to
+
+self.outcon = np.append(self.outcon, [plane], axis=0)
+
+
 TODO
 Add astroplan, drizzle, to setup.py/yml. drizzle need to be pip installed. I found that astroplan needed to be pip
 installed otherwise some astropy import fails
@@ -7,14 +17,14 @@ Move plotting functionality to another module
 
 Go through and remove redundant negative signs
 
-Verify DrizzledData and args functions
+Verify DrizzledData
 
 Usage
 -----
 
 python drizzle.py /mnt/data0/dodkins/src/mkidpipeline/mkidpipeline/imaging/drizzler.yml
 
-Author: Rupert Dodkins,                                 Date: Mar 2019
+Author: Rupert Dodkins,                                 Date: April 2019
 
 """
 import os
@@ -47,7 +57,7 @@ Conf.remote_timeout.set(10)
 # set up logging
 mkidpipeline.logtoconsole()
 
-log = pipelinelog.create_log('mkidpipeline.imaging.drizzler', console=True, level="INFO")
+log = pipelinelog.create_log('mkidpipeline.imaging.drizzler', console=True, level="DEBUG")
 
 
 
@@ -96,7 +106,7 @@ def get_device_orientation(ditherdesc, fits_filename='Theta1 Orionis B_mean.fits
 
     update = True
     device_orientation = 0
-    hdu1 = fits.open(fits_filename)[0]
+    hdu1 = fits.open(fits_filename)[1]
 
     field = hdu1.data
     while update:
@@ -281,10 +291,14 @@ class Drizzler(object):
         self.gridDec = self.starDec + (self.vPlateScale * (np.arange(self.nPixDec + 1) - ((self.nPixDec + 1) // 2)))
 
     def get_header(self, center_on_star=False):
-        # TODO implement something like this
-        # w = mkidcore.buildwcs(self.nPixRA, self.nPixDec, self.vPlateScale, self.starRA, self.starDec)
-        # TODO implement the PV distortion?
-        # eg w.wcs.set_pv([(2, 1, 45.0)])
+        """
+        TODO implement something like this
+        w = mkidcore.buildwcs(self.nPixRA, self.nPixDec, self.vPlateScale, self.starRA, self.starDec)
+
+        :param center_on_star:
+        :return:
+        """
+
 
         self.w = wcs.WCS(naxis=2)
         self.w.wcs.crpix = np.array([self.nPixRA / 2., self.nPixDec / 2.])
@@ -372,6 +386,11 @@ class TemporalDrizzler(Drizzler):
         self.totWeightCube = None
 
     def run(self, save_file=None):
+        """
+
+        :param save_file:
+        :return:
+        """
         tic = time.clock()
 
         self.totHypCube = np.zeros((self.ntimebins * self.ndithers, self.nwvlbins, self.nPixDec, self.nPixRA))
@@ -400,6 +419,15 @@ class TemporalDrizzler(Drizzler):
         # TODO add the wavelength WCS
 
     def makeTess(self, file, timespan, applyweights=False, applymask=True, maxCountsCut=50):
+        """
+
+        :param file:
+        :param timespan:
+        :param applyweights:
+        :param applymask:
+        :param maxCountsCut:
+        :return:
+        """
 
         weights = file['weight'] if applyweights else None
 
@@ -836,9 +864,10 @@ if __name__ == '__main__':
     parser.add_argument('-it', type=int, dest='intt', help='end time', default=60)
     parser.add_argument('-p', action='store_true', dest='plot', help='Plot the result', default=False)
     parser.add_argument('--get-offset', nargs=2, type=int, dest='gso', help='Runs get_star_offset eg 0 0 ')
-    parser.add_argument('--get-orientation', type=lambda x: os.path.isfile(x), dest='gdo',
+    # changed this to bool so that the filename from drizzler_cfg_descr_str(cfg.drizzler) could be used
+    parser.add_argument('--get-orientation', type=bool, dest='gdo',
                         help='Run get_device_orientation on a fits file, first created with the default orientation.',
-                        default='Theta1 Orionis B_mean.fits')
+                        default=None)
 
     args = parser.parse_args()
 
@@ -859,7 +888,7 @@ if __name__ == '__main__':
         log.warning('Reduced the effective integration time from {}s to {}s'.format(args.intt, dither.inttime))
     if dither.inttime > args.intt:
         # log.warning(f'Reduced the duration of each dither {dither.inttime}s to {args.intt}s')
-        log.warning('Reduced the duration of each dither {}s to {}s'.format(dither.inttime, args.intt))
+        log.warning('Reduced the duration of each dither from {}s to {}s'.format(dither.inttime, args.intt))
 
     intt, dither.inttime = [min(args.intt, dither.inttime)] * 2
 
@@ -885,15 +914,16 @@ if __name__ == '__main__':
         # log.warning(f'{cfg.drizzler.mode} mode not accepted')
         log.warning('{} mode not accepted'.format(cfg.drizzler.mode))
 
-    quick_pretty_plot(scidata, drizwcs, vmin=5, vmax=2000)
+    quick_pretty_plot(scidata, drizwcs)
 
-    hdul.writeto('{}_{}.fits'.format(cfg.dither.name, drizzler_cfg_descr_str(cfg.drizzler), overwrite=True))
+    fitsname = '{}_{}.fits'.format(cfg.dither.name, drizzler_cfg_descr_str(cfg.drizzler))
+    hdul.writeto(fitsname, overwrite=True)
 
     if args.gdo:
-        if not os.path.exists(args.gdo):
+        if not os.path.exists(fitsname):
             log.info("Can't find {} Create the fits image "
-                                                 "using the default orientation first".format(args.gdo))
+                                                 "using the default orientation first".format(fitsname))
         else:
             ditherdesc = DitherDescription(dither, target=dither.name, ConnexOrigin2COR=ConnexOrigin2COR)
-            get_device_orientation(ditherdesc, args.gdo)
+            get_device_orientation(ditherdesc, fitsname)
 
