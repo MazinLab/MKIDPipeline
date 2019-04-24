@@ -507,7 +507,7 @@ class ObsFile(object):
         :param conex_ref:
         :param conex_pos:
         :param device_orientation:
-        :param platescale:
+        :param platescale: (deg)
         :param derotate: [True, False, None]
                          True:  align each wcs solution to position angle = 0
                          False: rotate all wcs solutions so the position angle of the middle wcs solution matches its
@@ -519,11 +519,17 @@ class ObsFile(object):
         if not isinstance(target_coordinates, SkyCoord):
             target_coordinates = SkyCoord.from_name(target_coordinates)
 
-        def dither_pixel_vector(positions, center=(0, 0)):
-            """ A function to convert the connex offset to pixel displacement"""
+        def compute_ref_pixel(positions, center=(0, 0), target_center_at_ref=(0, 0)):
+            """ A function to convert the connex offset to pixel displacement
+            :param positions: conext position(s)
+            :param center: conex center position
+            :param target_center_at_ref: pixel position of conex center
+            :return:
+            """
             positions = np.asarray(positions)
-            pix = np.asarray(CONEX2PIXEL(positions[0], positions[1])) - np.array(CONEX2PIXEL(*center))#.reshape(2,1)
-            return pix
+            pix = np.asarray(CONEX2PIXEL(positions[0], positions[1])) - np.array(CONEX2PIXEL(*center))
+            pix -= np.asarray(target_center_at_ref).reshape(2)
+            return pix[::-1] * np.array([1, -1])
 
         apo = Observer.at_site(observatory)
 
@@ -555,15 +561,12 @@ class ObsFile(object):
             rotation_matrix = np.array([[np.cos(ca), -np.sin(ca)],
                                         [np.sin(ca), np.cos(ca)]])
 
-            ref_pixel = dither_pixel_vector(conex_pos, conex_ref) - np.asarray(target_center_at_ref).reshape(2)
-            ref_pixel = ref_pixel[::-1] * np.array([1, -1])
+            ref_pixel = compute_ref_pixel(conex_pos, conex_ref, target_center_at_ref)
 
             w = wcs.WCS(naxis=2)
             w.wcs.ctype = ["RA--TAN", "DEC-TAN"]
-            w._naxis1 = self.nXPix  # these may get set to 0 during pickling
-            w._naxis2 = self.nYPix  #
-            w.naxis1 = self.nXPix   # store non-private attributes to redefine later
-            w.naxis2 = self.nYPix
+            w.naxis1 = w._naxis1 = self.nXPix  # these may get set to 0 during pickling so also store to non _
+            w.naxis2 = w._naxis2 = self.nYPix
 
             w.wcs.crval = np.array([target_coordinates.ra.deg, target_coordinates.dec.deg])
             w.wcs.crpix = ref_pixel
