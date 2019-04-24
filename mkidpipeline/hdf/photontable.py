@@ -522,7 +522,6 @@ class ObsFile(object):
         def dither_pixel_vector(positions, center=(0, 0)):
             """ A function to convert the connex offset to pixel displacement"""
             positions = np.asarray(positions)
-            print('photontable', positions, CONEX2PIXEL(positions[0], positions[1]), np.array(CONEX2PIXEL(*center)))#.reshape(2,1))
             pix = np.asarray(CONEX2PIXEL(positions[0], positions[1])) - np.array(CONEX2PIXEL(*center))#.reshape(2,1)
             return pix
 

@@ -3,7 +3,7 @@ beammap: !bmap
   default: MEC
 
 paths: !configdict
-  data: /mnt/data0/ScienceData/Subaru/20180626/
+  #data: /mnt/data0/ScienceData/Subaru/20180626/
   out: /mnt/data0/isabel/highcontrastimaging/Jan2019Run/20190112/Trapezium/trap_wavecalib
   tmp: /mnt/data0/baileyji/mec/scratch/
 
