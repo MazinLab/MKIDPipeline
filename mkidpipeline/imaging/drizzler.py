@@ -13,11 +13,11 @@ TODO
 Add astroplan, drizzle, to setup.py/yml. drizzle need to be pip installed. I found that astroplan needed to be pip
 installed otherwise some astropy import fails
 
-Move plotting functionality to another module
+Move plotting functionality to another module?
 
 Go through and remove redundant negative signs
 
-Verify DrizzledData
+Update TemporalDrizzler to work with DrizzleData
 
 Usage
 -----
@@ -57,7 +57,7 @@ Conf.remote_timeout.set(10)
 # set up logging
 mkidpipeline.logtoconsole()
 
-log = pipelinelog.create_log('mkidpipeline.imaging.drizzler', console=True, level="DEBUG")
+log = pipelinelog.create_log('mkidpipeline.imaging.drizzler', console=True, level="INFO")
 
 
 
@@ -141,7 +141,7 @@ class DitherDescription(object):
 
     """
 
-    def __init__(self, dither, ConnexOrigin2COR=None, observatory='Subaru', target=None,
+    def __init__(self, dither, ConnexOrigin2COR=None, observatory='Subaru', target=None, cor_coords=(0,0),
                  use_min_timestep=True, suggested_time_step=1):
         """
         lookup_coordiantes may get a name error on correct target names leading to spurious results.
@@ -159,13 +159,18 @@ class DitherDescription(object):
         self.description = dither
         self.target = target
 
-        if target:
-            # for i in range(attempts):
-            self.coords = dither.obs[0].lookup_coodinates(queryname=target)
+        if cor_coords == (0, 0):
+            if target:
+                # for i in range(attempts):
+                self.coords = dither.obs[0].lookup_coodinates(queryname=target)
+            else:
+                pipelinelog.getLogger(__name__).warning('Unable to resolve coordinates for target name {target}, using (0,0).')
+                self.coords = SkyCoord(0*u.deg, 0*u.deg)
+            log.info('Found coordinated {}'.format(self.coords))
         else:
-            pipelinelog.getLogger(__name__).warning('Unable to resolve coordinates for target name {target}, using (0,0).')
-            self.coords = SkyCoord(0*u.deg,0*u.deg)
-        log.debug('Found coordinated {}'.format(self.coords))
+            self.coords = SkyCoord(cor_coords[0]*u.deg, cor_coords[1]*u.deg)
+            log.info('Using coordinated {} in yml'.format(self.coords))
+
         self.starRA, self.starDec = self.coords.ra.deg, self.coords.dec.deg
         if ConnexOrigin2COR is None:
             ConnexOrigin2COR = (0, 0)
@@ -402,12 +407,10 @@ class TemporalDrizzler(Drizzler):
             thishyper = np.zeros((self.ntimebins, self.nwvlbins, self.nPixDec, self.nPixRA), dtype=np.float32)
 
             for t, inwcs in enumerate(file['obs_wcs_seq']):
-                print(t, self.wcs_times[t], self.wcs_times[t+1], self.ntimebins)
                 insci = self.makeTess(file, (self.wcs_times[t], self.wcs_times[t+1]), applymask=False)
 
 
                 for it, iw in np.ndindex(self.nchunktimebins, self.nwvlbins):
-                    print(it, iw)
                     drizhyper = stdrizzle.Drizzle(outwcs=self.w, pixfrac=self.pixfrac)
                     drizhyper.add_image(insci[it, iw], inwcs, inwht=np.int_(np.logical_not(insci[it, iw] == 0)))
                     thishyper[it + t*self.nchunktimebins, iw] = drizhyper.outsci
@@ -493,8 +496,12 @@ class SpatialDrizzler(Drizzler):
 
         # if inttime is say 100 and wcs_timestep is say 60 then this yeilds [0,60,100]
         # meaning the positions don't have constant integration time
-        # TODO make sure this is handled down the line
+        # TODO verify this with different effective integration times
         self.wcs_times = np.append(np.arange(0, inttime, self.wcs_timestep), inttime) * 1e6
+
+        self.stackedim = np.zeros((len(metadata.description.obs) * (len(self.wcs_times)-1),
+                                    metadata.ypix, metadata.xpix))
+        self.stacked_wcs = []
 
     def run(self, save_file=None, applymask=False):
         for ix, file in enumerate(self.files):
@@ -505,6 +512,10 @@ class SpatialDrizzler(Drizzler):
                 # set this here since _naxis1,2 are reinitialised during pickle
                 inwcs._naxis1, inwcs._naxis2 = inwcs.naxis1, inwcs.naxis2
                 insci = self.makeImage(file, (self.wcs_times[t], self.wcs_times[t+1]), applymask=False)
+
+                self.stackedim[ix*len(file['obs_wcs_seq']) + t] = insci
+                self.stacked_wcs.append(inwcs)
+
                 if applymask:
                     insci *= ~self.hot_mask
                 log.debug('Image load done. Time taken (s): %s', time.clock() - tic)
@@ -568,58 +579,6 @@ class SpatialDrizzler(Drizzler):
         if plot:
             plt.imshow(self.hot_mask, origin='lower')
             plt.show(block=True)
-
-
-def quick_pretty_plot(scidata, inwcs, log_scale=True, vmin=None, vmax=None, show=True, max_times=8):
-    """
-    Make an image (or array of images) with celestial coordinates (deg)
-
-    :param scidata: image, spectralcube, or sequence of spectralcubes
-    :param inwcs: single wcs solution
-    :param log_scale:
-    :param vmin:
-    :param vmax:
-    :param show:
-    :param max_times: only display the first max_times frames
-    :return:
-    """
-    if log_scale:
-        norm = LogNorm()
-    else:
-        norm = None
-    fig = plt.figure()
-
-    # a way of identifying the non-spatial axes
-    dims = len(scidata.shape)
-    dim_ind = np.arange(dims)
-    multiplots = np.where(dim_ind < dims-2)[0]
-
-    if len(multiplots) == 0:
-        ax = fig.add_subplot(111, projection=inwcs)
-        axes = [ax]
-        ind = [...]
-    else:
-        print(' *** Only displaying first {} timesteps ***'.format(max_times))
-        scidata = scidata[:max_times]
-        [ntimes, nwaves] = np.array(scidata.shape)[multiplots]
-        gs = gridspec.GridSpec(nwaves,ntimes)
-        for n in range(ntimes*nwaves):
-            fig.add_subplot(gs[n], projection=inwcs)
-        axes = np.array(fig.axes)#.reshape(ntimes, nwaves)
-        ind = [(t,w) for t in range(ntimes) for w in range(nwaves)]
-
-    for ia, ax in enumerate(axes):
-        im = ax.imshow(scidata[ind[ia]], origin='lower', vmin=vmin, vmax=vmax, norm=norm)
-        ax.coords.grid(True, color='white', ls='solid')
-        ax.coords[0].set_axislabel('Right Ascension (J2000)')
-        ax.coords[1].set_axislabel('Declination (J2000)')
-
-    cax = fig.add_axes([0.92, 0.09 + 0.277, 0.025, 0.25])
-    cb = plt.colorbar(im, cax=cax)
-    cb.ax.set_title('Counts')
-    plt.tight_layout()
-    if show:
-        plt.show(block=True)
 
 
 def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{}.pkl',
@@ -717,28 +676,85 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
 
 
 class DrizzledData(object):
-    def __init__(self, scidata, outwcs, stackedim, dither):
+    def __init__(self, scidata, outwcs, stackedim, stacked_wcs, dither):
         self.dither = dither
         self.data = scidata
         self.wcs = outwcs
         self.dumb_stack = stackedim
+        self.stacked_wcs = stacked_wcs
         self.fits_header = self.wcs.to_header()
+        # self.stack_header = self.stacked_wcs.to_header()
 
     def writefits(self, file, overwrite=True):
         if self.data.ndim > 2:
             image = np.sum(self.data[0], axis=(0, 1)) / self.data[1]
-            hdul = fits.HDUList([fits.PrimaryHDU(header=self.fits_header),
+            hdul = fits.HDUList([fits.PrimaryHDU(header=drizwcs.to_header()),
                                  fits.ImageHDU(data=self.data[0], header=self.fits_header),
                                  fits.ImageHDU(data=image, header=self.fits_header)])
-        else:
+        elif self.data.ndim == 2:
             hdul = fits.HDUList([fits.PrimaryHDU(header=self.fits_header),
                                  fits.ImageHDU(data=self.data, header=self.fits_header)])
+            [hdul.append(fits.ImageHDU(data=dithim,
+                                       header=self.stacked_wcs[i].to_header())) for i, dithim in enumerate(self.dumb_stack)]
+        else:
+            log.warning('{} dimension scidata not accepted. No FITS saved'.format(self.data.ndim))
 
-            hdul.writeto('{}_{}.fits'.format(file, overwrite=overwrite))
+        hdul.writeto(file, overwrite=overwrite)
+
+    def quick_pretty_plot(self, log_scale=True, vmin=None, vmax=None, show=True, max_times=8):
+        """
+        Make an image (or array of images) with celestial coordinates (deg)
+
+        :param scidata: image, spectralcube, or sequence of spectralcubes
+        :param inwcs: single wcs solution
+        :param log_scale:
+        :param vmin:
+        :param vmax:
+        :param show:
+        :param max_times: only display the first max_times frames
+        :return:
+        """
+        if log_scale:
+            norm = LogNorm()
+        else:
+            norm = None
+        fig = plt.figure()
+
+        # a way of identifying the non-spatial axes
+        dims = len(self.data.shape)
+        dim_ind = np.arange(dims)
+        multiplots = np.where(dim_ind < dims - 2)[0]
+
+        if len(multiplots) == 0:
+            ax = fig.add_subplot(111, projection=self.inwcs)
+            axes = [ax]
+            ind = [...]
+        else:
+            print(' *** Only displaying first {} timesteps ***'.format(max_times))
+            scidata = self.data[:max_times]
+            [ntimes, nwaves] = np.array(scidata.shape)[multiplots]
+            gs = gridspec.GridSpec(nwaves, ntimes)
+            for n in range(ntimes * nwaves):
+                fig.add_subplot(gs[n], projection=self.inwcs)
+            axes = np.array(fig.axes)  # .reshape(ntimes, nwaves)
+            ind = [(t, w) for t in range(ntimes) for w in range(nwaves)]
+
+        for ia, ax in enumerate(axes):
+            im = ax.imshow(self.data[ind[ia]], origin='lower', vmin=vmin, vmax=vmax, norm=norm)
+            ax.coords.grid(True, color='white', ls='solid')
+            ax.coords[0].set_axislabel('Right Ascension (J2000)')
+            ax.coords[1].set_axislabel('Declination (J2000)')
+
+        cax = fig.add_axes([0.92, 0.09 + 0.277, 0.025, 0.25])
+        cb = plt.colorbar(im, cax=cax)
+        cb.ax.set_title('Counts')
+        plt.tight_layout()
+        if show:
+            plt.show(block=True)
 
 
 def form(dither, mode='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=850, wvlMax=1100, startt=0, intt=60,
-         pixfrac=.5, nwvlbins=1, timestep=1., device_orientation=-43):
+         pixfrac=.5, nwvlbins=1, timestep=1., device_orientation=-43, cor_coords=(0,0), fitsname='fits'):
     """
 
     :param dither:
@@ -756,7 +772,19 @@ def form(dither, mode='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=85
     :return:
     """
 
-    ditherdesc = DitherDescription(dither, target=dither.name, ConnexOrigin2COR=ConnexOrigin2COR)
+    # ensure the user input is shorter than the dither or that wcs are just calculated for the relavant timespan
+    if args.intt > dither.inttime:
+        # log.warning(f'Reduced the effective integration time from {args.intt}s to {dither.inttime}s')
+        log.warning('Reduced the effective integration time from {}s to {}s'.format(args.intt, dither.inttime))
+    if dither.inttime > args.intt:
+        # log.warning(f'Reduced the duration of each dither {dither.inttime}s to {args.intt}s')
+        log.warning('Reduced the duration of each dither from {}s to {}s'.format(dither.inttime, args.intt))
+
+    # redefining these variables in the middle of the code might not be good practice since form() is run multiple
+    # times but once they've been equated it shouldn't have an effect?
+    intt, dither.inttime = [min(intt, dither.inttime)] * 2
+
+    ditherdesc = DitherDescription(dither, target=dither.name, cor_coords=cor_coords, ConnexOrigin2COR=ConnexOrigin2COR)
     data = load_data(ditherdesc, wvlMin, wvlMax, startt, intt, derotate=derotate,
                      device_orientation=device_orientation)
 
@@ -768,8 +796,8 @@ def form(dither, mode='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=85
         driz.run(applymask=False)
         outsci = driz.driz.outsci
         outwcs = driz.w
-
-        return outsci, outwcs
+        stackedim = driz.stackedim
+        stacked_wcs = driz.stacked_wcs
 
     elif mode == 'spectral':
         # TODO implement, is this even necessary. On hold till interface specification and dataproduct definition
@@ -782,11 +810,16 @@ def form(dither, mode='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=85
         tdriz.header_4d()
         outsci = tdriz.totHypCube
         outwcs = tdriz.w
-        weights = tdriz.totWeightCube.sum(axis=0)[0]
+        image_weights = tdriz.totWeightCube.sum(axis=0)[0]
         # TODO: While we can still have a reference-point WCS solution this class needs a drizzled WCS helper as the
         # WCS solution changes with time, right?
 
-        return (outsci, weights), outwcs
+        print('Will crash here not implemented yet')
+        stackedim = tdriz.stackedim
+
+    drizzle = DrizzledData(scidata=outsci, outwcs=outwcs, stackedim=stackedim, stacked_wcs=stacked_wcs, dither=dither)
+    drizzle.writefits(file = fitsname)
+    drizzle.quick_pretty_plot()
 
 
 def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0,0), zoom=2.):
@@ -877,47 +910,24 @@ if __name__ == '__main__':
     wvlMin = args.wvlMin
     wvlMax = args.wvlMax
     startt = args.startt
+    intt = args.intt
     pixfrac = cfg.drizzler.pixfrac
     dither = cfg.dither
     ConnexOrigin2COR = cfg.drizzler.connexorigin2cor
     device_orientation = cfg.drizzler.device_orientation
-
-    # ensure the user input is shorter than the dither or that wcs are just calculated for the relavant timespan
-    if args.intt > dither.inttime:
-        # log.warning(f'Reduced the effective integration time from {args.intt}s to {dither.inttime}s')
-        log.warning('Reduced the effective integration time from {}s to {}s'.format(args.intt, dither.inttime))
-    if dither.inttime > args.intt:
-        # log.warning(f'Reduced the duration of each dither {dither.inttime}s to {args.intt}s')
-        log.warning('Reduced the duration of each dither from {}s to {}s'.format(dither.inttime, args.intt))
-
-    intt, dither.inttime = [min(args.intt, dither.inttime)] * 2
+    cor_coords = cfg.drizzler.cor_coords
 
     if args.gso:
         if type(args.gso) is list:
             ConnexOrigin2COR = np.array(args.gso)
             ConnexOrigin2COR = get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=ConnexOrigin2COR)
 
+    fitsname = '{}_{}.fits'.format(cfg.dither.name, drizzler_cfg_descr_str(cfg.drizzler))
+
     # main function of drizzler
     scidata, drizwcs = form(dither, mode=cfg.drizzler.mode, ConnexOrigin2COR=ConnexOrigin2COR, wvlMin=wvlMin,
-                          wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac,
-                          device_orientation=device_orientation, derotate=True)
-
-    if cfg.drizzler.mode == 'temporal':
-        image = np.sum(scidata[0], axis=(0, 1)) / scidata[1]
-        hdul = fits.HDUList([fits.PrimaryHDU(header=drizwcs.to_header()),
-                             fits.ImageHDU(data=scidata[0], header=drizwcs.to_header()),
-                             fits.ImageHDU(data=image, header=drizwcs.to_header())])
-    elif cfg.drizzler.mode == 'spatial':
-        hdul = fits.HDUList([fits.PrimaryHDU(header=drizwcs.to_header()),
-                             fits.ImageHDU(data=scidata, header=drizwcs.to_header())])
-    else:
-        # log.warning(f'{cfg.drizzler.mode} mode not accepted')
-        log.warning('{} mode not accepted'.format(cfg.drizzler.mode))
-
-    quick_pretty_plot(scidata, drizwcs)
-
-    fitsname = '{}_{}.fits'.format(cfg.dither.name, drizzler_cfg_descr_str(cfg.drizzler))
-    hdul.writeto(fitsname, overwrite=True)
+                          wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac, cor_coords=cor_coords,
+                          device_orientation=device_orientation, derotate=True, fitsname=fitsname)
 
     if args.gdo:
         if not os.path.exists(fitsname):
