@@ -168,7 +168,7 @@ def binMRlogL(n, Ic, Is):
 
     N = len(n)
     if Ic<=0 or Is<=0:
-        print('Ic or Is are <= zero. Ic, Is = {:g}, {:g}'.format(Ic,Is))
+        # print('Ic or Is are <= zero. Ic, Is = {:g}, {:g}'.format(Ic,Is))
         lnL = -np.inf
         return lnL, np.zeros(N)
 
