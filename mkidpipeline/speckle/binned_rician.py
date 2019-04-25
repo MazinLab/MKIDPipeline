@@ -257,6 +257,35 @@ def binMR_like(n, Ic, Is):
 
 
 
+def bin_like_array(params, n):
+    """
+    Calculate the log likelihood of lightcurve that has both speckle Ic and Is,
+    as well as planet light Ip.
+
+    This might break if you give it values of Ic Is Ip that are too big. mpmath
+    might give complex answers when calling the mpmath.log(tiny number)
+
+    INPUTS:
+        params - 3 element array [Ic, Is, Ip], cts/bin
+        n - the light curve in counts per bin
+
+    RETURNS:
+        like_array - array of the likelihoods of each element of n. Has the same length as n.
+    """
+
+    # make lookup tables for poisson and binMRlogL
+    Ic, Is, Ip = params
+    lutSize = np.amax(n) + 1
+    mlut = np.exp(binMRlogL(np.arange(lutSize), Ic, Is)[1])
+    plut = poisson.pmf(np.arange(lutSize), Ip)
+
+    lut = np.convolve(mlut, plut)[0:len(mlut)]
+
+    like_array = lut[n]
+
+    return like_array
+
+
 def bin_logL(params, dist):
     """
     Calculate the log likelihood of lightcurve that has both speckle Ic and Is,
