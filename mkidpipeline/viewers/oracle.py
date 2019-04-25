@@ -1284,6 +1284,7 @@ class main_window(QMainWindow):
         filename, _ = QFileDialog.getOpenFileName(self, 'Select One File', def_loc, filter='*.bin')
 
         self.filename = filename
+        self.load_data_from_bin(self.filename)
         self.load_filenames(self.filename)
 
     def load_filenames(self, filename):
