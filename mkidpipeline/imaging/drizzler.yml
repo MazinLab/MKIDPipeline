@@ -21,5 +21,6 @@ drizzler: !configdict
   connexorigin2cor: [52, 18]  # (pix, pix) the vector that transforms the origin of connex frame to the center of rotation frame
   device_orientation: -48  # (deg) the rotation angle that is applied to align the device position angle to the parallactic angle
   output: fits  # list of 1 or more of: fits|photonlist. photonlist is only supported for mode temporal
+  sky_coords: [0, 0]  # (deg, deg) centre of rotation sky coords. If [0,0] then simbad resolved from dither.name during each run
 
 ncpu: 20
