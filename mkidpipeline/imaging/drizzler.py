@@ -62,7 +62,7 @@ log = pipelinelog.create_log('mkidpipeline.imaging.drizzler', console=True, leve
 
 
 
-def dither_pixel_vector(positions, center=(0,0)):
+def dither_pixel_vector(positions, center=(0, 0)):
     """
     A function to convert a list of connex offsets to pixel displacement
 
@@ -142,7 +142,7 @@ class DitherDescription(object):
     """
 
     def __init__(self, dither, ConnexOrigin2COR=None, observatory='Subaru', target=None, cor_coords=(0,0),
-                 use_min_timestep=True, suggested_time_step=1):
+                 use_min_timestep=True, suggested_time_step=.1):
         """
         lookup_coordiantes may get a name error on correct target names leading to spurious results.
         Increasing timeout time to 60s does not fix
@@ -305,7 +305,7 @@ class Drizzler(object):
         """
 
 
-        self.w = wcs.WCS(naxis=2)
+        self.w = wcs.WCS(naxis = 2)
         self.w.wcs.crpix = np.array([self.nPixRA / 2., self.nPixDec / 2.])
         if center_on_star:
             self.w.wcs.crpix += np.array([self.ConnexOrigin2COR[0][0], self.ConnexOrigin2COR[1][0]])
@@ -537,7 +537,6 @@ class SpatialDrizzler(Drizzler):
 
         thisImage, _, _ = np.histogram2d(file['xPhotonPixels'][timespan_ind], file['yPhotonPixels'][timespan_ind],
                                          weights=weights, bins=[self.ypix, self.xpix], normed=False)
-        thisImage = thisImage[:, ::-1]
 
         if applymask:
             log.debug("Applying bad pixel mask")
@@ -685,7 +684,7 @@ class DrizzledData(object):
         self.fits_header = self.wcs.to_header()
         # self.stack_header = self.stacked_wcs.to_header()
 
-    def writefits(self, file, overwrite=True):
+    def writefits(self, file, overwrite=True, save_stack=True):
         if self.data.ndim > 2:
             image = np.sum(self.data[0], axis=(0, 1)) / self.data[1]
             hdul = fits.HDUList([fits.PrimaryHDU(header=drizwcs.to_header()),
@@ -694,10 +693,12 @@ class DrizzledData(object):
         elif self.data.ndim == 2:
             hdul = fits.HDUList([fits.PrimaryHDU(header=self.fits_header),
                                  fits.ImageHDU(data=self.data, header=self.fits_header)])
-            [hdul.append(fits.ImageHDU(data=dithim,
-                                       header=self.stacked_wcs[i].to_header())) for i, dithim in enumerate(self.dumb_stack)]
         else:
             log.warning('{} dimension scidata not accepted. No FITS saved'.format(self.data.ndim))
+
+        if save_stack:
+            [hdul.append(fits.ImageHDU(data=dithim, header=self.stacked_wcs[i].to_header())) for i, dithim in
+             enumerate(self.dumb_stack)]
 
         hdul.writeto(file, overwrite=overwrite)
 
@@ -726,7 +727,7 @@ class DrizzledData(object):
         multiplots = np.where(dim_ind < dims - 2)[0]
 
         if len(multiplots) == 0:
-            ax = fig.add_subplot(111, projection=self.inwcs)
+            ax = fig.add_subplot(111, projection=self.wcs)
             axes = [ax]
             ind = [...]
         else:
@@ -735,7 +736,7 @@ class DrizzledData(object):
             [ntimes, nwaves] = np.array(scidata.shape)[multiplots]
             gs = gridspec.GridSpec(nwaves, ntimes)
             for n in range(ntimes * nwaves):
-                fig.add_subplot(gs[n], projection=self.inwcs)
+                fig.add_subplot(gs[n], projection=self.wcs)
             axes = np.array(fig.axes)  # .reshape(ntimes, nwaves)
             ind = [(t, w) for t in range(ntimes) for w in range(nwaves)]
 
@@ -762,7 +763,7 @@ def form(dither, mode='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=85
     :param timestep:
     :param device_orientation:
     :param mode: 2->image, 3->spectral cube, 4->sequence of spectral cubes. If drizzle==False then mode is ignored
-    :param derotate: 0 or 1
+    :param derotate: False|True|None
     :param ConnexOrigin2COR: None or array/tuple
     :param wvlMin:
     :param wvlMax:
@@ -818,8 +819,10 @@ def form(dither, mode='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=85
         stackedim = tdriz.stackedim
 
     drizzle = DrizzledData(scidata=outsci, outwcs=outwcs, stackedim=stackedim, stacked_wcs=stacked_wcs, dither=dither)
-    drizzle.writefits(file = fitsname)
     drizzle.quick_pretty_plot()
+    drizzle.writefits(file=fitsname)
+
+    return outsci
 
 
 def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0,0), zoom=2.):
@@ -849,10 +852,11 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0,0), zoo
 
     iteration = 0
     while update:
-        fig, ax = plt.subplots()
 
-        image, _ = form(dither=dither, mode='spatial', ConnexOrigin2COR=ConnexOrigin2COR, wvlMin=wvlMin,
+        image = form(dither=dither, mode='spatial', ConnexOrigin2COR=ConnexOrigin2COR, wvlMin=wvlMin,
                         wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=1, derotate=None)
+
+        fig, ax = plt.subplots()
 
         print("Click on the four satellite speckles and the star")
         cax = ax.imshow(image, origin='lower', norm=LogNorm())
@@ -870,7 +874,7 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0,0), zoo
         if xlocs == []:  # if the user doesn't click on the figure don't change connexOrigin2COR's value
             xlocs, ylocs = np.array(image.shape)//2, np.array(image.shape)//2
         star_pix = np.array([np.mean(xlocs), np.mean(ylocs)]).astype(int)
-        ConnexOrigin2COR += (star_pix - np.array(image.shape)//2)[::-1] * np.array([1,-1])
+        ConnexOrigin2COR += (star_pix - np.array(image.shape)//2)[::-1] #* np.array([1,-1])
         log.info('ConnexOrigin2COR: {}'.format(ConnexOrigin2COR))
 
         user_input = input(' *** INPUT REQUIRED *** \nDo you wish to continue looping [Y/n]: \n')
@@ -894,7 +898,7 @@ if __name__ == '__main__':
     parser.add_argument('-wl', type=float, dest='wvlMin', help='minimum wavelength', default=850)
     parser.add_argument('-wh', type=float, dest='wvlMax', help='maximum wavelength', default=1100)
     parser.add_argument('-t0', type=int, dest='startt', help='start time', default=0)
-    parser.add_argument('-it', type=int, dest='intt', help='end time', default=60)
+    parser.add_argument('-it', type=float, dest='intt', help='end time', default=60)
     parser.add_argument('-p', action='store_true', dest='plot', help='Plot the result', default=False)
     parser.add_argument('--get-offset', nargs=2, type=int, dest='gso', help='Runs get_star_offset eg 0 0 ')
     # changed this to bool so that the filename from drizzler_cfg_descr_str(cfg.drizzler) could be used
@@ -925,9 +929,9 @@ if __name__ == '__main__':
     fitsname = '{}_{}.fits'.format(cfg.dither.name, drizzler_cfg_descr_str(cfg.drizzler))
 
     # main function of drizzler
-    scidata, drizwcs = form(dither, mode=cfg.drizzler.mode, ConnexOrigin2COR=ConnexOrigin2COR, wvlMin=wvlMin,
-                          wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac, cor_coords=cor_coords,
-                          device_orientation=device_orientation, derotate=True, fitsname=fitsname)
+    scidata = form(dither, mode=cfg.drizzler.mode, ConnexOrigin2COR=ConnexOrigin2COR, wvlMin=wvlMin,
+                   wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac, cor_coords=cor_coords,
+                   device_orientation=device_orientation, derotate=True, fitsname=fitsname)
 
     if args.gdo:
         if not os.path.exists(fitsname):

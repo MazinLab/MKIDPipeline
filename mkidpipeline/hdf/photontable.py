@@ -528,8 +528,8 @@ class ObsFile(object):
             """
             positions = np.asarray(positions)
             pix = np.asarray(CONEX2PIXEL(positions[0], positions[1])) - np.array(CONEX2PIXEL(*center))
-            pix -= np.asarray(target_center_at_ref).reshape(2)
-            return pix[::-1] * np.array([1, -1])
+            pix += np.asarray(target_center_at_ref).reshape(2)
+            return pix[::-1]
 
         apo = Observer.at_site(observatory)
 
@@ -546,10 +546,6 @@ class ObsFile(object):
             parallactic_angles = apo.parallactic_angle(times, target_coordinates).value  # radians
             corrected_sky_angles = -parallactic_angles - device_orientation
         elif derotate is False:
-            # TODO this is calculating the midtime of each dither not the whole observation
-            # midtime = astropy.time.Time(self.info['startTime']+self.info['expTime']/2, format='unix')
-            # parallactic_angle = apo.parallactic_angle(midtime, target_coordinates).value
-            # corrected_sky_angles = np.ones_like(sample_times) * -(parallactic_angle + device_orientation)
             corrected_sky_angles = np.ones_like(sample_times) * -device_orientation
         else:
             corrected_sky_angles = np.zeros_like(sample_times)
