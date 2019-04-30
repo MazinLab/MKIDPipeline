@@ -80,4 +80,7 @@
     - Astrogrid
     - Faint - J=7.8
     - 1545549968 - 1545551005,  Network error. Lost FL8a,b
-  out: cube
+  out: !out
+    kind: spatial
+    startw: 400 nm
+    stopw: 800 nm

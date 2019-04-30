@@ -293,6 +293,21 @@ class MKIDObservingDataset(object):
         return s
 
 
+class MKIDOutput(object):
+    yaml_tag = '!out'
+
+    def __init__(self, name, kind, startw=None, stopw=None):
+        self.name = name
+        self.startw = getnm(startw) if startw is not None else None
+        self.stopw = getnm(stopw) if stopw is not None else None
+        self.kind = kind
+
+    @classmethod
+    def from_yaml(cls, loader, node):
+        d = mkidcore.config.extract_from_node(loader, ('name', 'kind', 'stopw', 'startw'), node)
+        return cls(d['name'], d['kind'], d.get('startw', None), d.get('stopw', None))
+
+
 def load_data_description(file):
     dataset = MKIDObservingDataset(file)
     wcdict = {w.name: os.path.join(config.paths.database, w.id) for w in dataset.wavecals}
