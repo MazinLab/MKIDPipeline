@@ -87,3 +87,29 @@ def makeimage(data, mode, nwvl=1, wvlRange=(None,None), cfg=None, ncpu=None):
     hdul.writeto('{id}_{mode}.fits'.format(id=id, mode=mode))
 
 
+import mkidpipeline
+
+
+def drizzle(dither, config=None):
+    cfg = mkidpipeline.config.config if config is None else config
+    if 'drizzler' not in cfg:
+        cfg = mkidpipeline.config.load_task_config(pkg.resource_filename(__name__, 'drizzler.yml'))
+
+    # wvlMin = args.wvlMin
+    # wvlMax = args.wvlMax
+    # startt = args.startt
+    # intt = args.intt
+    dither = cfg.dither
+    pixfrac = cfg.drizzler.pixfrac
+    rotation_origin = cfg.drizzler.rotation_origin
+    device_orientation = cfg.drizzler.device_orientation
+    cor_coords = cfg.drizzler.cor_coords
+
+    mode = dither.out.kind
+    # main function of drizzler
+    scidata = form(dither, mode=cfg.drizzler.mode, connexOrigin2COR=cfg.drizzler.rotation_origin,
+                   wvlMin=dither.out.startw, wvlMax=dither.out.stopw,
+                   pixfrac= cfg.drizzler.pixfrac, cor_coords=cfg.drizzler.cor_coords,
+                   device_orientation=device_orientation, derotate=True, fitsname=fitsname)
+
+    scidata.
