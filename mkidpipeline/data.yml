@@ -84,3 +84,4 @@
     kind: spatial
     startw: 400 nm
     stopw: 800 nm
+    derotate: False
