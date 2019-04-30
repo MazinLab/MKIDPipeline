@@ -137,7 +137,7 @@ class DitherDescription(object):
 
     """
 
-    def __init__(self, dither, ConnexOrigin2COR=None, observatory='Subaru', target=None, cor_coords=(0,0),
+    def __init__(self, dither, connexOrigin2COR=None, observatory='Subaru', target=None, cor_coords=(0,0),
                  use_min_timestep=True, suggested_time_step=.1):
         """
         lookup_coordiantes may get a name error on correct target names leading to spurious results.
@@ -146,7 +146,7 @@ class DitherDescription(object):
         Require a target for now
 
         :param dither:
-        :param ConnexOrigin2COR: the vector that transforms the origin of connex frame to the center of rotation frame
+        :param connexOrigin2COR: the vector that transforms the origin of connex frame to the center of rotation frame
         :param observatory:
         :param target:
         :param use_min_timestep:
@@ -168,12 +168,12 @@ class DitherDescription(object):
             log.info('Using coordinated {} in yml'.format(self.coords))
 
         self.starRA, self.starDec = self.coords.ra.deg, self.coords.dec.deg
-        if ConnexOrigin2COR is None:
-            ConnexOrigin2COR = (0, 0)
+        if connexOrigin2COR is None:
+            connexOrigin2COR = (0, 0)
         assert suggested_time_step <= dither.inttime, 'You must have at least a time sample per dither'
 
-        self.ConnexOrigin2COR = np.array([list(ConnexOrigin2COR)]).T  #neccessary hideous reformatting
-        self.dith_pix_offset = dither_pixel_vector(dither.pos) - self.ConnexOrigin2COR  # TODO verify this
+        self.connexOrigin2COR = np.array([list(connexOrigin2COR)]).T  #neccessary hideous reformatting
+        self.dith_pix_offset = dither_pixel_vector(dither.pos) - self.connexOrigin2COR  # TODO verify this
 
         inst_info = dither.obs[0].instrument_info
         self.xpix = inst_info.beammap.ncols
@@ -248,7 +248,7 @@ class Drizzler(object):
         self.starRA = metadata.coords.ra.deg
         self.starDec = metadata.coords.dec.deg
         self.vPlateScale = metadata.platescale
-        self.ConnexOrigin2COR = metadata.ConnexOrigin2COR
+        self.connexOrigin2COR = metadata.connexOrigin2COR
 
         if self.nPixRA is None or self.nPixDec is None:
             dith_cellestial_min = np.zeros((len(photonlists), 2))
@@ -304,7 +304,7 @@ class Drizzler(object):
         self.w = wcs.WCS(naxis = 2)
         self.w.wcs.crpix = np.array([self.nPixRA / 2., self.nPixDec / 2.])
         if center_on_star:
-            self.w.wcs.crpix += np.array([self.ConnexOrigin2COR[0][0], self.ConnexOrigin2COR[1][0]])
+            self.w.wcs.crpix += np.array([self.connexOrigin2COR[0][0], self.connexOrigin2COR[1][0]])
         self.w.wcs.crval = [self.starRA, self.starDec]
         self.w.wcs.ctype = ["RA--TAN", "DEC-TAN"]
         self.w._naxis1 = self.nPixRA
@@ -636,7 +636,7 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
                                   device_orientation=device_orientation,
                                   timestep=ditherdesc.wcs_timestep,
                                   target_coordinates=ditherdesc.coords, observatory='Subaru',
-                                  target_center_at_ref=ditherdesc.ConnexOrigin2COR,
+                                  target_center_at_ref=ditherdesc.connexOrigin2COR,
                                   conex_ref=(0, 0), conex_pos=pos)
 
             del obsfile
@@ -758,7 +758,7 @@ class DrizzledData(object):
             plt.show(block=True)
 
 
-def form(dither, mode='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=850, wvlMax=1100, startt=0, intt=60,
+def form(dither, mode='spatial', derotate=True, connexOrigin2COR=None, wvlMin=850, wvlMax=1100, startt=0, intt=60,
          pixfrac=.5, nwvlbins=1, timestep=1., ntimebins=0, device_orientation=-43, cor_coords=(0, 0), fitsname='fits'):
     """
 
@@ -768,7 +768,7 @@ def form(dither, mode='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=85
     :param device_orientation:
     :param mode: 2->image, 3->spectral cube, 4->sequence of spectral cubes. If drizzle==False then mode is ignored
     :param derotate: False|True|None
-    :param ConnexOrigin2COR: None or array/tuple
+    :param connexOrigin2COR: None or array/tuple
     :param wvlMin:
     :param wvlMax:
     :param startt:
@@ -789,7 +789,7 @@ def form(dither, mode='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=85
     # times but once they've been equated it shouldn't have an effect?
     intt, dither.inttime = [min(intt, dither.inttime)] * 2
 
-    ditherdesc = DitherDescription(dither, target=dither.name, cor_coords=cor_coords, ConnexOrigin2COR=ConnexOrigin2COR)
+    ditherdesc = DitherDescription(dither, target=dither.name, cor_coords=cor_coords, connexOrigin2COR=connexOrigin2COR)
     data = load_data(ditherdesc, wvlMin, wvlMax, startt, intt, derotate=derotate,
                      device_orientation=device_orientation)
 
@@ -833,7 +833,7 @@ def form(dither, mode='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=85
 
 def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0,0), zoom=2.):
     """
-    Get the ConnexOrigin2COR offset parameter for DitherDescription
+    Get the connexOrigin2COR offset parameter for DitherDescription
 
     :param dither:
     :param wvlMin:
@@ -847,7 +847,7 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0,0), zoo
 
     update = True
 
-    ConnexOrigin2COR = start_guess
+    connexOrigin2COR = start_guess
 
     def onclick(event):
         xlocs.append(event.xdata)
@@ -859,7 +859,7 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0,0), zoo
     iteration = 0
     while update:
 
-        drizzle = form(dither=dither, mode='spatial', ConnexOrigin2COR=ConnexOrigin2COR, wvlMin=wvlMin,
+        drizzle = form(dither=dither, mode='spatial', connexOrigin2COR=connexOrigin2COR, wvlMin=wvlMin,
                         wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=1, derotate=None)
 
         image = drizzle.data
@@ -881,8 +881,8 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0,0), zoo
         if xlocs == []:  # if the user doesn't click on the figure don't change connexOrigin2COR's value
             xlocs, ylocs = np.array(image.shape)//2, np.array(image.shape)//2
         star_pix = np.array([np.mean(xlocs), np.mean(ylocs)]).astype(int)
-        ConnexOrigin2COR += (star_pix - np.array(image.shape)//2)[::-1] #* np.array([1,-1])
-        log.info('ConnexOrigin2COR: {}'.format(ConnexOrigin2COR))
+        connexOrigin2COR += (star_pix - np.array(image.shape)//2)[::-1] #* np.array([1,-1])
+        log.info('connexOrigin2COR: {}'.format(connexOrigin2COR))
 
         user_input = input(' *** INPUT REQUIRED *** \nDo you wish to continue looping [Y/n]: \n')
         if user_input == 'n':
@@ -890,9 +890,9 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0,0), zoo
 
         iteration += 1
 
-    log.info('ConnexOrigin2COR: {}'.format(ConnexOrigin2COR))
+    log.info('connexOrigin2COR: {}'.format(connexOrigin2COR))
 
-    return ConnexOrigin2COR
+    return connexOrigin2COR
 
 
 def drizzler_cfg_descr_str(drizzlercfg):
@@ -924,19 +924,17 @@ if __name__ == '__main__':
     intt = args.intt
     pixfrac = cfg.drizzler.pixfrac
     dither = cfg.dither
-    ConnexOrigin2COR = cfg.drizzler.connexorigin2cor
+    rotation_origin = cfg.drizzler.connexorigin2cor
     device_orientation = cfg.drizzler.device_orientation
     cor_coords = cfg.drizzler.cor_coords
 
-    if args.gso:
-        if type(args.gso) is list:
-            ConnexOrigin2COR = np.array(args.gso)
-            ConnexOrigin2COR = get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=ConnexOrigin2COR)
+    if args.gso and type(args.gso) is list:
+        rotation_origin = get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=np.array(args.gso))
 
     fitsname = '{}_{}.fits'.format(cfg.dither.name, drizzler_cfg_descr_str(cfg.drizzler))
 
     # main function of drizzler
-    scidata = form(dither, mode=cfg.drizzler.mode, ConnexOrigin2COR=ConnexOrigin2COR, wvlMin=wvlMin,
+    scidata = form(dither, mode=cfg.drizzler.mode, connexOrigin2COR=rotation_origin, wvlMin=wvlMin,
                    wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac, cor_coords=cor_coords,
                    device_orientation=device_orientation, derotate=True, fitsname=fitsname)
 
@@ -945,6 +943,6 @@ if __name__ == '__main__':
             log.info("Can't find {} Create the fits image "
                                                  "using the default orientation first".format(fitsname))
         else:
-            ditherdesc = DitherDescription(dither, target=dither.name, ConnexOrigin2COR=ConnexOrigin2COR)
+            ditherdesc = DitherDescription(dither, target=dither.name, connexOrigin2COR=rotation_origin)
             get_device_orientation(ditherdesc, fitsname)
 
