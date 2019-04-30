@@ -88,6 +88,8 @@ def makeimage(data, mode, nwvl=1, wvlRange=(None,None), cfg=None, ncpu=None):
 
 
 import mkidpipeline
+import os
+import pkg_resources as pkg
 
 
 def drizzle(dither, config=None):
@@ -95,21 +97,13 @@ def drizzle(dither, config=None):
     if 'drizzler' not in cfg:
         cfg = mkidpipeline.config.load_task_config(pkg.resource_filename(__name__, 'drizzler.yml'))
 
-    # wvlMin = args.wvlMin
-    # wvlMax = args.wvlMax
     # startt = args.startt
     # intt = args.intt
-    dither = cfg.dither
-    pixfrac = cfg.drizzler.pixfrac
-    rotation_origin = cfg.drizzler.rotation_origin
-    device_orientation = cfg.drizzler.device_orientation
-    cor_coords = cfg.drizzler.cor_coords
 
-    mode = dither.out.kind
-    # main function of drizzler
-    scidata = form(dither, mode=cfg.drizzler.mode, connexOrigin2COR=cfg.drizzler.rotation_origin,
-                   wvlMin=dither.out.startw, wvlMax=dither.out.stopw,
-                   pixfrac= cfg.drizzler.pixfrac, cor_coords=cfg.drizzler.cor_coords,
-                   device_orientation=device_orientation, derotate=True, fitsname=fitsname)
+    form = mkidpipeline.imaging.drizzler.form
+    out = form(dither, mode=cfg.drizzler.mode, connexOrigin2COR=cfg.drizzler.rotation_origin,
+               wvlMin=dither.out.startw, wvlMax=dither.out.stopw,
+               pixfrac= cfg.drizzler.pixfrac, cor_coords=cfg.drizzler.cor_coords,
+               device_orientation=cfg.drizzler.device_orientation, derotate=dither.out.derotate)
 
-    scidata.
+    out.writefits(os.path.join(cfg.paths.out, '{name}_{kind}.fits'.format(dither.name, dither.out.kind)))
