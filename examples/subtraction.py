@@ -8,7 +8,7 @@ from astropy.io import fits
 from scipy.ndimage import rotate, zoom
 import argparse
 # from vip_hci import pca
-from mkidpipeline.imaging.drizzler import form, pretty_plot, write_fits
+from mkidpipeline.imaging.drizzler import form
 import mkidpipeline
 import mkidcore.corelog as pipelinelog
 
@@ -135,50 +135,34 @@ def SDI():
 
     """
 
-    matplotlib.use('QT5Agg', force=True)
-    matplotlib.rcParams['backend'] = 'Qt5Agg'
-
     parser = argparse.ArgumentParser(description='Photon Drizzling Utility')
     parser.add_argument('cfg', type=str, help='The configuration file')
-    parser.add_argument('-wl', type=float, dest='wvlMin', help='', default=850)
-    parser.add_argument('-wh', type=float, dest='wvlMax', help='', default=1100)
-    parser.add_argument('-t0', type=int, dest='startt', help='', default=0)
-    parser.add_argument('-it', type=int, dest='intt', help='', default=60)
     args = parser.parse_args()
-
-    # set up logging
-    # mkidpipeline.logtoconsole()
-    log_format = "%(levelname)s : %(message)s"
-    pipelinelog.create_log('mkidpipeline', console=True, fmt=log_format, level="INFO")
-
-    # getLogger('mkidpipeline.hdf.photontable').setLevel('info')
-
-    # load as a task configuration
     cfg = mkidpipeline.config.load_task_config(args.cfg)
 
-    wvlMin = args.wvlMin
-    wvlMax = args.wvlMax
-    startt = args.startt
-    intt = args.intt
-    pixfrac = cfg.drizzler.pixfrac
-    dither = cfg.dither
+    fitsname = 'SDI.fits'
 
     nwvlbins = 5
+    wvlMin = 850
+    wvlMax = 1100
     wsamples = np.linspace(wvlMin, wvlMax, nwvlbins + 1)
     scale_list = wsamples[::-1] * 2. / (wvlMax + wvlMin)
 
-    # Get tesseract of data
-    tess, drizwcs = form(dither, 'temporal', virPixStar=(20, 20), wvlMin=wvlMin, wvlMax=wvlMax,
-                         startt=startt, intt=intt, pixfrac=pixfrac, nwvlbins=nwvlbins)
+    # main function of drizzler
+    drizzle = form(cfg.dither, mode='temporal', ConnexOrigin2COR=cfg.drizzler.connexorigin2cor,
+                   pixfrac=cfg.drizzler.pixfrac, cor_coords=cfg.drizzler.cor_coords, wvlMin=wvlMin, wvlMax=wvlMax,
+                   device_orientation=cfg.drizzler.device_orientation, nwvlbins=nwvlbins, ntimebins=1, derotate=True,
+                   fitsname=fitsname)
 
     # Get median spectral cube
-    mask_tess = np.ma.masked_where(tess == 0, tess)
+    mask_tess = np.ma.masked_where(drizzle.data == 0, drizzle.data)
     medDither = np.ma.median(mask_tess, axis=0).filled(0)
 
-    # Inspect the spectral cube
+    # # Inspect the spectral cube
     for i in range(nwvlbins):
         show = True if i == nwvlbins - 1 else False
-        pretty_plot(medDither[i], drizwcs.wcs.cdelt[0], drizwcs.wcs.crval, vmin=1, vmax=10, show=show)
+        plt.imshow(medDither[i])#, drizwcs.wcs.cdelt[0], drizwcs.wcs.crval, vmin=1, vmax=10, show=show)
+
 
     fits.writeto(cfg.dither.name + '_med.fits', medDither, drizwcs.to_header(), overwrite=True)
 

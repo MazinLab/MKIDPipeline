@@ -13,10 +13,6 @@ TODO
 Add astroplan, drizzle, to setup.py/yml. drizzle need to be pip installed. I found that astroplan needed to be pip
 installed otherwise some astropy import fails
 
-Move plotting functionality to another module?
-
-Go through and remove redundant negative signs
-
 Update TemporalDrizzler to work with DrizzleData
 
 Usage
@@ -187,7 +183,7 @@ class DitherDescription(object):
         self.observatory = observatory
 
         if use_min_timestep:
-            min_timestep = self.calc_min_timesamp()
+            min_timestep = self.calc_min_timesamp(dither.obs)
 
             # sometimes the min timestep can be ~100s of seconds. We need it to be at least shorter
             # than the dith exposure time
@@ -198,14 +194,14 @@ class DitherDescription(object):
         log.debug(
             "Timestep to be used {}".format(self.wcs_timestep))
 
-    def calc_min_timesamp(self, max_pix_disp=1.):
+    def calc_min_timesamp(self, obs, max_pix_disp=1.):
         """
 
         :param max_pix_disp: the resolution element threshold
         :return: min_timestep:
         """
         # get the field rotation rate at the start of each dither
-        dith_start_times = np.array([o.start for o in dither.obs])
+        dith_start_times = np.array([o.start for o in obs])
 
         site = EarthLocation.of_site(self.observatory)
         altaz = self.apo.altaz(astropy.time.Time(val=dith_start_times, format='unix'), self.coords)
@@ -361,13 +357,13 @@ class SpectralDrizzler(Drizzler):
 
 class TemporalDrizzler(Drizzler):
     """
-
     Generate a spatially dithered fits 4D hypercube from a set dithered dataset. The cube size is
     ntimebins * ndithers X nwvlbins X nPixRA X nPixDec.
+
+    timestep or ntimebins argument accepted. ntimebins takes priority
     """
 
-    def __init__(self, photonlists, metadata, pixfrac=1., nwvlbins=2, timestep=0.1,
-                 wvlMin=0, wvlMax=np.inf, startt=0, intt=10):
+    def __init__(self, photonlists, metadata, pixfrac=1., nwvlbins=2, timestep=0.1, ntimebins=1,wvlMin=0, wvlMax=np.inf):
 
         super().__init__(photonlists, metadata)
 
@@ -380,15 +376,21 @@ class TemporalDrizzler(Drizzler):
 
         self.wcs_timestep = metadata.wcs_timestep
         inttime = metadata.description.inttime
-        self.wcs_times = np.arange(0, inttime + 1, self.wcs_timestep) * 1e6
+        self.wcs_times = np.append(np.arange(0, inttime, self.wcs_timestep), inttime) * 1e6
+        # self.wcs_times = np.arange(0, inttime + 1, self.wcs_timestep) * 1e6
 
-        self.ntimebins = int(intt / self.timestep)
-        self.nchunktimebins =self.ntimebins // (len(self.wcs_times) - 1)
-        self.timebins = np.linspace(startt,
-                                    startt + intt,
-                                    self.ntimebins + 1) * 1e6  # timestamps are in microseconds
+        if ntimebins:
+            self.ntimebins = ntimebins
+        else:
+            self.ntimebins = int(inttime / self.timestep)
+        self.nchunktimebins = self.ntimebins // (len(self.wcs_times) - 1)
+        self.timebins = np.linspace(0, inttime, self.ntimebins + 1) * 1e6  # timestamps are in microseconds
         self.totHypCube = None
         self.totWeightCube = None
+
+        self.stackedim = np.zeros((len(metadata.description.obs) * (len(self.wcs_times)-1), nwvlbins,
+                                    metadata.ypix, metadata.xpix))
+        self.stacked_wcs = []
 
     def run(self, save_file=None):
         """
@@ -409,6 +411,8 @@ class TemporalDrizzler(Drizzler):
             for t, inwcs in enumerate(file['obs_wcs_seq']):
                 insci = self.makeTess(file, (self.wcs_times[t], self.wcs_times[t+1]), applymask=False)
 
+                self.stackedim[ix*len(file['obs_wcs_seq']) + t] = insci
+                self.stacked_wcs.append(inwcs)
 
                 for it, iw in np.ndindex(self.nchunktimebins, self.nwvlbins):
                     drizhyper = stdrizzle.Drizzle(outwcs=self.w, pixfrac=self.pixfrac)
@@ -649,7 +653,7 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
         if ndither > 25:
             raise RuntimeError('Needs rewrite, will use too many cores')
 
-        for f, p in zip(filenames[:ndither], dither.pos):
+        for f, p in zip(filenames[:ndither], ditherdesc.description.pos):
             p = mp.Process(target=mp_worker, args=(f, p, data_q))
             jobs.append(p)
             p.daemon = True
@@ -684,10 +688,10 @@ class DrizzledData(object):
         self.fits_header = self.wcs.to_header()
         # self.stack_header = self.stacked_wcs.to_header()
 
-    def writefits(self, file, overwrite=True, save_stack=True):
+    def writefits(self, file, overwrite=True, save_stack=False):
         if self.data.ndim > 2:
             image = np.sum(self.data[0], axis=(0, 1)) / self.data[1]
-            hdul = fits.HDUList([fits.PrimaryHDU(header=drizwcs.to_header()),
+            hdul = fits.HDUList([fits.PrimaryHDU(header=self.fits_header),
                                  fits.ImageHDU(data=self.data[0], header=self.fits_header),
                                  fits.ImageHDU(data=image, header=self.fits_header)])
         elif self.data.ndim == 2:
@@ -755,7 +759,7 @@ class DrizzledData(object):
 
 
 def form(dither, mode='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=850, wvlMax=1100, startt=0, intt=60,
-         pixfrac=.5, nwvlbins=1, timestep=1., device_orientation=-43, cor_coords=(0,0), fitsname='fits'):
+         pixfrac=.5, nwvlbins=1, timestep=1., ntimebins=0, device_orientation=-43, cor_coords=(0, 0), fitsname='fits'):
     """
 
     :param dither:
@@ -774,12 +778,12 @@ def form(dither, mode='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=85
     """
 
     # ensure the user input is shorter than the dither or that wcs are just calculated for the relavant timespan
-    if args.intt > dither.inttime:
+    if intt > dither.inttime:
         # log.warning(f'Reduced the effective integration time from {args.intt}s to {dither.inttime}s')
-        log.warning('Reduced the effective integration time from {}s to {}s'.format(args.intt, dither.inttime))
-    if dither.inttime > args.intt:
+        log.warning('Reduced the effective integration time from {}s to {}s'.format(intt, dither.inttime))
+    if dither.inttime > intt:
         # log.warning(f'Reduced the duration of each dither {dither.inttime}s to {args.intt}s')
-        log.warning('Reduced the duration of each dither from {}s to {}s'.format(dither.inttime, args.intt))
+        log.warning('Reduced the duration of each dither from {}s to {}s'.format(dither.inttime, intt))
 
     # redefining these variables in the middle of the code might not be good practice since form() is run multiple
     # times but once they've been equated it shouldn't have an effect?
@@ -806,7 +810,7 @@ def form(dither, mode='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=85
 
     elif mode == 'temporal':
         tdriz = TemporalDrizzler(data, ditherdesc, pixfrac=pixfrac, nwvlbins=nwvlbins, timestep=timestep,
-                                 wvlMin=wvlMin, wvlMax=wvlMax, startt=startt, intt=intt)
+                                 ntimebins=ntimebins)
         tdriz.run()
         tdriz.header_4d()
         outsci = tdriz.totHypCube
@@ -815,14 +819,16 @@ def form(dither, mode='spatial', derotate=True, ConnexOrigin2COR=None, wvlMin=85
         # TODO: While we can still have a reference-point WCS solution this class needs a drizzled WCS helper as the
         # WCS solution changes with time, right?
 
-        print('Will crash here not implemented yet')
         stackedim = tdriz.stackedim
+        stacked_wcs = tdriz.stacked_wcs
 
     drizzle = DrizzledData(scidata=outsci, outwcs=outwcs, stackedim=stackedim, stacked_wcs=stacked_wcs, dither=dither)
-    drizzle.quick_pretty_plot()
-    drizzle.writefits(file=fitsname)
+    # drizzle.quick_pretty_plot()
 
-    return outsci
+    if fitsname:
+        drizzle.writefits(file=fitsname)
+
+    return drizzle
 
 
 def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0,0), zoom=2.):
@@ -853,9 +859,10 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0,0), zoo
     iteration = 0
     while update:
 
-        image = form(dither=dither, mode='spatial', ConnexOrigin2COR=ConnexOrigin2COR, wvlMin=wvlMin,
+        drizzle = form(dither=dither, mode='spatial', ConnexOrigin2COR=ConnexOrigin2COR, wvlMin=wvlMin,
                         wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=1, derotate=None)
 
+        image = drizzle.data
         fig, ax = plt.subplots()
 
         print("Click on the four satellite speckles and the star")
