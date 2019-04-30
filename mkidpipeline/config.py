@@ -3,9 +3,9 @@ import numpy as np
 import os
 import hashlib
 from datetime import datetime
-import astropy.units
 import multiprocessing as mp
 from mkidcore.corelog import getLogger, create_log
+from mkidcore.utils import getnm
 import pkg_resources as pkg
 from mkidcore.objects import Beammap
 from astropy.coordinates import SkyCoord
@@ -156,11 +156,6 @@ class MKIDWavedataDescription(object):
 
     @property
     def wavelengths(self):
-        def getnm(x):
-            try:
-                return astropy.units.Unit(x).to('nm')
-            except astropy.units.UnitConversionError:
-                return float(x)
         return [getnm(x.name) for x in self.data]
 
     def __str__(self):

@@ -1,4 +1,5 @@
 import sys
+import multiprocessing as mp
 
 if sys.version_info.major==3:
     import mkidpipeline.hdf.bin2hdf as bin2hdf
@@ -6,11 +7,10 @@ if sys.version_info.major==3:
     import mkidpipeline.calibration.flatcal as flatcal
     import mkidpipeline.badpix as badpix
     import mkidpipeline.config as config
-from mkidpipeline.config import configure_pipeline, load_data_description, load_task_config, logtoconsole
-if sys.version_info.major==3:
     import mkidpipeline.hdf.photontable
+
+from mkidpipeline.config import configure_pipeline, load_data_description, load_task_config, logtoconsole
 from mkidcore.config import getLogger
-import multiprocessing as mp
 
 
 def wavecal_apply(o):
