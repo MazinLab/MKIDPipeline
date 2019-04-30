@@ -149,7 +149,7 @@ def SDI():
     scale_list = wsamples[::-1] * 2. / (wvlMax + wvlMin)
 
     # main function of drizzler
-    drizzle = form(cfg.dither, mode='temporal', ConnexOrigin2COR=cfg.drizzler.connexorigin2cor,
+    drizzle = form(cfg.dither, mode='temporal', connexOrigin2COR=cfg.drizzler.connexorigin2cor,
                    pixfrac=cfg.drizzler.pixfrac, cor_coords=cfg.drizzler.cor_coords, wvlMin=wvlMin, wvlMax=wvlMax,
                    device_orientation=cfg.drizzler.device_orientation, nwvlbins=nwvlbins, ntimebins=1, derotate=True,
                    fitsname=fitsname)
