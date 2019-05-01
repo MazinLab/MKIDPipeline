@@ -149,39 +149,42 @@ def SDI():
     scale_list = wsamples[::-1] * 2. / (wvlMax + wvlMin)
 
     # main function of drizzler
-    drizzle = form(cfg.dither, mode='temporal', connexOrigin2COR=cfg.drizzler.connexorigin2cor,
-                   pixfrac=cfg.drizzler.pixfrac, cor_coords=cfg.drizzler.cor_coords, wvlMin=wvlMin, wvlMax=wvlMax,
+    drizzle = form(cfg.dither, mode='temporal', rotation_center=cfg.drizzler.rotation_center,
+                   pixfrac=cfg.drizzler.pixfrac, target_radec=cfg.drizzler.target_radec, wvlMin=wvlMin, wvlMax=wvlMax,
                    device_orientation=cfg.drizzler.device_orientation, nwvlbins=nwvlbins, ntimebins=1, derotate=True,
                    fitsname=fitsname)
 
-    # Get median spectral cube
-    mask_tess = np.ma.masked_where(drizzle.data == 0, drizzle.data)
-    medDither = np.ma.median(mask_tess, axis=0).filled(0)
-
-    # # Inspect the spectral cube
-    for i in range(nwvlbins):
-        show = True if i == nwvlbins - 1 else False
-        plt.imshow(medDither[i])#, drizwcs.wcs.cdelt[0], drizwcs.wcs.crval, vmin=1, vmax=10, show=show)
-
-
-    fits.writeto(cfg.dither.name + '_med.fits', medDither, drizwcs.to_header(), overwrite=True)
-
-    # Using PCA doesn't appear to work well
-    # SDI = pca.pca(medDither, angle_list=np.zeros((medDither.shape[0])), scale_list=scale_list)
-
-    # Do it manually
-    scale_cube = np.zeros_like(medDither)
-    for i in range(nwvlbins):
-        scale_cube[i] = clipped_zoom(medDither[i], scale_list[i])
-        show = True if i == nwvlbins - 1 else False
-        pretty_plot(scale_cube[i], drizwcs.wcs.cdelt[0], drizwcs.wcs.crval, vmin=1, vmax=10, show=show)
-
-    ref = np.median(scale_cube, axis=0)
-    SDI = medDither - ref
-
-    pretty_plot(SDI, drizwcs.wcs.cdelt[0], drizwcs.wcs.crval, vmin=1, vmax=10)
-
-    fits.writeto(cfg.dither.name + '_SDI.fits', SDI, drizwcs.to_header(), overwrite=True)
+    # the remaining code takes the 4D cube (time dimension is length 1) removes most hotpix and SDI collapses.
+    # Needs to be verified
+    raise NotImplementedError
+    # # Get median spectral cube
+    # mask_tess = np.ma.masked_where(drizzle.data == 0, drizzle.data)
+    # medDither = np.ma.median(mask_tess, axis=0).filled(0)
+    #
+    # # # Inspect the spectral cube
+    # for i in range(nwvlbins):
+    #     show = True if i == nwvlbins - 1 else False
+    #     plt.imshow(medDither[i])#, drizwcs.wcs.cdelt[0], drizwcs.wcs.crval, vmin=1, vmax=10, show=show)
+    #
+    #
+    # fits.writeto(cfg.dither.name + '_med.fits', medDither, drizwcs.to_header(), overwrite=True)
+    #
+    # # Using PCA doesn't appear to work well
+    # # SDI = pca.pca(medDither, angle_list=np.zeros((medDither.shape[0])), scale_list=scale_list)
+    #
+    # # Do it manually
+    # scale_cube = np.zeros_like(medDither)
+    # for i in range(nwvlbins):
+    #     scale_cube[i] = clipped_zoom(medDither[i], scale_list[i])
+    #     show = True if i == nwvlbins - 1 else False
+    #     pretty_plot(scale_cube[i], drizwcs.wcs.cdelt[0], drizwcs.wcs.crval, vmin=1, vmax=10, show=show)
+    #
+    # ref = np.median(scale_cube, axis=0)
+    # SDI = medDither - ref
+    #
+    # pretty_plot(SDI, drizwcs.wcs.cdelt[0], drizwcs.wcs.crval, vmin=1, vmax=10)
+    #
+    # fits.writeto(cfg.dither.name + '_SDI.fits', SDI, drizwcs.to_header(), overwrite=True)
 
 
 if __name__ == '__main__':
