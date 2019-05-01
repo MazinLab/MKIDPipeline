@@ -101,9 +101,9 @@ def drizzle(dither, config=None):
     # intt = args.intt
 
     form = mkidpipeline.imaging.drizzler.form
-    out = form(dither, mode=cfg.drizzler.mode, connexOrigin2COR=cfg.drizzler.rotation_origin,
+    out = form(dither, mode=cfg.drizzler.mode, rotation_center=cfg.drizzler.rotation_origin,
                wvlMin=dither.out.startw, wvlMax=dither.out.stopw,
-               pixfrac= cfg.drizzler.pixfrac, cor_coords=cfg.drizzler.cor_coords,
+               pixfrac= cfg.drizzler.pixfrac, target_radec=cfg.drizzler.target_radec,
                device_orientation=cfg.drizzler.device_orientation, derotate=dither.out.derotate)
 
     out.writefits(os.path.join(cfg.paths.out, '{name}_{kind}.fits'.format(dither.name, dither.out.kind)))
