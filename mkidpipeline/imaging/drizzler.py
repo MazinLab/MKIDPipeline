@@ -187,7 +187,8 @@ class DitherDescription(object):
 
             # sometimes the min timestep can be ~100s of seconds. We need it to be at least shorter
             # than the dith exposure time
-            self.wcs_timestep = min(dither.inttime, min_timestep)
+            # self.wcs_timestep = min(dither.inttime, min_timestep)
+            self.wcs_timestep = min_timestep
         else:
             self.wcs_timestep = suggested_time_step
 
@@ -385,9 +386,9 @@ class TemporalDrizzler(Drizzler):
         self.wvlbins = np.linspace(wvlMin, wvlMax, self.nwvlbins + 1)
 
         self.wcs_timestep = metadata.wcs_timestep
+
         inttime = metadata.description.inttime
         self.wcs_times = np.append(np.arange(0, inttime, self.wcs_timestep), inttime) * 1e6
-        # self.wcs_times = np.arange(0, inttime + 1, self.wcs_timestep) * 1e6
 
         if ntimebins:
             self.ntimebins = ntimebins
@@ -398,8 +399,7 @@ class TemporalDrizzler(Drizzler):
         self.totHypCube = None
         self.totWeightCube = None
 
-        self.stackedim = np.zeros((len(metadata.description.obs) * (len(self.wcs_times)-1), nwvlbins,
-                                    metadata.ypix, metadata.xpix))
+        self.stackedim = []
         self.stacked_wcs = []
 
     def run(self, save_file=None):
@@ -418,20 +418,23 @@ class TemporalDrizzler(Drizzler):
 
             thishyper = np.zeros((self.ntimebins, self.nwvlbins, self.nPixDec, self.nPixRA), dtype=np.float32)
 
+            it = 0
             for t, inwcs in enumerate(file['obs_wcs_seq']):
                 # set this here since _naxis1,2 are reinitialised during pickle
                 inwcs._naxis1, inwcs._naxis2 = inwcs.naxis1, inwcs.naxis2
 
                 insci = self.makeTess(file, (self.wcs_times[t], self.wcs_times[t+1]), applymask=False)
 
-                self.stackedim[ix*len(file['obs_wcs_seq']) + t] = insci
+                self.stackedim.append(insci)
                 self.stacked_wcs.append(inwcs)
 
-                for it, iw in np.ndindex(self.nchunktimebins, self.nwvlbins):
+                for ia, iw in np.ndindex(len(insci), self.nwvlbins):
                     drizhyper = stdrizzle.Drizzle(outwcs=self.w, pixfrac=self.pixfrac)
-                    drizhyper.add_image(insci[it, iw], inwcs, inwht=np.int_(np.logical_not(insci[it, iw] == 0)))
-                    thishyper[it + t*self.nchunktimebins, iw] = drizhyper.outsci
-                    self.totWeightCube[it + t*self.nchunktimebins, iw] += thishyper[it + t*self.nchunktimebins, iw] != 0
+                    drizhyper.add_image(insci[ia, iw], inwcs, inwht=np.int_(np.logical_not(insci[ia, iw] == 0)))
+                    thishyper[it, iw] = drizhyper.outsci
+                    self.totWeightCube[it, iw] += thishyper[it, iw] != 0
+
+                    if iw == self.nwvlbins-1: it += 1
 
             self.totHypCube[ix * self.ntimebins: (ix + 1) * self.ntimebins] = thishyper
 
@@ -458,10 +461,11 @@ class TemporalDrizzler(Drizzler):
                             file['wavelengths'][timespan_ind],
                             file['xPhotonPixels'][timespan_ind],
                             file['yPhotonPixels'][timespan_ind]))
-        bins = np.array([self.timebins, self.wvlbins, self.ypix, self.xpix])
-        hypercube, _ = np.histogramdd(sample.T, bins, weights=weights, )
 
-        # hypercube = hypercube[:, :, :, ::-1]
+        timebins = self.timebins[np.logical_and(self.timebins >= timespan[0], self.timebins <= timespan[1])]
+
+        bins = np.array([timebins, self.wvlbins, self.ypix, self.xpix])
+        hypercube, _ = np.histogramdd(sample.T, bins, weights=weights, )
 
         if applymask:
             log.debug("Applying bad pixel mask")
@@ -603,8 +607,6 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
     Load the photons either by querying the obsfiles in parrallel or loading from pkl if it exists. The wcs
     solutions are added to this photon data dictionary but will likely be integrated into photontable.py directly
 
-    TODO intergrate get_wcs into photontable
-
     :param ditherdesc:
     :param wvlMin:
     :param wvlMax:
@@ -645,12 +647,15 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
 
             x, y = obsfile.xy(photons)
 
+            # ob.get_wcs returns wcs solutions for after intt, so just pass then remove post facto
             wcs = obsfile.get_wcs(platescale=ditherdesc.platescale, derotate=derotate,
                                   device_orientation=device_orientation,
                                   timestep=ditherdesc.wcs_timestep,
                                   target_coordinates=ditherdesc.coords, observatory='Subaru',
                                   target_center_at_ref=ditherdesc.rotation_center,
                                   conex_ref=(0, 0), conex_pos=pos)
+            nwcs = intt // ditherdesc.wcs_timestep
+            wcs = wcs[:int(nwcs)+1]
 
             del obsfile
 
@@ -962,4 +967,3 @@ if __name__ == '__main__':
         else:
             ditherdesc = DitherDescription(dither, target=dither.name, rotation_center=rotation_origin)
             get_device_orientation(ditherdesc, fitsname)
-

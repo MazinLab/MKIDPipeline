@@ -537,7 +537,7 @@ class ObsFile(object):
             timestep = self.info['expTime']
 
         # sample_times upper boundary is limited to the user defined end time
-        sample_times = np.arange(self.info['startTime'], self.info['startTime']+timestep, timestep)
+        sample_times = np.arange(self.info['startTime'], self.info['startTime']+self.info['expTime'], timestep)
         getLogger(__name__).debug("sample_times: %s", sample_times)
 
         device_orientation = np.deg2rad(device_orientation)
