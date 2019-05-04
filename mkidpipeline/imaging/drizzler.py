@@ -138,7 +138,7 @@ class DitherDescription(object):
     """
 
     def __init__(self, dither, rotation_center=None, observatory='Subaru', target=None, target_radec=(0,0),
-                 use_min_timestep=True, suggested_time_step=.1):
+                 use_min_timestep=True, suggested_time_step=1):
         """
         lookup_coordiantes may get a name error on correct target names leading to spurious results.
         Increasing timeout time to 60s does not fix
@@ -158,7 +158,7 @@ class DitherDescription(object):
         if target_radec == (0, 0):
             if target:
                 # for i in range(attempts):
-                self.coords = dither.obs[0].lookup_coodinates(queryname=target)
+                self.coords = dither.obs[0].lookup_coordinates(queryname=target)
             else:
                 pipelinelog.getLogger(__name__).warning('Unable to resolve coordinates for target name {target}, using (0,0).')
                 self.coords = SkyCoord(0*u.deg, 0*u.deg)
@@ -224,6 +224,102 @@ class DitherDescription(object):
         log.debug("Minimum required time step calculated to be {}".format(min_timestep))
 
         return min_timestep
+
+
+def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{}.pkl',
+              tempdir='', usecache=True, clearcache=False, derotate=True, device_orientation=-43):
+    """
+    Load the photons either by querying the obsfiles in parrallel or loading from pkl if it exists. The wcs
+    solutions are added to this photon data dictionary but will likely be integrated into photontable.py directly
+
+    :param ditherdesc:
+    :param wvlMin:
+    :param wvlMax:
+    :param startt:
+    :param intt:
+    :param tempfile:
+    :param tempdir:
+    :param usecache:
+    :param clearcache:
+    :param derotate:
+    :param device_orientation:
+    :return:
+    """
+    ndither = len(ditherdesc.description.obs)
+
+    pkl_save = os.path.join(tempdir, tempfile.format(ditherdesc.target))
+    if clearcache:  # TODO the cache must be autocleared if the query parameters would alter the contents
+        os.remove(pkl_save)
+    try:
+        if not usecache:
+            raise FileNotFoundError
+        with open(pkl_save, 'rb') as f:
+            data = pickle.load(f)
+            log.info('loaded {}'.format(pkl_save))
+    except FileNotFoundError:
+        begin = time.time()
+        filenames = [o.h5 for o in ditherdesc.description.obs]
+        if not filenames:
+            log.info('No obsfiles found')
+
+        def mp_worker(file, pos, q, startt=startt, intt=intt, startw=wvlMin, stopw=wvlMax):
+            obsfile = ObsFile(file)
+            usableMask = np.array(obsfile.beamFlagImage) == pixelflags.GOODPIXEL
+
+            photons = obsfile.query(startw=startw, stopw=stopw, startt=startt, intt=intt)
+            weights = photons['SpecWeight'] * photons['NoiseWeight']
+            log.info("Fetched {} photons from {}".format(len(photons), file))
+
+            x, y = obsfile.xy(photons)
+
+            # ob.get_wcs returns all wcs solutions (including those after intt), so just pass then remove post facto
+            # TODO consider passing intt to obsfile.get_wcs()
+            wcs = obsfile.get_wcs(platescale=ditherdesc.platescale, derotate=derotate,
+                                  device_orientation=device_orientation,
+                                  timestep=ditherdesc.wcs_timestep,
+                                  target_coordinates=ditherdesc.coords, observatory='Subaru',
+                                  target_center_at_ref=ditherdesc.rotation_center,
+                                  conex_ref=(0, 0), conex_pos=pos)
+            nwcs = int(np.ceil(intt/ditherdesc.wcs_timestep))
+            wcs = wcs[:nwcs]
+            del obsfile
+
+            q.put({'file': file, 'timestamps': photons["Time"], 'xPhotonPixels': x, 'yPhotonPixels': y,
+                   'wavelengths': photons["Wavelength"], 'weight': weights, 'usablemask': usableMask,
+                   'obs_wcs_seq': wcs})
+
+        log.info('stacking number of dithers: %i'.format(ndither))
+
+        jobs = []
+        data_q = mp.Queue()
+
+        if ndither > 25:
+            raise RuntimeError('Needs rewrite, will use too many cores')
+
+        for f, p in zip(filenames[:ndither], ditherdesc.description.pos):
+            p = mp.Process(target=mp_worker, args=(f, p, data_q))
+            jobs.append(p)
+            p.daemon = True
+            p.start()
+
+        data = []
+        for t in range(ndither):
+            data.append(data_q.get())
+
+        # Wait for all of the processes to finish fetching their data, this should hang until all the data has been
+        # fetched
+        for j in jobs:
+            j.join()
+
+        data.sort(key=lambda k: filenames.index(k['file']))
+
+        log.debug('Time spent: %f' % (time.time() - begin))
+
+        with open(pkl_save, 'wb') as handle:
+            pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+    return data
+
 
 
 class Drizzler(object):
@@ -360,10 +456,61 @@ class ListDrizzler(Drizzler):
     """
     Drizzle individual photons onto the celestial grid
     """
-    def __init__(self, photonlists, metadata, pixfrac=1., nwvlbins=2, timestep=0.1, ntimebins=1,
-                 wvlMin=0, wvlMax=np.inf):
 
-        super().__init__(photonlists, metadata)
+    def __init__(self, photonlists, metadata, pixfrac=1.):
+        Drizzler.__init__(self, photonlists, metadata)
+        self.wcs_timestep = metadata.wcs_timestep
+        inttime = metadata.description.inttime
+
+        # if inttime is say 100 and wcs_timestep is say 60 then this yeilds [0,60,100]
+        # meaning the positions don't have constant integration time
+        self.wcs_times = np.append(np.arange(0, inttime, self.wcs_timestep), inttime) * 1e6
+
+
+    def run(self, save_file=None, pixfrac=1.):
+        for ix, file in enumerate(self.files):
+            log.debug('Processing %s', file)
+
+            tic = time.clock()
+            # driz = stdrizzle.Drizzle(outwcs=self.w, pixfrac=pixfrac)
+            for t, inwcs in enumerate(file['obs_wcs_seq']):
+                # set this here since _naxis1,2 are reinitialised during pickle
+                inwcs._naxis1, inwcs._naxis2 = inwcs.naxis1, inwcs.naxis2
+
+                inds = [(yp, xp) for yp, xp in np.ndindex(self.ypix, self.xpix)]
+                allpix2world = []
+                for i in range(self.xpix*self.ypix):
+                    insci = np.ones((self.ypix, self.xpix))
+
+                    driz = stdrizzle.Drizzle(outwcs=self.w, pixfrac=pixfrac)
+                    inwht = np.zeros((self.ypix, self.xpix))
+                    # print(inds[i])
+                    inwht[inds[i]] = 1
+                    driz.add_image(insci, inwcs, inwht=inwht)
+                    sky_inds = np.where(driz.outsci == 1)
+                    # print(sky_inds, np.shape(sky_inds), len(sky_inds), sky_inds is [], sky_inds == [])
+                    if np.shape(sky_inds)[1] == 0:
+                        pix2world = [[], []]
+                    else:
+                        pix2world = inwcs.all_pix2world(sky_inds[1], sky_inds[0], 1)
+                    # print(allpix2world)
+                    allpix2world.append(pix2world)
+
+                    # plt.imshow(driz.outsci)
+                    # plt.show(block=True)
+
+                radecs = []
+                for i, (xp, yp) in enumerate(zip(file['xPhotonPixels'], file['yPhotonPixels'])):
+                    ind = xp + yp * self.xpix
+                    # print(xp, yp, ind, )
+                    # print(allpix2world[ind])
+                    radecs.append(allpix2world[ind])
+
+                file['radecs'] = radecs  # list of [npix, npix]
+
+            log.debug('Image load done. Time taken (s): %s', time.clock() - tic)
+
+
 
 class TemporalDrizzler(Drizzler):
     """
@@ -394,7 +541,10 @@ class TemporalDrizzler(Drizzler):
             self.ntimebins = ntimebins
         else:
             self.ntimebins = int(inttime / self.timestep)
-        self.nchunktimebins = self.ntimebins // (len(self.wcs_times) - 1)
+        if self.ntimebins < len(self.files[0]['obs_wcs_seq']):
+            log.warning('Increasing the number of time bins beyond the user request')
+            self.ntimebins = len(self.files[0]['obs_wcs_seq'])
+
         self.timebins = np.linspace(0, inttime, self.ntimebins + 1) * 1e6  # timestamps are in microseconds
         self.totHypCube = None
         self.totWeightCube = None
@@ -517,7 +667,6 @@ class SpatialDrizzler(Drizzler):
 
         # if inttime is say 100 and wcs_timestep is say 60 then this yeilds [0,60,100]
         # meaning the positions don't have constant integration time
-        # TODO verify this with different effective integration times
         self.wcs_times = np.append(np.arange(0, inttime, self.wcs_timestep), inttime) * 1e6
 
         self.stackedim = np.zeros((len(metadata.description.obs) * (len(self.wcs_times)-1),
@@ -601,101 +750,6 @@ class SpatialDrizzler(Drizzler):
             plt.show(block=True)
 
 
-def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{}.pkl',
-              tempdir='', usecache=True, clearcache=False, derotate=True, device_orientation=-43):
-    """
-    Load the photons either by querying the obsfiles in parrallel or loading from pkl if it exists. The wcs
-    solutions are added to this photon data dictionary but will likely be integrated into photontable.py directly
-
-    :param ditherdesc:
-    :param wvlMin:
-    :param wvlMax:
-    :param startt:
-    :param intt:
-    :param tempfile:
-    :param tempdir:
-    :param usecache:
-    :param clearcache:
-    :param derotate:
-    :param device_orientation:
-    :return:
-    """
-    ndither = len(ditherdesc.description.obs)
-
-    pkl_save = os.path.join(tempdir, tempfile.format(ditherdesc.target))
-    if clearcache:  # TODO the cache must be autocleared if the query parameters would alter the contents
-        os.remove(pkl_save)
-    try:
-        if not usecache:
-            raise FileNotFoundError
-        with open(pkl_save, 'rb') as f:
-            data = pickle.load(f)
-            log.info('loaded {}'.format(pkl_save))
-    except FileNotFoundError:
-        begin = time.time()
-        filenames = [o.h5 for o in ditherdesc.description.obs]
-        if not filenames:
-            log.info('No obsfiles found')
-
-        def mp_worker(file, pos, q, startt=startt, intt=intt, startw=wvlMin, stopw=wvlMax):
-            obsfile = ObsFile(file)
-            usableMask = np.array(obsfile.beamFlagImage) == pixelflags.GOODPIXEL
-
-            photons = obsfile.query(startw=startw, stopw=stopw, startt=startt, intt=intt)
-            weights = photons['SpecWeight'] * photons['NoiseWeight']
-            log.info("Fetched {} photons from {}".format(len(photons), file))
-
-            x, y = obsfile.xy(photons)
-
-            # ob.get_wcs returns wcs solutions for after intt, so just pass then remove post facto
-            wcs = obsfile.get_wcs(platescale=ditherdesc.platescale, derotate=derotate,
-                                  device_orientation=device_orientation,
-                                  timestep=ditherdesc.wcs_timestep,
-                                  target_coordinates=ditherdesc.coords, observatory='Subaru',
-                                  target_center_at_ref=ditherdesc.rotation_center,
-                                  conex_ref=(0, 0), conex_pos=pos)
-            nwcs = intt // ditherdesc.wcs_timestep
-            wcs = wcs[:int(nwcs)+1]
-
-            del obsfile
-
-            q.put({'file': file, 'timestamps': photons["Time"], 'xPhotonPixels': x, 'yPhotonPixels': y,
-                   'wavelengths': photons["Wavelength"], 'weight': weights, 'usablemask': usableMask,
-                   'obs_wcs_seq': wcs})
-
-        log.info('stacking number of dithers: %i'.format(ndither))
-
-        jobs = []
-        data_q = mp.Queue()
-
-        if ndither > 25:
-            raise RuntimeError('Needs rewrite, will use too many cores')
-
-        for f, p in zip(filenames[:ndither], ditherdesc.description.pos):
-            p = mp.Process(target=mp_worker, args=(f, p, data_q))
-            jobs.append(p)
-            p.daemon = True
-            p.start()
-
-        data = []
-        for t in range(ndither):
-            data.append(data_q.get())
-
-        # Wait for all of the processes to finish fetching their data, this should hang until all the data has been
-        # fetched
-        for j in jobs:
-            j.join()
-
-        data.sort(key=lambda k: filenames.index(k['file']))
-
-        log.debug('Time spent: %f' % (time.time() - begin))
-
-        with open(pkl_save, 'wb') as handle:
-            pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
-    return data
-
-
 class DrizzledData(object):
     def __init__(self, scidata, outwcs, stackedim, stacked_wcs, dither, image_weights=None):
         self.dither = dither
@@ -775,7 +829,8 @@ class DrizzledData(object):
 
 
 def form(dither, mode='spatial', derotate=True, rotation_center=None, wvlMin=850, wvlMax=1100, startt=0, intt=60,
-         pixfrac=.5, nwvlbins=1, timestep=1., ntimebins=0, device_orientation=-43, target_radec=(0, 0), fitsname='fits'):
+         pixfrac=.5, nwvlbins=1, timestep=1., ntimebins=0, device_orientation=-43, target_radec=(0, 0), fitsname='fits',
+         usecache=True, quickplot=False):
     """
 
     :param dither:
@@ -806,7 +861,7 @@ def form(dither, mode='spatial', derotate=True, rotation_center=None, wvlMin=850
     intt, dither.inttime = [min(intt, dither.inttime)] * 2
 
     ditherdesc = DitherDescription(dither, target=dither.name, target_radec=target_radec, rotation_center=rotation_center)
-    data = load_data(ditherdesc, wvlMin, wvlMax, startt, intt, derotate=derotate,
+    data = load_data(ditherdesc, wvlMin, wvlMax, startt, intt, derotate=derotate, usecache=usecache,
                      device_orientation=device_orientation)
 
     if mode not in ['stack', 'spatial', 'spectral', 'temporal', 'list']:
@@ -819,10 +874,15 @@ def form(dither, mode='spatial', derotate=True, rotation_center=None, wvlMin=850
         outwcs = driz.w
         stackedim = driz.stackedim
         stacked_wcs = driz.stacked_wcs
+        # TODO verify
+        # image_weights = driz.outwht
         image_weights = None
 
     elif mode == 'spectral':
-        # TODO implement, is this even necessary. On hold till interface specification and dataproduct definition
+        # sdriz = TemporalDrizzler(data, ditherdesc, pixfrac=pixfrac, nwvlbins=nwvlbins, timestep=intt, wvlMin=wvlMin,
+        #                          wvlMax=wvlMax)
+        # outsci = np.sum(sdriz.totHypCube, axis=0) / sdriz.totWeightCube.sum(axis=0)[0]
+        # outwcs = sdriz.w
         raise NotImplementedError
 
     elif mode == 'temporal':
@@ -840,12 +900,15 @@ def form(dither, mode='spatial', derotate=True, rotation_center=None, wvlMin=850
         stacked_wcs = tdriz.stacked_wcs
 
     elif mode == 'list':
-        ldriz = ListDrizzler(data, ditherdesc, pixfrac=pixfrac, nwvlbins=nwvlbins, timestep=timestep,
-                                ntimebins=ntimebins)
+        ldriz = ListDrizzler(data, ditherdesc, pixfrac=pixfrac)
+        ldriz.run()
+        outsci = ldriz.files
 
     drizzle = DrizzledData(scidata=outsci, outwcs=outwcs, stackedim=stackedim, stacked_wcs=stacked_wcs, dither=dither,
                            image_weights=image_weights)
-    # drizzle.quick_pretty_plot()
+
+    if quickplot:
+        drizzle.quick_pretty_plot()
 
     if fitsname:
         drizzle.writefits(file=fitsname + '.fits')
@@ -882,7 +945,7 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0,0), zoo
     while update:
 
         drizzle = form(dither=dither, mode='spatial', rotation_center=rotation_center, wvlMin=wvlMin,
-                        wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=1, derotate=None)
+                        wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=1, derotate=None, usecache=False)
 
         image = drizzle.data
         fig, ax = plt.subplots()
