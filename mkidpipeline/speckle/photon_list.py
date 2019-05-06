@@ -31,7 +31,124 @@ from scipy import optimize, integrate
 import pickle
 
 
+
+def gettprfpr(Ip_list, Ip_star_list):
+
+    lp=len(Ip_list)
+    lps=len(Ip_star_list)
+    p_inds = np.argsort(np.append(Ip_list, Ip_star_list))
+
+    tpr = 1. - 1.*np.cumsum(np.append(np.ones(lp), np.zeros(lps))[p_inds])/lp
+    fpr = 1. - 1.*np.cumsum(np.append(np.zeros(lp), np.ones(lps))[p_inds])/lps
+
+    return np.append(1.,tpr), np.append(1.,fpr)
+
+def makeRoc(Ip_lists, Ip_star_lists):
+
+    fig = plt.figure()
+    ax=fig.gca()
+
+    for i in range(len(Ip_lists)):
+        Ip_list = Ip_lists[i]
+        lp=len(Ip_list)
+        Ip_star_list=Ip_star_lists[i]
+        lps=len(Ip_star_list)
+        fig2=plt.figure()
+        ax2=fig2.gca()
+        ax2.hist(Ip_list,int(len(Ip_list)/20.), histtype='step')
+        ax2.hist(Ip_star_list,int(len(Ip_star_list)/20.),histtype='step')
+
+        tpr=[0.]
+        fpr=[0.]
+        for i, p in enumerate(np.sort(Ip_list)):
+            fpr_i = np.sum(Ip_star_list<p)/lps
+            if fpr[-1]!=fpr_i:
+                tpr.append(1.*i/lp)
+                fpr.append(fpr_i)
+            if fpr[-1]==1.: break
+        if fpr[-1]!=1.:
+            tpr.append(1.)
+            fpr.append(1.)
+
+        tpr=1.-np.asarray(tpr)
+        fpr=1.-np.asarray(fpr)
+        ax.plot(fpr, tpr, '.-')
+
+    ax.axvline(x=1./(140*146))
+    plt.show()
+
+
 def _worker(arg_list):
+    t=time.time()
+    Ic = arg_list['Ic']
+    Is = arg_list['Is']
+    Ip = arg_list['Ip']
+    Ttot = arg_list['Ttot']
+    tau = arg_list['tau']
+    deadtime = arg_list['deadtime']
+    prior=arg_list['prior']
+    prior_sig=arg_list['prior_sig']
+    #binning = arg_list['binning']
+    saveLoc = arg_list['saveLoc']
+    m=mock_photonlist(Ic, Is, Ip, Ttot, tau,deadtime)
+
+    res = binfree.optimize_IcIsIr2(m.dt, m.p_seed, deadtime, prior=prior, prior_sig=prior_sig)
+    seed = np.copy(m.p_seed)
+    seed[2]=10.
+    res_star = binfree.optimize_IcIsIr2(m.dt_star, seed, deadtime, prior=prior, prior_sig=prior_sig)
+
+    if res.success and res_star.success:
+        m.p_opt = {-1:res.x}
+        m.p_opt_star = {-1:res_star.x}
+        m.save(saveLoc)
+        return [res.x, res_star.x]
+
+    return [np.asarray([np.nan]*3), np.asarray([np.nan]*3)]
+
+
+def collectDataForPaper():
+    Ic = [30., 300.]
+    Is = [30., 300.]
+    #Ip = [30., 100., 300.]
+    Ip=[60.]
+    Ttot=30.
+    tau=0.1
+    deadtime=10.e-6
+    numPhotonlists=100000
+    saveLoc = '/home/data/SSD/optimize/'
+
+    arg_dicts = []
+    for c in Ic:
+        for s in Is:
+            if c==300. and s==300.:
+                for p in [0., 45., 75., 100.]:
+                    print('Ic, Is, Ip = {}, {}, {}'.format(c,s,p))
+                    arg_dicts.append({'Ic':c, 'Is':s, 'Ip':p, 'Ttot':Ttot, 'tau':tau, 'deadtime':deadtime, 'saveLoc':saveLoc, 'prior':None, 'prior_sig':None})
+            else:
+                for p in Ip:
+                    print('Ic, Is, Ip = {}, {}, {}'.format(c,s,p))
+                    arg_dicts.append({'Ic':c, 'Is':s, 'Ip':p, 'Ttot':Ttot, 'tau':tau, 'deadtime':deadtime, 'saveLoc':saveLoc, 'prior':None, 'prior_sig':None})
+
+    print(len(arg_dicts))
+    arg_dicts = np.tile(arg_dicts, numPhotonlists)
+
+    nProc = multiprocessing.cpu_count()-2
+    #nProc = 24
+    pool = multiprocessing.Pool(processes=nProc)
+    data = pool.map(_worker, arg_dicts)
+    pool.close()
+    pool.join()
+
+    #data = np.asarray(data)
+    #makeRoc([data[:,0,2][np.isfinite(data[:,0,2])]], [data[:,1,2][np.isfinite(data[:,1,2])]])
+
+    #return data
+    #data = np.concatenate(data,axis=0)
+    #print(data.shape)
+
+
+
+def _worker2(arg_list):
         t=time.time()
         Ic = arg_list['Ic']
         Is = arg_list['Is']
@@ -46,14 +163,16 @@ def _worker(arg_list):
             m.getLogLCubes(binning)
             m.save(saveLoc)
         except: traceback.print_exc()    #just in case...
+        try: del m
+        except: pass
 
         print("\n{} s. Made photon list with [Ic,Is,Ip,Ttot,tau] = [{},\t{},\t{},\t{},\t{}]".format(int(time.time()-t),Ic,Is,Ip,Ttot,tau))
 
-def collectDataForPaper():
+def collectDataForPaper2():
     sumIcIs=[30., 100., 300., 1000., 2000.]
     ratioIc2Is=[1./10., 1./5., 1./2., 1., 2., 5., 10.]
     ratioIp2sum=[1.,1./10.,1./20.,1./100.]
-    binning=[-1,10.**-4, 10.**-3, 10.**-2, 0.1, 1.]
+    binning=[-1,10.**-4, 10.**-3, 10.**-2, 0.1]#, 1.]
     Ttot=30.
     tau=0.1
     deadtime=10.e-6
@@ -71,9 +190,10 @@ def collectDataForPaper():
                 arg_dicts.append({'Ic':Ic, 'Is':Is, 'Ip':Ip, 'Ttot':Ttot, 'tau':tau, 'deadtime':deadtime, 'binning':binning, 'saveLoc':saveLoc})
     arg_dicts = np.tile(arg_dicts, numPhotonlists)
 
-    nProc = multiprocessing.cpu_count()-1
+    nProc = multiprocessing.cpu_count()
+    nProc = 24
     pool = multiprocessing.Pool(processes=nProc)
-    pool.map(_worker, arg_dicts)
+    pool.map(_worker2, arg_dicts)
     pool.close()    
     pool.join()
 
@@ -383,6 +503,7 @@ def getLogLpoints(logLfunc, p_opt, relmin=10.**-8.):
     maxLogL = logLfunc(p_opt)
     logLpoints = np.asarray([[p_opt[0], p_opt[1], p_opt[2], maxLogL]])
     
+    print("p_opt: "+str(p_opt))
 
     # get initial step size    
     sampling=-1./20.
@@ -441,8 +562,9 @@ def getLogLpoints(logLfunc, p_opt, relmin=10.**-8.):
                 p_inc[i] = round(p_inc[i],2)
                 if p_inc[i]==0: p_inc[i]=-0.01
     maxInd = np.argmax(logLpoints[:,-1])
-    if maxInd!=0: p_opt = logLpoints[maxInd, :3]
-    maxLogL = logLpoints[maxInd, -1]
+    #if maxInd!=0: p_opt = logLpoints[maxInd, :3]
+    #maxLogL = logLpoints[maxInd, -1]
+    print("reloaded")
 
     print("p_opt: "+str(p_opt))
     print("p_inc: "+str(p_inc))
@@ -481,7 +603,7 @@ def _savePhotonlist(photonlist, fn):
     os.makedirs(os.path.dirname(fn), exist_ok=True)
     with open(fn, 'wb') as output:
         pickle.dump(photonlist, output, pickle.HIGHEST_PROTOCOL)
-    print('saving: '+fn)
+    #print('saving: '+fn)
 
 def _loadPhotonlist(fn):
     with open(fn, 'rb') as infile:
@@ -490,7 +612,13 @@ def _loadPhotonlist(fn):
 
 def savePhotonlist(photonlist, loc='/Data/SSD/logLmaps/'):
     fn=loc+'data_{}_{}_{}_{}/{}.pickle'.format(photonlist.p_true[0], photonlist.p_true[1], photonlist.p_true[2], photonlist.Ttot, photonlist.uuid)
-    _savePhotonlist(photonlist, fn)
+    try:
+        _savePhotonlist(photonlist, fn)
+    except pickle.PicklingError:     # This happens when you change the class definition
+        pl = mock_photonlist(1,1,1,Ttot=1,tau=0.1, deadtime=0)
+        for k in vars(photonlist).keys():
+            setattr(pl, k, getattr(photonlist,k))
+        _savePhotonlist(pl, fn)
 
 def loadPhotonlist_old(Ic, Is, Ir, Ttot, loc='/Data/SSD/logLmaps/', uuid=None):
     """
@@ -503,30 +631,35 @@ def loadPhotonlist_old(Ic, Is, Ir, Ttot, loc='/Data/SSD/logLmaps/', uuid=None):
         yield _loadPhotonlist(fn)
     #return [_loadPhotonlist(fn) for fn in fns]
 
-class loadPhotonlist():
-    def __init__(self, Ic, Is, Ir, Ttot, loc='/Data/SSD/logLmaps/', uuid=None):
-        directory = loc+'data_{}_{}_{}_{}/'.format(Ic, Is, Ir, Ttot)
+class loadPhotonlist:
+    def __init__(self, Ic=None, Is=None, Ir=None, Ttot=None, loc='/Data/SSD/logLmaps/', uuid=None):
+        if Ic==None or Is==None or Ir==None or Ttot==None:
+            directory = loc+'*/'
+        else:
+            directory = loc+'data_{}_{}_{}_{}/'.format(Ic, Is, Ir, Ttot)
         f = '*'+str(uuid)+'.pickle' if uuid is not None else '*.pickle'
         self.fns = glob.glob(directory+f)
         self.i=-1
         self.lock = threading.Lock()
     def __iter__(self): return self
     def __len__(self): return len(self.fns)
-    def __getitem__(self, j):
-        return _loadPhotonlist(self.fns[j])
-    def next(self):
+    def __getitem__(self, j): return _loadPhotonlist(self.fns[j])
+    def __next__(self):
         with self.lock:
+            if self.i+1 >= self.__len__(): raise StopIteration
             self.i+=1
             return _loadPhotonlist(self.fns[self.i])
+    def next(self): return self.__next__()
     
 class imageCubeSliceViewer():
     def __init__(self, imageCube, lists, ind=2, points=None):
-        if points is not None: self.points=np.asarray(points)
-        else: raise NotImplementedError
+        
         self.lists=lists
         self.imageCube=imageCube
         self.ind = int(ind)%self.imageCube.ndim
         self.maxInd = np.unravel_index(np.argmax(imageCube),imageCube.shape)
+        if points is not None: self.points=np.asarray(points)
+        else: self.points=[self.lists[0][self.maxInd[0]], self.lists[1][self.maxInd[1]], self.lists[2][self.maxInd[2]]]
         #self.num=int(num)%self.imageCube.shape[self.ind]
         self.num=self.maxInd[self.ind]
         self.axLabels=['Ic', 'Is', 'Ip']
@@ -680,6 +813,7 @@ class mock_photonlist():
             points[:,i] -= p_lists[i][0]
             #points[:,i] /= scipy.stats.mode(np.diff(p_lists[i]))[0][0]
             points[:,i] /= p_lists[i][1] - p_lists[i][0]
+        print(len(points))
         points=np.round(points).astype(np.int)  #have to round for numerical precision
 
         logLcube[points[:,0], points[:,1], points[:,2]] = values
@@ -708,6 +842,9 @@ class mock_photonlist():
 
     def save(self,loc='/Data/SSD/logLmaps/'):
         savePhotonlist(self, loc=loc)
+        
+            
+
 
     #def getLogLCubes(self,binSize_list, matchIr_lists=True, relmin=10.**-8.):
     def getLogLCubes(self,binSize_list, relmin=10.**-8.):
@@ -863,7 +1000,8 @@ class mock_photonlist():
 
         #logLmap, p_lists_new = getLogLCube(logLfunc, p_lists, relmin, p_opt)
         #return logLmap, p_lists_new, binSize
-        data = getLogLpoints(logLfunc, p_opt, relmin)
+        #data = getLogLpoints(logLfunc, p_opt, relmin)
+        data = getLogLpoints(logLfunc, np.copy(self.p_true), relmin)
         return data, binSize
 
 class photon_list(object):
