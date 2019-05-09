@@ -155,7 +155,7 @@ class DitherDescription(object):
         self.description = dither
         self.target = target
 
-        if target_radec == (0, 0):
+        if target_radec == [0, 0]:
             if target:
                 # for i in range(attempts):
                 self.coords = dither.obs[0].lookup_coordinates(queryname=target)
@@ -830,7 +830,7 @@ class DrizzledData(object):
 
 def form(dither, mode='spatial', derotate=True, rotation_center=None, wvlMin=850, wvlMax=1100, startt=0, intt=60,
          pixfrac=.5, nwvlbins=1, timestep=1., ntimebins=0, device_orientation=-43, target_radec=(0, 0), fitsname='fits',
-         usecache=True, quickplot=False):
+         usecache=True, quickplot=True):
     """
 
     :param dither:
@@ -874,9 +874,7 @@ def form(dither, mode='spatial', derotate=True, rotation_center=None, wvlMin=850
         outwcs = driz.w
         stackedim = driz.stackedim
         stacked_wcs = driz.stacked_wcs
-        # TODO verify
-        # image_weights = driz.outwht
-        image_weights = None
+        image_weights = driz.driz.outwht
 
     elif mode == 'spectral':
         # sdriz = TemporalDrizzler(data, ditherdesc, pixfrac=pixfrac, nwvlbins=nwvlbins, timestep=intt, wvlMin=wvlMin,
