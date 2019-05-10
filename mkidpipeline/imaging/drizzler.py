@@ -99,29 +99,21 @@ class DitherDescription(object):
         """
         self.description = dither
 
-        #TODO Rupert sort this out and remove refs to target_radec
-        if target is string:
+        if target is None or target == 'None':
+            pipelinelog.getLogger(__name__).error('Please enter a valid target name')
+            raise TypeError
+        elif type(target) is list or type(target) is np.array:
+            target = [float(tar.value)*u.deg for tar in target]  # list of ScalarNode elements. Need to convert first
+            self.coords = SkyCoord(target[0], target[1])
+            self.target = 'Unnamed Target at ' + self.coords.name
+        elif type(target) is SkyCoord:
+            self.coords = target
+            self.target = 'Unnamed Target at ' + self.coords.name
+        else:
             self.target = target
             self.coords = dither.obs[0].lookup_coordinates(queryname=target)
-        elif targ is coordinates:
-            self.coords = targ if targ is SkyCoord else SkyCoord(target[0]*u.deg, target[1]*u.deg)
-            self.target = 'Unnamed Target at ' + str(self.coords)
-        elif targ is astropy target object:
-            self.target = target.name
-            self.coords = target.coords
 
-
-        if target_radec == [0, 0]:
-            if target:
-                # for i in range(attempts):
-                self.coords = dither.obs[0].lookup_coordinates(queryname=target)
-            else:
-                pipelinelog.getLogger(__name__).warning('Unable to resolve coordinates for target name {target}, using (0,0).')
-                self.coords = SkyCoord(0*u.deg, 0*u.deg)
-            log.info('Found coordinated {}'.format(self.coords))
-        else:
-            self.coords = SkyCoord(target_radec[0]*u.deg, target_radec[1]*u.deg)
-            log.info('Using coordinated {} in yml'.format(self.coords))
+        log.info('Found coordinates {} for target {}'.format(self.coords, self.target))
 
         self.starRA, self.starDec = self.coords.ra.deg, self.coords.dec.deg
         if rotation_center is None:
@@ -716,7 +708,7 @@ class DrizzledData(object):
         if image_weights is not None:
             self.image_weights = image_weights
 
-    def writefits(self, file, overwrite=True, save_stack=False, save_image=False):
+    def writefits(self, file, overwrite=True, save_stack=False, save_image=False, compress=False):
 
         hdul = fits.HDUList([fits.PrimaryHDU(header=self.fits_header),
                              fits.ImageHDU(data=self.data, header=self.fits_header)])
@@ -728,6 +720,9 @@ class DrizzledData(object):
         if save_stack:
             [hdul.append(fits.ImageHDU(data=dithim, header=self.stacked_wcs[i].to_header())) for i, dithim in
              enumerate(self.dumb_stack)]
+
+        if compress:
+            file = file+'.gz'
 
         hdul.writeto(file, overwrite=overwrite)
 
@@ -784,9 +779,14 @@ class DrizzledData(object):
 
 
 def form(dither, mode='spatial', derotate=True, rotation_center=None, wvlMin=850, wvlMax=1100, startt=0, intt=60,
-         pixfrac=.5, nwvlbins=1, timestep=1., ntimebins=0, device_orientation=-43, target_radec=(0, 0), fitsname='fits',
+         pixfrac=.5, nwvlbins=1, timestep=1., ntimebins=0, device_orientation=-43, fitsname='fits',
          usecache=True, quickplot=True):
     """
+    Takes in a ditherdescription object and drizzles the files onto a sky grid. Depending on the selected mode this
+    output can take the form of an image, spectral cube, sequence of spectral cubes, or a photon list. Currently
+    SpatialDrizzler, SpectralDrizzler and TemporalDrizzler are separate classes but the same output can be acheived
+    by setting ntimebins and/or nwbins to 1. These outputs feed a DirzzledData object that handles plotting to
+    screen or writing to fits
 
     :param dither:
     :param nwvlbins:
@@ -815,7 +815,7 @@ def form(dither, mode='spatial', derotate=True, rotation_center=None, wvlMin=850
     # times but once they've been equated it shouldn't have an effect?
     intt, dither.inttime = [min(intt, dither.inttime)] * 2
 
-    ditherdesc = DitherDescription(dither, target=dither.name, target_radec=target_radec, rotation_center=rotation_center)
+    ditherdesc = DitherDescription(dither, target=dither.name, rotation_center=rotation_center)
     data = load_data(ditherdesc, wvlMin, wvlMax, startt, intt, derotate=derotate, usecache=usecache,
                      device_orientation=device_orientation)
 
@@ -964,7 +964,6 @@ if __name__ == '__main__':
     dither = cfg.dither
     rotation_origin = cfg.drizzler.rotation_center
     device_orientation = cfg.drizzler.device_orientation
-    target_radec = cfg.drizzler.target_radec
 
     if args.gso and type(args.gso) is list:
         rotation_origin = get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=np.array(args.gso))
@@ -973,7 +972,7 @@ if __name__ == '__main__':
 
     # main function of drizzler
     scidata = form(dither, mode=cfg.drizzler.mode, rotation_center=rotation_origin, wvlMin=wvlMin,
-                   wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac, target_radec=target_radec,
+                   wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac,
                    device_orientation=device_orientation, derotate=True, fitsname=fitsname)
 
     if args.gdo:
