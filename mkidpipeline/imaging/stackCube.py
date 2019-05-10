@@ -181,7 +181,7 @@ def stackCube(h5File,npzFile, verbose=True):
             paddedFrame = irUtils.embedInLargerArray(im,frameSize=padFraction)
 
             #upSample frame for sub-pixel registration with fitting code
-            upSampledFrame = irUtils.upSampleIm(paddedFrame,upSample)
+            upSampledFrame = paddedFrame.repeat(upSample, axis=0).repeat(upSample, axis=1)
             #conserve flux. Break each pixel into upSample^2 sub pixels, 
             #each subpixel should have 1/(upSample^2) the flux of the original pixel
             upSampledFrame/=float(upSample*upSample)
@@ -199,7 +199,7 @@ def stackCube(h5File,npzFile, verbose=True):
 
     cubeStack = np.array(cubeStack)
     for n in np.arange(nWvlBins):
-        finalCube.append(irUtils.medianStack(cubeStack[n]))
+        finalCube.append(np.nanmedian(cubeStack[n], axis=0))
         if verbose:
             plot_array(finalCube[n],title="%i nm"%centers[n])
     finalCube = np.array(finalCube)

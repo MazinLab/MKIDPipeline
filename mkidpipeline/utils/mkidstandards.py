@@ -10,7 +10,7 @@ from scipy.constants import *
 from mkidpipeline.utils import smooth
 
 
-class MKIDStd:
+class MKIDStandards:
     """
     This class contains the spectra of several standard stars and other
     objects. These spectra may be plotted and used to compare with data 
@@ -404,5 +404,5 @@ class MKIDStd:
 
 if __name__ == '__main__':
     objectName = "hiltner600"
-    std = MKIDStd()
+    std = MKIDStandards()
     a = std.load(objectName)

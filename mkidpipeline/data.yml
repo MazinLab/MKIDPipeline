@@ -38,9 +38,6 @@
       header:
         ND: 1.0
         lamp: 40
-  processing_hints: use defaults
-#- !wsoln
-#  file: existing_solution_file.npz
 - !fc
   name: 1100 nm
   start: 1545542340
@@ -53,7 +50,6 @@
   file: dithers/trapezium.log
   comments:
     - Test
-  out: photonlist(wave, flat, noise, mask), drizzledlist, drizzledfits, stackedfits
 - !dither
   name: HIP 10680
   file: dithers/HD10680_1545544478_dither.log
@@ -62,7 +58,6 @@
     - No known planets or disks, but a good young target
     - 113mas Lyot
     - astrogrid
-  out: photonlist
 - !dither
   name: HIP 10680
   file: dithers/HD10680_1545546044_dither.log
@@ -71,7 +66,6 @@
     - No known planets or disks, but a good young target
     - 113mas Lyot
     - astrogrid
-  out: photonlist
 - !dither
   name: HD22179
   file: dithers/HD22179_1545548901_dither.log
@@ -80,8 +74,4 @@
     - Astrogrid
     - Faint - J=7.8
     - 1545549968 - 1545551005,  Network error. Lost FL8a,b
-  out: !out
-    kind: spatial
-    startw: 400 nm
-    stopw: 800 nm
-    derotate: False
+  rotation_ctr: [0,0]  #optional

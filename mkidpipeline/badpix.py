@@ -469,7 +469,7 @@ def hpm_cps_cut(image, sigma=5, max_cut=2450, cold_mask=False):
     """
     image_count = np.array(np.shape(image))
     if len(image_count) >= 3:
-        raw_image = utils.medianStack(image)
+        raw_image = numpy.nanmedian(image, axis=0)
     else:
         raw_image = np.array(image)
 

@@ -17,7 +17,7 @@ from mkidcore import pixelflags
 from configparser import ConfigParser
 
 from mkidpipeline.utils.utils import rebin, gaussianConvolution, fitBlackbody
-from mkidpipeline.utils import MKIDStd
+from mkidpipeline.utils import mkidstandards
 from mkidcore.corelog import getLogger
 import mkidcore.corelog
 
@@ -182,7 +182,7 @@ class SpectralCal(object):
 
         import the known spectrum of the calibrator and rebin to the histogram parameters given
         '''
-        standard = MKIDStd.MKIDStd()
+        standard = mkidstandards.MKIDStandards()
         star_data = standard.load(object_name)
         star_data = standard.countsToErgs(star_data)  # convert standard star spectrum to ergs/s/Angs/cm^2 for BB fitting and cleaning
         self.std_wvls = np.array(star_data[:, 0])

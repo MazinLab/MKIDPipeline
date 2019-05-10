@@ -516,6 +516,10 @@ class ObsFile(object):
         :return:
         """
 
+        #TODO add platescale=0.01/3600., device_orientation=-48, target_coordinates=None,
+        # observatory='Subaru', target_center_at_ref=(52, 18), conex_ref=(0,0), and conex_pos=(0,0) to header info
+        # during HDF creation, also add all fits header info from dashboard log
+
         if not isinstance(target_coordinates, SkyCoord):
             target_coordinates = SkyCoord.from_name(target_coordinates)
 

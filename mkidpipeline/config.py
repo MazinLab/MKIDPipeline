@@ -296,11 +296,22 @@ class MKIDObservingDataset(object):
 class MKIDOutput(object):
     yaml_tag = '!out'
 
-    def __init__(self, name, kind, startw=None, stopw=None):
+    def __init__(self, name, kind, startw=None, stopw=None, filename=''):
+        """
+        :param name: a name
+        :param kind: stack|spatial|spectral|temporal|list
+        :param startw: wavelength start
+        :param stopw: wavelength stop
+        :param filename: an optional relative or fully qualified path
+        """
         self.name = name
         self.startw = getnm(startw) if startw is not None else None
         self.stopw = getnm(stopw) if stopw is not None else None
         self.kind = kind
+        self.enable_noise = True
+        self.enable_photom = True
+        self.enable_ssd = True
+        self.filename = filename
 
     @classmethod
     def from_yaml(cls, loader, node):
