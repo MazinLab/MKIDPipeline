@@ -31,7 +31,6 @@ import matplotlib.pylab as plt
 from matplotlib.colors import LogNorm
 from matplotlib import gridspec
 import pickle
-from scipy.misc import imrotate
 from astropy import wcs
 from astropy.coordinates import EarthLocation, Angle, SkyCoord
 import astropy.units as u
@@ -46,6 +45,7 @@ import mkidcore.corelog as pipelinelog
 import mkidpipeline
 from mkidcore.instruments import CONEX2PIXEL
 import argparse
+from mkidpipeline.utils.utils import get_device_orientation
 
 # timeout limit for SkyCoord.from_name
 Conf.remote_timeout.set(10)
@@ -54,8 +54,6 @@ Conf.remote_timeout.set(10)
 mkidpipeline.logtoconsole()
 
 log = pipelinelog.create_log('mkidpipeline.imaging.drizzler', console=True, level="INFO")
-
-
 
 
 def dither_pixel_vector(positions, center=(0, 0)):
@@ -71,59 +69,6 @@ def dither_pixel_vector(positions, center=(0, 0)):
     return pix
 
 
-def get_device_orientation(ditherdesc, fits_filename='Theta1 Orionis B_mean.fits', separation=0.938, pa=253):
-    """
-    Given the position angle and offset of secondary calculate its RA and dec then
-    continually update the FITS with different rotation matricies to tune for device orientation
-
-    Default pa and offset for Trap come from https://arxiv.org/pdf/1308.4155.pdf figures 7 and 11
-
-    B1 vs B2B3 barycenter separation is 0.938 and the position angle is 253 degrees
-
-    :param ditherdesc:
-    :param fits_filename:
-    :param separation:
-    :param pa:
-    :return:
-    """
-
-    angle_from_east = 270-pa
-
-    companion_ra_arcsec = np.cos(np.deg2rad(angle_from_east)) * separation
-    companion_ra_offset = (companion_ra_arcsec * u.arcsec).to(u.deg).value
-    companion_ra = ditherdesc.coords.ra.deg + companion_ra_offset
-
-    companion_dec_arcsec = np.sin(np.deg2rad(angle_from_east)) * separation
-    companion_dec_offset = (companion_dec_arcsec * u.arcsec).to(u.deg).value
-    #minus sign here since reference object is below central star
-    companion_dec = ditherdesc.coords.dec.deg - companion_dec_offset
-
-    log.info('Target RA {} and dec {}'.format(Angle(companion_ra*u.deg).hms, Angle(companion_dec*u.deg).dms))
-
-    update = True
-    device_orientation = 0
-    hdu1 = fits.open(fits_filename)[1]
-
-    field = hdu1.data
-    while update:
-
-        pipelinelog.getLogger(__name__).info('Close this figure')
-        ax1 = plt.subplot(111, projection=wcs.WCS(hdu1.header))
-        ax1.imshow(field, norm=LogNorm(), origin='lower', vmin=1)
-        # plt.colorbar()
-        plt.show()
-
-        user_input = input(' *** INPUT REQUIRED *** \nEnter new angle (deg) or F to end: ')
-        if user_input == 'F':
-            update = False
-        else:
-            device_orientation += float(user_input)
-
-        field = imrotate(hdu1.data, device_orientation, interp='bilinear')
-
-    pipelinelog.getLogger(__name__).info('Using position angle {} deg for device'.format(device_orientation))
-
-    return np.deg2rad(device_orientation)
 
 
 class DitherDescription(object):
@@ -137,7 +82,7 @@ class DitherDescription(object):
 
     """
 
-    def __init__(self, dither, rotation_center=None, observatory='Subaru', target=None, target_radec=(0,0),
+    def __init__(self, dither, rotation_center=None, observatory='Subaru', target=None,
                  use_min_timestep=True, suggested_time_step=1):
         """
         lookup_coordiantes may get a name error on correct target names leading to spurious results.
@@ -153,7 +98,18 @@ class DitherDescription(object):
         :param suggested_time_step:
         """
         self.description = dither
-        self.target = target
+
+        #TODO Rupert sort this out and remove refs to target_radec
+        if target is string:
+            self.target = target
+            self.coords = dither.obs[0].lookup_coordinates(queryname=target)
+        elif targ is coordinates:
+            self.coords = targ if targ is SkyCoord else SkyCoord(target[0]*u.deg, target[1]*u.deg)
+            self.target = 'Unnamed Target at ' + str(self.coords)
+        elif targ is astropy target object:
+            self.target = target.name
+            self.coords = target.coords
+
 
         if target_radec == [0, 0]:
             if target:
@@ -319,7 +275,6 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
             pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     return data
-
 
 
 class Drizzler(object):
@@ -838,7 +793,7 @@ def form(dither, mode='spatial', derotate=True, rotation_center=None, wvlMin=850
     :param timestep:
     :param device_orientation:
     :param mode: stack|spatial|spectral|temporal|list
-    :param derotate: False|True|None
+    :param derotate: False|True
     :param rotation_center: None or array/tuple
     :param wvlMin:
     :param wvlMax:
@@ -936,8 +891,8 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0,0), zoo
         xlocs.append(event.xdata)
         ylocs.append(event.ydata)
         running_mean = [np.mean(xlocs), np.mean(ylocs)]
-        print('xpix=%i, ypix=%i. Running mean=(%i,%i)'
-              % (event.xdata, event.ydata, running_mean[0], running_mean[1]))
+        log.info('xpix=%i, ypix=%i. Running mean=(%i,%i)'
+                 % (event.xdata, event.ydata, running_mean[0], running_mean[1]))
 
     iteration = 0
     while update:
@@ -961,7 +916,7 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0,0), zoo
         fig.canvas.mpl_connect('button_press_event', onclick)
         plt.show(block=True)
 
-        if xlocs == []:  # if the user doesn't click on the figure don't change rotation_center's value
+        if not xlocs:  # if the user doesn't click on the figure don't change rotation_center's value
             xlocs, ylocs = np.array(image.shape)//2, np.array(image.shape)//2
         star_pix = np.array([np.mean(xlocs), np.mean(ylocs)]).astype(int)
         rotation_center += (star_pix - np.array(image.shape)//2)[::-1] #* np.array([1,-1])
@@ -1027,4 +982,4 @@ if __name__ == '__main__':
                                                  "using the default orientation first".format(fitsname))
         else:
             ditherdesc = DitherDescription(dither, target=dither.name, rotation_center=rotation_origin)
-            get_device_orientation(ditherdesc, fitsname)
+            get_device_orientation(ditherdesc.coords, fitsname)
