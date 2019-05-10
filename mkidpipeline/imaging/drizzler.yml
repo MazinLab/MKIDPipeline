@@ -23,6 +23,5 @@ drizzler: !configdict
   device_orientation: -48  # (deg) the rotation angle that is applied to align the device position angle to the
                            # parallactic angle. Found using --get-orientation
   output: fits  # list of 1 or more of: fits|photonlist. photonlist is only supported for mode temporal
-  target_radec: [0, 0]  # (deg, deg) centre of rotation sky coords. If [0, 0] then simbad resolved from dither.name during each run
 
 ncpu: 20
