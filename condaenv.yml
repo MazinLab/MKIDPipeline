@@ -39,6 +39,7 @@ dependencies:
   - ipp
   - ipdb
   - cython
+  - astroplan
 #pip requirements
   - pip:
     - crlibm==1.0.3

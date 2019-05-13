@@ -9,7 +9,7 @@ from mkidcore.headers import ObsHeader
 from mkidcore.headers import ObsFileCols
 import tables
 from mkidpipeline.utils.plottingTools import plot_array as pt
-from mkidpipeline.utils.irUtils import rotateShiftImage as rotate
+# from mkidpipeline.utils.irUtils import rotateShiftImage as rotate
 
 def MRicdf(Ic, Is, interpmethod='cubic'):
 
@@ -356,8 +356,8 @@ if __name__ == "__main__":
     #Is_array = np.load('/mnt/data0/isabel/sandbox/CHARIS/Is.npy')[70:120, 70:120]
     Ic_array = np.load('/mnt/data0/isabel/sandbox/CHARIS/Ic.npy')
     Is_array = np.load('/mnt/data0/isabel/sandbox/CHARIS/Is.npy')
-    newIc=rotate(Ic_array, 30, 0,0)
-    newIs=rotate(Is_array, 30, 0,0)
+    # newIc=rotate(Ic_array, 30, 0,0)
+    # newIs=rotate(Is_array, 30, 0,0)
     Ic_array_crop=newIc[28:153, 28:153]
     Is_array_crop=newIs[28:153, 28:153]
     #Is_array = np.zeros([20, 20])+300
