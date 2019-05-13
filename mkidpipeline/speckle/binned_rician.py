@@ -302,6 +302,11 @@ def bin_logL(params, dist):
 
     # make lookup tables for poisson and binMRlogL
     Ic, Is, Ip = params
+
+    # Stellar Intensity should be strictly positive, and each Ic, Is, Ir should be nonnegative.
+    if Ic <= 0 or Is <= 0 or Ip < 0:
+        return -1e100
+
     lutSize = len(dist)
     mlut = np.exp(binMRlogL(np.arange(lutSize), Ic, Is)[1])
     plut = poisson.pmf(np.arange(lutSize), Ip)
