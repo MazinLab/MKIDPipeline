@@ -456,7 +456,6 @@ int main(int argc, char *argv[])
 	// Create H5 file and set attributes
     sprintf(outfile,"%s/%d.h5",outputDir,FirstFile); fflush(stdout);
 
-    //TODO create h5 file optimally
     //This is where btree sizes and the like are seT!!!
     //https://support.hdfgroup.org/HDF5/doc1.6/UG/08_TheFile.html
     file_id = H5Fcreate (outfile, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);

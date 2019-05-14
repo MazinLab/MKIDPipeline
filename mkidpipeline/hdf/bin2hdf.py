@@ -96,12 +96,10 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
     else:
         getLogger(__name__).debug('Skipping Index Generation')
 
-    # group = h5file.create_group("/", 'Images', 'Image Snaps')  #todo delete?
     bmap = Beammap(cfg.beamfile, xydim=(cfg.x, cfg.y))
     group = h5file.create_group("/", 'BeamMap', 'Beammap Information', filters=filter)
     h5file.create_array(group, 'Map', bmap.residmap.astype(int), 'resID map')
     h5file.create_array(group, 'Flag', bmap.flagmap.astype(int), 'flag map')
-
     getLogger(__name__).debug('Beammap Attached')
 
     h5file.create_group('/', 'header', 'Header')
@@ -124,8 +122,9 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
     headerContents['beammapFile'] = cfg.beamfile
     headerContents['wvlCalFile'] = ''
     headerContents.append()
-
     getLogger(__name__).debug('Header Attached')
+
+
     h5file.close()
     getLogger(__name__).debug('Done with {}'.format(cfg.h5file))
 
@@ -228,7 +227,6 @@ def _index_hdf(cfg):
 
 
 def fix_timestamp_bug(file):
-    # TODO:  This isn't in its final form, there is a patch to deal with the Bin2HDF bug
     # which writes the same photonlist twice to certain resIDs
     noResIDFlag = 2 ** 32 - 1
     hfile = tables.open_file(file, mode='a')
