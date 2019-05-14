@@ -178,6 +178,10 @@ class MKIDFlatdataDescription(object):
         except AttributeError:
             return 'flatcal_{}.h5'.format(str(self.wavecal).replace(os.path.sep, '_'))
 
+    @property
+    def timerange(self):
+        return self.ob.timerange
+
     def __str__(self):
         return '{}: {}'.format(self.name, self.ob if hasattr(self,'ob') else self.wavecal)
 
@@ -315,8 +319,22 @@ class MKIDOutput(object):
 
     @classmethod
     def from_yaml(cls, loader, node):
-        d = mkidcore.config.extract_from_node(loader, ('name', 'kind', 'stopw', 'startw'), node)
-        return cls(d['name'], d['kind'], d.get('startw', None), d.get('stopw', None))
+        d = mkidcore.config.extract_from_node(loader, ('name', 'kind', 'stopw', 'startw', 'filename'), node)
+        return cls(d['name'], d['kind'], d.get('startw', None), d.get('stopw', None), d.get('filename', ''))
+
+    @property
+    def input_timeranges(self):
+        try:
+            tr = self.ob.timeranges
+        except AttributeError:
+            tr = [self.ob.timerange]
+        return tr + self.ob.wavecal.timeranges + [self.flatcal.timerange]
+
+    @property
+    def output_file(self):
+        global config
+        #TODO generate the filename programatically if one isn't specified
+        return os.path.join(config.paths.out, self.filename)
 
 
 def load_data_description(file):
@@ -360,3 +378,4 @@ yaml.register_class(MKIDObservingDataDescription)
 yaml.register_class(MKIDWavedataDescription)
 yaml.register_class(MKIDFlatdataDescription)
 yaml.register_class(MKIDObservingDither)
+yaml.register_class(MKIDOutput)
