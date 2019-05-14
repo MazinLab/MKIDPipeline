@@ -46,6 +46,55 @@ DEFAULT_CONFIG_FILE = pkg.resource_filename('mkidpipeline.calibration.flatcal', 
 
 class FlatCalibrator(object):
 
+    def __init__(self, config=None):
+        self.config_file = DEFAULT_CONFIG_FILE if config is None else config
+
+        self.cfg = mkidpipeline.config.load_task_config(config)
+
+        self.dataDir = self.cfg.paths.data
+        self.out_directory = self.cfg.paths.out
+
+        self.intTime = self.cfg.flatcal.chunk_time
+
+        self.xpix = self.cfg.beammap.ncols
+        self.ypix = self.cfg.beammap.nrows
+        self.deadtime = self.cfg.instrument.deadtime
+
+        self.energyBinWidth = self.cfg.instrument.energy_bin_width
+        self.wvlStart = self.cfg.instrument.wvl_start
+        self.wvlStop = self.cfg.instrument.wvl_stop
+
+        self.countRateCutoff = self.cfg.flatcal.rate_cutoff
+        self.fractionOfChunksToTrim = self.cfg.flatcal.trim_fraction
+        self.timeSpacingCut = None
+
+        self.obs = None
+        self.beamImage = None
+        self.wvlFlags = None
+        self.wvlBinEdges = None
+        self.wavelengths = None
+
+        self.save_plots = self.cfg.flatcal.plots.lower() == 'all'
+        self.summary_plot = self.cfg.flatcal.plots.lower() in ('all', 'summary')
+        if self.save_plots:
+            getLogger(__name__).warning("Comanded to save debug plots, this will add ~30 min to runtime.")
+
+        self.spectralCubes = None
+        self.cubeEffIntTimes = None
+        self.countCubes = None
+        self.maskedCubeWeights = None
+        self.maskedCubeDeltaWeights = None
+        self.totalCube = None
+        self.totalFrame = None
+        self.flatWeights = None
+        self.countCubesToSave = None
+        self.deltaFlatWeights = None
+        self.flatFlags = None
+        self.flatWeights = None
+        self.flatWeightsforplot = None
+        self.plotName = None
+        self.fig = None
+
     def makeCalibration(self):
         getLogger(__name__).info("Loading Data")
         self.loadData()
@@ -375,77 +424,16 @@ class WhiteCalibrator(FlatCalibrator):
     and in wavelength-sliced images.
     """
 
-    def __init__(self, config=None, cal_file_name='flatsol_{start}.h5', log=True):
+    def __init__(self, config=None, cal_file_name='flatsol_{start}.h5'):
         """
         Reads in the param file and opens appropriate flat file.  Sets wavelength binning parameters.
         """
-
-        super().__init__()
-
-        self.config_file = DEFAULT_CONFIG_FILE if config is None else config
-
-        self.cfg = mkidpipeline.config.load_task_config(config)
-
-        self.wvlCalFile = ''
-        try:
-            self.wvlCalFile = self.cfg.wavesol
-            if not os.path.exists(self.wvlCalFile):
-                self.wvlCalFile = os.path.join(self.cfg.paths.database, self.wvlCalFile)
-        except KeyError:
-            pass
-
+        super().__init__(config)
         self.startTime = self.cfg.start_time
         self.expTime = self.cfg.exposure_time
-
         self.h5file = self.cfg.get('h5file', os.path.join(self.cfg.paths.out, str(self.startTime) + '.h5'))
-
-        self.dataDir = self.cfg.paths.data
-        self.out_directory = self.cfg.paths.out
-
         self.flatCalFileName = self.cfg.get('flatname', os.path.join(self.cfg.paths.database,
                                                                      cal_file_name.format(start=self.startTime)))
-
-        self.intTime = self.cfg.flatcal.chunk_time
-
-        self.xpix = self.cfg.beammap.ncols
-        self.ypix = self.cfg.beammap.nrows
-        self.deadtime = self.cfg.instrument.deadtime
-
-        self.energyBinWidth = self.cfg.instrument.energy_bin_width
-        self.wvlStart = self.cfg.instrument.wvl_start
-        self.wvlStop = self.cfg.instrument.wvl_stop
-
-        self.countRateCutoff = self.cfg.flatcal.rate_cutoff
-        self.fractionOfChunksToTrim = self.cfg.flatcal.trim_fraction
-        self.timeSpacingCut = None
-
-        self.obs = None
-        self.beamImage = None
-        self.wvlFlags = None
-        self.wvlBinEdges = None
-        self.wavelengths = None
-
-        self.logging = log
-        self.save_plots = self.cfg.flatcal.plots.lower() == 'all'
-        self.summary_plot = self.cfg.flatcal.plots.lower() in ('all', 'summary')
-        if self.save_plots:
-            getLogger(__name__).warning("Comanded to save debug plots, this will add ~30 min to runtime.")
-
-        self.spectralCubes = None
-        self.cubeEffIntTimes = None
-        self.countCubes = None
-        self.maskedCubeWeights = None
-        self.maskedCubeDeltaWeights = None
-        self.totalCube = None
-        self.totalFrame = None
-        self.flatWeights = None
-        self.countCubesToSave = None
-        self.deltaFlatWeights = None
-        self.flatFlags = None
-        self.flatWeights = None
-        self.flatWeightsforplot = None
-        self.plotName = None
-        self.fig = None  # TODO @Isabel lets talk about if this is really needed as a class attribute
 
     def loadData(self):
         getLogger(__name__).info('Loading calibration data from {}'.format(self.h5file))
@@ -477,9 +465,9 @@ class WhiteCalibrator(FlatCalibrator):
             cubeDict = self.obs.getSpectralCube(firstSec=firstSec, integrationTime=self.intTime, applyWeight=False,
                                                 applyTPFWeight=False, wvlBinEdges=self.wvlBinEdges)
             cube = cubeDict['cube'] / cubeDict['effIntTime'][:, :, None]
-            cube /= (1 - cube.sum(axis=2) * self.deadtime)[:, :,
-                    None]  # TODO:  remove when we have deadtime removal code in pipeline
-            bad = np.isnan(cube)  # TODO need to update maskes to note why these 0s appeared
+            # TODO:  remove when we have deadtime removal code in pipeline
+            cube /= (1 - cube.sum(axis=2) * self.deadtime)[:, :, None]
+            bad = np.isnan(cube)  # TODO need to update masks to note why these 0s appeared
             cube[bad] = 0
 
             self.spectralCubes.append(cube)
@@ -492,9 +480,14 @@ class WhiteCalibrator(FlatCalibrator):
         self.countCubes = self.cubeEffIntTimes[:, :, :, None] * self.spectralCubes
 
 
-class LaserCalibrator(WhiteCalibrator):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+class LaserCalibrator(FlatCalibrator):
+    def __init__(self, config=None, cal_file_name='flatsol_{wavecal}.h5'):
+        super().__init__(config)
+        self.wvlCalFile = self.cfg.wavesol
+        if not os.path.exists(self.wvlCalFile):
+            self.wvlCalFile = os.path.join(self.cfg.paths.database, self.wvlCalFile)
+        self.flatCalFileName = self.cfg.get('flatname', os.path.join(self.cfg.paths.database,
+                                                                     cal_file_name.format(wavecal=os.path.basename(self.cfg.wavesol))))
 
     def loadData(self):
         getLogger(__name__).info('Loading calibration data from {}'.format(self.wvlCalFile))
@@ -692,9 +685,6 @@ def fetch(solution_descriptors, config=None, ncpu=np.inf, remake=False):
 
             if hasattr(sd, 'wavecal'):
                 fcfg.register('wavesol', sd.wavecal, update=True)
-                fcfg.register('start_time', -1,
-                              update=True)  # TODO get rid of this when lasercalibrator's init is fixed
-                fcfg.register('exposure_time', -1, update=True)
                 flattner = LaserCalibrator(fcfg, cal_file_name=sd.id)
             else:
                 fcfg.register('start_time', sd.ob.start, update=True)
