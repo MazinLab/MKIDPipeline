@@ -110,11 +110,13 @@ class ParsedBin(object):
 
     """
     def __init__(self, files, pix_shape=None, verbose=False):
-        # Todo: We need functionality to automatically figure out the dimensions of the image.
+        # NB it isn't possible to automatically figure out the dimensions of the image as all pixels in an extremal row
+        # or column might be dark.
+
         # Saving List of File Names
         self.obs_files = files
         self.pix_shape = pix_shape
-        self.nXPix = pix_shape[1] # keeping notation consistent with the beammap class
+        self.nXPix = pix_shape[1]  # keeping notation consistent with the beammap class
         self.nYPix = pix_shape[0]
 
         self.vb = verbose
