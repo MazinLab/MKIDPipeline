@@ -1,16 +1,18 @@
 import mkidcore.config
 import numpy as np
 import os
+from glob import glob
 import hashlib
 from datetime import datetime
 import multiprocessing as mp
 from mkidcore.corelog import getLogger, create_log
 from mkidcore.utils import getnm
 import pkg_resources as pkg
-from mkidcore.objects import Beammap
+from mkidcore.objects import Beammap, DashboardState
 from astropy.coordinates import SkyCoord
 from collections import namedtuple
 import astropy.units as units
+from mkidpipeline.hdf.photontable import ObsFile
 
 InstrumentInfo = namedtuple('InstrumentInfo',('beammap','platescale'))
 
@@ -108,6 +110,7 @@ class MKIDObservingDataDescription(object):
 
     @property
     def instrument_info(self):
+        #TODO remove or sync this with the metadata in the H5 files
         return InstrumentInfo(beammap=self.beammap, platescale=config.instrument.platescale * units.mas)
 
     @property
@@ -134,6 +137,10 @@ class MKIDObservingDataDescription(object):
         return self.start, self.stop
 
     @property
+    def timeranges(self):
+        return self.timerange,
+
+    @property
     def h5(self):
         return h5_for_MKIDodd(self)
 
@@ -144,7 +151,8 @@ class MKIDObservingDataDescription(object):
 class MKIDWavedataDescription(object):
     yaml_tag = u'!wc'
 
-    def __init__(self, data):
+    def __init__(self, name, data):
+        self.name = name
         self.data = data
         self.data.sort(key=lambda x: x.start)
         self.wavelengths
@@ -167,8 +175,13 @@ class MKIDWavedataDescription(object):
         hash = hashlib.md5(str(self).encode()).hexdigest()
         return datetime.utcfromtimestamp(meanstart).strftime('%Y-%m-%d %H%M') + hash + '.npz'
 
+    @property
+    def path(self):
+        return os.path.join(config.paths.database, self.id)
+
 
 class MKIDFlatdataDescription(object):
+    """attributes name and either ob or wavecal"""
     yaml_tag = u'!fc'
 
     @property
@@ -179,8 +192,16 @@ class MKIDFlatdataDescription(object):
             return 'flatcal_{}.h5'.format(str(self.wavecal).replace(os.path.sep, '_'))
 
     @property
+    def path(self):
+        return os.path.join(config.paths.database, self.id)
+
+    @property
     def timerange(self):
-        return self.ob.timerange
+        return self.ob.timerange if hasattr(self, 'ob') else None
+
+    @property
+    def timeranges(self):
+        return (self.timerange, ) if self.timerange else tuple()
 
     def __str__(self):
         return '{}: {}'.format(self.name, self.ob if hasattr(self,'ob') else self.wavecal)
@@ -205,7 +226,7 @@ class MKIDObservingDither(object):
         proc = lambda x: str.lower(str.strip(x))
         d = dict([list(map(proc, l.partition('=')[::2])) for l in lines])
 
-        #support legacy names
+        # Support legacy names
         if 'npos' not in d:
             d['npos'] = d['nsteps']
         if 'endtimes' not in d:
@@ -214,8 +235,10 @@ class MKIDObservingDither(object):
         self.inttime = int(d['inttime'])
         self.nsteps = int(d['npos'])
         self.pos = list(zip(tofloat(d['xpos']), tofloat(d['ypos'])))
+
+        #TODO associate header and comments with obs?
         self.obs = [MKIDObservingDataDescription('{}_({})_{}'.format(self.name, os.path.basename(self.file), i),
-                                                 b, stop=e, wavecal=wavecal, flatcal=flatcal)
+                                                 b, stop=e, wavecal=wavecal, flatcal=flatcal, _common=_common)
                     for i, (b, e) in enumerate(zip(tofloat(d['starttimes']), tofloat(d['endtimes'])))]
 
 
@@ -239,6 +262,11 @@ class MKIDObservingDataset(object):
     def __init__(self, yml):
         self.yml = yml
         self.meta = mkidcore.config.load(yml)
+        names = [d.name for d in self.meta]
+        if len(names) != len(set(names)):
+            msg = 'Duplicate names not allowed in {}.'.format(yml)
+            getLogger(__name__).critical(msg)
+            raise ValueError(msg)
 
     @property
     def timeranges(self):
@@ -281,6 +309,13 @@ class MKIDObservingDataset(object):
     def wavecalable(self):
         return self.all_observations
 
+    def by_name(self, name):
+        d = [d for d in self.meta if d.name == name]
+        try:
+            return d[0]
+        except IndexError:
+            raise ValueError('Item "{}" not found in data {}'.format(name, self.yml))
+
     @property
     def description(self):
         """Return a string describing the data"""
@@ -300,10 +335,11 @@ class MKIDObservingDataset(object):
 class MKIDOutput(object):
     yaml_tag = '!out'
 
-    def __init__(self, name, kind, startw=None, stopw=None, filename=''):
+    def __init__(self, name, dataname, kind, startw=None, stopw=None, filename=''):
         """
         :param name: a name
-        :param kind: stack|spatial|spectral|temporal|list
+        :param dataname: a name of a data association
+        :param kind: stack|spatial|spectral|temporal|list|image
         :param startw: wavelength start
         :param stopw: wavelength stop
         :param filename: an optional relative or fully qualified path
@@ -311,24 +347,33 @@ class MKIDOutput(object):
         self.name = name
         self.startw = getnm(startw) if startw is not None else None
         self.stopw = getnm(stopw) if stopw is not None else None
-        self.kind = kind
+        self.kind = kind.lower()
+        opt = ('stack', 'spatial', 'spectral', 'temporal', 'list', 'image')
+        if kind.lower() not in opt:
+            raise ValueError('Output kind "{}" is not one of "{}"'.format(name, ', '.join(opt)))
         self.enable_noise = True
         self.enable_photom = True
         self.enable_ssd = True
         self.filename = filename
+        self.data = dataname
+
+    @property
+    def wants_image(self):
+        return self.kind == 'image'
+
+    @property
+    def wants_drizzled(self):
+        return self.kind != 'image'
 
     @classmethod
     def from_yaml(cls, loader, node):
-        d = mkidcore.config.extract_from_node(loader, ('name', 'kind', 'stopw', 'startw', 'filename'), node)
-        return cls(d['name'], d['kind'], d.get('startw', None), d.get('stopw', None), d.get('filename', ''))
+        d = mkidcore.config.extract_from_node(loader, ('name', 'data', 'kind', 'stopw', 'startw', 'filename'), node)
+        return cls(d['name'], d['data'], d['kind'], d.get('startw', None), d.get('stopw', None),
+                   d.get('filename', ''))
 
     @property
     def input_timeranges(self):
-        try:
-            tr = self.ob.timeranges
-        except AttributeError:
-            tr = [self.ob.timerange]
-        return tr + self.ob.wavecal.timeranges + [self.flatcal.timerange]
+        return list(self.data.timeranges)+list(self.data.wavecal.timeranges)+list(self.data.flatcal.timeranges)
 
     @property
     def output_file(self):
@@ -337,21 +382,95 @@ class MKIDOutput(object):
         return os.path.join(config.paths.out, self.filename)
 
 
+class MKIDOutputCollection:
+    def __init__(self, file, datafile=''):
+        self.yml = file
+        self.meta = mkidcore.config.load(file)
+
+        if datafile:
+            data = load_data_description(datafile)
+        else:
+            global global_dataset
+            data = global_dataset
+
+        self.dataset = data
+
+        for o in self.meta:
+            try:
+                o.data = data.by_name(o.data)
+            except ValueError as e:
+                getLogger(__name__).critical(e)
+
+    @property
+    def outputs(self):
+        return self.meta
+
+    @property
+    def input_timeranges(self):
+        return set([r for o in self.outputs for r in o.input_timeranges])
+
+
+def select_metadata_for_h5(starttime, duration, metadata_source):
+    """Metadata that goes into an H5 consists of records within the duration"""
+    # Select the nearest metadata to the midpoint
+    start = datetime.datetime.fromtimestamp(starttime)
+    time_since_start = np.array([(md.utc - start).total_seconds() for md in metadata_source])
+    ok = (time_since_start < duration) & (time_since_start >= 0)
+    return [metadata_source[i] for i in np.where(ok)[0]]
+
+
+def associate_metadata(dataset):
+    """Function associates things not known at hdf build time because it isn't in the bin files"""
+    h5s = [o.h5 for o in dataset.all_observations]
+
+    # Assumes dither header info propagated down
+    header_info = [o.header_info for o in dataset.all_observations]
+
+    # Build metadata dicts
+    metadata = load_observing_metadata()
+
+    # Associate metadata
+    for h5, user_header in zip(h5s, header_info):
+        o = ObsFile(h5, mode='w')
+        o.attach_metadata(select_metadata_for_h5(o.startTime, o.duration, metadata))
+        del o
+
+def load_observing_metadata(files=tuple()):
+    global config
+    files = list(files) + glob(os.path.join(config.paths.database), 'obslog*.json')
+    data = []
+    for f in files:
+        with open(f,'r') as of:
+            data += of.readlines()
+    metadata = [DashboardState(d) for d in data]
+
+    return metadata
+
+
 def load_data_description(file):
     dataset = MKIDObservingDataset(file)
-    wcdict = {w.name: os.path.join(config.paths.database, w.id) for w in dataset.wavecals}
+    wcdict = {w.name: w for w in dataset.wavecals}
     for o in dataset.all_observations:
         o.wavecal = wcdict.get(o.wavecal, o.wavecal)
-
+    for d in dataset.dithers:
+        try:
+            d.wavecal = wcdict.get(d.wavecal, d.wavecal)
+        except AttributeError:
+            pass
     for fc in dataset.flatcals:
         try:
             fc.wavecal = wcdict.get(fc.wavecal, fc.wavecal)
         except AttributeError:
             pass
 
-    fcdict = {f.name: os.path.join(config.paths.database, f.id) for f in dataset.flatcals}
+    fcdict = {f.name: f for f in dataset.flatcals}
     for o in dataset.science_observations:
         o.flatcal = fcdict.get(o.flatcal, o.flatcal)
+    for d in dataset.dithers:
+        try:
+            d.flatcal = fcdict.get(d.flatcal, d.flatcal)
+        except AttributeError:
+            pass
 
     return dataset
 

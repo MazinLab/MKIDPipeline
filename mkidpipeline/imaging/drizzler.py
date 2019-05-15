@@ -164,7 +164,7 @@ class DitherDescription(object):
 
 
 def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{}.pkl',
-              tempdir='', usecache=True, clearcache=False, derotate=True, device_orientation=-43):
+              tempdir='', usecache=True, clearcache=False, derotate=True):
     """
     Load the photons either by querying the obsfiles in parrallel or loading from pkl if it exists. The wcs
     solutions are added to this photon data dictionary but will likely be integrated into photontable.py directly
@@ -179,7 +179,6 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
     :param usecache:
     :param clearcache:
     :param derotate:
-    :param device_orientation:
     :return:
     """
     ndither = len(ditherdesc.description.obs)
@@ -211,12 +210,8 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
 
             # ob.get_wcs returns all wcs solutions (including those after intt), so just pass then remove post facto
             # TODO consider passing intt to obsfile.get_wcs()
-            wcs = obsfile.get_wcs(platescale=ditherdesc.platescale, derotate=derotate,
-                                  device_orientation=device_orientation,
-                                  timestep=ditherdesc.wcs_timestep,
-                                  target_coordinates=ditherdesc.coords, observatory='Subaru',
-                                  target_center_at_ref=ditherdesc.rotation_center,
-                                  conex_ref=(0, 0), conex_pos=pos)
+            wcs = obsfile.get_wcs(derotate=derotate, timestep=ditherdesc.wcs_timestep,
+                                  target_coordinates=ditherdesc.coords)
             nwcs = int(np.ceil(intt/ditherdesc.wcs_timestep))
             wcs = wcs[:nwcs]
             del obsfile
@@ -805,8 +800,7 @@ def form(dither, mode='spatial', derotate=True, rotation_center=None, wvlMin=850
     intt, dither.inttime = [min(intt, dither.inttime)] * 2
 
     ditherdesc = DitherDescription(dither, target=dither.name, rotation_center=rotation_center)
-    data = load_data(ditherdesc, wvlMin, wvlMax, startt, intt, derotate=derotate, usecache=usecache,
-                     device_orientation=device_orientation)
+    data = load_data(ditherdesc, wvlMin, wvlMax, startt, intt, derotate=derotate, usecache=usecache)
 
     if mode not in ['stack', 'spatial', 'spectral', 'temporal', 'list']:
         raise ValueError('Not calling one of the available functions')
