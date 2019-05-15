@@ -50,13 +50,14 @@ import warnings
 import time
 from datetime import datetime
 import multiprocessing as mp
-
-import astropy.constants
+import pickle
+import json
+import functools
+from interval import interval
+import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
-import numpy as np
-import tables
-from interval import interval
+
 from matplotlib.backends.backend_pdf import PdfPages
 from regions import CirclePixelRegion, PixCoord
 
@@ -64,15 +65,21 @@ from mkidcore.headers import PhotonCType, PhotonNumpyType
 from mkidcore.corelog import getLogger
 import mkidcore.pixelflags as pixelflags
 from mkidcore.pixelflags import h5FileFlags
+from mkidcore.instruments import CONEX2PIXEL
+from mkidcore.objects import DashboardState
+
 import SharedArray
+
+import tables
 import tables.parameters
 import tables.file
+
+import astropy.constants
 from astropy.coordinates import SkyCoord
 from astropy import wcs
-from astroplan import Observer
-from mkidcore.instruments import CONEX2PIXEL
 from astropy.io import fits
-import functools
+from astroplan import Observer
+
 
 #These are little better than blind guesses and don't seem to impact performaace, but still need benchmarking
 # tables.parameters.CHUNK_CACHE_SIZE = 2 * 1024 * 1024 * 1024
@@ -260,6 +267,7 @@ class ObsFile(object):
         self.beamFlagImage = None
         self.nXPix = None
         self.nYPix = None
+        self._mdcache = None
         self.loadFile(fileName)
 
     def __del__(self):
@@ -494,20 +502,14 @@ class ObsFile(object):
                                                       (startt, stopt, startw, stopw))))
             return q
 
-    def get_wcs(self, platescale=0.01/3600., derotate=True, device_orientation=-48, timestep=None,
-                target_coordinates=None, observatory='Subaru', target_center_at_ref=(52, 18),
-                conex_ref=(0,0), conex_pos=(0,0)):
+    def get_wcs(self, derotate=True, timestep=None, target_coordinates=None, wave_axis=False):
         """
         Default device_orientation obtained with get_device_orientation using Trapezium observations
 
         :param timestep:
         :param target_coordinates: SkyCoord or string to query for
-        :param observatory:
-        :param target_center_at_ref:
-        :param conex_ref:
         :param conex_pos:
-        :param device_orientation:
-        :param platescale: (deg)
+        #TODO Rupert sort this out, didn't you say you got rid of the None option?
         :param derotate: [True, False, None]
                          True:  align each wcs solution to position angle = 0
                          False: rotate all wcs solutions so the position angle of the middle wcs solution matches its
@@ -516,14 +518,23 @@ class ObsFile(object):
         :return:
         """
 
-        #TODO add platescale=0.01/3600., device_orientation=-48, target_coordinates=None,
-        # observatory='Subaru', target_center_at_ref=(52, 18), conex_ref=(0,0), and conex_pos=(0,0) to header info
-        # during HDF creation, also add all fits header info from dashboard log
+        #TODO add target_coordinates=None
+        # 0) to header info during HDF creation, also add all fits header info from dashboard log
 
-        if not isinstance(target_coordinates, SkyCoord):
-            target_coordinates = SkyCoord.from_name(target_coordinates)
+        md = self.metadata
+        ditherHome = md.dither_home
+        ditherReference = md.dither_reference
+        platescale = md.platescale
+        ditherPos = md.dither_pos
 
-        def compute_ref_pixel(positions, center=(0, 0), target_center_at_ref=(0, 0)):
+        if target_coordinates is not None:
+            if not isinstance(target_coordinates, SkyCoord):
+                target_coordinates = SkyCoord.from_name(target_coordinates)
+        else:
+            target_coordinates = SkyCoord(md.ra, md.dec)
+            # target_coordinates = SkyCoord.from_name(self.info['target'])
+
+        def compute_wcs_ref_pixel(positions, center=(0, 0), target_center_at_ref=(0, 0)):
             """ A function to convert the connex offset to pixel displacement
             :param positions: conext position(s)
             :param center: conex center position
@@ -535,7 +546,7 @@ class ObsFile(object):
             pix += np.asarray(target_center_at_ref).reshape(2)
             return pix[::-1]
 
-        apo = Observer.at_site(observatory)
+        apo = Observer.at_site(md.observatory)
 
         if timestep is None:
             timestep = self.info['expTime']
@@ -544,7 +555,7 @@ class ObsFile(object):
         sample_times = np.arange(self.info['startTime'], self.info['startTime']+self.info['expTime'], timestep)
         getLogger(__name__).debug("sample_times: %s", sample_times)
 
-        device_orientation = np.deg2rad(device_orientation)
+        device_orientation = np.deg2rad(md.device_orientation)
         if derotate is True:
             times = astropy.time.Time(val=sample_times, format='unix')
             parallactic_angles = apo.parallactic_angle(times, target_coordinates).value  # radians
@@ -561,19 +572,31 @@ class ObsFile(object):
             rotation_matrix = np.array([[np.cos(ca), -np.sin(ca)],
                                         [np.sin(ca), np.cos(ca)]])
 
-            ref_pixel = compute_ref_pixel(conex_pos, conex_ref, target_center_at_ref)
+            ref_pixel = compute_wcs_ref_pixel(ditherPos, ditherHome, ditherReference)
 
-            w = wcs.WCS(naxis=2)
-            w.wcs.ctype = ["RA--TAN", "DEC-TAN"]
-            w.naxis1 = w._naxis1 = self.nXPix  # these may get set to 0 during pickling so also store to non _
-            w.naxis2 = w._naxis2 = self.nYPix
+            if wave_axis:
+                w = wcs.WCS(naxis=3)
+                w.wcs.crpix = [ref_pixel[0], ref_pixel[1], 1]
+                w.wcs.crval = [target_coordinates.ra.deg, target_coordinates.dec.deg, self.wvlbins[0] / 1e9]
+                w.wcs.ctype = ["RA--TAN", "DEC-TAN", "WAVE"]
+                w.naxis1 = w._naxis1 = w._naxis1
+                w.naxis2 = w._naxis2 = w._naxis2
+                w.naxis3 = w._naxis3 = self.nwvlbins
+                w.wcs.pc = np.eye(3)
+                w.wcs.cdelt = [platescale, platescale, (self.wvlbins[1] - self.wvlbins[0]) / 1e9]
+                w.wcs.cunit = ["deg", "deg", "m"]
+            else:
+                w = wcs.WCS(naxis=2)
+                w.wcs.ctype = ["RA--TAN", "DEC-TAN"]
+                w.naxis1 = w._naxis1 = self.nXPix  # these may get set to 0 during pickling so also store to non _
+                w.naxis2 = w._naxis2 = self.nYPix
 
-            w.wcs.crval = np.array([target_coordinates.ra.deg, target_coordinates.dec.deg])
-            w.wcs.crpix = ref_pixel
+                w.wcs.crval = np.array([target_coordinates.ra.deg, target_coordinates.dec.deg])
+                w.wcs.crpix = ref_pixel
 
-            w.wcs.pc = rotation_matrix
-            w.wcs.cdelt = [platescale, platescale]
-            w.wcs.cunit = ["deg", "deg"]
+                w.wcs.pc = rotation_matrix
+                w.wcs.cdelt = [platescale, platescale]
+                w.wcs.cunit = ["deg", "deg"]
 
             obs_wcs_seq.append(w)
 
@@ -745,6 +768,96 @@ class ObsFile(object):
             return np.asarray([1.0 * x['counts'] / x['effIntTime'] for x in data])
         else:
             return np.asarray([x['counts'] for x in data])
+
+    def getFits(self, firstSec=0, integrationTime=None, applyWeight=False, applyTPFWeight=False,
+                wvlStart=None, wvlStop=None, cube=False, countRate=True):
+            """
+            Return a time-flattened spectral cube of the counts integrated from firstSec to firstSec+integrationTime.
+            If integration time is -1, all time after firstSec is used.
+            If weighted is True, flat cal weights are applied.
+            If fluxWeighted is True, spectral shape weights are applied.
+            """
+
+            flagToUse = pixelflags.GOODPIXEL
+            if integrationTime is None:
+                integrationTime = self.info['expTime']
+
+            # Retrieval rate is about 2.27Mphot/s for queries in the 100-200M photon range
+            masterPhotonList = self.query(startt=firstSec if firstSec else None, intt=integrationTime,
+                                          startw=wvlStart, stopw=wvlStop)
+            weights = None
+            if applyWeight:
+                weights = masterPhotonList['SpecWeight']
+            if applyTPFWeight:
+                if weights is not None:
+                    weights *= masterPhotonList['NoiseWeight']
+                else:
+                    weights = masterPhotonList['NoiseWeight']
+
+            tic = time.time()
+            if cube:
+
+                wvlBinEdges = self.defaultWvlBins.size
+                nWvlBins = wvlBinEdges.size - 1
+                cube = np.zeros((self.nXPix, self.nYPix, nWvlBins))
+
+                ridbins = sorted(self.beamImage.ravel())
+                ridbins = np.append(ridbins, max(ridbins) + 1)
+                hist, xedg, yedg = np.histogram2d(masterPhotonList['ResID'], masterPhotonList['Wavelength'],
+                                                  bins=(ridbins, wvlBinEdges), weights=weights)
+
+                toc = time.time()
+                xe = xedg[:-1]
+                for (x, y), resID in np.ndenumerate(self.beamImage):  # 3% % of the time
+                    if not (self.beamFlagImage[x, y] | flagToUse) == flagToUse:
+                        continue
+                    cube[x, y, :] = hist[xe == resID]
+            else:
+                cube = np.zeros((self.nXPix, self.nYPix))
+                ridbins = sorted(self.beamImage.ravel())
+                ridbins = np.append(ridbins, max(ridbins) + 1)
+                hist, xedg = np.histogram(masterPhotonList['ResID'], bins=ridbins, weights=weights)
+
+                toc = time.time()
+                xe = xedg[:-1]
+                for (x, y), resID in np.ndenumerate(self.beamImage):
+                    if not (self.beamFlagImage[x, y] | flagToUse) == flagToUse:
+                        continue
+                    cube[x, y] = hist[xe == resID]
+
+            toc2 = time.time()
+            getLogger(__name__).debug('Histogramed data in {:.2f} s, reformatting in {:.2f}'.format(toc2 - tic,
+                                                                                                    toc2 - toc))
+            OBS2FITS = dict(target='DASHTARG', dataDir='DATADIR', beammapFile='BEAMMAP', wvlCalFile='WAVECAL',
+                            fltCalFile='FLATCAL')
+
+            hdu = fits.PrimaryHDU()
+            header = hdu.header
+
+            for k in OBS2FITS:
+                header[OBS2FITS[k]] = self.info[k]
+            tcs = pickle.loads(self.info['tcsinfo'])
+            for k in tcs:
+                header[k] = tcs[k]
+            extra = pickle.loads(self.info['extraMetadata'])
+            for k in extra:
+                header[k] = extra[k]
+
+            wcs = self.get_wcs(wave_axis=cube)
+            header.update(wcs.to_header())
+
+            header['NWEIGHT'] = (applyTPFWeight and self.info['isPhaseNoiseCorrected'], 'Noise weight corrected')
+            header['LWEIGHT'] = (applyWeight and self.info['isLinearityCorrected'], 'Linearity corrected')
+            header['FWEIGHT'] = (applyWeight and self.info['isFlatCalibrated'], 'Flatcal corrected')
+            header['SWEIGHT'] = (applyWeight and self.info['isSpecCalibrated'], 'QE corrected')
+
+            #TODO set the header units for the extensions
+            hdul = fits.HDUList([fits.PrimaryHDU(header=header),
+                                 fits.ImageHDU(data=cube/integrationTime if countRate else cube,
+                                               header=header, name='SCIENCE'),
+                                 fits.ImageHDU(data=np.sqrt(cube), header=header, name='VARIANCE'),
+                                 fits.ImageHDU(data=self.beamFlagImage, header=header, name='BADPIX')])
+            return hdul
 
     def getPixelCountImage(self, firstSec=0, integrationTime=None, wvlStart=None, wvlStop=None, applyWeight=False,
                             applyTPFWeight=False, scaleByEffInt=False, flagToUse=0, hdu=False):
@@ -1213,9 +1326,39 @@ class ObsFile(object):
     def wavelength_calibrated(self):
         return self.info['isWvlCalibrated']
 
+    def metadata(self, timestamp):
+        if self._mdcache is None:
+            md = self._mdcache = [DashboardState(s) for s in json.loads(self.info['metadata'])]
+        else:
+            md = self._mdcache
+
+        if len(md) == 1:
+            return md[0]
+
+        utc = datetime.datetime.fromtimestamp(timestamp)
+        time_after = np.array([(m.utc-utc).total_seconds() for m in md])
+        if not (time_after<=0).sum():
+            return None
+
+        to_use, = np.where(time_after[time_after<=0].max() == time_after)
+        return md[to_use[0]]
+
+    def attach_metadata(self, metadata):
+        if self.mode != 'write':
+            raise IOError("Must open file in write mode to do this!")
+        md = json.dumps([repr(md) for md in metadata])
+        if len(md) > 4*1024*1024:  # this should match mkidcore.headers.ObsHeader.metadata
+            raise ValueError("Too much metadata!")
+        self.header.modify_column(column=md, colname='extraMetadata')
+        self.header.flush()
+
     @property
     def duration(self):
         return self.info['expTime']
+
+    @property
+    def startTime(self):
+        return self.info['startTime']
 
     @staticmethod
     def makeWvlBins(energyBinWidth=.1, wvlStart=700, wvlStop=1500):
