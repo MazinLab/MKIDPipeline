@@ -1,0 +1,30 @@
+- !out
+  name: out1
+  data: HD22179
+  startw: 811
+  stopw: 1351
+  kind: stack
+  enable_noise: True
+  enable_photom: True
+  enable_ssd: True
+#  filename: test.f
+- !out
+  name: out2
+  data: HD22179
+  startw: 811
+  stopw: 1351
+  kind: cube
+  enable_noise: True
+  enable_photom: True
+  enable_ssd: True
+#  filename: test.f
+- !out
+  name: out3
+  data: HD22179
+  startw: 811
+  stopw: 1351
+  kind: dither
+  enable_noise: True
+  enable_photom: True
+  enable_ssd: True
+#  filename: test.f
