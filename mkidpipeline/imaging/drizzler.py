@@ -47,14 +47,6 @@ from mkidcore.instruments import CONEX2PIXEL
 import argparse
 from mkidpipeline.utils.utils import get_device_orientation
 
-# timeout limit for SkyCoord.from_name
-Conf.remote_timeout.set(10)
-
-# set up logging
-mkidpipeline.logtoconsole()
-
-log = pipelinelog.create_log('mkidpipeline.imaging.drizzler', console=True, level="INFO")
-
 
 def dither_pixel_vector(positions, center=(0, 0)):
     """
@@ -67,8 +59,6 @@ def dither_pixel_vector(positions, center=(0, 0)):
     positions = np.asarray(positions)
     pix = np.asarray(CONEX2PIXEL(positions[:, 0], positions[:, 1])) - np.array(CONEX2PIXEL(*center)).reshape(2, 1)
     return pix
-
-
 
 
 class DitherDescription(object):
@@ -140,8 +130,7 @@ class DitherDescription(object):
         else:
             self.wcs_timestep = suggested_time_step
 
-        log.debug(
-            "Timestep to be used {}".format(self.wcs_timestep))
+        log.debug("Timestep to be used {}".format(self.wcs_timestep))
 
     def calc_min_timesamp(self, obs, max_pix_disp=1.):
         """
@@ -952,6 +941,13 @@ if __name__ == '__main__':
                         default=None)
 
     args = parser.parse_args()
+
+    # timeout limit for SkyCoord.from_name
+    Conf.remote_timeout.set(10)
+
+    # set up logging
+    mkidpipeline.logtoconsole()
+    log = pipelinelog.create_log('mkidpipeline.imaging.drizzler', console=True, level="INFO")
 
     # load as a task configuration
     cfg = mkidpipeline.config.load_task_config(args.cfg)
