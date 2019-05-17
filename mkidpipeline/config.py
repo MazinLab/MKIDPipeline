@@ -14,7 +14,8 @@ from collections import namedtuple
 import astropy.units as units
 from mkidpipeline.hdf.photontable import ObsFile
 
-InstrumentInfo = namedtuple('InstrumentInfo',('beammap','platescale'))
+#TODO this is a placeholder to help integrating metadata
+InstrumentInfo = namedtuple('InstrumentInfo', ('beammap', 'platescale'))
 
 #Ensure that the beammap gets registered with yaml, technically the import does this
 #but without this note an IDE or human might remove the import
@@ -24,18 +25,31 @@ config = None
 
 yaml = mkidcore.config.yaml
 
+load_data_description = mkidcore.config.load
+
 pipline_settings = ('beammap', 'paths', 'templar', 'instrument', 'ncpu')
+
+_COMMON_KEYS = ('comments', 'meta', 'header', 'out')
 
 
 def load_task_config(file, use_global_config=True):
-    #if pipeline is not configured then do all needed to get it online, loading defaults and overwriting them with
-    # the task cfg
-    #if pipeline has been configured by user then choice of pip or task, but update with all pipeline stuff
-    #Never edit an existing pipeline config
+    """
+    Load a task specific yml configuration
 
+    If the pipeline is not configured then do all needed to get it online,
+    loading defaults and overwriting them with the task config. If pipeline has been
+    configured by user then there is a choice of which settings take precedence (pipeline or task
+    via use_global_config), thought the config will be updated with any additional pipeline
+    settings. Will never edit an existing pipeline config.
+
+    :param file: Config file (or config object) to load
+    :param use_global_config: config/pipe precedence
+    :return:
+    """
     global config
 
-    cfg = mkidcore.config.load(file) if isinstance(file, str) else file  #assume someone passing through a config
+    # Allow pass-through of a config
+    cfg = mkidcore.config.load(file) if isinstance(file, str) else file
 
     if config is None:
         configure_pipeline(pkg.resource_filename('mkidpipeline', 'pipe.yml'))
@@ -55,12 +69,6 @@ def configure_pipeline(*args, **kwargs):
     global config
     config = mkidcore.config.load(*args, **kwargs)
     return config
-
-
-load_data_description = mkidcore.config.load
-
-
-_COMMON_KEYS = ('comments', 'meta', 'header', 'out')
 
 
 def _build_common(yaml_loader, yaml_node):
@@ -219,8 +227,14 @@ class MKIDObservation(object):
     def h5(self):
         return h5_for_MKIDodd(self)
 
-    def lookup_coordinates(self, queryname=''):
-        return SkyCoord.from_name(queryname if queryname else self.name)
+    @property
+    def metadata(self):
+        exclude = ('wavecal', 'flatcal', 'wcscal', 'start', 'stop')
+        d = {k: v for k,v in self.__dict__.items() if k not in exclude}
+        d2 = dict(wavecal=self.wavecal.id, flatcal=self.flatcal.id, platescale=self.wcscal.platescale,
+                  dither_ref=self.wcscal.dither_ref, dither_home=self.wcscal.dither_home)
+        d.update(d2)
+        return d
 
 
 class MKIDWavedataDescription(object):
@@ -328,17 +342,7 @@ class MKIDWCSCalDescription(object):
         return cls(name, ob=ob, platescale=platescale, dither_ref=dither_ref, _common=d, dither_home=dither_home)
 
 
-# class MKIDMKIDWCSCalSolution(object):
-#     yaml_tag = '!wcssol'
-#
-#     def __init__(self, name, platescale, dither_ref, dither_home):
-#         self.name = name
-#         self.platescale = platescale
-#         self.dither_ref = dither_ref
-#         self.dither_home = dither_home
-
-
-class MKIDObservingDither(object):
+class MKIDDitheredObservation(object):
     yaml_tag = '!dither'
 
     def __init__(self, name, file, wavecal, flatcal, wcscal, _common=None):
@@ -369,10 +373,11 @@ class MKIDObservingDither(object):
         self.nsteps = int(d['npos'])
         self.pos = list(zip(tofloat(d['xpos']), tofloat(d['ypos'])))
 
-        #TODO associate header and comments with obs?
-        self.obs = [MKIDObservation('{}_({})_{}'.format(self.name, os.path.basename(self.file), i),
-                                    b, stop=e, wavecal=wavecal, flatcal=flatcal, wcscal=wcscal, _common=_common)
-                    for i, (b, e) in enumerate(zip(tofloat(d['starttimes']), tofloat(d['endtimes'])))]
+        self.obs = []
+        for i, (b, e) in enumerate(zip(tofloat(d['starttimes']), tofloat(d['endtimes']))):
+            name = '{}_({})_{}'.format(self.name, os.path.basename(self.file), i)
+            self.obs.append(MKIDObservation(name, b, stop=e, wavecal=wavecal, flatcal=flatcal,
+                                            wcscal=wcscal, _common=_common))
 
     @classmethod
     def from_yaml(cls, loader, node):
@@ -460,19 +465,23 @@ class MKIDObservingDataset(object):
 
     @property
     def dithers(self):
-        return [r for r in self.meta if isinstance(r, MKIDObservingDither)]
+        return [r for r in self.meta if isinstance(r, MKIDDitheredObservation)]
+
+    @property
+    def sobs(self):
+        return [r for r in self.meta if isinstance(r, MKIDObservation)]
 
     @property
     def all_observations(self):
         return ([o for o in self.meta if isinstance(o, MKIDObservation)] +
-                [o for d in self.meta if isinstance(d, MKIDObservingDither) for o in d.obs] +
+                [o for d in self.meta if isinstance(d, MKIDDitheredObservation) for o in d.obs] +
                 [d.ob for d in self.meta if isinstance(d, MKIDFlatdataDescription) and d.ob is not None] +
                 [d.ob for d in self.meta if isinstance(d, MKIDWCSCalDescription) and d.ob is not None])
 
     @property
     def science_observations(self):
         return ([o for o in self.meta if isinstance(o, MKIDObservation)] +
-                [o for d in self.meta if isinstance(d, MKIDObservingDither) for o in d.obs])
+                [o for d in self.meta if isinstance(d, MKIDDitheredObservation) for o in d.obs])
 
     @property
     def wavecalable(self):
@@ -582,34 +591,35 @@ class MKIDOutputCollection:
 def select_metadata_for_h5(starttime, duration, metadata_source):
     """Metadata that goes into an H5 consists of records within the duration"""
     # Select the nearest metadata to the midpoint
-    start = datetime.datetime.fromtimestamp(starttime)
+    start = datetime.fromtimestamp(starttime)
     time_since_start = np.array([(md.utc - start).total_seconds() for md in metadata_source])
     ok = (time_since_start < duration) & (time_since_start >= 0)
     return [metadata_source[i] for i in np.where(ok)[0]]
 
 
 def associate_metadata(dataset):
-    """Function associates things not known at hdf build time because it isn't in the bin files"""
-    h5s = [o.h5 for o in dataset.all_observations]
+    """Function associates things not known at hdf build time (e.g. that aren't in the bin files)"""
 
-    # Assumes dither header info propagated down
-    header_info = [o.header_info for o in dataset.all_observations]
-
-    # Build metadata dicts
+    # Retrieve metadata database
     metadata = load_observing_metadata()
 
     # Associate metadata
-    for h5, user_header in zip(h5s, header_info):
-        o = ObsFile(h5, mode='w')
-        o.attach_metadata(select_metadata_for_h5(o.startTime, o.duration, metadata))
+    for ob in dataset.all_observations:
+        o = ObsFile(ob.h5, mode='w')
+        ob_md = ob.metadata
+        md = select_metadata_for_h5(o.startTime, o.duration, metadata)
+        for m in md:
+            m.update(ob_md)
+        o.attach_metadata(md)
         del o
+
 
 def load_observing_metadata(files=tuple()):
     global config
     files = list(files) + glob(os.path.join(config.paths.database), 'obslog*.json')
     data = []
     for f in files:
-        with open(f,'r') as of:
+        with open(f, 'r') as of:
             data += of.readlines()
     metadata = [DashboardState(d) for d in data]
 
@@ -667,6 +677,6 @@ yaml.register_class(MKIDObservation)
 yaml.register_class(MKIDWavedataDescription)
 yaml.register_class(MKIDFlatdataDescription)
 yaml.register_class(MKIDWCSCalDescription)
-yaml.register_class(MKIDObservingDither)
+yaml.register_class(MKIDDitheredObservation)
 yaml.register_class(MKIDOutput)
 
