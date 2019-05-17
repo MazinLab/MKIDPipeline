@@ -73,7 +73,7 @@ def h5_for_MKIDodd(observing_data_desc):
     return os.path.join(config.paths.out, '{}.h5'.format(observing_data_desc.start))
 
 
-class MKIDObservingDataDescription(object):
+class MKIDTimerange(object):
     yaml_tag = u'!ob'
 
     def __init__(self, name, start, duration=None, stop=None, _common=None, wavecal=None, flatcal=None):
@@ -96,8 +96,6 @@ class MKIDObservingDataDescription(object):
         if self.stop < self.start:
             raise ValueError('Stop ({}) must come after start ({})'.format(self.stop,self.start))
 
-        self.wavecal = wavecal
-        self.flatcal = flatcal
 
         self.name = str(name)
 
@@ -129,8 +127,85 @@ class MKIDObservingDataDescription(object):
         start = d.pop('start', None)
         stop = d.pop('stop', None)
         duration = d.pop('duration', None)
-        return cls(name, start, duration=duration, stop=stop, _common=d,
-                   wavecal=d.pop('wavecal', None), flatcal=d.pop('flatcal', None))
+        return cls(name, start, duration=duration, stop=stop, wavecal=d.pop('wavecal', None),
+                   flatcal=d.pop('flatcal', None), _common=d)
+
+    @property
+    def timerange(self):
+        return self.start, self.stop
+
+    @property
+    def timeranges(self):
+        return self.timerange,
+
+    @property
+    def h5(self):
+        return h5_for_MKIDodd(self)
+
+    def lookup_coordinates(self, queryname=''):
+        return SkyCoord.from_name(queryname if queryname else self.name)
+
+
+class MKIDObservation(object):
+    """requires keys name, wavecal, flatcal, wcscal, and all the things from ob"""
+    yaml_tag = u'!sob'
+    #TODO make subclass of MKIDTimerange, keep in sync for now
+    def __init__(self, name, start, duration=None, stop=None, wavecal=None, flatcal=None, wcscal=None, _common=None):
+
+        if _common is not None:
+            self.__dict__.update(_common)
+
+        if duration is None and stop is None:
+            raise ValueError('Must specify stop or duration')
+        if duration is not None and stop is not None:
+            raise ValueError('Must only specify stop or duration')
+        self.start = int(start)
+
+        if duration is not None:
+            self.stop = self.start + int(np.ceil(duration))
+
+        if stop is not None:
+            self.stop = int(np.ceil(stop))
+
+        if self.stop < self.start:
+            raise ValueError('Stop ({}) must come after start ({})'.format(self.stop,self.start))
+
+        self.wavecal = wavecal
+        self.flatcal = flatcal
+        self.wcscal = wcscal
+
+        self.name = str(name)
+
+    def __str__(self):
+        return '{} t={}:{}s'.format(self.name, self.start, self.duration)
+
+    @property
+    def date(self):
+        return datetime.utcfromtimestamp(self.start)
+
+    @property
+    def instrument_info(self):
+        #TODO remove or sync this with the metadata in the H5 files
+        return InstrumentInfo(beammap=self.beammap, platescale=config.instrument.platescale * units.mas)
+
+    @property
+    def beammap(self):
+        #TODO need to move beammap from pipe.yml to data.yml
+        return config.beammap
+
+    @property
+    def duration(self):
+        return self.stop-self.start
+
+    @classmethod
+    def from_yaml(cls, loader, node):
+        d = dict(loader.construct_pairs(node))  #WTH this one line took half a day to get right
+        name = d.pop('name')
+        start = d.pop('start', None)
+        stop = d.pop('stop', None)
+        duration = d.pop('duration', None)
+        return cls(name, start, duration=duration, stop=stop, wavecal=d.pop('wavecal', None),
+                   flatcal=d.pop('flatcal', None), wcscal=d.pop('wcscal', None), _common=d)
 
     @property
     def timerange(self):
@@ -149,9 +224,11 @@ class MKIDObservingDataDescription(object):
 
 
 class MKIDWavedataDescription(object):
+    """requires keys name and data"""
     yaml_tag = u'!wc'
 
     def __init__(self, name, data):
+
         self.name = name
         self.data = data
         self.data.sort(key=lambda x: x.start)
@@ -184,6 +261,14 @@ class MKIDFlatdataDescription(object):
     """attributes name and either ob or wavecal"""
     yaml_tag = u'!fc'
 
+    def __init__(self, name, ob=None, wavecal=None, _common=None):
+        if _common is not None:
+            self.__dict__.update(_common)
+
+        self.name = name
+        self.ob = ob
+        self.wavecal = wavecal
+
     @property
     def id(self):
         try:
@@ -197,20 +282,66 @@ class MKIDFlatdataDescription(object):
 
     @property
     def timerange(self):
-        return self.ob.timerange if hasattr(self, 'ob') else None
+        return self.ob.timerange if self.ob is not None else None
 
     @property
     def timeranges(self):
         return (self.timerange, ) if self.timerange else tuple()
 
     def __str__(self):
-        return '{}: {}'.format(self.name, self.ob if hasattr(self,'ob') else self.wavecal)
+        return '{}: {}'.format(self.name, self.ob if self.ob is not None else self.wavecal)
+
+    @classmethod
+    def from_yaml(cls, loader, node):
+        d = dict(loader.construct_pairs(node))  #WTH this one line took half a day to get right
+        name = d.pop('name')
+        ob = d.pop('ob', None)
+        wavecal = d.pop('wavecal', None)
+        return cls(name, ob=ob, wavecal=wavecal, _common=d)
+
+
+class MKIDWCSCalDescription(object):
+    yaml_tag = '!wcscal'
+
+    def __init__(self, name, ob=None, platescale=None, dither_ref=None, _common=None,
+                 dither_home=None):
+        self.name = name
+        self.ob = ob
+        self.platescale = platescale
+        self.dither_ref = dither_ref
+        self.dither_home = dither_home
+
+        if (platescale is None or dither_ref is None or dither_home is None) and ob is None:
+            raise ValueError('ob must be specified if platescale, dither_ref, dither_home are not')
+
+        if _common is not None:
+            self.__dict__.update(_common)
+
+    @classmethod
+    def from_yaml(cls, loader, node):
+        d = dict(loader.construct_pairs(node))
+        name = d.pop('name')
+        ob = d.pop('ob', None)
+        platescale = d.pop('platescale', None)
+        dither_ref = d.pop('dither_ref', None)
+        dither_home = d.pop('dither_home', None)
+        return cls(name, ob=ob, platescale=platescale, dither_ref=dither_ref, _common=d, dither_home=dither_home)
+
+
+# class MKIDMKIDWCSCalSolution(object):
+#     yaml_tag = '!wcssol'
+#
+#     def __init__(self, name, platescale, dither_ref, dither_home):
+#         self.name = name
+#         self.platescale = platescale
+#         self.dither_ref = dither_ref
+#         self.dither_home = dither_home
 
 
 class MKIDObservingDither(object):
     yaml_tag = '!dither'
 
-    def __init__(self, name, file, wavecal, flatcal, _common=None):
+    def __init__(self, name, file, wavecal, flatcal, wcscal, _common=None):
 
         if _common is not None:
             self.__dict__.update(_common)
@@ -219,6 +350,8 @@ class MKIDObservingDither(object):
         self.file = file
         self.wavecal = wavecal
         self.flatcal = flatcal
+        self.wcscal = wcscal
+
         with open(file) as f:
             lines = f.readlines()
 
@@ -237,20 +370,20 @@ class MKIDObservingDither(object):
         self.pos = list(zip(tofloat(d['xpos']), tofloat(d['ypos'])))
 
         #TODO associate header and comments with obs?
-        self.obs = [MKIDObservingDataDescription('{}_({})_{}'.format(self.name, os.path.basename(self.file), i),
-                                                 b, stop=e, wavecal=wavecal, flatcal=flatcal, _common=_common)
+        self.obs = [MKIDObservation('{}_({})_{}'.format(self.name, os.path.basename(self.file), i),
+                                    b, stop=e, wavecal=wavecal, flatcal=flatcal, wcscal=wcscal, _common=_common)
                     for i, (b, e) in enumerate(zip(tofloat(d['starttimes']), tofloat(d['endtimes'])))]
-
 
     @classmethod
     def from_yaml(cls, loader, node):
-        d = mkidcore.config.extract_from_node(loader, ('file', 'name', 'wavecal', 'flatcal'), node)
+        #TODO I don't know why I used extract_from_node here and dict(loader.construct_pairs(node)) elsewhere
+        d = mkidcore.config.extract_from_node(loader, ('file', 'name', 'wavecal', 'flatcal', 'wcscal'), node)
         if not os.path.isfile(d['file']):
             file = os.path.join(config.paths.dithers, d['file'])
             getLogger(__name__).info('Treating {} as relative dither path.'.format(d['file']))
         else:
             file = d['file']
-        return cls(d['name'], file, d['wavecal'], d['flatcal'], _common=_build_common(loader, node))
+        return cls(d['name'], file, d['wavecal'], d['flatcal'], d['wcscal'], _common=_build_common(loader, node))
 
     @property
     def timeranges(self):
@@ -267,6 +400,37 @@ class MKIDObservingDataset(object):
             msg = 'Duplicate names not allowed in {}.'.format(yml)
             getLogger(__name__).critical(msg)
             raise ValueError(msg)
+
+        wcdict = {w.name: w for w in self.wavecals}
+        fcdict = {f.name: f for f in self.flatcals}
+        wcsdict = {w.name: w for w in self.wcscals}
+
+        for o in self.all_observations:
+            o.wavecal = wcdict.get(o.wavecal, o.wavecal)
+
+        for o in self.science_observations:
+            o.flatcal = fcdict.get(o.flatcal, o.flatcal)
+            o.wcscal = wcsdict.get(o.wcscal, o.wcscal)
+
+        for fc in self.flatcals:
+            try:
+                fc.wavecal = wcdict.get(fc.wavecal, fc.wavecal)
+            except AttributeError:
+                pass
+
+        for d in self.dithers:
+            try:
+                d.wavecal = wcdict.get(d.wavecal, d.wavecal)
+            except AttributeError:
+                pass
+            try:
+                d.flatcal = fcdict.get(d.flatcal, d.flatcal)
+            except AttributeError:
+                pass
+            try:
+                d.wcscal = wcsdict.get(d.wcscal, d.wcscal)
+            except AttributeError:
+                pass
 
     @property
     def timeranges(self):
@@ -291,18 +455,23 @@ class MKIDObservingDataset(object):
         return [r for r in self.meta if isinstance(r, MKIDFlatdataDescription)]
 
     @property
+    def wcscals(self):
+        return [r for r in self.meta if isinstance(r, MKIDWCSCalDescription)]
+
+    @property
     def dithers(self):
-        return [d for d in self.meta if isinstance(d, MKIDObservingDither)]
+        return [r for r in self.meta if isinstance(r, MKIDObservingDither)]
 
     @property
     def all_observations(self):
-        return ([o for o in self.meta if isinstance(o, MKIDObservingDataDescription)] +
+        return ([o for o in self.meta if isinstance(o, MKIDObservation)] +
                 [o for d in self.meta if isinstance(d, MKIDObservingDither) for o in d.obs] +
-                [d.ob for d in self.meta if isinstance(d, MKIDFlatdataDescription) and hasattr(d,'ob')])
+                [d.ob for d in self.meta if isinstance(d, MKIDFlatdataDescription) and d.ob is not None] +
+                [d.ob for d in self.meta if isinstance(d, MKIDWCSCalDescription) and d.ob is not None])
 
     @property
     def science_observations(self):
-        return ([o for o in self.meta if isinstance(o, MKIDObservingDataDescription)] +
+        return ([o for o in self.meta if isinstance(o, MKIDObservation)] +
                 [o for d in self.meta if isinstance(d, MKIDObservingDither) for o in d.obs])
 
     @property
@@ -493,8 +662,11 @@ def logtoconsole():
     create_log('__main__')
 
 
-yaml.register_class(MKIDObservingDataDescription)
+yaml.register_class(MKIDTimerange)
+yaml.register_class(MKIDObservation)
 yaml.register_class(MKIDWavedataDescription)
 yaml.register_class(MKIDFlatdataDescription)
+yaml.register_class(MKIDWCSCalDescription)
 yaml.register_class(MKIDObservingDither)
 yaml.register_class(MKIDOutput)
+
