@@ -1,17 +1,20 @@
-import mkidcore.config
+
 import numpy as np
 import os
 from glob import glob
 import hashlib
 from datetime import datetime
 import multiprocessing as mp
-from mkidcore.corelog import getLogger, create_log
-from mkidcore.utils import getnm
 import pkg_resources as pkg
-from mkidcore.objects import Beammap, DashboardState
+import astropy.units as units
+import json
 from astropy.coordinates import SkyCoord
 from collections import namedtuple
-import astropy.units as units
+
+import mkidcore.config
+from mkidcore.corelog import getLogger, create_log
+from mkidcore.utils import getnm
+from mkidcore.objects import Beammap
 from mkidpipeline.hdf.photontable import ObsFile
 
 #TODO this is a placeholder to help integrating metadata
@@ -230,7 +233,7 @@ class MKIDObservation(object):
     @property
     def metadata(self):
         exclude = ('wavecal', 'flatcal', 'wcscal', 'start', 'stop')
-        d = {k: v for k,v in self.__dict__.items() if k not in exclude}
+        d = {k: v for k, v in self.__dict__.items() if k not in exclude}
         d2 = dict(wavecal=self.wavecal.id, flatcal=self.flatcal.id, platescale=self.wcscal.platescale,
                   dither_ref=self.wcscal.dither_ref, dither_home=self.wcscal.dither_home)
         d.update(d2)
@@ -589,7 +592,11 @@ class MKIDOutputCollection:
 
 
 def select_metadata_for_h5(starttime, duration, metadata_source):
-    """Metadata that goes into an H5 consists of records within the duration"""
+    """
+    Metadata that goes into an H5 consists of records within the duration
+
+    requires metadata_source be an indexable iterable with an attribute utc pointing to a datetime
+    """
     # Select the nearest metadata to the midpoint
     start = datetime.fromtimestamp(starttime)
     time_since_start = np.array([(md.utc - start).total_seconds() for md in metadata_source])
@@ -597,32 +604,24 @@ def select_metadata_for_h5(starttime, duration, metadata_source):
     return [metadata_source[i] for i in np.where(ok)[0]]
 
 
-def associate_metadata(dataset):
-    """Function associates things not known at hdf build time (e.g. that aren't in the bin files)"""
-
-    # Retrieve metadata database
-    metadata = load_observing_metadata()
-
-    # Associate metadata
-    for ob in dataset.all_observations:
-        o = ObsFile(ob.h5, mode='w')
-        ob_md = ob.metadata
-        md = select_metadata_for_h5(o.startTime, o.duration, metadata)
-        for m in md:
-            m.update(ob_md)
-        o.attach_metadata(md)
-        del o
+def parse_obslog(file):
+    with open(file, 'r') as f:
+        lines = f.readlines()
+    ret = []
+    for l in lines:
+        ct = mkidcore.config.ConfigThing(json.loads(l).items())
+        ct.register('utc', datetime.strptime(ct.utc, "%Y%m%d%H%M%S"), update=True)
+        ret.append(ct)
+    return ret
 
 
 def load_observing_metadata(files=tuple()):
+    """Return a list of mkidcore.config.ConfigThings with the contents of the metadata from observing"""
     global config
     files = list(files) + glob(os.path.join(config.paths.database), 'obslog*.json')
-    data = []
+    metadata = []
     for f in files:
-        with open(f, 'r') as of:
-            data += of.readlines()
-    metadata = [DashboardState(d) for d in data]
-
+        metadata += parse_obslog(f)
     return metadata
 
 
