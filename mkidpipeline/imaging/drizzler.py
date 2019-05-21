@@ -210,8 +210,7 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
 
             # ob.get_wcs returns all wcs solutions (including those after intt), so just pass then remove post facto
             # TODO consider passing intt to obsfile.get_wcs()
-            wcs = obsfile.get_wcs(derotate=derotate, timestep=ditherdesc.wcs_timestep,
-                                  target_coordinates=ditherdesc.coords)
+            wcs = obsfile.get_wcs(derotate=derotate, timestep=ditherdesc.wcs_timestep)
             nwcs = int(np.ceil(intt/ditherdesc.wcs_timestep))
             wcs = wcs[:nwcs]
             del obsfile
