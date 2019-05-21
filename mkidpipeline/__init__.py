@@ -25,6 +25,19 @@ def flatcal_apply(o):
     of.file.close()
 
 
+def batch_apply_metadata(dataset):
+    """Function associates things not known at hdf build time (e.g. that aren't in the bin files)"""
+    # Retrieve metadata database
+    metadata = config.load_observing_metadata()
+    # Associate metadata
+    for ob in dataset.all_observations:
+        o = mkidpipeline.hdf.photontable.ObsFile(ob.h5, mode='w')
+        md = config.select_metadata_for_h5(o.startTime, o.duration, metadata)
+        md.registerfromkvlist(ob.metadata.items())
+        o.attach_observing_metadata(md)
+        del o
+
+
 def batch_apply_wavecals(obs, ncpu=None):
     pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
     obs = {o.h5: o for o in obs}.values()  # filter so unique h5 files, not responsible for a mixed wavecal specs
