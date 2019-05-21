@@ -521,7 +521,7 @@ class ObsFile(object):
         #TODO add target_coordinates=None
         # 0) to header info during HDF creation, also add all fits header info from dashboard log
 
-        md = self.metadata(timestep)
+        md = self.metadata()
         ditherHome = md.dither_home
         ditherReference = md.dither_reference
         platescale = md.platescale
@@ -778,7 +778,7 @@ class ObsFile(object):
         If fluxWeighted is True, spectral shape weights are applied.
         """
 
-        #TODO finish this and use metadata
+        #TODO finish this
         flagToUse = pixelflags.GOODPIXEL
         if integrationTime is None:
             integrationTime = self.info['expTime']
@@ -800,7 +800,7 @@ class ObsFile(object):
 
             wvlBinEdges = self.defaultWvlBins.size
             nWvlBins = wvlBinEdges.size - 1
-            cube = np.zeros((self.nXPix, self.nYPix, nWvlBins))
+            data = np.zeros((self.nXPix, self.nYPix, nWvlBins))
 
             ridbins = sorted(self.beamImage.ravel())
             ridbins = np.append(ridbins, max(ridbins) + 1)
@@ -812,9 +812,9 @@ class ObsFile(object):
             for (x, y), resID in np.ndenumerate(self.beamImage):  # 3% % of the time
                 if not (self.beamFlagImage[x, y] | flagToUse) == flagToUse:
                     continue
-                cube[x, y, :] = hist[xe == resID]
+                data[x, y, :] = hist[xe == resID]
         else:
-            cube = np.zeros((self.nXPix, self.nYPix))
+            data = np.zeros((self.nXPix, self.nYPix))
             ridbins = sorted(self.beamImage.ravel())
             ridbins = np.append(ridbins, max(ridbins) + 1)
             hist, xedg = np.histogram(masterPhotonList['ResID'], bins=ridbins, weights=weights)
@@ -824,33 +824,20 @@ class ObsFile(object):
             for (x, y), resID in np.ndenumerate(self.beamImage):
                 if not (self.beamFlagImage[x, y] | flagToUse) == flagToUse:
                     continue
-                cube[x, y] = hist[xe == resID]
+                data[x, y] = hist[xe == resID]
 
         toc2 = time.time()
         getLogger(__name__).debug('Histogramed data in {:.2f} s, reformatting in {:.2f}'.format(toc2 - tic,
                                                                                                 toc2 - toc))
-        OBS2FITS = dict(target='DASHTARG', dataDir='DATADIR', beammapFile='BEAMMAP', wvlCalFile='WAVECAL',
-                        fltCalFile='FLATCAL')
-
         hdu = fits.PrimaryHDU()
         header = hdu.header
 
-        for k in OBS2FITS:
-            header[OBS2FITS[k]] = self.info[k]
-        tcs = pickle.loads(self.info['tcsinfo'])
-        for k in tcs:
-            header[k] = tcs[k]
-        extra = pickle.loads(self.info['extraMetadata'])
-        for k in extra:
-            header[k] = extra[k]
+        for k, v in self.metadata().items():
+            header[k] = v
 
-        wcs = self.get_wcs(wave_axis=cube)
+        wcs = self.get_wcs(wave_axis=cube)[0]
         header.update(wcs.to_header())
 
-        header['NWEIGHT'] = (applyTPFWeight and self.info['isPhaseNoiseCorrected'], 'Noise weight corrected')
-        header['LWEIGHT'] = (applyWeight and self.info['isLinearityCorrected'], 'Linearity corrected')
-        header['FWEIGHT'] = (applyWeight and self.info['isFlatCalibrated'], 'Flatcal corrected')
-        header['SWEIGHT'] = (applyWeight and self.info['isSpecCalibrated'], 'QE corrected')
 
         #TODO set the header units for the extensions
         hdul = fits.HDUList([fits.PrimaryHDU(header=header),
@@ -1388,6 +1375,13 @@ class ObsFile(object):
         #
         # for mdk, k in infomd_keys.items():
         #     md[mdk] = self.info[k]
+        # OBS2FITS = dict(target='DASHTARG', dataDir='DATADIR', beammapFile='BEAMMAP', wvlCalFile='WAVECAL',
+        #                 fltCalFile='FLATCAL')
+
+        # header['NWEIGHT'] = (applyTPFWeight and self.info['isPhaseNoiseCorrected'], 'Noise weight corrected')
+        # header['LWEIGHT'] = (applyWeight and self.info['isLinearityCorrected'], 'Linearity corrected')
+        # header['FWEIGHT'] = (applyWeight and self.info['isFlatCalibrated'], 'Flatcal corrected')
+        # header['SWEIGHT'] = (applyWeight and self.info['isSpecCalibrated'], 'QE corrected')
 
         omd = md.get('obs_metadata', [])
         if not omd:
