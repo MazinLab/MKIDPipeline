@@ -1,7 +1,7 @@
 import sys
 import multiprocessing as mp
 
-if sys.version_info.major==3:
+if sys.version_info.major == 3:
     import mkidpipeline.hdf.bin2hdf as bin2hdf
     import mkidpipeline.calibration.wavecal as wavecal
     import mkidpipeline.calibration.flatcal as flatcal
@@ -27,14 +27,14 @@ def flatcal_apply(o):
 
 def batch_apply_wavecals(obs, ncpu=None):
     pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
-    #TODO filter so that any files don't get opened concurrently
+    obs = {o.h5: o for o in obs}.values()  # filter so unique h5 files, not responsible for a mixed wavecal specs
     pool.map(wavecal_apply, obs)
     pool.close()
 
 
 def batch_apply_flatcals(obs, ncpu=None):
     pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
-    # TODO filter so that any files don't get opened concurrently
+    obs = {o.h5: o for o in obs}.values()  # filter so unique h5 files, not responsible for a mixed flatcal specs
     pool.map(flatcal_apply, obs)
     pool.close()
 
