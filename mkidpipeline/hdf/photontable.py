@@ -66,7 +66,7 @@ from mkidcore.corelog import getLogger
 import mkidcore.pixelflags as pixelflags
 from mkidcore.config import yaml, StringIO
 from mkidcore.pixelflags import h5FileFlags
-from mkidcore.instruments import CONEX2PIXEL
+from mkidcore.instruments import compute_wcs_ref_pixel
 
 import SharedArray
 
@@ -533,18 +533,6 @@ class ObsFile(object):
         else:
             target_coordinates = SkyCoord(md.ra, md.dec)
             # target_coordinates = SkyCoord.from_name(self.info['target'])
-
-        def compute_wcs_ref_pixel(positions, center=(0, 0), target_center_at_ref=(0, 0)):
-            """ A function to convert the connex offset to pixel displacement
-            :param positions: conext position(s)
-            :param center: conex center position
-            :param target_center_at_ref: pixel position of conex center
-            :return:
-            """
-            positions = np.asarray(positions)
-            pix = np.asarray(CONEX2PIXEL(positions[0], positions[1])) - np.array(CONEX2PIXEL(*center))
-            pix += np.asarray(target_center_at_ref).reshape(2)
-            return pix[::-1]
 
         apo = Observer.at_site(md.observatory)
 

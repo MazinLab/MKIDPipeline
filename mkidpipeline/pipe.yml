@@ -60,6 +60,10 @@ instrument: !configdict
   wvl_stop: 1500
   platescale: 10.4 #mas
 
+drizzler: !configdict
+  plots: all
+  pixfrac: 0.5
+
 templar: !configdict
   file: the_conf.yml
 
