@@ -1,4 +1,7 @@
+#!/bin/env python3
 import os
+import time
+import numpy as np
 os.environ['NUMEXPR_MAX_THREADS'] = '32'
 os.environ['NUMEXPR_NUM_THREADS'] = '16'
 os.environ["TMPDIR"] = '/mnt/data0/tmp/'
@@ -13,25 +16,62 @@ cfgfile = '/scratch/baileyji/mec/pipe.yml'
 pipe.logtoconsole()
 
 pcfg = pipe.configure_pipeline(cfgfile)
-dataset = pipe.load_data_description(datafile)
-
 
 pipe.getLogger('mkidpipeline.calibration.wavecal').setLevel('INFO')
+pipe.getLogger('mkidpipeline.badpix').setLevel('INFO')
 pipe.getLogger('mkidpipeline.hdf.photontable').setLevel('INFO')
 
-ncpu=20
+ncpu=7
 
 
-pipe.bin2hdf.buildtables(dataset.timeranges, ncpu=ncpu, remake=False, chunkshape=250)
+def run_stage1(dataset):
+    times = []
+    times.append(time.time())
+    pipe.bin2hdf.buildtables(dataset.timeranges, ncpu=ncpu, remake=False, chunkshape=250)
+    times.append(time.time())
+    pipe.batch_apply_metadata(dataset)
+    times.append(time.time())
+    pipe.wavecal.fetch(dataset.wavecals, verbose=False, ncpu=ncpu)
+    times.append(time.time())
+    pipe.batch_apply_wavecals(dataset.wavecalable, ncpu=ncpu)
+    times.append(time.time())
+    pipe.flatcal.fetch(dataset.flatcals, ncpu=ncpu)
+    times.append(time.time())
+    pipe.batch_apply_flatcals(dataset.science_observations, ncpu=ncpu)
+    times.append(time.time())
+    pipe.getLogger('mkidpipeline.hdf.photontable').setLevel('DEBUG')
+    times.append(time.time())
+    pipe.batch_maskhot(dataset.science_observations, ncpu=ncpu)
+    times.append(time.time())
 
-pipe.wavecal.fetch(dataset.wavecals, verbose=False, ncpu=ncpu)
+    print(np.diff(times).astype(int))
+    print(int(times[-1] - times[0])/60)
 
-pipe.batch_apply_wavecals(dataset.wavecalable, ncpu=ncpu)
 
-pipe.flatcal.fetch(dataset.flatcals, ncpu=ncpu)
+def generate_outputs(outputs):
+    from mkidpipeline.config import config
+    import mkidpipeline.imaging.drizzler as drizzler
+    for o in outputs:
+        pipe.getLogger(__name__).info('Generating {}'.format(o))
+        if o.wants_image:
+            import pipe.hdf.photontable
+            h5 = pipe.hdf.photontable.ObsFile(o.data.h5)
+            img = h5.getFits(wvlStart=o.startw, wvlStop=o.stopw, applyWeight=o.enable_photom,
+                             applyTPFWeight=o.enable_noise, countRate=True)
+            img.writeto(o.output_file)
+        if o.wants_drizzled:
+            import pipe.imaging
+            drizzled = drizzler.form(o.data, mode=o.kind, wvlMin=o.startw, wvlMax=o.stopw,
+                                     pixfrac=config.drizzler.pixfrac, usecache=False)
+            drizzled.writeto(o.output_file)
 
-pipe.batch_apply_flatcals(dataset.science_observations, ncpu=ncpu)
 
-pipe.getLogger('mkidpipeline.hdf.photontable').setLevel('DEBUG')
+out_collection = pipe.load_output_description('')
+outputs = out_collection.outputs
+dataset = pipe.load_data_description(datafile) # NB using this may result in processing more than is strictly required
+# dataset = out_collection.dataset
 
-pipe.batch_maskhot(dataset.science_observations, ncpu=ncpu)
+# First we need to process data
+run_stage1(dataset)
+# generate_outputs(outputs)
+
