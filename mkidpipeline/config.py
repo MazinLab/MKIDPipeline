@@ -28,8 +28,6 @@ config = None
 
 yaml = mkidcore.config.yaml
 
-load_data_description = mkidcore.config.load
-
 pipline_settings = ('beammap', 'paths', 'templar', 'instrument', 'ncpu')
 
 _COMMON_KEYS = ('comments', 'meta', 'header', 'out')
@@ -651,6 +649,8 @@ def load_data_description(file):
             pass
 
     return dataset
+
+load_output_description = MKIDOutputCollection
 
 
 def n_cpus_available(max=np.inf):

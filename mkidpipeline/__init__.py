@@ -9,7 +9,8 @@ if sys.version_info.major == 3:
     import mkidpipeline.config as config
     import mkidpipeline.hdf.photontable
 
-from mkidpipeline.config import configure_pipeline, load_data_description, load_task_config, logtoconsole
+from mkidpipeline.config import configure_pipeline, load_data_description, load_task_config, load_output_description, \
+    logtoconsole
 from mkidcore.config import getLogger
 
 
