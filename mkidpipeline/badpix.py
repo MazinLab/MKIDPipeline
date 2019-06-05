@@ -148,6 +148,7 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5, de
                 True = Hot Pixel
                 False = Not Hot Pixel
     'image': 2D array containing the input image
+    'masked_image': The hot and dead pixel masked image
     'median_filter_image': The median-filtered image
     'max_ratio': 2D array - the maximum allowed ratio between pixel flux and the median-filtered image
     'difference_image': the difference between the input image and an image representing the max allowed flux in each pixel.
@@ -240,8 +241,8 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5, de
         bad_mask = np.zeros_like(raw_image) \
             + dead_mask * pixelflags.badpixcal['dead'] \
             + hot_mask * pixelflags.badpixcal['hot']
-        
-    return {'hot_mask': hot_mask, 'image': raw_image, 'bad_mask': bad_mask,
+
+    return {'hot_mask': hot_mask, 'masked_image': raw_image, 'image': image, 'bad_mask': bad_mask,
             'median_filter_image': median_filter_image, 'max_ratio': max_ratio, 'difference_image': difference_image,
             'difference_image_error': difference_image_error, 'num_iter': iteration + 1}
 
