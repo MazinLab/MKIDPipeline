@@ -529,7 +529,7 @@ class MKIDOutput(object):
         self.kind = kind.lower()
         opt = ('stack', 'spatial', 'spectral', 'temporal', 'list', 'image')
         if kind.lower() not in opt:
-            raise ValueError('Output kind "{}" is not one of "{}"'.format(name, ', '.join(opt)))
+            raise ValueError('Output {} kind "{}" is not one of "{}" '.format(name, kind, ', '.join(opt)))
         self.enable_noise = True
         self.enable_photom = True
         self.enable_ssd = True
