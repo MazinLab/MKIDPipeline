@@ -94,6 +94,8 @@ class MKIDTimerange(object):
             raise ValueError('Must specify stop or duration')
         if duration is not None and stop is not None:
             raise ValueError('Must only specify stop or duration')
+        if duration is not None and duration > 43200:
+            raise ValueError('Specified duration is longer than 12 hours!')
         self.start = int(start)
 
         if duration is not None:
