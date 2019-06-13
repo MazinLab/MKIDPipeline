@@ -1394,11 +1394,12 @@ class ObsFile(object):
         md = self.metadata(_retall=True)
         md['obs_metadata'] = metadata
         out = StringIO()
-        yaml.dump(self, out)
+        yaml.dump(metadata, out)
         md = out.getvalue()
         if len(md) > METADATA_BLOCK_BYTES:  # this should match mkidcore.headers.ObsHeader.metadata
             raise ValueError("Too much metadata!")
         self._mdcache = md
+        md = np.array(md)
         self.modifyHeaderEntry('metadata', md)
 
     @property
