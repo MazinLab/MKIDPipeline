@@ -16,7 +16,7 @@ from mkidcore.config import getLogger
 
 def wavecal_apply(o):
     of = mkidpipeline.hdf.photontable.ObsFile(o.h5, mode='a')
-    of.applyWaveCal(wavecal.load_solution(o.wavecal))
+    of.applyWaveCal(wavecal.load_solution(o.wavecal.path))
     of.file.close()
 
 
@@ -33,10 +33,10 @@ def batch_apply_metadata(dataset):
     # Associate metadata
     for ob in dataset.all_observations:
         o = mkidpipeline.hdf.photontable.ObsFile(ob.h5, mode='w')
-        md1 = config.select_metadata_for_h5(o.startTime, o.duration, metadata)
-        for md in md1:
+        mdl = config.select_metadata_for_h5(o.startTime, o.duration, metadata)
+        for md in mdl:
             md.registerfromkvlist(ob.metadata.items())
-        o.attach_observing_metadata(md1)
+        o.attach_observing_metadata(mdl)
         del o
 
 
