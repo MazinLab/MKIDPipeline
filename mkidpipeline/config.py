@@ -618,7 +618,7 @@ def parse_obslog(file):
 def load_observing_metadata(files=tuple()):
     """Return a list of mkidcore.config.ConfigThings with the contents of the metadata from observing"""
     global config
-    files = list(files) + glob(os.path.join(config.paths.database), 'obslog*.json')
+    files = list(files) + glob(os.path.join(config.paths.database, 'obslog*.json'))
     metadata = []
     for f in files:
         metadata += parse_obslog(f)
