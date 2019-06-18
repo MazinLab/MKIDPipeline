@@ -483,15 +483,12 @@ class WhiteCalibrator(FlatCalibrator):
 class LaserCalibrator(FlatCalibrator):
     def __init__(self, config=None, cal_file_name='flatsol_{wavecal}.h5'):
         super().__init__(config)
-        self.wvlCalFile = self.cfg.wavesol
-        if not os.path.exists(self.wvlCalFile):
-            self.wvlCalFile = os.path.join(self.cfg.paths.database, self.wvlCalFile)
         self.flatCalFileName = self.cfg.get('flatname', os.path.join(self.cfg.paths.database,
                                                                      cal_file_name.format(wavecal=os.path.basename(self.cfg.wavesol))))
 
     def loadData(self):
-        getLogger(__name__).info('Loading calibration data from {}'.format(self.wvlCalFile))
-        self.sol = wavecal.load_solution(self.wvlCalFile)
+        getLogger(__name__).info('Loading calibration data from {}'.format(self.cfg.wavesol))
+        self.sol = wavecal.load_solution(self.cfg.wavesol)
         self.beamImage = self.sol.beam_map
         self.wvlFlags = self.sol.beam_map_flags
         self.xpix = self.sol.cfg.x_pixels
@@ -622,7 +619,7 @@ def plotCalibrations(flatsol, wvlCalFile, pixel):
     Plot weights of each wavelength bin for every single pixel
     Makes a plot of wavelength vs weights, twilight spectrum, and wavecal solution for each pixel
     """
-    wavesol = wavecal.Solution(wvlCalFile)
+    wavesol = wavecal.load_solution(wvlCalFile)
     assert os.path.exists(flatsol), "{0} does not exist".format(flatsol)
     flat_cal = tables.open_file(flatsol, mode='r')
     calsoln = flat_cal.root.flatcal.calsoln.read()

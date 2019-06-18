@@ -2456,12 +2456,14 @@ class Solution(object):
 
 
 def load_solution(wc, singleton_ok=True):
-    """wc is a solution file or a Solution object"""
+    """wc is a solution file or a Solution object or a mkidpipeline.config.MKIDWavedataDescription"""
     global _loaded_solutions
     if not singleton_ok:
         raise NotImplementedError('Must implement solution copying')
     if isinstance(wc, Solution):
         return wc  # TODO: _loaded_solutions[wc._file_path] = wc
+    if isinstance(wc, mkidpipeline.config.MKIDWavedataDescription):
+        wc = wc.id
     wc = wc if os.path.isfile(wc) else os.path.join(mkidpipeline.config.config.paths.database, wc)
     try:
         return _loaded_solutions[wc]
