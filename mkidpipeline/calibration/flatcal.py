@@ -484,7 +484,7 @@ class LaserCalibrator(FlatCalibrator):
     def __init__(self, config=None, cal_file_name='flatsol_{wavecal}.h5'):
         super().__init__(config)
         self.flatCalFileName = self.cfg.get('flatname', os.path.join(self.cfg.paths.database,
-                                                                     cal_file_name.format(wavecal=os.path.basename(self.cfg.wavesol))))
+                                                                     cal_file_name.format(wavecal=self.cfg.wavesol.id)))
 
     def loadData(self):
         getLogger(__name__).info('Loading calibration data from {}'.format(self.cfg.wavesol))
