@@ -22,7 +22,7 @@ def wavecal_apply(o):
 
 def flatcal_apply(o):
     of = mkidpipeline.hdf.photontable.ObsFile(o.h5, mode='a')
-    of.applyFlatCal(o.flatcal)
+    of.applyFlatCal(o.flatcal.path)
     of.file.close()
 
 
