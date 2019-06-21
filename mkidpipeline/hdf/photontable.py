@@ -1319,7 +1319,7 @@ class ObsFile(object):
     @property
     def extensible_header_store(self):
         if self._mdcache is None:
-            self._mdcache = yaml.load(self.header[0]['metadata'])
+            self._mdcache = yaml.load(self.header[0]['metadata'].decode())
             if self._mdcache is None:
                 self._mdcache = {}
             if not isinstance(self._mdcache,dict):
@@ -1335,7 +1335,7 @@ class ObsFile(object):
             raise TypeError('extensible_header must be of type dict')
         out = StringIO()
         yaml.dump(extensible_header, out)
-        emdstr = out.getvalue()
+        emdstr = out.getvalue().encode()
         if len(emdstr) > METADATA_BLOCK_BYTES:  # this should match mkidcore.headers.ObsHeader.metadata
             raise ValueError("Too much metadata! {} KB needed, {} allocated".format(len(emdstr)//1024,
                                                                                     METADATA_BLOCK_BYTES//1024))
@@ -1404,7 +1404,7 @@ class ObsFile(object):
         return ret
 
     def attach_observing_metadata(self, metadata):
-        emd = self.extensible_metadata_store
+        emd = self.extensible_header_store
         emd['obs_metadata'] = metadata
         self.update_extensible_header_store(emd)
 
