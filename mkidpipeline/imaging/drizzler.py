@@ -41,6 +41,7 @@ from astropy.io import fits
 from drizzle import drizzle as stdrizzle
 from mkidcore import pixelflags
 from mkidpipeline.hdf.photontable import ObsFile
+from mkidcore.corelog import getLogger
 import mkidcore.corelog as pipelinelog
 import mkidpipeline
 from mkidcore.instruments import CONEX2PIXEL
@@ -90,7 +91,7 @@ class DitherDescription(object):
         self.description = dither
 
         if target is None or target == 'None':
-            pipelinelog.getLogger(__name__).error('Please enter a valid target name')
+            getLogger(__name__).error('Please enter a valid target name')
             raise TypeError
         elif type(target) is list or type(target) is np.array:
             target = [float(tar.value)*u.deg for tar in target]  # list of ScalarNode elements. Need to convert first
@@ -103,7 +104,7 @@ class DitherDescription(object):
             self.target = target
             self.coords = dither.obs[0].lookup_coordinates(queryname=target)
 
-        log.info('Found coordinates {} for target {}'.format(self.coords, self.target))
+        getLogger(__name__).info('Found coordinates {} for target {}'.format(self.coords, self.target))
 
         self.starRA, self.starDec = self.coords.ra.deg, self.coords.dec.deg
         if rotation_center is None:
@@ -130,7 +131,7 @@ class DitherDescription(object):
         else:
             self.wcs_timestep = suggested_time_step
 
-        log.debug("Timestep to be used {}".format(self.wcs_timestep))
+        getLogger(__name__).debug("Timestep to be used {}".format(self.wcs_timestep))
 
     def calc_min_timesamp(self, obs, max_pix_disp=1.):
         """
@@ -158,7 +159,7 @@ class DitherDescription(object):
         dith_angle = np.arctan(max_pix_disp/dith_dists)
         min_timestep = min(dith_angle/abs(dith_start_rot_rates))
 
-        log.debug("Minimum required time step calculated to be {}".format(min_timestep))
+        getLogger(__name__).debug("Minimum required time step calculated to be {}".format(min_timestep))
 
         return min_timestep
 
@@ -191,12 +192,12 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
             raise FileNotFoundError
         with open(pkl_save, 'rb') as f:
             data = pickle.load(f)
-            log.info('loaded {}'.format(pkl_save))
+            getLogger(__name__).info('loaded {}'.format(pkl_save))
     except FileNotFoundError:
         begin = time.time()
         filenames = [o.h5 for o in ditherdesc.description.obs]
         if not filenames:
-            log.info('No obsfiles found')
+            getLogger(__name__).info('No obsfiles found')
 
         def mp_worker(file, pos, q, startt=startt, intt=intt, startw=wvlMin, stopw=wvlMax):
             obsfile = ObsFile(file)
@@ -204,7 +205,7 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
 
             photons = obsfile.query(startw=startw, stopw=stopw, startt=startt, intt=intt)
             weights = photons['SpecWeight'] * photons['NoiseWeight']
-            log.info("Fetched {} photons from {}".format(len(photons), file))
+            getLogger(__name__).info("Fetched {} photons from {}".format(len(photons), file))
 
             x, y = obsfile.xy(photons)
 
@@ -219,7 +220,7 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
                    'wavelengths': photons["Wavelength"], 'weight': weights, 'usablemask': usableMask,
                    'obs_wcs_seq': wcs})
 
-        log.info('stacking number of dithers: %i'.format(ndither))
+        getLogger(__name__).info('stacking number of dithers: %i'.format(ndither))
 
         jobs = []
         data_q = mp.Queue()
@@ -244,7 +245,7 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
 
         data.sort(key=lambda k: filenames.index(k['file']))
 
-        log.debug('Time spent: %f' % (time.time() - begin))
+        getLogger(__name__).debug('Time spent: %f' % (time.time() - begin))
 
         with open(pkl_save, 'wb') as handle:
             pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
@@ -339,7 +340,7 @@ class Drizzler(object):
         self.w.wcs.pc = np.array([[1,0],[0,1]])
         self.w.wcs.cdelt = [self.vPlateScale,self.vPlateScale]
         self.w.wcs.cunit = ["deg", "deg"]
-        log.debug(self.w)
+        getLogger(__name__).debug(self.w)
 
 
 class SpectralDrizzler(Drizzler):
@@ -354,10 +355,10 @@ class SpectralDrizzler(Drizzler):
     def run(self, save_file=None):
         for ix, file in enumerate(self.files):
 
-            log.debug('Processing %s', file)
+            getLogger(__name__).debug('Processing %s', file)
             tic = time.clock()
             insci, inwcs = self.makeCube(file)
-            log.debug('Image load done. Time taken (s): %s', time.clock() - tic)
+            getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
             for iw in range(self.nwvlbins):
                 self.drizcube[iw].add_image(insci[iw], inwcs, inwht=np.int_(np.logical_not(insci[iw] == 0)))
 
@@ -399,7 +400,7 @@ class ListDrizzler(Drizzler):
 
     def run(self, save_file=None, pixfrac=1.):
         for ix, file in enumerate(self.files):
-            log.debug('Processing %s', file)
+            getLogger(__name__).debug('Processing %s', file)
 
             tic = time.clock()
             # driz = stdrizzle.Drizzle(outwcs=self.w, pixfrac=pixfrac)
@@ -438,7 +439,7 @@ class ListDrizzler(Drizzler):
 
                 file['radecs'] = radecs  # list of [npix, npix]
 
-            log.debug('Image load done. Time taken (s): %s', time.clock() - tic)
+            getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
 
 
 
@@ -472,7 +473,7 @@ class TemporalDrizzler(Drizzler):
         else:
             self.ntimebins = int(inttime / self.timestep)
         if self.ntimebins < len(self.files[0]['obs_wcs_seq']):
-            log.warning('Increasing the number of time bins beyond the user request')
+            getLogger(__name__).warning('Increasing the number of time bins beyond the user request')
             self.ntimebins = len(self.files[0]['obs_wcs_seq'])
 
         self.timebins = np.linspace(0, inttime, self.ntimebins + 1) * 1e6  # timestamps are in microseconds
@@ -494,7 +495,7 @@ class TemporalDrizzler(Drizzler):
         self.totWeightCube = np.zeros((self.ntimebins, self.nwvlbins, self.nPixDec, self.nPixRA))
         for ix, file in enumerate(self.files):
 
-            log.debug('Processing %s', file)
+            getLogger(__name__).debug('Processing %s', file)
 
             thishyper = np.zeros((self.ntimebins, self.nwvlbins, self.nPixDec, self.nPixRA), dtype=np.float32)
 
@@ -518,7 +519,7 @@ class TemporalDrizzler(Drizzler):
 
             self.totHypCube[ix * self.ntimebins: (ix + 1) * self.ntimebins] = thishyper
 
-        log.debug('Image load done. Time taken (s): %s', time.clock() - tic)
+        getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
         # TODO add the wavelength WCS
 
     def makeTess(self, file, timespan, applyweights=False, applymask=True, maxCountsCut=False):
@@ -548,12 +549,12 @@ class TemporalDrizzler(Drizzler):
         hypercube, _ = np.histogramdd(sample.T, bins, weights=weights, )
 
         if applymask:
-            log.debug("Applying bad pixel mask")
+            getLogger(__name__).debug("Applying bad pixel mask")
             usablemask = file['usablemask'].T.astype(int)
             hypercube *= usablemask
 
         if maxCountsCut:
-            log.debug("Applying max pixel count cut")
+            getLogger(__name__).debug("Applying max pixel count cut")
             hypercube *= np.int_(hypercube < maxCountsCut)
 
         return hypercube
@@ -583,7 +584,7 @@ class TemporalDrizzler(Drizzler):
         w4d.wcs.cunit = [self.w.wcs.cunit[0], self.w.wcs.cunit[1], "m", "sec"]
 
         self.w = w4d
-        log.debug('4D wcs {}'.format(w4d))
+        getLogger(__name__).debug('4D wcs {}'.format(w4d))
 
 
 class SpatialDrizzler(Drizzler):
@@ -605,7 +606,7 @@ class SpatialDrizzler(Drizzler):
 
     def run(self, save_file=None, applymask=False):
         for ix, file in enumerate(self.files):
-            log.debug('Processing %s', file)
+            getLogger(__name__).debug('Processing %s', file)
 
             tic = time.clock()
             for t, inwcs in enumerate(file['obs_wcs_seq']):
@@ -618,7 +619,7 @@ class SpatialDrizzler(Drizzler):
 
                 if applymask:
                     insci *= ~self.hot_mask
-                log.debug('Image load done. Time taken (s): %s', time.clock() - tic)
+                getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
                 inwht = (insci != 0).astype(int)
                 self.driz.add_image(insci, inwcs, inwht=inwht)
             if save_file:
@@ -639,14 +640,14 @@ class SpatialDrizzler(Drizzler):
                                          weights=weights, bins=[self.ypix, self.xpix], normed=False)
 
         if applymask:
-            log.debug("Applying bad pixel mask")
+            getLogger(__name__).debug("Applying bad pixel mask")
             # usablemask = np.rot90(file['usablemask']).astype(int)
             usablemask = file['usablemask'].T.astype(int)
             # thisImage *= ~usablemask
             thisImage *= usablemask
 
         if maxCountsCut:
-            log.debug("Applying max pixel count cut")
+            getLogger(__name__).debug("Applying max pixel count cut")
             thisImage *= thisImage < maxCountsCut
 
         return thisImage
@@ -788,11 +789,11 @@ def form(dither, mode='spatial', derotate=True, rotation_center=None, wvlMin=850
 
     # ensure the user input is shorter than the dither or that wcs are just calculated for the relavant timespan
     if intt > dither.inttime:
-        # log.warning(f'Reduced the effective integration time from {args.intt}s to {dither.inttime}s')
-        log.warning('Reduced the effective integration time from {}s to {}s'.format(intt, dither.inttime))
+        # getLogger(__name__).warning(f'Reduced the effective integration time from {args.intt}s to {dither.inttime}s')
+        getLogger(__name__).warning('Reduced the effective integration time from {}s to {}s'.format(intt, dither.inttime))
     if dither.inttime > intt:
-        # log.warning(f'Reduced the duration of each dither {dither.inttime}s to {args.intt}s')
-        log.warning('Reduced the duration of each dither from {}s to {}s'.format(dither.inttime, intt))
+        # getLogger(__name__).warning(f'Reduced the duration of each dither {dither.inttime}s to {args.intt}s')
+        getLogger(__name__).warning('Reduced the duration of each dither from {}s to {}s'.format(dither.duration, intt))
 
     # redefining these variables in the middle of the code might not be good practice since form() is run multiple
     # times but once they've been equated it shouldn't have an effect?
@@ -873,7 +874,7 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0,0), zoo
         xlocs.append(event.xdata)
         ylocs.append(event.ydata)
         running_mean = [np.mean(xlocs), np.mean(ylocs)]
-        log.info('xpix=%i, ypix=%i. Running mean=(%i,%i)'
+        getLogger(__name__).info('xpix=%i, ypix=%i. Running mean=(%i,%i)'
                  % (event.xdata, event.ydata, running_mean[0], running_mean[1]))
 
     iteration = 0
@@ -902,7 +903,7 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0,0), zoo
             xlocs, ylocs = np.array(image.shape)//2, np.array(image.shape)//2
         star_pix = np.array([np.mean(xlocs), np.mean(ylocs)]).astype(int)
         rotation_center += (star_pix - np.array(image.shape)//2)[::-1] #* np.array([1,-1])
-        log.info('rotation_center: {}'.format(rotation_center))
+        getLogger(__name__).info('rotation_center: {}'.format(rotation_center))
 
         user_input = input(' *** INPUT REQUIRED *** \nDo you wish to continue looping [Y/n]: \n')
         if user_input == 'n':
@@ -910,7 +911,7 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0,0), zoo
 
         iteration += 1
 
-    log.info('rotation_center: {}'.format(rotation_center))
+    getLogger(__name__).info('rotation_center: {}'.format(rotation_center))
 
     return rotation_center
 
@@ -940,7 +941,7 @@ if __name__ == '__main__':
 
     # set up logging
     mkidpipeline.logtoconsole()
-    log = pipelinelog.create_log('mkidpipeline.imaging.drizzler', console=True, level="INFO")
+    pipelinelog.create_log('mkidpipeline.imaging.drizzler', console=True, level="INFO")
 
     # load as a task configuration
     cfg = mkidpipeline.config.load_task_config(args.cfg)
@@ -966,7 +967,7 @@ if __name__ == '__main__':
 
     if args.gdo:
         if not os.path.exists(fitsname):
-            log.info("Can't find {} Create the fits image "
+            getLogger(__name__).info("Can't find {} Create the fits image "
                                                  "using the default orientation first".format(fitsname))
         else:
             ditherdesc = DitherDescription(dither, target=dither.name, rotation_center=rotation_origin)
