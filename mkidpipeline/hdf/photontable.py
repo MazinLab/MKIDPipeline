@@ -1316,7 +1316,33 @@ class ObsFile(object):
     def wavelength_calibrated(self):
         return self.info['isWvlCalibrated']
 
-    def metadata(self, timestamp=None, _retall=False):
+    @property
+    def extensible_header_store(self):
+        if self._mdcache is None:
+            self._mdcache = yaml.load(self.header[0]['metadata'])
+            if self._mdcache is None:
+                self._mdcache = {}
+            if not isinstance(self._mdcache,dict):
+                msg = ('Restored extensible metadata was of type {} and not dict, '
+                       'purging and repairing (file will not be changed until write).'
+                       'Metadata must be reattached to {}.')
+                getLogger(__name__).warning(msg.format(type(self._mdcache), self.fileName))
+                self._mdcache = {}
+        return self._mdcache
+
+    def update_extensible_header_store(self, extensible_header):
+        if not isinstance(extensible_header, dict):
+            raise TypeError('extensible_header must be of type dict')
+        out = StringIO()
+        yaml.dump(extensible_header, out)
+        emdstr = out.getvalue()
+        if len(emdstr) > METADATA_BLOCK_BYTES:  # this should match mkidcore.headers.ObsHeader.metadata
+            raise ValueError("Too much metadata! {} KB needed, {} allocated".format(len(emdstr)//1024,
+                                                                                    METADATA_BLOCK_BYTES//1024))
+        self._mdcache = extensible_header
+        self.modifyHeaderEntry('metadata', emdstr)
+
+    def metadata(self, timestamp=None):
         """ Return an object with attributes containing the the available observing metadata,
         also supports dict access (Presently returns a mkidcore.config.ConfigThing)
 
@@ -1325,21 +1351,9 @@ class ObsFile(object):
         before or equal the time is returned unless there is only one record, and then that is returned
 
         None if there are no records, ValueError if there is not matching timestamp
-
-        _retall returns the full metadata block for internal use.
         """
 
-        if self._mdcache is None:
-            self._mdcache = yaml.load(self.header[0]['metadata'])
-            if self._mdcache is None:
-                if _retall:
-                    return {}
-                else:
-                    return None
-
-        md = self._mdcache
-        if _retall:
-            return md
+        omd = self.extensible_metadata_store.get('obs_metadata', [])
 
         # TODO integrate appropriate things in .info with the metadata returned so this is a one-stop-shop
         # infomd_keys = {'wavefile': 'wvlCalFile', 'flatfile':'fltCalFile',
@@ -1371,7 +1385,6 @@ class ObsFile(object):
         # header['FWEIGHT'] = (applyWeight and self.info['isFlatCalibrated'], 'Flatcal corrected')
         # header['SWEIGHT'] = (applyWeight and self.info['isSpecCalibrated'], 'QE corrected')
 
-        omd = md.get('obs_metadata', [])
         if not omd:
             return None
 
@@ -1379,28 +1392,21 @@ class ObsFile(object):
             ret = omd[0]
         else:
             utc = datetime.fromtimestamp(timestamp)
-            time_after = np.array([(m.utc-utc).total_seconds() for m in md])
+            time_after = np.array([(m.utc-utc).total_seconds() for m in omd])
             if not (time_after <= 0).any():
                 times = [m.utc.timestamp() for m in omd]
                 msg = 'No metadata available for {:.0f}, {} metadata records from {:.0f} to {:.0f}'
                 raise ValueError(msg.format(timestamp, len(omd), min(times), max(times)))
 
             to_use, = np.where(time_after[time_after <= 0].max() == time_after)
-            ret = md[to_use[0]]
+            ret = omd[to_use[0]]
 
         return ret
 
     def attach_observing_metadata(self, metadata):
-        md = self.metadata(_retall=True)
-        md['obs_metadata'] = metadata
-        out = StringIO()
-        yaml.dump(metadata, out)
-        md = out.getvalue()
-        if len(md) > METADATA_BLOCK_BYTES:  # this should match mkidcore.headers.ObsHeader.metadata
-            raise ValueError("Too much metadata!")
-        self._mdcache = md
-        md = np.array(md)
-        self.modifyHeaderEntry('metadata', md)
+        emd = self.extensible_metadata_store
+        emd['obs_metadata'] = metadata
+        self.update_extensible_header_store(emd)
 
     @property
     def duration(self):
@@ -1783,18 +1789,12 @@ class ObsFile(object):
             raise IOError("Must open file in write mode to do this!")
 
         if headerTitle not in self.header.colnames:
-            metadata = self.metadata(_retall=True)
-            if headerTitle not in metadata:
-                msg = 'Creating a header entry for {} during purported modifitcation to {}'
+            extensible_header = self.extensible_header_store
+            if headerTitle not in extensible_header:
+                msg = 'Creating a header entry for {} during purported modification to {}'
                 getLogger(__name__).warning(msg.format(headerTitle, headerValue))
-            metadata[headerTitle] = headerValue
-            out = StringIO()
-            yaml.dump(metadata, out)
-            md = out.getvalue()
-            if len(md) > METADATA_BLOCK_BYTES:
-                raise ValueError("Too much metadata!")
-            self._mdcache = md
-            self.modifyHeaderEntry('metadata', md)
+            extensible_header[headerTitle] = headerValue
+            self.update_extensible_header_store(extensible_header)
         else:
             self.header.modify_column(column=headerValue, colname=headerTitle)
             self.header.flush()
