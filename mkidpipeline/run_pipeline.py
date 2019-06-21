@@ -51,6 +51,7 @@ def run_stage1(dataset):
 def generate_outputs(outputs):
     from mkidpipeline.config import config
     import mkidpipeline.imaging.drizzler as drizzler
+    import mkidpipeline as pipe
     for o in outputs:
         pipe.getLogger(__name__).info('Generating {}'.format(o))
         if o.wants_image:
@@ -61,6 +62,8 @@ def generate_outputs(outputs):
             img.writeto(o.output_file)
         if o.wants_drizzled:
             import pipe.imaging
+            if type(o.data) != pipe.config.MKIDDitheredObservation:
+                raise TypeError('a dither is not specified in the out.yml')
             drizzled = drizzler.form(o.data, mode=o.kind, wvlMin=o.startw, wvlMax=o.stopw,
                                      pixfrac=config.drizzler.pixfrac, usecache=False)
             drizzled.writeto(o.output_file)
