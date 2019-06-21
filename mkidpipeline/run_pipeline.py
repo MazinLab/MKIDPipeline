@@ -62,7 +62,7 @@ def generate_outputs(outputs):
             img.writeto(o.output_file)
         if o.wants_drizzled:
             import pipe.imaging
-            if type(o.data) != pipe.config.MKIDDitheredObservation:
+            if not isinstance(o.data, mkidpipeline.config.MKIDDitheredObservation):
                 raise TypeError('a dither is not specified in the out.yml')
             drizzled = drizzler.form(o.data, mode=o.kind, wvlMin=o.startw, wvlMax=o.stopw,
                                      pixfrac=config.drizzler.pixfrac, usecache=False)
