@@ -1319,11 +1319,12 @@ class ObsFile(object):
     @property
     def extensible_header_store(self):
         if self._mdcache is None:
-            self._mdcache = yaml.load(self.header[0]['metadata'].decode())
-            if self._mdcache is None:
-                self._mdcache = {}
-            if not isinstance(self._mdcache,dict):
-                msg = ('Restored extensible metadata was of type {} and not dict, '
+            try:
+                self._mdcache = dict(yaml.load(self.header[0]['metadata'].decode()))
+                if self._mdcache is None:
+                    self._mdcache = {}
+            except TypeError:
+                msg = ('Could not restore a dict of extensible metadata, '
                        'purging and repairing (file will not be changed until write).'
                        'Metadata must be reattached to {}.')
                 getLogger(__name__).warning(msg.format(type(self._mdcache), self.fileName))
