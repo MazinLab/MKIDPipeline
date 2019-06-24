@@ -73,7 +73,7 @@ class DitherDescription(object):
 
     """
 
-    def __init__(self, dither, rotation_center=None, observatory='Subaru', target=None,
+    def __init__(self, dither, rotation_center=None, observatory=None, target=None,
                  use_min_timestep=True, suggested_time_step=1):
         """
         lookup_coordiantes may get a name error on correct target names leading to spurious results.
@@ -90,36 +90,34 @@ class DitherDescription(object):
         """
         self.description = dither
 
-        if target is None or target == 'None':
-            getLogger(__name__).error('Please enter a valid target name')
-            raise TypeError
-        elif type(target) is list or type(target) is np.array:
-            target = [float(tar.value)*u.deg for tar in target]  # list of ScalarNode elements. Need to convert first
+        of = ObsFile(dither.obs[0].h5)
+        metadata = of.metadata()
+        self.target = metadata['target']
+        self.observatory = metadata['observatory'] if observatory is None else observatory
+        self.coords = SkyCoord(metadata['ra'], metadata['dec'])
+        self.platescale = metadata['platescale']/3600.0
+        self.rotation_center = np.array([list(metadata['dither_ref'])]).T  # neccessary hideous reformatting
+        self.xpix, self.ypix = of.beamImage.shape
+
+        if isinstance(target, list) or isinstance(target, np.array):
+            target = [float(t.value)*u.deg for t in target]  # list of ScalarNode elements. Need to convert first
             self.coords = SkyCoord(target[0], target[1])
             self.target = 'Unnamed Target at ' + self.coords.name
         elif type(target) is SkyCoord:
             self.coords = target
             self.target = 'Unnamed Target at ' + self.coords.name
-        else:
+        elif target is not None:
             self.target = target
-            self.coords = dither.obs[0].lookup_coordinates(queryname=target)
-
-        getLogger(__name__).info('Found coordinates {} for target {}'.format(self.coords, self.target))
+            self.coords = SkyCoord.from_name(target)
+            getLogger(__name__).info('Found coordinates {} for target {}'.format(self.coords, self.target))
 
         self.starRA, self.starDec = self.coords.ra.deg, self.coords.dec.deg
-        if rotation_center is None:
-            rotation_center = (0, 0)
+
         assert suggested_time_step <= dither.inttime, 'You must have at least a time sample per dither'
 
-        self.rotation_center = np.array([list(rotation_center)]).T  #neccessary hideous reformatting
         self.dith_pix_offset = dither_pixel_vector(dither.pos) - self.rotation_center  # TODO verify this
 
-        inst_info = dither.obs[0].instrument_info
-        self.xpix = inst_info.beammap.ncols
-        self.ypix = inst_info.beammap.nrows
-        self.platescale = inst_info.platescale.to(u.deg).value  # 10 mas
-        self.apo = Observer.at_site(observatory)
-        self.observatory = observatory
+        self.apo = Observer.at_site(self.observatory)
 
         if use_min_timestep:
             min_timestep = self.calc_min_timesamp(dither.obs)

@@ -153,9 +153,6 @@ class MKIDTimerange(object):
     def h5(self):
         return h5_for_MKIDodd(self)
 
-    def lookup_coordinates(self, queryname=''):
-        return SkyCoord.from_name(queryname if queryname else self.name)
-
 
 class MKIDObservation(object):
     """requires keys name, wavecal, flatcal, wcscal, and all the things from ob"""
