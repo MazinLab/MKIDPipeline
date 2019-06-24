@@ -1353,7 +1353,7 @@ class ObsFile(object):
         None if there are no records, ValueError if there is not matching timestamp
         """
 
-        omd = self.extensible_metadata_store.get('obs_metadata', [])
+        omd = self.extensible_header_store.get('obs_metadata', [])
 
         # TODO integrate appropriate things in .info with the metadata returned so this is a one-stop-shop
         # infomd_keys = {'wavefile': 'wvlCalFile', 'flatfile':'fltCalFile',
