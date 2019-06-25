@@ -93,7 +93,7 @@ class DitherDescription(object):
         of = ObsFile(dither.obs[0].h5)
         metadata = of.metadata()
         if metadata is None:
-            raise RuntimeError('No metadata associated with H5 file +'+of.file)
+            raise RuntimeError('No metadata associated with H5 file '+ of.fileName)
         self.target = metadata['target']
         self.observatory = metadata['observatory'] if observatory is None else observatory
         self.coords = SkyCoord(metadata['ra'], metadata['dec'])
