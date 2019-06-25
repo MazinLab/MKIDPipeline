@@ -30,15 +30,12 @@ yaml = mkidcore.config.yaml
 
 pipline_settings = ('beammap', 'paths', 'templar', 'instrument', 'ncpu')
 
-_COMMON_KEYS = ('comments', 'meta', 'header', 'out')
-
 
 STANDARD_KEYS = ('ra','dec', 'airmass','az','el','ha','equinox','parallactic','target','utctcs','laser','flipper',
                  'filter','observatory','utc','comment','device_orientation','instrument','dither_ref','dither_home',
                  'dither_pos','platescale')
 
 REQUIRED_KEYS = ('ra','dec','target','observatory','instrument','dither_ref','dither_home','platescale')
-
 
 
 def load_task_config(file, use_global_config=True):
@@ -78,12 +75,6 @@ def configure_pipeline(*args, **kwargs):
     global config
     config = mkidcore.config.load(*args, **kwargs)
     return config
-
-
-def _build_common(yaml_loader, yaml_node):
-    # TODO flesh out as needed
-    pairs = yaml_loader.construct_pairs(yaml_node)
-    return {k: v for k, v in pairs if k in _COMMON_KEYS}
 
 
 def h5_for_MKIDodd(observing_data_desc):
@@ -389,14 +380,11 @@ class MKIDDitheredObservation(object):
 
     @classmethod
     def from_yaml(cls, loader, node):
-        #TODO I don't know why I used extract_from_node here and dict(loader.construct_pairs(node)) elsewhere
-        d = mkidcore.config.extract_from_node(loader, ('file', 'name', 'wavecal', 'flatcal', 'wcscal'), node)
+        d = dict(loader.construct_pairs(node))
         if not os.path.isfile(d['file']):
-            file = os.path.join(config.paths.dithers, d['file'])
             getLogger(__name__).info('Treating {} as relative dither path.'.format(d['file']))
-        else:
-            file = d['file']
-        return cls(d['name'], file, d['wavecal'], d['flatcal'], d['wcscal'], _common=_build_common(loader, node))
+            d['file'] = os.path.join(config.paths.dithers, d['file'])
+        return cls(d.pop('name'), d.pop('file'), d.pop('wavecal'), d.pop('flatcal'), d.pop('wcscal'), _common=d)
 
     @property
     def timeranges(self):
@@ -553,6 +541,7 @@ class MKIDOutput(object):
 
     @classmethod
     def from_yaml(cls, loader, node):
+        #TODO I don't know why I used extract_from_node here and dict(loader.construct_pairs(node)) elsewhere
         d = mkidcore.config.extract_from_node(loader, ('name', 'data', 'kind', 'stopw', 'startw', 'filename'), node)
         return cls(d['name'], d['data'], d['kind'], d.get('startw', None), d.get('stopw', None),
                    d.get('filename', ''))
