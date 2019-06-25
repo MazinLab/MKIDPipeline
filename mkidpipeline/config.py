@@ -33,6 +33,14 @@ pipline_settings = ('beammap', 'paths', 'templar', 'instrument', 'ncpu')
 _COMMON_KEYS = ('comments', 'meta', 'header', 'out')
 
 
+STANDARD_KEYS = ('ra','dec', 'airmass','az','el','ha','equinox','parallactic','target','utctcs','laser','flipper',
+                 'filter','observatory','utc','comment','device_orientation','instrument','dither_ref','dither_home',
+                 'dither_pos','platescale')
+
+REQUIRED_KEYS = ('ra','dec','target','observatory','instrument','dither_ref','dither_home','platescale')
+
+
+
 def load_task_config(file, use_global_config=True):
     """
     Load a task specific yml configuration
@@ -588,17 +596,38 @@ class MKIDOutputCollection:
         return set([r for o in self.outputs for r in o.input_timeranges])
 
 
-def select_metadata_for_h5(starttime, duration, metadata_source):
+def validate_metadata(md, warn=True, error=False):
+    fail = False
+    for k in REQUIRED_KEYS:
+        if k not in md:
+            if error:
+                raise KeyError(msg)
+            fail = True
+            msg = '{} missing from {}'.format(k, md)
+            if warn:
+                getLogger(__name__).warning(msg)
+    return fail
+
+
+def select_metadata_for_h5(mkidobs, metadata_source):
     """
     Metadata that goes into an H5 consists of records within the duration
 
     requires metadata_source be an indexable iterable with an attribute utc pointing to a datetime
     """
     # Select the nearest metadata to the midpoint
-    start = datetime.fromtimestamp(starttime)
+    start = datetime.fromtimestamp(mkidobs.start)
     time_since_start = np.array([(md.utc - start).total_seconds() for md in metadata_source])
-    ok = (time_since_start < duration) & (time_since_start >= 0)
-    return [metadata_source[i] for i in np.where(ok)[0]]
+    ok = (time_since_start < mkidobs.duration) & (time_since_start >= 0)
+    mdl = [metadata_source[i] for i in np.where(ok)[0]]
+    if not mdl: mdl = [mkidcore.config.ConfigThing()]
+    bad = False
+    for md in mdl:
+        md.registerfromkvlist(mkidobs.metadata, namespace='')
+        bad |= validate_metadata(md, warn=True, error=False)
+    if bad:
+        raise RuntimeError()
+    return mdl
 
 
 def parse_obslog(file):
