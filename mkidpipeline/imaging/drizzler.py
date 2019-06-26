@@ -98,7 +98,10 @@ class DitherDescription(object):
         self.observatory = metadata['observatory'] if observatory is None else observatory
         self.coords = SkyCoord(metadata['ra'], metadata['dec'])
         self.platescale = metadata['platescale']/3600.0
-        self.rotation_center = np.array([list(metadata['dither_ref'])]).T  # neccessary hideous reformatting
+        if rotation_center is not None:
+            self.rotation_center = rotation_center
+        else:
+            self.rotation_center = np.array([list(metadata['dither_ref'])]).T  # neccessary hideous reformatting
         self.xpix, self.ypix = of.beamImage.shape
 
         if isinstance(target, list) or isinstance(target, np.array):
@@ -763,7 +766,7 @@ class DrizzledData(object):
 
 
 def form(dither, mode='spatial', derotate=True, rotation_center=None, wvlMin=850, wvlMax=1100, startt=0, intt=60,
-         pixfrac=.5, nwvlbins=1, timestep=1., ntimebins=0, device_orientation=-43, fitsname='fits',
+         pixfrac=.5, nwvlbins=1, timestep=1., ntimebins=0, fitsname='fits',
          usecache=True, quickplot=True):
     """
     Takes in a ditherdescription object and drizzles the files onto a sky grid. Depending on the selected mode this
@@ -775,7 +778,6 @@ def form(dither, mode='spatial', derotate=True, rotation_center=None, wvlMin=850
     :param dither:
     :param nwvlbins:
     :param timestep:
-    :param device_orientation:
     :param mode: stack|spatial|spectral|temporal|list
     :param derotate: False|True
     :param rotation_center: None or array/tuple
@@ -799,7 +801,7 @@ def form(dither, mode='spatial', derotate=True, rotation_center=None, wvlMin=850
     # times but once they've been equated it shouldn't have an effect?
     intt, dither.inttime = [min(intt, dither.inttime)] * 2
 
-    ditherdesc = DitherDescription(dither, target=dither.name, rotation_center=rotation_center)
+    ditherdesc = DitherDescription(dither, rotation_center=rotation_center)
     data = load_data(ditherdesc, wvlMin, wvlMax, startt, intt, derotate=derotate, usecache=usecache)
 
     if mode not in ['stack', 'spatial', 'spectral', 'temporal', 'list']:
@@ -953,7 +955,6 @@ if __name__ == '__main__':
     pixfrac = cfg.drizzler.pixfrac
     dither = cfg.dither
     rotation_origin = cfg.drizzler.rotation_center
-    device_orientation = cfg.drizzler.device_orientation
 
     if args.gso and type(args.gso) is list:
         rotation_origin = get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=np.array(args.gso))
@@ -963,7 +964,7 @@ if __name__ == '__main__':
     # main function of drizzler
     scidata = form(dither, mode=cfg.drizzler.mode, rotation_center=rotation_origin, wvlMin=wvlMin,
                    wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac,
-                   device_orientation=device_orientation, derotate=True, fitsname=fitsname)
+                   derotate=True, fitsname=fitsname)
 
     if args.gdo:
         if not os.path.exists(fitsname):
