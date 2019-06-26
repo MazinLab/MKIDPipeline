@@ -612,10 +612,10 @@ def select_metadata_for_h5(mkidobs, metadata_source):
     if not mdl: mdl = [mkidcore.config.ConfigThing()]
     bad = False
     for md in mdl:
-        md.registerfromkvlist(mkidobs.metadata, namespace='')
+        md.registerfromkvlist(mkidobs.metadata.items(), namespace='')
         bad |= validate_metadata(md, warn=True, error=False)
     if bad:
-        raise RuntimeError()
+        raise RuntimeError("Did not specify all the necessary metadata")
     return mdl
 
 
