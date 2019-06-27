@@ -374,7 +374,7 @@ class MKIDDitheredObservation(object):
         self.pos = list(zip(tofloat(d['xpos']), tofloat(d['ypos'])))
 
         self.obs = []
-        for i, (b, e, p) in enumerate(zip(tofloat(d['starttimes']), tofloat(d['endtimes'], pos))):
+        for i, (b, e, p) in enumerate(zip(tofloat(d['starttimes']), tofloat(d['endtimes']), self.pos)):
             name = '{}_({})_{}'.format(self.name, os.path.basename(self.file), i)
             _common.pop('dither_pos', None)
             _common['dither_pos'] = p
