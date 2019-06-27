@@ -373,8 +373,10 @@ class MKIDDitheredObservation(object):
         self.pos = list(zip(tofloat(d['xpos']), tofloat(d['ypos'])))
 
         self.obs = []
-        for i, (b, e) in enumerate(zip(tofloat(d['starttimes']), tofloat(d['endtimes']))):
+        for i, (b, e, pos) in enumerate(zip(tofloat(d['starttimes']), tofloat(d['endtimes'], pos))):
             name = '{}_({})_{}'.format(self.name, os.path.basename(self.file), i)
+            _common.pop('dither_pos', None)
+            _common['dither_pos'] = pos
             self.obs.append(MKIDObservation(name, b, stop=e, wavecal=wavecal, flatcal=flatcal,
                                             wcscal=wcscal, _common=_common))
 
