@@ -231,7 +231,8 @@ class MKIDObservation(object):
         exclude = ('wavecal', 'flatcal', 'wcscal', 'start', 'stop')
         d = {k: v for k, v in self.__dict__.items() if k not in exclude}
         d2 = dict(wavecal=self.wavecal.id, flatcal=self.flatcal.id, platescale=self.wcscal.platescale,
-                  dither_ref=self.wcscal.dither_ref, dither_home=self.wcscal.dither_home)
+                  dither_ref=self.wcscal.dither_ref, dither_home=self.wcscal.dither_home,
+                  device_orientation=self.wcscal.device_orientation)
         d.update(d2)
         return d
 
