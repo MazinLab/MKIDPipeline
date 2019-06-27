@@ -523,7 +523,7 @@ class ObsFile(object):
 
         md = self.metadata()
         ditherHome = md.dither_home
-        ditherReference = md.dither_reference
+        ditherReference = md.dither_ref
         platescale = md.platescale
         ditherPos = md.dither_pos
 
