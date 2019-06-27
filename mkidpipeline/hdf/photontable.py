@@ -531,7 +531,7 @@ class ObsFile(object):
             if not isinstance(target_coordinates, SkyCoord):
                 target_coordinates = SkyCoord.from_name(target_coordinates)
         else:
-            target_coordinates = SkyCoord(md.ra, md.dec)
+            target_coordinates = SkyCoord(md.ra, md.dec, unit='deg')
             # target_coordinates = SkyCoord.from_name(self.info['target'])
 
         apo = Observer.at_site(md.observatory)
