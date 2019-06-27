@@ -96,7 +96,7 @@ class DitherDescription(object):
             raise RuntimeError('No metadata associated with H5 file '+ of.fileName)
         self.target = metadata['target']
         self.observatory = metadata['observatory'] if observatory is None else observatory
-        self.coords = SkyCoord(metadata['ra'], metadata['dec'])
+        self.coords = SkyCoord(metadata['ra'], metadata['dec'], unit='deg')
         self.platescale = metadata['platescale']/3600.0
         if rotation_center is not None:
             self.rotation_center = rotation_center
@@ -104,7 +104,7 @@ class DitherDescription(object):
             self.rotation_center = np.array([list(metadata['dither_ref'])]).T  # neccessary hideous reformatting
         self.xpix, self.ypix = of.beamImage.shape
 
-        if isinstance(target, list) or isinstance(target, np.array):
+        if isinstance(target, list) or isinstance(target, type(np.array)):
             target = [float(t.value)*u.deg for t in target]  # list of ScalarNode elements. Need to convert first
             self.coords = SkyCoord(target[0], target[1])
             self.target = 'Unnamed Target at ' + self.coords.name
