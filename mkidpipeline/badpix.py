@@ -547,11 +547,14 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=30, startt=0, stopt=
     if stopt is None:
         stopt = obsfile.getFromHeader('expTime')
     assert startt < stopt
-    assert step <= stopt-startt
+    if step < stopt-startt:
+        getLogger(__name__).warning(('Hot pixel step time longer than exposure time by {:.0f} s, using full '
+                                     'exposure').format(step-(stopt-startt))
+        step = stopt-startt
 
-    step_starts = np.arange(startt, stopt, step)  # Start time for each step (in seconds).
-    step_ends = step_starts + step  # End time for each step
-    step_ends[step_ends > stopt] = stopt  # Clip any time steps that run over the end of the requested time range.
+    step_starts = np.arange(startt, stopt, step, dtype=int)  # Start time for each step (in seconds).
+    step_ends = step_starts + int(step)  # End time for each step
+    step_ends[step_ends > stopt] = int(stopt)  # Clip any time steps that run over the end of the requested time range.
 
     # Initialise stack of masks, one for each time step
     hot_masks = np.zeros([obsfile.nXPix, obsfile.nYPix, step_starts.size], dtype=bool)
