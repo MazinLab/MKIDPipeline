@@ -509,12 +509,9 @@ class ObsFile(object):
         :param timestep:
         :param target_coordinates: SkyCoord or string to query for
         :param conex_pos:
-        #TODO Rupert sort this out, didn't you say you got rid of the None option?
-        :param derotate: [True, False, None]
+        :param derotate: [True, False]
                          True:  align each wcs solution to position angle = 0
-                         False: rotate all wcs solutions so the position angle of the middle wcs solution matches its
-                                parallactic angle
-                         None:  no correction angle
+                         False:  no correction angle
         :return:
         """
 
@@ -548,8 +545,6 @@ class ObsFile(object):
             times = astropy.time.Time(val=sample_times, format='unix')
             parallactic_angles = apo.parallactic_angle(times, target_coordinates).value  # radians
             corrected_sky_angles = -parallactic_angles - device_orientation
-        elif derotate is False:
-            corrected_sky_angles = np.ones_like(sample_times) * -device_orientation
         else:
             corrected_sky_angles = np.zeros_like(sample_times)
 
