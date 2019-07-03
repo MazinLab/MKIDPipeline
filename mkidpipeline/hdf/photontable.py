@@ -815,7 +815,7 @@ class ObsFile(object):
                 data[x, y] = hist[xe == resID]
 
         toc2 = time.time()
-        getLogger(__name__).debug('Histogramed data in {:.2f} s, reformatting in {:.2f}'.format(toc2 - tic,
+        getLogger(__name__).debug('Histogrammed data in {:.2f} s, reformatting in {:.2f}'.format(toc2 - tic,
                                                                                                 toc2 - toc))
         hdu = fits.PrimaryHDU()
         header = hdu.header
