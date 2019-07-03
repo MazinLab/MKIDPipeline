@@ -289,7 +289,7 @@ class MKIDFlatdataDescription(object):
         try:
             return 'flatcal_{}.h5'.format(self.ob.start)
         except AttributeError:
-            return 'flatcal_{}.h5'.format(str(self.wavecal).replace(os.path.sep, '_'))
+            return 'flatcal_{}.h5'.format(self.wavecal.id)
 
     @property
     def path(self):
