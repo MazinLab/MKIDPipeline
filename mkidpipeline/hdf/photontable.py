@@ -820,12 +820,18 @@ class ObsFile(object):
         hdu = fits.PrimaryHDU()
         header = hdu.header
 
-        for k, v in self.metadata().items():
-            header[k] = v
+        md = self.metadata(timestamp=firstSec)
+        if md is not None:
+            for k, v in md.items():
+                if k.lower() == 'comments':
+                    for c in v:
+                        header['comment'] = c
+                header[k] = v
+        else:
+            getLogger(__name__).warning('No metadata found to add to fits header')
 
         wcs = self.get_wcs(wave_axis=cube)[0]
         header.update(wcs.to_header())
-
 
         #TODO set the header units for the extensions
         hdul = fits.HDUList([fits.PrimaryHDU(header=header),
