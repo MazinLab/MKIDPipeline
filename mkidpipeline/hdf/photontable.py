@@ -826,7 +826,7 @@ class ObsFile(object):
                 if k.lower() == 'comments':
                     for c in v:
                         header['comment'] = c
-                header[k] = v
+                header[k] = v.encode('utf-8') if isinstance(v, str) else v
         else:
             getLogger(__name__).warning('No metadata found to add to fits header')
 
