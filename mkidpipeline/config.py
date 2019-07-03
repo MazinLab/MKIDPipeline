@@ -13,7 +13,7 @@ from collections import namedtuple
 
 import mkidcore.config
 from mkidcore.corelog import getLogger, create_log
-from mkidcore.utils import getnm
+from mkidcore.utils import getnm, derangify
 from mkidcore.objects import Beammap
 from mkidpipeline.hdf.photontable import ObsFile
 
@@ -346,7 +346,7 @@ class MKIDWCSCalDescription(object):
 class MKIDDitheredObservation(object):
     yaml_tag = '!dither'
 
-    def __init__(self, name, file, wavecal, flatcal, wcscal, _common=None):
+    def __init__(self, name, file, wavecal, flatcal, wcscal, use=None, _common=None):
 
         if _common is not None:
             self.__dict__.update(_common)
@@ -371,11 +371,29 @@ class MKIDDitheredObservation(object):
             d['endtimes'] = d['stoptimes']
 
         self.inttime = int(d['inttime'])
-        self.nsteps = int(d['npos'])
-        self.pos = list(zip(tofloat(d['xpos']), tofloat(d['ypos'])))
+
+        if use is None:
+            use = list(range(int(d['npos'])))
+
+        self.use = [use] if isinstance(use, int) else derangify(use)
+
+        startt = tofloat(d['starttimes'])
+        endt = tofloat(d['endtimes'])
+        xpos = tofloat(d['xpos'])
+        ypos = tofloat(d['ypos'])
+
+        assert len(startt) == int(d['npos'])
+
+        startt = [startt[i] for i in self.use]
+        endt = [endt[i] for i in self.use]
+        xpos = [xpos[i] for i in self.use]
+        ypos = [ypos[i] for i in self.use]
+
+        self.nsteps = len(startt)
+        self.pos = list(zip(xpos, ypos))
 
         self.obs = []
-        for i, (b, e, p) in enumerate(zip(tofloat(d['starttimes']), tofloat(d['endtimes']), self.pos)):
+        for i, b, e, p in zip(use, startt, endt, self.pos):
             name = '{}_({})_{}'.format(self.name, os.path.basename(self.file), i)
             _common.pop('dither_pos', None)
             _common['dither_pos'] = p
@@ -388,7 +406,8 @@ class MKIDDitheredObservation(object):
         if not os.path.isfile(d['file']):
             getLogger(__name__).info('Treating {} as relative dither path.'.format(d['file']))
             d['file'] = os.path.join(config.paths.dithers, d['file'])
-        return cls(d.pop('name'), d.pop('file'), d.pop('wavecal'), d.pop('flatcal'), d.pop('wcscal'), _common=d)
+        return cls(d.pop('name'), d.pop('file'), d.pop('wavecal'), d.pop('flatcal'), d.pop('wcscal'),
+                   use=d.pop('use',None), _common=d)
 
     @property
     def timeranges(self):
