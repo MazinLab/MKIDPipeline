@@ -73,7 +73,7 @@ class DitherDescription(object):
 
     """
 
-    def __init__(self, dither, rotation_center=None, observatory=None, target=None,
+    def __init__(self, dither, observatory='Subaru', target=None,
                  use_min_timestep=True, suggested_time_step=1):
         """
         lookup_coordiantes may get a name error on correct target names leading to spurious results.
@@ -90,39 +90,32 @@ class DitherDescription(object):
         """
         self.description = dither
 
-        of = ObsFile(dither.obs[0].h5)
-        metadata = of.metadata()
-        if metadata is None:
-            raise RuntimeError('No metadata associated with H5 file '+ of.fileName)
-        self.target = metadata['target']
-        self.observatory = metadata['observatory'] if observatory is None else observatory
-        self.coords = SkyCoord(metadata['ra'], metadata['dec'], unit='deg')
-        self.platescale = metadata['platescale']/3600.0
-        if rotation_center is not None:
-            self.rotation_center = rotation_center
-        else:
-            self.rotation_center = np.array([list(metadata['dither_ref'])]).T  # neccessary hideous reformatting
-        self.xpix, self.ypix = of.beamImage.shape
-
-        if isinstance(target, list) or isinstance(target, type(np.array)):
-            target = [float(t.value)*u.deg for t in target]  # list of ScalarNode elements. Need to convert first
+        if target is None or target == 'None':
+            pipelinelog.getLogger(__name__).error('Please enter a valid target name')
+            raise TypeError
+        elif type(target) is list or type(target) is np.array:
+            target = [float(tar.value)*u.deg for tar in target]  # list of ScalarNode elements. Need to convert first
             self.coords = SkyCoord(target[0], target[1])
             self.target = 'Unnamed Target at ' + self.coords.name
         elif type(target) is SkyCoord:
             self.coords = target
             self.target = 'Unnamed Target at ' + self.coords.name
-        elif target is not None:
+        else:
             self.target = target
             self.coords = SkyCoord.from_name(target)
-            getLogger(__name__).info('Found coordinates {} for target {}'.format(self.coords, self.target))
+        getLogger(__name__).info('Found coordinates {} for target {}'.format(self.coords, self.target))
 
         self.starRA, self.starDec = self.coords.ra.deg, self.coords.dec.deg
-
         assert suggested_time_step <= dither.inttime, 'You must have at least a time sample per dither'
 
-        self.dith_pix_offset = dither_pixel_vector(dither.pos) - self.rotation_center  # TODO verify this
+        self.dith_pix_offset = dither_pixel_vector(dither.pos)
 
-        self.apo = Observer.at_site(self.observatory)
+        inst_info = dither.obs[0].instrument_info
+        self.xpix = inst_info.beammap.ncols
+        self.ypix = inst_info.beammap.nrows
+        self.platescale = inst_info.platescale.to(u.deg).value  # 10 mas
+        self.apo = Observer.at_site(observatory)
+        self.observatory = observatory
 
         if use_min_timestep:
             min_timestep = self.calc_min_timesamp(dither.obs)
@@ -279,7 +272,6 @@ class Drizzler(object):
         self.starRA = metadata.coords.ra.deg
         self.starDec = metadata.coords.dec.deg
         self.vPlateScale = metadata.platescale
-        self.rotation_center = metadata.rotation_center
 
         if self.nPixRA is None or self.nPixDec is None:
             dith_cellestial_min = np.zeros((len(photonlists), 2))
@@ -334,8 +326,6 @@ class Drizzler(object):
 
         self.w = wcs.WCS(naxis = 2)
         self.w.wcs.crpix = np.array([self.nPixRA / 2., self.nPixDec / 2.])
-        if center_on_star:
-            self.w.wcs.crpix += np.array([self.rotation_center[0][0], self.rotation_center[1][0]])
         self.w.wcs.crval = [self.starRA, self.starDec]
         self.w.wcs.ctype = ["RA--TAN", "DEC-TAN"]
         self.w._naxis1 = self.nPixRA
@@ -584,7 +574,7 @@ class TemporalDrizzler(Drizzler):
         w4d.wcs.cdelt = [self.w.wcs.cdelt[0], self.w.wcs.cdelt[1],
                          (self.wvlbins[1] - self.wvlbins[0])/1e9,
                          (self.timebins[1] - self.timebins[0])/1e6]
-        w4d.wcs.cunit = [self.w.wcs.cunit[0], self.w.wcs.cunit[1], "m", "sec"]
+        w4d.wcs.cunit = [self.w.wcs.cunit[0], self.w.wcs.cunit[1], "m", "s"]
 
         self.w = w4d
         getLogger(__name__).debug('4D wcs {}'.format(w4d))
@@ -739,6 +729,10 @@ class DrizzledData(object):
 
         if len(multiplots) == 0:
             ax = fig.add_subplot(111, projection=self.wcs)
+            ax.coords.grid(True, color='white', ls='solid')
+            ax.coords[0].set_axislabel('Right Ascension (J2000)')
+            ax.coords[1].set_axislabel('Declination (J2000)')
+
             axes = [ax]
             ind = [...]
         else:
@@ -747,15 +741,12 @@ class DrizzledData(object):
             [ntimes, nwaves] = np.array(scidata.shape)[multiplots]
             gs = gridspec.GridSpec(nwaves, ntimes)
             for n in range(ntimes * nwaves):
-                fig.add_subplot(gs[n], projection=self.wcs)
-            axes = np.array(fig.axes)  # .reshape(ntimes, nwaves)
+                fig.add_subplot(gs[n])  # fig.add_subplot(gs[n], projection=self.wcs)
+            axes = np.array(fig.axes)
             ind = [(t, w) for t in range(ntimes) for w in range(nwaves)]
 
         for ia, ax in enumerate(axes):
             im = ax.imshow(self.data[ind[ia]], origin='lower', vmin=vmin, vmax=vmax, norm=norm)
-            ax.coords.grid(True, color='white', ls='solid')
-            ax.coords[0].set_axislabel('Right Ascension (J2000)')
-            ax.coords[1].set_axislabel('Declination (J2000)')
 
         cax = fig.add_axes([0.92, 0.09 + 0.277, 0.025, 0.25])
         cb = plt.colorbar(im, cax=cax)
@@ -765,7 +756,7 @@ class DrizzledData(object):
             plt.show(block=True)
 
 
-def form(dither, mode='spatial', derotate=True, rotation_center=None, wvlMin=850, wvlMax=1100, startt=0, intt=60,
+def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=0, intt=60,
          pixfrac=.5, nwvlbins=1, timestep=1., ntimebins=0, fitsname='fits',
          usecache=True, quickplot=True):
     """
@@ -780,7 +771,6 @@ def form(dither, mode='spatial', derotate=True, rotation_center=None, wvlMin=850
     :param timestep:
     :param mode: stack|spatial|spectral|temporal|list
     :param derotate: False|True
-    :param rotation_center: None or array/tuple
     :param wvlMin:
     :param wvlMax:
     :param startt:
@@ -795,16 +785,16 @@ def form(dither, mode='spatial', derotate=True, rotation_center=None, wvlMin=850
         getLogger(__name__).warning('Reduced the effective integration time from {}s to {}s'.format(intt, dither.inttime))
     if dither.inttime > intt:
         # getLogger(__name__).warning(f'Reduced the duration of each dither {dither.inttime}s to {args.intt}s')
-        getLogger(__name__).warning('Reduced the duration of each dither from {}s to {}s'.format(dither.duration, intt))
+        getLogger(__name__).warning('Reduced the duration of each dither from {}s to {}s'.format(dither.inttime, intt))
 
     # redefining these variables in the middle of the code might not be good practice since form() is run multiple
     # times but once they've been equated it shouldn't have an effect?
     intt, dither.inttime = [min(intt, dither.inttime)] * 2
 
-    ditherdesc = DitherDescription(dither, rotation_center=rotation_center)
+    ditherdesc = DitherDescription(dither, target=dither.name)
     data = load_data(ditherdesc, wvlMin, wvlMax, startt, intt, derotate=derotate, usecache=usecache)
 
-    if mode not in ['stack', 'spatial', 'spectral', 'temporal', 'list']:
+    if mode not in ['stack', 'spatial', 'cube', 'list']:
         raise ValueError('Not calling one of the available functions')
 
     elif mode == 'spatial':
@@ -816,14 +806,7 @@ def form(dither, mode='spatial', derotate=True, rotation_center=None, wvlMin=850
         stacked_wcs = driz.stacked_wcs
         image_weights = driz.driz.outwht
 
-    elif mode == 'spectral':
-        # sdriz = TemporalDrizzler(data, ditherdesc, pixfrac=pixfrac, nwvlbins=nwvlbins, timestep=intt, wvlMin=wvlMin,
-        #                          wvlMax=wvlMax)
-        # outsci = np.sum(sdriz.totHypCube, axis=0) / sdriz.totWeightCube.sum(axis=0)[0]
-        # outwcs = sdriz.w
-        raise NotImplementedError
-
-    elif mode == 'temporal':
+    elif mode == 'cube':
         tdriz = TemporalDrizzler(data, ditherdesc, pixfrac=pixfrac, nwvlbins=nwvlbins, timestep=timestep,
                                  ntimebins=ntimebins, wvlMin=wvlMin, wvlMax=wvlMax)
         tdriz.run()
@@ -954,7 +937,6 @@ if __name__ == '__main__':
     intt = args.intt
     pixfrac = cfg.drizzler.pixfrac
     dither = cfg.dither
-    rotation_origin = cfg.drizzler.rotation_center
 
     if args.gso and type(args.gso) is list:
         rotation_origin = get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=np.array(args.gso))
@@ -962,7 +944,7 @@ if __name__ == '__main__':
     fitsname = '{}_{}.fits'.format(cfg.dither.name, drizzler_cfg_descr_str(cfg.drizzler))
 
     # main function of drizzler
-    scidata = form(dither, mode=cfg.drizzler.mode, rotation_center=rotation_origin, wvlMin=wvlMin,
+    scidata = form(dither, mode='spatial', wvlMin=wvlMin,
                    wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac,
                    derotate=True, fitsname=fitsname)
 
@@ -971,5 +953,5 @@ if __name__ == '__main__':
             getLogger(__name__).info("Can't find {} Create the fits image "
                                                  "using the default orientation first".format(fitsname))
         else:
-            ditherdesc = DitherDescription(dither, target=dither.name, rotation_center=rotation_origin)
+            ditherdesc = DitherDescription(dither, target=dither.name)
             get_device_orientation(ditherdesc.coords, fitsname)
