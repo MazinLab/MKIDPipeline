@@ -360,7 +360,7 @@ class MKIDDitheredObservation(object):
         with open(file) as f:
             lines = f.readlines()
 
-        tofloat = lambda x: map(float, x.replace('[','').replace(']','').split(','))
+        tofloat = lambda x: list(map(float, x.replace('[','').replace(']','').split(',')))
         proc = lambda x: str.lower(str.strip(x))
         d = dict([list(map(proc, l.partition('=')[::2])) for l in lines])
 
@@ -382,7 +382,7 @@ class MKIDDitheredObservation(object):
         xpos = tofloat(d['xpos'])
         ypos = tofloat(d['ypos'])
 
-        assert len(startt) == int(d['npos'])
+        assert len(startt) == int(d['npos'])*int(d['nsteps'])
 
         startt = [startt[i] for i in self.use]
         endt = [endt[i] for i in self.use]
@@ -393,7 +393,7 @@ class MKIDDitheredObservation(object):
         self.pos = list(zip(xpos, ypos))
 
         self.obs = []
-        for i, b, e, p in zip(use, startt, endt, self.pos):
+        for i, b, e, p in zip(self.use, startt, endt, self.pos):
             name = '{}_({})_{}'.format(self.name, os.path.basename(self.file), i)
             _common.pop('dither_pos', None)
             _common['dither_pos'] = p
