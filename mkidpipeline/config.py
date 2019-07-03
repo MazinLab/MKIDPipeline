@@ -373,9 +373,9 @@ class MKIDDitheredObservation(object):
         self.inttime = int(d['inttime'])
 
         if use is None:
-            use = list(range(int(d['npos'])))
-
-        self.use = [use] if isinstance(use, int) else derangify(use)
+            self.use = list(range(int(d['npos'])))
+        else:
+            self.use = [use] if isinstance(use, int) else derangify(use)
 
         startt = tofloat(d['starttimes'])
         endt = tofloat(d['endtimes'])
