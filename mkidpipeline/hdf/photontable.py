@@ -839,9 +839,9 @@ class ObsFile(object):
 
         #TODO set the header units for the extensions
         hdul = fits.HDUList([fits.PrimaryHDU(header=header),
-                             fits.ImageHDU(data=cube/integrationTime if countRate else cube,
+                             fits.ImageHDU(data=data/integrationTime if countRate else cube,
                                            header=header, name='SCIENCE'),
-                             fits.ImageHDU(data=np.sqrt(cube), header=header, name='VARIANCE'),
+                             fits.ImageHDU(data=np.sqrt(data), header=header, name='VARIANCE'),
                              fits.ImageHDU(data=self.beamFlagImage, header=header, name='BADPIX')])
         return hdul
 
