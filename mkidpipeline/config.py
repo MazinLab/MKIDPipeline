@@ -365,31 +365,26 @@ class MKIDDitheredObservation(object):
         d = dict([list(map(proc, l.partition('=')[::2])) for l in lines])
 
         # Support legacy names
-        if 'npos' not in d:
-            d['npos'] = d['nsteps']
         if 'endtimes' not in d:
             d['endtimes'] = d['stoptimes']
 
         self.inttime = int(d['inttime'])
-
-        if use is None:
-            self.use = list(range(int(d['npos'])))
-        else:
-            self.use = [use] if isinstance(use, int) else derangify(use)
 
         startt = tofloat(d['starttimes'])
         endt = tofloat(d['endtimes'])
         xpos = tofloat(d['xpos'])
         ypos = tofloat(d['ypos'])
 
-        assert len(startt) == int(d['npos'])*int(d['nsteps'])
+        if use is None:
+            self.use = list(range(len(startt)))
+        else:
+            self.use = [use] if isinstance(use, int) else derangify(use)
 
         startt = [startt[i] for i in self.use]
         endt = [endt[i] for i in self.use]
         xpos = [xpos[i] for i in self.use]
         ypos = [ypos[i] for i in self.use]
 
-        self.nsteps = len(startt)
         self.pos = list(zip(xpos, ypos))
 
         self.obs = []
