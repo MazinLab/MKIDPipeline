@@ -627,7 +627,8 @@ def select_metadata_for_h5(mkidobs, metadata_source):
     time_since_start = np.array([(md.utc - start).total_seconds() for md in metadata_source])
     ok = (time_since_start < mkidobs.duration) & (time_since_start >= 0)
     mdl = [metadata_source[i] for i in np.where(ok)[0]]
-    if not mdl: mdl = [mkidcore.config.ConfigThing()]
+    if not mdl:
+        mdl = [mkidcore.config.ConfigThing()]
     bad = False
     for md in mdl:
         md.registerfromkvlist(mkidobs.metadata.items(), namespace='')

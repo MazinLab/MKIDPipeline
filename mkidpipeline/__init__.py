@@ -34,8 +34,6 @@ def batch_apply_metadata(dataset):
     for ob in dataset.all_observations:
         o = mkidpipeline.hdf.photontable.ObsFile(ob.h5, mode='w')
         mdl = config.select_metadata_for_h5(ob, metadata)
-        for md in mdl:
-            md.registerfromkvlist(ob.metadata.items())
         o.attach_observing_metadata(mdl)
         del o
 
