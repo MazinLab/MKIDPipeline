@@ -68,7 +68,7 @@ def generate_outputs(outputs):
                 raise TypeError('a dither is not specified in the out.yml')
             drizzled = drizzler.form(o.data, mode=o.kind, wvlMin=o.startw, wvlMax=o.stopw,
                                      pixfrac=config.drizzler.pixfrac, usecache=False)
-            drizzled.writeto(o.output_file)
+            drizzled.writefits(o.output_file)
 
 
 out_collection = pipe.load_output_description('')

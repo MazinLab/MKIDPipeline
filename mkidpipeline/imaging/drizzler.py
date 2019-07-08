@@ -758,7 +758,7 @@ class DrizzledData(object):
 
 def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=0, intt=60,
          pixfrac=.5, nwvlbins=1, timestep=1., ntimebins=0, fitsname='fits',
-         usecache=True, quickplot=True):
+         usecache=True, quickplot=False):
     """
     Takes in a ditherdescription object and drizzles the files onto a sky grid. Depending on the selected mode this
     output can take the form of an image, spectral cube, sequence of spectral cubes, or a photon list. Currently
@@ -791,7 +791,7 @@ def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=
     # times but once they've been equated it shouldn't have an effect?
     intt, dither.inttime = [min(intt, dither.inttime)] * 2
 
-    ditherdesc = DitherDescription(dither, target=dither.name)
+    ditherdesc = DitherDescription(dither, target=dither.target)
     data = load_data(ditherdesc, wvlMin, wvlMax, startt, intt, derotate=derotate, usecache=usecache)
 
     if mode not in ['stack', 'spatial', 'cube', 'list']:
@@ -953,5 +953,5 @@ if __name__ == '__main__':
             getLogger(__name__).info("Can't find {} Create the fits image "
                                                  "using the default orientation first".format(fitsname))
         else:
-            ditherdesc = DitherDescription(dither, target=dither.name)
+            ditherdesc = DitherDescription(dither, target=dither.target)
             get_device_orientation(ditherdesc.coords, fitsname)
