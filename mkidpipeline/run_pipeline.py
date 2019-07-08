@@ -55,13 +55,15 @@ def generate_outputs(outputs):
     for o in outputs:
         pipe.getLogger(__name__).info('Generating {}'.format(o))
         if o.wants_image:
-            import pipe.hdf.photontable
-            h5 = pipe.hdf.photontable.ObsFile(o.data.h5)
-            img = h5.getFits(wvlStart=o.startw, wvlStop=o.stopw, applyWeight=o.enable_photom,
-                             applyTPFWeight=o.enable_noise, countRate=True)
-            img.writeto(o.output_file)
+            import mkidpipeline.hdf.photontable
+            for obs in o.data.obs:
+                h5 = mkidpipeline.hdf.photontable.ObsFile(obs.h5)
+                img = h5.getFits(wvlStart=o.startw, wvlStop=o.stopw, applyWeight=o.enable_photom,
+                                applyTPFWeight=o.enable_noise, countRate=True)
+                img.writeto(o.output_file + h5.fileName.split('.')[0] + ".fits")
+                pipe.getLogger(__name__).info('Generated fits file for {}'.format(obs.h5))
         if o.wants_drizzled:
-            import pipe.imaging
+            import mkidpipeline.imaging
             if not isinstance(o.data, mkidpipeline.config.MKIDDitheredObservation):
                 raise TypeError('a dither is not specified in the out.yml')
             drizzled = drizzler.form(o.data, mode=o.kind, wvlMin=o.startw, wvlMax=o.stopw,
