@@ -159,9 +159,30 @@ class DitherDescription(object):
 
         return min_timestep
 
+def mp_worker(file, startw, stopw, startt, intt, derotate, ditherdesc):
+    obsfile = ObsFile(file)
+    usableMask = np.array(obsfile.beamFlagImage) == pixelflags.GOODPIXEL
+
+    photons = obsfile.query(startw=startw, stopw=stopw, startt=startt, intt=intt)
+    weights = photons['SpecWeight'] * photons['NoiseWeight']
+    getLogger(__name__).info("Fetched {} photons from {}".format(len(photons), file))
+
+    x, y = obsfile.xy(photons)
+
+    # ob.get_wcs returns all wcs solutions (including those after intt), so just pass then remove post facto
+    # TODO consider passing intt to obsfile.get_wcs()
+    wcs = obsfile.get_wcs(derotate=derotate, timestep=ditherdesc.wcs_timestep, target_coordinates=ditherdesc.coords)
+    nwcs = int(np.ceil(intt/ditherdesc.wcs_timestep))
+    wcs = wcs[:nwcs]
+    del obsfile
+
+    return {'file': file, 'timestamps': photons["Time"], 'xPhotonPixels': x, 'yPhotonPixels': y,
+           'wavelengths': photons["Wavelength"], 'weight': weights, 'usablemask': usableMask,
+           'obs_wcs_seq': wcs}
+
 
 def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{}.pkl',
-              tempdir='', usecache=True, clearcache=False, derotate=True):
+              tempdir='', usecache=True, clearcache=False, derotate=True, ncpu=1):
     """
     Load the photons either by querying the obsfiles in parrallel or loading from pkl if it exists. The wcs
     solutions are added to this photon data dictionary but will likely be integrated into photontable.py directly
@@ -178,7 +199,6 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
     :param derotate:
     :return:
     """
-    ndither = len(ditherdesc.description.obs)
 
     pkl_save = os.path.join(tempdir, tempfile.format(ditherdesc.target))
     if clearcache:  # TODO the cache must be autocleared if the query parameters would alter the contents
@@ -195,49 +215,10 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
         if not filenames:
             getLogger(__name__).info('No obsfiles found')
 
-        def mp_worker(file, pos, q, startt=startt, intt=intt, startw=wvlMin, stopw=wvlMax):
-            obsfile = ObsFile(file)
-            usableMask = np.array(obsfile.beamFlagImage) == pixelflags.GOODPIXEL
-
-            photons = obsfile.query(startw=startw, stopw=stopw, startt=startt, intt=intt)
-            weights = photons['SpecWeight'] * photons['NoiseWeight']
-            getLogger(__name__).info("Fetched {} photons from {}".format(len(photons), file))
-
-            x, y = obsfile.xy(photons)
-
-            # ob.get_wcs returns all wcs solutions (including those after intt), so just pass then remove post facto
-            # TODO consider passing intt to obsfile.get_wcs()
-            wcs = obsfile.get_wcs(derotate=derotate, timestep=ditherdesc.wcs_timestep, target_coordinates=ditherdesc.coords)
-            nwcs = int(np.ceil(intt/ditherdesc.wcs_timestep))
-            wcs = wcs[:nwcs]
-            del obsfile
-
-            q.put({'file': file, 'timestamps': photons["Time"], 'xPhotonPixels': x, 'yPhotonPixels': y,
-                   'wavelengths': photons["Wavelength"], 'weight': weights, 'usablemask': usableMask,
-                   'obs_wcs_seq': wcs})
-
-        getLogger(__name__).info('stacking number of dithers: {}'.format(ndither))
-
-        jobs = []
-        data_q = mp.Queue()
-
-        if ndither > 25:
-            raise RuntimeError('Needs rewrite, will use too many cores')
-
-        for f, p in zip(filenames[:ndither], ditherdesc.description.pos):
-            p = mp.Process(target=mp_worker, args=(f, p, data_q))
-            jobs.append(p)
-            p.daemon = True
-            p.start()
-
-        data = []
-        for t in range(ndither):
-            data.append(data_q.get())
-
-        # Wait for all of the processes to finish fetching their data, this should hang until all the data has been
-        # fetched
-        for j in jobs:
-            j.join()
+        ncpu = min(mkidpipeline.config.n_cpus_available(), ncpu)
+        p = mp.Pool(ncpu)
+        processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt, intt, derotate, ditherdesc)) for file in filenames]
+        data = [res.get() for res in processes]
 
         data.sort(key=lambda k: filenames.index(k['file']))
 
@@ -709,6 +690,7 @@ class DrizzledData(object):
             file = file+'.gz'
 
         hdul.writeto(file, overwrite=overwrite)
+        getLogger(__name__).info('FITS saved')
 
     def quick_pretty_plot(self, log_scale=True, vmin=None, vmax=None, show=True, max_times=8):
         """
@@ -765,7 +747,7 @@ class DrizzledData(object):
 
 def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=0, intt=60,
          pixfrac=.5, nwvlbins=1, timestep=1., ntimebins=0, fitsname='fits',
-         usecache=True, quickplot=False):
+         usecache=True, quickplot=False, ncpu=1):
     """
     Takes in a ditherdescription object and drizzles the files onto a sky grid. Depending on the selected mode this
     output can take the form of an image, spectral cube, sequence of spectral cubes, or a photon list. Currently
@@ -799,7 +781,7 @@ def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=
     intt, dither.inttime = [min(intt, dither.inttime)] * 2
 
     ditherdesc = DitherDescription(dither, target=dither.target)
-    data = load_data(ditherdesc, wvlMin, wvlMax, startt, intt, derotate=derotate, usecache=usecache)
+    data = load_data(ditherdesc, wvlMin, wvlMax, startt, intt, derotate=derotate, usecache=usecache, ncpu=ncpu)
 
     if mode not in ['stack', 'spatial', 'cube', 'list']:
         raise ValueError('Not calling one of the available functions')
