@@ -207,7 +207,7 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
 
             # ob.get_wcs returns all wcs solutions (including those after intt), so just pass then remove post facto
             # TODO consider passing intt to obsfile.get_wcs()
-            wcs = obsfile.get_wcs(derotate=derotate, timestep=ditherdesc.wcs_timestep)
+            wcs = obsfile.get_wcs(derotate=derotate, timestep=ditherdesc.wcs_timestep, target_coordinates=ditherdesc.coords)
             nwcs = int(np.ceil(intt/ditherdesc.wcs_timestep))
             wcs = wcs[:nwcs]
             del obsfile
@@ -497,6 +497,9 @@ class TemporalDrizzler(Drizzler):
                 # set this here since _naxis1,2 are reinitialised during pickle
                 inwcs._naxis1, inwcs._naxis2 = inwcs.naxis1, inwcs.naxis2
 
+                # the sky grid ref and dither ref should match (crpix varies between dithers)
+                assert np.all(np.round(inwcs.wcs.crval, decimals=4) == np.round(self.w.wcs.crval, decimals=4))
+
                 insci = self.makeTess(file, (self.wcs_times[t], self.wcs_times[t+1]), applymask=False)
 
                 self.stackedim.append(insci)
@@ -605,6 +608,10 @@ class SpatialDrizzler(Drizzler):
             for t, inwcs in enumerate(file['obs_wcs_seq']):
                 # set this here since _naxis1,2 are reinitialised during pickle
                 inwcs._naxis1, inwcs._naxis2 = inwcs.naxis1, inwcs.naxis2
+
+                # the sky grid ref and dither ref should match (crpix varies between dithers)
+                assert np.all(np.round(inwcs.wcs.crval, decimals=4) == np.round(self.w.wcs.crval, decimals=4))
+
                 insci = self.makeImage(file, (self.wcs_times[t], self.wcs_times[t+1]), applymask=False)
 
                 self.stackedim[ix*len(file['obs_wcs_seq']) + t] = insci
