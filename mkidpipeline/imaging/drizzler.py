@@ -216,7 +216,7 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
                    'wavelengths': photons["Wavelength"], 'weight': weights, 'usablemask': usableMask,
                    'obs_wcs_seq': wcs})
 
-        getLogger(__name__).info('stacking number of dithers: %i'.format(ndither))
+        getLogger(__name__).info('stacking number of dithers: {}'.format(ndither))
 
         jobs = []
         data_q = mp.Queue()
