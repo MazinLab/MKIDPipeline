@@ -824,6 +824,7 @@ def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=
         ldriz = ListDrizzler(data, ditherdesc, pixfrac=pixfrac)
         ldriz.run()
         outsci = ldriz.files
+        outwcs = ldriz.w
 
     drizzle = DrizzledData(scidata=outsci, outwcs=outwcs, stackedim=stackedim, stacked_wcs=stacked_wcs, dither=dither,
                            image_weights=image_weights)
