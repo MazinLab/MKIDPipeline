@@ -67,7 +67,7 @@ def generate_outputs(outputs):
             if not isinstance(o.data, mkidpipeline.config.MKIDDitheredObservation):
                 raise TypeError('a dither is not specified in the out.yml')
             drizzled = drizzler.form(o.data, mode=o.kind, wvlMin=o.startw, wvlMax=o.stopw,
-                                     pixfrac=config.drizzler.pixfrac, usecache=False, ncpu=ncpu)
+                                     pixfrac=config.drizzler.pixfrac, usecache=False, ncpu=config.ncpu)
             drizzled.writefits(o.output_file)
 
 

@@ -182,7 +182,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, ditherdesc):
 
 
 def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{}.pkl',
-              tempdir='', usecache=True, clearcache=False, derotate=True, ncpu=1):
+              tempdir=None, usecache=True, clearcache=False, derotate=True, ncpu=1):
     """
     Load the photons either by querying the obsfiles in parrallel or loading from pkl if it exists. The wcs
     solutions are added to this photon data dictionary but will likely be integrated into photontable.py directly
@@ -199,6 +199,11 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
     :param derotate:
     :return:
     """
+
+    if tempdir is None:
+        tempdir = os.path.join(os.path.dirname(ditherdesc.description.obs[0].h5), '.tmp/')
+    if not os.path.exists(tempdir):
+        os.mkdir(tempdir)
 
     pkl_save = os.path.join(tempdir, tempfile.format(ditherdesc.target))
     if clearcache:  # TODO the cache must be autocleared if the query parameters would alter the contents
@@ -217,7 +222,7 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
 
         ncpu = min(mkidpipeline.config.n_cpus_available(), ncpu)
         p = mp.Pool(ncpu)
-        processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt, intt, derotate, ditherdesc)) for file in filenames]
+        processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt, intt, derotate, ditherdesc)) for file in filenames[:2]]
         data = [res.get() for res in processes]
 
         data.sort(key=lambda k: filenames.index(k['file']))
@@ -745,9 +750,8 @@ class DrizzledData(object):
             plt.show(block=True)
 
 
-def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=0, intt=60,
-         pixfrac=.5, nwvlbins=1, timestep=1., ntimebins=0, fitsname='fits',
-         usecache=True, quickplot=False, ncpu=1):
+def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=0, intt=60, pixfrac=.5, nwvlbins=1,
+         timestep=1., ntimebins=0, fitsname=None, usecache=True, quickplot=False, ncpu=1):
     """
     Takes in a ditherdescription object and drizzles the files onto a sky grid. Depending on the selected mode this
     output can take the form of an image, spectral cube, sequence of spectral cubes, or a photon list. Currently
@@ -822,7 +826,7 @@ def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=
         drizzle.quick_pretty_plot()
 
     if fitsname:
-        drizzle.writefits(file=fitsname + '.fits')
+        drizzle.writefits(file=fitsname + '.fits')  # unless path specified, save in cwd
 
     return drizzle
 
