@@ -222,7 +222,7 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
 
         ncpu = min(mkidpipeline.config.n_cpus_available(), ncpu)
         p = mp.Pool(ncpu)
-        processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt, intt, derotate, ditherdesc)) for file in filenames[:2]]
+        processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt, intt, derotate, ditherdesc)) for file in filenames]
         data = [res.get() for res in processes]
 
         data.sort(key=lambda k: filenames.index(k['file']))
