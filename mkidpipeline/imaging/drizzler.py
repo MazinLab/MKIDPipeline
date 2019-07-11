@@ -859,7 +859,7 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0,0), zoo
     iteration = 0
     while update:
 
-        drizzle = form(dither=dither, mode='spatial', rotation_center=rotation_center, wvlMin=wvlMin,
+        drizzle = form(dither=dither, mode='spatial', wvlMin=wvlMin,
                         wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=1, derotate=None, usecache=False)
 
         image = drizzle.data
