@@ -504,11 +504,9 @@ class ObsFile(object):
 
     def get_wcs(self, derotate=True, timestep=None, target_coordinates=None, wave_axis=False):
         """
-        Default device_orientation obtained with get_device_orientation using Trapezium observations
 
         :param timestep:
-        :param target_coordinates: SkyCoord or string to query for
-        :param conex_pos:
+        :param target_coordinates: SkyCoord or string to query simbad for
         :param derotate: [True, False]
                          True:  align each wcs solution to position angle = 0
                          False:  no correction angle

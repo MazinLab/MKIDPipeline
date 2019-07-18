@@ -159,7 +159,8 @@ class DitherDescription(object):
 
         return min_timestep
 
-def mp_worker(file, startw, stopw, startt, intt, derotate, ditherdesc):
+
+def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep):
     obsfile = ObsFile(file)
     usableMask = np.array(obsfile.beamFlagImage) == pixelflags.GOODPIXEL
 
@@ -169,29 +170,29 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, ditherdesc):
 
     x, y = obsfile.xy(photons)
 
-    # ob.get_wcs returns all wcs solutions (including those after intt), so just pass then remove post facto
-    # TODO consider passing intt to obsfile.get_wcs()
-    wcs = obsfile.get_wcs(derotate=derotate, timestep=ditherdesc.wcs_timestep, target_coordinates=ditherdesc.coords)
-    nwcs = int(np.ceil(intt/ditherdesc.wcs_timestep))
+    # ob.get_wcs returns all wcs solutions (including those after intt), so just pass then remove post facto()
+    wcs = obsfile.get_wcs(derotate=derotate, timestep=wcs_timestep)
+    nwcs = int(np.ceil(intt/wcs_timestep))
     wcs = wcs[:nwcs]
     del obsfile
 
     return {'file': file, 'timestamps': photons["Time"], 'xPhotonPixels': x, 'yPhotonPixels': y,
-           'wavelengths': photons["Wavelength"], 'weight': weights, 'usablemask': usableMask,
-           'obs_wcs_seq': wcs}
+            'wavelengths': photons["Wavelength"], 'weight': weights, 'usablemask': usableMask,
+            'obs_wcs_seq': wcs}
 
 
-def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{}.pkl',
+def load_data(description, wvlMin, wvlMax, startt, intt, wcs_timestep, tempfile='drizzler_tmp_{}.pkl',
               tempdir=None, usecache=True, clearcache=False, derotate=True, ncpu=1):
     """
     Load the photons either by querying the obsfiles in parrallel or loading from pkl if it exists. The wcs
     solutions are added to this photon data dictionary but will likely be integrated into photontable.py directly
 
-    :param ditherdesc:
+    :param description:
     :param wvlMin:
     :param wvlMax:
     :param startt:
     :param intt:
+    :param wcs_timestep:
     :param tempfile:
     :param tempdir:
     :param usecache:
@@ -201,11 +202,11 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
     """
 
     if tempdir is None:
-        tempdir = os.path.join(os.path.dirname(ditherdesc.description.obs[0].h5), '.tmp/')
+        tempdir = mkidpipeline.config.config.paths.tmp
     if not os.path.exists(tempdir):
         os.mkdir(tempdir)
 
-    pkl_save = os.path.join(tempdir, tempfile.format(ditherdesc.target))
+    pkl_save = os.path.join(tempdir, tempfile.format(description.name))
     if clearcache:  # TODO the cache must be autocleared if the query parameters would alter the contents
         os.remove(pkl_save)
     try:
@@ -216,13 +217,14 @@ def load_data(ditherdesc, wvlMin, wvlMax, startt, intt, tempfile='drizzler_tmp_{
             getLogger(__name__).info('loaded {}'.format(pkl_save))
     except FileNotFoundError:
         begin = time.time()
-        filenames = [o.h5 for o in ditherdesc.description.obs]
+        filenames = [o.h5 for o in description.obs]
         if not filenames:
             getLogger(__name__).info('No obsfiles found')
 
         ncpu = min(mkidpipeline.config.n_cpus_available(), ncpu)
         p = mp.Pool(ncpu)
-        processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt, intt, derotate, ditherdesc)) for file in filenames]
+        processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt, intt, derotate, wcs_timestep))
+                     for file in filenames]
         data = [res.get() for res in processes]
 
         data.sort(key=lambda k: filenames.index(k['file']))
@@ -322,44 +324,44 @@ class Drizzler(object):
         getLogger(__name__).debug(self.w)
 
 
-class SpectralDrizzler(Drizzler):
-    """ Generate a spatially dithered fits dataacube from a set dithered dataset """
-
-    def __init__(self, photonlists, metadata, pixfrac=1.):
-        self.nwvlbins = 3
-        self.wvlbins = np.linspace(metadata.wvlMin, metadata.wvlMax, self.nwvlbins + 1)
-        super().__init__(photonlists, metadata)
-        self.drizcube = [stdrizzle.Drizzle(outwcs=self.w, pixfrac=pixfrac)] * self.nwvlbins
-
-    def run(self, save_file=None):
-        for ix, file in enumerate(self.files):
-
-            getLogger(__name__).debug('Processing %s', file)
-            tic = time.clock()
-            insci, inwcs = self.makeCube(file)
-            getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
-            for iw in range(self.nwvlbins):
-                self.drizcube[iw].add_image(insci[iw], inwcs, inwht=np.int_(np.logical_not(insci[iw] == 0)))
-
-        self.cube = [d.outsci for d in self.drizcube]
-
-        # TODO add the wavelength WCS
-
-    def makeCube(self, file):
-        sample = np.vstack((file['wavelengths'], file['photDecRad'], file['photRARad']))
-        bins = np.array([self.wvlbins, self.ypix, self.xpix])
-
-        datacube, (wavelengths, thisGridDec, thisGridRA) = np.histogramdd(sample.T, bins)
-
-        w = wcs.WCS(naxis=2)
-        w.wcs.crpix = [0., 0.]
-        w.wcs.cdelt = np.array([thisGridRA[1] - thisGridRA[0], thisGridDec[1] - thisGridDec[0]])
-        w.wcs.crval = [thisGridRA[0], thisGridDec[0]]
-        w.wcs.ctype = ["RA---AIR", "DEC--AIR"]
-        w._naxis1 = len(thisGridRA) - 1
-        w._naxis2 = len(thisGridDec) - 1
-
-        return datacube, w
+# class SpectralDrizzler(Drizzler):
+#     """ Generate a spatially dithered fits dataacube from a set dithered dataset """
+#
+#     def __init__(self, photonlists, metadata, pixfrac=1.):
+#         self.nwvlbins = 3
+#         self.wvlbins = np.linspace(metadata.wvlMin, metadata.wvlMax, self.nwvlbins + 1)
+#         super().__init__(photonlists, metadata)
+#         self.drizcube = [stdrizzle.Drizzle(outwcs=self.w, pixfrac=pixfrac)] * self.nwvlbins
+#
+#     def run(self, save_file=None):
+#         for ix, file in enumerate(self.files):
+#
+#             getLogger(__name__).debug('Processing %s', file)
+#             tic = time.clock()
+#             insci, inwcs = self.makeCube(file)
+#             getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
+#             for iw in range(self.nwvlbins):
+#                 self.drizcube[iw].add_image(insci[iw], inwcs, inwht=np.int_(np.logical_not(insci[iw] == 0)))
+#
+#         self.cube = [d.outsci for d in self.drizcube]
+#
+#         # TODO add the wavelength WCS
+#
+#     def makeCube(self, file):
+#         sample = np.vstack((file['wavelengths'], file['photDecRad'], file['photRARad']))
+#         bins = np.array([self.wvlbins, self.ypix, self.xpix])
+#
+#         datacube, (wavelengths, thisGridDec, thisGridRA) = np.histogramdd(sample.T, bins)
+#
+#         w = wcs.WCS(naxis=2)
+#         w.wcs.crpix = [0., 0.]
+#         w.wcs.cdelt = np.array([thisGridRA[1] - thisGridRA[0], thisGridDec[1] - thisGridDec[0]])
+#         w.wcs.crval = [thisGridRA[0], thisGridDec[0]]
+#         w.wcs.ctype = ["RA---AIR", "DEC--AIR"]
+#         w._naxis1 = len(thisGridRA) - 1
+#         w._naxis2 = len(thisGridDec) - 1
+#
+#         return datacube, w
 
 
 class ListDrizzler(Drizzler):
@@ -421,7 +423,6 @@ class ListDrizzler(Drizzler):
             getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
 
 
-
 class TemporalDrizzler(Drizzler):
     """
     Generate a spatially dithered fits 4D hypercube from a set dithered dataset. The cube size is
@@ -430,8 +431,8 @@ class TemporalDrizzler(Drizzler):
     timestep or ntimebins argument accepted. ntimebins takes priority
     """
 
-    def __init__(self, photonlists, metadata, pixfrac=1., nwvlbins=2, timestep=0.1, ntimebins=1,
-                 wvlMin=0, wvlMax=np.inf):
+    def __init__(self, photonlists, metadata, pixfrac=1.0, nwvlbins=2, timestep=0.1, ntimebins=1, wvlMin=0,
+                 wvlMax=np.inf):
 
         super().__init__(photonlists, metadata)
 
@@ -462,12 +463,7 @@ class TemporalDrizzler(Drizzler):
         self.stackedim = []
         self.stacked_wcs = []
 
-    def run(self, save_file=None):
-        """
-
-        :param save_file:
-        :return:
-        """
+    def run(self):
         tic = time.clock()
 
         self.totHypCube = np.zeros((self.ntimebins * self.ndithers, self.nwvlbins, self.nPixDec, self.nPixRA))
@@ -484,7 +480,9 @@ class TemporalDrizzler(Drizzler):
                 inwcs._naxis1, inwcs._naxis2 = inwcs.naxis1, inwcs.naxis2
 
                 # the sky grid ref and dither ref should match (crpix varies between dithers)
-                assert np.all(np.round(inwcs.wcs.crval, decimals=4) == np.round(self.w.wcs.crval, decimals=4))
+                if not np.all(np.round(inwcs.wcs.crval, decimals=4) == np.round(self.w.wcs.crval, decimals=4)):
+                    getLogger(__name__).critical('sky grid ref and dither ref do not match (crpix varies between dithers)!')
+                    raise RuntimeError('sky grid ref and dither ref do not match (crpix varies between dithers)!')
 
                 insci = self.makeTess(file, (self.wcs_times[t], self.wcs_times[t+1]), applymask=False)
 
@@ -517,15 +515,14 @@ class TemporalDrizzler(Drizzler):
 
         weights = file['weight'] if applyweights else None
 
-        timespan_ind = np.where(np.logical_and(file['timestamps'] >= timespan[0],
-                                               file['timestamps'] <= timespan[1]))[0]
+        timespan_mask = (file['timestamps'] >= timespan[0]) & (file['timestamps'] <= timespan[1])
 
-        sample = np.vstack((file['timestamps'][timespan_ind],
-                            file['wavelengths'][timespan_ind],
-                            file['xPhotonPixels'][timespan_ind],
-                            file['yPhotonPixels'][timespan_ind]))
+        sample = np.vstack((file['timestamps'][timespan_mask],
+                            file['wavelengths'][timespan_mask],
+                            file['xPhotonPixels'][timespan_mask],
+                            file['yPhotonPixels'][timespan_mask]))
 
-        timebins = self.timebins[np.logical_and(self.timebins >= timespan[0], self.timebins <= timespan[1])]
+        timebins = self.timebins[(self.timebins >= timespan[0]) & (self.timebins <= timespan[1])]
 
         bins = np.array([timebins, self.wvlbins, self.ypix, self.xpix])
         hypercube, _ = np.histogramdd(sample.T, bins, weights=weights, )
@@ -573,7 +570,8 @@ class SpatialDrizzler(Drizzler):
     """ Generate a spatially dithered fits image from a set dithered dataset """
 
     def __init__(self, photonlists, metadata, pixfrac=1.):
-        Drizzler.__init__(self, photonlists, metadata)
+        super(self).__init__(photonlists, metadata)
+
         self.driz = stdrizzle.Drizzle(outwcs=self.w, pixfrac=pixfrac)
         self.wcs_timestep = metadata.wcs_timestep
         inttime = metadata.description.inttime
@@ -581,9 +579,7 @@ class SpatialDrizzler(Drizzler):
         # if inttime is say 100 and wcs_timestep is say 60 then this yeilds [0,60,100]
         # meaning the positions don't have constant integration time
         self.wcs_times = np.append(np.arange(0, inttime, self.wcs_timestep), inttime) * 1e6
-
-        self.stackedim = np.zeros((len(metadata.description.obs) * (len(self.wcs_times)-1),
-                                    metadata.ypix, metadata.xpix))
+        self.stackedim = np.zeros((len(metadata.description.obs) * (len(self.wcs_times)-1), self.ypix, self.xpix))
         self.stacked_wcs = []
 
     def run(self, save_file=None, applymask=False):
@@ -596,7 +592,9 @@ class SpatialDrizzler(Drizzler):
                 inwcs._naxis1, inwcs._naxis2 = inwcs.naxis1, inwcs.naxis2
 
                 # the sky grid ref and dither ref should match (crpix varies between dithers)
-                assert np.all(np.round(inwcs.wcs.crval, decimals=4) == np.round(self.w.wcs.crval, decimals=4))
+                if not np.all(np.round(inwcs.wcs.crval, decimals=4) == np.round(self.w.wcs.crval, decimals=4)):
+                    getLogger(__name__).critical('sky grid ref and dither ref do not match (crpix varies between dithers)!')
+                    raise RuntimeError('sky grid ref and dither ref do not match (crpix varies between dithers)!')
 
                 insci = self.makeImage(file, (self.wcs_times[t], self.wcs_times[t+1]), applymask=False)
 
@@ -637,34 +635,6 @@ class SpatialDrizzler(Drizzler):
             thisImage *= thisImage < maxCountsCut
 
         return thisImage
-
-    def get_persistant_bad(self, metadata, dithfrac=0.1, min_count=500, plot=True):
-        """
-        TODO is this function worth keeping?
-
-        Could never really get this to work well. Requires a lot of tuning dithfrac vs min_count. Remove?
-
-        Compare the same pixels at different dithers to determine if they are bad
-
-        :param metadata:
-        :param dithfrac:
-        :param min_count:
-        :param plot:
-        :return:
-
-        """
-        ndithers = len(metadata.parallactic_angles)
-        hot_cube = np.zeros((ndithers, metadata.ypix, metadata.xpix))
-        dith_cube = np.zeros_like(hot_cube)
-        for ix, file in enumerate(self.files):
-            dith_cube[ix], _ = self.makeImage(file, applymask=False)
-        # hot_cube[dith_cube > min_count] = ma.masked
-        hot_cube[dith_cube > min_count] = 1
-        hot_amount_map = np.sum(hot_cube, axis=0)  # hot_cube.count(axis=0)
-        self.hot_mask = hot_amount_map / ndithers > dithfrac
-        if plot:
-            plt.imshow(self.hot_mask, origin='lower')
-            plt.show(block=True)
 
 
 class DrizzledData(object):
@@ -753,7 +723,7 @@ class DrizzledData(object):
 def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=0, intt=60, pixfrac=.5, nwvlbins=1,
          timestep=1., ntimebins=0, fitsname=None, usecache=True, quickplot=False, ncpu=1):
     """
-    Takes in a ditherdescription object and drizzles the files onto a sky grid. Depending on the selected mode this
+    Takes in a MKIDObservingDither object and drizzles the files onto a sky grid. Depending on the selected mode this
     output can take the form of an image, spectral cube, sequence of spectral cubes, or a photon list. Currently
     SpatialDrizzler, SpectralDrizzler and TemporalDrizzler are separate classes but the same output can be acheived
     by setting ntimebins and/or nwbins to 1. These outputs feed a DirzzledData object that handles plotting to
@@ -784,14 +754,15 @@ def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=
     # times but once they've been equated it shouldn't have an effect?
     intt, dither.inttime = [min(intt, dither.inttime)] * 2
 
-    ditherdesc = DitherDescription(dither, target=dither.target)
-    data = load_data(ditherdesc, wvlMin, wvlMax, startt, intt, derotate=derotate, usecache=usecache, ncpu=ncpu)
+    metadata = DitherDescription(dither, target=dither.target)
+    data = load_data(metadata.description, wvlMin, wvlMax, startt, intt, metadata.wcs_timestep, derotate=derotate,
+                     usecache=usecache, ncpu=ncpu)
 
-    if mode not in ['stack', 'spatial', 'cube', 'list']:
+    if mode not in ['stack', 'spatial', 'temporal', 'list']:
         raise ValueError('Not calling one of the available functions')
 
     elif mode == 'spatial':
-        driz = SpatialDrizzler(data, ditherdesc, pixfrac=pixfrac)
+        driz = SpatialDrizzler(data, metadata, pixfrac=pixfrac)
         driz.run(applymask=False)
         outsci = driz.driz.outsci
         outwcs = driz.w
@@ -799,8 +770,8 @@ def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=
         stacked_wcs = driz.stacked_wcs
         image_weights = driz.driz.outwht
 
-    elif mode == 'cube':
-        tdriz = TemporalDrizzler(data, ditherdesc, pixfrac=pixfrac, nwvlbins=nwvlbins, timestep=timestep,
+    elif mode == 'temporal':
+        tdriz = TemporalDrizzler(data, metadata, pixfrac=pixfrac, nwvlbins=nwvlbins, timestep=timestep,
                                  ntimebins=ntimebins, wvlMin=wvlMin, wvlMax=wvlMax)
         tdriz.run()
         tdriz.header_4d()
@@ -814,7 +785,7 @@ def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=
         stacked_wcs = tdriz.stacked_wcs
 
     elif mode == 'list':
-        ldriz = ListDrizzler(data, ditherdesc, pixfrac=pixfrac)
+        ldriz = ListDrizzler(data, metadata, pixfrac=pixfrac)
         ldriz.run()
         outsci = ldriz.files
         outwcs = ldriz.w
@@ -833,7 +804,7 @@ def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=
 
 def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0,0), zoom=2.):
     """
-    Get the rotation_center offset parameter for DitherDescription
+    Get the rotation_center offset parameter for a dither
 
     :param dither:
     :param wvlMin:
@@ -944,8 +915,19 @@ if __name__ == '__main__':
 
     if args.gdo:
         if not os.path.exists(fitsname):
-            getLogger(__name__).info("Can't find {} Create the fits image "
-                                                 "using the default orientation first".format(fitsname))
+            getLogger(__name__).info(("Can't find {} Create the fits image "
+                                      "using the default orientation first").format(fitsname))
         else:
-            ditherdesc = DitherDescription(dither, target=dither.target)
-            get_device_orientation(ditherdesc.coords, fitsname)
+            target = dither.target
+            if target is None or target == 'None':
+                getLogger(__name__).error('Please enter a valid target name')
+                raise TypeError
+            elif isinstance(target, (list, np.array)):
+                target = [float(tar.value) * u.deg for tar in target]  # assume list of coord values in degrees
+                coords = SkyCoord(target[0], target[1])
+            elif isinstance(target, SkyCoord):
+                coords = target
+            else:
+                coords = SkyCoord.from_name(target)
+            getLogger(__name__).info('Found coordinates {} for target {}'.format(coords, target))
+            get_device_orientation(coords, fitsname)
