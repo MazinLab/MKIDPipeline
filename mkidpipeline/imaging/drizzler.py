@@ -117,30 +117,24 @@ class DitherDescription(object):
         self.apo = Observer.at_site(observatory)
         self.observatory = observatory
 
-        if use_min_timestep:
-            min_timestep = self.calc_min_timesamp(dither.obs)
-
-            # sometimes the min timestep can be ~100s of seconds. We need it to be at least shorter
-            # than the dith exposure time
-            # self.wcs_timestep = min(dither.inttime, min_timestep)
-            self.wcs_timestep = min_timestep
-        else:
+        self.wcs_timestep = self.non_blurring_timestep()
+        if not use_min_timestep:
             self.wcs_timestep = suggested_time_step
 
         getLogger(__name__).debug("Timestep to be used {}".format(self.wcs_timestep))
 
-    def calc_min_timesamp(self, obs, max_pix_disp=1.):
+    def non_blurring_timestep(self, allowable_pixel_smear=1):
         """
 
-        :param max_pix_disp: the resolution element threshold
+        :param allowable_pixel_smear: the resolution element threshold
         :return: min_timestep:
         """
         # get the field rotation rate at the start of each dither
-        dith_start_times = np.array([o.start for o in obs])
+        dith_start_times = np.array([o.start for o in self.description.obs])
 
-        site = EarthLocation.of_site(self.observatory)
+        site = astropy.coordinates.EarthLocation.of_site(self.observatory)
         altaz = self.apo.altaz(astropy.time.Time(val=dith_start_times, format='unix'), self.coords)
-        earthrate = 2 * np.pi / u.sday.to(u.second)
+        earthrate = 2 * np.pi / astropy.units.sday.to(astropy.units.second)
 
         lat = site.geodetic.lat.rad
         az = altaz.az.radian
@@ -152,12 +146,11 @@ class DitherDescription(object):
         # get the minimum required timestep. One that would produce 1 pixel displacement at the
         # center of furthest dither
         dith_dists = np.sqrt(self.dith_pix_offset[0]**2 + self.dith_pix_offset[1]**2)
-        dith_angle = np.arctan(max_pix_disp/dith_dists)
+        dith_angle = np.arctan(allowable_pixel_smear/dith_dists)
         min_timestep = min(dith_angle/abs(dith_start_rot_rates))
 
-        getLogger(__name__).debug("Minimum required time step calculated to be {}".format(min_timestep))
+        getLogger(__name__).debug("Maximum non-blurring time step calculated to be {}".format(min_timestep))
 
-        return min_timestep
 
 
 def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep):
