@@ -409,36 +409,6 @@ class MKIDDitheredObservation(object):
         for o in self.obs:
             yield o.timerange
 
-    def non_blurring_timestep(self, allowable_pixel_smear=1):
-        """
-
-        :param max_pix_disp: the resolution element threshold
-        :return: min_timestep:
-        """
-        # get the field rotation rate at the start of each dither
-        dith_start_times = np.array([o.start for o in self.obs])
-
-        import astropy
-        site = astropy.coordinates.EarthLocation.of_site(self.observatory)
-        altaz = self.apo.altaz(astropy.time.Time(val=dith_start_times, format='unix'), self.coords)
-        earthrate = 2 * np.pi / astropy.units.sday.to(astropy.units.second)
-
-        lat = site.geodetic.lat.rad
-        az = altaz.az.radian
-        alt = altaz.alt.radian
-
-        # Smart 1962
-        dith_start_rot_rates = earthrate * np.cos(lat) * np.cos(az) / np.cos(alt)
-
-        # get the minimum required timestep. One that would produce 1 pixel displacement at the
-        # center of furthest dither
-        dith_dists = np.sqrt(self.dith_pix_offset[0]**2 + self.dith_pix_offset[1]**2)
-        dith_angle = np.arctan(max_pix_disp/dith_dists)
-        min_timestep = min(dith_angle/abs(dith_start_rot_rates))
-
-        getLogger(__name__).debug("Minimum required time step calculated to be {}".format(min_timestep))
-
-
 
 class MKIDObservingDataset(object):
     def __init__(self, yml):
