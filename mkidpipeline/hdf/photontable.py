@@ -502,10 +502,10 @@ class ObsFile(object):
                                                       (startt, stopt, startw, stopw))))
             return q
 
-    def get_wcs(self, derotate=True, wcs_timestep=None, target_coordinates=None, wave_axis=False):
+    def get_wcs(self, derotate=True, timestep=None, target_coordinates=None, wave_axis=False, first_time=None):
         """
 
-        :param wcs_timestep:
+        :param timestep:
         :param target_coordinates: SkyCoord or string to query simbad for
         :param derotate: [True, False]
                          True:  align each wcs solution to position angle = 0
@@ -531,11 +531,11 @@ class ObsFile(object):
 
         apo = Observer.at_site(md.observatory)
 
-        if wcs_timestep is None:
-            wcs_timestep = self.info['expTime']
+        if timestep is None:
+            timestep = self.info['expTime']
 
         # sample_times upper boundary is limited to the user defined end time
-        sample_times = np.arange(self.info['startTime'], self.info['startTime']+self.info['expTime'], wcs_timestep)
+        sample_times = np.arange(self.info['startTime'], self.info['startTime']+self.info['expTime'], timestep)
         getLogger(__name__).debug("sample_times: %s", sample_times)
 
         device_orientation = np.deg2rad(md.device_orientation)
@@ -544,7 +544,12 @@ class ObsFile(object):
             parallactic_angles = apo.parallactic_angle(times, target_coordinates).value  # radians
             corrected_sky_angles = -parallactic_angles - device_orientation
         else:
-            corrected_sky_angles = np.zeros_like(sample_times)
+            # corrected_sky_angles = np.zeros_like(sample_times)
+            single_time = np.full_like(sample_times, fill_value=first_time)
+            getLogger(__name__).info("single_time: %s", single_time)
+            single_times = astropy.time.Time(val=single_time, format='unix')
+            single_parallactic_angle = apo.parallactic_angle(single_times, target_coordinates).value  # radians
+            corrected_sky_angles = -single_parallactic_angle - device_orientation
 
         getLogger(__name__).debug("Correction angles: %s", corrected_sky_angles)
 
