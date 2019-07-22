@@ -8,13 +8,15 @@ paths: !configdict
 
 dither: !dither
   name: Theta1 Orionis B  #Trapezium   #simbad resolvable for ra/dec, otherwise will assume at 0,0
-  file: /mnt/data0/isabel/mec/dithers/Trapezium_1547374552_dither.log 
+  file: /mnt/data0/isabel/mec/dithers/Trapezium_1547374552_dither.log
   wavecal: placeholder
   flatcal: placeholder
 
 drizzler: !configdict
   plots: all
   pixfrac: 0.5
+  exp_timestep: 1
+  wcs_timestep: 1
 
 ncpu: 20
 
