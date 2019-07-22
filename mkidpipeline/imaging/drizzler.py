@@ -127,7 +127,7 @@ class DrizzleParams(object):
         return(max_timestep)
 
 
-def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep):
+def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_time=None):
     """
     Genereate the reformated photonlists
 
@@ -150,7 +150,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep):
     x, y = obsfile.xy(photons)
 
     # ob.get_wcs returns all wcs solutions (including those after intt), so just pass then remove post facto()
-    wcs = obsfile.get_wcs(derotate=derotate, wcs_timestep=wcs_timestep, first_time=1545626973)
+    wcs = obsfile.get_wcs(derotate=derotate, wcs_timestep=wcs_timestep, first_time=first_time) #1545626973
     nwcs = int(np.ceil(intt/wcs_timestep))
     wcs = wcs[:nwcs]
     del obsfile
@@ -200,9 +200,14 @@ def load_data(dither, wvlMin, wvlMax, startt, intt, wcs_timestep, tempfile='driz
         if not filenames:
             getLogger(__name__).info('No obsfiles found')
 
+        if derotate:
+            first_time = None
+        else:
+            first_time = ObsFile(filenames[0]).startTime
+
         ncpu = min(mkidpipeline.config.n_cpus_available(), ncpu)
         p = mp.Pool(ncpu)
-        processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt, intt, derotate, wcs_timestep))
+        processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt, intt, derotate, wcs_timestep, first_time))
                      for file in filenames]
         ref_photons = [res.get() for res in processes]
 
