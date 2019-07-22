@@ -502,10 +502,10 @@ class ObsFile(object):
                                                       (startt, stopt, startw, stopw))))
             return q
 
-    def get_wcs(self, derotate=True, timestep=None, target_coordinates=None, wave_axis=False):
+    def get_wcs(self, derotate=True, wcs_timestep=None, target_coordinates=None, wave_axis=False):
         """
 
-        :param timestep:
+        :param wcs_timestep:
         :param target_coordinates: SkyCoord or string to query simbad for
         :param derotate: [True, False]
                          True:  align each wcs solution to position angle = 0
@@ -531,11 +531,11 @@ class ObsFile(object):
 
         apo = Observer.at_site(md.observatory)
 
-        if timestep is None:
-            timestep = self.info['expTime']
+        if wcs_timestep is None:
+            wcs_timestep = self.info['expTime']
 
         # sample_times upper boundary is limited to the user defined end time
-        sample_times = np.arange(self.info['startTime'], self.info['startTime']+self.info['expTime'], timestep)
+        sample_times = np.arange(self.info['startTime'], self.info['startTime']+self.info['expTime'], wcs_timestep)
         getLogger(__name__).debug("sample_times: %s", sample_times)
 
         device_orientation = np.deg2rad(md.device_orientation)
