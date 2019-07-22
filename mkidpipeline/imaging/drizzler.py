@@ -103,7 +103,7 @@ class DrizzleParams(object):
         dith_start_times = np.array([o.start for o in self.dither.obs])
 
         site = astropy.coordinates.EarthLocation.of_site(self.dither.observatory)
-        apo = Observer.at_site(dither.observatory)
+        apo = Observer.at_site(self.dither.observatory)
 
         altaz = apo.altaz(astropy.time.Time(val=dith_start_times, format='unix'), self.coords)
         earthrate = 2 * np.pi / astropy.units.sday.to(astropy.units.second)
@@ -115,7 +115,7 @@ class DrizzleParams(object):
         # Smart 1962
         dith_start_rot_rates = earthrate * np.cos(lat) * np.cos(az) / np.cos(alt)
 
-        dith_pix_offset = dither_pixel_vector(dither.pos)
+        dith_pix_offset = dither_pixel_vector(self.dither.pos)
         # get the minimum required timestep. One that would produce 1 pixel displacement at the
         # center of furthest dither
         dith_dists = np.sqrt(dith_pix_offset[0]**2 + dith_pix_offset[1]**2)
@@ -123,6 +123,8 @@ class DrizzleParams(object):
         self.max_timestep = min(dith_angle/abs(dith_start_rot_rates))
 
         getLogger(__name__).debug("Maximum non-blurring time step calculated to be {}".format(self.max_timestep ))
+
+        return(self.max_timestep)
 
 
 def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep):
