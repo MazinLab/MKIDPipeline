@@ -51,18 +51,6 @@ import argparse
 from mkidpipeline.utils.utils import get_device_orientation
 
 
-def dither_pixel_vector(positions, center=(0, 0)):
-    """
-    A function to convert a list of conex offsets to pixel displacement
-
-    :param positions: list of length 2 arrays
-    :param center: the origin for the vector
-    :return:
-    """
-    positions = np.asarray(positions)
-    pix = np.asarray(CONEX2PIXEL(positions[:, 0], positions[:, 1])) - np.array(CONEX2PIXEL(*center)).reshape(2, 1)
-    return pix
-
 class DrizzleParams(object):
     """
     Calculates and stores the relevant info for Drizzler
@@ -92,6 +80,17 @@ class DrizzleParams(object):
             self.coords = SkyCoord(self.dither.ra, self.dither.dec, unit=('hourangle', 'deg'))
             getLogger(__name__).info('Using coordinates at: {} {} for target {} from h5 header for canvas wcs'.format(self.coords.ra, self.coords.dec, self.dither.target))
 
+    def dither_pixel_vector(self, center=(0, 0)):
+        """
+        A function to convert a list of conex offsets to pixel displacement
+
+        :param center: the origin for the vector
+        :return:
+        """
+        positions = np.asarray(self.dither.pos)
+        pix = np.asarray(CONEX2PIXEL(positions[:, 0], positions[:, 1])) - np.array(CONEX2PIXEL(*center)).reshape(2, 1)
+        return pix
+
     def non_blurring_timestep(self, allowable_pixel_smear=1):
         """
         [1] Smart, W. M. 1962, Spherical Astronomy, (Cambridge: Cambridge University Press), p. 55
@@ -115,7 +114,7 @@ class DrizzleParams(object):
         # Smart 1962
         dith_start_rot_rates = earthrate * np.cos(lat) * np.cos(az) / np.cos(alt)
 
-        dith_pix_offset = dither_pixel_vector(self.dither.pos)
+        dith_pix_offset = self.dither_pixel_vector()
         # get the minimum required timestep. One that would produce 1 pixel displacement at the
         # center of furthest dither
         dith_dists = np.sqrt(dith_pix_offset[0]**2 + dith_pix_offset[1]**2)
@@ -215,8 +214,9 @@ def load_data(dither, wvlMin, wvlMax, startt, intt, wcs_timestep, tempfile='driz
 
         getLogger(__name__).debug('Time spent: %f' % (time.time() - begin))
 
-        with open(pkl_save, 'wb') as handle:
-            pickle.dump(ref_photons, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        if usecache:
+            with open(pkl_save, 'wb') as handle:
+                pickle.dump(ref_photons, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     return ref_photons
 
@@ -582,13 +582,13 @@ class SpatialDrizzler(Canvas):
 
 
 class DrizzledData(object):
-    def __init__(self, scidata, outwcs, stackedim, stacked_wcs, dither, image_weights=None):
-        self.dither = dither
+    def __init__(self, scidata, outwcs, stackedim, stacked_wcs, drizzle_params, image_weights=None):
         self.data = scidata
         self.wcs = outwcs
         self.dumb_stack = stackedim
         self.stacked_wcs = stacked_wcs
         self.fits_header = self.wcs.to_header()
+        self.fits_header['WCSTIME'] = (drizzle_params.wcs_timestep, '[s] Time between calculated wcs (different PAs)')
         if image_weights is not None:
             self.image_weights = image_weights
 
@@ -734,8 +734,8 @@ def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=
         outsci = ldriz.files
         outwcs = ldriz.wcs
 
-    drizzle = DrizzledData(scidata=outsci, outwcs=outwcs, stackedim=stackedim, stacked_wcs=stacked_wcs, dither=dither,
-                           image_weights=image_weights)
+    drizzle = DrizzledData(scidata=outsci, outwcs=outwcs, stackedim=stackedim, stacked_wcs=stacked_wcs,
+                           drizzle_params=drizzle_params, image_weights=image_weights)
 
     if quickplot:
         drizzle.quick_pretty_plot()
