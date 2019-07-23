@@ -561,30 +561,27 @@ class ObsFile(object):
             ref_pixel = compute_wcs_ref_pixel(ditherPos, ditherHome, ditherReference)
 
             if wave_axis:
-                w = wcs.WCS(naxis=3)
-                w.wcs.crpix = [ref_pixel[0], ref_pixel[1], 1]
-                w.wcs.crval = [target_coordinates.ra.deg, target_coordinates.dec.deg, self.wvlbins[0] / 1e9]
-                w.wcs.ctype = ["RA--TAN", "DEC-TAN", "WAVE"]
-                w.naxis1 = w._naxis1 = w._naxis1
-                w.naxis2 = w._naxis2 = w._naxis2
-                w.naxis3 = w._naxis3 = self.nwvlbins
-                w.wcs.pc = np.eye(3)
-                w.wcs.cdelt = [platescale, platescale, (self.wvlbins[1] - self.wvlbins[0]) / 1e9]
-                w.wcs.cunit = ["deg", "deg", "m"]
+                obs_wcs = wcs.WCS(naxis=3)
+                obs_wcs.wcs.crpix = [ref_pixel[0], ref_pixel[1], 1]
+                obs_wcs.wcs.crval = [target_coordinates.ra.deg, target_coordinates.dec.deg, self.wvlbins[0] / 1e9]
+                obs_wcs.wcs.ctype = ["RA--TAN", "DEC-TAN", "WAVE"]
+                obs_wcs.naxis3 = obs_wcs._naxis3 = self.nwvlbins
+                obs_wcs.wcs.pc = np.eye(3)
+                obs_wcs.wcs.cdelt = [platescale, platescale, (self.wvlbins[1] - self.wvlbins[0]) / 1e9]
+                obs_wcs.wcs.cunit = ["deg", "deg", "m"]
             else:
-                w = wcs.WCS(naxis=2)
-                w.wcs.ctype = ["RA--TAN", "DEC-TAN"]
-                w.naxis1 = w._naxis1 = self.nXPix  # these may get set to 0 during pickling so also store to non _
-                w.naxis2 = w._naxis2 = self.nYPix
+                obs_wcs = wcs.WCS(naxis=2)
+                obs_wcs.wcs.ctype = ["RA--TAN", "DEC-TAN"]
 
-                w.wcs.crval = np.array([target_coordinates.ra.deg, target_coordinates.dec.deg])
-                w.wcs.crpix = ref_pixel
+                obs_wcs.wcs.crval = np.array([target_coordinates.ra.deg, target_coordinates.dec.deg])
+                obs_wcs.wcs.crpix = ref_pixel
 
-                w.wcs.pc = rotation_matrix
-                w.wcs.cdelt = [platescale, platescale]
-                w.wcs.cunit = ["deg", "deg"]
+                obs_wcs.wcs.pc = rotation_matrix
+                obs_wcs.wcs.cdelt = [platescale, platescale]
+                obs_wcs.wcs.cunit = ["deg", "deg"]
 
-            obs_wcs_seq.append(w)
+            header = obs_wcs.to_header()
+            obs_wcs_seq.append(header)
 
         return obs_wcs_seq
 

@@ -255,8 +255,8 @@ class Canvas(object):
             for ip, photonlist in enumerate(dithers_data):
                 # find the max and min coordinate for each dither (assuming those occur at the beginning/end of
                 # the dither)
-                dith_cellestial_span = np.vstack((photonlist['obs_wcs_seq'][0].wcs.crpix,
-                                                  photonlist['obs_wcs_seq'][-1].wcs.crpix))
+                dith_cellestial_span = np.vstack((wcs.WCS(photonlist['obs_wcs_seq'][0]).wcs.crpix,
+                                                  wcs.WCS(photonlist['obs_wcs_seq'][-1]).wcs.crpix))
                 dith_cellestial_min[ip] = np.min(dith_cellestial_span, axis=0)  # takes the min of both ra and dec
                 dith_cellestial_max[ip] = np.max(dith_cellestial_span, axis=0)
 
@@ -334,8 +334,9 @@ class ListDrizzler(Canvas):
             tic = time.clock()
             # driz = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=pixfrac)
             for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):
+                inwcs = wcs.WCS(header=inwcs)
                 # set this here since _naxis1,2 are reinitialised during pickle
-                inwcs._naxis1, inwcs._naxis2 = inwcs.naxis1, inwcs.naxis2
+                inwcs._naxis1, inwcs._naxis2 = self.xpix, self.ypix
 
                 inds = [(yp, xp) for yp, xp in np.ndindex(self.ypix, self.xpix)]
                 allpix2world = []
@@ -420,8 +421,9 @@ class TemporalDrizzler(Canvas):
 
             it = 0
             for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):
+                inwcs = wcs.WCS(header=inwcs)
                 # set this here since _naxis1,2 are reinitialised during pickle
-                inwcs._naxis1, inwcs._naxis2 = inwcs.naxis1, inwcs.naxis2
+                inwcs._naxis1, inwcs._naxis2 = self.xpix, self.ypix
 
                 # the sky grid ref and dither ref should match (crpix varies between dithers)
                 if not np.all(np.round(inwcs.wcs.crval, decimals=4) == np.round(self.wcs.wcs.crval, decimals=4)):
@@ -532,8 +534,9 @@ class SpatialDrizzler(Canvas):
 
             tic = time.clock()
             for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):
+                inwcs = wcs.WCS(header=inwcs)
                 # set this here since _naxis1,2 are reinitialised during pickle
-                inwcs._naxis1, inwcs._naxis2 = inwcs.naxis1, inwcs.naxis2
+                inwcs._naxis1, inwcs._naxis2 = self.xpix, self.ypix
 
                 # the sky grid ref and dither ref should match (crpix varies between dithers)
                 if not np.all(np.round(inwcs.wcs.crval, decimals=4) == np.round(self.wcs.wcs.crval, decimals=4)):
