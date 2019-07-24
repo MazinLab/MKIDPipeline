@@ -140,6 +140,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_t
     :return:
     """
     obsfile = ObsFile(file)
+    duration = obsfile.duration
 
     photons = obsfile.query(startw=startw, stopw=stopw, startt=startt, intt=intt)
     weights = photons['SpecWeight'] * photons['NoiseWeight']
@@ -162,7 +163,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_t
     del obsfile
 
     return {'file': file, 'timestamps': photons["Time"], 'xPhotonPixels': x, 'yPhotonPixels': y,
-            'wavelengths': photons["Wavelength"], 'weight': weights, 'obs_wcs_seq': wcs}
+            'wavelengths': photons["Wavelength"], 'weight': weights, 'obs_wcs_seq': wcs, 'duration': duration}
 
 
 def load_data(dither, wvlMin, wvlMax, startt, intt, wcs_timestep, tempfile='drizzler_tmp_{}.pkl',
@@ -386,7 +387,7 @@ class TemporalDrizzler(Canvas):
     exp_timestep or ntimebins argument accepted. ntimebins takes priority
     """
 
-    def __init__(self, dithers_data, drizzle_params, nwvlbins=2, exp_timestep=0.1, ntimebins=1, wvlMin=0, wvlMax=np.inf):
+    def __init__(self, dithers_data, drizzle_params, nwvlbins=2, exp_timestep=0.1, ntimebins=None, wvlMin=0, wvlMax=np.inf):
         super().__init__(dithers_data, drizzle_params.dither.obs[0], drizzle_params.coords)
 
         self.nwvlbins = nwvlbins
@@ -437,7 +438,8 @@ class TemporalDrizzler(Canvas):
 
                 for ia, iw in np.ndindex(len(insci), self.nwvlbins):
                     drizhyper = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=self.pixfrac)
-                    drizhyper.add_image(insci[ia, iw], inwcs, inwht=np.int_(np.logical_not(insci[ia, iw] == 0)))
+                    drizhyper.add_image(insci[ia, iw], inwcs,
+                                        inwht=np.int_(np.logical_not(insci[ia, iw] == 0))/dither_photons['duration'])
                     thishyper[it, iw] = drizhyper.outsci
                     self.totWeightCube[it, iw] += thishyper[it, iw] != 0
 
@@ -543,7 +545,7 @@ class SpatialDrizzler(Canvas):
                 self.stacked_wcs.append(inwcs)
 
                 getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
-                inwht = (insci != 0).astype(int)
+                inwht = (insci != 0).astype(int)/dither_photons['duration']
                 self.driz.add_image(insci, inwcs, inwht=inwht)
             if save_file:
                 self.driz.write(save_file)
@@ -591,7 +593,7 @@ class DrizzledData(object):
         :param file:
         :param overwrite:
         :param save_stack:
-        :param save_image: when saving a temporal cube does the user also want a exposure time weighted image
+        :param save_image: when saving a temporal cube does the user also want an exposure time weighted image
         (replicating spatialdrizzler)
         :param compress:
         :return:
