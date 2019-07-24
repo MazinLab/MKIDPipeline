@@ -140,14 +140,20 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_t
     :return:
     """
     obsfile = ObsFile(file)
-    if flags:
-        usableMask = np.array(obsfile.beamFlagImage) == pixelflags.GOODPIXEL
 
     photons = obsfile.query(startw=startw, stopw=stopw, startt=startt, intt=intt)
     weights = photons['SpecWeight'] * photons['NoiseWeight']
     getLogger(__name__).info("Fetched {} photons from {}".format(len(photons), file))
 
     x, y = obsfile.xy(photons)
+
+    if flags:
+        usablemask = np.array(obsfile.beamFlagImage) == pixelflags.GOODPIXEL
+        usablelist = usablemask[x, y]
+        getLogger(__name__).info("Removed {} photons from {} total from bad pix"
+                                 .format(len(photons) - len(usablelist), len(photons)))
+        photons = photons[usablelist]
+        x, y = obsfile.xy(photons)
 
     # ob.get_wcs returns all wcs solutions (including those after intt), so just pass then remove post facto()
     wcs = obsfile.get_wcs(derotate=derotate, wcs_timestep=wcs_timestep, first_time=first_time) #1545626973
@@ -156,12 +162,11 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_t
     del obsfile
 
     return {'file': file, 'timestamps': photons["Time"], 'xPhotonPixels': x, 'yPhotonPixels': y,
-            'wavelengths': photons["Wavelength"], 'weight': weights, 'usablemask': usableMask,
-            'obs_wcs_seq': wcs}
+            'wavelengths': photons["Wavelength"], 'weight': weights, 'obs_wcs_seq': wcs}
 
 
 def load_data(dither, wvlMin, wvlMax, startt, intt, wcs_timestep, tempfile='drizzler_tmp_{}.pkl',
-              tempdir=None, usecache=True, clearcache=False, derotate=True, ncpu=1, flags=None):
+              tempdir=None, usecache=True, clearcache=False, derotate=True, ncpu=1, flags=True):
     """
     Load the photons either by querying the obsfiles in parrallel or loading from pkl if it exists. The wcs
     solutions are added to this photon data dictionary but will likely be integrated into photontable.py directly
@@ -428,7 +433,7 @@ class TemporalDrizzler(Canvas):
                     getLogger(__name__).critical('sky grid ref and dither ref do not match (crpix varies between dithers)!')
                     raise RuntimeError('sky grid ref and dither ref do not match (crpix varies between dithers)!')
 
-                insci = self.makeTess(dither_photons, (self.wcs_times[t], self.wcs_times[t+1]), applymask=False)
+                insci = self.makeTess(dither_photons, (self.wcs_times[t], self.wcs_times[t+1]))
 
                 for ia, iw in np.ndindex(len(insci), self.nwvlbins):
                     drizhyper = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=self.pixfrac)
@@ -443,13 +448,12 @@ class TemporalDrizzler(Canvas):
         getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
         # TODO add the wavelength WCS
 
-    def makeTess(self, dither_photons, timespan, applyweights=False, applymask=True, maxCountsCut=False):
+    def makeTess(self, dither_photons, timespan, applyweights=False, maxCountsCut=False):
         """
 
         :param dither_photons:
         :param timespan:
         :param applyweights:
-        :param applymask:
         :param maxCountsCut:
         :return:
         """
@@ -465,13 +469,8 @@ class TemporalDrizzler(Canvas):
 
         timebins = self.timebins[(self.timebins >= timespan[0]) & (self.timebins <= timespan[1])]
 
-        bins = np.array([timebins, self.wvlbins, self.ypix, self.xpix])
+        bins = np.array([timebins, self.wvlbins, range(self.ypix+1), range(self.xpix+1)])
         hypercube, _ = np.histogramdd(sample.T, bins, weights=weights, )
-
-        if applymask:
-            getLogger(__name__).debug("Applying bad pixel mask")
-            usablemask = dither_photons['usablemask'].T.astype(int)
-            hypercube *= usablemask
 
         if maxCountsCut:
             getLogger(__name__).debug("Applying max pixel count cut")
@@ -551,7 +550,7 @@ class SpatialDrizzler(Canvas):
 
         # TODO introduce total_exp_time variable and complete these steps
 
-    def makeImage(self, dither_photons, timespan, applyweights=False, applymask=False, maxCountsCut=10000):
+    def makeImage(self, dither_photons, timespan, applyweights=False, maxCountsCut=10000):
 
         weights = dither_photons['weight'] if applyweights else None
 
@@ -560,15 +559,9 @@ class SpatialDrizzler(Canvas):
         timespan_ind = np.where(np.logical_and(dither_photons['timestamps'] >= timespan[0],
                                                dither_photons['timestamps'] <= timespan[1]))[0]
 
-        thisImage, _, _ = np.histogram2d(dither_photons['xPhotonPixels'][timespan_ind], dither_photons['yPhotonPixels'][timespan_ind],
-                                         weights=weights, bins=[self.ypix, self.xpix], normed=False)
-
-        if applymask:
-            getLogger(__name__).debug("Applying bad pixel mask")
-            # usablemask = np.rot90(dither_photons['usablemask']).astype(int)
-            usablemask = dither_photons['usablemask'].T.astype(int)
-            # thisImage *= ~usablemask
-            thisImage *= usablemask
+        thisImage, _, _ = np.histogram2d(dither_photons['xPhotonPixels'][timespan_ind],
+                                         dither_photons['yPhotonPixels'][timespan_ind],  weights=weights,
+                                         bins=[range(self.ypix+1), range(self.xpix+1)], normed=False)
 
         if maxCountsCut:
             getLogger(__name__).debug("Applying max pixel count cut")
@@ -684,7 +677,7 @@ class DrizzledData(object):
 
 def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=0, intt=60, pixfrac=.5, nwvlbins=1,
          wcs_timestep=None, exp_timestep=None, ntimebins=None, fitsname=None, usecache=True, quickplot=False, ncpu=1,
-         flags=None):
+         flags=True):
     """
     Takes in a MKIDObservingDither object and drizzles the files onto a sky grid. Depending on the selected mode this
     output can take the form of an image, spectral cube, sequence of spectral cubes, or a photon list. Currently
