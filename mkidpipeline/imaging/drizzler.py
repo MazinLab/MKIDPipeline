@@ -585,7 +585,7 @@ class DrizzledData(object):
         if image_weights is not None:
             self.image_weights = image_weights
 
-    def writefits(self, file, overwrite=True, save_image=False, compress=False):
+    def writefits(self, file, overwrite=True, save_image=False, compress=False, dashboard_orient=True):
         """
 
         :param file:
@@ -599,6 +599,12 @@ class DrizzledData(object):
 
         if type(self.wcs) == list:
             getLogger(__name__).info('Output format is stack saving multiple wcs objects')
+            if dashboard_orient:
+                getLogger(__name__).info('Transposing image stack to match dashboard orientation')
+                self.data = np.transpose(self.data, (0,2,1))
+                for w in self.wcs:
+                    w.wcs.pc = w.wcs.pc.T
+
             fits_header = [w.to_header() for w in self.wcs]
             for hdr in fits_header:
                hdr['WCSTIME'] = (self.wcs_timestep, '[s] Time between calculated wcs (different PAs)')
