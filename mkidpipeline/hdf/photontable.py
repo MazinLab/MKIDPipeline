@@ -830,7 +830,7 @@ class ObsFile(object):
             getLogger(__name__).warning('No metadata found to add to fits header')
 
         wcs = self.get_wcs(wave_axis=cube)[0]
-        header.update(wcs.to_header())
+        header.update(wcs)
 
         #TODO set the header units for the extensions
         hdul = fits.HDUList([fits.PrimaryHDU(header=header),
