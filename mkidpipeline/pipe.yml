@@ -63,6 +63,8 @@ instrument: !configdict
 drizzler: !configdict
   plots: all
   pixfrac: 0.5
+  exp_timestep: 1
+  wcs_timestep: 1
 
 templar: !configdict
   file: the_conf.yml
