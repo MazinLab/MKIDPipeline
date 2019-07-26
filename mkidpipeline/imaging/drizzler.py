@@ -59,7 +59,7 @@ class DrizzleParams(object):
     def __init__(self, dither, wcs_timestep=None, pixfrac=1.):
         self.dither = dither
         self.pixfrac = pixfrac
-        self.canvas_coords = self.get_coords()
+        self.get_coords()
 
         if wcs_timestep:
             self.wcs_timestep = wcs_timestep
@@ -214,7 +214,7 @@ def load_data(dither, wvlMin, wvlMax, startt, intt, wcs_timestep, tempfile='driz
         ncpu = min(mkidpipeline.config.n_cpus_available(), ncpu)
         p = mp.Pool(ncpu)
         processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt, intt, derotate, wcs_timestep, first_time,
-                                               flags)) for file in filenames]
+                                               flags)) for file in filenames[:1]]
         dithers_data = [res.get() for res in processes]
 
         dithers_data.sort(key=lambda k: filenames.index(k['file']))
@@ -283,7 +283,6 @@ class Canvas(object):
             self.nPixRA, self.nPixDec = nPix, nPix
 
         self.generate_coordinate_grid()
-
         self.get_canvas_wcs()
 
     def generate_coordinate_grid(self):
@@ -350,7 +349,7 @@ class ListDrizzler(Canvas):
                 for i in range(self.xpix*self.ypix):
                     insci = np.ones((self.ypix, self.xpix))
 
-                    driz = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=pixfrac)
+                    driz = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=pixfrac, wt_scl='')
                     inwht = np.zeros((self.ypix, self.xpix))
                     # print(inds[i])
                     inwht[inds[i]] = 1
@@ -416,7 +415,8 @@ class TemporalDrizzler(Canvas):
         tic = time.clock()
 
         self.totHypCube = np.zeros((self.ntimebins * self.ndithers, self.nwvlbins, self.nPixDec, self.nPixRA))
-        self.totWeightCube = np.zeros((self.ntimebins, self.nwvlbins, self.nPixDec, self.nPixRA))
+        # self.totExpCube = np.zeros((self.ntimebins, self.nwvlbins, self.nPixDec, self.nPixRA))
+        self.expmap = np.zeros((self.ntimebins * self.ndithers, self.nPixDec, self.nPixRA))
         for ix, dither_photons in enumerate(self.dithers_data):
 
             getLogger(__name__).debug('Processing %s', dither_photons)
@@ -437,18 +437,31 @@ class TemporalDrizzler(Canvas):
                 insci = self.makeTess(dither_photons, (self.wcs_times[t], self.wcs_times[t+1]))
 
                 for ia, iw in np.ndindex(len(insci), self.nwvlbins):
-                    drizhyper = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=self.pixfrac)
-                    drizhyper.add_image(insci[ia, iw], inwcs,
-                                        inwht=np.int_(np.logical_not(insci[ia, iw] == 0))/dither_photons['duration'])
+                    drizhyper = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=self.pixfrac, wt_scl='')
+                    inwht = np.int_(np.logical_not(insci[ia, iw] == 0))
+                    print('wht', self.wcs_times[t+1] - self.wcs_times[t])
+                    drizhyper.add_image(insci[ia, iw], inwcs, inwht=inwht)#,
+                                        #wt_scl=(self.wcs_times[t+1] - self.wcs_times[t])*1e-6)
                     thishyper[it, iw] = drizhyper.outsci
-                    self.totWeightCube[it, iw] += thishyper[it, iw] != 0
 
-                    if iw == self.nwvlbins-1: it += 1
+                    if iw == self.nwvlbins-1:
+                        # all_tidx = ix*self.ndithers+ t*self.ntimebins
+                        print(ix, t, ia, it)
+                        self.expmap[it] = drizhyper.outwht * (self.wcs_times[t + 1] - self.wcs_times[t]) * 1e-6 / len(insci)
+                        it += 1
 
             self.totHypCube[ix * self.ntimebins: (ix + 1) * self.ntimebins] = thishyper
 
         getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
         # TODO add the wavelength WCS
+
+        self.header_4d()
+
+        self.cps = None
+        self.counts = self.totHypCube
+        self.expmap = self.totWeightCube
+        self.outwcs = self.wcs
+        # image_weights = tdriz.totWeightCube.sum(axis=0)[0]
 
     def makeTess(self, dither_photons, timespan, applyweights=False, maxCountsCut=False):
         """
@@ -477,6 +490,8 @@ class TemporalDrizzler(Canvas):
         if maxCountsCut:
             getLogger(__name__).debug("Applying max pixel count cut")
             hypercube *= np.int_(hypercube < maxCountsCut)
+
+        hypercube /= (timespan[1] - timespan[0])*1e-6
 
         return hypercube
 
@@ -511,10 +526,17 @@ class TemporalDrizzler(Canvas):
 class SpatialDrizzler(Canvas):
     """ Generate a spatially dithered fits image from a set dithered dataset """
 
-    def __init__(self, dithers_data, drizzle_params):
+    def __init__(self, dithers_data, drizzle_params, stack=False):
         super().__init__(dithers_data, drizzle_params.dither.obs[0], drizzle_params.coords)
 
-        self.driz = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=drizzle_params.pixfrac)
+        self.cps = None
+        self.outwcs = None
+        self.counts = None
+        self.expmap = None
+
+        self.stack = stack
+
+        self.driz = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=drizzle_params.pixfrac, wt_scl='')
         self.wcs_timestep = drizzle_params.wcs_timestep
         inttime = drizzle_params.dither.inttime
 
@@ -536,28 +558,41 @@ class SpatialDrizzler(Canvas):
 
                 # the sky grid ref and dither ref should match (crpix varies between dithers)
                 if not np.all(np.round(inwcs.wcs.crval, decimals=4) == np.round(self.wcs.wcs.crval, decimals=4)):
-                    getLogger(__name__).critical('sky grid ref and dither ref do not match (crpix varies between dithers)!')
+                    getLogger(__name__).critical(
+                        'sky grid ref and dither ref do not match (crpix varies between dithers)!')
                     raise RuntimeError('sky grid ref and dither ref do not match (crpix varies between dithers)!')
 
-                insci = self.makeImage(dither_photons, (self.wcs_times[t], self.wcs_times[t+1]))
+                cps = self.makeImage(dither_photons, (self.wcs_times[t], self.wcs_times[t+1]))
 
-                self.stackedim[ix*len(dither_photons['obs_wcs_seq']) + t] = insci
+                self.stackedim[ix*len(dither_photons['obs_wcs_seq']) + t] = \
+                    cps*(self.wcs_times[t+1]- self.wcs_times[t])*1e-6
                 self.stacked_wcs.append(inwcs)
 
                 getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
-                inwht = (insci != 0).astype(int)/dither_photons['duration']
-                self.driz.add_image(insci, inwcs, inwht=inwht)
+                getLogger(__name__).warning('Bad pix identified using zero counts. Needs to be properly coded')
+                # todo make inwht using bad pix maps
+                inwht = (cps != 0).astype(int)
+
+                # Input units as cps and weight according to this frames exp time since in_units='counts' produces
+                # gargage. The weight map will also be the exposure time this way
+                self.driz.add_image(cps, inwcs, in_units='cps',
+                                    inwht=inwht*1e-6*(self.wcs_times[t+1] - self.wcs_times[t]))
             if save_file:
                 self.driz.write(save_file)
 
-        # TODO introduce total_exp_time variable and complete these steps
+        if self.stack:
+            self.counts = self.stackedim
+            self.outwcs = self.stacked_wcs
+        else:
+            self.cps = self.driz.outsci
+            self.expmap = self.driz.outwht
+            self.counts = self.expmap * self.cps
+            self.outwcs = self.wcs
 
     def makeImage(self, dither_photons, timespan, applyweights=False, maxCountsCut=10000):
-
-        weights = dither_photons['weight'] if applyweights else None
-
         # TODO mixing pixels and radians per variable names
 
+        weights = dither_photons['weight'] if applyweights else None
         timespan_ind = np.where(np.logical_and(dither_photons['timestamps'] >= timespan[0],
                                                dither_photons['timestamps'] <= timespan[1]))[0]
 
@@ -566,63 +601,67 @@ class SpatialDrizzler(Canvas):
                                          bins=[range(self.ypix+1), range(self.xpix+1)], normed=False)
 
         if maxCountsCut:
-            getLogger(__name__).debug("Applying max pixel count cut")
+            getLogger(__name__).info("Applying max pixel count cut")
             thisImage *= thisImage < maxCountsCut
+        # thisImage /= (timespan[1] - timespan[0])*1e-6
 
         return thisImage
 
 
 class DrizzledData(object):
-    def __init__(self, scidata, outwcs, wcs_timestep, image_weights=None):
+    def __init__(self, driz, mode, drizzle_params):
         """
-        :param scidata:
-        :param outwcs:
+
+        :param driz:
+        :param mode:
         :param drizzle_params:
-        :param image_weights:
         """
 
-        self.data = scidata
-        self.wcs = outwcs
-        self.wcs_timestep = wcs_timestep
-        if image_weights is not None:
-            self.image_weights = image_weights
+        self.cps = driz.cps
+        self.counts = driz.counts
+        self.expmap = driz.expmap
+        self.wcs = driz.outwcs
+        self.mode = mode
+        self.header_keys = ['WCSTIME', 'PIXFRAC']
+        self.header_vals = [drizzle_params.wcs_timestep, drizzle_params.pixfrac]
+        self.header_comments = ['[s] Time between calculated wcs (different PAs)', '']
 
-    def writefits(self, file, overwrite=True, save_image=False, compress=False, dashboard_orient=True):
+    def header_additions(self, header):
+        for key, val, comment in zip(self.header_keys, self.header_vals, self.header_comments):
+            header[key] = (val, comment)
+        return header
+
+    def writefits(self, file, overwrite=True, compress=False, dashboard_orient=False):
         """
 
         :param file:
         :param overwrite:
-        :param save_stack:
-        :param save_image: when saving a temporal cube does the user also want an exposure time weighted image
-        (replicating spatialdrizzler)
         :param compress:
         :return:
         """
 
-        if type(self.wcs) == list:
-            getLogger(__name__).info('Output format is stack saving multiple wcs objects')
+        if self.mode == 'stack':
             if dashboard_orient:
                 getLogger(__name__).info('Transposing image stack to match dashboard orientation')
+                getLogger(__name__).warning('Has not been verified')
                 self.data = np.transpose(self.data, (0,2,1))
                 for w in self.wcs:
                     w.wcs.pc = w.wcs.pc.T
 
             fits_header = [w.to_header() for w in self.wcs]
-            for hdr in fits_header:
-               hdr['WCSTIME'] = (self.wcs_timestep, '[s] Time between calculated wcs (different PAs)')
+            [self.header_additions(hdr) for hdr in fits_header]
 
-            hdus = [fits.ImageHDU(data=d, header=h) for d, h in zip(self.data, fits_header)]
+            hdus = [fits.ImageHDU(data=d, header=h) for d, h in zip(self.counts, fits_header)]
             hdul = fits.HDUList(list(np.append(fits.PrimaryHDU(), hdus)))
+
         else:
             fits_header = self.wcs.to_header()
-            fits_header['WCSTIME'] = (self.wcs_timestep, '[s] Time between calculated wcs (different PAs)')
+            fits_header = self.header_additions(fits_header)
 
-            hdul = fits.HDUList([fits.PrimaryHDU(),
-                                 fits.ImageHDU(data=self.data, header=fits_header)])
-
-            if self.data.ndim > 2 and save_image:
-                image = np.sum(self.data, axis=(0, 1)) / self.image_weights
-                hdul.append(fits.ImageHDU(data=image, header=self.fits_header))
+            hdul = fits.HDUList([fits.PrimaryHDU(header=fits_header),
+                                 fits.ImageHDU(name='counts', data=self.counts, header=fits_header),
+                                 fits.ImageHDU(name='cps', data=self.cps, header=fits_header),
+                                 fits.ImageHDU(name='exposure map', data=self.expmap)])
 
         if compress:
             file = file+'.gz'
@@ -726,35 +765,19 @@ def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=
     if mode not in ['stack', 'spatial', 'temporal', 'list']:
         raise ValueError('Not calling one of the available functions')
 
+    elif mode == 'list':
+        driz = ListDrizzler(dithers_data, drizzle_params)
+        return driz.dithers_data
+
     elif mode == 'spatial' or mode == 'stack':
-        driz = SpatialDrizzler(dithers_data, drizzle_params)
-        driz.run()
-        if mode == 'spatial':
-            outsci = driz.driz.outsci
-            outwcs = driz.wcs
-            image_weights = driz.driz.outwht
-        else:
-            outsci = driz.stackedim
-            outwcs = driz.stacked_wcs
-            image_weights = None
+        stack = mode=='stack'
+        driz = SpatialDrizzler(dithers_data, drizzle_params, stack=stack)
 
     elif mode == 'temporal':
-        tdriz = TemporalDrizzler(dithers_data, drizzle_params, nwvlbins=nwvlbins, exp_timestep=exp_timestep,
+        driz = TemporalDrizzler(dithers_data, drizzle_params, nwvlbins=nwvlbins, exp_timestep=exp_timestep,
                                  ntimebins=ntimebins, wvlMin=wvlMin, wvlMax=wvlMax)
-        tdriz.run()
-        tdriz.header_4d()
-        outsci = tdriz.totHypCube
-        outwcs = tdriz.wcs
-        image_weights = tdriz.totWeightCube.sum(axis=0)[0]
-
-    elif mode == 'list':
-        ldriz = ListDrizzler(dithers_data, drizzle_params)
-        ldriz.run()
-        outsci = ldriz.dithers_data
-        outwcs = ldriz.wcs
-        image_weights = None
-
-    drizzle = DrizzledData(scidata=outsci, outwcs=outwcs, wcs_timestep=drizzle_params.wcs_timestep, image_weights=image_weights)
+    driz.run()
+    drizzle = DrizzledData(driz, mode, drizzle_params=drizzle_params)
 
     if quickplot:
         drizzle.quick_pretty_plot()
