@@ -63,8 +63,8 @@ instrument: !configdict
 drizzler: !configdict
   plots: all
   pixfrac: 0.5
-  exp_timestep: 1
-  wcs_timestep: 1
+  exp_timestep: 1  # duration of the time bins in the output cube
+  wcs_timestep: 1  # time between different wcs parameters (eg orientations). 0 will use the calculated non-blurring min
 
 templar: !configdict
   file: the_conf.yml
