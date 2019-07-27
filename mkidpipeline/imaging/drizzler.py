@@ -214,7 +214,7 @@ def load_data(dither, wvlMin, wvlMax, startt, intt, wcs_timestep, tempfile='driz
         ncpu = min(mkidpipeline.config.n_cpus_available(), ncpu)
         p = mp.Pool(ncpu)
         processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt, intt, derotate, wcs_timestep, first_time,
-                                               flags)) for file in filenames[:2]]
+                                               flags)) for file in filenames]
         dithers_data = [res.get() for res in processes]
 
         dithers_data.sort(key=lambda k: filenames.index(k['file']))
@@ -416,11 +416,10 @@ class TemporalDrizzler(Canvas):
         tic = time.clock()
 
         self.totHypCube = np.zeros((self.ntimebins * self.ndithers, self.nwvlbins, self.nPixDec, self.nPixRA))
-        # self.totExpCube = np.zeros((self.ntimebins, self.nwvlbins, self.nPixDec, self.nPixRA))
-        self.expmap = np.zeros((self.ntimebins * self.ndithers, self.nPixDec, self.nPixRA))
+        self.expmap = np.zeros((self.ntimebins * self.ndithers, self.nwvlbins, self.nPixDec, self.nPixRA))
         for ix, dither_photons in enumerate(self.dithers_data):
 
-            getLogger(__name__).debug('Processing %s', dither_photons)
+            # getLogger(__name__).debug('Processing %s', dither_photons)
 
             thishyper = np.zeros((self.ntimebins, self.nwvlbins, self.nPixDec, self.nPixRA), dtype=np.float32)
 
@@ -442,29 +441,28 @@ class TemporalDrizzler(Canvas):
                     # create a new drizzle object for each time (and wavelength) frame
                     drizhyper = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=self.pixfrac, wt_scl='')
                     inwht = np.int_(np.logical_not(cps[ia, iw] == 0))
-                    print('wht', self.wcs_times_ms[t+1] - self.wcs_times_ms[t])
 
                     drizhyper.add_image(cps[ia, iw], inwcs, inwht=inwht)  # in_units='cps' shouldn't have any affect
                                                                           # for a single drizzle
                     thishyper[it, iw] = drizhyper.outsci
+                    # print(ix, t, ia, it, (ix*self.ntimebins)+it, self.wcs_times[t + 1] - self.wcs_times[t], (
+                    #             self.wcs_times[t + 1] - self.wcs_times[t]) / self.ntimebins)
+                    self.expmap[(ix*self.ntimebins)+t, iw] = drizhyper.outwht * (
+                                self.wcs_times[t + 1] - self.wcs_times[t]) / self.ntimebins
 
                     if iw == self.nwvlbins-1:
-                        # all_tidx = ix*self.ndithers+ t*self.ntimebins
-                        print(ix, t, ia, it)
-                        self.expmap[it] = drizhyper.outwht * (self.wcs_times[t + 1] - self.wcs_times[t]) / self.ntimebins
+
                         it += 1
 
             self.totHypCube[ix * self.ntimebins: (ix + 1) * self.ntimebins] = thishyper
 
         getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
-        # TODO add the wavelength WCS
 
         self.header_4d()
 
         self.cps = self.totHypCube
         self.variance = self.cps * self.expmap
         self.outwcs = self.wcs
-        # image_weights = tdriz.totWeightCube.sum(axis=0)[0]
 
     def makeTess(self, dither_photons, timespan, applyweights=False, maxCountsCut=False):
         """
@@ -494,7 +492,7 @@ class TemporalDrizzler(Canvas):
             getLogger(__name__).debug("Applying max pixel count cut")
             hypercube *= np.int_(hypercube < maxCountsCut)
 
-        hypercube /= (timespan[1] - timespan[0])*1e-6
+        # hypercube /= (timespan[1] - timespan[0])*1e-6
 
         return hypercube
 
@@ -604,7 +602,6 @@ class SpatialDrizzler(Canvas):
         if maxCountsCut:
             getLogger(__name__).info("Applying max pixel count cut")
             thisImage *= thisImage < maxCountsCut
-        # thisImage /= (timespan[1] - timespan[0])*1e-6
 
         return thisImage
 
@@ -621,6 +618,7 @@ class DrizzledData(object):
         self.cps = driz.cps
         self.variance = driz.variance
         self.wcs = driz.outwcs
+        self.expmap = driz.expmap
         self.mode = mode
         self.header_keys = ['WCSTIME', 'PIXFRAC']
         self.header_vals = [drizzle_params.wcs_timestep, drizzle_params.pixfrac]
@@ -637,6 +635,7 @@ class DrizzledData(object):
         :param file:
         :param overwrite:
         :param compress:
+        :param dashboard_orient:
         :return:
         """
 
@@ -667,6 +666,30 @@ class DrizzledData(object):
 
         hdul.writeto(file, overwrite=overwrite)
         getLogger(__name__).info('FITS file {} saved'.format(file))
+
+    def compare_images(self):
+        from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+        fig = plt.figure()
+
+        images = [self.cps[0,0],
+               self.variance[0,0],
+               self.expmap[0,0],
+               np.sum(self.cps, axis=(0,1)),
+               np.sum(self.variance, axis=(0,1)),
+               np.sum(self.expmap, axis=(0,1))]
+
+        titles = ['cps', 'variance', 'exposure time', 'cps tot', 'variance tot', 'exposure time tot']
+
+        for i, image in enumerate(images):
+            ax = fig.add_subplot(2,3,i+1)
+            im = ax.imshow(image, norm=LogNorm())
+            ax.set_title(titles[i])
+            divider = make_axes_locatable(ax)
+            cax = divider.append_axes('right', size='5%', pad=0.05)
+            fig.colorbar(im, cax=cax, orientation='vertical')
+
+        plt.show()
 
     def quick_pretty_plot(self, log_scale=True, vmin=None, vmax=None, show=True, max_times=8):
         """
@@ -778,8 +801,10 @@ def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=
     driz.run()
     drizzle = DrizzledData(driz, mode, drizzle_params=drizzle_params)
 
+    quickplot = True
     if quickplot:
-        drizzle.quick_pretty_plot()
+        drizzle.compare_images()
+        # drizzle.quick_pretty_plot()
 
     if fitsname:
         drizzle.writefits(file=fitsname + '.fits')  # unless path specified, save in cwd
