@@ -668,6 +668,7 @@ class DrizzledData(object):
         getLogger(__name__).info('FITS file {} saved'.format(file))
 
     def compare_images(self):
+        """Not fully verified yet"""
         from mpl_toolkits.axes_grid1 import make_axes_locatable
 
         fig = plt.figure()
@@ -801,10 +802,9 @@ def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=
     driz.run()
     drizzle = DrizzledData(driz, mode, drizzle_params=drizzle_params)
 
-    quickplot = True
     if quickplot:
-        drizzle.compare_images()
-        # drizzle.quick_pretty_plot()
+        # drizzle.compare_images()
+        drizzle.quick_pretty_plot()
 
     if fitsname:
         drizzle.writefits(file=fitsname + '.fits')  # unless path specified, save in cwd
