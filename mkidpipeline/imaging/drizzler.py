@@ -386,7 +386,7 @@ class TemporalDrizzler(Canvas):
     exp_timestep or ntimebins argument accepted. ntimebins takes priority
     """
 
-    def __init__(self, dithers_data, drizzle_params, nwvlbins=2, exp_timestep=0.1, ntimebins=None, wvlMin=0, wvlMax=np.inf):
+    def __init__(self, dithers_data, drizzle_params, nwvlbins=1, exp_timestep=1, wvlMin=0, wvlMax=np.inf):
         super().__init__(dithers_data, drizzle_params.dither.obs[0], drizzle_params.coords)
 
         self.nwvlbins = nwvlbins
@@ -400,10 +400,7 @@ class TemporalDrizzler(Canvas):
         self.wcs_times = np.append(np.arange(0, inttime, drizzle_params.wcs_timestep), inttime)
         self.wcs_times_ms = self.wcs_times * 1e6
 
-        if ntimebins:
-            self.ntimebins = ntimebins
-        else:
-            self.ntimebins = int(inttime / self.exp_timestep)
+        self.ntimebins = int(inttime / self.exp_timestep)
         if self.ntimebins < len(self.dithers_data[0]['obs_wcs_seq']):
             getLogger(__name__).warning('Increasing the number of time bins beyond the user request')
             self.ntimebins = len(self.dithers_data[0]['obs_wcs_seq'])
@@ -667,87 +664,9 @@ class DrizzledData(object):
         hdul.writeto(file, overwrite=overwrite)
         getLogger(__name__).info('FITS file {} saved'.format(file))
 
-    def compare_images(self):
-        """Not fully verified yet"""
-        from mpl_toolkits.axes_grid1 import make_axes_locatable
-
-        fig = plt.figure()
-
-        images = [self.cps[0,0],
-               self.variance[0,0],
-               self.expmap[0,0],
-               np.sum(self.cps, axis=(0,1)),
-               np.sum(self.variance, axis=(0,1)),
-               np.sum(self.expmap, axis=(0,1))]
-
-        titles = ['cps', 'variance', 'exposure time', 'cps tot', 'variance tot', 'exposure time tot']
-
-        for i, image in enumerate(images):
-            ax = fig.add_subplot(2,3,i+1)
-            im = ax.imshow(image, norm=LogNorm())
-            ax.set_title(titles[i])
-            divider = make_axes_locatable(ax)
-            cax = divider.append_axes('right', size='5%', pad=0.05)
-            fig.colorbar(im, cax=cax, orientation='vertical')
-
-        plt.show()
-
-    def quick_pretty_plot(self, log_scale=True, vmin=None, vmax=None, show=True, max_times=8):
-        """
-        Make an image (or array of images) with celestial coordinates (deg)
-
-        :param scidata: image, spectralcube, or sequence of spectralcubes
-        :param inwcs: single wcs solution
-        :param log_scale:
-        :param vmin:
-        :param vmax:
-        :param show:
-        :param max_times: only display the first max_times frames
-        :return:
-        """
-        if log_scale:
-            norm = LogNorm()
-        else:
-            norm = None
-        fig = plt.figure()
-
-        # a way of identifying the non-spatial axes
-        dims = len(self.data.shape)
-        dim_ind = np.arange(dims)
-        multiplots = np.where(dim_ind < dims - 2)[0]
-
-        if len(multiplots) == 0:
-            ax = fig.add_subplot(111, projection=self.wcs)
-            ax.coords.grid(True, color='white', ls='solid')
-            ax.coords[0].set_axislabel('Right Ascension (J2000)')
-            ax.coords[1].set_axislabel('Declination (J2000)')
-
-            axes = [ax]
-            ind = [...]
-        else:
-            print(' *** Only displaying first {} timesteps ***'.format(max_times))
-            scidata = self.data[:max_times]
-            [ntimes, nwaves] = np.array(scidata.shape)[multiplots]
-            gs = gridspec.GridSpec(nwaves, ntimes)
-            for n in range(ntimes * nwaves):
-                fig.add_subplot(gs[n])  # fig.add_subplot(gs[n], projection=self.wcs)
-            axes = np.array(fig.axes)
-            ind = [(t, w) for t in range(ntimes) for w in range(nwaves)]
-
-        for ia, ax in enumerate(axes):
-            im = ax.imshow(self.data[ind[ia]], origin='lower', vmin=vmin, vmax=vmax, norm=norm)
-
-        cax = fig.add_axes([0.92, 0.09 + 0.277, 0.025, 0.25])
-        cb = plt.colorbar(im, cax=cax)
-        cb.ax.set_title('Counts')
-        plt.tight_layout()
-        if show:
-            plt.show(block=True)
-
 
 def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=0, intt=60, pixfrac=.5, nwvlbins=1,
-         wcs_timestep=None, exp_timestep=None, ntimebins=None, fitsname=None, usecache=True, quickplot=False, ncpu=1,
-         flags=True):
+         wcs_timestep=1, exp_timestep=1, fitsname=None, usecache=True, ncpu=1, flags=True):
     """
     Takes in a MKIDObservingDither object and drizzles the files onto a sky grid. Depending on the selected mode this
     output can take the form of an image, spectral cube, sequence of spectral cubes, or a photon list. Currently
@@ -798,13 +717,9 @@ def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=
 
     elif mode == 'temporal':
         driz = TemporalDrizzler(dithers_data, drizzle_params, nwvlbins=nwvlbins, exp_timestep=exp_timestep,
-                                 ntimebins=ntimebins, wvlMin=wvlMin, wvlMax=wvlMax)
+                                 wvlMin=wvlMin, wvlMax=wvlMax)
     driz.run()
     drizzle = DrizzledData(driz, mode, drizzle_params=drizzle_params)
-
-    if quickplot:
-        # drizzle.compare_images()
-        drizzle.quick_pretty_plot()
 
     if fitsname:
         drizzle.writefits(file=fitsname + '.fits')  # unless path specified, save in cwd

@@ -15,8 +15,11 @@ dither: !dither
 drizzler: !configdict
   plots: all
   pixfrac: 0.5
-  exp_timestep: 1
-  wcs_timestep: 1
+  exp_timestep: 1  # duration of the time bins in the output cube
+  wcs_timestep: 1  # time between different wcs parameters (eg orientations). 0 will use the calculated non-blurring min
+  nwvlbins: 1  # the number of equal width bins in the temporally drizzled cube
+  usecache: False  # if True the reformatted photontable data from each of the dithers is stored and reloaded for
+                   # subsequent runs of drizzler.py
 
 ncpu: 20
 
