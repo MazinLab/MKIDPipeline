@@ -458,7 +458,7 @@ class TemporalDrizzler(Canvas):
         self.header_4d()
 
         self.cps = self.totHypCube
-        self.variance = self.cps * self.expmap
+        self.counts = self.cps * self.expmap
         self.outwcs = self.wcs
 
     def makeTess(self, dither_photons, timespan, applyweights=False, maxCountsCut=False):
@@ -582,7 +582,7 @@ class SpatialDrizzler(Canvas):
             self.outwcs = self.stacked_wcs
         else:
             self.cps = self.driz.outsci
-            self.variance = self.driz.outwht * self.cps * np.mean(self.wcs_times)
+            self.counts = self.driz.outwht * self.cps * np.mean(self.wcs_times)
             self.outwcs = self.wcs
 
     def makeImage(self, dither_photons, timespan, applyweights=False, maxCountsCut=10000):
@@ -613,7 +613,7 @@ class DrizzledData(object):
         """
 
         self.cps = driz.cps
-        self.variance = driz.variance
+        self.counts = driz.counts
         self.wcs = driz.outwcs
         self.expmap = driz.expmap
         self.mode = mode
@@ -647,7 +647,7 @@ class DrizzledData(object):
             fits_header = [w.to_header() for w in self.wcs]
             [self.header_additions(hdr) for hdr in fits_header]
 
-            hdus = [fits.ImageHDU(data=d, header=h) for d, h in zip(self.cps, fits_header)]
+            hdus = [fits.ImageHDU(data=d, header=h) for d, h in zip(self.counts, fits_header)]
             hdul = fits.HDUList(list(np.append(fits.PrimaryHDU(), hdus)))
 
         else:
@@ -656,7 +656,7 @@ class DrizzledData(object):
 
             hdul = fits.HDUList([fits.PrimaryHDU(header=fits_header),
                                  fits.ImageHDU(name='cps', data=self.cps, header=fits_header),
-                                 fits.ImageHDU(name='variance', data=self.variance, header=fits_header)])
+                                 fits.ImageHDU(name='variance', data=self.counts, header=fits_header)])
 
         if compress:
             file = file+'.gz'
