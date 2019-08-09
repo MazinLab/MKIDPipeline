@@ -91,7 +91,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
         indexer(table.cols.ResID, index)
         getLogger(__name__).debug('ResID Indexed')
         indexer(table.cols.Wavelength, index)
-        getLogger(__name__).debug('Wavlength Indexed')
+        getLogger(__name__).debug('Wavelength Indexed')
         getLogger(__name__).debug('Table Indexed')
     else:
         getLogger(__name__).debug('Skipping Index Generation')
