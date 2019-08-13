@@ -187,13 +187,21 @@ def load_data(dither, wvlMin, wvlMax, startt, intt, wcs_timestep, tempfile='driz
     """
 
     if tempdir is None:
-        tempdir = mkidpipeline.config.config.paths.tmp
-    if not os.path.exists(tempdir):
-        os.mkdir(tempdir)
+        try:
+            tempdir = mkidpipeline.config.config.paths.tmp
+        except KeyError:
+            getLogger(__name__).warning('No tempdir specified. Setting usecache to False')
+            usecache = False
 
-    pkl_save = os.path.join(tempdir, tempfile.format(dither.name))
-    if clearcache:  # TODO the cache must be autocleared if the query parameters would alter the contents
-        os.remove(pkl_save)
+    if usecache:
+        if not os.path.exists(tempdir):
+            os.mkdir(tempdir)
+
+        pkl_save = os.path.join(tempdir, tempfile.format(dither.name))
+
+        if clearcache:  # TODO the cache must be autocleared if the query parameters would alter the contents
+            os.remove(pkl_save)
+
     try:
         if not usecache:
             raise FileNotFoundError
@@ -223,6 +231,7 @@ def load_data(dither, wvlMin, wvlMax, startt, intt, wcs_timestep, tempfile='driz
 
         if usecache:
             with open(pkl_save, 'wb') as handle:
+                getLogger(__name__).info('Saved data cache to {}'.format(pkl_save))
                 pickle.dump(dithers_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     return dithers_data
