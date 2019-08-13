@@ -670,6 +670,8 @@ class DrizzledData(object):
         if compress:
             file = file+'.gz'
 
+        assert file[-5:] == '.fits', 'Please enter valid filename'
+
         hdul.writeto(file, overwrite=overwrite)
         getLogger(__name__).info('FITS file {} saved'.format(file))
 
