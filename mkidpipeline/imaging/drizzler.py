@@ -56,8 +56,9 @@ class DrizzleParams(object):
     Calculates and stores the relevant info for Drizzler
 
     """
-    def __init__(self, dither, wcs_timestep=None, pixfrac=1.):
+    def __init__(self, dither, used_inttime, wcs_timestep=None, pixfrac=1.):
         self.dither = dither
+        self.used_inttime = used_inttime
         self.pixfrac = pixfrac
         self.get_coords()
 
@@ -166,7 +167,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_t
             'wavelengths': photons["Wavelength"], 'weight': weights, 'obs_wcs_seq': wcs, 'duration': duration}
 
 
-def load_data(dither, wvlMin, wvlMax, startt, intt, wcs_timestep, tempfile='drizzler_tmp_{}.pkl',
+def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfile='drizzler_tmp_{}.pkl',
               tempdir=None, usecache=True, clearcache=False, derotate=True, ncpu=1, flags=True):
     """
     Load the photons either by querying the obsfiles in parrallel or loading from pkl if it exists. The wcs
@@ -221,7 +222,7 @@ def load_data(dither, wvlMin, wvlMax, startt, intt, wcs_timestep, tempfile='driz
 
         ncpu = min(mkidpipeline.config.n_cpus_available(), ncpu)
         p = mp.Pool(ncpu)
-        processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt, intt, derotate, wcs_timestep, first_time,
+        processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt, used_inttime, derotate, wcs_timestep, first_time,
                                                flags)) for file in filenames]
         dithers_data = [res.get() for res in processes]
 
@@ -335,7 +336,7 @@ class ListDrizzler(Canvas):
         getLogger(__name__).critical('This has not been tested')
         raise NotImplementedError
 
-        inttime = drizzle_params.dither.inttime
+        inttime = drizzle_params.used_inttime
 
         # if inttime is say 100 and wcs_timestep is say 60 then this yeilds [0,60,100]
         # meaning the positions don't have constant integration time
@@ -405,7 +406,7 @@ class TemporalDrizzler(Canvas):
         self.pixfrac = drizzle_params.pixfrac
         self.wvlbins = np.linspace(wvlMin, wvlMax, self.nwvlbins + 1)
 
-        inttime = drizzle_params.dither.inttime
+        inttime = drizzle_params.used_inttime
         self.wcs_times = np.append(np.arange(0, inttime, drizzle_params.wcs_timestep), inttime)
         self.wcs_times_ms = self.wcs_times * 1e6
 
@@ -545,7 +546,7 @@ class SpatialDrizzler(Canvas):
 
         self.driz = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=drizzle_params.pixfrac, wt_scl='')
         self.wcs_timestep = drizzle_params.wcs_timestep
-        inttime = drizzle_params.dither.inttime
+        inttime = drizzle_params.used_inttime
 
         # if inttime is say 100 and wcs_timestep is say 60 then this yeilds [0,60,100]
         # meaning the positions don't have constant integration time
@@ -698,21 +699,17 @@ def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=
     :param flags:
     :return:
     """
-    # ensure the user input is shorter than the dither or that wcs are just calculated for the relavant timespan
+    # ensure the user input is shorter than the dither or that wcs are just calculated for the requested timespan
     if intt > dither.inttime:
-        # getLogger(__name__).warning(f'Reduced the effective integration time from {args.intt}s to {dither.inttime}s')
-        getLogger(__name__).warning('Reduced the effective integration time from {}s to {}s'.format(intt, dither.inttime))
+        getLogger(__name__).info('Used integration time is set by dither duration to be {}s'.format(dither.inttime))
     if dither.inttime > intt:
-        # getLogger(__name__).warning(f'Reduced the duration of each dither {dither.inttime}s to {args.intt}s')
-        getLogger(__name__).warning('Reduced the duration of each dither from {}s to {}s'.format(dither.inttime, intt))
+        getLogger(__name__).info('Used integration time is set by user defined integration time to be {}s'.format(intt))
 
-    # redefining these variables in the middle of the code might not be good practice since form() is run multiple
-    # times but once they've been equated it shouldn't have an effect?
-    intt, dither.inttime = [min(intt, dither.inttime)] * 2
+    used_inttime = min(intt, dither.inttime)
 
-    drizzle_params = DrizzleParams(dither, wcs_timestep, pixfrac)
+    drizzle_params = DrizzleParams(dither, used_inttime, wcs_timestep, pixfrac)
 
-    dithers_data = load_data(dither, wvlMin, wvlMax, startt, intt, drizzle_params.wcs_timestep, derotate=derotate,
+    dithers_data = load_data(dither, wvlMin, wvlMax, startt, used_inttime, drizzle_params.wcs_timestep, derotate=derotate,
                      usecache=usecache, ncpu=ncpu, flags=flags)
 
     if mode not in ['stack', 'spatial', 'temporal', 'list']:
