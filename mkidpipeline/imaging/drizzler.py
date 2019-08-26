@@ -153,7 +153,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_t
         usablemask = np.array(obsfile.beamFlagImage) == pixelflags.GOODPIXEL
         usablelist = usablemask[x, y]
         getLogger(__name__).info("Removed {} photons from {} total from bad pix"
-                                 .format(len(photons) - len(usablelist), len(photons)))
+                                 .format(len(photons) - len(photons[usablelist]), len(photons)))
         photons = photons[usablelist]
         x, y = obsfile.xy(photons)
 
