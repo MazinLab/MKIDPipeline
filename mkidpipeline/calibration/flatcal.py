@@ -174,15 +174,19 @@ class FlatCalibrator(object):
         flatCalFile.close()
         getLogger(__name__).info("Wrote to {}".format(self.flatCalFileName))
 
-    @property
-    def frames(self):
-        return self.spectralCubes.sum(axis=2)
-
     def checkCountRates(self):
-        """ mask out frames, or cubes from integration time chunks with count rates too high """
-        medianCountRates = np.array([np.median(frame[frame != 0]) for frame in self.frames])
-        mask = medianCountRates <= self.countRateCutoff
-        self.spectralCubes = np.array([cube for cube, use in zip(self.spectralCubes, mask) if use])
+        """
+        masks out frames (time chunks) from the flatcal that are too bright so as to skew the results.
+        If a lasercal is used for the flatcal then there is only one frame so this function is irrelevant
+        and hits the pass condition.
+        """
+        frames = self.spectralCubes.sum(axis=3)
+        if len(frames) == 1:
+            pass
+        else:
+            medianCountRates = np.array([np.median(frame[frame != 0]) for frame in frames])
+            mask = medianCountRates <= self.countRateCutoff
+            self.spectralCubes = np.array([cube for cube, use in zip(self.spectralCubes, mask) if use])
 
     def calculateWeights(self):
         """
