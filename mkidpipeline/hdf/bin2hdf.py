@@ -7,6 +7,7 @@ import tables
 import time
 import sys
 import numpy as np
+import psutil
 from multiprocessing.pool import Pool
 import multiprocessing as mp
 import threading
@@ -49,10 +50,35 @@ def _get_dir_for_start(base, start):
     except ValueError:
         raise ValueError('No directory in {} found for start {}'.format(base, start))
 
+def estimate_ram_gb(directory, start, inttime):
+    PHOTON_BIN_SIZE_BYTES = 8
+    files = [os.path.join(directory, '{}.bin'.format(t)) for t in range(start-1, start+inttime+1)]
+    files = filter(os.path.exists, files)
+    n_max_photons = int(np.ceil(sum([os.stat(f).st_size for f in files])/PHOTON_BIN_SIZE_BYTES))
+    return n_max_photons*PHOTON_SIZE_BYTES/1024/1024/1024
 
-def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None, bitshuffle=False):
+def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None, bitshuffle=False,
+                   wait_for_ram=3600):
+    """wait_for_ram speficies the number of seconds to wait for sufficient ram"""
     if cfg.starttime < 1518222559:
         raise ValueError('Data prior to 1518222559 not supported without added fixtimestamps')
+
+    lambda free_ram_gb: psutil.virtual_memory().free/1024/1024/1024
+
+    ram_est_gb = estimate_ram_gb(cfg.datadir, cfg.starttime, cfg.inttime) + 2  #add some headroom
+    if free_ram_gb()<ram_est_gb:
+        msg = 'Insufficint free RAM to build {}, {:.1f} vs. {:.1f} GB.'
+        getLogger(__name__).warning(msg.format(cfg.h5file, free_ram_gb(), ram_est_gb))
+        if wait_for_ram:
+            getLogger(__name__).info('Waiting up to {} s for enough RAM'.format(wait_for_ram))
+            while wait_for_ram and free_ram_gb()<ram_est_gb:
+                time.sleep(1)
+                wait_for_ram-=1
+                if wait_for_ram % 30:
+                    getLogger(__name__).info('Still waiting (up to {} s) for enough RAM'.format(wait_for_ram))
+    if free_ram_gb()<ram_est_gb::
+        getLogger(__name__).error('Aborting build due to insufficient RAM.')
+        return
 
     from mkidpipeline.hdf.mkidbin import extract
     from mkidcore.headers import ObsFileCols, ObsHeader
