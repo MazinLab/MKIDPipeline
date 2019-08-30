@@ -72,8 +72,9 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
         if wait_for_ram:
             getLogger(__name__).info('Waiting up to {} s for enough RAM'.format(wait_for_ram))
             while wait_for_ram and free_ram_gb()<ram_est_gb:
-                time.sleep(1)
-                wait_for_ram-=1
+                sleeptime = np.random.uniform(1,2)
+                time.sleep(sleeptime)
+                wait_for_ram-=sleeptime
                 if wait_for_ram % 30:
                     getLogger(__name__).info('Still waiting (up to {} s) for enough RAM'.format(wait_for_ram))
     if free_ram_gb()<ram_est_gb::
