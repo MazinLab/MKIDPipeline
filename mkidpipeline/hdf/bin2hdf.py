@@ -77,7 +77,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
                 wait_for_ram-=sleeptime
                 if wait_for_ram % 30:
                     getLogger(__name__).info('Still waiting (up to {} s) for enough RAM'.format(wait_for_ram))
-    if free_ram_gb()<ram_est_gb::
+    if free_ram_gb()<ram_est_gb:
         getLogger(__name__).error('Aborting build due to insufficient RAM.')
         return
 
