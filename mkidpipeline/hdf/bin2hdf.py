@@ -55,7 +55,7 @@ def estimate_ram_gb(directory, start, inttime):
     files = [os.path.join(directory, '{}.bin'.format(t)) for t in range(start-1, start+inttime+1)]
     files = filter(os.path.exists, files)
     n_max_photons = int(np.ceil(sum([os.stat(f).st_size for f in files])/PHOTON_BIN_SIZE_BYTES))
-    return n_max_photons*PHOTON_SIZE_BYTES/1024/1024/1024
+    return n_max_photons*PHOTON_BIN_SIZE_BYTES/1024/1024/1024
 
 def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None, bitshuffle=False,
                    wait_for_ram=3600):
@@ -63,7 +63,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
     if cfg.starttime < 1518222559:
         raise ValueError('Data prior to 1518222559 not supported without added fixtimestamps')
 
-    lambda free_ram_gb: psutil.virtual_memory().free/1024/1024/1024
+    free_ram_gb = lambda : psutil.virtual_memory().free/1024/1024/1024
 
     ram_est_gb = estimate_ram_gb(cfg.datadir, cfg.starttime, cfg.inttime) + 2  #add some headroom
     if free_ram_gb()<ram_est_gb:
