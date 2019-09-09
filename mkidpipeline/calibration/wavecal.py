@@ -1034,7 +1034,7 @@ class Solution(object):
     yaml_tag = '!wsoln'
 
     def __init__(self, file_path=None, fit_array=None, configuration=None, beam_map=None,
-                 beam_map_flags=None, solution_name='solution.npz'):
+                 beam_map_flags=None, solution_name='solution'):
         # default parameters
         self._color_map = cm.get_cmap('viridis')
         self._parse = True
@@ -1123,6 +1123,8 @@ class Solution(object):
             save_path = os.path.join(self.cfg.out_directory, self.name)
         else:
             save_path = os.path.join(self.cfg.out_directory, save_name)
+        if not save_path.ends_with('.npz'):
+            save_path += '.npz'
         # make sure the configuration is pickleable if created from __main__
         if self.cfg.__class__.__module__ == "__main__":
             from mkidpipeline.calibration.wavecal import Configuration
@@ -1150,7 +1152,7 @@ class Solution(object):
             for attr in keys:
                 setattr(self, attr, None)
         self._file_path = file_path  # new file_path for the solution
-        self.name = os.path.basename(file_path)  # new name for saving
+        self.name = os.path.splitext(os.path.basename(file_path))[0]  # new name for saving
         self._finish_init()
         log.info("Complete")
 
@@ -2457,14 +2459,14 @@ class Solution(object):
 
 
 def load_solution(wc, singleton_ok=True):
-    """wc is a solution file or a Solution object or a mkidpipeline.config.MKIDWavedataDescription"""
+    """wc is a solution filename string, a Solution object, or a mkidpipeline.config.MKIDWavedataDescription"""
     global _loaded_solutions
     if not singleton_ok:
         raise NotImplementedError('Must implement solution copying')
     if isinstance(wc, Solution):
         return wc  # TODO: _loaded_solutions[wc._file_path] = wc
     if isinstance(wc, mkidpipeline.config.MKIDWavedataDescription):
-        wc = wc.id
+        wc = mkidpipeline.config.wavecal_id(wc.id)+'.npz'
     wc = wc if os.path.isfile(wc) else os.path.join(mkidpipeline.config.config.paths.database, wc)
     try:
         return _loaded_solutions[wc]
@@ -2478,7 +2480,7 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
 
     solutions = []
     for sd in solution_descriptors:
-        sf = os.path.join(cfg.paths.database, sd.id)
+        sf = os.path.join(cfg.paths.database, mkidpipeline.config.wavecal_id(sd.id)+'.npz')
         if os.path.exists(sf) and not remake:
             solutions.append(load_solution(sf))
         else:

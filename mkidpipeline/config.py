@@ -82,6 +82,16 @@ def h5_for_MKIDodd(observing_data_desc):
     return os.path.join(config.paths.out, '{}.h5'.format(observing_data_desc.start))
 
 
+def wavecal_id(wavedata_id, config=None):
+    """
+    Compute a wavecal id string from a wavedata id string and either the active or a specified wavecal config
+    """
+    if config is None:
+        config=mkidpipeline.config.wavecal
+    config_hash = hashlib.md5(str(config).encode()).hexdigest()
+    return 'wavcal_{}_{}'.format(wavedata_id, config_hash[-8:])
+
+
 class MKIDTimerange(object):
     yaml_tag = u'!ob'
 
@@ -231,7 +241,7 @@ class MKIDObservation(object):
     def metadata(self):
         exclude = ('wavecal', 'flatcal', 'wcscal', 'start', 'stop')
         d = {k: v for k, v in self.__dict__.items() if k not in exclude}
-        d2 = dict(wavecal=self.wavecal.id, flatcal=self.flatcal.id, platescale=self.wcscal.platescale,
+        d2 = dict(wavecal=wavecal_id(self.wavecal.id), flatcal=self.flatcal.id, platescale=self.wcscal.platescale,
                   dither_ref=self.wcscal.dither_ref, dither_home=self.wcscal.dither_home,
                   device_orientation=self.wcscal.device_orientation)
         d.update(d2)
@@ -265,11 +275,11 @@ class MKIDWavedataDescription(object):
     def id(self):
         meanstart = int(np.mean([x[0] for x in self.timeranges]))
         hash = hashlib.md5(str(self).encode()).hexdigest()
-        return datetime.utcfromtimestamp(meanstart).strftime('%Y-%m-%d %H%M') + hash + '.npz'
+        return datetime.utcfromtimestamp(meanstart).strftime('%Y-%m-%d-%H%M_') + hash[-8:]
 
     @property
     def path(self):
-        return os.path.join(config.paths.database, self.id)
+        return os.path.join(config.paths.database, wavecal_id(self.id)+'.npz')
 
 
 class MKIDFlatdataDescription(object):
@@ -289,10 +299,11 @@ class MKIDFlatdataDescription(object):
         try:
             return 'flatcal_{}.h5'.format(self.ob.start)
         except AttributeError:
-            return 'flatcal_{}.h5'.format(self.wavecal.id)
+            return 'flatcal_{}.h5'.format(wavecal_id(self.wavecal.id))
 
     @property
     def path(self):
+        #TODO flat data doesn't really have a path, tts the flatcal that has a phath
         return os.path.join(config.paths.database, self.id)
 
     @property
