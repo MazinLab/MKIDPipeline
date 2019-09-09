@@ -356,7 +356,7 @@ class PartialLinearModel(object):
             axes.set_title(t.format(type(self).__name__, self.pixel[0], self.pixel[1],  self.res_id))
 
         # no data
-        if self.x is None or self.y is None:
+        if self.x is None or len(self.x) == 1:
             if text:
                 plot_text(axes, self.flag, color)
             if y_label:
