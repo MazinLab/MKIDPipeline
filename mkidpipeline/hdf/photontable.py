@@ -1052,6 +1052,60 @@ class ObsFile(object):
         # if getEffInt is True:
         return {'spectrum': spectrum, 'wvlBinEdges': wvlBinEdges, 'rawCounts': rawCounts}
 
+    def getTemporalCube(self, startt=None, stopt=None, applyWeight=False, applyTPFWeight=False,
+                        startw=None, stopw=None, timeslice=None, timeslices=None,
+                        flagToUse=0, hdu=False):
+        """
+        Return a wavelength-flattened spectral cube of the counts integrated from firstSec to firstSec+integrationTime.
+        If stopt is None, all time after startt is used.
+        If weighted is True, flat cal weights are applied.
+        If fluxWeighted is True, spectral shape weights are applied.
+
+        Timeslices is an optional array of cube time bin edges. If provided, timeslices takes precedence over startt,
+        stopt, and timeslice.
+        """
+        if timeslices is not None:
+            startt = timeslices.min()
+            stopt = timeslices.max()
+        else:
+            # May not include data at tail end if timeslice does not evenly divide time window
+            timeslices = np.arange(self.startTime if startt is None else startt,
+                                   (self.stopTime if stopt is None else stopt) + 1e-9, timeslice)
+
+        cube = np.zeros((self.nXPix, self.nYPix, timeslices.size-1))
+
+        ## Retrieval rate is ~ ? Mphot/s for queries in the ~M photon range
+        masterPhotonList = self.query(startt=startt, stopt=stopt, startw=startw, stopw=stopw)
+
+        weights = None
+        if applyWeight:
+            weights = masterPhotonList['SpecWeight']
+        if applyTPFWeight:
+            weights = masterPhotonList['NoiseWeight'] if weights is None else weights*masterPhotonList['NoiseWeight']
+
+        tic = time.time()
+        ridbins = sorted(self.beamImage.ravel())
+        ridbins = np.append(ridbins, max(ridbins) + 1)
+        hist, xedg, yedg = np.histogram2d(masterPhotonList['ResID'], masterPhotonList['Time'],
+                                          bins=(ridbins, timeslices), weights=weights)
+
+        toc = time.time()
+        xe = xedg[:-1]
+        for (x, y), resID in np.ndenumerate(self.beamImage):  # 3% of the time
+            if not (self.beamFlagImage[x, y] | flagToUse) == flagToUse:
+                continue
+            cube[x, y, :] = hist[xe == resID]
+        toc2 = time.time()
+        getLogger(__name__).debug('Histogramed data in {:.2f} s, reformatting in {:.2f}'.format(toc2 - tic, toc2 - toc))
+
+        if hdu:
+            ret = fits.ImageHDU(data=cube)
+            getLogger(__name__).warning('Must integrate wavelength info into ImageHDU ctype kw and finish building hdu')
+            #TODO finish returning hdu
+            return ret
+        else:
+            return {'cube': cube, 'timeslices': timeslices}
+
     def getSpectralCube(self, firstSec=0, integrationTime=None, applyWeight=False, applyTPFWeight=False,
                         wvlStart=700, wvlStop=1500, wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None,
                         flagToUse=0, hdu=False):
@@ -1420,6 +1474,10 @@ class ObsFile(object):
     @property
     def startTime(self):
         return self.info['startTime']
+
+    @property
+    def stopTime(self):
+        return self.info['startTime'] + self.info['expTime']
 
     @staticmethod
     def makeWvlBins(energyBinWidth=.1, wvlStart=700, wvlStop=1500):
