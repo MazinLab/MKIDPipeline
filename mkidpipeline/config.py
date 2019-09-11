@@ -660,10 +660,14 @@ def parse_obslog(file):
     return ret
 
 
-def load_observing_metadata(files=tuple()):
+def load_observing_metadata(files=tuple(), include_database=True):
     """Return a list of mkidcore.config.ConfigThings with the contents of the metadata from observing"""
     global config
-    files = list(files) + glob(os.path.join(config.paths.database, 'obslog*.json'))
+    files = list(files)
+    if config is not None and include_database:
+        files+=glob(os.path.join(config.paths.database, 'obslog*.json'))
+    elif include_database:
+        getLogger(__name__).warning('No pipleline database configured.')
     metadata = []
     for f in files:
         metadata += parse_obslog(f)
