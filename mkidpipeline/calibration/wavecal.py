@@ -390,7 +390,7 @@ class Calibrator(object):
                         message = "({}, {}) : {} nm : histogram fit failed because there is no data"
                         log.debug(message.format(pixel[0], pixel[1], wavelength))
                         continue
-                    if len(model.x) < model.max_parameters * 2:
+                    if len(model.x[model.y != 0]) < model.max_parameters * 2:
                         model.flag = 5
                         message = "({}, {}) : {} nm : histogram fit failed because there are less than {} bins"
                         log.debug(message.format(pixel[0], pixel[1], wavelength, model.max_parameters * 2))
