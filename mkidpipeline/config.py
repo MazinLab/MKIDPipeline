@@ -538,14 +538,17 @@ class MKIDObservingDataset(object):
 class MKIDOutput(object):
     yaml_tag = '!out'
 
-    def __init__(self, name, dataname, kind, startw=None, stopw=None, filename=''):
+    def __init__(self, name, dataname, kind, startw=None, stopw=None, filename='',_extra=None):
         """
         :param name: a name
         :param dataname: a name of a data association
-        :param kind: stack|spatial|spectral|temporal|list|image
+        :param kind: stack|spatial|spectral|temporal|list|image|movie
         :param startw: wavelength start
         :param stopw: wavelength stop
         :param filename: an optional relative or fully qualified path
+
+        Kind 'movie' requires _extra keys timestep and either frameduration or movieduration with frameduration
+        taking precedence. start and stopt may be included as well.
         """
         self.name = name
         self.startw = getnm(startw) if startw is not None else None
@@ -559,6 +562,11 @@ class MKIDOutput(object):
         self.enable_ssd = True
         self.filename = filename
         self.data = dataname
+        if _extra is not None:
+            for k in _extra:
+                if k not in self.__dict__:
+                    self.__dict__[k] = _extra[k]
+
 
     @property
     def wants_image(self):
@@ -566,14 +574,22 @@ class MKIDOutput(object):
 
     @property
     def wants_drizzled(self):
-        return self.kind != 'image'
+        return self.kind in ('stack','spatial','spectral','temporal','list')
+
+    @property
+    def wants_movie(self):
+        return self.kind == 'movie'
 
     @classmethod
     def from_yaml(cls, loader, node):
-        #TODO I don't know why I used extract_from_node here and dict(loader.construct_pairs(node)) elsewhere
-        d = mkidcore.config.extract_from_node(loader, ('name', 'data', 'kind', 'stopw', 'startw', 'filename'), node)
-        return cls(d['name'], d['data'], d['kind'], d.get('startw', None), d.get('stopw', None),
-                   d.get('filename', ''))
+        d = dict(loader.construct_pairs(node))
+        return cls(d.pop('name'), d.pop('data'), d.pop('kind'),
+                   startw=d.pop('startw', None), stopw=d.pop('stopw', None),
+                   filename=d.pop('filename', ''), _extra=d)
+        # #TODO I don't know why I used extract_from_node here and dict(loader.construct_pairs(node)) elsewhere
+        # d = mkidcore.config.extract_from_node(loader, ('name', 'data', 'kind', 'stopw', 'startw', 'filename'), node)
+        # return cls(d['name'], d['data'], d['kind'], d.get('startw', None), d.get('stopw', None),
+        #            d.get('filename', ''), )
 
     @property
     def input_timeranges(self):

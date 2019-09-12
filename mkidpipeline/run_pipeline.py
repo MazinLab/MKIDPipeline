@@ -71,6 +71,8 @@ def generate_outputs(outputs):
                                      exp_timestep=config.drizzler.exp_timestep, flags=config.badpix,
                                      usecache=config.drizzler.usecache, ncpu=config.ncpu)
             drizzled.writefits(o.output_file)
+        if o.wants_movie:
+            mkidpipeline.imaging.movies.make_movie(o)
 
 
 out_collection = pipe.load_output_description('')
