@@ -1123,7 +1123,7 @@ class Solution(object):
             save_path = os.path.join(self.cfg.out_directory, self.name)
         else:
             save_path = os.path.join(self.cfg.out_directory, save_name)
-        if not save_path.ends_with('.npz'):
+        if not save_path.endswith('.npz'):
             save_path += '.npz'
         # make sure the configuration is pickleable if created from __main__
         if self.cfg.__class__.__module__ == "__main__":
