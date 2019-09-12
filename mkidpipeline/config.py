@@ -82,13 +82,14 @@ def h5_for_MKIDodd(observing_data_desc):
     return os.path.join(config.paths.out, '{}.h5'.format(observing_data_desc.start))
 
 
-def wavecal_id(wavedata_id, config=None):
+def wavecal_id(wavedata_id, wavecal_cfg=None):
     """
     Compute a wavecal id string from a wavedata id string and either the active or a specified wavecal config
     """
-    if config is None:
-        config=mkidpipeline.config.wavecal
-    config_hash = hashlib.md5(str(config).encode()).hexdigest()
+    if wavecal_cfg is None:
+        global config
+        wavecal_cfg = config.wavecal
+    config_hash = hashlib.md5(str(wavecal_cfg).encode()).hexdigest()
     return 'wavcal_{}_{}'.format(wavedata_id, config_hash[-8:])
 
 
