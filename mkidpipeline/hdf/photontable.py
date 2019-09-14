@@ -1052,7 +1052,7 @@ class ObsFile(object):
         # if getEffInt is True:
         return {'spectrum': spectrum, 'wvlBinEdges': wvlBinEdges, 'rawCounts': rawCounts}
 
-    def getTemporalCube(self, startt=None, stopt=None, applyWeight=False, applyTPFWeight=False,
+    def getTemporalCube(self, firstSec=None, integrationTime=None, applyWeight=False, applyTPFWeight=False,
                         startw=None, stopw=None, timeslice=None, timeslices=None,
                         flagToUse=0, hdu=False):
         """
@@ -1069,13 +1069,13 @@ class ObsFile(object):
             stopt = timeslices.max()
         else:
             # May not include data at tail end if timeslice does not evenly divide time window
-            timeslices = np.arange(self.startTime if startt is None else startt,
-                                   (self.stopTime if stopt is None else stopt) + 1e-9, timeslice)
+            timeslices = np.arange(0 if firstSec is None else firstSec,
+                                   (self.duration if integrationTime is None else integrationTime) + 1e-9, timeslice)
 
         cube = np.zeros((self.nXPix, self.nYPix, timeslices.size-1))
 
         ## Retrieval rate is ~ ? Mphot/s for queries in the ~M photon range
-        masterPhotonList = self.query(startt=startt, stopt=stopt, startw=startw, stopw=stopw)
+        masterPhotonList = self.query(startt=firstSec, stopt=integrationTime, startw=startw, stopw=stopw)
 
         weights = None
         if applyWeight:

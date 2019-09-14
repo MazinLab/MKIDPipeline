@@ -549,7 +549,7 @@ class MKIDOutput(object):
         :param filename: an optional relative or fully qualified path
 
         Kind 'movie' requires _extra keys timestep and either frameduration or movieduration with frameduration
-        taking precedence. start and stopt may be included as well.
+        taking precedence. startt and stopt may be included as well and are RELATIVE to the start of the file.
         """
         self.name = name
         self.startw = getnm(startw) if startw is not None else None
