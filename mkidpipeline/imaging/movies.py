@@ -14,9 +14,6 @@ def make_movie(out, usewcs=False, showaxes=True, **kwargs):
     outfile = out.filename
     h5file = out.data.h5
     timestep = out.timestep
-    movietype = os.path.splitext(outfile)[1].lower()
-    if movietype not in ('.mp4', '.gif'):
-        raise ValueError('Only mp4 and gif movies are supported')
     try:
         out.frameduration
     except AttributeError:
@@ -42,25 +39,44 @@ def make_movie(out, usewcs=False, showaxes=True, **kwargs):
     except AttributeError:
         stopt = None
 
+    try:
+        fps = True
+        duration = 1/out.frameduration
+    except AttributeError:
+        fps = False
+        duration = 1/out.movieduration
+
+    _make_movie(h5file, outfile, timestep, duration, title='', usewcs=usewcs,
+                startw=startw, stopw=stopw, startt=startt, stopt=stopt,
+                fps=fps, showaxes=showaxes)
+
+
+def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, startw=None, stopw=None, startt=None, stopt=None,
+                fps=False, showaxes=False):
+
+    movietype = os.path.splitext(outfile)[1].lower()
+    if movietype not in ('.mp4', '.gif'):
+        raise ValueError('Only mp4 and gif movies are supported')
+
     of = mkidpipeline.hdf.photontable.ObsFile(h5file)
-    cube = of.getTemporalCube(startt=startt, stopt=stopt, timeslice=timestep, startw=startw, stopw=stopw,
+    cube = of.getTemporalCube(firstSec=startt, integrationTime=stopt, timeslice=timestep, startw=startw, stopw=stopw,
                               applyWeight=True, applyTPFWeight=True)
-    wcs = of.get_wcs(timestep=startt)
+    if usewcs:
+        wcs = of.get_wcs(wcs_timestep=startt)
     del of
 
     frames, times = cube['cube'], cube['timeslices']
 
-    try:
-        fps = 1/out.frameduration
-    except AttributeError:
-        fps = frames.shape[0]/out.movieduration
+    if not fps:
+        fps = frames.shape[0]/duration
 
-    FFMpegWriter = manimation.writers['ffmpeg']
+    #Load the writer
+    Writer = manimation.writers['ffmpeg'] if movietype is 'mp4' else manimation.writers['imagemagick']
     comment = 't0={:.0f} dt={:.1f}s {:.0f} - {:.0f} nm'.format(times[0], timestep,
                                                                startw if startw is not None else 0,
                                                                stopw if stopw is not None else np.inf)
     metadata = dict(title=title, artist=__name__, genre='Astronomy', comment=comment)
-    writer = FFMpegWriter(fps=fps, metadata=metadata, bitrate=-1, copyright='UCSB')
+    writer = Writer(fps=fps, metadata=metadata, bitrate=-1)
 
     fig = plt.figure()
     if usewcs:
@@ -72,7 +88,7 @@ def make_movie(out, usewcs=False, showaxes=True, **kwargs):
         plt.gca().axis('off')
     else:
         if usewcs:
-            plt.label('RA')
+            plt.xlabel('RA')
             plt.ylabel('RA')
         else:
             plt.xlabel('Pixel')
@@ -109,3 +125,16 @@ def test_writers(out='garbage.gif',showaxes=False, fps=5):
             im.set_array(a)
             writer.grab_frame()
 
+
+
+
+# from mkidpipeline.hdf.photontable import ObsFile
+# h5file='/scratch/steiger/MEC/DeltaAnd/output/1567930101.h5'
+# of = ObsFile('/scratch/steiger/MEC/DeltaAnd/output/1567930101.h5')
+# # 1567930101, 1567931601
+# cube = of.getTemporalCube(None, 10, timeslice=.1, startw=None, stopw=None,
+#                           applyWeight=True, applyTPFWeight=True, flagToUse=0xffffff)
+# # cube,times=cube['cube'],cube['timeslices'][:-1]
+# import mkidpipeline.imaging.movies as m
+# m._make_movie('/scratch/steiger/MEC/DeltaAnd/output/1567930101.h5', 'dand.gif', .1, 5, title='dAnd', startt=None, stopt=10, usewcs=False,
+#               startw=None, stopw=None,  showaxes=False)
