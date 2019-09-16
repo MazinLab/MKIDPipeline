@@ -53,17 +53,23 @@ def make_movie(out, usewcs=False, showaxes=True, **kwargs):
 
 def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, startw=None, stopw=None, startt=None, stopt=None,
                 fps=False, showaxes=False):
-
+    """returns the movie frames"""
+    global _cache
     movietype = os.path.splitext(outfile)[1].lower()
     if movietype not in ('.mp4', '.gif'):
         raise ValueError('Only mp4 and gif movies are supported')
 
-    of = mkidpipeline.hdf.photontable.ObsFile(h5file)
-    cube = of.getTemporalCube(firstSec=startt, integrationTime=stopt, timeslice=timestep, startw=startw, stopw=stopw,
-                              applyWeight=True, applyTPFWeight=True)
-    if usewcs:
-        wcs = of.get_wcs(wcs_timestep=startt)
-    del of
+    try:
+        cube,wcs,nfo = _cache
+        if (h5file, timestep, startt,stopt, usewcs,startw,stopw)!=nfo:
+            raise ValueError
+    except Exception:
+        of = mkidpipeline.hdf.photontable.ObsFile(h5file)
+        cube = of.getTemporalCube(firstSec=startt, integrationTime=stopt, timeslice=timestep, startw=startw, stopw=stopw,
+                                  applyWeight=True, applyTPFWeight=True)
+        wcs = of.get_wcs(wcs_timestep=startt) if usewcs else None
+        del of
+        _cache = cube,wcs,(h5file, timestep, startt,stopt, usewcs,startw,stopw)
 
     frames, times = cube['cube'], cube['timeslices']
 
@@ -100,6 +106,7 @@ def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, sta
             im.set_array(a)
             writer.grab_frame()
 
+    return frames
 
 def test_writers(out='garbage.gif',showaxes=False, fps=5):
     import os
@@ -136,5 +143,6 @@ def test_writers(out='garbage.gif',showaxes=False, fps=5):
 #                           applyWeight=True, applyTPFWeight=True, flagToUse=0xffffff)
 # # cube,times=cube['cube'],cube['timeslices'][:-1]
 # import mkidpipeline.imaging.movies as m
-# m._make_movie('/scratch/steiger/MEC/DeltaAnd/output/1567930101.h5', 'dand.gif', .1, 5, title='dAnd', startt=None, stopt=10, usewcs=False,
-#               startw=None, stopw=None,  showaxes=False)
+if __name__ == '__main__':
+    data = m._make_movie('/scratch/steiger/MEC/DeltaAnd/output/1567930101.h5', 'dand.gif', .1, 5, title='dAnd', startt=None, stopt=10, usewcs=False,
+                  startw=None, stopw=None,  showaxes=False)
