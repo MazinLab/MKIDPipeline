@@ -50,8 +50,6 @@ import warnings
 import time
 from datetime import datetime
 import multiprocessing as mp
-import pickle
-import json
 import functools
 from interval import interval
 import numpy as np
