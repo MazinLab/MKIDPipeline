@@ -1,51 +1,59 @@
 #conda update -n root conda
 #conda env create -f <thisfile>
-name: pipeline
+name: pipeline-new
 channels:
   - defaults
   - conda-forge
+  - http://ssb.stsci.edu/astroconda
   - intel
 dependencies:
-#key parts
+  #Key parts
+  - python>3
+  - hdf5>=1.10.3
+  - pytables>=3.4.4
   - mkl
-  - ipython>=6.3
+  - astropy
+  - scipy
+  - matplotlib
   - scikit-image
   - scikit-learn
-  - pypdf2=1.26
-  - pyqt=5.6
-  - pytables=3.4.4
-  - astropy=3.0
-  - regions=0.2
-  - lmfit=0.9.11
-  - hdf5=1.10.2
-  - progressbar2=3.38
-  - statsmodels=0.9
-  - mpmath=1.0
-  - matplotlib=2.2
-  - pip>=10
-  - six>1.10.0
-  - vitables
+  - pyqt>=5.6
+  - regions
+  - photutils
   - ruamel.yaml
-#optional things
-  - tensorflow>=1.8
-  - mkl_fft
-  - mkl_random
-  - mkl-include
-  - boost
-  - python
-  - blas
-  - openblas
-  - opencv
-  - ipp
-  - ipdb
-  - cython
+  - drizzle
+  - statsmodels>=0.9
+  - mpmath>=1.0
+  - lmfit>=0.9.11
+  - sharedarray
+
+  #Required but might be able to be trimmed or made optional functionality
+  - pypdf2
   - astroplan
+  - progressbar2
+
+  # Key Utilities
+  - ipdb
+  - ipython
+  - pip
+  - cython
+
+#Getting ipp requires the intel channel, it is not known if this is boosting performance
+  - ipp
+
+  #Useful Utilities
+  - vitables
+
+#Things that probably don't need to be added back
+#  - tensorflow
+#  - mkl-include
+#  - boost
+#  - openblas
+
 #pip requirements
   - pip:
-    - crlibm==1.0.3
-    - image-registration==0.2.4
-    - pyinterval==1.2
-    - multiprocessing-logging==0.2.6
+    - multiprocessing-logging>=0.2.6
+    - pyinterval
 
-prefix: /opt/anaconda/envs/pipeline
+prefix: /opt/anaconda/envs/pipeline-new
 
