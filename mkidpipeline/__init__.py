@@ -15,15 +15,20 @@ from mkidcore.config import getLogger
 
 
 def wavecal_apply(o):
-    of = mkidpipeline.hdf.photontable.ObsFile(o.h5, mode='a')
-    of.applyWaveCal(wavecal.load_solution(o.wavecal.path))
-    of.file.close()
-
+    try:
+        of = mkidpipeline.hdf.photontable.ObsFile(o.h5, mode='a')
+        of.applyWaveCal(wavecal.load_solution(o.wavecal.path))
+        of.file.close()
+    except Exception as e:
+        getLogger(__name__).critical('Caught exception during run of {}'.format(o.h5), exc_info=True)
 
 def flatcal_apply(o):
-    of = mkidpipeline.hdf.photontable.ObsFile(o.h5, mode='a')
-    of.applyFlatCal(o.flatcal.path)
-    of.file.close()
+    try:
+        of = mkidpipeline.hdf.photontable.ObsFile(o.h5, mode='a')
+        of.applyFlatCal(o.flatcal.path)
+        of.file.close()
+    except Exception as e:
+        getLogger(__name__).critical('Caught exception during run of {}'.format(o.h5), exc_info=True)
 
 
 def batch_apply_metadata(dataset):

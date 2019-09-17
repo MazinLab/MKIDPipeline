@@ -555,7 +555,7 @@ class MKIDOutput(object):
         self.startw = getnm(startw) if startw is not None else None
         self.stopw = getnm(stopw) if stopw is not None else None
         self.kind = kind.lower()
-        opt = ('stack', 'spatial', 'spectral', 'temporal', 'list', 'image')
+        opt = ('stack', 'spatial', 'spectral', 'temporal', 'list', 'image','movie')
         if kind.lower() not in opt:
             raise ValueError('Output {} kind "{}" is not one of "{}" '.format(name, kind, ', '.join(opt)))
         self.enable_noise = True

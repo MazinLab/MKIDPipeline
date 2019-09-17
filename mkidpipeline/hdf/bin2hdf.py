@@ -1,5 +1,4 @@
 #!/opt/anaconda3/envs/pipeline/bin/python
-import psutil
 import tempfile
 import subprocess
 import os
@@ -8,21 +7,20 @@ import time
 import sys
 import numpy as np
 import psutil
-from multiprocessing.pool import Pool
 import multiprocessing as mp
-import threading
-from mkidcore.headers import ObsHeader
-from mkidcore.corelog import getLogger
-from mkidcore.config import yaml, yaml_object
-import mkidpipeline.config
 import pkg_resources as pkg
 from datetime import datetime
 from glob import glob
 import warnings
-from mkidpipeline.hdf.photontable import ObsFile
+
+from mkidcore.headers import ObsFileCols, ObsHeader
+from mkidcore.corelog import getLogger
+from mkidcore.config import yaml, yaml_object
 import mkidcore.utils
 from mkidcore.objects import Beammap
 
+from mkidpipeline.hdf.photontable import ObsFile
+import mkidpipeline.config
 
 _datadircache = {}
 
@@ -50,6 +48,7 @@ def _get_dir_for_start(base, start):
     except ValueError:
         raise ValueError('No directory in {} found for start {}'.format(base, start))
 
+
 def estimate_ram_gb(directory, start, inttime):
     PHOTON_BIN_SIZE_BYTES = 8
     files = [os.path.join(directory, '{}.bin'.format(t)) for t in range(start-1, start+inttime+1)]
@@ -57,9 +56,12 @@ def estimate_ram_gb(directory, start, inttime):
     n_max_photons = int(np.ceil(sum([os.stat(f).st_size for f in files])/PHOTON_BIN_SIZE_BYTES))
     return n_max_photons*PHOTON_BIN_SIZE_BYTES/1024/1024/1024
 
+
 def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None, bitshuffle=False,
                    wait_for_ram=3600):
     """wait_for_ram speficies the number of seconds to wait for sufficient ram"""
+    from mkidpipeline.hdf.mkidbin import extract
+
     if cfg.starttime < 1518222559:
         raise ValueError('Data prior to 1518222559 not supported without added fixtimestamps')
 
@@ -81,14 +83,11 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
         getLogger(__name__).error('Aborting build due to insufficient RAM.')
         return
 
-    from mkidpipeline.hdf.mkidbin import extract
-    from mkidcore.headers import ObsFileCols, ObsHeader
-
-    getLogger(__name__).debug('Starting build')
+    getLogger(__name__).debug('Starting build of {}'.format(cfg.h5file))
 
     photons = extract(cfg.datadir, cfg.starttime, cfg.inttime, cfg.beamfile, cfg.x, cfg.y)
 
-    getLogger(__name__).debug('Data Extracted')
+    getLogger(__name__).debug('Data Extracted for {}'.format(cfg.h5file))
 
     if timesort:
         photons.sort(order=('Time', 'ResID'))
@@ -104,7 +103,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
                                 expectedrows=len(photons), filters=filter, chunkshape=chunkshape)
     table.append(photons)
 
-    getLogger(__name__).debug('Table Populated')
+    getLogger(__name__).debug('Table Populated for {}'.format(cfg.h5file))
     if index:
 
         def indexer(col, index):
@@ -114,20 +113,20 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
                 col.create_index(optlevel=index[1], kind=index[0])
 
         indexer(table.cols.Time, index)
-        getLogger(__name__).debug('Time Indexed')
+        getLogger(__name__).debug('Time Indexed for {}'.format(cfg.h5file))
         indexer(table.cols.ResID, index)
-        getLogger(__name__).debug('ResID Indexed')
+        getLogger(__name__).debug('ResID Indexed for {}'.format(cfg.h5file))
         indexer(table.cols.Wavelength, index)
-        getLogger(__name__).debug('Wavelength Indexed')
-        getLogger(__name__).debug('Table Indexed')
+        getLogger(__name__).debug('Wavelength Indexed for {}'.format(cfg.h5file))
+        getLogger(__name__).debug('Table Indexed for {}'.format(cfg.h5file))
     else:
-        getLogger(__name__).debug('Skipping Index Generation')
+        getLogger(__name__).debug('Skipping Index Generation for {}'.format(cfg.h5file))
 
     bmap = Beammap(cfg.beamfile, xydim=(cfg.x, cfg.y))
     group = h5file.create_group("/", 'BeamMap', 'Beammap Information', filters=filter)
     h5file.create_array(group, 'Map', bmap.residmap.astype(int), 'resID map')
     h5file.create_array(group, 'Flag', bmap.flagmap.astype(int), 'flag map')
-    getLogger(__name__).debug('Beammap Attached')
+    getLogger(__name__).debug('Beammap Attached to {}'.format(cfg.h5file))
 
     h5file.create_group('/', 'header', 'Header')
     headerTable = h5file.create_table('/header', 'header', ObsHeader, 'Header')
@@ -160,7 +159,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
     # headerContents['tcsinfo'] = ''
     headerContents['metadata'] = ''
     headerContents.append()
-    getLogger(__name__).debug('Header Attached')
+    getLogger(__name__).debug('Header Attached to {}'.format(cfg.h5file))
 
 
     h5file.close()
@@ -458,7 +457,11 @@ class HDFBuilder(object):
 
 def runbuilder(b):
     getLogger(__name__).debug('Calling run on {}'.format(b.cfg.h5file))
-    b.run()
+    try:
+        b.run()
+    except Exception as e:
+        getLogger(__name__).critical('Caught exception during run of {}'.format(b.cfg.h5file),
+                                     exc_info=True)
 
 
 def gen_configs(timeranges, config=None):
@@ -486,7 +489,10 @@ def buildtables(timeranges, config=None, ncpu=1, asynchronous=False, remake=Fals
 
     if ncpu == 1:
         for b in builders:
-            b.run(**kwargs)
+            try:
+                b.run(**kwargs)
+            except MemoryError:
+                getLogger(__name__).error('Insufficient memory to process {}'.format(b.h5file))
         return timeranges, events
 
     pool = mp.Pool(min(ncpu, mp.cpu_count()))
@@ -494,6 +500,7 @@ def buildtables(timeranges, config=None, ncpu=1, asynchronous=False, remake=Fals
     if asynchronous:
         getLogger(__name__).debug('Running async on {} builders'.format(len(builders)))
         pool.map_async(runbuilder, builders)
+        pool.close()
         return timeranges, events
     else:
         pool.map(runbuilder, builders)
