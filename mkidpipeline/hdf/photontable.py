@@ -1061,6 +1061,8 @@ class ObsFile(object):
 
         Timeslices is an optional array of cube time bin edges. If provided, timeslices takes precedence over startt,
         stopt, and timeslice.
+
+        [nx,ny,time]
         """
         if timeslices is not None:
             startt = timeslices.min()
