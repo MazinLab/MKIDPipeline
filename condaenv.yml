@@ -1,4 +1,4 @@
-#conda update -n root conda
+#conda update -n base conda
 #conda env create -f <thisfile>
 name: pipeline-new
 channels:
@@ -26,21 +26,19 @@ dependencies:
   - mpmath>=1.0
   - lmfit>=0.9.11
   - sharedarray
-
   #Required but might be able to be trimmed or made optional functionality
   - pypdf2
   - astroplan
   - progressbar2
-
+  - ffmpeg
+  - imagemagick
   # Key Utilities
   - ipdb
   - ipython
   - pip
   - cython
-
-#Getting ipp requires the intel channel, it is not known if this is boosting performance
+  #Getting ipp requires the intel channel, it is not known if this is boosting performance
   - ipp
-
   #Useful Utilities
   - vitables
 
@@ -50,7 +48,7 @@ dependencies:
 #  - boost
 #  - openblas
 
-#pip requirements
+  #pip requirements
   - pip:
     - multiprocessing-logging>=0.2.6
     - pyinterval

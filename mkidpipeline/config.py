@@ -12,7 +12,7 @@ from astropy.coordinates import SkyCoord
 from collections import namedtuple
 
 import mkidcore.config
-from mkidcore.corelog import getLogger, create_log
+from mkidcore.corelog import getLogger, create_log, MakeFileHandler
 from mkidcore.utils import getnm, derangify
 from mkidcore.objects import Beammap
 from mkidpipeline.hdf.photontable import ObsFile
@@ -753,11 +753,15 @@ def n_cpus_available(max=np.inf):
     return mcpu
 
 
-def logtoconsole():
-    create_log('mkidcore')
-    create_log('mkidreadout')
-    create_log('mkidpipeline')
-    create_log('__main__')
+def logtoconsole(file=''):
+
+    logs = (create_log('mkidcore'), create_log('mkidreadout'), create_log('mkidpipeline'), create_log('__main__'))
+    if file:
+        import logging
+        handler = MakeFileHandler(file)
+        handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s (pid=%(process)d)'))
+        for l in logs:
+            l.addHandler(handler)
 
 
 yaml.register_class(MKIDTimerange)
