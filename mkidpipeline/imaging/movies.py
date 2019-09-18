@@ -91,7 +91,9 @@ def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, sta
     fig = plt.figure()
     if usewcs:
         plt.subplot(projection=wcs)
-    im = plt.imshow(frames[2], interpolation='none')
+    im = plt.imshow(frames[:, :, 0], interpolation='none', origin='lower', vmin=frames.min(),
+                    vmax=frames.max())
+    plt.colorbar()
 
     if not showaxes:
         fig.patch.set_visible(False)
