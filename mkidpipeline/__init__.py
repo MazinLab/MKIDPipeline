@@ -5,14 +5,18 @@ if sys.version_info.major == 3:
     import mkidpipeline.hdf.bin2hdf as bin2hdf
     import mkidpipeline.calibration.wavecal as wavecal
     import mkidpipeline.calibration.flatcal as flatcal
+    import mkidpipeline.imaging.drizzler as drizzler
+    import mkidpipeline.imaging.movies as movies
     import mkidpipeline.badpix as badpix
     import mkidpipeline.config as config
     import mkidpipeline.hdf.photontable
+    from mkidpipeline.hdf.photontable import ObsFile
 
 from mkidpipeline.config import configure_pipeline, load_data_description, load_task_config, load_output_description, \
     logtoconsole
 from mkidcore.config import getLogger
 
+log = getLogger('mkidpipeline')
 
 def wavecal_apply(o):
     try:

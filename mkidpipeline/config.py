@@ -25,6 +25,7 @@ InstrumentInfo = namedtuple('InstrumentInfo', ('beammap', 'platescale'))
 Beammap()
 
 config = None
+_dataset = None
 
 yaml = mkidcore.config.yaml
 
@@ -242,7 +243,15 @@ class MKIDObservation(object):
     def metadata(self):
         exclude = ('wavecal', 'flatcal', 'wcscal', 'start', 'stop')
         d = {k: v for k, v in self.__dict__.items() if k not in exclude}
-        d2 = dict(wavecal=wavecal_id(self.wavecal.id), flatcal=self.flatcal.id, platescale=self.wcscal.platescale,
+        try:
+            wc = wavecal_id(self.wavecal.id)
+        except AttributeError:
+            wc = 'None'
+        try:
+            fc = self.flatcal.id
+        except AttributeError:
+            fc = 'None'
+        d2 = dict(wavecal=wc, flatcal=fc, platescale=self.wcscal.platescale,
                   dither_ref=self.wcscal.dither_ref, dither_home=self.wcscal.dither_home,
                   device_orientation=self.wcscal.device_orientation)
         d.update(d2)
@@ -599,8 +608,13 @@ class MKIDOutput(object):
     @property
     def output_file(self):
         global config
-        #TODO generate the filename programatically if one isn't specified
-        return os.path.join(config.paths.out, self.filename)
+        if not self.filename:
+            # TODO generate the filename programatically if one isn't specified
+            raise ValueError('No output filename for output, it may be time to add code for a default')
+        if os.pathsep in self.filename:
+            return self.filename
+        else:
+            return os.path.join(config.paths.out, self.filename)
 
 
 class MKIDOutputCollection:
@@ -611,8 +625,8 @@ class MKIDOutputCollection:
         if datafile:
             data = load_data_description(datafile)
         else:
-            global global_dataset
-            data = global_dataset
+            global _dataset
+            data = _dataset
 
         self.dataset = data
 
@@ -629,6 +643,9 @@ class MKIDOutputCollection:
     @property
     def input_timeranges(self):
         return set([r for o in self.outputs for r in o.input_timeranges])
+
+    def __str__(self):
+        return 'Output "{}"'.format(self.name)
 
 
 def validate_metadata(md, warn=True, error=False):
@@ -691,7 +708,7 @@ def load_observing_metadata(files=tuple(), include_database=True):
     return metadata
 
 
-def load_data_description(file):
+def load_data_description(file, no_global=False):
     dataset = MKIDObservingDataset(file)
     wcdict = {w.name: w for w in dataset.wavecals}
     for o in dataset.all_observations:
@@ -715,6 +732,10 @@ def load_data_description(file):
             d.flatcal = fcdict.get(d.flatcal, d.flatcal)
         except AttributeError:
             pass
+
+    if not no_global:
+        global _dataset
+        _dataset = dataset
 
     return dataset
 

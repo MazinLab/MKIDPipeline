@@ -20,7 +20,7 @@ dependencies:
   - pyqt>=5.6
   - regions
   - photutils
-  - ruamel.yaml
+  - ruamel.yaml==0.15.64
   - drizzle
   - statsmodels>=0.9
   - mpmath>=1.0
