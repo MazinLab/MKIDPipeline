@@ -64,19 +64,15 @@ def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, sta
     except Exception:
         getLogger(__name__).info('Fetching temporal cube from {}'.format(h5file))
         of = mkidpipeline.hdf.photontable.ObsFile(h5file)
-        cube = of.getTemporalCube(firstSec=startt, integrationTime=stopt, timeslice=timestep, startw=startw, stopw=stopw,
-                                  applyWeight=True, applyTPFWeight=True)
+        cube = of.getTemporalCube(firstSec=startt, integrationTime=stopt, timeslice=timestep, startw=startw,
+                                  stopw=stopw, applyWeight=True, applyTPFWeight=True)
         wcs = of.get_wcs(wcs_timestep=startt) if usewcs else None
         del of
-        _cache = cube,wcs,(h5file, timestep, startt,stopt, usewcs,startw,stopw)
+        _cache = cube, wcs, (h5file, timestep, startt, stopt, usewcs, startw, stopw)
         getLogger(__name__).info('Retrieved a temporal cube of shape {}'.format(str(cube['cube'].shape)))
 
-    frames, times = cube['cube'], cube['timeslices']
-    # import pickle
-    # with open('vegamoviecache.pickle','wb') as f:
-    #     pickle.dump(_cache, f)
-    #     pickle.dump()
-    # return
+    frames, times = cube['cube'].T, cube['timeslices']
+
     if not fps:
         fps = frames.shape[2]/duration
 
@@ -91,9 +87,13 @@ def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, sta
     fig = plt.figure()
     if usewcs:
         plt.subplot(projection=wcs)
-    im = plt.imshow(frames[:, :, 0], interpolation='none', origin='lower', vmin=frames.min(),
-                    vmax=frames.max())
-    plt.colorbar()
+    im = plt.imshow(frames[0], interpolation='none', origin='lower', vmin=frames.min(),
+                    vmax=np.percentile(frames, 98))
+    cbar = plt.colorbar()
+    ticks = cbar.get_ticks()
+    cbar.set_label('Photons/s')
+    cbar.set_ticks(ticks)
+    cbar.set_ticklabels(list(map('{:.0f}'.format, ticks/timestep)))
 
     if not showaxes:
         fig.patch.set_visible(False)
@@ -108,7 +108,7 @@ def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, sta
         plt.tight_layout()
 
     with writer.saving(fig, outfile, frames.shape[2]):
-        for a in np.moveaxis(frames, -1, 0):
+        for a in frames:
             im.set_array(a)
             writer.grab_frame()
 
