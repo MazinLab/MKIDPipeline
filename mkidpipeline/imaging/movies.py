@@ -1,17 +1,15 @@
 import numpy as np
-import matplotlib
 import os
-#matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.animation as manimation
 
-import mkidpipeline.hdf.photontable
 from mkidcore.corelog import getLogger
+import mkidpipeline.hdf.photontable
 
 
 def make_movie(out, usewcs=False, showaxes=True, **kwargs):
     title = out.name
-    outfile = out.filename
+    outfile = out.output_file
     h5file = out.data.h5
     timestep = out.timestep
     try:
@@ -46,7 +44,7 @@ def make_movie(out, usewcs=False, showaxes=True, **kwargs):
         fps = False
         duration = 1/out.movieduration
 
-    _make_movie(h5file, outfile, timestep, duration, title='', usewcs=usewcs,
+    _make_movie(h5file, outfile, timestep, duration, title=title, usewcs=usewcs,
                 startw=startw, stopw=stopw, startt=startt, stopt=stopt,
                 fps=fps, showaxes=showaxes)
 
@@ -64,17 +62,23 @@ def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, sta
         if (h5file, timestep, startt,stopt, usewcs,startw,stopw)!=nfo:
             raise ValueError
     except Exception:
+        getLogger(__name__).info('Fetching temporal cube from {}'.format(h5file))
         of = mkidpipeline.hdf.photontable.ObsFile(h5file)
         cube = of.getTemporalCube(firstSec=startt, integrationTime=stopt, timeslice=timestep, startw=startw, stopw=stopw,
                                   applyWeight=True, applyTPFWeight=True)
         wcs = of.get_wcs(wcs_timestep=startt) if usewcs else None
         del of
         _cache = cube,wcs,(h5file, timestep, startt,stopt, usewcs,startw,stopw)
+        getLogger(__name__).info('Retrieved a temporal cube of shape {}'.format(str(cube['cube'].shape)))
 
     frames, times = cube['cube'], cube['timeslices']
-
+    # import pickle
+    # with open('vegamoviecache.pickle','wb') as f:
+    #     pickle.dump(_cache, f)
+    #     pickle.dump()
+    # return
     if not fps:
-        fps = frames.shape[0]/duration
+        fps = frames.shape[2]/duration
 
     #Load the writer
     Writer = manimation.writers['ffmpeg'] if movietype is 'mp4' else manimation.writers['imagemagick']
@@ -87,7 +91,7 @@ def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, sta
     fig = plt.figure()
     if usewcs:
         plt.subplot(projection=wcs)
-    im = plt.imshow(frames[0], interpolation='none')
+    im = plt.imshow(frames[2], interpolation='none')
 
     if not showaxes:
         fig.patch.set_visible(False)
@@ -101,12 +105,13 @@ def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, sta
             plt.ylabel('Pixel')
         plt.tight_layout()
 
-    with writer.saving(fig, outfile, frames.shape[0]):
-        for a in frames:
+    with writer.saving(fig, outfile, frames.shape[2]):
+        for a in np.moveaxis(frames, -1, 0):
             im.set_array(a)
             writer.grab_frame()
 
     return frames
+
 
 def test_writers(out='garbage.gif',showaxes=False, fps=5):
     import os
@@ -142,7 +147,7 @@ def test_writers(out='garbage.gif',showaxes=False, fps=5):
 # cube = of.getTemporalCube(None, 10, timeslice=.1, startw=None, stopw=None,
 #                           applyWeight=True, applyTPFWeight=True, flagToUse=0xffffff)
 # # cube,times=cube['cube'],cube['timeslices'][:-1]
-# import mkidpipeline.imaging.movies as m
+# import mkidpipeline.imaging.movies import _make_movie
 if __name__ == '__main__':
-    data = m._make_movie('/scratch/steiger/MEC/DeltaAnd/output/1567930101.h5', 'dand.gif', .1, 5, title='dAnd', startt=None, stopt=10, usewcs=False,
-                  startw=None, stopw=None,  showaxes=False)
+    data = _make_movie('/scratch/steiger/MEC/DeltaAnd/output/1567930101.h5', 'dand.gif', .1, 5, title='dAnd', startt=None, stopt=10, usewcs=False,
+                       startw=None, stopw=None,  showaxes=False)
