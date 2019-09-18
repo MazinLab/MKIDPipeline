@@ -1143,7 +1143,7 @@ class Solution(object):
         """
         log.info("Loading solution from {}".format(file_path))
         keys = ('fit_array', 'configuration', 'beam_map', 'beam_map_flags')
-        npz_file = np.load(file_path)
+        npz_file = np.load(file_path, allow_pickle= True)
         for key in keys:
             if key not in npz_file.keys():
                 raise AttributeError('{} missing from {}, solution malformed'.format(key, file_path))
@@ -2347,7 +2347,7 @@ class Solution(object):
                 freq_file = configuration[roach]['freqfile']
                 log.info('loading frequency file: {0}'.format(freq_file))
                 try:
-                    frequency_array = np.loadtxt(freq_file)
+                    frequency_array = np.loadtxt(freq_file, allow_pickle= True)
                     data.append(frequency_array)
                 except (OSError, ValueError, UnicodeDecodeError, IsADirectoryError):
                     log.warn('could not load file: {}'.format(freq_file))
