@@ -1059,8 +1059,10 @@ class ObsFile(object):
         If weighted is True, flat cal weights are applied.
         If fluxWeighted is True, spectral shape weights are applied.
 
-        Timeslices is an optional array of cube time bin edges. If provided, timeslices takes precedence over startt,
+        Timeslices is an optional array of cube time bin edges in seconds. If provided, timeslices takes precedence over startt,
         stopt, and timeslice.
+
+        the timeslices returned will be in seconds
 
         [nx,ny,time]
         """
@@ -1087,7 +1089,7 @@ class ObsFile(object):
         ridbins = sorted(self.beamImage.ravel())
         ridbins = np.append(ridbins, max(ridbins) + 1)
         hist, xedg, yedg = np.histogram2d(masterPhotonList['ResID'], masterPhotonList['Time'],
-                                          bins=(ridbins, timeslices), weights=weights)
+                                          bins=(ridbins, timeslices*1e6), weights=weights)
 
         toc = time.time()
         xe = xedg[:-1]
