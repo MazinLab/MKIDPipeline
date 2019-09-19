@@ -754,7 +754,6 @@ def n_cpus_available(max=np.inf):
 
 
 def logtoconsole(file=''):
-
     logs = (create_log('mkidcore'), create_log('mkidreadout'), create_log('mkidpipeline'), create_log('__main__'))
     if file:
         import logging
