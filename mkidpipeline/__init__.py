@@ -18,7 +18,11 @@ from mkidcore.config import getLogger
 
 log = getLogger('mkidpipeline')
 
+
 def wavecal_apply(o):
+    if o.flatcal is None:
+        getLogger(__name__).info('No wavecal to apply for {}'.format(o.h5))
+        return
     try:
         of = mkidpipeline.hdf.photontable.ObsFile(o.h5, mode='a')
         of.applyWaveCal(wavecal.load_solution(o.wavecal.path))
@@ -26,7 +30,11 @@ def wavecal_apply(o):
     except Exception as e:
         getLogger(__name__).critical('Caught exception during run of {}'.format(o.h5), exc_info=True)
 
+
 def flatcal_apply(o):
+    if o.flatcal is None:
+        getLogger(__name__).info('No flatcal to apply for {}'.format(o.h5))
+        return
     try:
         of = mkidpipeline.hdf.photontable.ObsFile(o.h5, mode='a')
         of.applyFlatCal(o.flatcal.path)
@@ -49,14 +57,14 @@ def batch_apply_metadata(dataset):
 
 def batch_apply_wavecals(obs, ncpu=None):
     pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
-    obs = {o.h5: o for o in obs}.values()  # filter so unique h5 files, not responsible for a mixed wavecal specs
+    obs = {o.h5: o for o in obs if o.wavecal is not None}.values()  # filter so unique h5 files, not responsible for a mixed wavecal specs
     pool.map(wavecal_apply, obs)
     pool.close()
 
 
 def batch_apply_flatcals(obs, ncpu=None):
     pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
-    obs = {o.h5: o for o in obs}.values()  # filter so unique h5 files, not responsible for a mixed flatcal specs
+    obs = {o.h5:o for o in obs if o.flatcal is not None}.values()  # filter so unique h5 files, not responsible for a mixed flatcal specs
     pool.map(flatcal_apply, obs)
     pool.close()
 
