@@ -65,9 +65,10 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
     if cfg.starttime < 1518222559:
         raise ValueError('Data prior to 1518222559 not supported without added fixtimestamps')
 
-    free_ram_gb = lambda : psutil.virtual_memory().free/1024/1024/1024
+    def free_ram_gb():
+        return psutil.virtual_memory().free/1024/1024/1024
 
-    ram_est_gb = estimate_ram_gb(cfg.datadir, cfg.starttime, cfg.inttime) + 2  #add some headroom
+    ram_est_gb = estimate_ram_gb(cfg.datadir, cfg.starttime, cfg.inttime) + 2  # add some headroom
     if free_ram_gb()<ram_est_gb:
         msg = 'Insufficint free RAM to build {}, {:.1f} vs. {:.1f} GB.'
         getLogger(__name__).warning(msg.format(cfg.h5file, free_ram_gb(), ram_est_gb))

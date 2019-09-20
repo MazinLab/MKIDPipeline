@@ -549,7 +549,7 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=30, startt=0, stopt=
     assert startt < stopt
     if step < stopt-startt:
         getLogger(__name__).warning(('Hot pixel step time longer than exposure time by {:.0f} s, using full '
-                                     'exposure').format(step-(stopt-startt)))
+                                     'exposure').format(stopt-startt-step))
         step = stopt-startt
 
     step_starts = np.arange(startt, stopt, step, dtype=int)  # Start time for each step (in seconds).
