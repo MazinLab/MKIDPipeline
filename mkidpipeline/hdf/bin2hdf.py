@@ -57,8 +57,8 @@ def estimate_ram_gb(directory, start, inttime):
     return n_max_photons*PHOTON_BIN_SIZE_BYTES/1024/1024/1024
 
 
-def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None, bitshuffle=False,
-                   wait_for_ram=3600):
+def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None, shuffle=True, bitshuffle=False,
+                   wait_for_ram=3600, ndx_shuffle=True, ndx_bitshuffle=False):
     """wait_for_ram speficies the number of seconds to wait for sufficient ram"""
     from mkidpipeline.hdf.mkidbin import extract
 
@@ -99,25 +99,27 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
 
     h5file = tables.open_file(cfg.h5file, mode="a", title="MKID Photon File")
     group = h5file.create_group("/", 'Photons', 'Photon Information')
-    filter = tables.Filters(complevel=1, complib='blosc', shuffle=True, bitshuffle=bitshuffle, fletcher32=False)
+    filter = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=shuffle, bitshuffle=bitshuffle, fletcher32=False)
     table = h5file.create_table(group, name='PhotonTable', description=ObsFileCols, title="Photon Datatable",
                                 expectedrows=len(photons), filters=filter, chunkshape=chunkshape)
     table.append(photons)
 
     getLogger(__name__).debug('Table Populated for {}'.format(cfg.h5file))
     if index:
+        index_filter = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=ndx_shuffle, bitshuffle=ndx_bitshuffle,
+                                      fletcher32=False)
 
-        def indexer(col, index):
+        def indexer(col, index, filter=None):
             if isinstance(index, bool):
-                col.create_csindex()
+                col.create_csindex(filters=filter)
             else:
-                col.create_index(optlevel=index[1], kind=index[0])
+                col.create_index(optlevel=index[1], kind=index[0], filter=filter)
 
-        indexer(table.cols.Time, index)
+        indexer(table.cols.Time, index, filter=index_filter)
         getLogger(__name__).debug('Time Indexed for {}'.format(cfg.h5file))
-        indexer(table.cols.ResID, index)
+        indexer(table.cols.ResID, index, filter=index_filter)
         getLogger(__name__).debug('ResID Indexed for {}'.format(cfg.h5file))
-        indexer(table.cols.Wavelength, index)
+        indexer(table.cols.Wavelength, index, filter=index_filter)
         getLogger(__name__).debug('Wavelength Indexed for {}'.format(cfg.h5file))
         getLogger(__name__).debug('Table Indexed for {}'.format(cfg.h5file))
     else:
