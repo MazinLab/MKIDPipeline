@@ -14,6 +14,8 @@ import copy
 import mkidpipeline
 from mkidpipeline.hdf.photontable import ObsFile
 import mkidpipeline.hdf.bin2hdf as bin2hdf
+import mkidpipeline as pipe
+from pkg_resources import resource_filename
 
 
 
@@ -50,7 +52,7 @@ TEST_QUERIES = [dict(resid=resid), dict(resid=resids),
                 dict(startt=firstSec, intt=shortT),
                 dict(startt=firstSec, intt=longT),
                 dict(startw=wvlStart, stopw=wvlStop),
-                dict(resid=resids, startt=firstSec, intt=intTime, startw=wvlStart, stopw=wvlStop),
+                dict(resid=resids, startt=firstSec, intt=shortT, startw=wvlStart, stopw=wvlStop),
                 dict(startt=firstSec, intt=obsT)]
 
 
@@ -65,7 +67,7 @@ def test_settings(cfg, settings, queries, cleanup=True):
 
     for s, h5 in zip(settings, h5s):
         builder = bin2hdf.HDFBuilder(copy.copy(cfg))
-        builder.cfg.h5file = h5
+        builder.cfg.h5file = h5 #TODO this is attrib, must handle differently
         builder.kwargs = s
         builders.append(builder)
 
@@ -199,11 +201,12 @@ def cachetest():
 
 
 
-import mkidpipeline as pipe
+
 if __name__ == '__main__':
+
     pipe.logtoconsole(file='/scratch/baileyji/mec/speedtest/lastrun-pold.log')
-    pipe.configure_pipeline('/home/baileyji/src/mkidpipeline/tests/h5speed_pipe.yml')
-    d = pipe.load_data_description('/home/baileyji/src/mkidpipeline/tests/h5speed_data.yml')
+    pipe.configure_pipeline(resource_filename('mkidpipeline',  os.path.join('tests','h5speed_pipe.yml')))
+    d = pipe.load_data_description(resource_filename('mkidpipeline',  os.path.join('tests','h5speed_data.yml')))
 
     # Basic checks
     print(numexpr.get_vml_version())
@@ -215,7 +218,8 @@ if __name__ == '__main__':
                      bitshuffle=False, ndx_bitshuffle=ndx_bshuffle, ndx_shuffle=ndx_shuffle)
                 for ndx_shuffle in (True, False) for ndx_bshuffle in (True, False)]
 
-    results = test_settings(b2h_configs[:1], settings[:1], TEST_QUERIES, cleanup=True)
+    for cfg in b2h_configs[:1]:
+        results = test_settings(cfg, settings[:1], TEST_QUERIES, cleanup=True)
 
     # ndx_bshuffle = False
     # ndx_shuffle = True
