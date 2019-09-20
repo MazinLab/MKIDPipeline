@@ -31,7 +31,6 @@ import time
 import multiprocessing as mp
 import matplotlib.pylab as plt
 from matplotlib.colors import LogNorm
-from matplotlib import gridspec
 import pickle
 from astropy import wcs
 from astropy.coordinates import EarthLocation, Angle, SkyCoord
@@ -40,6 +39,8 @@ from astroplan import Observer
 import astropy
 from astropy.utils.data import Conf
 from astropy.io import fits
+# from importlib.machinery import SourceFileLoader
+# stdrizzle = SourceFileLoader("drizzle.drizzle", "/opt/anaconda3/envs/pipeline/lib/python3.6/site-packages/drizzle/drizzle.py").load_module()
 from drizzle import drizzle as stdrizzle
 from mkidcore import pixelflags
 from mkidpipeline.hdf.photontable import ObsFile
@@ -316,13 +317,11 @@ class Canvas(object):
         self.wcs.wcs.crpix = np.array([self.nPixRA / 2., self.nPixDec / 2.])
         self.wcs.wcs.crval = [self.centerRA, self.centerDec]
         self.wcs.wcs.ctype = ["RA--TAN", "DEC-TAN"]
-        self.wcs._naxis1 = self.nPixRA
-        self.wcs._naxis2 = self.nPixDec
+        self.wcs.pixel_shape = (self.nPixRA, self.nPixDec)
         self.wcs.wcs.pc = np.array([[1,0],[0,1]])
         self.wcs.wcs.cdelt = [self.vPlateScale,self.vPlateScale]
         self.wcs.wcs.cunit = ["deg", "deg"]
-        getLogger(__name__).debug(self.wcs)
-        print('here')
+        # getLogger(__name__).debug(self.wcs)
 
 
 class ListDrizzler(Canvas):
@@ -351,8 +350,7 @@ class ListDrizzler(Canvas):
             # driz = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=pixfrac)
             for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):
                 inwcs = wcs.WCS(header=inwcs)
-                # set this here since _naxis1,2 are reinitialised during pickle
-                inwcs._naxis1, inwcs._naxis2 = self.xpix, self.ypix
+                inwcs.pixel_shape = (self.xpix, self.ypix)
 
                 inds = [(yp, xp) for yp, xp in np.ndindex(self.ypix, self.xpix)]
                 allpix2world = []
@@ -433,8 +431,7 @@ class TemporalDrizzler(Canvas):
             it = 0
             for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):
                 inwcs = wcs.WCS(header=inwcs)
-                # set this here since _naxis1,2 are reinitialised during pickle
-                inwcs._naxis1, inwcs._naxis2 = self.xpix, self.ypix
+                inwcs.pixel_shape = (self.xpix, self.ypix)
 
                 # the sky grid ref and dither ref should match (crpix varies between dithers)
                 if not np.all(np.round(inwcs.wcs.crval, decimals=4) == np.round(self.wcs.wcs.crval, decimals=4)):
@@ -517,10 +514,7 @@ class TemporalDrizzler(Canvas):
         w4d.wcs.crpix = [self.wcs.wcs.crpix[0], self.wcs.wcs.crpix[1], 1, 1]
         w4d.wcs.crval = [self.wcs.wcs.crval[0], self.wcs.wcs.crval[1], self.wvlbins[0]/1e9, self.timebins[0]/1e6]
         w4d.wcs.ctype = [self.wcs.wcs.ctype[0], self.wcs.wcs.ctype[1], "WAVE", "TIME"]
-        w4d._naxis1 = self.wcs._naxis1
-        w4d._naxis2 = self.wcs._naxis2
-        w4d._naxis3 = self.nwvlbins
-        w4d._naxis4 = self.ntimebins
+        w4d.pixel_shape = (self.wcs.pixel_shape[0], self.wcs.pixel_shape[1], self.nwvlbins, self.ntimebins)
         w4d.wcs.pc = np.eye(4)
         w4d.wcs.cdelt = [self.wcs.wcs.cdelt[0], self.wcs.wcs.cdelt[1],
                          (self.wvlbins[1] - self.wvlbins[0])/1e9,
@@ -562,8 +556,7 @@ class SpatialDrizzler(Canvas):
             tic = time.clock()
             for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):
                 inwcs = wcs.WCS(header=inwcs)
-                # set this here since _naxis1,2 are reinitialised during pickle
-                inwcs._naxis1, inwcs._naxis2 = self.xpix, self.ypix
+                inwcs.pixel_shape = (self.xpix, self.ypix)
 
                 # the sky grid ref and dither ref should match (crpix varies between dithers)
                 if not np.all(np.round(inwcs.wcs.crval, decimals=4) == np.round(self.wcs.wcs.crval, decimals=4)):
