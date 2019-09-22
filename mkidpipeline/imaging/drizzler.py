@@ -824,7 +824,7 @@ if __name__ == '__main__':
     pixfrac = cfg.drizzler.pixfrac
     dither = cfg.dither
 
-    if args.gso and type(args.gso) is list:
+    if args.gso and isinstance(args.gso, list):
         rotation_origin = get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=np.array(args.gso))
 
     fitsname = '{}_{}.fits'.format(cfg.dither.name, drizzler_cfg_descr_str(cfg.drizzler))
