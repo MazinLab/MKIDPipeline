@@ -63,11 +63,11 @@ def setting_id(sdict):
 def test_settings(cfg, settings, queries, cleanup=True):
     results = {}
     builders = []
-    h5s = [cfg.h5file[:-3] + setting_id(s) + '.h5' for s in settings]
+    h5s = ['{}_{}.h5'.format(cfg.h5file[:-3],setting_id(s)) for s in settings]
 
     for s, h5 in zip(settings, h5s):
         builder = bin2hdf.HDFBuilder(copy.copy(cfg))
-        builder.cfg.h5file = h5 #TODO this is attrib, must handle differently
+        builder.cfg.user_h5file = h5
         builder.kwargs = s
         builders.append(builder)
 
@@ -75,20 +75,20 @@ def test_settings(cfg, settings, queries, cleanup=True):
         tic = time.time()
         b.run()
         toc = time.time()
-        results[str(b.kwargs)] = dict(creation=toc - tic,
-                                      size=os.stat(b.cfg.h5file).st_size/1024**2)
-
+        results[str(b.kwargs)] = dict(creation=toc - tic, size=os.stat(b.cfg.h5file).st_size/1024**2)
+    # "{'index': ('full', 9), 'chunkshape': None, 'timesort': False, 'shuffle': True, 'bitshuffle': False, 'ndx_bitshuffle': True, 'ndx_shuffle': True}"
+    # "{'index': ('full', 9), 'chunkshape': None, 'timesort': False, 'shuffle': True, 'bitshuffle': False, 'ndx_bitshuffle': True, 'ndx_shuffle': True}
     for q in queries:
-        for f in h5s:
-            of = ObsFile(f)
+        for b in builders:
+            of = ObsFile(b.cfg.h5file)
             tic = time.time()
             result = of.query(**q)
             toc = time.time()
-            result[str(s)]['nphotons'] = len(of.photonTable)
-            result[str(s)]['file_nfo'] = str(of)
+            key = str(b.kwargs)
+            results[key]['nphotons'] = len(of.photonTable)
+            results[key]['file_nfo'] = str(of)
             del of
-            result[str(s)][str(q)] = toc-tic
-            result[str(s)]['nphotons'] = nphotons
+            results[key][str(q)] = toc-tic
 
     if cleanup:
         for f in h5s:
@@ -204,6 +204,7 @@ def cachetest():
 
 if __name__ == '__main__':
 
+    from mkidpipeline.tests.h5speed import *
     pipe.logtoconsole(file='/scratch/baileyji/mec/speedtest/lastrun-pold.log')
     pipe.configure_pipeline(resource_filename('mkidpipeline',  os.path.join('tests','h5speed_pipe.yml')))
     d = pipe.load_data_description(resource_filename('mkidpipeline',  os.path.join('tests','h5speed_data.yml')))
@@ -251,7 +252,7 @@ if __name__ == '__main__':
     # ideal = dict(index=ndx, chunkshape=cshape, timesort=False, shuffle=shuffle,
     #              bitshuffle=bshuffle, ndx_bitshuffle=False, ndx_shuffle=True)
 
-    results = test_settings(b2h_configs, settings, TEST_QUERIES, cleanup=True)
+    # results = test_settings(b2h_configs, settings, TEST_QUERIES, cleanup=True)
 
 #Legacy test results
 # dfile = '/mnt/data0/baileyji/mec/h5/1507093430.h5'  #darkness flat 60s
