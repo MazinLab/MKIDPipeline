@@ -82,7 +82,7 @@
 
 - !wcscal
   name: wcscal2
-  platescale: 0.1
+  platescale: 10  #mas/pix
   dither_ref: [0.0,0.0]
   dither_home: [52, 18]
   header:

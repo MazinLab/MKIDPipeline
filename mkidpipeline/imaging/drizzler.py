@@ -293,19 +293,12 @@ class Canvas(object):
             nPix = max((self.nPixRA, self.nPixDec))
             self.nPixRA, self.nPixDec = nPix, nPix
 
-        self.generate_coordinate_grid()
+        # check the size of the grid is sensible
+        max_grid_width = max(self.xpix, self.ypix) * len(dithers_data)  # equivalent dithering along a line
+        assert self.nPixDec < max_grid_width and self.nPixRA < max_grid_width, \
+            'Canvas grid exceeds maximum possible extent of dithers'
+
         self.get_canvas_wcs()
-
-    def generate_coordinate_grid(self):
-        """
-        Establish RA and dec coordinates for pixel boundaries in the virtual pixel grid,
-        given the number of pixels in each direction (self.nPixRA and self.nPixDec), the
-        location of the centre of the array (self.centerRA, self.centerDec), and the plate scale
-        (self.vPlateScale).
-        """
-
-        self.gridRA = self.centerRA + (self.vPlateScale * (np.arange(self.nPixRA + 1) - ((self.nPixRA + 1) // 2)))
-        self.gridDec = self.centerDec + (self.vPlateScale * (np.arange(self.nPixDec + 1) - ((self.nPixDec + 1) // 2)))
 
     def get_canvas_wcs(self):
         """
