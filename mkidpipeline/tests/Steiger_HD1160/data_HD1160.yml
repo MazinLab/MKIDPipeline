@@ -47,7 +47,7 @@
 
 - !wcscal
   name: wcscal1
-  platescale: 0.000002888
+  platescale: 10  #mas/pix
   dither_ref: [0.0,0.0]
   dither_home: [0, 0]
   device_orientation: -48

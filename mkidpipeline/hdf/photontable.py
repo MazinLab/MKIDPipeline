@@ -77,6 +77,7 @@ from astropy.coordinates import SkyCoord
 from astropy import wcs
 from astropy.io import fits
 from astroplan import Observer
+import astropy.units as u
 
 
 #These are little better than blind guesses and don't seem to impact performaace, but still need benchmarking
@@ -517,8 +518,21 @@ class ObsFile(object):
         md = self.metadata()
         ditherHome = md.dither_home
         ditherReference = md.dither_ref
-        platescale = md.platescale
         ditherPos = md.dither_pos
+        platescale = md.platescale  #units should be mas/pix
+
+        if type(md.platescale) == u.Quantity:
+            platescale = platescale.to(u.mas)
+        else:
+            platescale = platescale * u.mas
+
+        # TODO remove this check once the relevant h5 files have been corrected
+        try:
+            rough_mec_platescale_mas = 10*u.mas
+            np.testing.assert_array_almost_equal(platescale.value, rough_mec_platescale_mas.value)
+        except AssertionError:
+            getLogger(__name__).warning(f"Setting the platescale to MEC's {rough_mec_platescale_mas.value} mas/pix")
+            platescale = rough_mec_platescale_mas
 
         if target_coordinates is not None:
             if not isinstance(target_coordinates, SkyCoord):
@@ -565,7 +579,7 @@ class ObsFile(object):
                 obs_wcs.wcs.ctype = ["RA--TAN", "DEC-TAN", "WAVE"]
                 obs_wcs.naxis3 = obs_wcs._naxis3 = self.nwvlbins
                 obs_wcs.wcs.pc = np.eye(3)
-                obs_wcs.wcs.cdelt = [platescale, platescale, (self.wvlbins[1] - self.wvlbins[0]) / 1e9]
+                obs_wcs.wcs.cdelt = [platescale.to(u.deg).value, platescale.to(u.deg).value, (self.wvlbins[1] - self.wvlbins[0]) / 1e9]
                 obs_wcs.wcs.cunit = ["deg", "deg", "m"]
             else:
                 obs_wcs = wcs.WCS(naxis=2)
@@ -575,7 +589,7 @@ class ObsFile(object):
                 obs_wcs.wcs.crpix = ref_pixel
 
                 obs_wcs.wcs.pc = rotation_matrix
-                obs_wcs.wcs.cdelt = [platescale, platescale]
+                obs_wcs.wcs.cdelt = [platescale.to(u.deg).value, platescale.to(u.deg).value]
                 obs_wcs.wcs.cunit = ["deg", "deg"]
 
             header = obs_wcs.to_header()
