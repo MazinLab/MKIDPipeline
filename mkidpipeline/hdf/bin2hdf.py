@@ -28,6 +28,9 @@ _datadircache = {}
 def _get_dir_for_start(base, start):
     global _datadircache
 
+    if not base.endswith(os.path.sep):
+        base = base+os.path.sep
+
     try:
         nmin = _datadircache[base]
     except KeyError:
@@ -35,7 +38,7 @@ def _get_dir_for_start(base, start):
             nights_times = glob(os.path.join(base, '*', '*.bin'))
             with warnings.catch_warnings():  # ignore warning for nights_times = []
                 warnings.simplefilter("ignore", UserWarning)
-                nights, times = np.genfromtxt(list(map(lambda s: s[len(base) + 1:-4], nights_times)),
+                nights, times = np.genfromtxt(list(map(lambda s: s[len(base):-4], nights_times)),
                                               delimiter=os.path.sep, dtype=int).T
             nmin = {times[nights == n].min(): str(n) for n in set(nights)}
             _datadircache[base] = nmin
@@ -66,7 +69,8 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
         raise ValueError('Data prior to 1518222559 not supported without added fixtimestamps')
 
     def free_ram_gb():
-        return psutil.virtual_memory().free/1024/1024/1024
+        mem = psutil.virtual_memory()
+        return (mem.free+mem.cached)/1024**3
 
     ram_est_gb = estimate_ram_gb(cfg.datadir, cfg.starttime, cfg.inttime) + 2  # add some headroom
     if free_ram_gb()<ram_est_gb:
@@ -113,7 +117,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
             if isinstance(index, bool):
                 col.create_csindex(filters=filter)
             else:
-                col.create_index(optlevel=index[1], kind=index[0], filter=filter)
+                col.create_index(optlevel=index[1], kind=index[0], filters=filter)
 
         indexer(table.cols.Time, index, filter=index_filter)
         getLogger(__name__).debug('Time Indexed for {}'.format(cfg.h5file))
@@ -381,7 +385,10 @@ class Bin2HdfConfig(object):
 
     @property
     def h5file(self):
-        return os.path.join(self.outdir, str(self.starttime) + '.h5')
+        try:
+            return self.user_h5file
+        except AttributeError:
+            return os.path.join(self.outdir, str(self.starttime) + '.h5')
 
     def write(self, file):
         dir = self.datadir

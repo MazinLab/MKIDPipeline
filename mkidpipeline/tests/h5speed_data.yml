@@ -1,0 +1,10 @@
+- !ob
+  name: Vega
+  start: 1567922621
+  stop: 1567922821
+  comments:
+    - very high photon rate
+- !ob
+  name: 850 nm
+  start: 1547290438
+  duration: 100
