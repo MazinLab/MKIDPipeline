@@ -278,6 +278,9 @@ class ObsFile(object):
         except:
             pass
 
+    def __str__(self):
+        return 'ObsFile: '+self.fullFileName
+
     def enablewrite(self):
         """USE CARE IN A THREADED ENVIRONMENT"""
         if self.mode == 'write':
@@ -521,7 +524,7 @@ class ObsFile(object):
         ditherPos = md.dither_pos
         platescale = md.platescale  #units should be mas/pix
 
-        if type(md.platescale) == u.Quantity:
+        if isinstance(platescale, u.Quantity):
             platescale = platescale.to(u.mas)
         else:
             platescale = platescale * u.mas
@@ -539,7 +542,6 @@ class ObsFile(object):
                 target_coordinates = SkyCoord.from_name(target_coordinates)
         else:
             target_coordinates = SkyCoord(md.ra, md.dec, unit=('hourangle', 'deg'))
-            # target_coordinates = SkyCoord.from_name(self.info['target'])
 
         apo = Observer.at_site(md.observatory)
 
