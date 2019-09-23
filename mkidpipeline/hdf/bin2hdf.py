@@ -417,7 +417,7 @@ class HDFBuilder(object):
                  **kwargs):
         self.cfg = cfg
         self.exc = executable_path
-        self.done = mkidcore.utils.manager().Event()
+        self.done = False
         self.force = force
         self.kwargs = kwargs
 
@@ -446,22 +446,21 @@ class HDFBuilder(object):
                     pass
             else:
                 getLogger(__name__).info('H5 {} already built. Remake not requested. Done.'.format(self.cfg.h5file))
-                self.done.set()
+                self.done = True
 
     def run(self, polltime=0.1, usepytables=True, **kwargs):
         """kwargs is passed on to build_pytables or buildbin2hdf"""
         self.kwargs.update(kwargs)
         self.handle_existing()
-        if self.done.is_set():
+        if self.done:
             return
 
         tic = time.time()
         if usepytables:
             build_pytables(self.cfg, **self.kwargs)
-            self.done.set()
         else:
             build_bin2hdf(self.cfg, self.exc, polltime=polltime)
-            self.done.set()
+        self.done = True
 
         getLogger(__name__).info('Created {} in {:.0f}s'.format(self.cfg.h5file, time.time()-tic))
 
@@ -496,7 +495,6 @@ def buildtables(timeranges, config=None, ncpu=1, asynchronous=False, remake=Fals
     b2h_configs = gen_configs(timeranges, config)
 
     builders = [HDFBuilder(c, force=remake, **kwargs) for c in b2h_configs]
-    events = [b.done for b in builders]
 
     if ncpu == 1:
         for b in builders:
@@ -504,15 +502,15 @@ def buildtables(timeranges, config=None, ncpu=1, asynchronous=False, remake=Fals
                 b.run(**kwargs)
             except MemoryError:
                 getLogger(__name__).error('Insufficient memory to process {}'.format(b.h5file))
-        return timeranges, events
+        return timeranges
 
     pool = mp.Pool(min(ncpu, mp.cpu_count()))
 
     if asynchronous:
         getLogger(__name__).debug('Running async on {} builders'.format(len(builders)))
-        pool.map_async(runbuilder, builders)
+        async_res = pool.map_async(runbuilder, builders)
         pool.close()
-        return timeranges, events
+        return timeranges, async_res
     else:
         pool.map(runbuilder, builders)
         pool.close()
