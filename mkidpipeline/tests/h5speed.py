@@ -1,21 +1,19 @@
 import os
 #Dark has 16 cores, 2 threads/core
 os.environ['NUMEXPR_MAX_THREADS'] = '64'
-os.environ['NUMEXPR_NUM_THREADS'] = '32'
+os.environ['NUMEXPR_NUM_THREADS'] = '16'
 import numexpr
 import numpy as np
 import tables
-import shutil
 import time
 import timeit
-import os
 import copy
+import pickle
+from pkg_resources import resource_filename
 
-import mkidpipeline
+import mkidpipeline as pipe
 from mkidpipeline.hdf.photontable import ObsFile
 import mkidpipeline.hdf.bin2hdf as bin2hdf
-import mkidpipeline as pipe
-from pkg_resources import resource_filename
 
 
 
@@ -41,27 +39,33 @@ from pkg_resources import resource_filename
 firstSec = 2
 shortT = 2
 longT = 30
-obsT = 1200
+obsT = 900
 wvlStart = -90
 wvlStop = -80
 resid = 91416
 resids = [91416,101119,90116,80881,81572,101471,90267,10603,80867,80180]
 
 
-TEST_QUERIES = [dict(resid=resid), dict(resid=resids),
+TEST_QUERIES = [dict(resid=resid),
+                dict(resid=resids),
                 dict(startt=firstSec, intt=shortT),
                 dict(startt=firstSec, intt=longT),
+                dict(startt=firstSec, intt=obsT),
                 dict(startw=wvlStart, stopw=wvlStop),
-                dict(resid=resids, startt=firstSec, intt=shortT, startw=wvlStart, stopw=wvlStop),
-                dict(startt=firstSec, intt=obsT)]
+                dict(resid=resids, startt=firstSec, intt=shortT, startw=wvlStart, stopw=wvlStop)
+                ]
 
 
 def setting_id(sdict):
     return hex(hash(str(sdict)))
 
 
-def test_settings(cfg, settings, queries, cleanup=True):
-    results = {}
+def test_settings(cfg, settings, queries, do_query=True, cleanup=True, recovery=''):
+
+    if recovery:
+        with open(recovery, 'rb') as f:
+            results = pickle.load(f)
+
     builders = []
     h5s = ['{}_{}.h5'.format(cfg.h5file[:-3],setting_id(s)) for s in settings]
 
@@ -72,12 +76,22 @@ def test_settings(cfg, settings, queries, cleanup=True):
         builders.append(builder)
 
     for b in builders:
-        tic = time.time()
-        b.run()
-        toc = time.time()
-        results[str(b.kwargs)] = dict(creation=toc - tic, size=os.stat(b.cfg.h5file).st_size/1024**2)
-    # "{'index': ('full', 9), 'chunkshape': None, 'timesort': False, 'shuffle': True, 'bitshuffle': False, 'ndx_bitshuffle': True, 'ndx_shuffle': True}"
-    # "{'index': ('full', 9), 'chunkshape': None, 'timesort': False, 'shuffle': True, 'bitshuffle': False, 'ndx_bitshuffle': True, 'ndx_shuffle': True}
+        if not os.path.exists(b.cfg.h5file):
+            tic = time.time()
+            b.run()
+            toc = time.time()
+            results[str(b.kwargs)] = dict(creation=toc - tic)
+        of = ObsFile(b.cfg.h5file)
+        results[str(b.kwargs)].update(dict(size=os.stat(b.cfg.h5file).st_size/1024**2, nphotons=len(of.photonTable),
+                                           file_nfo=str(of), table_nfo=repr(of.photonTable)))
+        del of
+        if recovery:
+            with open(recovery, 'wb') as f:
+                pickle.dump(results, f)
+
+    if not do_query:
+        queries = []
+
     for q in queries:
         for b in builders:
             of = ObsFile(b.cfg.h5file)
@@ -85,10 +99,15 @@ def test_settings(cfg, settings, queries, cleanup=True):
             result = of.query(**q)
             toc = time.time()
             key = str(b.kwargs)
-            results[key]['nphotons'] = len(of.photonTable)
-            results[key]['file_nfo'] = str(of)
+            if 'nphotons' not in results[key]:
+                results[key]['nphotons'] = len(of.photonTable)
+                results[key]['file_nfo'] = str(of)
+                results[key]['table_nfo'] = repr(of.photonTable)
             del of
-            results[key][str(q)] = toc-tic
+            results[key][str(q)] = {'time': toc-tic, 'nphotons': len(result)}
+            if recovery:
+                with open(recovery, 'wb') as f:
+                    pickle.dump(results, f)
 
     if cleanup:
         for f in h5s:
@@ -200,11 +219,9 @@ def cachetest():
           'uli: {} rows {:.2f} s').format(len(bin),toc1-tic,len(csi),toc2-toc1, len(uli), toc3-toc2))
 
 
-
-
 if __name__ == '__main__':
 
-    from mkidpipeline.tests.h5speed import *
+    # from mkidpipeline.tests.h5speed import *
     pipe.logtoconsole(file='/scratch/baileyji/mec/speedtest/lastrun-pold.log')
     pipe.configure_pipeline(resource_filename('mkidpipeline',  os.path.join('tests','h5speed_pipe.yml')))
     d = pipe.load_data_description(resource_filename('mkidpipeline',  os.path.join('tests','h5speed_data.yml')))
@@ -219,17 +236,23 @@ if __name__ == '__main__':
                      bitshuffle=False, ndx_bitshuffle=ndx_bshuffle, ndx_shuffle=ndx_shuffle)
                 for ndx_shuffle in (True, False) for ndx_bshuffle in (True, False)]
 
-    for cfg in b2h_configs[:1]:
-        results = test_settings(cfg, settings[:1], TEST_QUERIES, cleanup=True)
+    # for cfg in b2h_configs[1:]:
+    #     results = test_settings(cfg, settings, TEST_QUERIES, do_query=False, cleanup=False,
+    #                             recovery='/scratch/baileyji/mec/speedtest/recovery.pickle')
+    # Simple shuffling is the clear winner here.
+    ndx_bshuffle = False
+    ndx_shuffle = True
 
-    # ndx_bshuffle = False
-    # ndx_shuffle = True
-    #
     # # Chunk shape
-    # settings = [dict(index=('ultralight', 3), chunkshape=cshape, timesort=tsort, shuffle=True,
-    #                  bitshuffle=False, ndx_bitshuffle=ndx_bshuffle, ndx_shuffle=ndx_shuffle)
-    #             for tsort in (True, False)
-    #             for cshape in (None, 20, 60, 100, 200, 260, 400, 500, 1000, 2000)]
+    settings = [dict(index=('ultralight', 3), chunkshape=cshape, timesort=tsort, shuffle=True,
+                     bitshuffle=False, ndx_bitshuffle=ndx_bshuffle, ndx_shuffle=ndx_shuffle)
+                for tsort in (False, True)
+                for cshape in (20, 60, 100, 200, 260, 400, 500, 1000, 2000, 10000, None)]
+
+    for cfg in b2h_configs[::-1]:
+        results = test_settings(cfg, settings, TEST_QUERIES, do_query=True, cleanup=False,
+                                recovery='/scratch/baileyji/mec/speedtest/recovery.pickle')
+
     # tsort = False
     # cshape = 250
     #

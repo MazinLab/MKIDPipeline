@@ -96,9 +96,10 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
 
     if timesort:
         photons.sort(order=('Time', 'ResID'))
-        getLogger(__name__).warning('Sorting photon data on time')
+        getLogger(__name__).warning('Sorting photon data on time for {}'.format(cfg.h5file))
     elif not np.all(photons['ResID'][:-1] <= photons['ResID'][1:]):
-        getLogger(__name__).warning('binprocessor.extract returned data that was not sorted on ResID, sorting')
+        getLogger(__name__).warning('binprocessor.extract returned data that was not sorted on ResID, sorting'
+                                    '({})'.format(cfg.h5file))
         photons.sort(order=('ResID', 'Time'))
 
     h5file = tables.open_file(cfg.h5file, mode="a", title="MKID Photon File")
@@ -124,8 +125,8 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
         indexer(table.cols.ResID, index, filter=index_filter)
         getLogger(__name__).debug('ResID Indexed for {}'.format(cfg.h5file))
         indexer(table.cols.Wavelength, index, filter=index_filter)
-        getLogger(__name__).debug('Wavelength Indexed for {}'.format(cfg.h5file))
-        getLogger(__name__).debug('Table Indexed for {}'.format(cfg.h5file))
+        getLogger(__name__).debug('Wavelength indexed for {}'.format(cfg.h5file))
+        getLogger(__name__).debug('Table indexed ({}) for {}'.format(index, cfg.h5file))
     else:
         getLogger(__name__).debug('Skipping Index Generation for {}'.format(cfg.h5file))
 
