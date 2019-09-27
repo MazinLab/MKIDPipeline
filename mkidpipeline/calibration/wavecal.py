@@ -1135,15 +1135,18 @@ class Solution(object):
                  beam_map_flags=self.beam_map_flags)
         self._file_path = save_path  # new file_path for the solution
 
-    def load(self, file_path, overload=True):
+    def load(self, file_path, overload=True, file_mode='c'):
         """
         Load a solution from a file, optionally overloading previously defined attributes.
         The data will not be pulled from the npz file until first access of the data which
         can take a while.
+
+        file_mode defaults to copy on write. For valid options see
+        https://docs.scipy.org/doc/numpy/reference/generated/numpy.memmap.html#numpy.memmap
         """
         log.info("Loading solution from {}".format(file_path))
         keys = ('fit_array', 'configuration', 'beam_map', 'beam_map_flags')
-        npz_file = np.load(file_path, allow_pickle= True)
+        npz_file = np.load(file_path, allow_pickle=True, mode=file_mode)
         for key in keys:
             if key not in npz_file.keys():
                 raise AttributeError('{} missing from {}, solution malformed'.format(key, file_path))
