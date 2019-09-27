@@ -9,6 +9,7 @@ import time, timeit, copy, pickle, hashlib, re, collections, ast
 from glob import glob
 from pkg_resources import resource_filename
 import matplotlib.pyplot as plt
+import matplotlib
 
 import mkidpipeline as pipe
 from mkidpipeline.hdf.photontable import ObsFile
@@ -204,7 +205,9 @@ class SpeedResults:
 
     @property
     def all_chunkshapes(self):
-        return np.array(list(set([v['chunkshape'] for v in self._r.values()])))
+        ret = np.array(list(set([v['chunkshape'] for v in self._r.values()])))
+        ret.sort()
+        return ret
 
     @property
     def settings(self):
@@ -244,7 +247,8 @@ class SpeedResults:
             return setting_match and dataset_match
 
         Result = collections.namedtuple('Result', ('createt', 'nphotons', 'chunkshape', 'size',
-                                                   'index', 'timesorted', 'queryt', 'queryn', 'file'))
+                                                   'index', 'timesort', 'queryt', 'queryn', 'file',
+                                                   'shuffle'))
 
         for file, data in self._r.items():
             if not use(data):
@@ -256,41 +260,38 @@ class SpeedResults:
                 r = data[str(q)]
                 x = Result(createt=data['creation'], nphotons=data['nphotons'],
                            chunkshape=data['chunkshape'], size=data['size'],
-                           timesorted=kwargs['timesort'], index=''.join(map(str, kwargs['index'])),
-                           queryt=r['time'], queryn=r['nphotons'], file=file)
+                           timesort=kwargs['timesort'], index=''.join(map(str, kwargs['index'])),
+                           queryt=r['time'], queryn=r['nphotons'], shuffle=kwargs['shuffle'], file=file)
                 yield x
 
 
-def report():
+def report(timesort=False):
     matplotlib.use('Qt5Agg')
     plt.ion()
-
-    # from mkidpipeline.tests.h5speed import *
-
-    results = SpeedResults('/scratch/baileyji/mec/speedtest/recovery.pickle')
     pipe.logtoconsole()
     pipe.configure_pipeline(resource_filename('mkidpipeline',  os.path.join('tests','h5speed_pipe.yml')))
+
+    results = SpeedResults('/scratch/baileyji/mec/speedtest/recovery.pickle')
+    phot_per_RrID = results.determine_mean_photperRID()
+    all_chunkshapes = results.all_chunkshapes
 
     mymin = lambda x: np.min(x) if len(x) else np.nan
     mymax = lambda x: np.max(x) if len(x) else np.nan
     array_range = lambda x: (min(x), max(x))
 
-    summary = 'The {dset_name} dataset file ranges from {gblo:.1f}-{gbhi:.1f} GB and contains {nphot:.0f}E6 photons. ({ppg:.0f} Mp/GB)'
+    summary = ('The {dset_name} dataset file ranges from {gblo:.1f}-{gbhi:.1f} GB and contains '
+               '{nphot:.0f}E6 photons. ({ppg:.0f} Mp/GB)')
     SERIES_NAMES = ['F9', 'UL3', 'UL9', 'M3', 'M9', 'BShufM9', 'NShufM9']
-    series_settings = [dict(index=('full', 9)),
-                       dict(index=('ultralight', 3)),
-                       dict(index=('ultralight', 9)),
-                       dict(index=('medium', 3)),
-                       dict(index=('medium', 9)),
-                       dict(index=('medium', 9), bitshuffle=True),
-                       dict(index=('medium', 9), shuffle=False, bitshuffle=False)]
-
-    phot_per_RrID = results.determine_mean_photperRID()
-    all_chunkshapes = results.all_chunkshapes
-    all_chunkshapes.sort()
+    series_settings = [dict(index=('full', 9), timesort=timesort),
+                       dict(index=('ultralight', 3), timesort=timesort),
+                       dict(index=('ultralight', 9), timesort=timesort),
+                       dict(index=('medium', 3), timesort=timesort),
+                       dict(index=('medium', 9), timesort=timesort),
+                       dict(index=('medium', 9), timesort=timesort, bitshuffle=True),
+                       dict(index=('medium', 9), timesort=timesort, shuffle=False, bitshuffle=False)]
 
     # Generate the plot scaffold
-    fig, axes = plt.subplots(nrows=len(DATASET_NAMES), ncols=len(QUERY_NAMES), figsize=(15, 9))
+    fig, axes = plt.subplots(nrows=len(DATASET_NAMES), ncols=len(QUERY_NAMES), figsize=(18, 9))
 
     # Row & Column Labels
     pad = 5  # in points
@@ -302,7 +303,7 @@ def report():
     for ax, row in zip(axes[:, 0], DATASET_NAMES):
         ax.annotate(row, xy=(0, 0.5), xytext=(-ax.yaxis.labelpad - pad, 0), xycoords=ax.yaxis.label,
                     textcoords='offset points', size='large', ha='right', va='center', rotation=90)
-        plt.setp(ax, ylabel='Query Time')
+        plt.setp(ax, ylabel='Query Time ($s/\gamma$)')
 
     for i, d in enumerate(results.datasets):
         file_sizes = [v['size'] for k,v in results._r.items() if str(d) in k]
@@ -324,30 +325,41 @@ def report():
                 res = list(results.query_iter(q, settings=s, dataset=d))
                 if not res:
                     continue
+                res.sort(key=lambda x: x.chunkshape)
+                print('{} - {}: {}'.format(DATASET_NAMES[i],QUERY_NAMES[j],name))
+                for r in res:
+                    print(r)
                 nqpoht = res[0].queryn
                 chunkshapes = list(set([r.chunkshape for r in res]))
                 chunkshapes.sort()
                 queryts = [[r.queryt for r in res if r.chunkshape == cs] for cs in chunkshapes]
-                min_queryts = np.array(list(map(mymin, queryts)))
-                max_queryts = np.array(list(map(mymax, queryts)))
-                mean_queryts = np.array(list(map(np.mean, queryts)))
+                norm = max(nqpoht, 1)
+                min_queryts = np.array(list(map(mymin, queryts)))/norm
+                max_queryts = np.array(list(map(mymax, queryts)))/norm
+                mean_queryts = np.array(list(map(np.mean, queryts)))/norm
                 n_queryts = np.array(list(map(len, queryts)))
-                plt.errorbar(chunkshapes, mean_queryts, yerr=max_queryts-min_queryts, label=name)
+                plt.errorbar(chunkshapes, mean_queryts, yerr=max_queryts-min_queryts, label=name, marker='.')
+                #plt.plot(chunkshapes, mean_queryts, label=name, marker='.')
+                # plt.ticklabel_format(axis='y', style='sci', scilimits=(0, 0), useOffset=True)
+                plt.ylim(1e-8, 1e-2)
+                plt.semilogy()
+                plt.xlim(10, None)
+                plt.semilogx()
+                plt.legend(framealpha=1, frameon=False)
                 for n, x, y in zip(n_queryts, chunkshapes, mean_queryts):
-                    plt.annotate(str(n), (x, y))
+                    if n>1:
+                        plt.annotate(str(n), (x, y))
 
-            plt.annotate('{} phot'.format(nqpoht), (0, 10))  # minimum of nqphot/chunkshape chunks
+            plt.annotate('${:.4g} \gamma$'.format(nqpoht), (15, 5e-3))  # minimum of nqphot/chunkshape chunks
 
         print(('Timesort: ~{0[0]:.0f} - {0[1]:.0f} chunks/s. \n'
               'ResID Sort: ~{1[0]:.0f} - {1[1]:.0f} chunks/rid').format(array_range(nphot / all_chunkshapes / duration),
                                                                     array_range(phot_per_RrID[d] / all_chunkshapes)))
 
-    fig.tight_layout()
-    # tight_layout doesn't take these labels into account. We'll need
-    # to make some room. These numbers are are manually tweaked.
-    # You could automatically calculate them, but it's a pain.
-    fig.subplots_adjust(left=0.15, top=0.95)
+    fig.suptitle('ResID Sort' if not timesort else 'Time Sort')
+    fig.subplots_adjust(top=0.94, bottom=0.07, left=0.06, right=0.985, hspace=0.140, wspace=0.215)
 
+    return results
 
 
 if __name__ == '__main__':
@@ -361,6 +373,12 @@ if __name__ == '__main__':
     print(numexpr.get_vml_version())
 
     b2h_configs = pipe.bin2hdf.gen_configs(d.timeranges)
+
+    # Summary as of 9/27/19
+    # Plain shuffling of the indices seemed the clear winner for a CSI on a large 25MB/s 900s dataset
+    # Bit shuffling of the data has no advantage
+    # Plain shuffling of the data reduces file size a bit at a penalty to query time.
+
 
     # Index shuffling
     # settings = [dict(index=('full', 9), chunkshape=None, timesort=False, shuffle=True,
