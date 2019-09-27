@@ -45,7 +45,7 @@ resid = 91416
 resids = [91416,101119,90116,80881,81572,101471,90267,10603,80867,80180]
 
 DATASET_NAMES = ['Vega', 'HD36546', 'LkCa15']
-QUERY_NAMES = ['1Res', '10Res', '2s', '30s', '90s', 'Wave', 'Combined']
+QUERY_NAMES = ['1Res', '10Res', '2s', '30s', '90s', 'Wave', 'Multi']
 DURATIONS = {1567922621: 900, 1547280150: 900, 1545552775: 1545553007 - 1545552775}
 
 TEST_QUERIES = [dict(resid=resid),
@@ -57,46 +57,13 @@ TEST_QUERIES = [dict(resid=resid),
                 dict(resid=resids, startt=firstSec, intt=shortT, startw=wvlStart, stopw=wvlStop)
                 ]
 RID_QUERY = TEST_QUERIES[0]
+SHORTT_QUERY = TEST_QUERIES[2]
 MIDT_QUERY = TEST_QUERIES[3]
 OBST_QUERY = TEST_QUERIES[4]
 
 
 def setting_id(sdict):
     return hashlib.md5(str(sdict).encode()).hexdigest()
-
-
-def recover():
-    from glob import glob
-    import pickle, os
-    from mkidpipeline.tests.h5speed import setting_id
-    with open('/scratch/baileyji/mec/speedtest/recovery.pickle', 'rb') as f:
-        results = pickle.load(f)
-
-    h5s = glob('/scratch/baileyji/mec/speedtest/out/*.h5')
-
-    lookup = {k:v for k,v in zip(('1567922621_-0x2c4b44c7b43c6b31.h5', '1567922621_-0xef86fbefe6ab9f0.h5', '1567922621_-0x43217a48696f50ba.h5', '1567922621_0x5ba62e77c9b38fe2.h5'),[str(dict(index=('full', 9), chunkshape=None, timesort=False, shuffle=True,
-              bitshuffle=False, ndx_bitshuffle=ndx_bshuffle, ndx_shuffle=ndx_shuffle)) for ndx_shuffle in (True, False) for ndx_bshuffle in (True, False)])}
-
-    patches = {}
-    for k in results:
-        patches[k] =[]
-
-    for h5 in h5s:
-
-        size = os.stat(h5).st_size/1024**2
-        for k,v in results.items():
-            newh5 = '{}_{}.h5'.format(h5.split('_')[0], setting_id(k))
-            if h5 in v.get('file_nfo',''):
-                v['file_nfo'] = 'ObsFile: '+newh5
-            elif v['size'] == size and lookup.get(os.path.basename(h5),'') == k:
-                patches[k].append((h5, newh5))
-                of = pipe.ObsFile(h5)
-                v.update(dict(nphotons=len(of.photonTable), file_nfo='ObsFile: '+newh5, table_nfo=repr(of.photonTable)))
-                del of
-            os.rename(h5,newh5)
-
-    with open('/scratch/baileyji/mec/speedtest/recovery_fixed.pickle', 'wb') as f:
-        pickle.dump(results, f)
 
 
 def test_settings(cfg, settings, queries, do_build=True, do_query=True, cleanup=True, recovery=''):
@@ -179,6 +146,13 @@ class SpeedResults:
         with open(file, 'rb') as f:
             self._r = pickle.load(f)
 
+        try:
+            with open(file+'.count_images', 'rb') as f:
+                self.count_images = pickle.load(f)
+        except IOError:
+            getLogger(__name__).info('No count image file found. Data will need to be regenerated.')
+            pass
+
         settings = [dict(index=ndx, chunkshape=cshape, timesort=tsort, shuffle=shuffle,
                          bitshuffle=bshuffle, ndx_bitshuffle=ndx_bshuffle, ndx_shuffle=ndx_shuffle)
                     for ndx in [(k, l) for k in ('full', 'medium', 'ultralight') for l in (3, 6, 9)]
@@ -202,18 +176,27 @@ class SpeedResults:
             matches = re.search(r"chunkshape := \((\d+),\)", self._r[k]['table_nfo'])
             self._r[k]['chunkshape'] = int(matches.group(1))
 
+        if not all([d in self.count_images for d in self.datasets]):
+            print('Will determine count images, may take some time.')
+            self.determine_mean_photperRID()
+            with open(file + '.count_images', 'wb') as f:
+                pickle.dump(self.count_images, f)
+
     def determine_mean_photperRID(self):
         ret = {}
+        # return {d:1 for d in self.datasets}
+
         for d in self.datasets:
             if d in self.count_images:
                 cnt_img = self.count_images[d]
             else:
-                res = list(self.query_iter((MIDT_QUERY, OBST_QUERY), dataset=d))
+                res = list(self.query_iter((SHORTT_QUERY), dataset=d))
                 i = np.array([r.queryt for r in res]).argmin()
                 fast_file = res[i].file
-                print('This might take a while: {} s'.format(res[i].queryt))
+                print('This might take a while: {:.0f} s'.format(res[i].queryt))
                 of = ObsFile(fast_file)
-                cnt_img = of.getPixelCountImage(flagToUse=0xFFFFFFFFFF)['image']
+                cnt_img = of.getPixelCountImage(firstSec=30, integrationTime=5, flagToUse=0xFFFFFFFFFF)['image']
+                cnt_img *= of.info['expTime']/5
                 del of
                 self.count_images[d] = cnt_img
             ret[d] = cnt_img.sum() / (cnt_img > 0).sum()
@@ -279,6 +262,11 @@ class SpeedResults:
 
 
 def report():
+    matplotlib.use('Qt5Agg')
+    plt.ion()
+
+    # from mkidpipeline.tests.h5speed import *
+
     results = SpeedResults('/scratch/baileyji/mec/speedtest/recovery.pickle')
     pipe.logtoconsole()
     pipe.configure_pipeline(resource_filename('mkidpipeline',  os.path.join('tests','h5speed_pipe.yml')))
@@ -287,55 +275,51 @@ def report():
     mymax = lambda x: np.max(x) if len(x) else np.nan
     array_range = lambda x: (min(x), max(x))
 
-    summary = 'The {dset_name} dataset file ranges from {gblo:.1f}-{gbhi:.1f} GB and contains {nphot:.1f}E6 photons.'
-    SERIES_NAMES = ['F9, UL3, UL9, M3, M9', 'BShufM9', 'NShufM9']
-    series_settings = [dict(index=('full', 9), timesort=True, shuffle=True, bitshuffle=False,
-                            ndx_bitshuffle=False, ndx_shuffle=True),
-                       dict(index=('ultralight', 3), timesort=True, shuffle=True, bitshuffle=False,
-                            ndx_bitshuffle=False, ndx_shuffle=True),
-                       dict(index=('ultralight', 9), timesort=True, shuffle=True, bitshuffle=False,
-                            ndx_bitshuffle=False, ndx_shuffle=True),
-                       dict(index=('medium', 3), timesort=True, shuffle=True, bitshuffle=False,
-                            ndx_bitshuffle=False, ndx_shuffle=True),
-                       dict(index=('medium', 9), timesort=True, shuffle=True, bitshuffle=False,
-                            ndx_bitshuffle=False, ndx_shuffle=True),
-                       dict(index=('medium', 9), timesort=True, shuffle=True, bitshuffle=True,
-                            ndx_bitshuffle=False, ndx_shuffle=True),
-                       dict(index=('medium', 9), timesort=True, shuffle=False, bitshuffle=False,
-                            ndx_bitshuffle=False, ndx_shuffle=True)]
+    summary = 'The {dset_name} dataset file ranges from {gblo:.1f}-{gbhi:.1f} GB and contains {nphot:.0f}E6 photons. ({ppg:.0f} Mp/GB)'
+    SERIES_NAMES = ['F9', 'UL3', 'UL9', 'M3', 'M9', 'BShufM9', 'NShufM9']
+    series_settings = [dict(index=('full', 9)),
+                       dict(index=('ultralight', 3)),
+                       dict(index=('ultralight', 9)),
+                       dict(index=('medium', 3)),
+                       dict(index=('medium', 9)),
+                       dict(index=('medium', 9), bitshuffle=True),
+                       dict(index=('medium', 9), shuffle=False, bitshuffle=False)]
 
     phot_per_RrID = results.determine_mean_photperRID()
     all_chunkshapes = results.all_chunkshapes
     all_chunkshapes.sort()
 
-    fig, axes = plt.subplots(nrows=3, ncols=5, figsize=(12, 8))
-    plt.setp(axes.flat, xlabel='Chunkshape (rows)', ylabel='Query Time')
+    # Generate the plot scaffold
+    fig, axes = plt.subplots(nrows=len(DATASET_NAMES), ncols=len(QUERY_NAMES), figsize=(15, 9))
 
     # Row & Column Labels
     pad = 5  # in points
     for ax, col in zip(axes[0], QUERY_NAMES):
         ax.annotate(col, xy=(0.5, 1), xytext=(0, pad), xycoords='axes fraction', textcoords='offset points',
                     size='large', ha='center', va='baseline')
+    for ax in axes[-1]:
+        plt.setp(ax, xlabel='Chunkshape (rows)')
     for ax, row in zip(axes[:, 0], DATASET_NAMES):
         ax.annotate(row, xy=(0, 0.5), xytext=(-ax.yaxis.labelpad - pad, 0), xycoords=ax.yaxis.label,
                     textcoords='offset points', size='large', ha='right', va='center', rotation=90)
+        plt.setp(ax, ylabel='Query Time')
 
-    for i, d in results.datasets:
+    for i, d in enumerate(results.datasets):
         file_sizes = [v['size'] for k,v in results._r.items() if str(d) in k]
         duration = DURATIONS[d]
         # Fetch the total number of photons
         nphot = 0
         for k in results._r:
             if str(d) in k:
-                nphot = results._r[k]['size']
+                nphot = results._r[k]['nphotons']
                 break
         # Print a summary
         print(summary.format(dset_name=DATASET_NAMES[i], gblo=min(file_sizes)/1024, gbhi=max(file_sizes)/1024,
-                             nphot=nphot))
+                             nphot=nphot/1e6, ppg=nphot/1e6/(min(file_sizes)/1024)))
 
         nqpoht = 0
-        for j, q in TEST_QUERIES:
-            plt.sca(ax[i, j])
+        for j, q in enumerate(TEST_QUERIES):
+            plt.sca(axes[i, j])
             for s, name in zip(series_settings, SERIES_NAMES):
                 res = list(results.query_iter(q, settings=s, dataset=d))
                 if not res:
@@ -344,17 +328,18 @@ def report():
                 chunkshapes = list(set([r.chunkshape for r in res]))
                 chunkshapes.sort()
                 queryts = [[r.queryt for r in res if r.chunkshape == cs] for cs in chunkshapes]
-                min_queryts = np.array(map(mymin, queryts))
-                max_queryts = np.array(map(mymax, queryts))
-                mean_queryts = np.array(map(np.mean, queryts))
-                n_queryts = np.array(map(len, queryts))
-                plt.plot(chunkshapes, mean_queryts, yerr=max_queryts-min_queryts, label=name)
+                min_queryts = np.array(list(map(mymin, queryts)))
+                max_queryts = np.array(list(map(mymax, queryts)))
+                mean_queryts = np.array(list(map(np.mean, queryts)))
+                n_queryts = np.array(list(map(len, queryts)))
+                plt.errorbar(chunkshapes, mean_queryts, yerr=max_queryts-min_queryts, label=name)
                 for n, x, y in zip(n_queryts, chunkshapes, mean_queryts):
                     plt.annotate(str(n), (x, y))
 
             plt.annotate('{} phot'.format(nqpoht), (0, 10))  # minimum of nqphot/chunkshape chunks
 
-        print('Timesort: {:.1f} ~chunks/s. ResID Sort: {} ~chunks/rid'.format(array_range(nphot / all_chunkshapes / duration),
+        print(('Timesort: ~{0[0]:.0f} - {0[1]:.0f} chunks/s. \n'
+              'ResID Sort: ~{1[0]:.0f} - {1[1]:.0f} chunks/rid').format(array_range(nphot / all_chunkshapes / duration),
                                                                     array_range(phot_per_RrID[d] / all_chunkshapes)))
 
     fig.tight_layout()
@@ -363,6 +348,67 @@ def report():
     # You could automatically calculate them, but it's a pain.
     fig.subplots_adjust(left=0.15, top=0.95)
 
+
+
+if __name__ == '__main__':
+
+    # from mkidpipeline.tests.h5speed import *
+    pipe.logtoconsole(file='/scratch/baileyji/mec/speedtest/lastrun-pold.log')
+    pipe.configure_pipeline(resource_filename('mkidpipeline',  os.path.join('tests','h5speed_pipe.yml')))
+    d = pipe.load_data_description(resource_filename('mkidpipeline',  os.path.join('tests','h5speed_data.yml')))
+
+    # Basic checks
+    print(numexpr.get_vml_version())
+
+    b2h_configs = pipe.bin2hdf.gen_configs(d.timeranges)
+
+    # Index shuffling
+    # settings = [dict(index=('full', 9), chunkshape=None, timesort=False, shuffle=True,
+    #                  bitshuffle=False, ndx_bitshuffle=ndx_bshuffle, ndx_shuffle=ndx_shuffle)
+    #             for ndx_shuffle in (True, False) for ndx_bshuffle in (True, False)]
+    # for cfg in b2h_configs[0:1]:
+    #     results = test_settings(cfg, settings, TEST_QUERIES, do_query=False, cleanup=False,
+    #                             recovery='/scratch/baileyji/mec/speedtest/recovery.pickle')
+    # Simple shuffling is the clear winner here.
+
+    # Chunk shape
+    settings = [dict(index=('ultralight', 3), chunkshape=cshape, timesort=tsort, shuffle=True,
+                     bitshuffle=False, ndx_bitshuffle=False, ndx_shuffle=True)
+                for tsort in (False, True)
+                for cshape in (20, 100, 180, 260, 340, 500, 1000, 5000, 10000, None)]
+    for cfg in b2h_configs:
+        results = test_settings(cfg, settings, TEST_QUERIES, do_query=True, cleanup=False,
+                                recovery='/scratch/baileyji/mec/speedtest/recovery.pickle')
+
+    # Index type. Use ndx_shuffle and ndx_bshuffle from test 1, include that run in the results
+    # settings = [dict(index=ndx, chunkshape=cshape, timesort=False, shuffle=True,
+    #                  bitshuffle=False, ndx_bitshuffle=False, ndx_shuffle=True)
+    #             for ndx in ([('full',9)]+[(k, l) for k in ('ultralight',) for l in (3, 9)])
+    #             for cshape in (None,340)]
+    # for cfg in b2h_configs:
+    #     results = test_settings(cfg, settings, TEST_QUERIES, do_build=False, do_query=True, cleanup=False,
+    #                             recovery='/scratch/baileyji/mec/speedtest/recovery.pickle')
+
+
+
+    # Shuffling. Should just be a gain or loss at the ideal cs (but also test an extremal value
+    settings = [dict(index=('medium', 9), chunkshape=cshape_i, timesort=False, shuffle=shuffle,
+                     bitshuffle=bshuffle, ndx_bitshuffle=False, ndx_shuffle=True)
+                for shuffle in (True, False) for bshuffle in (True, False)
+                for cshape_i in (340, None)]
+    for cfg in b2h_configs:
+        results = test_settings(cfg, settings, TEST_QUERIES, do_build=True, do_query=True, cleanup=False,
+                                recovery='/scratch/baileyji/mec/speedtest/recovery.pickle')
+    # shuffle = True
+    # bshuffle = False
+    #
+    # # Apparent Ideal
+    # ideal = dict(index=ndx, chunkshape=cshape, timesort=False, shuffle=shuffle,
+    #              bitshuffle=bshuffle, ndx_bitshuffle=False, ndx_shuffle=True)
+
+    # results = test_settings(b2h_configs, settings, TEST_QUERIES, cleanup=True)
+
+#Legacy test results
 
 
 def query_times(results, k, q=''):
@@ -475,68 +521,7 @@ def cachetest():
            'uli: {} rows {:.2f} s').format(len(bin),toc1-tic,len(csi),toc2-toc1, len(uli), toc3-toc2))
 
 
-if __name__ == '__main__':
 
-    # from mkidpipeline.tests.h5speed import *
-    pipe.logtoconsole(file='/scratch/baileyji/mec/speedtest/lastrun-pold.log')
-    pipe.configure_pipeline(resource_filename('mkidpipeline',  os.path.join('tests','h5speed_pipe.yml')))
-    d = pipe.load_data_description(resource_filename('mkidpipeline',  os.path.join('tests','h5speed_data.yml')))
-
-    # Basic checks
-    print(numexpr.get_vml_version())
-
-    b2h_configs = pipe.bin2hdf.gen_configs(d.timeranges)
-
-    # Index shuffling
-    # settings = [dict(index=('full', 9), chunkshape=None, timesort=False, shuffle=True,
-    #                  bitshuffle=False, ndx_bitshuffle=ndx_bshuffle, ndx_shuffle=ndx_shuffle)
-    #             for ndx_shuffle in (True, False) for ndx_bshuffle in (True, False)]
-    #
-    # for cfg in b2h_configs[0:1]:
-    #     results = test_settings(cfg, settings, TEST_QUERIES, do_query=False, cleanup=False,
-    #                             recovery='/scratch/baileyji/mec/speedtest/recovery.pickle')
-    # Simple shuffling is the clear winner here.
-
-    # Chunk shape
-    # settings = [dict(index=('ultralight', 3), chunkshape=cshape, timesort=tsort, shuffle=True,
-    #                  bitshuffle=False, ndx_bitshuffle=False, ndx_shuffle=True)
-    #             for tsort in (False, True)
-    #             for cshape in (20, 100, 180, 260, 340, 500, 1000, 5000, 10000, None)]
-    # #
-    # for cfg in b2h_configs[::-1]:
-    #     results = test_settings(cfg, settings, TEST_QUERIES, do_query=True, cleanup=False,
-    #                             recovery='/scratch/baileyji/mec/speedtest/recovery.pickle')
-
-    # Index type. Use ndx_shuffle and ndx_bshuffle from test 1, include that run in the results
-    # settings = [dict(index=ndx, chunkshape=cshape, timesort=False, shuffle=True,
-    #                  bitshuffle=False, ndx_bitshuffle=False, ndx_shuffle=True)
-    #             for ndx in ([('full',9)]+[(k, l) for k in ('ultralight',) for l in (3, 9)])
-    #             for cshape in (None,340)]
-    # for cfg in b2h_configs:
-    #     results = test_settings(cfg, settings, TEST_QUERIES, do_build=False, do_query=True, cleanup=False,
-    #                             recovery='/scratch/baileyji/mec/speedtest/recovery.pickle')
-
-
-
-    # Shuffling. Should just be a gain or loss at the ideal cs (but also test an extremal value
-    settings = [dict(index=('medium', 9), chunkshape=cshape_i, timesort=False, shuffle=shuffle,
-                     bitshuffle=bshuffle, ndx_bitshuffle=False, ndx_shuffle=True)
-                for shuffle in (True, False) for bshuffle in (True, False)
-                for cshape_i in (340, None)]
-
-    for cfg in b2h_configs:
-        results = test_settings(cfg, settings, TEST_QUERIES, do_build=True, do_query=True, cleanup=False,
-                                recovery='/scratch/baileyji/mec/speedtest/recovery.pickle')
-    # shuffle = True
-    # bshuffle = False
-    #
-    # # Apparent Ideal
-    # ideal = dict(index=ndx, chunkshape=cshape, timesort=False, shuffle=shuffle,
-    #              bitshuffle=bshuffle, ndx_bitshuffle=False, ndx_shuffle=True)
-
-    # results = test_settings(b2h_configs, settings, TEST_QUERIES, cleanup=True)
-
-#Legacy test results
 # dfile = '/mnt/data0/baileyji/mec/h5/1507093430.h5'  #darkness flat 60s
 # csifile = '/mnt/data0/baileyji/mec/h5/1545542180_csi.h5'
 # csitimefile = '/mnt/data0/baileyji/mec/h5/1545542180_csi_time.h5'
