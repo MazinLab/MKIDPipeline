@@ -156,15 +156,6 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
     headerContents['beammapFile'] = cfg.beamfile
     headerContents['wvlCalFile'] = ''
     headerContents['fltCalFile'] = ''
-
-    # headerContents['platescale'] = 0.01/3600
-    # headerContents['ditherHome'] = (0, 0)
-    # headerContents['ditherPos'] = (0, 0)
-    # headerContents['ditherReference'] = (52, 18)
-    # headerContents['deviceOrientation'] = -48.0
-    # headerContents['observatory'] = 'Subaru'
-    # headerContents['instrument'] = 'MEC'
-    # headerContents['tcsinfo'] = ''
     headerContents['metadata'] = ''
     headerContents.append()
     getLogger(__name__).debug('Header Attached to {}'.format(cfg.h5file))
