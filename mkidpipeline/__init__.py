@@ -56,6 +56,7 @@ def batch_apply_metadata(dataset):
 
 
 def batch_apply_wavecals(obs, ncpu=None):
+    wavecal.clear_solution_cache()
     pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
     obs = {o.h5: o for o in obs if o.wavecal is not None}.values()  # filter so unique h5 files, not responsible for a mixed wavecal specs
     pool.map(wavecal_apply, obs)

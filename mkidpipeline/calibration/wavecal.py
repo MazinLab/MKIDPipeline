@@ -1146,7 +1146,7 @@ class Solution(object):
         """
         log.info("Loading solution from {}".format(file_path))
         keys = ('fit_array', 'configuration', 'beam_map', 'beam_map_flags')
-        npz_file = np.load(file_path, allow_pickle=True, mode=file_mode)
+        npz_file = np.load(file_path, allow_pickle=True, encoding='bytes', mmap_mode=file_mode)
         for key in keys:
             if key not in npz_file.keys():
                 raise AttributeError('{} missing from {}, solution malformed'.format(key, file_path))
@@ -2476,6 +2476,11 @@ def load_solution(wc, singleton_ok=True):
     except KeyError:
         _loaded_solutions[wc] = Solution(file_path=wc)
     return _loaded_solutions[wc]
+
+
+def clear_solution_cache():
+    global _loaded_solutions
+    _loaded_solutions = {}
 
 
 def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
