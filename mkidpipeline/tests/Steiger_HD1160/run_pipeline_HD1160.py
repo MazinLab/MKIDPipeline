@@ -4,16 +4,14 @@ import time
 import numpy as np
 os.environ['NUMEXPR_MAX_THREADS'] = '32'
 os.environ['NUMEXPR_NUM_THREADS'] = '16'
-os.environ["TMPDIR"] = '/scratch/tmp/'
+os.environ["TMPDIR"] = '/mnt/data0/tmp/'
 import tables.parameters
 tables.parameters.MAX_BLOSC_THREADS = 4
+
 import mkidpipeline as pipe
-from mkidpipeline.config import config
 
-
-datafile = '/scratch/baileyji/mec/data.yml'
-cfgfile = '/scratch/baileyji/mec/pipe.yml'
-outfile = '/scratch/baileyji/mec/out.yml'
+datafile = 'data_HD1160.yml'
+cfgfile = 'pipe_HD1160.yml'
 
 pipe.logtoconsole()
 
@@ -23,8 +21,7 @@ pipe.getLogger('mkidpipeline.calibration.wavecal').setLevel('INFO')
 pipe.getLogger('mkidpipeline.badpix').setLevel('INFO')
 pipe.getLogger('mkidpipeline.hdf.photontable').setLevel('INFO')
 
-ncpu=7
-
+ncpu = 7
 
 def run_stage1(dataset):
     times = []
@@ -39,52 +36,49 @@ def run_stage1(dataset):
     times.append(time.time())
     pipe.flatcal.fetch(dataset.flatcals, ncpu=ncpu)
     times.append(time.time())
-    pipe.batch_apply_flatcals(dataset.science_observations, ncpu=ncpu)
+    for o in dataset.science_observations:
+        pipe.flatcal_apply(o)
+    #pipe.batch_apply_flatcals(dataset.science_observations, ncpu=ncpu)
     times.append(time.time())
     pipe.getLogger('mkidpipeline.hdf.photontable').setLevel('DEBUG')
     times.append(time.time())
     pipe.batch_maskhot(dataset.science_observations, ncpu=ncpu)
     times.append(time.time())
 
-    steps = ('H5 Creation', 'Metadata Application', 'Wavecal Fetch', 'Wavecal Application',
-             'Flatcal Fetch', 'Flatcal Application', 'Hotpixel Masking')
-    intervals = np.diff(times).astype(int)
-    pipe.log.info('Stage one took {:.1f} m'.format(int(times[-1] - times[0])/60))
-    for s, dt in zip(steps[:len(intervals)], intervals):
-        pipe.log.info('    {} took {:.0f} s'.format(s, dt))
+    print(np.diff(times).astype(int))
+    print(int(times[-1] - times[0])/60)
 
 
 def generate_outputs(outputs):
+    from mkidpipeline.config import config
+    import mkidpipeline.imaging.drizzler as drizzler
+    import mkidpipeline as pipe
     for o in outputs:
-        pipe.getLogger(__name__).info('Generating {}'.format(o.name))
+        pipe.getLogger(__name__).info('Generating {}'.format(o))
         if o.wants_image:
             import mkidpipeline.hdf.photontable
             for obs in o.data.obs:
                 h5 = mkidpipeline.hdf.photontable.ObsFile(obs.h5)
                 img = h5.getFits(wvlStart=o.startw, wvlStop=o.stopw, applyWeight=o.enable_photom,
-                                 applyTPFWeight=o.enable_noise, countRate=True)
+                                applyTPFWeight=o.enable_noise, countRate=True)
                 img.writeto(o.output_file + h5.fileName.split('.')[0] + ".fits")
                 pipe.getLogger(__name__).info('Generated fits file for {}'.format(obs.h5))
         if o.wants_drizzled:
             import mkidpipeline.imaging
             if not isinstance(o.data, mkidpipeline.config.MKIDDitheredObservation):
                 raise TypeError('a dither is not specified in the out.yml')
-            drizzled = pipe.drizzler.form(o.data, mode=o.kind, wvlMin=o.startw, wvlMax=o.stopw,
-                                          pixfrac=config.drizzler.pixfrac, wcs_timestep=config.drizzler.wcs_timestep,
-                                          exp_timestep=config.drizzler.exp_timestep, flags=config.badpix,
-                                          usecache=config.drizzler.usecache, ncpu=config.ncpu)
+            drizzled = drizzler.form(o.data, mode=o.kind, wvlMin=o.startw, wvlMax=o.stopw,
+                                     pixfrac=config.drizzler.pixfrac, usecache=False)
             drizzled.writefits(o.output_file)
-        if o.wants_movie:
-            pipe.getLogger('mkidpipeline.hdf.photontable').setLevel('DEBUG')
-            pipe.movies.make_movie(o)
 
-
-full_dataset = pipe.load_data_description(datafile)  # NB using this may result in processing more than is strictly required
-out_collection = pipe.load_output_description(outfile)
+dataset = pipe.load_data_description(datafile) #NB using this may result in processing more than is strictly required
+out_collection = pipe.load_output_description('out_HD1160.yml', datafile='data_HD1160.yml') #make sure you give this a datafile
 outputs = out_collection.outputs
-dataset = out_collection.dataset
+
+# dataset = out_collection.dataset
 
 # First we need to process data
 run_stage1(dataset)
+# Generate desired outputs
 generate_outputs(outputs)
 

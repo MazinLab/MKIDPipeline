@@ -1,4 +1,5 @@
 - !wc
+  name: wavecal1
   data:
     - !ob
       name: 850 nm
@@ -38,40 +39,87 @@
       header:
         ND: 1.0
         lamp: 40
+
 - !fc
-  name: 1100 nm
-  start: 1545542340
-  stop: 1545542450
+  name: flatcal1
+  ob: !sob
+    name: 1100 nm dummy
+    start: 1545542345
+    stop: 1545542395
+    wavecal: wavecal1 #or wsoln or filename
+    header:
+      ND: .5
+      lamp: 40
   header:
-    ND: .5
+    foo: .5
+    bar: 40
+
+- !fc  #Use a wavecal as the basis of a flat e.g. when WL flats aren't available
+  name: flatcal2
+  wavecal: wavecal1 # or wsoln or filename
+  header:
+    foo: .5
+    bar: 40
+
+#- !fc  #Use a
+#  name: flatcal3
+#  wavecal: !wsoln
+#    file: 2018-12-23 051888891e1e27c48f09da56342a914aed89.npz
+#  header:
+#    foo: .5
+#    bar: 40
+
+- !wcscal
+  name: wcscal1
+  ob: !sob
+    name: 1250 nm
+    start: 1545542463
+    stop: 1545542575
+    wavecal: wavecal1
+    header:
+      ND: 1
+      lamp: 40
+
+- !wcscal
+  name: wcscal2
+  platescale: 10  #mas/pix
+  dither_ref: [0.0,0.0]
+  dither_home: [52, 18]
+  header:
+    ND: 1
     lamp: 40
-- !dither
-  name: Trapezium
-  file: dithers/trapezium.log
-  comments:
-    - Test
+
 - !dither
   name: HIP 10680
-  file: dithers/HD10680_1545544478_dither.log
+  file: HD10680_1545544478_dither.log
+  wcscal: wcscal2
+  wavecal: wavecal1
+  flatcal: flatcal2
   comments:
     - Beta Pic moving group
     - No known planets or disks, but a good young target
     - 113mas Lyot
     - astrogrid
-- !dither
-  name: HIP 10680
-  file: dithers/HD10680_1545546044_dither.log
-  comments:
-    - Beta Pic moving group
-    - No known planets or disks, but a good young target
-    - 113mas Lyot
-    - astrogrid
+
 - !dither
   name: HD22179
-  file: dithers/HD22179_1545548901_dither.log
+  file: HD22179_1545548901_dither.log
+  wcscal: wcscal2
+  wavecal: wavecal1
+  flatcal: flatcal2
   comments:
     - 113mas Lyot
     - Astrogrid
     - Faint - J=7.8
     - 1545549968 - 1545551005,  Network error. Lost FL8a,b
-  rotation_ctr: [0,0]  #optional
+
+- !sob
+  name: garbage
+  start: 1545542340
+  stop: 1545542450
+  wcscal: wcscal2
+  wavecal: wavecal1
+  flatcal: flatcal2
+  header:
+    ND: .5
+    lamp: 40

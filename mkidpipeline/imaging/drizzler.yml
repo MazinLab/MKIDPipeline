@@ -3,25 +3,25 @@ beammap: !bmap
   default: MEC
 
 paths: !configdict
-  #data: /mnt/data0/ScienceData/Subaru/20180626/
   out: /mnt/data0/isabel/highcontrastimaging/Jan2019Run/20190112/Trapezium/trap_wavecalib
   tmp: /mnt/data0/baileyji/mec/scratch/
 
 dither: !dither
   name: Theta1 Orionis B  #Trapezium   #simbad resolvable for ra/dec, otherwise will assume at 0,0
-  file: /mnt/data0/isabel/mec/dithers/Trapezium_1547374552_dither.log 
+  file: /mnt/data0/isabel/mec/dithers/Trapezium_1547374552_dither.log
   wavecal: placeholder
   flatcal: placeholder
 
 drizzler: !configdict
   plots: all
-  wavelength: [850, 1100]  # nm
   pixfrac: 0.5
-  mode: temporal  # temporal | spatial
-  rotation_center: [52, 18]  # (pix, pix) the vector that transforms the origin of connex frame to the center of
-                             # rotation frame. Found using --get-offset arg with drizzler
-  device_orientation: -48  # (deg) the rotation angle that is applied to align the device position angle to the
-                           # parallactic angle. Found using --get-orientation
-  output: fits  # list of 1 or more of: fits|photonlist. photonlist is only supported for mode temporal
+  exp_timestep: 1  # duration of the time bins in the output cube
+  wcs_timestep: 1  # time between different wcs parameters (eg orientations). 0 will use the calculated non-blurring min
+  nwvlbins: 1  # the number of equal width bins in the temporally drizzled cube
+  usecache: False  # if True the reformatted photontable data from each of the dithers is stored and reloaded for
+                   # subsequent runs of drizzler.py
 
 ncpu: 20
+
+
+

@@ -1,5 +1,4 @@
 #!/opt/anaconda3/envs/pipeline/bin/python
-import psutil
 import tempfile
 import subprocess
 import os
@@ -7,27 +6,30 @@ import tables
 import time
 import sys
 import numpy as np
-from multiprocessing.pool import Pool
+import psutil
 import multiprocessing as mp
-import threading
-from mkidcore.headers import ObsHeader
-from mkidcore.corelog import getLogger
-from mkidcore.config import yaml, yaml_object
-import mkidpipeline.config
 import pkg_resources as pkg
 from datetime import datetime
 from glob import glob
 import warnings
-from mkidpipeline.hdf.photontable import ObsFile
+
+from mkidcore.headers import ObsFileCols, ObsHeader
+from mkidcore.corelog import getLogger
+from mkidcore.config import yaml, yaml_object
 import mkidcore.utils
 from mkidcore.objects import Beammap
 
+from mkidpipeline.hdf.photontable import ObsFile
+import mkidpipeline.config
 
 _datadircache = {}
 
 
 def _get_dir_for_start(base, start):
     global _datadircache
+
+    if not base.endswith(os.path.sep):
+        base = base+os.path.sep
 
     try:
         nmin = _datadircache[base]
@@ -36,7 +38,7 @@ def _get_dir_for_start(base, start):
             nights_times = glob(os.path.join(base, '*', '*.bin'))
             with warnings.catch_warnings():  # ignore warning for nights_times = []
                 warnings.simplefilter("ignore", UserWarning)
-                nights, times = np.genfromtxt(list(map(lambda s: s[len(base) + 1:-4], nights_times)),
+                nights, times = np.genfromtxt(list(map(lambda s: s[len(base):-4], nights_times)),
                                               delimiter=os.path.sep, dtype=int).T
             nmin = {times[nights == n].min(): str(n) for n in set(nights)}
             _datadircache[base] = nmin
@@ -50,57 +52,89 @@ def _get_dir_for_start(base, start):
         raise ValueError('No directory in {} found for start {}'.format(base, start))
 
 
-def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None, bitshuffle=False):
+def estimate_ram_gb(directory, start, inttime):
+    PHOTON_BIN_SIZE_BYTES = 8
+    files = [os.path.join(directory, '{}.bin'.format(t)) for t in range(start-1, start+inttime+1)]
+    files = filter(os.path.exists, files)
+    n_max_photons = int(np.ceil(sum([os.stat(f).st_size for f in files])/PHOTON_BIN_SIZE_BYTES))
+    return n_max_photons*PHOTON_BIN_SIZE_BYTES/1024/1024/1024
+
+
+def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None, shuffle=True, bitshuffle=False,
+                   wait_for_ram=3600, ndx_shuffle=True, ndx_bitshuffle=False):
+    """wait_for_ram speficies the number of seconds to wait for sufficient ram"""
+    from mkidpipeline.hdf.mkidbin import extract
+
     if cfg.starttime < 1518222559:
         raise ValueError('Data prior to 1518222559 not supported without added fixtimestamps')
 
-    from mkidpipeline.hdf.mkidbin import extract
-    from mkidcore.headers import ObsFileCols, ObsHeader
+    def free_ram_gb():
+        mem = psutil.virtual_memory()
+        return (mem.free+mem.cached)/1024**3
 
-    getLogger(__name__).debug('Starting build')
+    ram_est_gb = estimate_ram_gb(cfg.datadir, cfg.starttime, cfg.inttime) + 2  # add some headroom
+    if free_ram_gb()<ram_est_gb:
+        msg = 'Insufficint free RAM to build {}, {:.1f} vs. {:.1f} GB.'
+        getLogger(__name__).warning(msg.format(cfg.h5file, free_ram_gb(), ram_est_gb))
+        if wait_for_ram:
+            getLogger(__name__).info('Waiting up to {} s for enough RAM'.format(wait_for_ram))
+            while wait_for_ram and free_ram_gb()<ram_est_gb:
+                sleeptime = np.random.uniform(1,2)
+                time.sleep(sleeptime)
+                wait_for_ram-=sleeptime
+                if wait_for_ram % 30:
+                    getLogger(__name__).info('Still waiting (up to {} s) for enough RAM'.format(wait_for_ram))
+    if free_ram_gb()<ram_est_gb:
+        getLogger(__name__).error('Aborting build due to insufficient RAM.')
+        return
+
+    getLogger(__name__).debug('Starting build of {}'.format(cfg.h5file))
 
     photons = extract(cfg.datadir, cfg.starttime, cfg.inttime, cfg.beamfile, cfg.x, cfg.y)
 
-    getLogger(__name__).debug('Data Extracted')
+    getLogger(__name__).debug('Data Extracted for {}'.format(cfg.h5file))
 
     if timesort:
         photons.sort(order=('Time', 'ResID'))
-        getLogger(__name__).warning('Sorting photon data on time')
+        getLogger(__name__).warning('Sorting photon data on time for {}'.format(cfg.h5file))
     elif not np.all(photons['ResID'][:-1] <= photons['ResID'][1:]):
-        getLogger(__name__).warning('binprocessor.extract returned data that was not sorted on ResID, sorting')
+        getLogger(__name__).warning('binprocessor.extract returned data that was not sorted on ResID, sorting'
+                                    '({})'.format(cfg.h5file))
         photons.sort(order=('ResID', 'Time'))
 
     h5file = tables.open_file(cfg.h5file, mode="a", title="MKID Photon File")
     group = h5file.create_group("/", 'Photons', 'Photon Information')
-    filter = tables.Filters(complevel=1, complib='blosc', shuffle=True, bitshuffle=bitshuffle, fletcher32=False)
+    filter = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=shuffle, bitshuffle=bitshuffle, fletcher32=False)
     table = h5file.create_table(group, name='PhotonTable', description=ObsFileCols, title="Photon Datatable",
                                 expectedrows=len(photons), filters=filter, chunkshape=chunkshape)
     table.append(photons)
 
-    getLogger(__name__).debug('Table Populated')
+    getLogger(__name__).debug('Table Populated for {}'.format(cfg.h5file))
     if index:
+        index_filter = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=ndx_shuffle, bitshuffle=ndx_bitshuffle,
+                                      fletcher32=False)
 
-        def indexer(col, index):
+        def indexer(col, index, filter=None):
             if isinstance(index, bool):
-                col.create_csindex()
+                col.create_csindex(filters=filter)
             else:
-                col.create_index(optlevel=index[1], kind=index[0])
+                col.create_index(optlevel=index[1], kind=index[0], filters=filter)
 
-        indexer(table.cols.Time, index)
-        getLogger(__name__).debug('Time Indexed')
-        indexer(table.cols.ResID, index)
-        getLogger(__name__).debug('ResID Indexed')
-        indexer(table.cols.Wavelength, index)
-        getLogger(__name__).debug('Wavlength Indexed')
-        getLogger(__name__).debug('Table Indexed')
+        indexer(table.cols.Time, index, filter=index_filter)
+        getLogger(__name__).debug('Time Indexed for {}'.format(cfg.h5file))
+        indexer(table.cols.ResID, index, filter=index_filter)
+        getLogger(__name__).debug('ResID Indexed for {}'.format(cfg.h5file))
+        indexer(table.cols.Wavelength, index, filter=index_filter)
+        getLogger(__name__).debug('Wavelength indexed for {}'.format(cfg.h5file))
+        getLogger(__name__).debug('Table indexed ({}) for {}'.format(index, cfg.h5file))
     else:
-        getLogger(__name__).debug('Skipping Index Generation')
+        getLogger(__name__).debug('Skipping Index Generation for {}'.format(cfg.h5file))
 
     bmap = Beammap(cfg.beamfile, xydim=(cfg.x, cfg.y))
     group = h5file.create_group("/", 'BeamMap', 'Beammap Information', filters=filter)
     h5file.create_array(group, 'Map', bmap.residmap.astype(int), 'resID map')
     h5file.create_array(group, 'Flag', bmap.flagmap.astype(int), 'flag map')
-    getLogger(__name__).debug('Beammap Attached')
+    getLogger(__name__).debug('Beammap Attached to {}'.format(cfg.h5file))
 
     h5file.create_group('/', 'header', 'Header')
     headerTable = h5file.create_table('/header', 'header', ObsHeader, 'Header')
@@ -122,18 +156,9 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
     headerContents['beammapFile'] = cfg.beamfile
     headerContents['wvlCalFile'] = ''
     headerContents['fltCalFile'] = ''
-
-    # headerContents['platescale'] = 0.01/3600
-    # headerContents['ditherHome'] = (0, 0)
-    # headerContents['ditherPos'] = (0, 0)
-    # headerContents['ditherReference'] = (52, 18)
-    # headerContents['deviceOrientation'] = -48.0
-    # headerContents['observatory'] = 'Subaru'
-    # headerContents['instrument'] = 'MEC'
-    # headerContents['tcsinfo'] = ''
     headerContents['metadata'] = ''
     headerContents.append()
-    getLogger(__name__).debug('Header Attached')
+    getLogger(__name__).debug('Header Attached to {}'.format(cfg.h5file))
 
 
     h5file.close()
@@ -352,7 +377,10 @@ class Bin2HdfConfig(object):
 
     @property
     def h5file(self):
-        return os.path.join(self.outdir, str(self.starttime) + '.h5')
+        try:
+            return self.user_h5file
+        except AttributeError:
+            return os.path.join(self.outdir, str(self.starttime) + '.h5')
 
     def write(self, file):
         dir = self.datadir
@@ -380,7 +408,7 @@ class HDFBuilder(object):
                  **kwargs):
         self.cfg = cfg
         self.exc = executable_path
-        self.done = mkidcore.utils.manager().Event()
+        self.done = False
         self.force = force
         self.kwargs = kwargs
 
@@ -409,29 +437,32 @@ class HDFBuilder(object):
                     pass
             else:
                 getLogger(__name__).info('H5 {} already built. Remake not requested. Done.'.format(self.cfg.h5file))
-                self.done.set()
+                self.done = True
 
     def run(self, polltime=0.1, usepytables=True, **kwargs):
         """kwargs is passed on to build_pytables or buildbin2hdf"""
         self.kwargs.update(kwargs)
         self.handle_existing()
-        if self.done.is_set():
+        if self.done:
             return
 
         tic = time.time()
         if usepytables:
             build_pytables(self.cfg, **self.kwargs)
-            self.done.set()
         else:
             build_bin2hdf(self.cfg, self.exc, polltime=polltime)
-            self.done.set()
+        self.done = True
 
         getLogger(__name__).info('Created {} in {:.0f}s'.format(self.cfg.h5file, time.time()-tic))
 
 
 def runbuilder(b):
     getLogger(__name__).debug('Calling run on {}'.format(b.cfg.h5file))
-    b.run()
+    try:
+        b.run()
+    except Exception as e:
+        getLogger(__name__).critical('Caught exception during run of {}'.format(b.cfg.h5file),
+                                     exc_info=True)
 
 
 def gen_configs(timeranges, config=None):
@@ -455,19 +486,22 @@ def buildtables(timeranges, config=None, ncpu=1, asynchronous=False, remake=Fals
     b2h_configs = gen_configs(timeranges, config)
 
     builders = [HDFBuilder(c, force=remake, **kwargs) for c in b2h_configs]
-    events = [b.done for b in builders]
 
     if ncpu == 1:
         for b in builders:
-            b.run(**kwargs)
-        return timeranges, events
+            try:
+                b.run(**kwargs)
+            except MemoryError:
+                getLogger(__name__).error('Insufficient memory to process {}'.format(b.h5file))
+        return timeranges
 
     pool = mp.Pool(min(ncpu, mp.cpu_count()))
 
     if asynchronous:
         getLogger(__name__).debug('Running async on {} builders'.format(len(builders)))
-        pool.map_async(runbuilder, builders)
-        return timeranges, events
+        async_res = pool.map_async(runbuilder, builders)
+        pool.close()
+        return timeranges, async_res
     else:
         pool.map(runbuilder, builders)
         pool.close()

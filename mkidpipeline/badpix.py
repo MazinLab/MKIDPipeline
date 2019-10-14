@@ -96,7 +96,7 @@ def _stddev_bias_corr(n):
     return 1.0 / corr
 
 
-def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5,
+def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5, dead_threshold=0,
                        use_local_stdev=False, bkgd_percentile=50.0, dead_mask=None, min_background_sigma=.01):
     """
     Robust!  NOTE:  This is a routine that was ported over from the ARCONS pipeline.
@@ -119,6 +119,8 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5,
     :param nsigma_hot:         Scalar float. If the flux ratio for a pixel is (nsigma_hot x expected error)
                                              above the max expected given the PSF FWHM, then flag it as hot.
     :param max_iter:           Scalar integer. Maximum number of iterations allowed.
+    :param dead_threshold:     Scalar integer. If a dead_mask is not given a dead_mask is created with this value as the
+                                               threshold. Defaults to 0.
     :param use_local_stdev:    Bool.  If True, use the local (robust) standard deviation within the
                                       moving box for the sigma value in the hot pixel thresholding
                                       instead of Poisson statistics. Mainly intended for situations where
@@ -128,6 +130,9 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5,
                                                 In an ideal world, this will be 50% (i.e., the median of the image).
                                                 For raw images, however, there is often a gradient across the field,
                                                 in which case it's sensible to use something lower than 50%.
+    :param dead_mask:         Integer array. The input dead pixel mask.
+    :param min_background_sigma: Scalar float. Minimum counts for the pixel to be flagged as DEAD
+
     :return:
     A dictionary containing the result and various diagnostics. Keys are:
 
@@ -143,6 +148,7 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5,
                 True = Hot Pixel
                 False = Not Hot Pixel
     'image': 2D array containing the input image
+    'masked_image': The hot and dead pixel masked image
     'median_filter_image': The median-filtered image
     'max_ratio': 2D array - the maximum allowed ratio between pixel flux and the median-filtered image
     'difference_image': the difference between the input image and an image representing the max allowed flux in each pixel.
@@ -159,7 +165,7 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5,
 
     # Assume everything with 0 counts is a dead pixel, turn dead pixel values into NaNs
     if dead_mask is None:
-        dead_mask = np.zeros_like(raw_image, dtype=bool)
+        dead_mask = raw_image == dead_threshold
     raw_image[dead_mask] = np.nan
 
     # Initialise a mask for hot pixels (all False) for comparison on each iteration.
@@ -171,7 +177,8 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5,
     difference_image = np.full_like(raw_image, np.nan)
     difference_image_error = np.full_like(raw_image, np.nan)
 
-    # In the case that *all* the pixels are dead, return a bad_mask where all the pixels are flagged as DEAD
+    # In the case that *all* the pixels
+    # are dead, return a bad_mask where all the pixels are flagged as DEAD
     if raw_image[np.isfinite(raw_image)].sum() <= 0:
         getLogger(__name__).info('Entire image consists of dead pixels')
         bad_mask = dead_mask * pixelflags.badpixcal['dead']
@@ -231,8 +238,11 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5,
 
         # Finished with loop, make sure a pixel is not simultaneously hot and dead
         assert (~(hot_mask & dead_mask)).all()
+        bad_mask = np.zeros_like(raw_image) \
+            + dead_mask * pixelflags.badpixcal['dead'] \
+            + hot_mask * pixelflags.badpixcal['hot']
 
-    return {'hot_mask': hot_mask, 'image': raw_image,
+    return {'hot_mask': hot_mask, 'masked_image': raw_image, 'image': image, 'bad_mask': bad_mask,
             'median_filter_image': median_filter_image, 'max_ratio': max_ratio, 'difference_image': difference_image,
             'difference_image_error': difference_image_error, 'num_iter': iteration + 1}
 
@@ -537,11 +547,14 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=30, startt=0, stopt=
     if stopt is None:
         stopt = obsfile.getFromHeader('expTime')
     assert startt < stopt
-    assert step <= stopt-startt
+    if step < stopt-startt:
+        getLogger(__name__).warning(('Hot pixel step time longer than exposure time by {:.0f} s, using full '
+                                     'exposure').format(stopt-startt-step))
+        step = stopt-startt
 
-    step_starts = np.arange(startt, stopt, step)  # Start time for each step (in seconds).
-    step_ends = step_starts + step  # End time for each step
-    step_ends[step_ends > stopt] = stopt  # Clip any time steps that run over the end of the requested time range.
+    step_starts = np.arange(startt, stopt, step, dtype=int)  # Start time for each step (in seconds).
+    step_ends = step_starts + int(step)  # End time for each step
+    step_ends[step_ends > stopt] = int(stopt)  # Clip any time steps that run over the end of the requested time range.
 
     # Initialise stack of masks, one for each time step
     hot_masks = np.zeros([obsfile.nXPix, obsfile.nYPix, step_starts.size], dtype=bool)
@@ -558,5 +571,5 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=30, startt=0, stopt=
 
     # Combine the bad pixel masks into a master mask
     obsfile.enablewrite()
-    obsfile.flag(pixelflags.HOTPIXEL * np.any(hot_masks, axis=-1))
+    obsfile.applyHotPixelMask(np.any(hot_masks, axis=-1))
     obsfile.disablewrite()

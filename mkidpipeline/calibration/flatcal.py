@@ -174,15 +174,19 @@ class FlatCalibrator(object):
         flatCalFile.close()
         getLogger(__name__).info("Wrote to {}".format(self.flatCalFileName))
 
-    @property
-    def frames(self):
-        return self.spectralCubes.sum(axis=2)
-
     def checkCountRates(self):
-        """ mask out frames, or cubes from integration time chunks with count rates too high """
-        medianCountRates = np.array([np.median(frame[frame != 0]) for frame in self.frames])
-        mask = medianCountRates <= self.countRateCutoff
-        self.spectralCubes = np.array([cube for cube, use in zip(self.spectralCubes, mask) if use])
+        """
+        masks out frames (time chunks) from the flatcal that are too bright so as to skew the results.
+        If a lasercal is used for the flatcal then there is only one frame so this function is irrelevant
+        and hits the pass condition.
+        """
+        frames = self.spectralCubes.sum(axis=3)
+        if len(frames) == 1:
+            pass
+        else:
+            medianCountRates = np.array([np.median(frame[frame != 0]) for frame in frames])
+            mask = medianCountRates <= self.countRateCutoff
+            self.spectralCubes = np.array([cube for cube, use in zip(self.spectralCubes, mask) if use])
 
     def calculateWeights(self):
         """
@@ -483,15 +487,12 @@ class WhiteCalibrator(FlatCalibrator):
 class LaserCalibrator(FlatCalibrator):
     def __init__(self, config=None, cal_file_name='flatsol_{wavecal}.h5'):
         super().__init__(config)
-        self.wvlCalFile = self.cfg.wavesol
-        if not os.path.exists(self.wvlCalFile):
-            self.wvlCalFile = os.path.join(self.cfg.paths.database, self.wvlCalFile)
         self.flatCalFileName = self.cfg.get('flatname', os.path.join(self.cfg.paths.database,
-                                                                     cal_file_name.format(wavecal=os.path.basename(self.cfg.wavesol))))
+                                                                     cal_file_name.format(wavecal=self.cfg.wavesol.id)))
 
     def loadData(self):
-        getLogger(__name__).info('Loading calibration data from {}'.format(self.wvlCalFile))
-        self.sol = wavecal.load_solution(self.wvlCalFile)
+        getLogger(__name__).info('Loading calibration data from {}'.format(self.cfg.wavesol))
+        self.sol = wavecal.load_solution(self.cfg.wavesol)
         self.beamImage = self.sol.beam_map
         self.wvlFlags = self.sol.beam_map_flags
         self.xpix = self.sol.cfg.x_pixels
@@ -622,7 +623,7 @@ def plotCalibrations(flatsol, wvlCalFile, pixel):
     Plot weights of each wavelength bin for every single pixel
     Makes a plot of wavelength vs weights, twilight spectrum, and wavecal solution for each pixel
     """
-    wavesol = wavecal.Solution(wvlCalFile)
+    wavesol = wavecal.load_solution(wvlCalFile)
     assert os.path.exists(flatsol), "{0} does not exist".format(flatsol)
     flat_cal = tables.open_file(flatsol, mode='r')
     calsoln = flat_cal.root.flatcal.calsoln.read()

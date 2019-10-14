@@ -4,25 +4,32 @@ import math
 import os
 import sys
 
-import astropy.stats
 import matplotlib as mpl
 import matplotlib.pylab as plt
 import numpy
 import scipy
 import scipy.ndimage
 import scipy.stats
-import tables
-from astropy import wcs
-from numpy import linalg
 from scipy.interpolate import griddata
 from scipy.optimize.minpack import curve_fit
+import tables
+import numpy as np
+from numpy import linalg
 
+try:
+    from skimage.transform import rotate as imrotate
+except ImportError:
+    from scipy.misc import imrotate
+
+import astropy.stats
+from astropy import wcs
 from astropy.io import fits
 from astropy.coordinates import Angle
 from mkidcore.corelog import getLogger
 from matplotlib.colors import LogNorm
-from scipy.misc import imrotate
-import numpy as np
+
+
+
 
 """
 Modules:
@@ -1422,6 +1429,8 @@ def get_device_orientation(coords, fits_filename='Theta1 Orionis B_mean.fits', s
         else:
             device_orientation += float(user_input)
 
+        getLogger(__name__).warning('Using untested migration from scipy.misc.imrotate to skimage.transform.rotate. '
+                                    'Verify results and remove this log message.')
         field = imrotate(hdu1.data, device_orientation, interp='bilinear')
 
     getLogger(__name__).info('Using position angle {} deg for device'.format(device_orientation))

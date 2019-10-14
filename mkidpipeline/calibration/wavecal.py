@@ -161,6 +161,7 @@ class Configuration(object):
 
     @classmethod
     def from_yaml(cls, constructor, node):
+        #TODO I don't know why I used extract_from_node here and dict(loader.construct_pairs(node)) elsewhere
         d = mkidcore.config.extract_from_node(constructor, 'configuration_path', node)
         return cls(d['configuration_path'])
 
@@ -389,7 +390,7 @@ class Calibrator(object):
                         message = "({}, {}) : {} nm : histogram fit failed because there is no data"
                         log.debug(message.format(pixel[0], pixel[1], wavelength))
                         continue
-                    if len(model.x) < model.max_parameters * 2:
+                    if len(model.x[model.y != 0]) < model.max_parameters * 2:
                         model.flag = 5
                         message = "({}, {}) : {} nm : histogram fit failed because there are less than {} bins"
                         log.debug(message.format(pixel[0], pixel[1], wavelength, model.max_parameters * 2))
@@ -1033,7 +1034,7 @@ class Solution(object):
     yaml_tag = '!wsoln'
 
     def __init__(self, file_path=None, fit_array=None, configuration=None, beam_map=None,
-                 beam_map_flags=None, solution_name='solution.npz'):
+                 beam_map_flags=None, solution_name='solution'):
         # default parameters
         self._color_map = cm.get_cmap('viridis')
         self._parse = True
@@ -1122,6 +1123,8 @@ class Solution(object):
             save_path = os.path.join(self.cfg.out_directory, self.name)
         else:
             save_path = os.path.join(self.cfg.out_directory, save_name)
+        if not save_path.endswith('.npz'):
+            save_path += '.npz'
         # make sure the configuration is pickleable if created from __main__
         if self.cfg.__class__.__module__ == "__main__":
             from mkidpipeline.calibration.wavecal import Configuration
@@ -1132,15 +1135,18 @@ class Solution(object):
                  beam_map_flags=self.beam_map_flags)
         self._file_path = save_path  # new file_path for the solution
 
-    def load(self, file_path, overload=True):
+    def load(self, file_path, overload=True, file_mode='c'):
         """
         Load a solution from a file, optionally overloading previously defined attributes.
         The data will not be pulled from the npz file until first access of the data which
         can take a while.
+
+        file_mode defaults to copy on write. For valid options see
+        https://docs.scipy.org/doc/numpy/reference/generated/numpy.memmap.html#numpy.memmap
         """
         log.info("Loading solution from {}".format(file_path))
         keys = ('fit_array', 'configuration', 'beam_map', 'beam_map_flags')
-        npz_file = np.load(file_path)
+        npz_file = np.load(file_path, allow_pickle=True, encoding='bytes', mmap_mode=file_mode)
         for key in keys:
             if key not in npz_file.keys():
                 raise AttributeError('{} missing from {}, solution malformed'.format(key, file_path))
@@ -1149,7 +1155,7 @@ class Solution(object):
             for attr in keys:
                 setattr(self, attr, None)
         self._file_path = file_path  # new file_path for the solution
-        self.name = os.path.basename(file_path)  # new name for saving
+        self.name = os.path.splitext(os.path.basename(file_path))[0]  # new name for saving
         self._finish_init()
         log.info("Complete")
 
@@ -2344,7 +2350,7 @@ class Solution(object):
                 freq_file = configuration[roach]['freqfile']
                 log.info('loading frequency file: {0}'.format(freq_file))
                 try:
-                    frequency_array = np.loadtxt(freq_file)
+                    frequency_array = np.loadtxt(freq_file, allow_pickle= True)
                     data.append(frequency_array)
                 except (OSError, ValueError, UnicodeDecodeError, IsADirectoryError):
                     log.warn('could not load file: {}'.format(freq_file))
@@ -2456,12 +2462,14 @@ class Solution(object):
 
 
 def load_solution(wc, singleton_ok=True):
-    """wc is a solution file or a Solution object"""
+    """wc is a solution filename string, a Solution object, or a mkidpipeline.config.MKIDWavedataDescription"""
     global _loaded_solutions
     if not singleton_ok:
         raise NotImplementedError('Must implement solution copying')
     if isinstance(wc, Solution):
         return wc  # TODO: _loaded_solutions[wc._file_path] = wc
+    if isinstance(wc, mkidpipeline.config.MKIDWavedataDescription):
+        wc = mkidpipeline.config.wavecal_id(wc.id)+'.npz'
     wc = wc if os.path.isfile(wc) else os.path.join(mkidpipeline.config.config.paths.database, wc)
     try:
         return _loaded_solutions[wc]
@@ -2470,12 +2478,17 @@ def load_solution(wc, singleton_ok=True):
     return _loaded_solutions[wc]
 
 
+def clear_solution_cache():
+    global _loaded_solutions
+    _loaded_solutions = {}
+
+
 def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
     cfg = mkidpipeline.config.config if config is None else config
 
     solutions = []
     for sd in solution_descriptors:
-        sf = os.path.join(cfg.paths.database, sd.id)
+        sf = os.path.join(cfg.paths.database, mkidpipeline.config.wavecal_id(sd.id)+'.npz')
         if os.path.exists(sf) and not remake:
             solutions.append(load_solution(sf))
         else:

@@ -13,7 +13,7 @@
   data: HD22179
   startw: 811
   stopw: 1351
-  kind: cube
+  kind: temporal
   enable_noise: True
   enable_photom: True
   enable_ssd: True

@@ -12,9 +12,8 @@ paths: !configdict
     dithers: /mnt/data0/baileyji/mec/dithers/
     data: /mnt/data0/ScienceData/Subaru
     #a processing cache directory, calibrations, configs, etc will be retrieved/stored here
-    database: /mnt/data0/baileyji/mec/database
-    out: /mnt/data0/baileyji/mec/out
-    tmp: /mnt/data0/baileyji/mec/scratch/  #(optional) can be used to specify a location for data intensive temp files
+    database: /scratch/steiger/MEC/DATABASE
+    out: /scratch/steiger/MEC/HD1160/output
 
 ncpu: 7
 
@@ -40,7 +39,7 @@ wavecal: !configdict
 
 flatcal: !configdict
   #This section provides the parameters specific to the flat calibration function
-  rate_cutoff: 20000 #Count Rate Cutoff in inverse seconds (number)
+  rate_cutoff: 20000 #Count Rate Cutoff in seconds (number)
   trim_fraction: 0 #Fraction of Chunks to trim (integer)
   #Integration time to break up larger h5 files into in seconds (number) (5 sec recommended)
   #Flatcal will calculate weights over EXPTIME/INTTIME time chunks and median-average them
@@ -63,11 +62,6 @@ instrument: !configdict
 drizzler: !configdict
   plots: all
   pixfrac: 0.5
-  exp_timestep: 1  # duration of the time bins in the output cube
-  wcs_timestep: 1  # time between different wcs parameters (eg orientations). 0 will use the calculated non-blurring min
-  nwvlbins: 1  # the number of equal width bins in the temporally drizzled cube
-  usecache: False  # if True the reformatted photontable data from each of the dithers is stored and reloaded for
-                   # subsequent runs of drizzler.py
 
 templar: !configdict
   file: the_conf.yml
