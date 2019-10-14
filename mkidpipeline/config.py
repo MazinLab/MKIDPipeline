@@ -10,6 +10,7 @@ import astropy.units as units
 import json
 from astropy.coordinates import SkyCoord
 from collections import namedtuple
+import ast
 
 import mkidcore.config
 from mkidcore.corelog import getLogger, create_log, MakeFileHandler
@@ -26,6 +27,7 @@ Beammap()
 
 config = None
 _dataset = None
+_parsedDitherLogs = {}
 
 yaml = mkidcore.config.yaml
 
@@ -364,37 +366,60 @@ class MKIDWCSCalDescription(object):
         return cls(name, ob=ob, platescale=platescale, dither_ref=dither_ref, _common=d, dither_home=dither_home)
 
 
+def parseLegacyDitherLog(file):
+    with open(file) as f:
+        lines = f.readlines()
+
+    tofloat = lambda x: list(map(float, x.replace('[', '').replace(']', '').split(',')))
+    proc = lambda x: str.lower(str.strip(x))
+    d = dict([list(map(proc, l.partition('=')[::2])) for l in lines])
+
+    # Support legacy legacy names
+    if 'endtimes' not in d:
+        d['endtimes'] = d['stoptimes']
+
+    inttime = int(d['inttime'])
+
+    startt = tofloat(d['starttimes'])
+    endt = tofloat(d['endtimes'])
+    xpos = tofloat(d['xpos'])
+    ypos = tofloat(d['ypos'])
+
+    return startt, endt, list(zip(xpos, ypos)), inttime
+
+
 class MKIDDitheredObservation(object):
     yaml_tag = '!dither'
 
-    def __init__(self, name, file, wavecal, flatcal, wcscal, use=None, _common=None):
+    def __init__(self, name, wavecal, flatcal, wcscal, obs=None, byLegacyFile=None, byTimestamp=None,
+                 use=None, _common=None):
+        """
+        Obs, byLegacy, or byTimestamp must be specified. byTimestamp is normal.
 
+        Obs must be a list of MKIDObservations
+        byLegacyFile must be a legacy dither log file (starttimes, endtimes, xpos,ypos)
+        byTimestamp mut be a timestamp or a datetime that falls in the range of a dither in a ditherlog on the path
+        obs>byTimestamp>byLegacyFile
+        """
         if _common is not None:
             self.__dict__.update(_common)
 
         self.name = name
-        self.file = file
+        self.file = byLegacyFile
         self.wavecal = wavecal
         self.flatcal = flatcal
         self.wcscal = wcscal
 
-        with open(file) as f:
-            lines = f.readlines()
-
-        tofloat = lambda x: list(map(float, x.replace('[','').replace(']','').split(',')))
-        proc = lambda x: str.lower(str.strip(x))
-        d = dict([list(map(proc, l.partition('=')[::2])) for l in lines])
-
-        # Support legacy names
-        if 'endtimes' not in d:
-            d['endtimes'] = d['stoptimes']
-
-        self.inttime = int(d['inttime'])
-
-        startt = tofloat(d['starttimes'])
-        endt = tofloat(d['endtimes'])
-        xpos = tofloat(d['xpos'])
-        ypos = tofloat(d['ypos'])
+        if obs is not None:
+            self.obs=obs
+            self.pos = None
+            self.inttime = None
+            return
+        elif byTimestamp is not None:
+            startt, endt, pos = getDitherInfoByTime(byTimestamp)
+        else:
+            startt, endt, pos, inttime= parseLegacyDitherLog(byLegacyFile)
+            self.inttime = inttime
 
         if use is None:
             self.use = list(range(len(startt)))
@@ -403,26 +428,29 @@ class MKIDDitheredObservation(object):
 
         startt = [startt[i] for i in self.use]
         endt = [endt[i] for i in self.use]
-        xpos = [xpos[i] for i in self.use]
-        ypos = [ypos[i] for i in self.use]
 
-        self.pos = list(zip(xpos, ypos))
+        self.pos = [pos[i] for i in self.use]
 
         self.obs = []
         for i, b, e, p in zip(self.use, startt, endt, self.pos):
             name = '{}_({})_{}'.format(self.name, os.path.basename(self.file), i)
             _common.pop('dither_pos', None)
             _common['dither_pos'] = p
-            self.obs.append(MKIDObservation(name, b, stop=e, wavecal=wavecal, flatcal=flatcal,
-                                            wcscal=wcscal, _common=_common))
+            self.obs.append(MKIDObservation(name, b, stop=e, wavecal=wavecal, flatcal=flatcal, wcscal=wcscal,
+                                            _common=_common))
 
     @classmethod
     def from_yaml(cls, loader, node):
         d = dict(loader.construct_pairs(node))
+        if 'approximate_time' in d:
+            d.pop('file',None)
+            return cls(d.pop('name'), d.pop('wavecal'), d.pop('flatcal'), d.pop('wcscal'),
+                       byTimestamp=d.pop('approximate_time'), use=d.pop('use', None), _common=d)
+
         if not os.path.isfile(d['file']):
             getLogger(__name__).info('Treating {} as relative dither path.'.format(d['file']))
             d['file'] = os.path.join(config.paths.dithers, d['file'])
-        return cls(d.pop('name'), d.pop('file'), d.pop('wavecal'), d.pop('flatcal'), d.pop('wcscal'),
+        return cls(d.pop('name'), d.pop('wavecal'), d.pop('flatcal'), d.pop('wcscal'), byLegacyFile=d.pop('file'),
                    use=d.pop('use', None), _common=d)
 
     @property
@@ -684,6 +712,7 @@ def select_metadata_for_h5(mkidobs, metadata_source):
 
 
 def parse_obslog(file):
+    """Return a list of configthings for each record in the observing log filterable on the .utc attribute"""
     with open(file, 'r') as f:
         lines = f.readlines()
     ret = []
@@ -692,6 +721,41 @@ def parse_obslog(file):
         ct.register('utc', datetime.strptime(ct.utc, "%Y%m%d%H%M%S"), update=True)
         ret.append(ct)
     return ret
+
+
+def parse_ditherlog(file):
+    global _parsedDitherLogs
+    with open(file, 'r') as f:
+        lines = f.readlines()
+    for i, l in enumerate(lines):
+        if not l.strip().startswith('starts'):
+            continue
+        try:
+            assert lines[i+1].strip().startswith('ends') and lines[i+2].strip().startswith('pos')
+            starts = ast.literal_eval(l.partition('=')[2])
+            ends = ast.literal_eval(lines[i + 1].partition('=')[2])
+            pos = ast.literal_eval(lines[i + 2].partition('=')[2])
+        except (AssertionError, IndexError, ValueError, SyntaxError):
+            # Bad dither
+            getLogger(__name__).error('Dither l{}:{} corrupt'.format(i-1, lines[i-1]))
+            continue
+        _parsedDitherLogs[(min(starts), max(ends))] = (starts, ends, pos)
+
+
+def getDitherInfoByTime(time):
+    global _parsedDitherLogs
+    if not _parsedDitherLogs:
+        for f in glob(os.path.join(config.paths.database, 'dither_*.log')):
+            parse_ditherlog(f)
+
+    if isinstance(time, datetime):
+        time = time.timestamp()
+
+    for (t0, t1), v in _parsedDitherLogs.items():
+        if t0 <= time <= t1:
+            return v
+
+    raise ValueError('No dither found for time {}'.format(time))
 
 
 def load_observing_metadata(files=tuple(), include_database=True):
