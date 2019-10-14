@@ -76,7 +76,7 @@ def generate_outputs(outputs):
             drizzled.writefits(o.output_file)
         if o.wants_movie:
             pipe.getLogger('mkidpipeline.hdf.photontable').setLevel('DEBUG')
-            pipe.movies.make_movie(o)
+            pipe.movies.make_movie(o, inpainting=False)
 
 
 full_dataset = pipe.load_data_description(datafile)  # NB using this may result in processing more than is strictly required
