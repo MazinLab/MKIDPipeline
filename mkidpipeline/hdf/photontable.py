@@ -1083,8 +1083,8 @@ class ObsFile(object):
         [nx,ny,time]
         """
         if timeslices is not None:
-            startt = timeslices.min()
-            stopt = timeslices.max()
+            firstSec = timeslices.min()
+            integrationTime = timeslices.max() - timeslices.min()
         else:
             # May not include data at tail end if timeslice does not evenly divide time window
             timeslices = np.arange(0 if firstSec is None else firstSec,
@@ -1122,7 +1122,7 @@ class ObsFile(object):
             #TODO finish returning hdu
             return ret
         else:
-            return {'cube': cube, 'timeslices': timeslices}
+            return {'cube': cube, 'timeslices': timeslices, 'bad': np.array(self.beamFlagImage) != 0}
 
     def getSpectralCube(self, firstSec=0, integrationTime=None, applyWeight=False, applyTPFWeight=False,
                         wvlStart=700, wvlStop=1500, wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None,

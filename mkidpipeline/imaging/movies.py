@@ -5,9 +5,10 @@ import matplotlib.animation as manimation
 
 from mkidcore.corelog import getLogger
 import mkidpipeline.hdf.photontable
+from skimage import data
+from skimage.restoration import inpaint
 
-
-def make_movie(out, usewcs=False, showaxes=True, **kwargs):
+def make_movie(out, usewcs=False, showaxes=True, inpainting=False, **kwargs):
     title = out.name
     outfile = out.output_file
     h5file = out.data.h5
@@ -46,11 +47,11 @@ def make_movie(out, usewcs=False, showaxes=True, **kwargs):
 
     _make_movie(h5file, outfile, timestep, duration, title=title, usewcs=usewcs,
                 startw=startw, stopw=stopw, startt=startt, stopt=stopt,
-                fps=fps, showaxes=showaxes)
+                fps=fps, showaxes=showaxes, inpainting=inpainting)
 
 
 def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, startw=None, stopw=None, startt=None, stopt=None,
-                fps=False, showaxes=False):
+                fps=False, showaxes=False, inpainting=False, cps_cutoff=50):
     """returns the movie frames"""
     global _cache
     movietype = os.path.splitext(outfile)[1].lower()
@@ -70,8 +71,22 @@ def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, sta
         del of
         _cache = cube, wcs, (h5file, timestep, startt, stopt, usewcs, startw, stopw)
         getLogger(__name__).info('Retrieved a temporal cube of shape {}'.format(str(cube['cube'].shape)))
-
-    frames, times = cube['cube'].T, cube['timeslices']
+    if inpainting:
+        getLogger(__name__).info('Inpainting requested - note this will significantly slow down movie creation')
+        full_frames, times = cube['cube'].T, cube['timeslices']
+        input_frames = full_frames[:, 10:140, 80:122]
+        masked_array = np.ma.masked_where(input_frames < cps_cutoff*timestep, input_frames)
+        count_masks = np.ma.getmaskarray(masked_array)
+        masks = count_masks
+        frames = np.zeros(full_frames.shape)
+        for i, mask in enumerate(masks):
+            frames[i, 10:140, 80:122] = inpaint.inpaint_biharmonic(input_frames[i], mask, multichannel=False)
+        getLogger(__name__).info('Completed inpainting process!')
+    else:
+        frames, times = cube['cube'].T, cube['timeslices']
+    if len(frames) == 0:
+        getLogger(__name__).info('No frames in the specified timerange - check your stop and start times')
+        raise ValueError
 
     if not fps:
         fps = frames.shape[2]/duration
@@ -88,7 +103,7 @@ def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, sta
     if usewcs:
         plt.subplot(projection=wcs)
     im = plt.imshow(frames[0], interpolation='none', origin='lower', vmin=frames.min(),
-                    vmax=np.percentile(frames, 98))
+                    vmax=np.percentile(frames, 98), cmap=plt.get_cmap('Blues'))
     cbar = plt.colorbar()
     ticks = cbar.get_ticks()
     cbar.set_label('Photons/s')
