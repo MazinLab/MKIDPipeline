@@ -1117,7 +1117,7 @@ class ObsFile(object):
         getLogger(__name__).debug('Histogramed data in {:.2f} s, reformatting in {:.2f}'.format(toc2 - tic, toc2 - toc))
 
         if hdu:
-            ret = fits.ImageHDU(data=cube)
+            ret = fits.ImageHDU(data=np.moveaxis(cube, 2, 0))
             getLogger(__name__).warning('Must integrate wavelength info into ImageHDU ctype kw and finish building hdu')
             #TODO finish returning hdu
             return ret

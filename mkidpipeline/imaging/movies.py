@@ -65,7 +65,7 @@ def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, sta
     except Exception:
         getLogger(__name__).info('Fetching temporal cube from {}'.format(h5file))
         of = mkidpipeline.hdf.photontable.ObsFile(h5file)
-        cube = of.getTemporalCube(firstSec=startt, integrationTime=stopt-startt, timeslice=timestep, startw=startw,
+        cube = of.getTemporalCube(firstSec=startt, integrationTime=stopt, timeslice=timestep, startw=startw,
                                   stopw=stopw, applyWeight=True, applyTPFWeight=True)
         wcs = of.get_wcs(wcs_timestep=startt) if usewcs else None
         del of
