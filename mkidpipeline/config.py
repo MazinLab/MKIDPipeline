@@ -434,7 +434,7 @@ class MKIDDitheredObservation(object):
 
         self.obs = []
         for i, b, e, p in zip(self.use, startt, endt, self.pos):
-            name = '{}_({})_{}'.format(self.name, os.path.basename(self.file), i)
+            name = '{}_({})_{}'.format(self.name, '', i) #TODO: removed self.file - fix w/ something sensible
             _common.pop('dither_pos', None)
             _common['dither_pos'] = p
             self.obs.append(MKIDObservation(name, b, stop=e, wavecal=wavecal, flatcal=flatcal, wcscal=wcscal,
@@ -445,13 +445,13 @@ class MKIDDitheredObservation(object):
         d = dict(loader.construct_pairs(node))
         if 'approximate_time' in d:
             d.pop('file',None)
-            return cls(d.pop('name'), d.pop('wavecal'), d.pop('flatcal'), d.pop('wcscal'),
+            return cls(d.pop('name'), d.pop('wavecal', None), d.pop('flatcal', None), d.pop('wcscal'),
                        byTimestamp=d.pop('approximate_time'), use=d.pop('use', None), _common=d)
 
         if not os.path.isfile(d['file']):
             getLogger(__name__).info('Treating {} as relative dither path.'.format(d['file']))
             d['file'] = os.path.join(config.paths.dithers, d['file'])
-        return cls(d.pop('name'), d.pop('wavecal'), d.pop('flatcal'), d.pop('wcscal'), byLegacyFile=d.pop('file'),
+        return cls(d.pop('name'), d.pop('wavecal', None), d.pop('flatcal', None), d.pop('wcscal'), byLegacyFile=d.pop('file'),
                    use=d.pop('use', None), _common=d)
 
     @property
@@ -732,7 +732,7 @@ def parse_ditherlog(file):
         if not l.strip().startswith('starts'):
             continue
         try:
-            assert lines[i+1].strip().startswith('ends') and lines[i+2].strip().startswith('pos')
+            assert lines[i+1].strip().startswith('ends') and lines[i+2].strip().startswith('path')
             starts = ast.literal_eval(l.partition('=')[2])
             ends = ast.literal_eval(lines[i + 1].partition('=')[2])
             pos = ast.literal_eval(lines[i + 2].partition('=')[2])
