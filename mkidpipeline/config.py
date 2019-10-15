@@ -417,6 +417,7 @@ class MKIDDitheredObservation(object):
             return
         elif byTimestamp is not None:
             startt, endt, pos = getDitherInfoByTime(byTimestamp)
+
         else:
             startt, endt, pos, inttime= parseLegacyDitherLog(byLegacyFile)
             self.inttime = inttime
@@ -745,7 +746,7 @@ def parse_ditherlog(file):
 def getDitherInfoByTime(time):
     global _parsedDitherLogs
     if not _parsedDitherLogs:
-        for f in glob(os.path.join(config.paths.database, 'dither_*.log')):
+        for f in glob(os.path.join(config.paths.dithers, 'dither_*.log')):
             parse_ditherlog(f)
 
     if isinstance(time, datetime):
