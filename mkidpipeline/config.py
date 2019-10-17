@@ -417,6 +417,7 @@ class MKIDDitheredObservation(object):
             return
         elif byTimestamp is not None:
             startt, endt, pos = getDitherInfoByTime(byTimestamp)
+            self.inttime = (np.array(endt) - np.array(startt))[0]
 
         else:
             startt, endt, pos, inttime= parseLegacyDitherLog(byLegacyFile)
