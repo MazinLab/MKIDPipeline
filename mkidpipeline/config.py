@@ -16,7 +16,6 @@ import mkidcore.config
 from mkidcore.corelog import getLogger, create_log, MakeFileHandler
 from mkidcore.utils import getnm, derangify
 from mkidcore.objects import Beammap
-from mkidpipeline.hdf.photontable import ObsFile
 
 #TODO this is a placeholder to help integrating metadata
 InstrumentInfo = namedtuple('InstrumentInfo', ('beammap', 'platescale'))
