@@ -3,7 +3,6 @@
 Author: Matt Strader        Date: August 19, 2012
 Modified 2017 for Darkness/MEC
 Authors: Seth Meeker, Neelay Fruitwala, Alex Walter
-Last Updated: April 16, 2018
 
 The class ObsFile is an interface to observation files.  It provides methods 
 for typical ways of accessing photon list observation data.  It can also load 
@@ -45,6 +44,7 @@ applyFlag(self, xCoord, yCoord, flag)
 undoFlag(self, xCoord, yCoord, flag)
 modifyHeaderEntry(self, headerTitle, headerValue)
 """
+from __future__ import print_function
 import os
 import warnings
 import time
@@ -332,7 +332,7 @@ class ObsFile(object):
         entry = self.info[self.titles.index(name)]
         return entry
 
-    def print(self):
+    def detailed_str(self):
         t=self.photonTable.read()
         tinfo = repr(self.photonTable).replace('\n', '\n\t\t')
         if np.all(t['Time'][:-1] <= t['Time'][1:]):
@@ -359,7 +359,6 @@ class ObsFile(object):
                        dirty='Column(s) {} have dirty indices.'.format(dirty) if dirty else 'No columns dirty',
                        wave=self.info['wvlCalFile'], #self.info['isWvlCalibrated'] else 'None'
                        flat=self.info['fltCalFile'] if 'fltCalFile' in self.info.dtype.names else 'None')
-        print(s)
         return s
 
     @property
@@ -628,7 +627,7 @@ class ObsFile(object):
             If the ObsFile is not wavelength calibrated this flag does nothing.
             If the ObsFile is wavelength calibrated (ObsFile.info['isWvlCalibrated'] = True) then:
              - forceRawPhase=True will return all the photons in the list (might be phase heights instead of wavelengths)
-             - forceRawPhase=False is guarenteed to only return properly wavelength calibrated photons in the photon list
+             - forceRawPhase=False is guaranteed to only return properly wavelength calibrated photons in the photon list
 
         Returns
         -------
@@ -655,116 +654,6 @@ class ObsFile(object):
 
         return self.query(startw=wvlStart, stopw=wvlStop, startt=firstSec if firstSec else None,
                           resid=resid, intt=None if integrationTime == -1 else integrationTime)
-
-    def getPixelCount(self, x, y, applyWeight=True, applyTPFWeight=True, applyTimeMask=False, **kwargs):
-        """
-        Returns the number of photons received in a single pixel from firstSec to firstSec + integrationTime
-
-        Parameters
-        ----------
-        *args: args from getPixelPhotonList 
-            eg. xCoord, yCoord
-        applyWeight: bool
-            If True, applies the spectral/flat/linearity weight
-        applyTPFWeight: bool
-            If True, applies the true positive fraction (noise) weight
-        applyTimeMask: bool
-            If True, applies the included time mask (if it exists)
-        **kwargs: keywords from getPixelPhotonList
-            eg. firstSec, wvlStart
-
-        Returns
-        -------
-        Dictionary with keys:
-            'counts':int, number of photon counts
-            'effIntTime':float, effective integration time after time-masking is
-           `          accounted for.
-           :param x:
-           :param y:
-        """
-        raise RuntimeError("Clean up the arguemnts/kwarguments, bug Jeb if you aren't sure.")
-        try:
-            applyWvl = not kwargs['forceRawPhase']
-        except KeyError:
-            applyWvl = False
-        try:
-            xCoord = kwargs['xCoord']
-        except KeyError:
-            xCoord = x
-        try:
-            yCoord = kwargs['yCoord']
-        except KeyError:
-            yCoord = y
-        if self.pixelIsBad(xCoord, yCoord, forceWvl=applyWvl, forceWeights=applyWeight, forceTPFWeights=applyTPFWeight):
-            return 0, 0.0
-
-        photonList = self.getPixelPhotonList(**kwargs)
-
-        weights = np.ones(len(photonList))
-        if applyWeight:
-            weights *= photonList['SpecWeight']
-        if applyTPFWeight:
-            weights *= photonList['NoiseWeight']
-
-        try:
-            firstSec = kwargs['firstSec']
-        except KeyError:
-            firstSec = 0
-        try:
-            intTime = kwargs['integrationTime']
-        except KeyError:
-            intTime = self.info['expTime']
-        intTime -= firstSec
-        if applyTimeMask:
-            raise NotImplementedError
-            if self.info['timeMaskExists']:
-                pass
-                # Apply time mask to photon list
-                # update intTime
-            else:
-                warnings.warn('Time mask does not exist!')
-
-        return {'counts': np.sum(weights), 'effIntTime': intTime}
-
-    def getPixelLightCurve(self, *args, lastSec=-1, cadence=1, scaleByEffInt=True, **kwargs):
-        """
-        Get a simple light curve for a pixel (basically a wrapper for getPixelCount).
-
-        INPUTS:
-            *args: args from getPixelCount
-                 xCoord, yCoord
-            lastSec: float
-                 - end time (sec) within obsFile for the light curve. If -1, returns light curve to end of file.
-            cadence: float
-                 - cadence (sec) of light curve. i.e., return values integrated every 'cadence' seconds.
-            scaleByEffInt: bool
-                 - Scale by the pixel's effective integration time
-            **kwargs: keywords for getPixelCount, including:
-                firstSec
-                applyWeight
-                wvlStart
-                Note: if integrationTime is given as a keyword it will be ignored
-
-
-        OUTPUTS:
-            A single one-dimensional array of flux counts integrated every 'cadence' seconds
-            between firstSec and lastSec. Note if step is non-integer may return inconsistent
-            number of values depending on rounding of last value in time step sequence (see
-            documentation for numpy.arange() ).
-        """
-        if lastSec == -1:
-            lastSec = self.info['expTime']
-        firstSec = kwargs.get('firstSec', 0)
-        if 'integrationTime' in kwargs.keys():
-            warnings.warn("Integration time is being set to keyword 'cadence'")
-        kwargs['integrationTime'] = cadence
-        raise NotImplementedError('This function will not work as presently implemented. You have been assigned to '
-                                  'fix it')
-        data = [self.getPixelCount(*args, **kwargs) for x in range(firstSec, lastSec, cadence)]
-        if scaleByEffInt:
-            return np.asarray([1.0 * x['counts'] / x['effIntTime'] for x in data])
-        else:
-            return np.asarray([x['counts'] for x in data])
 
     def getFits(self, firstSec=0, integrationTime=None, applyWeight=False, applyTPFWeight=False,
                 wvlStart=None, wvlStop=None, cube=False, countRate=True):
