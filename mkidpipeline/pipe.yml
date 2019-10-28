@@ -40,6 +40,7 @@ wavecal: !configdict
 
 flatcal: !configdict
   #This section provides the parameters specific to the flat calibration function
+  method: 'Laser' #either 'White' for a white light calibration or 'Laser' for a laser calibration
   rate_cutoff: 20000 #Count Rate Cutoff in inverse seconds (number)
   trim_fraction: 0 #Fraction of Chunks to trim (integer)
   #Integration time to break up larger h5 files into in seconds (number) (5 sec recommended)
