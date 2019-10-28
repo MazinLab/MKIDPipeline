@@ -688,14 +688,19 @@ def fetch(solution_descriptors, config=None, ncpu=np.inf, remake=False):
             fcfg.unregister('flatname')
             fcfg.unregister('h5file')
 
-            if hasattr(sd, 'wavecal'):
-                fcfg.register('wavesol', sd.wavecal, update=True)
-                flattner = LaserCalibrator(fcfg, cal_file_name=sd.id)
-            else:
+            if fcfg.flatcal.method == 'Laser':
+                fcfg.register('start_times', [x.start for x in sd.wavecal.data], update=True)
+                fcfg.register('exposure_times', [x.duration for x in sd.wavecal.data], update=True)
+                fcfg.register('wavelengths', [w for w in sd.wavecal.wavelengths], update=True)
+                flattner = LaserCalibrator(config=fcfg, cal_file_name=sd.id)
+            elif fcfg.flatcal.method == 'White':
                 fcfg.register('start_time', sd.ob.start, update=True)
                 fcfg.register('exposure_time', sd.ob.duration, update=True)
                 fcfg.unregister('wavesol')
-                flattner = WhiteCalibrator(fcfg, cal_file_name=sd.id)
+                flattner = WhiteCalibrator(config=fcfg, cal_file_name=sd.id)
+            else:
+                raise TypeError(str(fcfg.flatcal.method) + ' is an invalid method keyword argument')
+
 
             solutions.append(sf)
             flattners.append(flattner)
