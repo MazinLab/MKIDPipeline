@@ -485,30 +485,33 @@ class WhiteCalibrator(FlatCalibrator):
 
 
 class LaserCalibrator(FlatCalibrator):
-    def __init__(self, config=None, cal_file_name='flatsol_{wavecal}.h5'):
+    def __init__(self, h5dir='', start_times=tuple(), exposure_times=tuple(), config=None, cal_file_name='flatsol_laser.h5'):
         super().__init__(config)
         self.flatCalFileName = self.cfg.get('flatname', os.path.join(self.cfg.paths.database,
-                                                                     cal_file_name.format(wavecal=self.cfg.wavesol.id)))
+                                                                     cal_file_name))
+        self.beamImage = self.cfg.beammap
+        self.wvlFlags = self.cfg.beammap.flags
+        self.xpix = self.cfg.beammap.ncols
+        self.ypix = self.cfg.beammap.nrows
+        self.wavelengths = np.array(self.cfg.wavelengths, dtype=float)
+        self.exposure_times = self.cfg.exposure_times
+        self.start_times = self.cfg.start_times
+        self.h5_directory = h5dir
+        self.h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.start_times]
 
-    def loadData(self):
-        getLogger(__name__).info('Loading calibration data from {}'.format(self.cfg.wavesol))
-        self.sol = wavecal.load_solution(self.cfg.wavesol)
-        self.beamImage = self.sol.beam_map
-        self.wvlFlags = self.sol.beam_map_flags
-        self.xpix = self.sol.cfg.x_pixels
-        self.ypix = self.sol.cfg.y_pixels
-        self.wave_list = self.sol.cfg.wavelengths
-        self.wavelengths = np.array(self.sol.cfg.wavelengths)
-        self.wave_inttime_list = self.sol.cfg.exposure_times
 
     @property
     def wvl_medians(self):
         wvl_medians = []
         wvl_medians.append(self.wvlStart)
-        for index, wavelength in enumerate(self.wave_list[0:-1]):
-            wvl_medians.append(self.wave_list[index] + ((self.wave_list[index + 1] - self.wave_list[index]) / 2))
+        for index, wavelength in enumerate(self.wavelengths[0:-1]):
+            wvl_medians.append(self.wavelengths[index] + ((self.wavelengths[index + 1] - self.wavelengths[index]) / 2))
         wvl_medians.append(self.wvlStop)
         return np.array(wvl_medians)
+
+    def loadData(self):
+        getLogger(__name__).info('No need to load data for a Laser Flat, passing through')
+        pass
 
     def loadFlatSpectra(self):
         self.spectralCubes = []
@@ -523,8 +526,8 @@ class LaserCalibrator(FlatCalibrator):
         self.countCubes = self.cubeEffIntTimes * self.spectralCubes
 
     def make_spectralcube_from_wavecal(self):
-        wave_list = self.wave_list
-        nWavs = len(self.wave_list)
+        wavelengths = self.wavelengths
+        nWavs = len(self.wavelengths)
         spectralcube_wave = np.zeros([self.xpix, self.ypix, nWavs])
         spectralcube_wave[:, :, :] = np.nan
         eff_int_time_3d_wave = np.zeros([self.xpix, self.ypix, nWavs])
@@ -538,14 +541,15 @@ class LaserCalibrator(FlatCalibrator):
                     params = self.sol.histogram_parameters(pixel=[nRow, nCol])
                     model_names = self.sol.histogram_model_names(pixel=[nRow, nCol])
                     good_sol = self.sol.has_good_histogram_solutions(pixel=[nRow, nCol])
-                    for iwvl, wvl in enumerate(wave_list):
+                    for iwvl, wvl in enumerate(wavelengths):
                         if good_sol[iwvl] and model_names[iwvl] in gaussian_names:
                             sigma = params[iwvl]['signal_sigma'].value
                             amp_scaled = params[iwvl]['signal_amplitude'].value
                             wvl_intensity = np.sqrt(sigma) * amp_scaled
                             spectralcube_wave[nRow, nCol, iwvl] = wvl_intensity
-                            eff_int_time_3d_wave[nRow, nCol, iwvl] = self.wave_inttime_list[iwvl]
+                            eff_int_time_3d_wave[nRow, nCol, iwvl] = self.exposure_times[iwvl]
         return spectralcube_wave, eff_int_time_3d_wave
+
 
 
 def summaryPlot(flatsol, save_plot=False):
