@@ -137,7 +137,7 @@ class FlatCalibrator(object):
             getLogger(__name__).error("Couldn't create flat cal file: {} ", self.flatCalFileName)
             return
         header = flatCalFile.create_group(flatCalFile.root, 'header', 'Calibration information')
-        tables.Array(header, 'beamMap', obj=self.beamImage)
+        tables.Array(header, 'beamMap', obj=self.beamImage.residmap)
         tables.Array(header, 'xpix', obj=self.xpix)
         tables.Array(header, 'ypix', obj=self.ypix)
         calgroup = flatCalFile.create_group(flatCalFile.root, 'flatcal',
@@ -157,7 +157,7 @@ class FlatCalibrator(object):
         for iRow in range(self.xpix):
             for iCol in range(self.ypix):
                 entry = caltable.row
-                entry['resid'] = self.beamImage[iRow, iCol]
+                entry['resid'] = self.beamImage.residmap[iRow, iCol]
                 entry['y'] = iRow
                 entry['x'] = iCol
                 entry['weight'] = self.flatWeights.data[iRow, iCol, :]
@@ -202,10 +202,9 @@ class FlatCalibrator(object):
             spectra2d = np.reshape(cube, (self.xpix * self.ypix, self.wavelengths.size))
             for iWvl in range(self.wavelengths.size):
                 wvlSlice = spectra2d[:, iWvl]
-                goodPixelWvlSlice = np.array(wvlSlice[wvlSlice != 0])
                 # dead pixels need to be taken out before calculating averages
-                wvlAverages[iWvl] = np.median(goodPixelWvlSlice)
-            weights = wvlAverages / cube
+                wvlAverages[iWvl] = np.nanmean(wvlSlice)
+            weights = cube / wvlAverages
             weights[(weights == 0) | (weights == np.inf)] = np.nan
             cubeWeightsList.append(weights)
 
@@ -485,12 +484,12 @@ class WhiteCalibrator(FlatCalibrator):
 
 
 class LaserCalibrator(FlatCalibrator):
-    def __init__(self, h5dir='', start_times=tuple(), exposure_times=tuple(), config=None, cal_file_name='flatsol_laser.h5'):
+    def __init__(self, h5dir='', config=None, cal_file_name='flatsol_laser.h5'):
         super().__init__(config)
         self.flatCalFileName = self.cfg.get('flatname', os.path.join(self.cfg.paths.database,
                                                                      cal_file_name))
-        self.beamImage = self.cfg.beammap
-        self.wvlFlags = self.cfg.beammap.flags
+        self.beamImage = self.cfg.beammap #not sure if this and the one below are what they should be
+        # self.wvlFlags = self.cfg.beammap.flags
         self.xpix = self.cfg.beammap.ncols
         self.ypix = self.cfg.beammap.nrows
         self.wavelengths = np.array(self.cfg.wavelengths, dtype=float)
@@ -510,7 +509,7 @@ class LaserCalibrator(FlatCalibrator):
         return np.array(wvl_medians)
 
     def loadData(self):
-        getLogger(__name__).info('No need to load data for a Laser Flat, passing through')
+        getLogger(__name__).info('No need to load wavecal solution data for a Laser Flat, passing through')
         pass
 
     def loadFlatSpectra(self):
@@ -523,7 +522,7 @@ class LaserCalibrator(FlatCalibrator):
         self.cubeEffIntTimes.append(eff_time)
         self.spectralCubes = np.array(self.spectralCubes)
         self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
-        self.countCubes = self.cubeEffIntTimes * self.spectralCubes
+        self.countCubes = self.cubeEffIntTimes * self.spectralCubes #should be divided to get counts/sec cubes?
 
     def make_spectralcube_from_wavecal(self):
         wavelengths = self.wavelengths
@@ -531,23 +530,12 @@ class LaserCalibrator(FlatCalibrator):
         spectralcube_wave = np.zeros([self.xpix, self.ypix, nWavs])
         spectralcube_wave[:, :, :] = np.nan
         eff_int_time_3d_wave = np.zeros([self.xpix, self.ypix, nWavs])
-        gaussian_names = ['GaussianAndExponential', 'GaussianAndGaussian',
-                          'GaussianAndGaussianExponential',
-                          'SkewedGaussianAndGaussianExponential']
-        for nRow in range(self.xpix):
-            for nCol in range(self.ypix):
-                good_cal = self.sol.has_good_calibration_solution(pixel=[nRow, nCol])
-                if good_cal:
-                    params = self.sol.histogram_parameters(pixel=[nRow, nCol])
-                    model_names = self.sol.histogram_model_names(pixel=[nRow, nCol])
-                    good_sol = self.sol.has_good_histogram_solutions(pixel=[nRow, nCol])
-                    for iwvl, wvl in enumerate(wavelengths):
-                        if good_sol[iwvl] and model_names[iwvl] in gaussian_names:
-                            sigma = params[iwvl]['signal_sigma'].value
-                            amp_scaled = params[iwvl]['signal_amplitude'].value
-                            wvl_intensity = np.sqrt(sigma) * amp_scaled
-                            spectralcube_wave[nRow, nCol, iwvl] = wvl_intensity
-                            eff_int_time_3d_wave[nRow, nCol, iwvl] = self.exposure_times[iwvl]
+        for iwvl, wvl in enumerate(wavelengths):
+            obs = ObsFile(self.h5_file_names[iwvl])
+            wvl_intensity = obs.getTemporalCube(integrationTime=self.intTime)
+            getLogger(__name__).info('Loaded {}nm spectral cube'.format(wvl))
+            spectralcube_wave[:, :, iwvl] = np.sum(wvl_intensity['cube'], axis=2)
+            eff_int_time_3d_wave[:, :, iwvl] = self.exposure_times[iwvl]
         return spectralcube_wave, eff_int_time_3d_wave
 
 
@@ -692,7 +680,7 @@ def fetch(solution_descriptors, config=None, ncpu=np.inf, remake=False):
                 fcfg.register('start_times', [x.start for x in sd.wavecal.data], update=True)
                 fcfg.register('exposure_times', [x.duration for x in sd.wavecal.data], update=True)
                 fcfg.register('wavelengths', [w for w in sd.wavecal.wavelengths], update=True)
-                flattner = LaserCalibrator(config=fcfg, cal_file_name=sd.id)
+                flattner = LaserCalibrator(config=fcfg, h5dir=cfg.paths.out, cal_file_name=sd.id)
             elif fcfg.flatcal.method == 'White':
                 fcfg.register('start_time', sd.ob.start, update=True)
                 fcfg.register('exposure_time', sd.ob.duration, update=True)
