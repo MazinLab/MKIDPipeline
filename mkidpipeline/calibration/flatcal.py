@@ -12,6 +12,15 @@ Entire array: both wavelength slices and masked wavelength slices
 Per pixel:  plots of weights vs wavelength next to twilight spectrum OR
             plots of weights vs wavelength, twilight spectrum, next to wavecal solution
             (has _WavelengthCompare_ in the name)
+
+
+
+Edited by: Sarah Steiger    Date:October 31, 2019
+
+changed the implementation of the laser flat for MEC. Instead of only applying the laser flat to wavelength calibrated
+pixels it uses all of the not hot or dead but still photosensitive pixels. It is assumed that the laser light is
+monochromatic and a dark frame is subtracted out of the flat calculations to exclude non monochromatic light that
+might leak into MEC.
 """
 import argparse
 import atexit
@@ -55,6 +64,9 @@ class FlatCalibrator(object):
         self.out_directory = self.cfg.paths.out
 
         self.intTime = self.cfg.flatcal.chunk_time
+
+        self.dark_start = [self.cfg.flatcal.dark_data['start_times']]
+        self.dark_int = [self.cfg.flatcal.dark_data['int_times']]
 
         self.xpix = self.cfg.beammap.ncols
         self.ypix = self.cfg.beammap.nrows
@@ -497,16 +509,7 @@ class LaserCalibrator(FlatCalibrator):
         self.start_times = self.cfg.start_times
         self.h5_directory = h5dir
         self.h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.start_times]
-
-
-    @property
-    def wvl_medians(self):
-        wvl_medians = []
-        wvl_medians.append(self.wvlStart)
-        for index, wavelength in enumerate(self.wavelengths[0:-1]):
-            wvl_medians.append(self.wavelengths[index] + ((self.wavelengths[index + 1] - self.wavelengths[index]) / 2))
-        wvl_medians.append(self.wvlStop)
-        return np.array(wvl_medians)
+        self.dark_h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.dark_start]
 
     def loadData(self):
         getLogger(__name__).info('No need to load wavecal solution data for a Laser Flat, passing through')
@@ -534,9 +537,29 @@ class LaserCalibrator(FlatCalibrator):
             obs = ObsFile(self.h5_file_names[iwvl])
             wvl_intensity = obs.getTemporalCube(integrationTime=self.intTime)
             getLogger(__name__).info('Loaded {}nm spectral cube'.format(wvl))
-            spectralcube_wave[:, :, iwvl] = np.sum(wvl_intensity['cube'], axis=2)
-            eff_int_time_3d_wave[:, :, iwvl] = self.exposure_times[iwvl]
-        return spectralcube_wave, eff_int_time_3d_wave
+            spectralcube_wave[:, :, iwvl] = wvl_intensity['image']/self.intTime
+            eff_int_time_3d_wave[:, :, iwvl] = self.intTime
+        return spectralcube_wave, eff_int_time_3d_wave, mask
+
+    def get_dark_frame(self):
+        '''
+        takes however many dark files that are specified in the pipe.yml and computes the counts/pixel/sec for the sum
+        of all the dark obs. This creates a stictched together long dark obs from all of the smaller obs given. This
+        is useful for legacy data where there may not be a specified dark observation but parts of observations where
+        the filter wheel was closed.
+
+        :return: expected dark counts for each pixel over a flat observation
+        '''
+        frames = np.zeros((140, 146, len(self.dark_start)))
+        getLogger(__name__).info('Loading dark frames for Laser flat')
+        for i, file in enumerate(self.dark_h5_file_names):
+            obs = ObsFile(file)
+            frame = obs.getPixelCountImage(integrationTime=self.dark_int[i])['image']
+            frames[:, :, i] = frame
+        total_counts = np.sum(frames, axis=2)
+        counts_per_sec = total_counts / np.sum(self.dark_int)
+        dark_frame = counts_per_sec
+        return dark_frame
 
 
 
