@@ -45,6 +45,7 @@ import mkidpipeline.config
 import pkg_resources as pkg
 from mkidcore.utils import query
 
+
 DEFAULT_CONFIG_FILE = pkg.resource_filename('mkidpipeline.calibration.flatcal', 'flatcal.yml')
 
 
@@ -518,12 +519,18 @@ class LaserCalibrator(FlatCalibrator):
     def loadFlatSpectra(self):
         self.spectralCubes = []
         self.cubeEffIntTimes = []
-        cube, eff_time = self.make_spectralcube_from_wavecal()
-        cube /= eff_time
-        cube[np.isnan(cube)] = 0
+        cube, eff_time, mask = self.make_spectralcube_from_wavecal()
+        cube /= eff_time # IS THIS A GOOD THING TO GET IT IN COUNTS/S ... IRREGARDLESS MUST CHANGE EFF_TIME TO SELF.INTTIME
         self.spectralCubes.append(cube)
         self.cubeEffIntTimes.append(eff_time)
-        self.spectralCubes = np.array(self.spectralCubes)
+        # need to subtract off the dark frames to get rid of background counts not from the laser
+        dark_frame = self.get_dark_frame()
+        for i, wvl in enumerate(cube[0,0,:]):
+            np.subtract(cube[:, :, i], dark_frame)
+        # mask out hot and dead pixels from the spectral cube
+        masked_cube = np.ma.masked_array(self.spectralCubes[0], mask=mask).data
+        masked_cube[masked_cube == 0] = np.nan
+        self.spectralCubes = np.array(masked_cube)
         self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
         self.countCubes = self.cubeEffIntTimes * self.spectralCubes #should be divided to get counts/sec cubes?
 
@@ -531,11 +538,15 @@ class LaserCalibrator(FlatCalibrator):
         wavelengths = self.wavelengths
         nWavs = len(self.wavelengths)
         spectralcube_wave = np.zeros([self.xpix, self.ypix, nWavs])
-        spectralcube_wave[:, :, :] = np.nan
+        mask = np.zeros([self.xpix, self.ypix, nWavs])
         eff_int_time_3d_wave = np.zeros([self.xpix, self.ypix, nWavs])
         for iwvl, wvl in enumerate(wavelengths):
             obs = ObsFile(self.h5_file_names[iwvl])
-            wvl_intensity = obs.getTemporalCube(integrationTime=self.intTime)
+            # mask out hot pixels before finding the mean
+            beamFlagImage = obs.beamFlagImage[:, :]
+            hot_mask = beamFlagImage == 16
+            mask[:, :, iwvl] = hot_mask
+            wvl_intensity = obs.getPixelCountImage(integrationTime=self.intTime)
             getLogger(__name__).info('Loaded {}nm spectral cube'.format(wvl))
             spectralcube_wave[:, :, iwvl] = wvl_intensity['image']/self.intTime
             eff_int_time_3d_wave[:, :, iwvl] = self.intTime
