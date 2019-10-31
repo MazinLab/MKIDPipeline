@@ -82,9 +82,9 @@
 
 - !wcscal
   name: wcscal2
-  platescale: 10  #mas/pix
-  dither_ref: [0.0,0.0]
-  dither_home: [52, 18]
+  platescale: 10  #mas/pix eg x~10
+  dither_ref: [73, 70]  #pix units ie 0<x<150  - where the center of rotation is relative to corner of image
+  dither_home: [0.0, 0.0]  #conex units ie -3<x<3  - conex made a grid around this origin
   header:
     ND: 1
     lamp: 40
@@ -112,6 +112,18 @@
     - Astrogrid
     - Faint - J=7.8
     - 1545549968 - 1545551005,  Network error. Lost FL8a,b
+
+- !dither
+  name: WL_dither
+  file: /mnt/data0/baileyji/mec/scratch/dither.log  # dither.log absolute paths work
+  wcscal: wcscal1
+  wavecal: wavecal1
+  flatcal: flatcal1
+  target: WL  # setting target to WL will turn derotate off
+  ra: 00:00:00.0
+  dec: +00:00:00.0
+  observatory: Subaru
+  instrument: MEC
 
 - !sob
   name: garbage

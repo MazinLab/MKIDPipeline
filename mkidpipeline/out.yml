@@ -3,7 +3,7 @@
   data: HD22179
   startw: 811
   stopw: 1351
-  kind: stack
+  kind: stack  # stack (align MKID array) | spatial (align sky coords) | temporal (many "spatial" maps stacked) | dither (?)
   enable_noise: True
   enable_photom: True
   enable_ssd: True
