@@ -62,7 +62,7 @@ from mkidcore.headers import PhotonCType, PhotonNumpyType, METADATA_BLOCK_BYTES
 from mkidcore.corelog import getLogger
 import mkidcore.pixelflags as pixelflags
 from mkidcore.config import yaml, StringIO
-from mkidcore.pixelflags import h5FileFlags
+
 from mkidcore.instruments import compute_wcs_ref_pixel
 
 import SharedArray
@@ -392,7 +392,9 @@ class ObsFile(object):
                                         'If beammap flags have changed since then things WILL break. '
                                         'You must recreate the H5 file.')
             ret = tuple(pixelflags.FLAG_LIST)
+            self.enablewrite()
             self.modifyHeaderEntry('flags', ret)
+            self.disablewrite()
         return ret
 
     @property
@@ -1085,7 +1087,7 @@ class ObsFile(object):
             #TODO finish returning hdu
             return ret
         else:
-            return {'cube': cube, 'timeslices': timeslices, 'bad': self.pixelMask}
+            return {'cube': cube, 'timeslices': timeslices, 'bad': self.pixelBadMask}
 
     def getSpectralCube(self, firstSec=0, integrationTime=None, applyWeight=False, applyTPFWeight=False,
                         wvlStart=700, wvlStop=1500, wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None,
