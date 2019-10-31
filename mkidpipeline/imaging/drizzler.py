@@ -139,6 +139,8 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_t
     :param intt:
     :param derotate:
     :param wcs_timestep:
+
+    :param flags: None or a flag bitmask as per file.flag_bitmask()
     :return:
     """
     obsfile = ObsFile(file)
@@ -154,13 +156,13 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_t
 
     x, y = obsfile.xy(photons)
 
-    if flags:
-        usablemask = np.array(obsfile.beamFlagImage) == pixelflags.GOODPIXEL
-        usablelist = usablemask[x, y]
+    if flags is not None:
+        #TODO @dodkins fixme
+        usablelist = obsfile.flagMatches((x,y), flags)
         getLogger(__name__).info("Removed {} photons from {} total from bad pix"
                                  .format(len(photons) - len(photons[usablelist]), len(photons)))
         photons = photons[usablelist]
-        x, y = obsfile.xy(photons)
+    x, y = obsfile.xy(photons)
 
     # ob.get_wcs returns all wcs solutions (including those after intt), so just pass then remove post facto()
     wcs = obsfile.get_wcs(derotate=derotate, wcs_timestep=wcs_timestep, first_time=first_time) #1545626973
