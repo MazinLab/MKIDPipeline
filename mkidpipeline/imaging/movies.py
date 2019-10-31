@@ -162,7 +162,7 @@ def test_writers(out='garbage.gif',showaxes=False, fps=5):
 # of = ObsFile('/scratch/steiger/MEC/DeltaAnd/output/1567930101.h5')
 # # 1567930101, 1567931601
 # cube = of.getTemporalCube(None, 10, timeslice=.1, startw=None, stopw=None,
-#                           applyWeight=True, applyTPFWeight=True, flagToUse=0xffffff)
+#                           applyWeight=True, applyTPFWeight=True)
 # # cube,times=cube['cube'],cube['timeslices'][:-1]
 # import mkidpipeline.imaging.movies import _make_movie
 if __name__ == '__main__':

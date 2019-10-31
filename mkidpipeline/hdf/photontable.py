@@ -397,25 +397,31 @@ class ObsFile(object):
 
     @property
     def pixelBadMask(self):
-        """A boolean image with true where pixel data isn't perfect"""
-        return self._flagArray & pixelflags.problem_flag_bitmask(self.flag_names).astype(bool)
+        """A boolean image with true where pixel data has probllems """
+        return self.flagMask(pixelflags.PROBLEM_FLAGS)
 
-    def flagMatches(self, pixel, flag_set, allow_unknown_flags=True):
+    def flagMask(self, flag_set, pixel=(slice(None), slice(None)), allow_unknown_flags=True, all_flags=False):
         """
         Test to see if a flag is set on a given pixel or set of pixels
 
-        :param pixel: (x,y) of pixel, 2d slice, list of (x,y)
+        :param pixel: (x,y) of pixel, 2d slice, list of (x,y), if not specified all pixels are used
         :param flag_set:
         :param allow_unknown_flags:
+        :param all_flags: Require all specified flags to be set for the mask to be True
         :return:
         """
+
         x, y = zip(*pixel) if isinstance(pixel[0], tuple) else pixel
 
         if len(set(pixelflags.FLAG_LIST).difference(flag_set)) and not allow_unknown_flags:
             return False if isinstance(x, int) else np.zeros_like(self._flagArray[x,y], dtype=bool)
 
-        #TODO allow unknown flags
-        return self._flagArray[x,y] == self.flag_bitmask(flag_set)
+        if not flag_set:
+            return True if isinstance(x, int) else np.ones_like(self._flagArray[x, y], dtype=bool)
+
+        bitmask = self.flag_bitmask(flag_set)
+        bits = self._flagArray[x,y] & bitmask
+        return bits == bitmask if all_flags else bits.astype(bool)
 
     def flag_bitmask(self, flag_names):
         return pixelflags.flag_bitmask(flag_names, flag_list=self.flag_names)
@@ -735,8 +741,7 @@ class ObsFile(object):
         If fluxWeighted is True, spectral shape weights are applied.
         """
 
-        #TODO finish this
-        flagToUse = pixelflags.GOODPIXEL
+
         if integrationTime is None:
             integrationTime = self.info['expTime']
 
@@ -767,7 +772,7 @@ class ObsFile(object):
             toc = time.time()
             xe = xedg[:-1]
             for (x, y), resID in np.ndenumerate(self.beamImage):  # 3% % of the time
-                if not self.flagMatches((x,y), flagToUse):
+                if self.flagMask(pixelflags.PROBLEM_FLAGS, (x, y)):
                     continue
                 data[x, y, :] = hist[xe == resID]
         else:
@@ -779,7 +784,7 @@ class ObsFile(object):
             toc = time.time()
             xe = xedg[:-1]
             for (x, y), resID in np.ndenumerate(self.beamImage):
-                if not self.flagMatches((x,y), flagToUse):
+                if self.flagMask(pixelflags.PROBLEM_FLAGS, (x, y)):
                     continue
                 data[x, y] = hist[xe == resID]
 
@@ -815,7 +820,7 @@ class ObsFile(object):
         return hdul
 
     def getPixelCountImage(self, firstSec=0, integrationTime=None, wvlStart=None, wvlStop=None, applyWeight=False,
-                            applyTPFWeight=False, scaleByEffInt=False, flagToUse=0, hdu=False):
+                            applyTPFWeight=False, scaleByEffInt=False, exclude_flags=None, hdu=False):
         """
         Returns an image of pixel counts over the entire array between firstSec and firstSec + integrationTime. Can specify calibration weights to apply as
         well as wavelength range.
@@ -881,7 +886,7 @@ class ObsFile(object):
         toc = time.time()
         resIDs = ridbins[:-1]
         for (x, y), resID in np.ndenumerate(self.beamImage):  # 4 % of the time
-            if not self.flagMatches((x,y), flagToUse):
+            if self.flagMask(exclude_flags, (x, y)):
                 continue
             image[x, y] = hist[resIDs == resID]
         toc2 = time.time()
@@ -938,7 +943,7 @@ class ObsFile(object):
                 :param wvlStop:
 
         """
-
+        raise RuntimeError('Update this to query all at the same time and fix flags')
         center = PixCoord(centerXCoord, centerYCoord)
         apertureRegion = CirclePixelRegion(center, radius)
         exactApertureMask = apertureRegion.to_mask('exact').data
@@ -954,11 +959,10 @@ class ObsFile(object):
             if coords[0] < 0 or coords[0] >= self.nXPix or coords[1] < 0 or coords[1] >= self.nYPix:
                 exactApertureMask[apertureMaskCoords[i, 0], apertureMaskCoords[i, 1]] = 0
                 continue
-            if not self.flagMatches((x,y), flagToUse):
+            if not self.flagMask(flagToUse, (x, y)):
                 exactApertureMask[apertureMaskCoords[i, 0], apertureMaskCoords[i, 1]] = 0
                 continue
 
-            raise RuntimeError('Update this to query all at the same time')
             pixPhotonList = self.getPixelPhotonList(coords[0], coords[1], firstSec, integrationTime, wvlStart, wvlStop)
             pixPhotonList['NoiseWeight'] *= exactApertureMask[apertureMaskCoords[i, 0], apertureMaskCoords[i, 1]]
             if photonList is None:
@@ -1027,7 +1031,7 @@ class ObsFile(object):
 
     def getTemporalCube(self, firstSec=None, integrationTime=None, applyWeight=False, applyTPFWeight=False,
                         startw=None, stopw=None, timeslice=None, timeslices=None,
-                        flagToUse=0, hdu=False):
+                        exclude_flags=pixelflags.PROBLEM_FLAGS, hdu=False):
         """
         Return a wavelength-flattened spectral cube of the counts integrated from firstSec to firstSec+integrationTime.
         If stopt is None, all time after startt is used.
@@ -1069,7 +1073,7 @@ class ObsFile(object):
         toc = time.time()
         xe = xedg[:-1]
         for (x, y), resID in np.ndenumerate(self.beamImage):  # 3% of the time
-            if not self.flagMatches((x,y), flagToUse):
+            if self.flagMask(exclude_flags, (x, y)):
                 continue
             cube[x, y, :] = hist[xe == resID]
         toc2 = time.time()
@@ -1085,7 +1089,7 @@ class ObsFile(object):
 
     def getSpectralCube(self, firstSec=0, integrationTime=None, applyWeight=False, applyTPFWeight=False,
                         wvlStart=700, wvlStop=1500, wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None,
-                        flagToUse=0, hdu=False):
+                        exclude_flags=pixelflags.PROBLEM_FLAGS, hdu=False):
         """
         Return a time-flattened spectral cube of the counts integrated from firstSec to firstSec+integrationTime.
         If integration time is -1, all time after firstSec is used.
@@ -1164,7 +1168,7 @@ class ObsFile(object):
         toc = time.time()
         xe = xedg[:-1]
         for (x, y), resID in np.ndenumerate(self.beamImage):  # 3% % of the time
-            if not self.flagMatches((x,y), flagToUse):
+            if not self.flagMask(exclude_flags, (x, y)):
                 continue
             cube[x, y, :] = hist[xe == resID]
         toc2 = time.time()
@@ -1177,7 +1181,7 @@ class ObsFile(object):
         # resIDs = masterPhotonList['ResID']
         # for (xCoord, yCoord), resID in np.ndenumerate(self.beamImage): #162 ms/loop
         #     #all the time
-        #     photonList = masterPhotonList[resIDs == resID] if self.flagMatches((xCoord,yCoord), flagToUse) else emptyPhotonList
+        #     photonList = masterPhotonList[resIDs == resID] if self.flagMask(exclude_flags, (xCoord,yCoord)) else emptyPhotonList
         #     x = self._makePixelSpectrum(photonList, applyWeight=applyWeight, applyTPFWeight=applyTPFWeight,
         #                                 wvlBinEdges=wvlBinEdges)
         #     cube2[xCoord, yCoord, :] = x['spectrum']
@@ -1672,7 +1676,7 @@ class ObsFile(object):
                     getLogger(__name__).critical(msg)
                     raise RuntimeError(msg)
 
-                if not len(soln) and self.flagMatches((x,y), pixelflags.GOODPIXEL):
+                if not len(soln) and not self.flagMask(pixelflags.PROBLEM_FLAGS, (x, y)):
                     getLogger(__name__).warning('No flat calibration for good pixel {}'.format(resID))
                     continue
 
