@@ -158,7 +158,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_t
 
     if flags is not None:
         #TODO @dodkins fixme
-        usablelist = obsfile.flagMatches((x,y), flags)
+        usablelist = obsfile.flagMask(flags, (x, y))
         getLogger(__name__).info("Removed {} photons from {} total from bad pix"
                                  .format(len(photons) - len(photons[usablelist]), len(photons)))
         photons = photons[usablelist]
