@@ -12,7 +12,7 @@ import pkg_resources as pkg
 from datetime import datetime
 from glob import glob
 import warnings
-import StringIO
+from io import StringIO
 
 from mkidcore.headers import ObsFileCols, ObsHeader
 from mkidcore.corelog import getLogger
