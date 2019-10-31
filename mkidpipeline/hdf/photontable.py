@@ -522,6 +522,10 @@ class ObsFile(object):
         ditherReference = md.dither_ref
         ditherPos = md.dither_pos
         platescale = md.platescale  #units should be mas/pix
+        getLogger(__name__).debug(f'ditherHome: {md.dither_home} (conex units -3<x<3), '
+                                  f'ditherReference: {md.dither_ref} (pix 0<x<150), '
+                                  f'ditherPos: {md.dither_pos} (conex units -3<x<3), '
+                                  f'platescale: {md.platescale} (mas/pix ~10)')
 
         if isinstance(platescale, u.Quantity):
             platescale = platescale.to(u.mas)
@@ -559,7 +563,7 @@ class ObsFile(object):
         else:
             # corrected_sky_angles = np.zeros_like(sample_times)
             single_time = np.full_like(sample_times, fill_value=first_time)
-            getLogger(__name__).info("single_time: %s", single_time)
+            getLogger(__name__).info(f"Derotate off. Using single PA at time: {single_time}")
             single_times = astropy.time.Time(val=single_time, format='unix')
             single_parallactic_angle = apo.parallactic_angle(single_times, target_coordinates).value  # radians
             corrected_sky_angles = -single_parallactic_angle - device_orientation

@@ -39,9 +39,9 @@ from astroplan import Observer
 import astropy
 from astropy.utils.data import Conf
 from astropy.io import fits
-# from importlib.machinery import SourceFileLoader
-# stdrizzle = SourceFileLoader("drizzle.drizzle", "/opt/anaconda3/envs/pipeline/lib/python3.6/site-packages/drizzle/drizzle.py").load_module()
-from drizzle import drizzle as stdrizzle
+from importlib.machinery import SourceFileLoader
+stdrizzle = SourceFileLoader("drizzle.drizzle", "/opt/anaconda3/envs/pipeline/lib/python3.6/site-packages/drizzle/drizzle.py").load_module()
+# from drizzle import drizzle as stdrizzle
 from mkidcore import pixelflags
 from mkidpipeline.hdf.photontable import ObsFile
 from mkidcore.corelog import getLogger
@@ -146,7 +146,11 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_t
 
     photons = obsfile.query(startw=startw, stopw=stopw, startt=startt, intt=intt)
     weights = photons['SpecWeight'] * photons['NoiseWeight']
-    getLogger(__name__).info("Fetched {} photons from {}".format(len(photons), file))
+    getLogger(__name__).info("Fetched {} photons from dither {}".format(len(photons), file))
+    if len(photons) == 0:
+        getLogger(__name__).warning(f'No photons found using wavelength range {startw}-{stopw} nm and time range '
+                                    f'{startt}-{intt} s. Is the obsfile not wavelength calibrated causing a mismatch '
+                                    f'in the units?')
 
     x, y = obsfile.xy(photons)
 
@@ -314,7 +318,7 @@ class Canvas(object):
         self.wcs.wcs.pc = np.array([[1,0],[0,1]])
         self.wcs.wcs.cdelt = [self.vPlateScale,self.vPlateScale]
         self.wcs.wcs.cunit = ["deg", "deg"]
-        # getLogger(__name__).debug(self.wcs)
+        getLogger(__name__).debug(self.wcs)
 
 
 class ListDrizzler(Canvas):
@@ -622,10 +626,10 @@ class DrizzledData(object):
             header[key] = (val, comment)
         return header
 
-    def writefits(self, file, overwrite=True, compress=False, dashboard_orient=False):
+    def writefits(self, filename, overwrite=True, compress=False, dashboard_orient=False):
         """
 
-        :param file:
+        :param filename:
         :param overwrite:
         :param compress:
         :param dashboard_orient:
@@ -655,15 +659,15 @@ class DrizzledData(object):
                                  fits.ImageHDU(name='variance', data=self.counts, header=fits_header)])
 
         if compress:
-            file = file+'.gz'
+            filename = filename+'.gz'
 
-        assert file[-5:] == '.fits', 'Please enter valid filename'
+        assert filename[-5:] == '.fits', 'Please enter valid filename'
 
-        hdul.writeto(file, overwrite=overwrite)
-        getLogger(__name__).info('FITS file {} saved'.format(file))
+        hdul.writeto(filename, overwrite=overwrite)
+        getLogger(__name__).info('FITS file {} saved'.format(filename))
 
 
-def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=0, intt=60, pixfrac=.5, nwvlbins=1,
+def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt=0, intt=60, pixfrac=.5, nwvlbins=1,
          wcs_timestep=1, exp_timestep=1, fitsname=None, usecache=True, ncpu=1, flags=True):
     """
     Takes in a MKIDObservingDither object and drizzles the files onto a sky grid. Depending on the selected mode this
@@ -685,6 +689,7 @@ def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=
     :param flags:
     :return:
     """
+
     # ensure the user input is shorter than the dither or that wcs are just calculated for the requested timespan
     if intt > dither.inttime:
         getLogger(__name__).info('Used integration time is set by dither duration to be {}s'.format(dither.inttime))
@@ -693,10 +698,19 @@ def form(dither, mode='spatial', derotate=True, wvlMin=850, wvlMax=1100, startt=
 
     used_inttime = min(intt, dither.inttime)
 
+    if dither.target == 'WL':
+        getLogger(__name__).warning('Changing some of the wcs params to white light mode')
+        derotate = False
+
     drizzle_params = DrizzleParams(dither, used_inttime, wcs_timestep, pixfrac)
 
-    dithers_data = load_data(dither, wvlMin, wvlMax, startt, used_inttime, drizzle_params.wcs_timestep, derotate=derotate,
-                     usecache=usecache, ncpu=ncpu, flags=flags)
+    dithers_data = load_data(dither, wvlMin, wvlMax, startt, used_inttime, drizzle_params.wcs_timestep,
+                             derotate=derotate, usecache=usecache, ncpu=ncpu, flags=flags)
+    total_photons = sum([len(dither_data['timestamps']) for dither_data in dithers_data])
+
+    if total_photons == 0:
+        getLogger(__name__).critical('No photons found in any of the dithers. Check your wavelength and time ranges')
+        raise ValueError
 
     if mode not in ['stack', 'spatial', 'temporal', 'list']:
         raise ValueError('Not calling one of the available functions')
