@@ -12,6 +12,7 @@ import pkg_resources as pkg
 from datetime import datetime
 from glob import glob
 import warnings
+import StringIO
 
 from mkidcore.headers import ObsFileCols, ObsHeader
 from mkidcore.corelog import getLogger
@@ -133,7 +134,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
     bmap = Beammap(cfg.beamfile, xydim=(cfg.x, cfg.y))
     group = h5file.create_group("/", 'BeamMap', 'Beammap Information', filters=filter)
     h5file.create_array(group, 'Map', bmap.residmap.astype(int), 'resID map')
-    h5file.create_array(group, 'Flag', bmap.flagmap.astype(int), 'flag map')
+    h5file.create_array(group, 'Flag', pixelflags.beammap_flagmap_to_h5_flagmap(bmap.flagmap), 'flag map')
     getLogger(__name__).debug('Beammap Attached to {}'.format(cfg.h5file))
 
     h5file.create_group('/', 'header', 'Header')
@@ -157,6 +158,14 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
     headerContents['wvlCalFile'] = ''
     headerContents['fltCalFile'] = ''
     headerContents['metadata'] = ''
+    out = StringIO()
+    yaml.dump({'flags': mkidcore.pixelflags.FLAG_LIST}, out)
+    out = out.getvalue().encode()
+    if len(out) > mkidcore.headers.METADATA_BLOCK_BYTES:  # this should match mkidcore.headers.ObsHeader.metadata
+        raise ValueError("Too much metadata! {} KB needed, {} allocated".format(len(out) // 1024,
+                                                                                mkidcore.headers.METADATA_BLOCK_BYTES // 1024))
+    headerContents['metadata'] = out
+
     headerContents.append()
     getLogger(__name__).debug('Header Attached to {}'.format(cfg.h5file))
 
