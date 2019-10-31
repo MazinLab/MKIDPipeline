@@ -24,7 +24,7 @@ def get_transforms(ditherfile, datadir, wvl_start=None, wvl_stop=None, fwhm_gues
 
     for file in obs_files:
         obs = ObsFile(file)
-        data = obs.getPixelCountImage(applyWeight=False, flagToUse=0, wvlStart=wvl_start,
+        data = obs.getPixelCountImage(applyWeight=False, exclude_flags=pixelflags.PROBLEM_FLAGS, wvlStart=wvl_start,
                                       wvlStop=wvl_stop)['image']
         data = np.transpose(data)
         debug_images.append(data)

@@ -196,7 +196,7 @@ class SpeedResults:
                 fast_file = res[i].file
                 print('This might take a while: {:.0f} s'.format(res[i].queryt))
                 of = ObsFile(fast_file)
-                cnt_img = of.getPixelCountImage(firstSec=30, integrationTime=5, flagToUse=0xFFFFFFFFFF)['image']
+                cnt_img = of.getPixelCountImage(firstSec=30, integrationTime=5)['image']
                 cnt_img *= of.info['expTime']/5
                 del of
                 self.count_images[d] = cnt_img
