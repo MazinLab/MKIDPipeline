@@ -40,7 +40,6 @@ _applyColWeight(self, resID, weightArr, colName)
 applySpecWeight(self, resID, weightArr)
 applyTPFWeight(self, resID, weightArr)
 applyFlatCal(self, calSolnPath,verbose=False)
-applyFlag(self, xCoord, yCoord, flag)
 undoFlag(self, xCoord, yCoord, flag)
 modifyHeaderEntry(self, headerTitle, headerValue)
 """
@@ -263,7 +262,7 @@ class ObsFile(object):
         self.info = None
         self.defaultWvlBins = None
         self.beamImage = None
-        self.beamFlagImage = None
+        self._flagArray = None  # set in loadFile
         self.nXPix = None
         self.nYPix = None
         self._mdcache = None
@@ -317,7 +316,7 @@ class ObsFile(object):
                                                   self.info['wvlBinEnd'])
         # get the beam image.
         self.beamImage = self.file.get_node('/BeamMap/Map').read()
-        self.beamFlagImage = self.file.get_node('/BeamMap/Flag')  #The absence of .read() here is correct
+        self._flagArray = self.file.get_node('/BeamMap/Flag')  #The absence of .read() here is correct
         self.nXPix, self.nYPix = self.beamImage.shape
         self.photonTable = self.file.get_node('/Photons/PhotonTable')
 
@@ -361,11 +360,6 @@ class ObsFile(object):
                        flat=self.info['fltCalFile'] if 'fltCalFile' in self.info.dtype.names else 'None')
         return s
 
-    @property
-    def pixelMask(self):
-        """A boolean image with true where pixel data isn't perfect (i.e. any flag is set)"""
-        return np.array(self.beamFlagImage) > 0
-
     def xy(self, photons):
         """Return a tuple of two arrays corresponding to the x & y pixel positions of the given photons"""
         flatbeam = self.beamImage.flatten()
@@ -373,37 +367,110 @@ class ObsFile(object):
         ind = np.searchsorted(flatbeam[beamsorted], photons["ResID"])
         return np.unravel_index(beamsorted[ind], self.beamImage.shape)
 
-    def pixelIsBad(self, xCoord, yCoord, forceWvl=False, forceWeights=False, forceTPFWeights=False):
+    @property
+    def duration(self):
+        return self.info['expTime']
+
+    @property
+    def startTime(self):
+        return self.info['startTime']
+
+    @property
+    def stopTime(self):
+        return self.info['startTime'] + self.info['expTime']
+
+    @property
+    def flag_names(self):
         """
-        Returns True if the pixel wasn't read out or if a given calibration failed when needed
-        
+        The ordered list of flag names associated with the file.
+
+        Changing this once it is initialized is at your own peril!
+        """
+        ret = self.extensible_header_store.get('flags', [])
+        if not ret:
+            getLogger(__name__).warning('Flag names were not attached at time of H5 creation. '
+                                        'If beammap flags have changed since then things WILL break. '
+                                        'You must recreate the H5 file.')
+            ret = tuple(pixelflags.FLAG_LIST)
+            self.modifyHeaderEntry('flags', ret)
+        return ret
+
+    @property
+    def pixelBadMask(self):
+        """A boolean image with true where pixel data isn't perfect"""
+        return self._flagArray & pixelflags.problem_flag_bitmask(self.flag_names).astype(bool)
+
+    def flagMatches(self, pixel, flag_set, allow_unknown_flags=True):
+        """
+        Test to see if a flag is set on a given pixel or set of pixels
+
+        :param pixel: (x,y) of pixel, 2d slice, list of (x,y)
+        :param flag_set:
+        :param allow_unknown_flags:
+        :return:
+        """
+        x, y = zip(*pixel) if isinstance(pixel[0], tuple) else pixel
+
+        if len(set(pixelflags.FLAG_LIST).difference(flag_set)) and not allow_unknown_flags:
+            return False if isinstance(x, int) else np.zeros_like(self._flagArray[x,y], dtype=bool)
+
+        #TODO allow unknown flags
+        return self._flagArray[x,y] == self.flag_bitmask(flag_set)
+
+    def flag_bitmask(self, flag_names):
+        return pixelflags.flag_bitmask(flag_names, flag_list=self.flag_names)
+
+    def flag(self, flag, xCoord=slice(None), yCoord=slice(None)):
+        """
+        Applies a flag to the selected pixel on the BeamFlag array. Flag is a bitmask;
+        new flag is bitwise OR between current flag and provided flag. Flag definitions
+        can be found in mkidcore.pixelflags, flags extant when file was created are in self.flag_names
+
+        Named flags must be converged to bitmask via self.flag_bitmask(flag names) first
+
         Parameters
         ----------
         xCoord: int
+            x-coordinate of pixel or a slice
         yCoord: int
-        forceWvl: bool - If true, check that the wvlcalibration was good for this pixel
-        forceWeights: bool - If true, check that the flat calibration was good
-                           - Will also check if linearitycal, spectralcal worked correctly eventually?
-        forceTPFWeights: bool - ignored for now
-        
-        Returns
-        -------
-            True if pixel is bad. Otherwise false
+            y-coordinate of pixel or a slice
+        flag: int
+            Flag to apply to pixel
         """
-        resID = self.beamImage[xCoord, yCoord]
-        if resID == self.noResIDFlag:
-            return True  # No resID was given during readout
-        pixelFlags = self.beamFlagImage[xCoord, yCoord]
-        deadFlags = h5FileFlags['noDacTone']
-        if forceWvl and self.info['isWvlCalibrated']:
-            deadFlags |= h5FileFlags['waveCalFailed']
-        if forceWeights and self.info['isFlatCalibrated']:
-            deadFlags |= h5FileFlags['flatCalFailed']
-        # if forceWeights and self.info['isLinearityCorrected']:
-        #   deadFlags+=h5FileFlags['linCalFailed']
-        # if forceTPFWeights and self.info['isPhaseNoiseCorrected']:
-        #   deadFlags+=h5FileFlags['phaseNoiseCalFailed']
-        return (pixelFlags & deadFlags) > 0
+        if self.mode != 'write':
+            raise Exception("Must open file in write mode to do this!")
+        flag = np.asarray(flag)
+        pixelflags.valid(flag, error=True)
+        if not np.isscalar(flag) and self._flagArray[xCoord, yCoord].shape != flag.shape:
+            raise RuntimeError('flag must be scalar or match the desired region selected by x & y coordinates')
+        self._flagArray[xCoord, yCoord] |= flag
+        self._flagArray.flush()
+
+    def unflag(self, flag, xCoord=slice(None), yCoord=slice(None)):
+        """
+        Resets the specified flag in the BeamFlag array to 0. Flag is a bitmask;
+        only the bit specified by 'flag' is reset. Flag definitions
+        can be found in Headers/pipelineFlags.py.
+
+        Named flags must be converged to bitmask via self.flag_bitmask(flag names) first
+
+        Parameters
+        ----------
+        xCoord: int
+            x-coordinate of pixel
+        yCoord: int
+            y-coordinate of pixel
+        flag: int
+            Flag to undo
+        """
+        if self.mode != 'write':
+            raise Exception("Must open file in write mode to do this!")
+        flag = np.asarray(flag)
+        pixelflags.valid(flag, error=True)
+        if not np.isscalar(flag) and self._flagArray[xCoord, yCoord].shape != flag.shape:
+            raise RuntimeError('flag must be scalar or match the desired region selected by x & y coordinates')
+        self._flagArray[xCoord, yCoord] &= ~flag
+        self._flagArray.flush()
 
     def query(self, startw=None, stopw=None, startt=None, stopt=None, resid=None, intt=None):
         """
@@ -522,6 +589,10 @@ class ObsFile(object):
         ditherReference = md.dither_ref
         ditherPos = md.dither_pos
         platescale = md.platescale  #units should be mas/pix
+        getLogger(__name__).debug(f'ditherHome: {md.dither_home} (conex units -3<x<3), '
+                                  f'ditherReference: {md.dither_ref} (pix 0<x<150), '
+                                  f'ditherPos: {md.dither_pos} (conex units -3<x<3), '
+                                  f'platescale: {md.platescale} (mas/pix ~10)')
 
         if isinstance(platescale, u.Quantity):
             platescale = platescale.to(u.mas)
@@ -559,7 +630,7 @@ class ObsFile(object):
         else:
             # corrected_sky_angles = np.zeros_like(sample_times)
             single_time = np.full_like(sample_times, fill_value=first_time)
-            getLogger(__name__).info("single_time: %s", single_time)
+            getLogger(__name__).info(f"Derotate off. Using single PA at time: {single_time}")
             single_times = astropy.time.Time(val=single_time, format='unix')
             single_parallactic_angle = apo.parallactic_angle(single_times, target_coordinates).value  # radians
             corrected_sky_angles = -single_parallactic_angle - device_orientation
@@ -696,7 +767,7 @@ class ObsFile(object):
             toc = time.time()
             xe = xedg[:-1]
             for (x, y), resID in np.ndenumerate(self.beamImage):  # 3% % of the time
-                if not (self.beamFlagImage[x, y] | flagToUse) == flagToUse:
+                if not self.flagMatches((x,y), flagToUse):
                     continue
                 data[x, y, :] = hist[xe == resID]
         else:
@@ -708,7 +779,7 @@ class ObsFile(object):
             toc = time.time()
             xe = xedg[:-1]
             for (x, y), resID in np.ndenumerate(self.beamImage):
-                if not (self.beamFlagImage[x, y] | flagToUse) == flagToUse:
+                if not self.flagMatches((x,y), flagToUse):
                     continue
                 data[x, y] = hist[xe == resID]
 
@@ -740,7 +811,7 @@ class ObsFile(object):
                              fits.ImageHDU(data=data/integrationTime if countRate else data,
                                            header=header, name='SCIENCE'),
                              fits.ImageHDU(data=np.sqrt(data), header=header, name='VARIANCE'),
-                             fits.ImageHDU(data=self.beamFlagImage, header=header, name='BADPIX')])
+                             fits.ImageHDU(data=self._flagArray, header=header, name='FLAGS')])
         return hdul
 
     def getPixelCountImage(self, firstSec=0, integrationTime=None, wvlStart=None, wvlStop=None, applyWeight=False,
@@ -810,7 +881,7 @@ class ObsFile(object):
         toc = time.time()
         resIDs = ridbins[:-1]
         for (x, y), resID in np.ndenumerate(self.beamImage):  # 4 % of the time
-            if not (self.beamFlagImage[x, y] | flagToUse) == flagToUse:
+            if not self.flagMatches((x,y), flagToUse):
                 continue
             image[x, y] = hist[resIDs == resID]
         toc2 = time.time()
@@ -883,11 +954,10 @@ class ObsFile(object):
             if coords[0] < 0 or coords[0] >= self.nXPix or coords[1] < 0 or coords[1] >= self.nYPix:
                 exactApertureMask[apertureMaskCoords[i, 0], apertureMaskCoords[i, 1]] = 0
                 continue
-            flag = self.beamFlagImage[coords[0], coords[1]]
-            if (flag | flagToUse) != flagToUse:
+            if not self.flagMatches((x,y), flagToUse):
                 exactApertureMask[apertureMaskCoords[i, 0], apertureMaskCoords[i, 1]] = 0
                 continue
-            resID = self.beamImage[coords[0], coords[1]]
+
             raise RuntimeError('Update this to query all at the same time')
             pixPhotonList = self.getPixelPhotonList(coords[0], coords[1], firstSec, integrationTime, wvlStart, wvlStop)
             pixPhotonList['NoiseWeight'] *= exactApertureMask[apertureMaskCoords[i, 0], apertureMaskCoords[i, 1]]
@@ -999,7 +1069,7 @@ class ObsFile(object):
         toc = time.time()
         xe = xedg[:-1]
         for (x, y), resID in np.ndenumerate(self.beamImage):  # 3% of the time
-            if not (self.beamFlagImage[x, y] | flagToUse) == flagToUse:
+            if not self.flagMatches((x,y), flagToUse):
                 continue
             cube[x, y, :] = hist[xe == resID]
         toc2 = time.time()
@@ -1011,7 +1081,7 @@ class ObsFile(object):
             #TODO finish returning hdu
             return ret
         else:
-            return {'cube': cube, 'timeslices': timeslices, 'bad': np.array(self.beamFlagImage) != 0}
+            return {'cube': cube, 'timeslices': timeslices, 'bad': self.pixelMask}
 
     def getSpectralCube(self, firstSec=0, integrationTime=None, applyWeight=False, applyTPFWeight=False,
                         wvlStart=700, wvlStop=1500, wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None,
@@ -1094,7 +1164,7 @@ class ObsFile(object):
         toc = time.time()
         xe = xedg[:-1]
         for (x, y), resID in np.ndenumerate(self.beamImage):  # 3% % of the time
-            if not (self.beamFlagImage[x, y] | flagToUse) == flagToUse:
+            if not self.flagMatches((x,y), flagToUse):
                 continue
             cube[x, y, :] = hist[xe == resID]
         toc2 = time.time()
@@ -1106,9 +1176,8 @@ class ObsFile(object):
         # tic = time.time()
         # resIDs = masterPhotonList['ResID']
         # for (xCoord, yCoord), resID in np.ndenumerate(self.beamImage): #162 ms/loop
-        #     flag = self.beamFlagImage[xCoord, yCoord]
         #     #all the time
-        #     photonList = masterPhotonList[resIDs == resID] if (flag | flagToUse) == flagToUse else emptyPhotonList
+        #     photonList = masterPhotonList[resIDs == resID] if self.flagMatches((xCoord,yCoord), flagToUse) else emptyPhotonList
         #     x = self._makePixelSpectrum(photonList, applyWeight=applyWeight, applyTPFWeight=applyTPFWeight,
         #                                 wvlBinEdges=wvlBinEdges)
         #     cube2[xCoord, yCoord, :] = x['spectrum']
@@ -1185,35 +1254,6 @@ class ObsFile(object):
                                        applyTPFWeight=applyTPFWeight, wvlStart=wvlStart, wvlStop=wvlStop,
                                        wvlBinWidth=wvlBinWidth, energyBinWidth=energyBinWidth,
                                        wvlBinEdges=wvlBinEdges, timeSpacingCut=timeSpacingCut)
-        # else:
-        #    return spectrum,wvlBinEdges
-
-    def loadBeammapFile(self, beammapFileName):
-        """
-        Load an external beammap file in place of the obsfile's attached beammap
-        Can be used to correct pixel location mistakes.
-        
-        Make sure the beamflag image is correctly transformed to the new beammap
-        """
-        raise NotImplementedError
-
-    def write_bad_pixels(self, bad_pixel_mask):
-        """
-        Write the output hot-pixel time masks table to the obs file
-
-        Required Input:
-        :param bad_pixel_mask:    A 2D array of integers of the same shape as the input image, denoting locations
-                                  of bad pixels and the reason they were flagged
-
-        :return:
-        Writes a 'bad pixel table' to an output h5 file titled 'badpixmask_--timestamp--.h5'.
-
-        """
-        badpixmask = self.file.create_group(self.file.root, 'badpixmap', 'Bad Pixel Map')
-        tables.Array(badpixmask, 'badpixmap', obj=bad_pixel_mask,
-                     title='Bad Pixel Mask')
-        self.file.flush()
-        self.file.close()
 
     def applyWaveCal(self, solution):
         """
@@ -1233,14 +1273,15 @@ class ObsFile(object):
         tic = time.time()
         for (row, column), resID in np.ndenumerate(self.beamImage):
 
+
+            self.flag(self.flag_bitmask(pixelflags.to_flag_names('wavecal', solution.get_flag(res_id=resID)),
+                                        yCoord=row, xCoord=column))
+
             if not solution.has_good_calibration_solution(res_id=resID):
-                self.flag(pixelflags.h5FileFlags['waveCalFailed'], row, column)
                 continue
 
-            self.undoFlag(row, column, pixelflags.h5FileFlags['waveCalFailed'])
             calibration = solution.calibration_function(res_id=resID, wavelength_units=True)
 
-            tic2 = time.time()
             indices = self.photonTable.get_where_list('ResID==resID')
             if not indices.size:
                 continue
@@ -1274,7 +1315,7 @@ class ObsFile(object):
         """
         tic = time.time()
         getLogger(__name__).info('Applying a hot pixel mask to {}'.format(self.fullFileName))
-        self.flag(pixelflags.HOTPIXEL * mask)
+        self.flag(self.flag_bitmask('pixcal.hot') * mask)
         self.modifyHeaderEntry('isHotPixMasked', True)
         getLogger(__name__).info('Mask applied applied in {:.2f}s'.format(time.time()-tic))
 
@@ -1370,21 +1411,7 @@ class ObsFile(object):
         return ret
 
     def attach_observing_metadata(self, metadata):
-        emd = self.extensible_header_store
-        emd['obs_metadata'] = metadata
-        self.update_extensible_header_store(emd)
-
-    @property
-    def duration(self):
-        return self.info['expTime']
-
-    @property
-    def startTime(self):
-        return self.info['startTime']
-
-    @property
-    def stopTime(self):
-        return self.info['startTime'] + self.info['expTime']
+        self.modifyHeaderEntry('obs_metadata', metadata)
 
     @staticmethod
     def makeWvlBins(energyBinWidth=.1, wvlStart=700, wvlStop=1500):
@@ -1645,7 +1672,7 @@ class ObsFile(object):
                     getLogger(__name__).critical(msg)
                     raise RuntimeError(msg)
 
-                if not len(soln) and self.beamFlagImage[row, column] == pixelflags.GOODPIXEL:
+                if not len(soln) and self.flagMatches((x,y), pixelflags.GOODPIXEL):
                     getLogger(__name__).warning('No flat calibration for good pixel {}'.format(resID))
                     continue
 
@@ -1699,49 +1726,6 @@ class ObsFile(object):
         self.modifyHeaderEntry(headerTitle='fltCalFile', headerValue=calsolFile.encode())
         getLogger(__name__).info('Flatcal applied in {:.2f}s'.format(time.time()-tic))
 
-    def flag(self, flag, xCoord=slice(None), yCoord=slice(None)):
-        """
-        Applies a flag to the selected pixel on the BeamFlag array. Flag is a bitmask;
-        new flag is bitwise OR between current flag and provided flag. Flag definitions
-        can be found in Headers/pipelineFlags.py.
-
-        Parameters
-        ----------
-        xCoord: int
-            x-coordinate of pixel or a slice
-        yCoord: int
-            y-coordinate of pixel or a slice
-        flag: int
-            Flag to apply to pixel
-        """
-        if self.mode != 'write':
-            raise Exception("Must open file in write mode to do this!")
-        flag = np.asarray(flag)
-        pixelflags.valid(flag, error=True)
-        if not np.isscalar(flag) and self.beamFlagImage[xCoord, yCoord].shape != flag.shape:
-            raise RuntimeError('flag must be scalar or match the desired region selected by x & y coordinates')
-        self.beamFlagImage[xCoord, yCoord] |= flag
-        self.beamFlagImage.flush()
-
-    def undoFlag(self, xCoord, yCoord, flag):
-        """
-        Resets the specified flag in the BeamFlag array to 0. Flag is a bitmask;
-        only the bit specified by 'flag' is reset. Flag definitions
-        can be found in Headers/pipelineFlags.py.
-
-        Parameters
-        ----------
-        xCoord: int
-            x-coordinate of pixel
-        yCoord: int
-            y-coordinate of pixel
-        flag: int
-            Flag to undo
-        """
-        if self.mode != 'write':
-            raise Exception("Must open file in write mode to do this!")
-        self.beamFlagImage[xCoord, yCoord] &= ~flag
-        self.beamFlagImage.flush()
 
     def modifyHeaderEntry(self, headerTitle, headerValue):
         """

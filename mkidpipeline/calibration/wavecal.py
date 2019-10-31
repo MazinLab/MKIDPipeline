@@ -1469,6 +1469,10 @@ class Solution(object):
         model = self.calibration_model(pixel=pixel)
         return model.has_good_solution()
 
+    def get_flag(self, pixel=None, res_id=None):
+        # TODO placeholder. MUST be consisten with pixelflags.wavecal
+        return int(not self.has_good_calibration_solution(pixel=pixel, res_id=res_id))
+
     def calibration_flag(self, pixel=None, res_id=None):
         """Returns the numeric flag corresponding to the wavecal fit condition for a
         particular resonator."""
