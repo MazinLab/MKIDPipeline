@@ -13,7 +13,7 @@ from datetime import datetime
 from glob import glob
 import warnings
 from io import StringIO
-
+from mkidcore import pixelflags
 from mkidcore.headers import ObsFileCols, ObsHeader
 from mkidcore.corelog import getLogger
 from mkidcore.config import yaml, yaml_object
