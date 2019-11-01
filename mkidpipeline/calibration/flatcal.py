@@ -103,7 +103,6 @@ class FlatCalibrator(object):
         self.countCubesToSave = None
         self.deltaFlatWeights = None
         self.flatFlags = None
-        self.flatWeights = None
         self.flatWeightsforplot = None
         self.plotName = None
         self.fig = None
@@ -517,40 +516,42 @@ class LaserCalibrator(FlatCalibrator):
         pass
 
     def loadFlatSpectra(self):
-        self.spectralCubes = []
-        self.cubeEffIntTimes = []
-        cube, eff_time, mask = self.make_spectralcube_from_wavecal()
-        cube /= eff_time # IS THIS A GOOD THING TO GET IT IN COUNTS/S ... IRREGARDLESS MUST CHANGE EFF_TIME TO SELF.INTTIME
-        self.spectralCubes.append(cube)
-        self.cubeEffIntTimes.append(eff_time)
+        cps_cube_list, int_times, mask = self.make_spectralcube_from_wavecal()
+        self.spectralCubes = cps_cube_list
+        self.cubeEffIntTimes = int_times
         # need to subtract off the dark frames to get rid of background counts not from the laser
         dark_frame = self.get_dark_frame()
-        for i, wvl in enumerate(cube[0,0,:]):
-            np.subtract(cube[:, :, i], dark_frame)
-        # mask out hot and dead pixels from the spectral cube
-        masked_cube = np.ma.masked_array(self.spectralCubes[0], mask=mask).data
-        masked_cube[masked_cube == 0] = np.nan
-        self.spectralCubes = np.array(masked_cube)
+        for icube, cube in enumerate(self.spectralCubes):
+            dark_subtracted_cube = np.zeros_like(cube)
+            for iwvl, wvl in enumerate(cube[0, 0, :]):
+                dark_subtracted_cube[:, :, iwvl] = np.subtract(cube[:, :, iwvl], dark_frame)
+            masked_cube = np.ma.masked_array(dark_subtracted_cube, mask=mask).data
+            masked_cube[masked_cube == 0] = np.nan
+            self.spectralCubes[icube] = masked_cube
         self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
         self.countCubes = self.cubeEffIntTimes * self.spectralCubes #should be divided to get counts/sec cubes?
 
     def make_spectralcube_from_wavecal(self):
         wavelengths = self.wavelengths
         nWavs = len(self.wavelengths)
-        spectralcube_wave = np.zeros([self.xpix, self.ypix, nWavs])
+        ntimes = int(np.max(self.exposure_times) / self.intTime)
+        cps_cube_list = np.zeros([ntimes, self.xpix, self.ypix, nWavs])
         mask = np.zeros([self.xpix, self.ypix, nWavs])
-        eff_int_time_3d_wave = np.zeros([self.xpix, self.ypix, nWavs])
+        int_times = np.zeros([self.xpix, self.ypix, nWavs])
         for iwvl, wvl in enumerate(wavelengths):
+            time = int(self.exposure_times[iwvl] / self.intTime)
+            cps_cube = np.zeros([self.xpix, self.ypix, time])
             obs = ObsFile(self.h5_file_names[iwvl])
             # mask out hot pixels before finding the mean
-            beamFlagImage = obs.beamFlagImage[:, :]
-            hot_mask = beamFlagImage == 16
+            hot_mask = obs.flagMask(['pixcal.hot', 'pixcal.cold'])
             mask[:, :, iwvl] = hot_mask
-            wvl_intensity = obs.getPixelCountImage(integrationTime=self.intTime)
+            counts = obs.getTemporalCube(timeslice=self.intTime)
             getLogger(__name__).info('Loaded {}nm spectral cube'.format(wvl))
-            spectralcube_wave[:, :, iwvl] = wvl_intensity['image']/self.intTime
-            eff_int_time_3d_wave[:, :, iwvl] = self.intTime
-        return spectralcube_wave, eff_int_time_3d_wave, mask
+            cps_cube = counts['cube']/self.intTime #TODO move this division outside of the loop
+            cps_cube = np.moveaxis(cps_cube, 2, 0)
+            int_times[:, :, iwvl] = self.intTime
+            cps_cube_list[:time, :, :, iwvl] = cps_cube
+        return cps_cube_list, int_times, mask
 
     def get_dark_frame(self):
         '''
@@ -711,9 +712,9 @@ def fetch(solution_descriptors, config=None, ncpu=np.inf, remake=False):
             fcfg.unregister('h5file')
 
             if fcfg.flatcal.method == 'Laser':
-                fcfg.register('start_times', [x.start for x in sd.wavecal.data], update=True)
-                fcfg.register('exposure_times', [x.duration for x in sd.wavecal.data], update=True)
-                fcfg.register('wavelengths', [w for w in sd.wavecal.wavelengths], update=True)
+                fcfg.register('start_times', np.array([x.start for x in sd.wavecal.data]), update=True)
+                fcfg.register('exposure_times', np.array([x.duration for x in sd.wavecal.data]), update=True)
+                fcfg.register('wavelengths', np.array([w for w in sd.wavecal.wavelengths]), update=True)
                 flattner = LaserCalibrator(config=fcfg, h5dir=cfg.paths.out, cal_file_name=sd.id)
             elif fcfg.flatcal.method == 'White':
                 fcfg.register('start_time', sd.ob.start, update=True)
