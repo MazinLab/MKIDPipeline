@@ -22,6 +22,7 @@ import mkidcore.corelog as pipelinelog
 import mkidpipeline.config
 import mkidcore.config
 from mkidcore.objects import Beammap
+from mkidcore import pixelflags
 import astropy.constants
 import pkg_resources as pkg
 
@@ -305,7 +306,7 @@ class Calibrator(object):
                         photon_list = table_data[table_data['ResID'] == self.solution.beam_map[tuple(pixel)]]
                     # check for enough photons
                     if photon_list.size < 2:
-                        model.flag = 1
+                        model.flag = wm.pixel_flags['photon data']
                         message = "({}, {}) : {} nm : there are no photons"
                         log.debug(message.format(pixel[0], pixel[1], wavelength))
                         continue
@@ -313,14 +314,14 @@ class Calibrator(object):
                     rate = (len(photon_list['Wavelength']) * 1e6 /
                             (max(photon_list['Time']) - min(photon_list['Time'])))
                     if rate > 2000:
-                        model.flag = 2
+                        model.flag = wm.pixel_flags['hot pixel']
                         message = "({}, {}) : {} nm : removed for being too hot ({:.2f} > 2000 cps)"
                         log.debug(message.format(pixel[0], pixel[1], wavelength, rate))
                         continue
                     # remove photons too close together in time
                     photon_list = self._remove_tail_riding_photons(photon_list)
                     if photon_list.size == 0:
-                        model.flag = 3
+                        model.flag = wm.pixel_flags['time cut']
                         message = "({}, {}) : {} nm : all the photons were removed after the arrival time cut"
                         log.debug(message.format(pixel[0], pixel[1], wavelength))
                         continue
@@ -328,7 +329,7 @@ class Calibrator(object):
                     phase_list = photon_list['Wavelength']
                     phase_list = phase_list[phase_list < 0]
                     if phase_list.size == 0:
-                        model.flag = 4
+                        model.flag = wm.pixel_flags['positive cut']
                         message = ("({}, {}) : {} nm : all the photons were removed "
                                    "after the negative phase only cut")
                         log.debug(message.format(pixel[0], pixel[1], wavelength))
@@ -391,7 +392,7 @@ class Calibrator(object):
                         log.debug(message.format(pixel[0], pixel[1], wavelength))
                         continue
                     if len(model.x[model.y != 0]) < model.max_parameters * 2:
-                        model.flag = 5
+                        model.flag = wm.pixel_flags['few bins']
                         message = "({}, {}) : {} nm : histogram fit failed because there are less than {} bins"
                         log.debug(message.format(pixel[0], pixel[1], wavelength, model.max_parameters * 2))
                         continue
@@ -527,14 +528,14 @@ class Calibrator(object):
                     model.max_x = model.x[arg_max] + 3 * np.sqrt(sigmas[arg_max])
                 # don't fit if there's not enough data
                 if len(variance) < 3:
-                    model.flag = 11
+                    model.flag = wm.pixel_flags['few histograms']
                     message = "({}, {}) : {} data points is not enough to make a calibration"
                     log.debug(message.format(pixel[0], pixel[1], len(variance)))
                     continue
                 diff = np.diff(phases)
                 sigma = np.sqrt(variance)
                 if (diff < -4 * (sigma[:-1] + sigma[1:])).any():
-                    model.flag = 12
+                    model.flag = wm.pixel_flags['not monotonic']
                     message = "({}, {}) : fitted phase values are not monotonic enough to make a calibration"
                     log.debug(message.format(pixel[0], pixel[1]))
                 # fit the data
@@ -800,15 +801,15 @@ class Calibrator(object):
                 lowest_aic_model = model
 
         if best_model.has_good_solution():
-            best_model.flag = 0
+            best_model.flag = wm.pixel_flags['good histogram']
             self.solution.set_histogram_models(best_model, wavelength, pixel=pixel)
             message = "({}, {}) : {} nm : histogram model '{}' chosen as the best successful fit"
             log.debug(message.format(pixel[0], pixel[1], wavelength, type(best_model).__name__))
         else:
             if not lowest_aic_model.best_fit_result.success:
-                lowest_aic_model.flag = 6  # did not converge
+                lowest_aic_model.flag = wm.pixel_flags['histogram convergence']  # did not converge
             else:
-                lowest_aic_model.flag = 7  # converged but failed validation
+                lowest_aic_model.flag = wm.pixel_flags['histogram validation']  # converged but failed validation
             self.solution.set_histogram_models(lowest_aic_model, wavelength, pixel=pixel)
             message = ("({}, {}) : {} nm : histogram fit failed with all "
                        "models")
@@ -825,15 +826,15 @@ class Calibrator(object):
             if lower_aic:
                 lowest_aic_model = model
         if best_model.has_good_solution():
-            best_model.flag = 10
+            best_model.flag = wm.pixel_flags['good calibration']
             self.solution.set_calibration_model(best_model, pixel=pixel)
             message = "({}, {}) : energy-phase calibration model '{}' chosen as the best successful fit"
             log.debug(message.format(pixel[0], pixel[1], type(best_model).__name__))
         else:
             if not lowest_aic_model.best_fit_result.success:
-                lowest_aic_model.flag = 13  # did not converge
+                lowest_aic_model.flag = wm.pixel_flags['calibration convergence']  # did not converge
             else:
-                lowest_aic_model.flag = 14  # converged but failed validation
+                lowest_aic_model.flag = wm.pixel_flags['calibration validation']  # converged but failed validation
             self.solution.set_calibration_model(lowest_aic_model, pixel=pixel)
             message = "({}, {}) : energy-phase calibration fit failed with all models"
             log.debug(message.format(pixel[0], pixel[1]))
@@ -874,7 +875,7 @@ class Calibrator(object):
             # create model with proper flag if there was no data
             if fit_element is None:
                 for model in self.solution.histogram_models(pixel=pixel):
-                    model.flag = 1  # no data
+                    model.flag = wm.pixel_flags['photon data']  # no data
             # add fit element to the solution class in the right location
             else:
                 if method == 'fit_calibrations':
@@ -1470,8 +1471,45 @@ class Solution(object):
         return model.has_good_solution()
 
     def get_flag(self, pixel=None, res_id=None):
-        # TODO placeholder. MUST be consisten with pixelflags.wavecal
-        return int(not self.has_good_calibration_solution(pixel=pixel, res_id=res_id))
+        """Returns the bit mask flag corresponding to mkidcore.pixelflags for a
+         particular resonator."""
+        # Was the fit even attempted?
+        flag = 0
+        pixels, _ = self._parse_resonators(pixel, res_id)
+        if self._is_empty(pixels):
+            flag += pixelflags.wavecal['bad']
+            flag += pixelflags.wavecal['not_attempted']
+            return int(flag)
+
+        # Is the calibration bad?
+        model = self.calibration_model(pixel=pixel, res_id=res_id)
+        if model.flag != wm.pixel_flags['good calibration']:
+            flag += pixelflags.wavecal['bad']
+            if model.flag == wm.pixel_flags['few histograms']:
+                flag += pixelflags.wavecal['not_enough_histogram_fits']
+            elif model.flag == wm.pixel_flags['not monotonic']:
+                flag += pixelflags.wavecal['not_monotonic']
+            elif model.flag == wm.pixel_flags['calibration convergence']:
+                flag += pixelflags.wavecal['failed_convergence']
+            elif model.flag == wm.pixel_flags['calibration validation']:
+                flag += pixelflags.wavecal['failed_validation']
+
+        # Any histogram fitting issues?
+        histogram_models = self.histogram_models(pixel=pixel, res_id=res_id)
+        for histogram_model in histogram_models:
+            if histogram_model.flag != wm.pixel_flags['good histogram']:
+                flag += pixelflags.wavecal['histogram_fit_problems']
+                break
+        if all([m.flag != wm.pixel_flags['good histogram'] for m in histogram_models]):
+            flag += pixelflags.wavecal['no_histograms']
+
+        # Which calibration model?
+        if isinstance(model, wm.Linear):
+            flag += pixelflags.wavecal['linear']
+        elif isinstance(model, wm.Quadratic):
+            flag += pixelflags.wavecal['quadratic']
+
+        return int(flag)
 
     def calibration_flag(self, pixel=None, res_id=None):
         """Returns the numeric flag corresponding to the wavecal fit condition for a
@@ -1544,6 +1582,7 @@ class Solution(object):
         """
         pixel, _ = self._parse_resonators(pixel, res_id)
         if self._is_empty(pixel):
+            wavelengths = self._parse_wavelengths(wavelengths)
             return np.array([False] * len(wavelengths))
         models = self.histogram_models(wavelengths, pixel=pixel)
         good = np.array([model.has_good_solution() for model in models])
