@@ -192,7 +192,7 @@ class FlatCalibrator(object):
         If a lasercal is used for the flatcal then there is only one frame so this function is irrelevant
         and hits the pass condition.
         """
-        frames = self.spectralCubes.sum(axis=3)
+        frames = self.spectralCubes.sum(axis=2)
         if len(frames) == 1:
             pass
         else:
@@ -490,9 +490,10 @@ class WhiteCalibrator(FlatCalibrator):
             msg = 'Loaded Flat Spectra for seconds {} to {}'.format(int(firstSec), int(firstSec) + int(self.intTime))
             getLogger(__name__).info(msg)
 
-        self.spectralCubes = np.array(self.spectralCubes)
+        self.spectralCubes = np.array(self.spectralCubes[0])
+        # Haven't had a chance to check if the following lines break - find me if you come across this before me - Sarah
         self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
-        self.countCubes = self.cubeEffIntTimes[:, :, :, None] * self.spectralCubes
+        self.countCubes = self.cubeEffIntTimes * self.spectralCubes
 
 
 class LaserCalibrator(FlatCalibrator):
@@ -516,7 +517,7 @@ class LaserCalibrator(FlatCalibrator):
         pass
 
     def loadFlatSpectra(self):
-        cps_cube_list, int_times, mask = self.make_spectralcube_from_wavecal()
+        cps_cube_list, int_times, mask = self.make_spectralcube()
         self.spectralCubes = cps_cube_list
         self.cubeEffIntTimes = int_times
         # need to subtract off the dark frames to get rid of background counts not from the laser
@@ -531,7 +532,7 @@ class LaserCalibrator(FlatCalibrator):
         self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
         self.countCubes = self.cubeEffIntTimes * self.spectralCubes #should be divided to get counts/sec cubes?
 
-    def make_spectralcube_from_wavecal(self):
+    def make_spectralcube(self):
         wavelengths = self.wavelengths
         nWavs = len(self.wavelengths)
         ntimes = int(np.max(self.exposure_times) / self.intTime)
