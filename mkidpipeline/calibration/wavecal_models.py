@@ -24,19 +24,37 @@ SPEED_OF_LIGHT_NMS = astropy.constants.c.to('nm/s').value
 
 log = pipelinelog.getLogger('mkidpipeline.calibration.wavecal_models', setup=False)
 
-pixel_flags = {0: "histogram fit - converged and validated",
-               1: "histogram not fit - not enough data points",
-               2: "histogram not fit - too much data (hot pixel)",
-               3: "histogram not fit - not enough data left after arrival time cut",
-               4: "histogram not fit - not enough data left after negative phase only cut",
-               5: "histogram not fit - not enough histogram bins to fit the model",
-               6: "histogram not fit - best fit did not converge",
-               7: "histogram not fit - best fit converged but failed validation",
-               10: "energy fit - converged and validated",
-               11: "energy not fit - not enough data points",
-               12: "energy not fit - data not monotonic enough",
-               13: "energy not fit - best fit did not converge",
-               14: "energy not fit - best fit converged but failed validation"}
+pixel_flags = {
+    "good histogram": 0,
+    "photon data": 1,
+    "hot pixel": 2,
+    "time cut": 3,
+    "positive cut": 4,
+    "few bins": 5,
+    "histogram convergence": 6,
+    "histogram validation": 7,
+    "good calibration": 10,
+    "few histograms": 11,
+    "not monotonic": 12,
+    "calibration convergence": 13,
+    "calibration validation": 14
+}
+
+flag_definitions = {
+    pixel_flags["good histogram"]: "histogram fit - converged and validated",
+    pixel_flags["photon data"]: "histogram not fit - not enough data points",
+    pixel_flags["hot pixel"]: "histogram not fit - too much data (hot pixel)",
+    pixel_flags["time cut"]: "histogram not fit - not enough data left after arrival time cut",
+    pixel_flags["positive cut"]: "histogram not fit - not enough data left after negative phase only cut",
+    pixel_flags["few bins"]: "histogram not fit - not enough histogram bins to fit the model",
+    pixel_flags["histogram convergence"]: "histogram not fit - best fit did not converge",
+    pixel_flags["histogram validation"]: "histogram not fit - best fit converged but failed validation",
+    pixel_flags["good calibration"]: "energy fit - converged and validated",
+    pixel_flags["few histograms"]: "energy not fit - not enough data points",
+    pixel_flags["not monotonic"]: "energy not fit - data not monotonic enough",
+    pixel_flags["calibration convergence"]: "energy not fit - best fit did not converge",
+    pixel_flags["calibration validation"]: "energy not fit - best fit converged but failed validation"
+}
 
 
 def port_model_result(model, parameters, fit_result):
@@ -141,7 +159,7 @@ def plot_text(axes, flag, color):
     y_limits = axes.get_ylim()
     dx, dy = np.diff(x_limits), np.diff(y_limits)
     axes.text(x_limits[0] + 0.01 * dx, y_limits[1] - 0.01 * dy,
-              pixel_flags[flag], color=color, ha='left', va='top')
+              flag_definitions[flag], color=color, ha='left', va='top')
 
 
 class PartialLinearModel(object):
