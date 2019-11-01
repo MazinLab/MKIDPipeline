@@ -562,6 +562,7 @@ class ObsFile(object):
             # TODO make dtype pull from mkidcore.headers
             # TODO check whether dtype for Time should be u4 or u8. u4 loses
             #  a bunch of leading bits, but it may not matter.
+            getLogger(__name__).debug('Null Query, returning empty result')
             return np.array([], dtype=[('ResID', '<u4'), ('Time', '<u4'), ('Wavelength', '<f4'),
                                        ('SpecWeight', '<f4'), ('NoiseWeight', '<f4')])
         else:
@@ -822,7 +823,7 @@ class ObsFile(object):
         return hdul
 
     def getPixelCountImage(self, firstSec=0, integrationTime=None, wvlStart=None, wvlStop=None, applyWeight=False,
-                            applyTPFWeight=False, scaleByEffInt=False, exclude_flags=None, hdu=False):
+                            applyTPFWeight=False, scaleByEffInt=False, exclude_flags=tuple(), hdu=False):
         """
         Returns an image of pixel counts over the entire array between firstSec and firstSec + integrationTime. Can specify calibration weights to apply as
         well as wavelength range.
@@ -1054,11 +1055,16 @@ class ObsFile(object):
             # May not include data at tail end if timeslice does not evenly divide time window
             timeslices = np.arange(0 if firstSec is None else firstSec,
                                    (self.duration if integrationTime is None else integrationTime) + 1e-9, timeslice)
+            firstSec = timeslices.min()
+            integrationTime = timeslices.max() - timeslices.min()
 
         cube = np.zeros((self.nXPix, self.nYPix, timeslices.size-1))
 
         ## Retrieval rate is ~ ? Mphot/s for queries in the ~M photon range
-        masterPhotonList = self.query(startt=firstSec, stopt=integrationTime, startw=startw, stopw=stopw)
+        if not firstSec and not integrationTime and not startw and not stopw:
+            masterPhotonList = self.photonTable.read()
+        else:
+            masterPhotonList = self.query(startt=firstSec, stopt=integrationTime, startw=startw, stopw=stopw)
 
         weights = None
         if applyWeight:
