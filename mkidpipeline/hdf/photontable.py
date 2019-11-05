@@ -888,8 +888,8 @@ class ObsFile(object):
 
         toc = time.time()
         resIDs = ridbins[:-1]
-        for (x, y), resID in np.ndenumerate(self.beamImage):  # 4 % of the time
-            if self.flagMask(exclude_flags, (x, y)):
+        for (x, y), resID in np.ndenumerate(self.beamImage): # 4 % of the time
+            if self.flagMask(exclude_flags, (x, y)) and any(exclude_flags):
                 continue
             image[x, y] = hist[resIDs == resID]
         toc2 = time.time()
