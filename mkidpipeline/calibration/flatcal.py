@@ -173,7 +173,7 @@ class FlatCalibrator(object):
                 entry['y'] = iRow
                 entry['x'] = iCol
                 entry['weight'] = self.flatWeights.data[iRow, iCol, :]
-                entry['err'] = self.flatWeightErr.data[iRow, iCol, :]
+                entry['err'] = self.flatWeightErr[iRow, iCol, :]
                 fittable = (entry['weight'] != 0) & np.isfinite(entry['weight']+entry['err'])
                 if fittable.sum() < poly_power+1:
                     entry['bad'] = True
@@ -238,20 +238,20 @@ class FlatCalibrator(object):
             identityIndices = np.ma.indices(np.shape(self.cubeWeights))
             sortedWeights = self.cubeWeights[
                 sortedIndices, identityIndices[1], identityIndices[2], identityIndices[3]]
-            countCubesReordered = self.countCubes[
+            countCubes = self.countCubes[
                 sortedIndices, identityIndices[1], identityIndices[2], identityIndices[3]]
-            cubeDeltaWeightsReordered = self.weightErr[
+            weightErr = self.weightErr[
                 sortedIndices, identityIndices[1], identityIndices[2], identityIndices[3]]
             sl = slice(self.fractionOfChunksToTrim * nCubes, (1 - self.fractionOfChunksToTrim) * nCubes)
             trimmedWeights = sortedWeights[sl, :, :, :]
-            trimmedCountCubesReordered = countCubesReordered[sl, :, :, :]
-            trimmedCubeDeltaWeightsReordered = cubeDeltaWeightsReordered[sl, :, :, :]
-            self.totalCube = np.ma.sum(trimmedCountCubesReordered, axis=0)
+            trimmedCountCubes = countCubes[sl, :, :, :]
+            trimmedWeightErr = weightErr[sl, :, :, :]
+            self.totalCube = np.ma.sum(trimmedCountCubes, axis=0)
             self.totalFrame = np.ma.sum(self.totalCube, axis=-1)
             self.flatWeights, summedAveragingWeights = np.ma.average(trimmedWeights, axis=0,
-                                                                     weights=trimmedCubeDeltaWeightsReordered ** -2.,
+                                                                     weights=trimmedWeightErr ** -2.,
                                                                      returned=True)
-            self.countCubesToSave = np.ma.sum(trimmedCountCubesReordered, axis=0)
+            self.countCubesToSave = np.ma.sum(trimmedCountCubes, axis=0)
         else:
             self.totalCube = np.ma.sum(self.countCubes, axis=0)
             self.totalFrame = np.ma.sum(self.totalCube, axis=-1)
@@ -264,8 +264,8 @@ class FlatCalibrator(object):
         self.flatWeightErr = np.sqrt(summedAveragingWeights ** -1.)
         self.flatFlags = self.flatWeights.mask
         self.checkForColdPix() #TODO figure out what this does and fix it flag - wise
-        wvlWeightMedians = np.ma.median(np.reshape(self.flatWeights, (-1, self.wavelengths.size)), axis=0)
-        self.flatWeights = np.divide(self.flatWeights, wvlWeightMedians)
+        wvlWeightMean = np.ma.mean(np.reshape(self.flatWeights, (-1, self.wavelengths.size)), axis=0)
+        self.flatWeights = np.divide(self.flatWeights, wvlWeightMean)
         self.flatWeightsforplot = np.ma.sum(self.flatWeights, axis=-1)
 
     def checkForColdPix(self):
@@ -520,7 +520,9 @@ class LaserCalibrator(FlatCalibrator):
             for iwvl, wvl in enumerate(cube[0, 0, :]):
                 dark_subtracted_cube[:, :, iwvl] = np.subtract(cube[:, :, iwvl], dark_frame)
             masked_cube = np.ma.masked_array(dark_subtracted_cube, mask=mask).data
-            masked_cube[masked_cube == 0] = np.nan
+            #set any dead pixels or pixels who recieved less than the dark frame to nans -
+            # won't be included in weight calcullation
+            masked_cube[masked_cube <= 0] = np.nan
             self.spectralCubes[icube] = masked_cube
         self.spectralCubes = np.array(self.spectralCubes)
         self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
@@ -564,7 +566,8 @@ class LaserCalibrator(FlatCalibrator):
             frame = obs.getPixelCountImage(integrationTime=self.dark_int[i])['image']
             frames[:, :, i] = frame
         total_counts = np.sum(frames, axis=2)
-        counts_per_sec = total_counts / np.sum(self.dark_int)
+        total_int_time = float(np.sum(self.dark_int))
+        counts_per_sec = total_counts / total_int_time
         dark_frame = counts_per_sec
         return dark_frame
 
