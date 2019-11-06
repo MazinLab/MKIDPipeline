@@ -823,7 +823,7 @@ class ObsFile(object):
         return hdul
 
     def getPixelCountImage(self, firstSec=0, integrationTime=None, wvlStart=None, wvlStop=None, applyWeight=False,
-                            applyTPFWeight=False, scaleByEffInt=False, exclude_flags=pixelflags.PROBLEM_FLAGS, hdu=False)
+                            applyTPFWeight=False, scaleByEffInt=False, exclude_flags=pixelflags.PROBLEM_FLAGS, hdu=False):
         """
         Returns an image of pixel counts over the entire array between firstSec and firstSec + integrationTime. Can specify calibration weights to apply as
         well as wavelength range.
@@ -1284,10 +1284,10 @@ class ObsFile(object):
         # apply waveCal
         tic = time.time()
         for (row, column), resID in np.ndenumerate(self.beamImage):
-
-
-            self.flag(self.flag_bitmask(pixelflags.to_flag_names('wavecal', solution.get_flag(res_id=resID)),
-                                        yCoord=row, xCoord=column))
+            self.unflag(self.flag_bitmask([f for f in pixelflags.FLAG_LIST if f.startswith('wavecal')]),
+                                        yCoord=row, xCoord=column)
+            self.flag(self.flag_bitmask(pixelflags.to_flag_names('wavecal', solution.get_flag(res_id=resID))),
+                                        yCoord=row, xCoord=column)
 
             if not solution.has_good_calibration_solution(res_id=resID):
                 continue
@@ -1317,7 +1317,7 @@ class ObsFile(object):
         self.photonTable.flush()
         getLogger(__name__).info('Wavecal applied in {:.2f}s'.format(time.time()-tic))
 
-    def applyHotPixelMask(self, mask):
+    def applyHotPixelMask(self, hot_mask, unstable_mask):
         """
         loads the wavelength cal coefficients from a given file and applies them to the
         wavelengths table for each pixel. ObsFile must be loaded in write mode. Dont call updateWavelengths !!!
@@ -1327,7 +1327,8 @@ class ObsFile(object):
         """
         tic = time.time()
         getLogger(__name__).info('Applying a hot pixel mask to {}'.format(self.fullFileName))
-        self.flag(self.flag_bitmask('pixcal.hot') * mask)
+        self.flag(self.flag_bitmask('pixcal.hot') * hot_mask)
+        self.flag(self.flag_bitmask('pixcal.unstable') * unstable_mask)
         self.modifyHeaderEntry('isHotPixMasked', True)
         getLogger(__name__).info('Mask applied applied in {:.2f}s'.format(time.time()-tic))
 
