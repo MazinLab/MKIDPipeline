@@ -336,7 +336,7 @@ class ListDrizzler(Canvas):
 
         inttime = drizzle_params.used_inttime
 
-        # if inttime is say 100 and wcs_timestep is say 60 then this yeilds [0,60,100]
+        # if inttime is say 100 and wcs_timestep is say 60 then this yields [0,60,100]
         # meaning the positions don't have constant integration time
         self.wcs_times = np.append(np.arange(0, inttime, drizzle_params.wcs_timestep), inttime) * 1e6
         self.run(pixfrac=drizzle_params.pixfrac)
@@ -669,27 +669,60 @@ class DrizzledData(object):
         getLogger(__name__).info('FITS file {} saved'.format(filename))
 
 
-def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt=0, intt=60, pixfrac=.5, nwvlbins=1,
-         wcs_timestep=1, exp_timestep=1, fitsname=None, usecache=True, ncpu=1, flags=True):
+def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt=0., intt=60., pixfrac=.5, nwvlbins=1,
+         wcs_timestep=1., exp_timestep=1., fitsname=None, usecache=True, ncpu=1, flags=0):
     """
-    Takes in a MKIDObservingDither object and drizzles the files onto a sky grid. Depending on the selected mode this
-    output can take the form of an image, spectral cube, sequence of spectral cubes, or a photon list. Currently
-    SpatialDrizzler, SpectralDrizzler and TemporalDrizzler are separate classes but the same output can be acheived
-    by setting ntimebins and/or nwbins to 1. These outputs feed a DirzzledData object that handles plotting to
-    screen or writing to fits
+    Takes in a MKIDDitheredObservation object and drizzles the dithers onto a common sky grid.
 
-    :param dither:
-    :param nwvlbins:
-    :param exp_timestep:
-    :param mode: stack|spatial|spectral|temporal|list
-    :param derotate: False|True
-    :param wvlMin:
-    :param wvlMax:
-    :param startt:
-    :param intt:
-    :param pixfrac:
-    :param flags:
-    :return:
+    Parameters
+    ----------
+    dither : MKIDDitheredObservation
+        Contains the lists of observations and metadata for a set of dithers
+    mode : str
+        Format for the output (spatial | stack | temporal | list (not implemented yet))
+    derotate : bool
+        True means all dithers (and integrations within) are rotated to their orientation on the sky during their observation
+        False aligns all dithers and integrations to the orientation at the beginning of the observation
+    wvlMin : float or None
+        Lower bound on the photons used in the drizzle. See photontable.query()
+    wvlMax : float or None
+        Upper bound on the photons used in the drizzle. See photontable.query()
+    startt : float or None
+        Starttime for photons used in each dither. See photontable.query()
+    intt : float or None
+        startt + int = upper bound on the photons used in each dither. See photontable.query()
+    pixfrac : float (0<= pixfrac <=1)
+        pixfrac parameter used in drizzle algorithm. See stsci.drizzle()
+    nwvlbins : int
+        Number of bins to group photon data by wavelength for all dithers when using mode == 'temporal'
+    wcs_timestep : float (0<= wcs_timestep <=intt)
+        Time between different wcs parameters (eg orientations). 0 will use the calculated non-blurring min
+    exp_timestep : float (0<= exp_timestep <=intt)
+        Duration of the time bins in the output cube when using mode == 'temporal'
+    fitsname : str
+        Output FITS file name
+    usecache : bool
+        True means the output of load_data() is stored and reloaded for subsequent runs of form
+    ncpu : int
+        Number of cpu used when loading and reformatting the dither obsfiles
+    flags : int
+        Bitmask containing the various flags on each pixel from previous steps
+
+    Returns
+    -------
+    drizzle : DrizzledData
+        Contains maps and metadata from the drizzled data
+
+
+    There are 4 output modes: stack, spatial, temporal, list (not implemented yet). stack does no drizzling and just
+    appends time integrated MKID images on oneanother with associated wcs solutions at that time. spatial drizzles all
+    the selected times and wavelengths onto a single map. temporal bins the selected times and wavelengths into a 4D
+    hypercube (2 spatial, 1 wavelength, 1 time) The number of time bins is ndither * intt/exp_timestep. list will be
+    assigning an RA and dec to each photon
+
+    exp_timestep vs wcs_timestep. Both parameters are independent -- several wcs solutions (orientations) can contribute
+    to one effective exposure (taking an image of the zenith), and you can have one wcs object for lots of exposures
+    (doing binned SSD on a target that barely rotates).
     """
 
     # ensure the user input is shorter than the dither or that wcs are just calculated for the requested timespan
