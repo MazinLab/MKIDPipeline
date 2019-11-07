@@ -449,9 +449,9 @@ class ObsFile(object):
             raise Exception("Must open file in write mode to do this!")
         flag = np.asarray(flag)
         pixelflags.valid(flag, error=True)
-        if not np.isscalar(flag) and self._flagArray[xCoord, yCoord].shape != flag.shape:
+        if not np.isscalar(flag) and self._flagArray[yCoord, xCoord].shape != flag.shape:
             raise RuntimeError('flag must be scalar or match the desired region selected by x & y coordinates')
-        self._flagArray[xCoord, yCoord] |= flag
+        self._flagArray[yCoord, xCoord] |= flag
         self._flagArray.flush()
 
     def unflag(self, flag, xCoord=slice(None), yCoord=slice(None)):
@@ -475,9 +475,9 @@ class ObsFile(object):
             raise Exception("Must open file in write mode to do this!")
         flag = np.asarray(flag)
         pixelflags.valid(flag, error=True)
-        if not np.isscalar(flag) and self._flagArray[xCoord, yCoord].shape != flag.shape:
+        if not np.isscalar(flag) and self._flagArray[yCoord, xCoord].shape != flag.shape:
             raise RuntimeError('flag must be scalar or match the desired region selected by x & y coordinates')
-        self._flagArray[xCoord, yCoord] &= ~flag
+        self._flagArray[yCoord, xCoord] &= ~flag
         self._flagArray.flush()
 
     def query(self, startw=None, stopw=None, startt=None, stopt=None, resid=None, intt=None):
@@ -1285,9 +1285,9 @@ class ObsFile(object):
         tic = time.time()
         for (row, column), resID in np.ndenumerate(self.beamImage):
             self.unflag(self.flag_bitmask([f for f in pixelflags.FLAG_LIST if f.startswith('wavecal')]),
-                                        yCoord=row, xCoord=column)
+                                        xCoord=column, yCoord=row)
             self.flag(self.flag_bitmask(pixelflags.to_flag_names('wavecal', solution.get_flag(res_id=resID))),
-                                        yCoord=row, xCoord=column)
+                                        xCoord=column, yCoord=row)
 
             if not solution.has_good_calibration_solution(res_id=resID):
                 continue
@@ -1701,7 +1701,7 @@ class ObsFile(object):
 
                 if (np.diff(indices) == 1).all():  # This takes ~300s for ALL photons combined on a 70Mphot file.
                     # getLogger(__name__).debug('Using modify_column')
-                    phases = self.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
+                    wavelengths = self.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
 
                     coeffs=soln['coeff'].flatten()
                     weights = soln['weight'].flatten()
@@ -1725,7 +1725,7 @@ class ObsFile(object):
                     ax.set_xlim(minwavelength, maxwavelength)
                     ax.plot(bins, weights, '-', label='weights')
                     ax.errorbar(bins, weights, yerr=errors, label='weights', fmt='o', color='green')
-                    ax.plot(phases, weightArr, '.', markersize=5)
+                    ax.plot(wavelengths, weightArr, '.', markersize=5)
                     ax.set_title('p rID:{} ({}, {})'.format(resID, row, column))
                     ax.set_ylabel('weight')
 

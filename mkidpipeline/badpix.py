@@ -165,7 +165,7 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5, de
 
     # Assume everything with 0 counts is a dead pixel, turn dead pixel values into NaNs
     if dead_mask is None:
-        dead_mask = raw_image == dead_threshold
+        dead_mask = np.ma.masked_where(raw_image == 0, raw_image).mask
     raw_image[dead_mask] = np.nan
 
     # Initialise a mask for hot pixels (all False) for comparison on each iteration.
