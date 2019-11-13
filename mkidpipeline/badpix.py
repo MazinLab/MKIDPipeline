@@ -165,7 +165,7 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5, de
 
     # Assume everything with 0 counts is a dead pixel, turn dead pixel values into NaNs
     if dead_mask is None:
-        dead_mask = raw_image == dead_threshold
+        dead_mask = np.ma.masked_where(raw_image == 0, raw_image).mask
     raw_image[dead_mask] = np.nan
 
     # Initialise a mask for hot pixels (all False) for comparison on each iteration.
@@ -181,7 +181,7 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5, de
     # are dead, return a bad_mask where all the pixels are flagged as DEAD
     if raw_image[np.isfinite(raw_image)].sum() <= 0:
         getLogger(__name__).info('Entire image consists of dead pixels')
-        bad_mask = dead_mask * pixelflags.badpixcal['dead']
+        bad_mask = dead_mask * pixelflags.pixcal['dead']
         hot_mask = np.zeros_like(bad_mask, dtype=bool)
         iteration = -1
     else:
@@ -239,8 +239,8 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5, de
         # Finished with loop, make sure a pixel is not simultaneously hot and dead
         assert (~(hot_mask & dead_mask)).all()
         bad_mask = np.zeros_like(raw_image) \
-            + dead_mask * pixelflags.badpixcal['dead'] \
-            + hot_mask * pixelflags.badpixcal['hot']
+            + dead_mask * pixelflags.pixcal['cold'] \
+            + hot_mask * pixelflags.pixcal['hot']
 
     return {'hot_mask': hot_mask, 'masked_image': raw_image, 'image': image, 'bad_mask': bad_mask,
             'median_filter_image': median_filter_image, 'max_ratio': max_ratio, 'difference_image': difference_image,
@@ -490,28 +490,28 @@ def hpm_cps_cut(image, sigma=5, max_cut=2450, cold_mask=False):
     # initial masking, flag dead pixels (counts < 0.01) and flag anything with cps > maxCut as hot
     hot_mask = np.zeros_like(raw_image)
     dead_mask = np.zeros_like(raw_image)
-    hot_mask[raw_image >= max_cut] = pixelflags.badpixcal['hot']
-    dead_mask[raw_image <= 0.01] = pixelflags.badpixcal['dead']
+    hot_mask[raw_image >= max_cut] = pixelflags.pixcal['hot']
+    dead_mask[raw_image <= 0.01] = pixelflags.pixcal['dead']
 
     # second round of masking, flag where cps > mean+sigma*std as hot
     with warnings.catch_warnings():
         # nan values will give an unnecessary RuntimeWarning
         warnings.simplefilter("ignore", category=RuntimeWarning)
-        hot_mask[raw_image >= np.nanmedian(raw_image) + sigma * np.nanstd(raw_image)] = pixelflags.badpixcal['hot']
+        hot_mask[raw_image >= np.nanmedian(raw_image) + sigma * np.nanstd(raw_image)] = pixelflags.pixcal['hot']
 
     # if coldCut is true, also mask cps < mean-sigma*std
     if cold_mask:
         with warnings.catch_warnings():
             # nan values will give an unnecessary RuntimeWarning
             warnings.simplefilter("ignore", category=RuntimeWarning)
-            hot_mask[raw_image <= np.nanmedian(raw_image) - sigma * np.nanstd(raw_image)] = pixelflags.badpixcal['hot']
+            hot_mask[raw_image <= np.nanmedian(raw_image) - sigma * np.nanstd(raw_image)] = pixelflags.pixcal['hot']
 
     bad_mask = dead_mask + hot_mask
 
     return {'bad_mask': bad_mask, 'dead_mask': dead_mask, 'hot_mask': hot_mask, 'image': raw_image}
 
 
-def mask_hot_pixels(file, method='hpm_flux_threshold', step=30, startt=0, stopt=None, ncpu=1, **methodkw):
+def mask_hot_pixels(file, method='hpm_flux_threshold', step=20, startt=0, stopt=None, ncpu=1, **methodkw):
     """
     This routine is the main code entry point of the bad pixel masking code.
     Takes an obs. file as input and writes a 'bad pixel table' to that h5 file where each entry is an indicator of
@@ -543,13 +543,17 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=30, startt=0, stopt=
             2 = Cold Pixel
             3 = Dead Pixel
     """
-    obsfile = ObsFile(file)
+    obs = ObsFile(file)
+    if obs.info['isHotPixMasked']:
+        getLogger(__name__).info('{} is already hot pixel calibrated').format(file)
+        return
+
     if stopt is None:
-        stopt = obsfile.getFromHeader('expTime')
+        stopt = obs.getFromHeader('expTime')
     assert startt < stopt
-    if step < stopt-startt:
+    if step > stopt-startt:
         getLogger(__name__).warning(('Hot pixel step time longer than exposure time by {:.0f} s, using full '
-                                     'exposure').format(stopt-startt-step))
+                                     'exposure').format(abs(stopt-startt-step)))
         step = stopt-startt
 
     step_starts = np.arange(startt, stopt, step, dtype=int)  # Start time for each step (in seconds).
@@ -557,19 +561,32 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=30, startt=0, stopt=
     step_ends[step_ends > stopt] = int(stopt)  # Clip any time steps that run over the end of the requested time range.
 
     # Initialise stack of masks, one for each time step
-    hot_masks = np.zeros([obsfile.nXPix, obsfile.nYPix, step_starts.size], dtype=bool)
+    hot_masks = np.zeros([obs.nXPix, obs.nYPix, step_starts.size], dtype=bool)
     func = globals()[method]
 
     # Generate a stack of bad pixel mask, one for each time step
     for i, each_time in enumerate(step_starts):
         getLogger(__name__).info('Processing time slice: {} - {} s'.format(each_time, each_time + step))
-        raw_image_dict = obsfile.getPixelCountImage(firstSec=each_time, integrationTime=step,
-                                                    applyWeight=True, applyTPFWeight=True,
-                                                    scaleByEffInt=method == 'hpm_cps_cut')
-        bad_pixel_solution = func(raw_image_dict['image'], dead_mask=obsfile.pixelMask, **methodkw)
+        raw_image_dict = obs.getPixelCountImage(firstSec=each_time, integrationTime=step,
+                                                applyWeight=True, applyTPFWeight=True,
+                                                scaleByEffInt=method == 'hpm_cps_cut',
+                                                exclude_flags=['beammap.noDacTone'])
+        bad_pixel_solution = func(raw_image_dict['image'], **methodkw)
         hot_masks[:, :, i] = bad_pixel_solution['hot_mask']
 
+    unstable_mask = np.zeros((obs.nXPix, obs.nYPix), dtype=bool)
+    for x in range(obs.nXPix):
+        for y in range(obs.nYPix):
+            vals = np.zeros(len(hot_masks[x, y, :]), dtype=bool)
+            for i, mask in enumerate(hot_masks[x, y, :]):
+                vals[i] = mask
+            if not all(vals) or all(vals):
+                unstable_mask[x, y] = False
+            else:
+                unstable_mask[x, y] = True
+
+
     # Combine the bad pixel masks into a master mask
-    obsfile.enablewrite()
-    obsfile.applyHotPixelMask(np.any(hot_masks, axis=-1))
-    obsfile.disablewrite()
+    obs.enablewrite()
+    obs.applyHotPixelMask(np.all(hot_masks, axis=-1), unstable_mask)
+    obs.disablewrite()

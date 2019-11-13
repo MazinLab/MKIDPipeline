@@ -449,9 +449,9 @@ class ObsFile(object):
             raise Exception("Must open file in write mode to do this!")
         flag = np.asarray(flag)
         pixelflags.valid(flag, error=True)
-        if not np.isscalar(flag) and self._flagArray[xCoord, yCoord].shape != flag.shape:
+        if not np.isscalar(flag) and self._flagArray[yCoord, xCoord].shape != flag.shape:
             raise RuntimeError('flag must be scalar or match the desired region selected by x & y coordinates')
-        self._flagArray[xCoord, yCoord] |= flag
+        self._flagArray[yCoord, xCoord] |= flag
         self._flagArray.flush()
 
     def unflag(self, flag, xCoord=slice(None), yCoord=slice(None)):
@@ -475,9 +475,9 @@ class ObsFile(object):
             raise Exception("Must open file in write mode to do this!")
         flag = np.asarray(flag)
         pixelflags.valid(flag, error=True)
-        if not np.isscalar(flag) and self._flagArray[xCoord, yCoord].shape != flag.shape:
+        if not np.isscalar(flag) and self._flagArray[yCoord, xCoord].shape != flag.shape:
             raise RuntimeError('flag must be scalar or match the desired region selected by x & y coordinates')
-        self._flagArray[xCoord, yCoord] &= ~flag
+        self._flagArray[yCoord, xCoord] &= ~flag
         self._flagArray.flush()
 
     def query(self, startw=None, stopw=None, startt=None, stopt=None, resid=None, intt=None):
@@ -823,7 +823,7 @@ class ObsFile(object):
         return hdul
 
     def getPixelCountImage(self, firstSec=0, integrationTime=None, wvlStart=None, wvlStop=None, applyWeight=False,
-                            applyTPFWeight=False, scaleByEffInt=False, exclude_flags=tuple(), hdu=False):
+                            applyTPFWeight=False, scaleByEffInt=False, exclude_flags=pixelflags.PROBLEM_FLAGS, hdu=False):
         """
         Returns an image of pixel counts over the entire array between firstSec and firstSec + integrationTime. Can specify calibration weights to apply as
         well as wavelength range.
@@ -1284,10 +1284,10 @@ class ObsFile(object):
         # apply waveCal
         tic = time.time()
         for (row, column), resID in np.ndenumerate(self.beamImage):
-
-
-            self.flag(self.flag_bitmask(pixelflags.to_flag_names('wavecal', solution.get_flag(res_id=resID)),
-                                        yCoord=row, xCoord=column))
+            self.unflag(self.flag_bitmask([f for f in pixelflags.FLAG_LIST if f.startswith('wavecal')]),
+                                        xCoord=column, yCoord=row)
+            self.flag(self.flag_bitmask(pixelflags.to_flag_names('wavecal', solution.get_flag(res_id=resID))),
+                                        xCoord=column, yCoord=row)
 
             if not solution.has_good_calibration_solution(res_id=resID):
                 continue
@@ -1317,7 +1317,7 @@ class ObsFile(object):
         self.photonTable.flush()
         getLogger(__name__).info('Wavecal applied in {:.2f}s'.format(time.time()-tic))
 
-    def applyHotPixelMask(self, mask):
+    def applyHotPixelMask(self, hot_mask, unstable_mask):
         """
         loads the wavelength cal coefficients from a given file and applies them to the
         wavelengths table for each pixel. ObsFile must be loaded in write mode. Dont call updateWavelengths !!!
@@ -1327,8 +1327,9 @@ class ObsFile(object):
         """
         tic = time.time()
         getLogger(__name__).info('Applying a hot pixel mask to {}'.format(self.fullFileName))
-        self.flag(self.flag_bitmask('pixcal.hot') * mask)
-        self.modifyHeaderEntry('isHotPixMasked', True)
+        self.flag(self.flag_bitmask('pixcal.hot') * hot_mask)
+        self.flag(self.flag_bitmask('pixcal.unstable') * unstable_mask)
+        self.modifyHeaderEntry(headerTitle='isHotPixMasked', headerValue=True)
         getLogger(__name__).info('Mask applied applied in {:.2f}s'.format(time.time()-tic))
 
     @property
@@ -1623,7 +1624,7 @@ class ObsFile(object):
         """
         self._applyColWeight(resID, weightArr, 'NoiseWeight')
 
-    def applyFlatCal(self, calsolFile, save_plots=False):
+    def applyFlatCal(self, calsolFile, use_wavecal=False, save_plots=False):
         """
         Applies a flat calibration to the "SpecWeight" column of a single pixel.
 
@@ -1700,12 +1701,24 @@ class ObsFile(object):
 
                 if (np.diff(indices) == 1).all():  # This takes ~300s for ALL photons combined on a 70Mphot file.
                     # getLogger(__name__).debug('Using modify_column')
-                    phases = self.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
+                    wavelengths = self.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
 
-                    coeffs=soln['coeff'].flatten()
+                    coeffs = soln['coeff'].flatten()
                     weights = soln['weight'].flatten()
                     errors = soln['err'].flatten()
-                    weightArr = np.poly1d(coeffs)(phases)
+                    if self.info['isWvlCalibrated'] and not any([self.flagMask(pixelflags.PROBLEM_FLAGS,
+                                                                              pixel=(row, column))]):
+                        weightArr = np.poly1d(coeffs)(wavelengths)
+                    elif not use_wavecal:
+                        weighted_avg, sum_weight_arr = np.ma.average(weights, axis=0,
+                                                                     weights=errors ** -2.,
+                                                                     returned=True)  # should be a weighted average
+                        weightArr = np.ones_like(wavelengths) * weighted_avg
+                    else:
+                        assert use_wavecal
+                        pass
+
+
                     self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=weightArr,
                                                    colname='SpecWeight')
                 else:  # This takes 3.5s on a 70Mphot file!!!
@@ -1724,7 +1737,7 @@ class ObsFile(object):
                     ax.set_xlim(minwavelength, maxwavelength)
                     ax.plot(bins, weights, '-', label='weights')
                     ax.errorbar(bins, weights, yerr=errors, label='weights', fmt='o', color='green')
-                    ax.plot(phases, weightArr, '.', markersize=5)
+                    ax.plot(wavelengths, weightArr, '.', markersize=5)
                     ax.set_title('p rID:{} ({}, {})'.format(resID, row, column))
                     ax.set_ylabel('weight')
 

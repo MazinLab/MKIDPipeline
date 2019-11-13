@@ -65,7 +65,7 @@ def batch_apply_wavecals(obs, ncpu=None):
 
 def batch_apply_flatcals(obs, ncpu=None):
     pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
-    obs = {o.h5:o for o in obs if o.flatcal is not None}.values()  # filter so unique h5 files, not responsible for a mixed flatcal specs
+    obs = {o.h5: o for o in obs if o.flatcal is not None}.values()  # filter so unique h5 files, not responsible for a mixed flatcal specs
     pool.map(flatcal_apply, obs)
     pool.close()
 
