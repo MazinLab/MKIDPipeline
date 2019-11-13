@@ -511,7 +511,7 @@ def hpm_cps_cut(image, sigma=5, max_cut=2450, cold_mask=False):
     return {'bad_mask': bad_mask, 'dead_mask': dead_mask, 'hot_mask': hot_mask, 'image': raw_image}
 
 
-def mask_hot_pixels(file, method='hpm_flux_threshold', step=30, startt=0, stopt=None, ncpu=1, **methodkw):
+def mask_hot_pixels(file, method='hpm_flux_threshold', step=20, startt=0, stopt=None, ncpu=1, **methodkw):
     """
     This routine is the main code entry point of the bad pixel masking code.
     Takes an obs. file as input and writes a 'bad pixel table' to that h5 file where each entry is an indicator of
@@ -544,6 +544,10 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=30, startt=0, stopt=
             3 = Dead Pixel
     """
     obs = ObsFile(file)
+    if obs.info['isHotPixMasked']:
+        getLogger(__name__).info('{} is already hot pixel calibrated').format(file)
+        return
+
     if stopt is None:
         stopt = obs.getFromHeader('expTime')
     assert startt < stopt
@@ -565,11 +569,24 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=30, startt=0, stopt=
         getLogger(__name__).info('Processing time slice: {} - {} s'.format(each_time, each_time + step))
         raw_image_dict = obs.getPixelCountImage(firstSec=each_time, integrationTime=step,
                                                 applyWeight=True, applyTPFWeight=True,
-                                                scaleByEffInt=method == 'hpm_cps_cut')
-        bad_pixel_solution = func(raw_image_dict['image'], dead_mask=obs.pixelBadMask, **methodkw)
+                                                scaleByEffInt=method == 'hpm_cps_cut',
+                                                exclude_flags=['beammap.noDacTone'])
+        bad_pixel_solution = func(raw_image_dict['image'], **methodkw)
         hot_masks[:, :, i] = bad_pixel_solution['hot_mask']
+
+    unstable_mask = np.zeros((obs.nXPix, obs.nYPix), dtype=bool)
+    for x in range(obs.nXPix):
+        for y in range(obs.nYPix):
+            vals = np.zeros(len(hot_masks[x, y, :]), dtype=bool)
+            for i, mask in enumerate(hot_masks[x, y, :]):
+                vals[i] = mask
+            if not all(vals) or all(vals):
+                unstable_mask[x, y] = False
+            else:
+                unstable_mask[x, y] = True
+
 
     # Combine the bad pixel masks into a master mask
     obs.enablewrite()
-    obs.applyHotPixelMask(np.any(hot_masks, unstable_mask, axis=-1))
+    obs.applyHotPixelMask(np.all(hot_masks, axis=-1), unstable_mask)
     obs.disablewrite()
