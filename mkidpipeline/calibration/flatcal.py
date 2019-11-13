@@ -12,6 +12,15 @@ Entire array: both wavelength slices and masked wavelength slices
 Per pixel:  plots of weights vs wavelength next to twilight spectrum OR
             plots of weights vs wavelength, twilight spectrum, next to wavecal solution
             (has _WavelengthCompare_ in the name)
+
+
+
+Edited by: Sarah Steiger    Date:October 31, 2019
+
+changed the implementation of the laser flat for MEC. Instead of only applying the laser flat to wavelength calibrated
+pixels it uses all of the not hot or dead but still photosensitive pixels. It is assumed that the laser light is
+monochromatic and a dark frame is subtracted out of the flat calculations to exclude non monochromatic light that
+might leak into MEC.
 """
 import argparse
 import atexit
@@ -36,6 +45,7 @@ import mkidpipeline.config
 import pkg_resources as pkg
 from mkidcore.utils import query
 
+
 DEFAULT_CONFIG_FILE = pkg.resource_filename('mkidpipeline.calibration.flatcal', 'flatcal.yml')
 
 
@@ -55,6 +65,9 @@ class FlatCalibrator(object):
         self.out_directory = self.cfg.paths.out
 
         self.intTime = self.cfg.flatcal.chunk_time
+
+        self.dark_start = [self.cfg.flatcal.dark_data['start_times']]
+        self.dark_int = [self.cfg.flatcal.dark_data['int_times']]
 
         self.xpix = self.cfg.beammap.ncols
         self.ypix = self.cfg.beammap.nrows
@@ -82,15 +95,14 @@ class FlatCalibrator(object):
         self.spectralCubes = None
         self.cubeEffIntTimes = None
         self.countCubes = None
-        self.maskedCubeWeights = None
-        self.maskedCubeDeltaWeights = None
+        self.cubeWeights = None
+        self.weightErr = None
         self.totalCube = None
         self.totalFrame = None
         self.flatWeights = None
         self.countCubesToSave = None
-        self.deltaFlatWeights = None
+        self.flatWeightErr = None
         self.flatFlags = None
-        self.flatWeights = None
         self.flatWeightsforplot = None
         self.plotName = None
         self.fig = None
@@ -137,7 +149,7 @@ class FlatCalibrator(object):
             getLogger(__name__).error("Couldn't create flat cal file: {} ", self.flatCalFileName)
             return
         header = flatCalFile.create_group(flatCalFile.root, 'header', 'Calibration information')
-        tables.Array(header, 'beamMap', obj=self.beamImage)
+        tables.Array(header, 'beamMap', obj=self.beamImage.residmap)
         tables.Array(header, 'xpix', obj=self.xpix)
         tables.Array(header, 'ypix', obj=self.ypix)
         calgroup = flatCalFile.create_group(flatCalFile.root, 'flatcal',
@@ -157,11 +169,11 @@ class FlatCalibrator(object):
         for iRow in range(self.xpix):
             for iCol in range(self.ypix):
                 entry = caltable.row
-                entry['resid'] = self.beamImage[iRow, iCol]
+                entry['resid'] = self.beamImage.residmap[iRow, iCol]
                 entry['y'] = iRow
                 entry['x'] = iCol
                 entry['weight'] = self.flatWeights.data[iRow, iCol, :]
-                entry['err'] = self.deltaFlatWeights.data[iRow, iCol, :]
+                entry['err'] = self.flatWeightErr[iRow, iCol, :]
                 fittable = (entry['weight'] != 0) & np.isfinite(entry['weight']+entry['err'])
                 if fittable.sum() < poly_power+1:
                     entry['bad'] = True
@@ -180,11 +192,11 @@ class FlatCalibrator(object):
         If a lasercal is used for the flatcal then there is only one frame so this function is irrelevant
         and hits the pass condition.
         """
-        frames = self.spectralCubes.sum(axis=3)
+        frames = np.copy(self.spectralCubes).sum(axis=3) #want to sum over all wavelengths
         if len(frames) == 1:
             pass
         else:
-            medianCountRates = np.array([np.median(frame[frame != 0]) for frame in frames])
+            medianCountRates = np.array([np.nanmedian(frame) for frame in frames])
             mask = medianCountRates <= self.countRateCutoff
             self.spectralCubes = np.array([cube for cube, use in zip(self.spectralCubes, mask) if use])
 
@@ -193,21 +205,16 @@ class FlatCalibrator(object):
         finds flat cal factors as medians/pixelSpectra for each pixel.  Normalizes these weights at each wavelength bin.
         Trim the beginning and end off the sorted weights for each wvl for each pixel, to exclude extremes from averages
         """
-        cubeWeightsList = []
-        deltaWeightsList = []
+        cubeWeights = np.zeros_like(self.spectralCubes)
+        deltaWeights = np.zeros_like(self.spectralCubes)
         for iCube, cube in enumerate(self.spectralCubes):
             effIntTime = self.cubeEffIntTimes[iCube]
-            # for each time chunk
             wvlAverages = np.zeros_like(self.wavelengths)
-            spectra2d = np.reshape(cube, (self.xpix * self.ypix, self.wavelengths.size))
             for iWvl in range(self.wavelengths.size):
-                wvlSlice = spectra2d[:, iWvl]
-                goodPixelWvlSlice = np.array(wvlSlice[wvlSlice != 0])
-                # dead pixels need to be taken out before calculating averages
-                wvlAverages[iWvl] = np.median(goodPixelWvlSlice)
-            weights = wvlAverages / cube
+                wvlAverages[iWvl] = np.nanmean(cube[:, :, iWvl])
+            weights = cube / wvlAverages
             weights[(weights == 0) | (weights == np.inf)] = np.nan
-            cubeWeightsList.append(weights)
+            cubeWeights[iCube, :, :, :] = weights
 
             # To get uncertainty in weight:
             # Assuming negligible uncertainty in medians compared to single pixel spectra,
@@ -217,56 +224,54 @@ class FlatCalibrator(object):
             # deltaWeight=weight/sqrt(RawCounts)
             # but 'cube' is in units cps, not raw counts so multiply by effIntTime before sqrt
 
-            deltaWeights = weights / np.sqrt(effIntTime * cube)
-            deltaWeightsList.append(deltaWeights)
+            deltaWeights[iCube, :, :, :] = weights / np.sqrt(effIntTime * cube)
 
-        cubeWeights = np.array(cubeWeightsList)
-        deltaCubeWeights = np.array(deltaWeightsList)
-        cubeWeightsMask = np.isnan(cubeWeights)
-        self.maskedCubeWeights = np.ma.array(cubeWeights, mask=cubeWeightsMask, fill_value=1.)
-        nCubes = self.maskedCubeWeights.shape[0]
-        self.maskedCubeDeltaWeights = np.ma.array(deltaCubeWeights, mask=cubeWeightsMask)
 
-        # sort maskedCubeWeights and rearrange spectral cubes the same way
+        weightsMask = np.isnan(cubeWeights)
+        self.cubeWeights = np.ma.array(cubeWeights, mask=weightsMask, fill_value=1.).data
+        nCubes = self.cubeWeights.shape[0]
+        self.weightErr = np.ma.array(deltaWeights, mask=weightsMask).data
+
+        # sort cubeWeights and rearrange spectral cubes the same way
         if self.fractionOfChunksToTrim and nCubes > 1:
-            sortedIndices = np.ma.argsort(self.maskedCubeWeights, axis=0)
-            identityIndices = np.ma.indices(np.shape(self.maskedCubeWeights))
-            sortedWeights = self.maskedCubeWeights[
+            sortedIndices = np.ma.argsort(self.cubeWeights, axis=0)
+            identityIndices = np.ma.indices(np.shape(self.cubeWeights))
+            sortedWeights = self.cubeWeights[
                 sortedIndices, identityIndices[1], identityIndices[2], identityIndices[3]]
-            countCubesReordered = self.countCubes[
+            countCubes = self.countCubes[
                 sortedIndices, identityIndices[1], identityIndices[2], identityIndices[3]]
-            cubeDeltaWeightsReordered = self.maskedCubeDeltaWeights[
+            weightErr = self.weightErr[
                 sortedIndices, identityIndices[1], identityIndices[2], identityIndices[3]]
             sl = slice(self.fractionOfChunksToTrim * nCubes, (1 - self.fractionOfChunksToTrim) * nCubes)
             trimmedWeights = sortedWeights[sl, :, :, :]
-            trimmedCountCubesReordered = countCubesReordered[sl, :, :, :]
-            trimmedCubeDeltaWeightsReordered = cubeDeltaWeightsReordered[sl, :, :, :]
-            self.totalCube = np.ma.sum(trimmedCountCubesReordered, axis=0)
+            trimmedCountCubes = countCubes[sl, :, :, :]
+            trimmedWeightErr = weightErr[sl, :, :, :]
+            self.totalCube = np.ma.sum(trimmedCountCubes, axis=0)
             self.totalFrame = np.ma.sum(self.totalCube, axis=-1)
             self.flatWeights, summedAveragingWeights = np.ma.average(trimmedWeights, axis=0,
-                                                                     weights=trimmedCubeDeltaWeightsReordered ** -2.,
+                                                                     weights=trimmedWeightErr ** -2.,
                                                                      returned=True)
-            self.countCubesToSave = np.ma.sum(trimmedCountCubesReordered, axis=0)
+            self.countCubesToSave = np.ma.sum(trimmedCountCubes, axis=0)
         else:
             self.totalCube = np.ma.sum(self.countCubes, axis=0)
             self.totalFrame = np.ma.sum(self.totalCube, axis=-1)
-            self.flatWeights, summedAveragingWeights = np.ma.average(self.maskedCubeWeights, axis=0,
-                                                                     weights=self.maskedCubeDeltaWeights ** -2.,
+            self.flatWeights, summedAveragingWeights = np.ma.average(self.cubeWeights, axis=0,
+                                                                     weights=self.weightErr ** -2.,
                                                                      returned=True)
             self.countCubesToSave = np.ma.sum(self.countCubes, axis=0)
 
-        # Uncertainty in weighted average is sqrt(1/sum(averagingWeights)), normalize weights at each wavelength bin
-        self.deltaFlatWeights = np.sqrt(summedAveragingWeights ** -1.)
+        # Uncertainty in weighted average is sqrt(1/sum(averagingWeights)), normalize weights at each wavelength bin -- Is this what we should do??
+        self.flatWeightErr = np.sqrt(summedAveragingWeights ** -1.)
         self.flatFlags = self.flatWeights.mask
-        self.checkForColdPix()
-        wvlWeightMedians = np.ma.median(np.reshape(self.flatWeights, (-1, self.wavelengths.size)), axis=0)
-        self.flatWeights = np.divide(self.flatWeights, wvlWeightMedians)
+        self.checkForColdPix() #TODO figure out what this does and fix it flag - wise
+        wvlWeightMean = np.ma.mean(np.reshape(self.flatWeights, (-1, self.wavelengths.size)), axis=0)
+        self.flatWeights = np.divide(self.flatWeights, wvlWeightMean)
         self.flatWeightsforplot = np.ma.sum(self.flatWeights, axis=-1)
 
     def checkForColdPix(self):
         for iWvl in range(self.wavelengths.size):
             weight_slice = self.flatWeights.data[:, :, iWvl]
-            # err_slice=self.deltaFlatWeights.data[:,:,iWvl]
+            # err_slice=self.flatWeightErr.data[:,:,iWvl]
             self.flatFlags[:, :, iWvl][weight_slice >= 2] = True
 
     def plotFitbyPixel(self, pixbox=50, poly_power=2):
@@ -279,7 +284,7 @@ class FlatCalibrator(object):
         # path to your wavecal solution file
         matplotlib.rcParams['font.size'] = 3
         wavelengths = self.wavelengths
-        nCubes = len(self.maskedCubeWeights)
+        nCubes = len(self.cubeWeights)
         if pixbox == None:
             xrange = self.xpix
             yrange = self.ypix
@@ -289,7 +294,7 @@ class FlatCalibrator(object):
         for iRow in range(xrange):
             for iCol in range(yrange):
                 weights = self.flatWeights[iRow, iCol, :].data
-                errors = self.deltaFlatWeights[iRow, iCol, :].data
+                errors = self.flatWeightErr[iRow, iCol, :].data
                 if not np.any(self.flatFlags[iRow, iCol, :]):
                     if self.iPlot % self.nPlotsPerPage == 0:
                         self.fig = plt.figure(figsize=(10, 10), dpi=100)
@@ -423,7 +428,7 @@ class FlatCalibrator(object):
 
 class WhiteCalibrator(FlatCalibrator):
     """
-    Opens flat file using parameters from the param file, sets wavelength binnning parameters, and calculates flat
+    Opens flat file using parameters from the param file, sets wavelength binning parameters, and calculates flat
     weights for flat file.  Writes these weights to a h5 file and plots weights both by pixel
     and in wavelength-sliced images.
     """
@@ -479,73 +484,93 @@ class WhiteCalibrator(FlatCalibrator):
             msg = 'Loaded Flat Spectra for seconds {} to {}'.format(int(firstSec), int(firstSec) + int(self.intTime))
             getLogger(__name__).info(msg)
 
-        self.spectralCubes = np.array(self.spectralCubes)
-        self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
-        self.countCubes = self.cubeEffIntTimes[:, :, :, None] * self.spectralCubes
-
-
-class LaserCalibrator(FlatCalibrator):
-    def __init__(self, config=None, cal_file_name='flatsol_{wavecal}.h5'):
-        super().__init__(config)
-        self.flatCalFileName = self.cfg.get('flatname', os.path.join(self.cfg.paths.database,
-                                                                     cal_file_name.format(wavecal=self.cfg.wavesol.id)))
-
-    def loadData(self):
-        getLogger(__name__).info('Loading calibration data from {}'.format(self.cfg.wavesol))
-        self.sol = wavecal.load_solution(self.cfg.wavesol)
-        self.beamImage = self.sol.beam_map
-        self.wvlFlags = self.sol.beam_map_flags
-        self.xpix = self.sol.cfg.x_pixels
-        self.ypix = self.sol.cfg.y_pixels
-        self.wave_list = self.sol.cfg.wavelengths
-        self.wavelengths = np.array(self.sol.cfg.wavelengths)
-        self.wave_inttime_list = self.sol.cfg.exposure_times
-
-    @property
-    def wvl_medians(self):
-        wvl_medians = []
-        wvl_medians.append(self.wvlStart)
-        for index, wavelength in enumerate(self.wave_list[0:-1]):
-            wvl_medians.append(self.wave_list[index] + ((self.wave_list[index + 1] - self.wave_list[index]) / 2))
-        wvl_medians.append(self.wvlStop)
-        return np.array(wvl_medians)
-
-    def loadFlatSpectra(self):
-        self.spectralCubes = []
-        self.cubeEffIntTimes = []
-        cube, eff_time = self.make_spectralcube_from_wavecal()
-        cube /= eff_time
-        cube[np.isnan(cube)] = 0
-        self.spectralCubes.append(cube)
-        self.cubeEffIntTimes.append(eff_time)
-        self.spectralCubes = np.array(self.spectralCubes)
+        self.spectralCubes = np.array(self.spectralCubes[0])
+        # Haven't had a chance to check if the following lines break - find me if you come across this before me - Sarah
         self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
         self.countCubes = self.cubeEffIntTimes * self.spectralCubes
 
-    def make_spectralcube_from_wavecal(self):
-        wave_list = self.wave_list
-        nWavs = len(self.wave_list)
-        spectralcube_wave = np.zeros([self.xpix, self.ypix, nWavs])
-        spectralcube_wave[:, :, :] = np.nan
-        eff_int_time_3d_wave = np.zeros([self.xpix, self.ypix, nWavs])
-        gaussian_names = ['GaussianAndExponential', 'GaussianAndGaussian',
-                          'GaussianAndGaussianExponential',
-                          'SkewedGaussianAndGaussianExponential']
-        for nRow in range(self.xpix):
-            for nCol in range(self.ypix):
-                good_cal = self.sol.has_good_calibration_solution(pixel=[nRow, nCol])
-                if good_cal:
-                    params = self.sol.histogram_parameters(pixel=[nRow, nCol])
-                    model_names = self.sol.histogram_model_names(pixel=[nRow, nCol])
-                    good_sol = self.sol.has_good_histogram_solutions(pixel=[nRow, nCol])
-                    for iwvl, wvl in enumerate(wave_list):
-                        if good_sol[iwvl] and model_names[iwvl] in gaussian_names:
-                            sigma = params[iwvl]['signal_sigma'].value
-                            amp_scaled = params[iwvl]['signal_amplitude'].value
-                            wvl_intensity = np.sqrt(sigma) * amp_scaled
-                            spectralcube_wave[nRow, nCol, iwvl] = wvl_intensity
-                            eff_int_time_3d_wave[nRow, nCol, iwvl] = self.wave_inttime_list[iwvl]
-        return spectralcube_wave, eff_int_time_3d_wave
+
+class LaserCalibrator(FlatCalibrator):
+    def __init__(self, h5dir='', config=None, cal_file_name='flatsol_laser.h5'):
+        super().__init__(config)
+        self.flatCalFileName = self.cfg.get('flatname', os.path.join(self.cfg.paths.database,
+                                                                     cal_file_name))
+        self.beamImage = self.cfg.beammap #not sure if this and the one below are what they should be
+        # self.wvlFlags = self.cfg.beammap.flags
+        self.xpix = self.cfg.beammap.ncols
+        self.ypix = self.cfg.beammap.nrows
+        self.wavelengths = np.array(self.cfg.wavelengths, dtype=float)
+        self.exposure_times = self.cfg.exposure_times
+        self.start_times = self.cfg.start_times
+        self.h5_directory = h5dir
+        self.h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.start_times]
+        self.dark_h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.dark_start]
+
+    def loadData(self):
+        getLogger(__name__).info('No need to load wavecal solution data for a Laser Flat, passing through')
+        pass
+
+    def loadFlatSpectra(self):
+        cps_cube_list, int_times, mask = self.make_spectralcube()
+        dark_frame = self.get_dark_frame()
+        self.spectralCubes = cps_cube_list
+        self.cubeEffIntTimes = int_times
+        for icube, cube in enumerate(self.spectralCubes):
+            dark_subtracted_cube = np.zeros_like(cube)
+            for iwvl, wvl in enumerate(cube[0, 0, :]):
+                dark_subtracted_cube[:, :, iwvl] = np.subtract(cube[:, :, iwvl], dark_frame)
+            masked_cube = np.ma.masked_array(dark_subtracted_cube, mask=mask).data
+            #set any dead pixels or pixels who recieved less than the dark frame to nans -
+            # won't be included in weight calcullation
+            masked_cube[masked_cube <= 0] = np.nan
+            self.spectralCubes[icube] = masked_cube
+        self.spectralCubes = np.array(self.spectralCubes)
+        self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
+        self.countCubes = self.cubeEffIntTimes * self.spectralCubes # count cubes is the counts over the integration time
+
+    def make_spectralcube(self):
+        wavelengths = self.wavelengths
+        nWavs = len(self.wavelengths)
+        ntimes = int(np.max(self.exposure_times) / self.intTime)
+        cps_cube_list = np.zeros([ntimes, self.xpix, self.ypix, nWavs])
+        mask = np.zeros([self.xpix, self.ypix, nWavs])
+        int_times = np.zeros([self.xpix, self.ypix, nWavs])
+        for iwvl, wvl in enumerate(wavelengths):
+            time = int(self.exposure_times[iwvl] / self.intTime)
+            cps_cube = np.zeros([self.xpix, self.ypix, time])
+            obs = ObsFile(self.h5_file_names[iwvl])
+            # mask out hot pixels before finding the mean
+            hot_mask = obs.flagMask(['pixcal.hot', 'pixcal.cold'])
+            mask[:, :, iwvl] = hot_mask
+            counts = obs.getTemporalCube(timeslice=self.intTime)
+            getLogger(__name__).info('Loaded {}nm spectral cube'.format(wvl))
+            cps_cube = counts['cube']/self.intTime #TODO move this division outside of the loop
+            cps_cube = np.moveaxis(cps_cube, 2, 0)
+            int_times[:, :, iwvl] = self.intTime
+            cps_cube_list[:time, :, :, iwvl] = cps_cube
+        return cps_cube_list, int_times, mask
+
+    def get_dark_frame(self):
+        '''
+        takes however many dark files that are specified in the pipe.yml and computes the counts/pixel/sec for the sum
+        of all the dark obs. This creates a stictched together long dark obs from all of the smaller obs given. This
+        is useful for legacy data where there may not be a specified dark observation but parts of observations where
+        the filter wheel was closed.
+
+        :return: expected dark counts for each pixel over a flat observation
+        '''
+        frames = np.zeros((140, 146, len(self.dark_start)))
+        getLogger(__name__).info('Loading dark frames for Laser flat')
+        for i, file in enumerate(self.dark_h5_file_names):
+            obs = ObsFile(file)
+            frame = obs.getPixelCountImage(integrationTime=self.dark_int[i])['image']
+            frames[:, :, i] = frame
+        total_counts = np.sum(frames, axis=2)
+        total_int_time = float(np.sum(self.dark_int))
+        counts_per_sec = total_counts / total_int_time
+        dark_frame = counts_per_sec
+        return dark_frame
+
 
 
 def summaryPlot(flatsol, save_plot=False):
@@ -684,14 +709,19 @@ def fetch(solution_descriptors, config=None, ncpu=np.inf, remake=False):
             fcfg.unregister('flatname')
             fcfg.unregister('h5file')
 
-            if hasattr(sd, 'wavecal'):
-                fcfg.register('wavesol', sd.wavecal, update=True)
-                flattner = LaserCalibrator(fcfg, cal_file_name=sd.id)
-            else:
+            if fcfg.flatcal.method == 'Laser':
+                fcfg.register('start_times', np.array([x.start for x in sd.wavecal.data]), update=True)
+                fcfg.register('exposure_times', np.array([x.duration for x in sd.wavecal.data]), update=True)
+                fcfg.register('wavelengths', np.array([w for w in sd.wavecal.wavelengths]), update=True)
+                flattner = LaserCalibrator(config=fcfg, h5dir=cfg.paths.out, cal_file_name=sd.id)
+            elif fcfg.flatcal.method == 'White':
                 fcfg.register('start_time', sd.ob.start, update=True)
                 fcfg.register('exposure_time', sd.ob.duration, update=True)
                 fcfg.unregister('wavesol')
-                flattner = WhiteCalibrator(fcfg, cal_file_name=sd.id)
+                flattner = WhiteCalibrator(config=fcfg, cal_file_name=sd.id)
+            else:
+                raise TypeError(str(fcfg.flatcal.method) + ' is an invalid method keyword argument')
+
 
             solutions.append(sf)
             flattners.append(flattner)
