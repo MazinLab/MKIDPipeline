@@ -1329,7 +1329,7 @@ class ObsFile(object):
         getLogger(__name__).info('Applying a hot pixel mask to {}'.format(self.fullFileName))
         self.flag(self.flag_bitmask('pixcal.hot') * hot_mask)
         self.flag(self.flag_bitmask('pixcal.unstable') * unstable_mask)
-        self.modifyHeaderEntry('isHotPixMasked', True)
+        self.modifyHeaderEntry(headerTitle='isHotPixMasked', headerValue=True)
         getLogger(__name__).info('Mask applied applied in {:.2f}s'.format(time.time()-tic))
 
     @property
@@ -1624,7 +1624,7 @@ class ObsFile(object):
         """
         self._applyColWeight(resID, weightArr, 'NoiseWeight')
 
-    def applyFlatCal(self, calsolFile, save_plots=False):
+    def applyFlatCal(self, calsolFile, use_wavecal=False, save_plots=False):
         """
         Applies a flat calibration to the "SpecWeight" column of a single pixel.
 
@@ -1703,10 +1703,22 @@ class ObsFile(object):
                     # getLogger(__name__).debug('Using modify_column')
                     wavelengths = self.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
 
-                    coeffs=soln['coeff'].flatten()
+                    coeffs = soln['coeff'].flatten()
                     weights = soln['weight'].flatten()
                     errors = soln['err'].flatten()
-                    weightArr = np.poly1d(coeffs)(phases)
+                    if self.info['isWvlCalibrated'] and not any([self.flagMask(pixelflags.PROBLEM_FLAGS,
+                                                                              pixel=(row, column))]):
+                        weightArr = np.poly1d(coeffs)(wavelengths)
+                    elif not use_wavecal:
+                        weighted_avg, sum_weight_arr = np.ma.average(weights, axis=0,
+                                                                     weights=errors ** -2.,
+                                                                     returned=True)  # should be a weighted average
+                        weightArr = np.ones_like(wavelengths) * weighted_avg
+                    else:
+                        assert use_wavecal
+                        pass
+
+
                     self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=weightArr,
                                                    colname='SpecWeight')
                 else:  # This takes 3.5s on a 70Mphot file!!!
