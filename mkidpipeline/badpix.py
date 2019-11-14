@@ -545,7 +545,7 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=20, startt=0, stopt=
     """
     obs = ObsFile(file)
     if obs.info['isHotPixMasked']:
-        getLogger(__name__).info('{} is already hot pixel calibrated').format(file)
+        getLogger(__name__).info(('{} is already hot pixel calibrated').format(obs.fileName))
         return
 
     if stopt is None:
