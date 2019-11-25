@@ -1318,7 +1318,7 @@ class ObsFile(object):
         self.photonTable.flush()
         getLogger(__name__).info('Wavecal applied in {:.2f}s'.format(time.time()-tic))
 
-    def applyHotPixelMask(self, hot_mask, unstable_mask):
+    def applyBadPixelMask(self, hot_mask, cold_mask, unstable_mask):
         """
         loads the wavelength cal coefficients from a given file and applies them to the
         wavelengths table for each pixel. ObsFile must be loaded in write mode. Dont call updateWavelengths !!!
@@ -1327,10 +1327,11 @@ class ObsFile(object):
         something is wrong. -JB 2/19/19
         """
         tic = time.time()
-        getLogger(__name__).info('Applying a hot pixel mask to {}'.format(self.fullFileName))
+        getLogger(__name__).info('Applying a bad pixel mask to {}'.format(self.fullFileName))
         self.flag(self.flag_bitmask('pixcal.hot') * hot_mask)
+        self.flag(self.flag_bitmask('pixcal.cold') * cold_mask)
         self.flag(self.flag_bitmask('pixcal.unstable') * unstable_mask)
-        self.modifyHeaderEntry(headerTitle='isHotPixMasked', headerValue=True)
+        self.modifyHeaderEntry(headerTitle='isBadPixMasked', headerValue=True)
         getLogger(__name__).info('Mask applied applied in {:.2f}s'.format(time.time()-tic))
 
     @property
