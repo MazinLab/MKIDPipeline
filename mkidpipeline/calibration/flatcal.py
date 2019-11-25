@@ -260,7 +260,7 @@ class FlatCalibrator(object):
                                                                      returned=True)
             self.countCubesToSave = np.ma.sum(self.countCubes, axis=0)
 
-        # Uncertainty in weighted average is sqrt(1/sum(averagingWeights)), normalize weights at each wavelength bin -- Is this what we should do??
+        # Uncertainty in weighted average is sqrt(1/sum(averagingWeights)), normalize weights at each wavelength bin
         self.flatWeightErr = np.sqrt(summedAveragingWeights ** -1.)
         self.flatFlags = self.flatWeights.mask
         self.checkForColdPix() #TODO figure out what this does and fix it flag - wise
@@ -519,9 +519,10 @@ class LaserCalibrator(FlatCalibrator):
             dark_subtracted_cube = np.zeros_like(cube)
             for iwvl, wvl in enumerate(cube[0, 0, :]):
                 dark_subtracted_cube[:, :, iwvl] = np.subtract(cube[:, :, iwvl], dark_frame)
+            # mask out hot and cold pixels
             masked_cube = np.ma.masked_array(dark_subtracted_cube, mask=mask).data
-            #set any dead pixels or pixels who recieved less than the dark frame to nans -
-            # won't be included in weight calcullation
+            # set any dead pixels or pixels who recieved less than the dark frame to nans -
+            # won't be included in weight calculation
             masked_cube[masked_cube <= 0] = np.nan
             self.spectralCubes[icube] = masked_cube
         self.spectralCubes = np.array(self.spectralCubes)
@@ -537,7 +538,6 @@ class LaserCalibrator(FlatCalibrator):
         int_times = np.zeros([self.xpix, self.ypix, nWavs])
         for iwvl, wvl in enumerate(wavelengths):
             time = int(self.exposure_times[iwvl] / self.intTime)
-            cps_cube = np.zeros([self.xpix, self.ypix, time])
             obs = ObsFile(self.h5_file_names[iwvl])
             # mask out hot pixels before finding the mean
             hot_mask = obs.flagMask(['pixcal.hot', 'pixcal.cold'])
