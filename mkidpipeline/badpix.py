@@ -96,7 +96,7 @@ def _stddev_bias_corr(n):
     return 1.0 / corr
 
 
-def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5, dead_threshold=0,
+def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.0, max_iter=5, dead_threshold=0, #TODO make nsigma_hot and nsigma_cold user specified parameters in the config file
                        use_local_stdev=False, bkgd_percentile=50.0, dead_mask=None, min_background_sigma=.01):
     """
     Robust!  NOTE:  This is a routine that was ported over from the ARCONS pipeline.
@@ -170,7 +170,9 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5, de
 
     # Initialise a mask for hot pixels (all False) for comparison on each iteration.
     initial_hot_mask = np.zeros_like(raw_image, dtype=bool)
+    initial_cold_mask = np.zeros_like(raw_image, dtype=bool)
     hot_mask = np.zeros_like(raw_image, dtype=bool)
+    cold_mask = np.zeros_like(raw_image, dtype=bool)
 
     # Initialise some arrays with NaNs in case they don't get filled out during the iteration
     median_filter_image = np.full_like(raw_image, np.nan)
@@ -181,7 +183,7 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5, de
     # are dead, return a bad_mask where all the pixels are flagged as DEAD
     if raw_image[np.isfinite(raw_image)].sum() <= 0:
         getLogger(__name__).info('Entire image consists of dead pixels')
-        bad_mask = dead_mask * pixelflags.pixcal['dead']
+        bad_mask = dead_mask * pixelflags.pixcal['dead']  #TODO determine what 'dead' means and change this flag accordingly
         hot_mask = np.zeros_like(bad_mask, dtype=bool)
         iteration = -1
     else:
@@ -227,12 +229,13 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5, de
             # Any pixel that has a peak/median ratio more than nSigma above the maximum ratio should be flagged as hot:
             # True = bad pixel; False = good pixel.
             hot_mask = (difference_image > (nsigma_hot * difference_image_error)) | initial_hot_mask
-
+            cold_mask = raw_image < (overall_bkgd/nsigma_cold) | initial_cold_mask #TODO this isnt rigorous at all - make it so
             # If no change between between this and the last iteration then stop iterating
-            if np.all(hot_mask == initial_hot_mask):
+            if np.all(hot_mask == initial_hot_mask) and np.all(cold_mask == initial_cold_mask):
                 break
 
             # Otherwise update 'initial_hot_mask' and set all detected bad pixels to NaN for the next iteration
+            initial_cold_mask = np.copy(cold_mask)
             initial_hot_mask = np.copy(hot_mask)
             raw_image[hot_mask] = np.nan
 
@@ -242,7 +245,7 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, max_iter=5, de
             + dead_mask * pixelflags.pixcal['cold'] \
             + hot_mask * pixelflags.pixcal['hot']
 
-    return {'hot_mask': hot_mask, 'masked_image': raw_image, 'image': image, 'bad_mask': bad_mask,
+    return {'hot_mask': hot_mask, 'cold_mask': cold_mask, 'masked_image': raw_image, 'image': image, 'bad_mask': bad_mask,
             'median_filter_image': median_filter_image, 'max_ratio': max_ratio, 'difference_image': difference_image,
             'difference_image_error': difference_image_error, 'num_iter': iteration + 1}
 
