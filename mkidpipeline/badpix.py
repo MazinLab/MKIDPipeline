@@ -182,8 +182,8 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.
     # In the case that *all* the pixels
     # are dead, return a bad_mask where all the pixels are flagged as DEAD
     if raw_image[np.isfinite(raw_image)].sum() <= 0:
-        getLogger(__name__).info('Entire image consists of dead pixels')
-        bad_mask = dead_mask * pixelflags.pixcal['dead']  #TODO determine what 'dead' means and change this flag accordingly
+        getLogger(__name__).warning('Entire image consists of pixels with 0 counts')
+        bad_mask = cold_mask * pixelflags.pixcal['cold']
         hot_mask = np.zeros_like(bad_mask, dtype=bool)
         iteration = -1
     else:
@@ -229,20 +229,22 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.
             # Any pixel that has a peak/median ratio more than nSigma above the maximum ratio should be flagged as hot:
             # True = bad pixel; False = good pixel.
             hot_mask = (difference_image > (nsigma_hot * difference_image_error)) | initial_hot_mask
-            cold_mask = raw_image < (overall_bkgd/nsigma_cold) | initial_cold_mask #TODO this isnt rigorous at all - make it so
+            cold_mask = (raw_image < (overall_bkgd/nsigma_cold)) | initial_cold_mask # TODO don't know if this is the best way to do this
             # If no change between between this and the last iteration then stop iterating
             if np.all(hot_mask == initial_hot_mask) and np.all(cold_mask == initial_cold_mask):
                 break
 
-            # Otherwise update 'initial_hot_mask' and set all detected bad pixels to NaN for the next iteration
+            # Otherwise update 'initial_hot_mask' and 'initial_cold_mask' and set all detected bad pixels 
+            # to NaN for the next iteration
             initial_cold_mask = np.copy(cold_mask)
             initial_hot_mask = np.copy(hot_mask)
             raw_image[hot_mask] = np.nan
+            raw_image[cold_mask] = np.nan
 
-        # Finished with loop, make sure a pixel is not simultaneously hot and dead
-        assert (~(hot_mask & dead_mask)).all()
+        # Finished with loop, make sure a pixel is not simultaneously hot and cold
+        assert (~(hot_mask & cold_mask)).all()
         bad_mask = np.zeros_like(raw_image) \
-            + dead_mask * pixelflags.pixcal['cold'] \
+            + cold_mask * pixelflags.pixcal['cold'] \
             + hot_mask * pixelflags.pixcal['hot']
 
     return {'hot_mask': hot_mask, 'cold_mask': cold_mask, 'masked_image': raw_image, 'image': image, 'bad_mask': bad_mask,
@@ -547,8 +549,8 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=20, startt=0, stopt=
             3 = Dead Pixel
     """
     obs = ObsFile(file)
-    if obs.info['isHotPixMasked']:
-        getLogger(__name__).info(('{} is already hot pixel calibrated').format(obs.fileName))
+    if obs.info['isBadPixMasked']:
+        getLogger(__name__).info(('{} is already bad pixel calibrated').format(obs.fileName))
         return
 
     if stopt is None:
@@ -565,6 +567,7 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=20, startt=0, stopt=
 
     # Initialise stack of masks, one for each time step
     hot_masks = np.zeros([obs.nXPix, obs.nYPix, step_starts.size], dtype=bool)
+    cold_masks = np.zeros([obs.nXPix, obs.nYPix, step_starts.size], dtype=bool)
     func = globals()[method]
 
     # Generate a stack of bad pixel mask, one for each time step
@@ -575,8 +578,8 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=20, startt=0, stopt=
                                                 scaleByEffInt=method == 'hpm_cps_cut',
                                                 exclude_flags=['beammap.noDacTone'])
         bad_pixel_solution = func(raw_image_dict['image'], **methodkw)
-        hot_masks[:, :, i] = bad_pixel_solution['hot_mask']
-
+        hot_masks[:, :, i] = bad_pixel_solution['hot_mask'] # TODO make this include hot and cold pixels
+        cold_masks[:, :, i] = bad_pixel_solution['cold_mask']
     unstable_mask = np.zeros((obs.nXPix, obs.nYPix), dtype=bool)
     for x in range(obs.nXPix):
         for y in range(obs.nYPix):
@@ -591,5 +594,5 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=20, startt=0, stopt=
 
     # Combine the bad pixel masks into a master mask
     obs.enablewrite()
-    obs.applyHotPixelMask(np.all(hot_masks, axis=-1), unstable_mask)
+    obs.applyBadPixelMask(np.all(hot_masks, axis=-1), np.all(cold_masks, axis=-1), unstable_mask)
     obs.disablewrite()
