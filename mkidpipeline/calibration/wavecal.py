@@ -2048,7 +2048,7 @@ class Solution(object):
             raise ValueError("either specify both r and res_ids or neither")
         # make sure r and res_ids are defined
         if r is None:
-            r, res_ids = self.find_resolving_powers()
+            r, res_ids = self.find_resolving_powers(wavelengths=wavelength)
         # get pixels
         pixels, res_ids = self._parse_resonators(res_ids=res_ids)
         not_interactive = False if wavelength is None else True
@@ -2331,10 +2331,10 @@ class Solution(object):
             axes, _ = self.plot_resolution_image(axes=axes, wavelength=0, r=r, res_ids=res_ids_r)
             axes_list = np.append(axes_list, axes)
             figures.append(figure)
-            for wavelength in self.cfg.wavelengths:
+            for wvl_index, wavelength in enumerate(self.cfg.wavelengths):
                 figure, axes = plt.subplots(figsize=figure_size)
                 axes, _ = self.plot_resolution_image(axes=axes, wavelength=wavelength, minimum=min_r, maximum=max_r,
-                                                     r=r, res_ids=res_ids_r)
+                                                     r=r[:, wvl_index, np.newaxis], res_ids=res_ids_r)
                 axes_list = np.append(axes_list, axes)
                 figures.append(figure)
         # save the plots
