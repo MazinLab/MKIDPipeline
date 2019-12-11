@@ -2304,7 +2304,7 @@ class Solution(object):
         calibration_table = table_title + table_begin + table + table_end
         # set up additional text
         info = (r"\textbf{Solution File Name:} \\" +
-                r"{} \\ \\ \\".format(self.name.replace('_', r'\_')))
+                r"{} \\ \\ \\".format(os.path.basename(self.name).replace('_', r'\_')))
         info += r" \begin{tabular}{@{}>{\raggedright}p{1.5in} | p{1.5in}}"
         info += r"\textbf{ObsFile Names:} & \textbf{Wavelengths [nm]:} \\"
         for index, file_name in enumerate(self.cfg.h5_file_names):
