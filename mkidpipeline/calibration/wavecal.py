@@ -2247,9 +2247,9 @@ class Solution(object):
         n_wavelengths = len(self.cfg.wavelengths)
         beam_mapped = (self.beam_map_flags == 0).sum()
         n_pixels = len(all_res_ids)
-        for res_id in res_ids_r:
-            name = self.calibration_model_name(res_id=res_id)
-            calibration_names.append(name)
+        for res_id in all_res_ids:
+            if self.has_good_calibration_solution(res_id=res_id):
+                calibration_names.append(self.calibration_model_name(res_id=res_id))
             good_wavelengths = 0
             good_solutions = self.has_good_histogram_solutions(res_id=res_id)
             names = self.histogram_model_names(res_id=res_id)
