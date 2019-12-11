@@ -2393,7 +2393,7 @@ class Solution(object):
                 freq_file = configuration[roach]['freqfile']
                 log.info('loading frequency file: {0}'.format(freq_file))
                 try:
-                    frequency_array = np.loadtxt(freq_file, allow_pickle= True)
+                    frequency_array = np.loadtxt(freq_file)
                     data.append(frequency_array)
                 except (OSError, ValueError, UnicodeDecodeError, IsADirectoryError):
                     log.warn('could not load file: {}'.format(freq_file))
