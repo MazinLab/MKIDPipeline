@@ -1919,7 +1919,7 @@ class Solution(object):
             axes.legend(fontsize=6)
         # make axis labels
         axes.set_xlabel('gaussian center [degrees]')
-        axes.set_ylabel('counts per {:.2f} degrees'.format(bin_width))
+        axes.set_ylabel('counts per bin width')
         plt.tight_layout()
         return axes
 
