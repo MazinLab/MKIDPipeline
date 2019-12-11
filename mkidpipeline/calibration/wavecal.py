@@ -443,6 +443,7 @@ class Calibrator(object):
                 # recheck fits that didn't work with better guesses if there exist
                 # lower energy fits that did work
                 good_solutions = self.solution.has_good_histogram_solutions(pixel=pixel)
+                models = self.solution.histogram_models(wavelengths, pixel=pixel)
                 for index, wavelength in enumerate(wavelengths):
                     model = models[index]
                     if model.x is None or model.y is None:
