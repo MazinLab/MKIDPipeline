@@ -1065,7 +1065,9 @@ class Quadratic(XErrorsModel):
         return success
 
     def guess(self):
-        poly = np.polyfit(self.x, self.y, 2)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", np.RankWarning)
+            poly = np.polyfit(self.x, self.y, 2)
         parameters = lm.Parameters()
         parameters.add('c0', value=poly[2])
         parameters.add('c1', value=poly[1])
@@ -1096,7 +1098,9 @@ class Linear(XErrorsModel):
         return success
 
     def guess(self):
-        poly = np.polyfit(self.x, self.y, 1)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", np.RankWarning)
+            poly = np.polyfit(self.x, self.y, 1)
         parameters = lm.Parameters()
         parameters.add('c0', value=poly[1])
         parameters.add('c1', value=poly[0])
