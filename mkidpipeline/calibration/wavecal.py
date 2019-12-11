@@ -796,7 +796,7 @@ class Calibrator(object):
         for model in tried_models[1:]:
             lower_aic = model.best_fit_result.aic < best_model.best_fit_result.aic
             good_fit = model.has_good_solution()
-            if lower_aic and good_fit:
+            if (lower_aic or not best_model.has_good_solution()) and good_fit:
                 best_model = model
             if lower_aic:
                 lowest_aic_model = model
@@ -822,7 +822,7 @@ class Calibrator(object):
         for model in tried_models[1:]:
             lower_aic = model.best_fit_result.aic < best_model.best_fit_result.aic
             good_fit = model.has_good_solution()
-            if lower_aic and good_fit:
+            if (lower_aic or not best_model.has_good_solution()) and good_fit:
                 best_model = model
             if lower_aic:
                 lowest_aic_model = model
