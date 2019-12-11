@@ -2082,9 +2082,9 @@ class Solution(object):
         pad = axes_size.Fraction(0.5, width)
         cax = divider.append_axes("right", size=width, pad=pad)
         maximum = np.max(r_cube)
+        image.set_clim(vmin=0, vmax=maximum)
         color_bar_ticks = np.linspace(0., maximum, num=number)
         color_bar = axes.figure.colorbar(image, cax=cax, ticks=color_bar_ticks)
-        color_bar.set_clim(vmin=0, vmax=maximum)
         if wavelength == 0:
             label = "Good / Bad"
         else:
@@ -2148,10 +2148,10 @@ class Solution(object):
                     self.slider.label.set_text("Wavelength Calibrated Pixels")
                     cax.set_ylabel("Good / Bad", rotation=270)
                 if self.ind != len(wavelengths):
-                    color_bar.set_clim(vmin=0, vmax=maximum)
+                    image.set_clim(vmin=0, vmax=maximum)
                     ticks = np.linspace(0., maximum, num=11, endpoint=True)
                 else:
-                    color_bar.set_clim(vmin=0, vmax=1)
+                    image.set_clim(vmin=0, vmax=1)
                     ticks = np.linspace(0., 1, num=2)
                 color_bar.set_ticks(ticks)
                 color_bar.draw_all()
@@ -2205,7 +2205,7 @@ class Solution(object):
         old_rc = matplotlib.rcParams.copy()
         if use_latex:
             matplotlib.rc('text', usetex=True)
-            matplotlib.rc('text.latex', unicode=True)
+            matplotlib.rc('text.latex')
             preamble = (r"\usepackage{array}"  # for raggedright tables
                         r"\renewcommand{\arraystretch}{1.15}"  # table spacing increase
                         r"\setlength{\parindent}{0cm}"  # no paragraph indent
