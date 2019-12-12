@@ -899,7 +899,8 @@ class ObsFile(object):
             ret = fits.ImageHDU(data=image)
             return ret
         else:
-            return {'image': image, 'effIntTime': effIntTime}
+            return {'image': image, 'effIntTime': effIntTime, 'spec_weights': masterPhotonList['SpecWeight'],
+                    'noise_weights': masterPhotonList['NoiseWeight']}
 
     def getCircularAperturePhotonList(self, centerXCoord, centerYCoord, radius,
                                       firstSec=0, integrationTime=-1, wvlStart=None,
@@ -1317,7 +1318,7 @@ class ObsFile(object):
         self.photonTable.flush()
         getLogger(__name__).info('Wavecal applied in {:.2f}s'.format(time.time()-tic))
 
-    def applyHotPixelMask(self, hot_mask, unstable_mask):
+    def applyBadPixelMask(self, hot_mask, cold_mask, unstable_mask):
         """
         loads the wavelength cal coefficients from a given file and applies them to the
         wavelengths table for each pixel. ObsFile must be loaded in write mode. Dont call updateWavelengths !!!
@@ -1326,10 +1327,11 @@ class ObsFile(object):
         something is wrong. -JB 2/19/19
         """
         tic = time.time()
-        getLogger(__name__).info('Applying a hot pixel mask to {}'.format(self.fullFileName))
+        getLogger(__name__).info('Applying a bad pixel mask to {}'.format(self.fullFileName))
         self.flag(self.flag_bitmask('pixcal.hot') * hot_mask)
+        self.flag(self.flag_bitmask('pixcal.cold') * cold_mask)
         self.flag(self.flag_bitmask('pixcal.unstable') * unstable_mask)
-        self.modifyHeaderEntry(headerTitle='isHotPixMasked', headerValue=True)
+        self.modifyHeaderEntry(headerTitle='isBadPixMasked', headerValue=True)
         getLogger(__name__).info('Mask applied applied in {:.2f}s'.format(time.time()-tic))
 
     @property
@@ -1624,7 +1626,7 @@ class ObsFile(object):
         """
         self._applyColWeight(resID, weightArr, 'NoiseWeight')
 
-    def applyFlatCal(self, calsolFile, use_wavecal=False, save_plots=False):
+    def applyFlatCal(self, calsolFile, use_wavecal=True, save_plots=False, startw=850, stopw=1375):
         """
         Applies a flat calibration to the "SpecWeight" column of a single pixel.
 
@@ -1702,23 +1704,32 @@ class ObsFile(object):
                 if (np.diff(indices) == 1).all():  # This takes ~300s for ALL photons combined on a 70Mphot file.
                     # getLogger(__name__).debug('Using modify_column')
                     wavelengths = self.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
-
+                    wavelengths[wavelengths < startw] = 0
+                    wavelengths[wavelengths > stopw] = 0
                     coeffs = soln['coeff'].flatten()
                     weights = soln['weight'].flatten()
                     errors = soln['err'].flatten()
                     if self.info['isWvlCalibrated'] and not any([self.flagMask(pixelflags.PROBLEM_FLAGS,
                                                                               pixel=(row, column))]):
                         weightArr = np.poly1d(coeffs)(wavelengths)
+                        if any(weightArr > 100) or any(weightArr < 0.01):
+                            getLogger(__name__).debug('Unreasonable fitted weight of for resID {}'.format(resID))
+
                     elif not use_wavecal:
                         weighted_avg, sum_weight_arr = np.ma.average(weights, axis=0,
                                                                      weights=errors ** -2.,
                                                                      returned=True)  # should be a weighted average
                         weightArr = np.ones_like(wavelengths) * weighted_avg
+                        if any(weightArr > 100) or any(weightArr < 0.01):
+                            getLogger(__name__).debug('Unreasonable averaged weight for resID {}'.format(resID))
+
                     else:
                         assert use_wavecal
+                        getLogger(__name__).info('No wavecal for pixel with resID {} so no flatweight applied'.format(resID))
                         pass
 
-
+                    # enforce positive weights only
+                    weightArr[weightArr < 0] = 0
                     self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=weightArr,
                                                    colname='SpecWeight')
                 else:  # This takes 3.5s on a 70Mphot file!!!
