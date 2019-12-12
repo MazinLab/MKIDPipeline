@@ -1626,7 +1626,7 @@ class ObsFile(object):
         """
         self._applyColWeight(resID, weightArr, 'NoiseWeight')
 
-    def applyFlatCal(self, calsolFile, use_wavecal=False, save_plots=False, startw=850, stopw=1375):
+    def applyFlatCal(self, calsolFile, use_wavecal=True, save_plots=False, startw=850, stopw=1375):
         """
         Applies a flat calibration to the "SpecWeight" column of a single pixel.
 
