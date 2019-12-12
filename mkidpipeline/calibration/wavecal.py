@@ -1743,7 +1743,7 @@ class Solution(object):
             dx = x_limit[1] - x_limit[0]
             dy = y_limit[1] - y_limit[0]
             axes.text(x_limit[0] + 0.01 * dx, y_limit[1] - position * dy,
-                      "{} nm".format(wavelengths[linear_index]), ha='left', va='top')
+                      "{:g} nm".format(wavelengths[linear_index]), ha='left', va='top')
 
         # add figure labels
         rect = [.02, .05, .98, .95]
@@ -1828,7 +1828,7 @@ class Solution(object):
             else:
                 median = np.nan
             # plot histogram
-            label = "{0} nm, Median R = {1}".format(wavelength, median)
+            label = "{:g} nm, Median R = {:g}".format(wavelength, median)
             scale = ((1 / wavelength - 1 / np.max(wavelengths)) /
                      (1 / np.min(wavelengths) - 1 / np.max(wavelengths)))
             color = self._color_map(scale)
@@ -1904,7 +1904,7 @@ class Solution(object):
             else:
                 median = np.nan
             # plot data
-            label = "{0} nm, Median = {1}".format(wavelength, median)
+            label = "{:g} nm, Median = {:g}".format(wavelength, median)
             scale = ((1 / wavelength - 1 / np.max(wavelengths)) /
                      (1 / np.min(wavelengths) - 1 / np.max(wavelengths)))
             color = self._color_map(scale)
@@ -2099,7 +2099,7 @@ class Solution(object):
             if wavelength == 0:
                 title = "Wavelength Calibrated Pixels"
             else:
-                title = "Wavelength is {} nm".format(wavelength)
+                title = "Wavelength is {:g} nm".format(wavelength)
             axes.set_title(title)
             return axes, None
 
@@ -2309,7 +2309,7 @@ class Solution(object):
         info += r" \begin{tabular}{@{}>{\raggedright}p{1.5in} | p{1.5in}}"
         info += r"\textbf{ObsFile Names:} & \textbf{Wavelengths [nm]:} \\"
         for index, file_name in enumerate(self.cfg.h5_file_names):
-            info += r"{} & {} \\".format(os.path.basename(file_name), self.cfg.wavelengths[index])
+            info += r"{} & {:g} \\".format(os.path.basename(file_name), self.cfg.wavelengths[index])
         info += table_end
 
         # add text to axes
