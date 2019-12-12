@@ -32,15 +32,13 @@ def cosmicCorrection(file, binsize = 10, removalRange = 10):
             'goodones': list of times with no cosmic ray suspects      
 
     '''
-    file = pt.ObsFile(str(file))  #grab data
+    file = pt.ObsFile(str(file))  # grab data
 
     start_time = time.time()  # def bin size in microseconds
     photons = file.photonTable.read()  # grabs list for all photon arrivals (read)
 
-
-    hist, bins = np.histogram(photons['Time'], bins=int((photons['Time'].max()+1)/binsize))  #returns tuple. hist -> counts/bin and bins -> bin
+    hist, bins = np.histogram(photons['Time'], bins=int((photons['Time'].max()+1)/binsize))  # returns tuple. hist -> counts/bin and bins -> bin
     unique, counts = np.unique(hist, return_counts=True)    
-    returnDict = dict(zip(unique, counts))
 
     avgcounts = np.average(list(unique), weights=list(counts))
   
@@ -53,18 +51,11 @@ def cosmicCorrection(file, binsize = 10, removalRange = 10):
         for k in range(i-removalRange, i+removalRange +1):
             cutOut.append(k)
 
-    ## GOOD UP TO HERE, localmax and cutout are good
-    ## TODO: Fix returndict,goodones
-
-
-    hist = np.delete(hist, cutOut)
-    bins = np.delete(bins, cutOut)
-
     print("--- %s seconds ---" % (time.time() - start_time))
     unique, counts = np.unique(hist, return_counts=True) 
-    goodOnes = bins
+    goodOnes = np.delete(bins, cutOut)
     returnDict = dict(zip(unique, counts))
-    return {'returnDict': returnDict, 'peaks': localmax, 'cutOut': cutOut, 'goodOnes': goodOnes}
+    return {'returnDict': returnDict, 'peaks': localmax, 'cutOut': cutOut, 'goodOnes': goodOnes, 'threshold': threshold}
     
 
 def cosmicFlag(file, binsize, startTime, endTime = -1):
