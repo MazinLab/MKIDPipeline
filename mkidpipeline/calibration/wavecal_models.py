@@ -10,6 +10,7 @@ import lmfit as lm
 from cycler import cycler
 import scipy.optimize as opt
 from scipy.stats import chi2
+from scipy.signal import find_peaks
 if sys.version_info.major == 3:
     from inspect import signature
 else:
@@ -520,15 +521,19 @@ class GaussianAndExponential(PartialLinearModel):
         e = p['trigger_amplitude'].value * exponential(p['signal_center'].value,
                                                        p['trigger_tail'].value)
         swamped_peak = g < 2 * e
-        small_amplitude = g < 100
+        small_amplitude = g < self.y.sum() / len(self.x) / 10
         success = not (swamped_peak or small_amplitude)
         return success
 
     def guess(self, index=0):
         parameters = lm.Parameters()
         if index == 0:
-            phase_smoothed = np.convolve(self.y, np.ones(10) / 10.0, mode='same')
-            signal_center = self.x[np.argmax(phase_smoothed)]
+            peaks, _ = find_peaks(self.y, height=self.y.sum() / len(self.x) / 2)
+            if len(peaks) > 0:
+                signal_center = self.x[peaks[0]]
+            else:
+                phase_smoothed = np.convolve(self.y, np.ones(10) / 10.0, mode='same')
+                signal_center = self.x[np.argmax(phase_smoothed)]
 
             amplitude = 90
             r = 4  # typical R at amplitude degrees
@@ -601,9 +606,8 @@ class GaussianAndGaussian(PartialLinearModel):
                                                         p['background_center'].value,
                                                         p['background_sigma'].value)
         swamped_peak = g < 2 * g2
-        large_background_sigma = (p['background_sigma'] >
-                                  (np.max(self.x) - np.min(self.x)) / 4)
-        small_amplitude = g < 100
+        large_background_sigma = p['background_sigma'] > 2 * p['signal_sigma']
+        small_amplitude = g < self.y.sum() / len(self.x) / 10
         success = not (swamped_peak or large_background_sigma or small_amplitude)
 
         return success
@@ -611,8 +615,12 @@ class GaussianAndGaussian(PartialLinearModel):
     def guess(self, index=0):
         parameters = lm.Parameters()
         if index == 0:
-            phase_smoothed = np.convolve(self.y, np.ones(10) / 10.0, mode='same')
-            signal_center = self.x[np.argmax(phase_smoothed)]
+            peaks, _ = find_peaks(self.y, height=self.y.sum() / len(self.x) / 2)
+            if len(peaks) > 0:
+                signal_center = self.x[peaks[0]]
+            else:
+                phase_smoothed = np.convolve(self.y, np.ones(10) / 10.0, mode='same')
+                signal_center = self.x[np.argmax(phase_smoothed)]
 
             amplitude = 90
             r = 4  # typical R at amplitude degrees
@@ -623,7 +631,10 @@ class GaussianAndGaussian(PartialLinearModel):
             amplitude = 20
             r = 5
             r_max = 10
-            background_center = np.min([-30, np.max(self.x)])
+            if len(peaks) > 1:
+                background_center = self.x[peaks[1]]
+            else:
+                background_center = np.min([-30, np.max(self.x)])
             background_sigma = amplitude / (2.355 * r)
             background_sigma_min = amplitude / (2.355 * r_max)
 
@@ -706,9 +717,8 @@ class GaussianAndGaussianExponential(PartialLinearModel):
                                                         p['background_center'].value,
                                                         p['background_sigma'].value)
         swamped_peak = g < 2 * (g2 + e)
-        large_background_sigma = (p['background_sigma'] >
-                                  (np.max(self.x) - np.min(self.x)) / 4)
-        small_amplitude = g < 100
+        large_background_sigma = p['background_sigma'] > 2 * p['signal_sigma']
+        small_amplitude = g < self.y.sum() / len(self.x) / 10
         success = not (swamped_peak or large_background_sigma or small_amplitude)
 
         return success
@@ -716,8 +726,12 @@ class GaussianAndGaussianExponential(PartialLinearModel):
     def guess(self, index=0):
         parameters = lm.Parameters()
         if index == 0:
-            phase_smoothed = np.convolve(self.y, np.ones(10) / 10.0, mode='same')
-            signal_center = self.x[np.argmax(phase_smoothed)]
+            peaks, _ = find_peaks(self.y, height=self.y.sum() / len(self.x) / 2)
+            if len(peaks) > 0:
+                signal_center = self.x[peaks[0]]
+            else:
+                phase_smoothed = np.convolve(self.y, np.ones(10) / 10.0, mode='same')
+                signal_center = self.x[np.argmax(phase_smoothed)]
 
             amplitude = 90
             r = 4  # typical R at amplitude degrees
@@ -728,7 +742,10 @@ class GaussianAndGaussianExponential(PartialLinearModel):
             amplitude = 20
             r = 5
             r_max = 10
-            background_center = np.min([-30, np.max(self.x)])
+            if len(peaks) > 1:
+                background_center = self.x[peaks[1]]
+            else:
+                background_center = np.min([-30, np.max(self.x)])
             background_sigma = amplitude / (2.355 * r)
             background_sigma_min = amplitude / (2.355 * r_max)
 
@@ -818,9 +835,8 @@ class SkewedGaussianAndGaussianExponential(PartialLinearModel):
                                                         p['background_center'].value,
                                                         p['background_sigma'].value)
         swamped_peak = g < 2 * (g2 + e)
-        large_background_sigma = (p['background_sigma'] >
-                                  (np.max(self.x) - np.min(self.x)) / 4)
-        small_amplitude = g < 100
+        large_background_sigma = p['background_sigma'] > 2 * p['signal_sigma']
+        small_amplitude = g < self.y.sum() / len(self.x) / 10
         success = not (swamped_peak or large_background_sigma or small_amplitude)
 
         return success
@@ -828,8 +844,12 @@ class SkewedGaussianAndGaussianExponential(PartialLinearModel):
     def guess(self, index=0):
         parameters = lm.Parameters()
         if index == 0:
-            phase_smoothed = np.convolve(self.y, np.ones(10) / 10.0, mode='same')
-            signal_center = self.x[np.argmax(phase_smoothed)]
+            peaks, _ = find_peaks(self.y, height=self.y.sum() / len(self.x) / 2)
+            if len(peaks) > 0:
+                signal_center = self.x[peaks[0]]
+            else:
+                phase_smoothed = np.convolve(self.y, np.ones(10) / 10.0, mode='same')
+                signal_center = self.x[np.argmax(phase_smoothed)]
 
             amplitude = 90
             r = 4  # typical R at amplitude degrees
@@ -841,7 +861,10 @@ class SkewedGaussianAndGaussianExponential(PartialLinearModel):
             amplitude = 20
             r = 5
             r_max = 10
-            background_center = np.min([-30, np.max(self.x)])
+            if len(peaks) > 1:
+                background_center = self.x[peaks[1]]
+            else:
+                background_center = np.min([-30, np.max(self.x)])
             background_sigma = amplitude / (2.355 * r)
             background_sigma_min = amplitude / (2.355 * r_max)
 
