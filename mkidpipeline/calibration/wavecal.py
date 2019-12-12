@@ -560,7 +560,7 @@ class Calibrator(object):
         except KeyboardInterrupt:
             raise KeyboardInterrupt  # don't log keyboard interrupt
         except Exception as error:
-            log.error("({}, {}) : ".format(pixel[0], pixel[1]), exc_info=True) + str(error)
+            log.error("({}, {}) : ".format(pixel[0], pixel[1]) + str(error), exc_info=True)
             raise error
 
     def _run(self, method, pixels=None, wavelengths=None, verbose=False, parallel=True):
