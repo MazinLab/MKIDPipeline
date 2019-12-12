@@ -46,12 +46,16 @@ def cosmicCorrection(file, binsize = 10, removalRange = 10):
   
     threshold = np.ceil(6*poisson.std(avgcounts, loc=0) + avgcounts)
 
-    localmax = scipy.signal.find_peaks(hist, height=threshold, threshold=10, distance=30)
+    localmax = scipy.signal.find_peaks(hist, height=threshold, threshold=10, distance=30)[0] * 10
     
     cutOut=[]
-    for i in localmax[0]:
+    for i in localmax:
         for k in range(i-removalRange, i+removalRange +1):
             cutOut.append(k)
+
+    ## GOOD UP TO HERE, localmax and cutout are good
+    ## TODO: Fix returndict,goodones
+
 
     hist = np.delete(hist, cutOut)
     bins = np.delete(bins, cutOut)
@@ -60,8 +64,7 @@ def cosmicCorrection(file, binsize = 10, removalRange = 10):
     unique, counts = np.unique(hist, return_counts=True) 
     goodOnes = bins
     returnDict = dict(zip(unique, counts))
-    peaks = localmax[0]
-    return {'returnDict': returnDict, 'peaks': peaks,'cutOut': cutOut, 'goodOnes': goodOnes}
+    return {'returnDict': returnDict, 'peaks': localmax, 'cutOut': cutOut, 'goodOnes': goodOnes}
     
 
 def cosmicFlag(file, binsize, startTime, endTime = -1):
