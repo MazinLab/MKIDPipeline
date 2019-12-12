@@ -515,7 +515,7 @@ class Calibrator(object):
                     if good[index]:
                         histogram_model = histogram_models[index]
                         phases.append(histogram_model.signal_center.value)
-                        variance.append(histogram_model.signal_center.stderr**2)
+                        variance.append(histogram_model.signal_center_standard_error**2)
                         energies.append(SPEED_OF_LIGHT_NMS * PLANK_CONSTANT_EVS / wavelength)
                         sigmas.append(histogram_model.signal_sigma.value)
                 # give data to model

@@ -66,15 +66,18 @@ def port_model_result(model, parameters, fit_result):
 
 
 def switch_centers(partial_linear_model):
-    new_guess = partial_linear_model.guess()
-    parameters = partial_linear_model.best_fit_result.params
-    new_guess['signal_center'] = parameters['background_center']
-    new_guess['signal_sigma'] = parameters['background_sigma']
-    new_guess['background_center'] = parameters['signal_center']
-    new_guess['background_sigma'] = parameters['signal_sigma']
-    partial_linear_model.fit(new_guess)
-    p = partial_linear_model.best_fit_result.params
-    success = p['signal_center'] < p['background_center']
+    old_parameters = partial_linear_model.best_fit_result.params
+    new_parameters = partial_linear_model.best_fit_result.params.copy()
+    new_parameters['signal_center'] = old_parameters['background_center']
+    new_parameters['signal_sigma'] = old_parameters['background_sigma']
+    new_parameters['signal_amplitude'] = old_parameters['background_amplitude']
+    new_parameters['background_center'] = old_parameters['signal_center']
+    new_parameters['background_sigma'] = old_parameters['signal_sigma']
+    new_parameters['background_amplitude'] = old_parameters['signal_amplitude']
+    partial_linear_model.best_fit_result.params = new_parameters
+    partial_linear_model.phm = new_parameters['positive_half_max'].value
+    partial_linear_model.nhm = new_parameters['negative_half_max'].value
+    success = True if new_parameters['signal_sigma'] < new_parameters['background_center'] else False
     return success
 
 
@@ -348,7 +351,7 @@ class PartialLinearModel(object):
     def signal_center_standard_error(self):
         self._check_fit()
         if not self.best_fit_result.errorbars:
-            message = ("The best fit for this model isn't good enough to have computed"
+            message = ("The best fit for this model isn't good enough to have computed "
                        "errors on its parameters")
             raise RuntimeError(message)
         return self.best_fit_result.params['signal_center'].stderr
