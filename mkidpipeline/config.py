@@ -338,6 +338,19 @@ class MKIDFlatdataDescription(object):
 
 
 class MKIDWCSCalDescription(object):
+    """
+    The MKIDWCSCalDescription defines the coordinate relation between
+
+    Keys are
+    name - required
+
+    Either:
+    ob - The name of nn MKIDObservation from whitch to extract platescale dirter_ref, and dither_home. Presently unsupported
+    Or:
+    platescale - float (the platescale in mas, though note that TODO is the authoratative def. on units)
+    dither_ref - 2 tuple (dither controller position for dither_hope)
+    dither_home - 2 tuple (pixel position of optical axis at dither_ref)
+    """
     yaml_tag = '!wcscal'
 
     def __init__(self, name, ob=None, platescale=None, dither_ref=None, _common=None,
