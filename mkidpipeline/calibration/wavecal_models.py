@@ -521,7 +521,7 @@ class GaussianAndExponential(PartialLinearModel):
         e = p['trigger_amplitude'].value * exponential(p['signal_center'].value,
                                                        p['trigger_tail'].value)
         swamped_peak = g < 2. * e
-        small_amplitude = g < self.y.sum() / len(self.x) / 10.
+        small_amplitude = g < self.y.sum() / 10. / len(self.x)
         success = not (swamped_peak or small_amplitude)
         return success
 
@@ -607,7 +607,7 @@ class GaussianAndGaussian(PartialLinearModel):
                                                         p['background_sigma'].value)
         swamped_peak = g < 2. * g2
         large_background_sigma = p['background_sigma'] > 2 * p['signal_sigma']
-        small_amplitude = g < self.y.sum() / len(self.x) / 10.
+        small_amplitude = g < self.y.sum() / 10. / len(self.x)
         success = not (swamped_peak or large_background_sigma or small_amplitude)
 
         return success
@@ -718,7 +718,7 @@ class GaussianAndGaussianExponential(PartialLinearModel):
                                                         p['background_sigma'].value)
         swamped_peak = g < 2. * (g2 + e)
         large_background_sigma = p['background_sigma'] > 2 * p['signal_sigma']
-        small_amplitude = g < self.y.sum() / len(self.x) / 10.
+        small_amplitude = g < self.y.sum() / 10. / len(self.x)
         success = not (swamped_peak or large_background_sigma or small_amplitude)
 
         return success
@@ -836,7 +836,7 @@ class SkewedGaussianAndGaussianExponential(PartialLinearModel):
                                                         p['background_sigma'].value)
         swamped_peak = g < 2. * (g2 + e)
         large_background_sigma = p['background_sigma'] > 2 * p['signal_sigma']
-        small_amplitude = g < self.y.sum() / len(self.x) / 10.
+        small_amplitude = g < self.y.sum() / 10. / len(self.x)
         success = not (swamped_peak or large_background_sigma or small_amplitude)
 
         return success
