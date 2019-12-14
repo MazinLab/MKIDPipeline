@@ -443,11 +443,11 @@ class PartialLinearModel(object):
         chi_squared, df = self.chi2()
         high_chi2 = chi_squared / df > 200
         no_errors = not self.best_fit_result.errorbars
-        max_phase = np.min([-10, np.max(self.x) * 1.7])
+        max_phase = np.min([-10., np.max(self.x) * 1.7])
         min_phase = np.min(self.x)
         out_of_bounds_peak = (p['signal_center'] > max_phase or
                               p['signal_center'] < min_phase)
-        large_sigma = 2 * p['signal_sigma'] > np.max(self.x) - np.min(self.x)
+        large_sigma = 2. * p['signal_sigma'] > np.max(self.x) - np.min(self.x)
         small_sigma = p['signal_sigma'] < 2
         success = not (high_chi2 or no_errors or out_of_bounds_peak or large_sigma or
                        small_sigma)
@@ -470,7 +470,7 @@ class PartialLinearModel(object):
         x = self.x[self.y != 0]
         logic = np.logical_and(x > left, x < right)
         chi_squared = np.sum(self.best_fit_result.residual[logic]**2)
-        df = np.max([1, np.sum(logic) - self.best_fit_result.nvarys])
+        df = np.max([1., float(np.sum(logic) - self.best_fit_result.nvarys)])
         return chi_squared, df
 
     def _check_fit(self):
@@ -520,8 +520,8 @@ class GaussianAndExponential(PartialLinearModel):
                                                    p['signal_sigma'].value)
         e = p['trigger_amplitude'].value * exponential(p['signal_center'].value,
                                                        p['trigger_tail'].value)
-        swamped_peak = g < 2 * e
-        small_amplitude = g < self.y.sum() / len(self.x) / 10
+        swamped_peak = g < 2. * e
+        small_amplitude = g < self.y.sum() / len(self.x) / 10.
         success = not (swamped_peak or small_amplitude)
         return success
 
@@ -605,9 +605,9 @@ class GaussianAndGaussian(PartialLinearModel):
         g2 = p['background_amplitude'].value * gaussian(p['signal_center'].value,
                                                         p['background_center'].value,
                                                         p['background_sigma'].value)
-        swamped_peak = g < 2 * g2
+        swamped_peak = g < 2. * g2
         large_background_sigma = p['background_sigma'] > 2 * p['signal_sigma']
-        small_amplitude = g < self.y.sum() / len(self.x) / 10
+        small_amplitude = g < self.y.sum() / len(self.x) / 10.
         success = not (swamped_peak or large_background_sigma or small_amplitude)
 
         return success
@@ -716,9 +716,9 @@ class GaussianAndGaussianExponential(PartialLinearModel):
         g2 = p['background_amplitude'].value * gaussian(p['signal_center'].value,
                                                         p['background_center'].value,
                                                         p['background_sigma'].value)
-        swamped_peak = g < 2 * (g2 + e)
+        swamped_peak = g < 2. * (g2 + e)
         large_background_sigma = p['background_sigma'] > 2 * p['signal_sigma']
-        small_amplitude = g < self.y.sum() / len(self.x) / 10
+        small_amplitude = g < self.y.sum() / len(self.x) / 10.
         success = not (swamped_peak or large_background_sigma or small_amplitude)
 
         return success
@@ -834,9 +834,9 @@ class SkewedGaussianAndGaussianExponential(PartialLinearModel):
         g2 = p['background_amplitude'].value * gaussian(p['signal_center'].value,
                                                         p['background_center'].value,
                                                         p['background_sigma'].value)
-        swamped_peak = g < 2 * (g2 + e)
+        swamped_peak = g < 2. * (g2 + e)
         large_background_sigma = p['background_sigma'] > 2 * p['signal_sigma']
-        small_amplitude = g < self.y.sum() / len(self.x) / 10
+        small_amplitude = g < self.y.sum() / len(self.x) / 10.
         success = not (swamped_peak or large_background_sigma or small_amplitude)
 
         return success
@@ -1076,9 +1076,9 @@ class Quadratic(XErrorsModel):
             return success
 
         p = self.best_fit_result.params
-        vertex = - p['c1'].value / (2 * p['c2'].value)
-        min_slope = 2 * p['c2'].value * self.min_x + p['c1'].value
-        max_slope = 2 * p['c2'].value * self.max_x + p['c1'].value
+        vertex = - p['c1'].value / (2. * p['c2'].value)
+        min_slope = 2. * p['c2'].value * self.min_x + p['c1'].value
+        max_slope = 2. * p['c2'].value * self.max_x + p['c1'].value
         min_value = self.fit_function(self.min_x, self.best_fit_result.params)
         max_value = self.fit_function(self.max_x, self.best_fit_result.params)
 
