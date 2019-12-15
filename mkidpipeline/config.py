@@ -766,7 +766,7 @@ def getDitherInfoByTime(time):
         time = time.timestamp()
 
     for (t0, t1), v in _parsedDitherLogs.items():
-        if t0 <= time <= t1:
+        if t0 - (t1 - t0) <= time <= t1:
             return v
 
     raise ValueError('No dither found for time {}'.format(time))
