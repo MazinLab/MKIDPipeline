@@ -448,6 +448,8 @@ class Calibrator(object):
                     model = models[index]
                     if model.x is None or model.y is None:
                         continue
+                    if len(model.x[model.y != 0]) < model.max_parameters * 2:
+                        continue
                     if model.has_good_solution():
                         continue
                     wavelength_index = np.where(
@@ -456,9 +458,7 @@ class Calibrator(object):
                         tried_models = []
                         for histogram_model in self.solution.histogram_model_list:
                             if not isinstance(model, histogram_model):
-                                model = self._update_histogram_model(wavelength,
-                                                                     histogram_model,
-                                                                     pixel)
+                                model = self._update_histogram_model(wavelength, histogram_model, pixel)
                             guess = self._guess(pixel, wavelength_index, good_solutions)
                             model.fit(guess)
                             if model.has_good_solution():
