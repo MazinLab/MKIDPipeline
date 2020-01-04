@@ -1,28 +1,44 @@
 """
 *** Warning ***
-The STScI drizzle module appears to have a bug. Line 474 (as of 4/23/19) should change from
 
-self.outcon = np.append(self.outcon, plane, axis=0)
+    The STScI drizzle module currently appears to have a bug which has been raised under issue #50.
+    In the meantime increment_id() patches the bug
 
-to
+Examples
 
-self.outcon = np.append(self.outcon, [plane], axis=0)
+    $ python drizzle.py /path/to/mkidpipeline/mkidpipeline/imaging/drizzler.yml
+
+    or
+
+    >>> dither = MKIDDitheredObservation(**kwargs)
+    >>> drizzled = drizzler.form(dither, mode='spatial')
+    >>> drizzled.writefits('output.fits')
+
+Classes
+
+    DrizzleParams   : Calculates and stores the relevant info for Drizzler
+    Canvas          : Called by the "Drizzler" classes. Generates the canvas that is drizzled onto
+    SpatialDrizzler : Generate a spatially dithered image from a set dithered dataset
+    TemporalDrizzler: Generates a spatially dithered 4-cube (xytw)
+    ListDrizzler    : Not implemented yet
+    DrizzledData    : Saves the drizzled data as FITS
+
+Functions
+
+    increment_id    : Monkey patch for STScI drizzle class of drizzle package
+    mp_worker       : Genereate a reduced, reformated photonlist
+    load_data       : Consolidate all dither positions
+    form            : Takes in a MKIDDitheredObservation object and drizzles the dithers onto a common sky grid
+    get_star_offset : Get the rotation_center offset parameter for a dither
 
 
-TODO
-Add astroplan, drizzle, to setup.py/yml. drizzle need to be pip installed. I found that astroplan needed to be pip
-installed otherwise some astropy import fails
+TODO:
+    * Add astroplan, drizzle, to setup.py/yml. drizzle need to be pip installed. I found that astroplan needed to be pip
+    installed otherwise some astropy import fails
+    * Make and test ListDrizzler
 
-Consolidate Temporal and Spectral Drizzler
 
-Make and test ListDrizzler
-
-Usage
------
-
-python drizzle.py /mnt/data0/dodkins/src/mkidpipeline/mkidpipeline/imaging/drizzler.yml
-
-Author: Rupert Dodkins,                                 Date: April 2019
+Author: Rupert Dodkins,                                 Date: Jan 2020
 
 """
 import os
@@ -39,9 +55,7 @@ from astroplan import Observer
 import astropy
 from astropy.utils.data import Conf
 from astropy.io import fits
-from importlib.machinery import SourceFileLoader
-stdrizzle = SourceFileLoader("drizzle.drizzle", "/opt/anaconda3/envs/pipeline/lib/python3.6/site-packages/drizzle/drizzle.py").load_module()
-# from drizzle import drizzle as stdrizzle
+from drizzle import drizzle as stdrizzle
 from mkidcore import pixelflags
 from mkidpipeline.hdf.photontable import ObsFile
 from mkidcore.corelog import getLogger
@@ -51,6 +65,36 @@ from mkidcore.instruments import CONEX2PIXEL
 import argparse
 from mkidpipeline.utils.utils import get_device_orientation
 
+def increment_id(self):
+    """
+    monkey patch for STScI drizzle class of drizzle package
+
+    Increment the id count and add a plane to the context image if needed
+
+    Drizzle tracks which input images contribute to the output image
+    by setting a bit in the corresponding pixel in the context image.
+    The uniqid indicates which bit. So it must be incremented each time
+    a new image is added. Each plane in the context image can hold 32 bits,
+    so after each 32 images, a new plane is added to the context.
+    """
+
+    getLogger(__name__).warning('Using increment_id monkey patch')
+
+    # Compute what plane of the context image this input would
+    # correspond to:
+
+    planeid = int(self.uniqid / 32)
+
+    # Add a new plane to the context image if planeid overflows
+
+    if self.outcon.shape[0] == planeid:
+        plane = np.zeros_like(self.outcon[0])
+        self.outcon = np.append(self.outcon, [plane], axis=0)
+
+    # Increment the id
+    self.uniqid += 1
+
+stdrizzle.Drizzle.increment_id = increment_id
 
 class DrizzleParams(object):
     """
@@ -127,10 +171,17 @@ class DrizzleParams(object):
 
         return(max_timestep)
 
+def metadata_config_check(filename, conf_wcs):
+    """ Checks a photontable metadata and data.yml agree on the wcs params """
+    ob = ObsFile(filename)
+    md = ob.metadata()
+    for attribute in ['dither_home', 'dither_ref', 'platescale', 'device_orientation']:
+        if getattr(md, attribute) != getattr(conf_wcs,attribute):
+            getLogger(__name__).warning(f'{attribute} is different in config and obsfile metadata. metadata should be reapplied')
 
 def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_time=None, flags=None):
     """
-    Genereate the reformated photonlists
+    Genereate the reduced, reformated photonlists
 
     :param file:
     :param startw:
@@ -157,6 +208,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_t
     x, y = obsfile.xy(photons)
 
     if flags is not None:
+        print(pixelflags.PROBLEM_FLAGS)
         #TODO @dodkins fixme
         usablelist = obsfile.flagMask(flags, (x, y))
         getLogger(__name__).info("Removed {} photons from {} total from bad pix"
@@ -175,7 +227,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_t
 
 
 def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfile='drizzler_tmp_{}.pkl',
-              tempdir=None, usecache=True, clearcache=False, derotate=True, ncpu=1, flags=True):
+              tempdir=None, usecache=True, clearcache=False, derotate=True, ncpu=1, flags=None):
     """
     Load the photons either by querying the obsfiles in parrallel or loading from pkl if it exists. The wcs
     solutions are added to this photon data dictionary but will likely be integrated into photontable.py directly
@@ -226,6 +278,8 @@ def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfi
             first_time = None
         else:
             first_time = ObsFile(filenames[0]).startTime
+
+        metadata_config_check(filenames[0], dither.wcscal)
 
         ncpu = min(mkidpipeline.config.n_cpus_available(), ncpu)
         p = mp.Pool(ncpu)
@@ -423,8 +477,6 @@ class TemporalDrizzler(Canvas):
         self.expmap = np.zeros((self.ntimebins * self.ndithers, self.nwvlbins, self.nPixDec, self.nPixRA))
         for ix, dither_photons in enumerate(self.dithers_data):
 
-            # getLogger(__name__).debug('Processing %s', dither_photons)
-
             thishyper = np.zeros((self.ntimebins, self.nwvlbins, self.nPixDec, self.nPixRA), dtype=np.float32)
 
             it = 0
@@ -550,7 +602,6 @@ class SpatialDrizzler(Canvas):
 
     def run(self, save_file=None):
         for ix, dither_photons in enumerate(self.dithers_data):
-            getLogger(__name__).debug('Processing %s', dither_photons)
 
             tic = time.clock()
             for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):
@@ -670,7 +721,7 @@ class DrizzledData(object):
 
 
 def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt=0., intt=60., pixfrac=.5, nwvlbins=1,
-         wcs_timestep=1., exp_timestep=1., fitsname=None, usecache=True, ncpu=1, flags=0):
+         wcs_timestep=1., exp_timestep=1., fitsname=None, usecache=True, ncpu=1, flags=None):
     """
     Takes in a MKIDDitheredObservation object and drizzles the dithers onto a common sky grid.
 
