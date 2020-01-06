@@ -677,7 +677,7 @@ class ObsFile(object):
         else:
             if single_pa_time is not None:
                 single_time = np.full_like(sample_times, fill_value=single_pa_time)
-                getLogger(__name__).info(f"Derotate off. Using single PA at time: {single_time}")
+                getLogger(__name__).info(f"Derotate off. Using single PA at time: {single_time[0]}")
                 single_times = astropy.time.Time(val=single_time, format='unix')
                 single_parallactic_angle = apo.parallactic_angle(single_times, target_coordinates).value  # radians
                 corrected_sky_angles = -single_parallactic_angle - device_orientation

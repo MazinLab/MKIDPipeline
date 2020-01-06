@@ -73,7 +73,8 @@ def generate_outputs(outputs):
                                           pixfrac=config.drizzler.pixfrac, wcs_timestep=config.drizzler.wcs_timestep,
                                           exp_timestep=config.drizzler.exp_timestep, exclude_flags=(), #exclude_flags=pcfg.exclude_flags?
                                           usecache=config.drizzler.usecache, ncpu=config.ncpu,
-                                          derotate=pcfg.drizzler.derotate)
+                                          derotate=pcfg.drizzler.derotate, align_start_pa=pcfg.drizzler.align_start_pa,
+                                          whitelight=pcfg.drizzler.whitelight)
             drizzled.writefits(o.output_file)
         if o.wants_movie:
             pipe.getLogger('mkidpipeline.hdf.photontable').setLevel('DEBUG')

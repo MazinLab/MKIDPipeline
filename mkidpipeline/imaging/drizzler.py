@@ -243,7 +243,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, single_
 
 
 def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfile='drizzler_tmp_{}.pkl',
-              tempdir=None, usecache=True, clearcache=False, derotate=True, start_align=False, ncpu=1,
+              tempdir=None, usecache=True, clearcache=False, derotate=True, align_start_pa=False, ncpu=1,
               exclude_flags=()):
     """
     Load the photons either by querying the obsfiles in parrallel or loading from pkl if it exists. The wcs
@@ -291,7 +291,7 @@ def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfi
         if not filenames:
             getLogger(__name__).info('No obsfiles found')
 
-        single_pa_time = ObsFile(filenames[0]).startTime if not derotate and start_align else None
+        single_pa_time = ObsFile(filenames[0]).startTime if not derotate and align_start_pa else None
 
         metadata_config_check(filenames[0], dither.wcscal)
 
@@ -687,7 +687,7 @@ class DrizzledData(object):
 
 def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt=0., intt=60., pixfrac=.5, nwvlbins=1,
          wcs_timestep=1., exp_timestep=1., fitsname=None, usecache=True, ncpu=1, exclude_flags=(), whitelight=False,
-         start_align=False):
+         align_start_pa=False):
     """
     Takes in a MKIDDitheredObservation object and drizzles the dithers onto a common sky grid.
 
@@ -726,7 +726,7 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
         Bitmask containing the various flags on each pixel from previous steps
     whitelight : bool
         Relevant parameters are updated to perform a whitelight dither. Take presedence over derotate user input
-    start_align : bool
+    align_start_pa : bool
         If derotate is False then the images can be aligned to the first frame for the purpose of ADI
 
     Returns
@@ -764,7 +764,7 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
 
     dithers_data = load_data(dither, wvlMin, wvlMax, startt, used_inttime, drizzle_params.wcs_timestep,
                              derotate=derotate, usecache=usecache, ncpu=ncpu, exclude_flags=exclude_flags,
-                             start_align=start_align)
+                             align_start_pa=align_start_pa)
     total_photons = sum([len(dither_data['timestamps']) for dither_data in dithers_data])
 
     if total_photons == 0:
