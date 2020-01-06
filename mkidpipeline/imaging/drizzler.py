@@ -187,16 +187,31 @@ def metadata_config_check(filename, conf_wcs):
 
 def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_time=None, exclude_flags=()):
     """
+    Genereate the reduced, reformated photonlists
 
-    :param file:
-    :param startw:
-    :param stopw:
-    :param startt:
-    :param intt:
-    :param derotate:
-    :param wcs_timestep:
-    :param flags: None or a flag bitmask as per file.flag_bitmask()
-    :return:
+    Params
+    ------
+    file : str
+        obsfile filename
+    startw : float
+        Lower bound on photon wavelengths (or phases) for photontable.query
+    stopw : float
+        Upper bound on photon wavelengths (or phases) for photontable.query
+    startt : float
+        Startime for photontable.query
+    intt : float
+        Effective integration time for photontable.query
+    derotate : bool
+        see photontable.get_wcs
+    wcs_timestep : float
+        see photontable.get_wcs
+    exclude_flags:
+        pixel flags to use in filter_photons_by_flags, see pixelflags.py
+
+    Return
+    ------
+    Dictionary of reformated photon data for a single obsfile
+
     """
     obsfile = ObsFile(file)
     duration = obsfile.duration
