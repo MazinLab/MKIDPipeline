@@ -8,7 +8,6 @@ os.environ["TMPDIR"] = '/scratch/tmp/'
 import tables.parameters
 tables.parameters.MAX_BLOSC_THREADS = 4
 import mkidpipeline as pipe
-from mkidpipeline.config import config
 
 
 datafile = '/scratch/baileyji/mec/data.yml'
@@ -17,7 +16,8 @@ outfile = '/scratch/baileyji/mec/out.yml'
 
 pipe.logtoconsole()
 
-pcfg = pipe.configure_pipeline(cfgfile)
+pipe.configure_pipeline(cfgfile)
+config = pipe.config.config
 
 pipe.getLogger('mkidpipeline.calibration.wavecal').setLevel('INFO')
 pipe.getLogger('mkidpipeline.badpix').setLevel('INFO')
@@ -71,10 +71,10 @@ def generate_outputs(outputs):
                 raise TypeError('a dither is not specified in the out.yml')
             drizzled = pipe.drizzler.form(o.data, mode=o.kind, wvlMin=o.startw, wvlMax=o.stopw,
                                           pixfrac=config.drizzler.pixfrac, wcs_timestep=config.drizzler.wcs_timestep,
-                                          exp_timestep=config.drizzler.exp_timestep, exclude_flags=(), #exclude_flags=pcfg.exclude_flags?
+                                          exp_timestep=config.drizzler.exp_timestep, exclude_flags=(), #exclude_flags=config.exclude_flags?
                                           usecache=config.drizzler.usecache, ncpu=config.ncpu,
-                                          derotate=pcfg.drizzler.derotate, align_start_pa=pcfg.drizzler.align_start_pa,
-                                          whitelight=pcfg.drizzler.whitelight)
+                                          derotate=config.drizzler.derotate, align_start_pa=config.drizzler.align_start_pa,
+                                          whitelight=config.drizzler.whitelight)
             drizzled.writefits(o.output_file)
         if o.wants_movie:
             pipe.getLogger('mkidpipeline.hdf.photontable').setLevel('DEBUG')
