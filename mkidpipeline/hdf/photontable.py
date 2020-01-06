@@ -582,12 +582,32 @@ class ObsFile(object):
     def get_wcs(self, derotate=True, wcs_timestep=None, target_coordinates=None, wave_axis=False, first_time=None):
         """
 
-        :param wcs_timestep:
-        :param target_coordinates: SkyCoord or string to query simbad for
-        :param derotate: [True, False]
-                         True:  align each wcs solution to position angle = 0
-                         False:  no correction angle
-        :return:
+        Parameters
+        ----------
+        derotate : bool
+             True:  align each wcs solution to position angle = 0
+             False:  no correction angle
+        wcs_timestep : float
+            Determines the time between each wcs solution (each new position angle)
+        target_coordinates : SkyCoord, str
+            Used to get parallatic angles. string is used to query simbad.
+        wave_axis : bool
+            False: wcs solution is calculated for ra/dec
+            True:  wcs solution is calculated for ra/dec/wavelength
+        first_time : bool
+            Used to get start orientation for alignment in ADI algorithms
+
+        See instruments.compute_wcs_ref_pixel() for information on wcscal parameters
+        ditherPos :
+        ditherHome :
+        ditherReference :
+            read from the header. Where the center of rotation is relative to corner of image pix units ie 0<x<150  -
+        platescale : float
+            read from header. In units of mas/pix ie x~10
+
+        Returns
+        -------
+        List of wcs headers at each position angle
         """
 
         #TODO add target_coordinates=None
@@ -597,7 +617,7 @@ class ObsFile(object):
         ditherHome = md.dither_home
         ditherReference = md.dither_ref
         ditherPos = md.dither_pos
-        platescale = md.platescale  #units should be mas/pix
+        platescale = md.platescale  # units should be mas/pix
         getLogger(__name__).debug(f'ditherHome: {md.dither_home} (conex units -3<x<3), '
                                   f'ditherReference: {md.dither_ref} (pix 0<x<150), '
                                   f'ditherPos: {md.dither_pos} (conex units -3<x<3), '
@@ -637,12 +657,14 @@ class ObsFile(object):
             parallactic_angles = apo.parallactic_angle(times, target_coordinates).value  # radians
             corrected_sky_angles = -parallactic_angles - device_orientation
         else:
-            # corrected_sky_angles = np.zeros_like(sample_times)
-            single_time = np.full_like(sample_times, fill_value=first_time)
-            getLogger(__name__).info(f"Derotate off. Using single PA at time: {single_time}")
-            single_times = astropy.time.Time(val=single_time, format='unix')
-            single_parallactic_angle = apo.parallactic_angle(single_times, target_coordinates).value  # radians
-            corrected_sky_angles = -single_parallactic_angle - device_orientation
+            if first_time is not None:
+                single_time = np.full_like(sample_times, fill_value=first_time)
+                getLogger(__name__).info(f"Derotate off. Using single PA at time: {single_time}")
+                single_times = astropy.time.Time(val=single_time, format='unix')
+                single_parallactic_angle = apo.parallactic_angle(single_times, target_coordinates).value  # radians
+                corrected_sky_angles = -single_parallactic_angle - device_orientation
+            else:
+                corrected_sky_angles = np.zeros_like(sample_times)
 
         getLogger(__name__).debug("Correction angles: %s", corrected_sky_angles)
 

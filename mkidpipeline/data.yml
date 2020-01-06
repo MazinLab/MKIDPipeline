@@ -82,9 +82,9 @@
 
 - !wcscal
   name: wcscal2
-  platescale: 10  #mas/pix eg x~10
-  dither_ref: [73, 70]  #pix units ie 0<x<150  - where the center of rotation is relative to corner of image
-  dither_home: [0.0, 0.0]  #conex units ie -3<x<3  - conex made a grid around this origin
+  platescale: 10  # mas/pix eg x~10
+  dither_ref: [73, 70]  # pix units ie 0<x<150  - where the center of rotation is relative to corner of image
+  dither_home: [0.0, 0.0]  # conex units ie -3<x<3  - conex made a grid around this origin
   header:
     ND: 1
     lamp: 40
