@@ -69,6 +69,8 @@ from mkidcore.instruments import CONEX2PIXEL
 import argparse
 from mkidpipeline.utils.utils import get_device_orientation
 
+DRIZ_PROBLEM_FLAGS = ()  # currently no pixel flags make drizzler explode
+
 def increment_id(self):
     """
     monkey patch for STScI drizzle class of drizzle package
@@ -183,9 +185,8 @@ def metadata_config_check(filename, conf_wcs):
         if getattr(md, attribute) != getattr(conf_wcs,attribute):
             getLogger(__name__).warning(f'{attribute} is different in config and obsfile metadata. metadata should be reapplied')
 
-def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_time=None, flags=None):
+def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_time=None, exclude_flags=()):
     """
-    Genereate the reduced, reformated photonlists
 
     :param file:
     :param startw:
@@ -194,7 +195,6 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_t
     :param intt:
     :param derotate:
     :param wcs_timestep:
-
     :param flags: None or a flag bitmask as per file.flag_bitmask()
     :return:
     """
@@ -202,21 +202,19 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_t
     duration = obsfile.duration
 
     photons = obsfile.query(startw=startw, stopw=stopw, startt=startt, intt=intt)
-    weights = photons['SpecWeight'] * photons['NoiseWeight']
+    num_unfiltered = len(photons)
     getLogger(__name__).info("Fetched {} photons from dither {}".format(len(photons), file))
     if len(photons) == 0:
         getLogger(__name__).warning(f'No photons found using wavelength range {startw}-{stopw} nm and time range '
                                     f'{startt}-{intt} s. Is the obsfile not wavelength calibrated causing a mismatch '
                                     f'in the units?')
 
-    x, y = obsfile.xy(photons)
-
-    if flags is not None:
-        #TODO @dodkins fixme
-        usablelist = obsfile.flagMask(flags, (x, y))
-        getLogger(__name__).info("Removed {} photons from {} total from bad pix"
-                                 .format(len(photons) - len(photons[usablelist]), len(photons)))
-        photons = photons[usablelist]
+    exclude_flags += DRIZ_PROBLEM_FLAGS
+    photons = obsfile.filter_photons_by_flags(photons, allowed=(), disallowed=exclude_flags)
+    num_filtered = len(photons)
+    getLogger(__name__).info("Removed {} photons from {} total from bad pix"
+                             .format(num_unfiltered - num_filtered, num_unfiltered))
+    weights = photons['SpecWeight'] * photons['NoiseWeight']
     x, y = obsfile.xy(photons)
 
     # ob.get_wcs returns all wcs solutions (including those after intt), so just pass then remove post facto()
@@ -230,7 +228,8 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_t
 
 
 def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfile='drizzler_tmp_{}.pkl',
-              tempdir=None, usecache=True, clearcache=False, derotate=True, start_align=False, ncpu=1, flags=None):
+              tempdir=None, usecache=True, clearcache=False, derotate=True, start_align=False, ncpu=1,
+              exclude_flags=()):
     """
     Load the photons either by querying the obsfiles in parrallel or loading from pkl if it exists. The wcs
     solutions are added to this photon data dictionary but will likely be integrated into photontable.py directly
@@ -284,7 +283,7 @@ def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfi
         ncpu = min(mkidpipeline.config.n_cpus_available(), ncpu)
         p = mp.Pool(ncpu)
         processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt, used_inttime, derotate, wcs_timestep,
-                                               first_time, flags)) for file in filenames]
+                                               first_time, exclude_flags)) for file in filenames]
         dithers_data = [res.get() for res in processes]
 
         dithers_data.sort(key=lambda k: filenames.index(k['file']))
@@ -672,7 +671,7 @@ class DrizzledData(object):
 
 
 def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt=0., intt=60., pixfrac=.5, nwvlbins=1,
-         wcs_timestep=1., exp_timestep=1., fitsname=None, usecache=True, ncpu=1, flags=None, whitelight=False,
+         wcs_timestep=1., exp_timestep=1., fitsname=None, usecache=True, ncpu=1, exclude_flags=(), whitelight=False,
          start_align=False):
     """
     Takes in a MKIDDitheredObservation object and drizzles the dithers onto a common sky grid.
@@ -749,7 +748,8 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
     drizzle_params = DrizzleParams(dither, used_inttime, wcs_timestep, pixfrac)
 
     dithers_data = load_data(dither, wvlMin, wvlMax, startt, used_inttime, drizzle_params.wcs_timestep,
-                             derotate=derotate, usecache=usecache, ncpu=ncpu, flags=flags, start_align=start_align)
+                             derotate=derotate, usecache=usecache, ncpu=ncpu, exclude_flags=exclude_flags,
+                             start_align=start_align)
     total_photons = sum([len(dither_data['timestamps']) for dither_data in dithers_data])
 
     if total_photons == 0:
