@@ -185,7 +185,7 @@ def metadata_config_check(filename, conf_wcs):
         if getattr(md, attribute) != getattr(conf_wcs,attribute):
             getLogger(__name__).warning(f'{attribute} is different in config and obsfile metadata. metadata should be reapplied')
 
-def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_time=None, exclude_flags=()):
+def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, single_pa_time=None, exclude_flags=()):
     """
     Genereate the reduced, reformated photonlists
 
@@ -233,7 +233,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_t
     x, y = obsfile.xy(photons)
 
     # ob.get_wcs returns all wcs solutions (including those after intt), so just pass then remove post facto()
-    wcs = obsfile.get_wcs(derotate=derotate, wcs_timestep=wcs_timestep, first_time=first_time) #1545626973
+    wcs = obsfile.get_wcs(derotate=derotate, wcs_timestep=wcs_timestep, single_pa_time=single_pa_time) #1545626973
     nwcs = int(np.ceil(intt/wcs_timestep))
     wcs = wcs[:nwcs]
     del obsfile
@@ -291,14 +291,14 @@ def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfi
         if not filenames:
             getLogger(__name__).info('No obsfiles found')
 
-        first_time = ObsFile(filenames[0]).startTime if not derotate and start_align else None
+        single_pa_time = ObsFile(filenames[0]).startTime if not derotate and start_align else None
 
         metadata_config_check(filenames[0], dither.wcscal)
 
         ncpu = min(mkidpipeline.config.n_cpus_available(), ncpu)
         p = mp.Pool(ncpu)
         processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt, used_inttime, derotate, wcs_timestep,
-                                               first_time, exclude_flags)) for file in filenames]
+                                               single_pa_time, exclude_flags)) for file in filenames]
         dithers_data = [res.get() for res in processes]
 
         dithers_data.sort(key=lambda k: filenames.index(k['file']))
