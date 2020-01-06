@@ -31,6 +31,10 @@ Functions
     form            : Takes in a MKIDDitheredObservation object and drizzles the dithers onto a common sky grid
     get_star_offset : Get the rotation_center offset parameter for a dither
 
+Note
+
+    Unfinished implementation of ListDrizzler for later development can be found in commit
+    6169b9d0836c03b669223c12a852a05e8f74ad7d
 
 TODO:
     * Add astroplan, drizzle, to setup.py/yml. drizzle need to be pip installed. I found that astroplan needed to be pip
@@ -383,56 +387,6 @@ class ListDrizzler(Canvas):
 
         getLogger(__name__).critical('ListDrizzler has not been written')
         raise NotImplementedError
-
-        inttime = drizzle_params.used_inttime
-
-        # if inttime is say 100 and wcs_timestep is say 60 then this yields [0,60,100]
-        # meaning the positions don't have constant integration time
-        self.wcs_times = np.append(np.arange(0, inttime, drizzle_params.wcs_timestep), inttime) * 1e6
-        self.run(pixfrac=drizzle_params.pixfrac)
-
-    def run(self, save_file=None, pixfrac=1.):
-        for ix, dither_photons in enumerate(self.dithers_data):
-            getLogger(__name__).debug('Processing %s', dither_photons)
-
-            tic = time.clock()
-            # driz = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=pixfrac)
-            for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):
-                inwcs = wcs.WCS(header=inwcs)
-                inwcs.pixel_shape = (self.xpix, self.ypix)
-
-                inds = [(yp, xp) for yp, xp in np.ndindex(self.ypix, self.xpix)]
-                allpix2world = []
-                for i in range(self.xpix*self.ypix):
-                    insci = np.ones((self.ypix, self.xpix))
-
-                    driz = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=pixfrac, wt_scl='')
-                    inwht = np.zeros((self.ypix, self.xpix))
-                    # print(inds[i])
-                    inwht[inds[i]] = 1
-                    driz.add_image(insci, inwcs, inwht=inwht)
-                    sky_inds = np.where(driz.outsci == 1)
-                    # print(sky_inds, np.shape(sky_inds), len(sky_inds), sky_inds is [], sky_inds == [])
-                    if np.shape(sky_inds)[1] == 0:
-                        pix2world = [[], []]
-                    else:
-                        pix2world = inwcs.all_pix2world(sky_inds[1], sky_inds[0], 1)
-                    # print(allpix2world)
-                    allpix2world.append(pix2world)
-
-                    # plt.imshow(driz.outsci)
-                    # plt.show(block=True)
-
-                radecs = []
-                for i, (xp, yp) in enumerate(zip(dither_photons['xPhotonPixels'], dither_photons['yPhotonPixels'])):
-                    ind = xp + yp * self.xpix
-                    # print(xp, yp, ind, )
-                    # print(allpix2world[ind])
-                    radecs.append(allpix2world[ind])
-
-                dither_photons['radecs'] = radecs  # list of [npix, npix]
-
-            getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
 
 
 
