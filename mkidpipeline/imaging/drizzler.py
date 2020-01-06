@@ -208,7 +208,6 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_t
     x, y = obsfile.xy(photons)
 
     if flags is not None:
-        print(pixelflags.PROBLEM_FLAGS)
         #TODO @dodkins fixme
         usablelist = obsfile.flagMask(flags, (x, y))
         getLogger(__name__).info("Removed {} photons from {} total from bad pix"
@@ -227,7 +226,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_t
 
 
 def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfile='drizzler_tmp_{}.pkl',
-              tempdir=None, usecache=True, clearcache=False, derotate=True, ncpu=1, flags=None):
+              tempdir=None, usecache=True, clearcache=False, derotate=True, start_align=False, ncpu=1, flags=None):
     """
     Load the photons either by querying the obsfiles in parrallel or loading from pkl if it exists. The wcs
     solutions are added to this photon data dictionary but will likely be integrated into photontable.py directly
@@ -274,17 +273,14 @@ def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfi
         if not filenames:
             getLogger(__name__).info('No obsfiles found')
 
-        if derotate:
-            first_time = None
-        else:
-            first_time = ObsFile(filenames[0]).startTime
+        first_time = ObsFile(filenames[0]).startTime if not derotate and start_align else None
 
         metadata_config_check(filenames[0], dither.wcscal)
 
         ncpu = min(mkidpipeline.config.n_cpus_available(), ncpu)
         p = mp.Pool(ncpu)
-        processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt, used_inttime, derotate, wcs_timestep, first_time,
-                                               flags)) for file in filenames]
+        processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt, used_inttime, derotate, wcs_timestep,
+                                               first_time, flags)) for file in filenames]
         dithers_data = [res.get() for res in processes]
 
         dithers_data.sort(key=lambda k: filenames.index(k['file']))
@@ -385,7 +381,7 @@ class ListDrizzler(Canvas):
     def __init__(self, dithers_data, drizzle_params):
         super().__init__(self, dithers_data, drizzle_params.dither.obs[0], drizzle_params.coords)
 
-        getLogger(__name__).critical('This has not been tested')
+        getLogger(__name__).critical('ListDrizzler has not been written')
         raise NotImplementedError
 
         inttime = drizzle_params.used_inttime
@@ -437,6 +433,7 @@ class ListDrizzler(Canvas):
                 dither_photons['radecs'] = radecs  # list of [npix, npix]
 
             getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
+
 
 
 class TemporalDrizzler(Canvas):
@@ -721,7 +718,8 @@ class DrizzledData(object):
 
 
 def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt=0., intt=60., pixfrac=.5, nwvlbins=1,
-         wcs_timestep=1., exp_timestep=1., fitsname=None, usecache=True, ncpu=1, flags=None):
+         wcs_timestep=1., exp_timestep=1., fitsname=None, usecache=True, ncpu=1, flags=None, whitelight=False,
+         start_align=False):
     """
     Takes in a MKIDDitheredObservation object and drizzles the dithers onto a common sky grid.
 
@@ -758,6 +756,10 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
         Number of cpu used when loading and reformatting the dither obsfiles
     flags : int
         Bitmask containing the various flags on each pixel from previous steps
+    whitelight : bool
+        Relevant parameters are updated to perform a whitelight dither. Take presedence over derotate user input
+    start_align : bool
+        If derotate is False then the images can be aligned to the first frame for the purpose of ADI
 
     Returns
     -------
@@ -784,14 +786,16 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
 
     used_inttime = min(intt, dither.inttime)
 
-    if dither.target == 'WL':
+    if whitelight:
         getLogger(__name__).warning('Changing some of the wcs params to white light mode')
         derotate = False
+        dither.ra = 0
+        dither.dec = 0
 
     drizzle_params = DrizzleParams(dither, used_inttime, wcs_timestep, pixfrac)
 
     dithers_data = load_data(dither, wvlMin, wvlMax, startt, used_inttime, drizzle_params.wcs_timestep,
-                             derotate=derotate, usecache=usecache, ncpu=ncpu, flags=flags)
+                             derotate=derotate, usecache=usecache, ncpu=ncpu, flags=flags, start_align=start_align)
     total_photons = sum([len(dither_data['timestamps']) for dither_data in dithers_data])
 
     if total_photons == 0:
