@@ -579,6 +579,30 @@ class ObsFile(object):
                                                       (startt, stopt, startw, stopw))))
             return q
 
+    def filter_photons_by_flags(self, photons, allowed=(), disallowed=()):
+        """
+
+        Parameters
+        ----------
+        photons: structured array
+            photon list to be filtered
+        allowed: tuple
+            collection of pixel flags to keep photons for
+        disallowed: tuple
+            collection of pixel flags to remove photons for
+
+        Return
+        ------
+        photons filtered by flags
+
+        """
+
+        if len(allowed) > 0:
+            raise NotImplementedError
+
+        filtered = self.flagMask(disallowed, self.xy(photons))
+        return photons[filtered]
+
     def get_wcs(self, derotate=True, wcs_timestep=None, target_coordinates=None, wave_axis=False, first_time=None):
         """
 
