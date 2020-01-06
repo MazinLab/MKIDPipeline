@@ -8,6 +8,7 @@ os.environ["TMPDIR"] = '/scratch/tmp/'
 import tables.parameters
 tables.parameters.MAX_BLOSC_THREADS = 4
 import mkidpipeline as pipe
+import mkidcore.pixelflags as pixelflags
 from mkidpipeline.config import config
 
 
@@ -55,6 +56,7 @@ def run_stage1(dataset):
 
 
 def generate_outputs(outputs):
+    from mkidpipeline.config import config
     for o in outputs:
         pipe.getLogger(__name__).info('Generating {}'.format(o.name))
         if o.wants_image:
@@ -71,7 +73,7 @@ def generate_outputs(outputs):
                 raise TypeError('a dither is not specified in the out.yml')
             drizzled = pipe.drizzler.form(o.data, mode=o.kind, wvlMin=o.startw, wvlMax=o.stopw,
                                           pixfrac=config.drizzler.pixfrac, wcs_timestep=config.drizzler.wcs_timestep,
-                                          exp_timestep=config.drizzler.exp_timestep, flags=config.badpix,
+                                          exp_timestep=config.drizzler.exp_timestep, flags=pixelflags.PROBLEM_FLAGS,
                                           usecache=config.drizzler.usecache, ncpu=config.ncpu)
             drizzled.writefits(o.output_file)
         if o.wants_movie:
