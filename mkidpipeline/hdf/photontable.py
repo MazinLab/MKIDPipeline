@@ -618,16 +618,10 @@ class ObsFile(object):
         wave_axis : bool
             False: wcs solution is calculated for ra/dec
             True:  wcs solution is calculated for ra/dec/wavelength
-        first_time : bool
-            Used to get start orientation for alignment in ADI algorithms
+        first_time : float
+            Time at which to orientation all non-derotated frames
 
         See instruments.compute_wcs_ref_pixel() for information on wcscal parameters
-        ditherPos :
-        ditherHome :
-        ditherReference :
-            read from the header. Where the center of rotation is relative to corner of image pix units ie 0<x<150  -
-        platescale : float
-            read from header. In units of mas/pix ie x~10
 
         Returns
         -------
