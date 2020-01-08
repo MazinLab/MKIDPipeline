@@ -44,7 +44,9 @@ import mkidcore.corelog
 import mkidpipeline.config
 import pkg_resources as pkg
 from mkidcore.utils import query
-
+import mkidcore.pixelflags as pixelflags
+import mkidpipeline.config as config
+import mkidpipeline.badpix as badpix
 
 DEFAULT_CONFIG_FILE = pkg.resource_filename('mkidpipeline.calibration.flatcal', 'flatcal.yml')
 
@@ -60,14 +62,14 @@ class FlatCalibrator(object):
         self.config_file = DEFAULT_CONFIG_FILE if config is None else config
 
         self.cfg = mkidpipeline.config.load_task_config(config)
-
+        self.use_wavecal = self.cfg.flatcal.use_wavecal
         self.dataDir = self.cfg.paths.data
         self.out_directory = self.cfg.paths.out
 
         self.intTime = self.cfg.flatcal.chunk_time
 
-        self.dark_start = [self.cfg.flatcal.dark_data['start_times']]
-        self.dark_int = [self.cfg.flatcal.dark_data['int_times']]
+        self.dark_start = []
+        self.dark_int = []
 
         self.xpix = self.cfg.beammap.ncols
         self.ypix = self.cfg.beammap.nrows
@@ -202,8 +204,11 @@ class FlatCalibrator(object):
 
     def calculateWeights(self):
         """
-        finds flat cal factors as medians/pixelSpectra for each pixel.  Normalizes these weights at each wavelength bin.
-        Trim the beginning and end off the sorted weights for each wvl for each pixel, to exclude extremes from averages
+        Finds the weights by calculating the counts/(average counts) for each wavelength and for each time chunk. The
+        length (seconds) of the time chunks are specified in the pipe.yml.
+
+        If specified in the pipe.yml, will also trim time chunks with weights that have the largest deviation from
+        the average weight.
         """
         cubeWeights = np.zeros_like(self.spectralCubes)
         deltaWeights = np.zeros_like(self.spectralCubes)
@@ -212,7 +217,7 @@ class FlatCalibrator(object):
             wvlAverages = np.zeros_like(self.wavelengths)
             for iWvl in range(self.wavelengths.size):
                 wvlAverages[iWvl] = np.nanmean(cube[:, :, iWvl])
-            weights = cube / wvlAverages
+            weights = wvlAverages/cube
             weights[(weights == 0) | (weights == np.inf)] = np.nan
             cubeWeights[iCube, :, :, :] = weights
 
@@ -262,8 +267,8 @@ class FlatCalibrator(object):
 
         # Uncertainty in weighted average is sqrt(1/sum(averagingWeights)), normalize weights at each wavelength bin
         self.flatWeightErr = np.sqrt(summedAveragingWeights ** -1.)
-        self.flatFlags = self.flatWeights.mask
-        self.checkForColdPix() #TODO figure out what this does and fix it flag - wise
+        self.flatFlags = self.flatWeights.mask  # TODO for some reason this whole block isnt in the form you think it is, fix
+        self.checkForColdPix()  # TODO figure out what this does and fix it flag - wise
         wvlWeightMean = np.ma.mean(np.reshape(self.flatWeights, (-1, self.wavelengths.size)), axis=0)
         self.flatWeights = np.divide(self.flatWeights, wvlWeightMean)
         self.flatWeightsforplot = np.ma.sum(self.flatWeights, axis=-1)
@@ -450,7 +455,7 @@ class WhiteCalibrator(FlatCalibrator):
         if not self.obs.wavelength_calibrated:
             raise RuntimeError('Photon data is not wavelength calibrated.')
         self.beamImage = self.obs.beamImage
-        self.wvlFlags = self.obs.beamFlagImage
+        self.wvlFlags = pixelflags.beammap_flagmap_to_h5_flagmap(self.obs.beamFlagImage)
         self.xpix = self.obs.nXPix
         self.ypix = self.obs.nYPix
         self.wvlBinEdges = ObsFile.makeWvlBins(self.energyBinWidth, self.wvlStart, self.wvlStop)
@@ -495,8 +500,8 @@ class LaserCalibrator(FlatCalibrator):
         super().__init__(config)
         self.flatCalFileName = self.cfg.get('flatname', os.path.join(self.cfg.paths.database,
                                                                      cal_file_name))
-        self.beamImage = self.cfg.beammap #not sure if this and the one below are what they should be
-        # self.wvlFlags = self.cfg.beammap.flags
+        self.beamImage = self.cfg.beammap
+        self.wvlFlags = pixelflags.beammap_flagmap_to_h5_flagmap(self.beamImage.flagmap)  # TODO make sure this is the right way to format this
         self.xpix = self.cfg.beammap.ncols
         self.ypix = self.cfg.beammap.nrows
         self.wavelengths = np.array(self.cfg.wavelengths, dtype=float)
@@ -504,32 +509,46 @@ class LaserCalibrator(FlatCalibrator):
         self.start_times = self.cfg.start_times
         self.h5_directory = h5dir
         self.h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.start_times]
-        self.dark_h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.dark_start]
+        self.dark_h5_file_names = []
 
     def loadData(self):
+        '''
+        placeholder function to maintain universality of the makeCalibration function
+        '''
         getLogger(__name__).info('No need to load wavecal solution data for a Laser Flat, passing through')
         pass
 
     def loadFlatSpectra(self):
+        '''
+        finds the counts per second cubes for each wavelength
+        If specified will subtract off a dark frame
+        '''
         cps_cube_list, int_times, mask = self.make_spectralcube()
-        dark_frame = self.get_dark_frame()
         self.spectralCubes = cps_cube_list
         self.cubeEffIntTimes = int_times
+        dark_frame = self.get_dark_frame()
         for icube, cube in enumerate(self.spectralCubes):
             dark_subtracted_cube = np.zeros_like(cube)
             for iwvl, wvl in enumerate(cube[0, 0, :]):
                 dark_subtracted_cube[:, :, iwvl] = np.subtract(cube[:, :, iwvl], dark_frame)
             # mask out hot and cold pixels
             masked_cube = np.ma.masked_array(dark_subtracted_cube, mask=mask).data
-            # set any dead pixels or pixels who recieved less than the dark frame to nans -
+            # set any dead pixels or pixels who received less than the dark frame to nans -
             # won't be included in weight calculation
             masked_cube[masked_cube <= 0] = np.nan
             self.spectralCubes[icube] = masked_cube
         self.spectralCubes = np.array(self.spectralCubes)
         self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
-        self.countCubes = self.cubeEffIntTimes * self.spectralCubes # count cubes is the counts over the integration time
+        # count cubes is the counts over the integration time
+        self.countCubes = self.cubeEffIntTimes * self.spectralCubes
 
     def make_spectralcube(self):
+        '''
+        called from loadFlatSpectra
+        :return:
+        list of counts per second cubes, lost of all of the integration times used to make the count per second cubes,
+        bag pixel mask
+        '''
         wavelengths = self.wavelengths
         nWavs = len(self.wavelengths)
         ntimes = int(np.max(self.exposure_times) / self.intTime)
@@ -540,11 +559,14 @@ class LaserCalibrator(FlatCalibrator):
             time = int(self.exposure_times[iwvl] / self.intTime)
             obs = ObsFile(self.h5_file_names[iwvl])
             # mask out hot pixels before finding the mean
+            if not obs.info['isBadPixMasked'] and not self.use_wavecal:
+                getLogger(__name__).info('Hot pixel masking laser h5 file for flatcal')
+                badpix.mask_hot_pixels(self.h5_file_names[iwvl])
             hot_mask = obs.flagMask(['pixcal.hot', 'pixcal.cold'])
             mask[:, :, iwvl] = hot_mask
             counts = obs.getTemporalCube(timeslice=self.intTime)
             getLogger(__name__).info('Loaded {}nm spectral cube'.format(wvl))
-            cps_cube = counts['cube']/self.intTime #TODO move this division outside of the loop
+            cps_cube = counts['cube']/self.intTime  # TODO move this division outside of the loop
             cps_cube = np.moveaxis(cps_cube, 2, 0)
             int_times[:, :, iwvl] = self.intTime
             cps_cube_list[:time, :, :, iwvl] = cps_cube
@@ -553,22 +575,32 @@ class LaserCalibrator(FlatCalibrator):
     def get_dark_frame(self):
         '''
         takes however many dark files that are specified in the pipe.yml and computes the counts/pixel/sec for the sum
-        of all the dark obs. This creates a stictched together long dark obs from all of the smaller obs given. This
+        of all the dark obs. This creates a stitched together long dark obs from all of the smaller obs given. This
         is useful for legacy data where there may not be a specified dark observation but parts of observations where
         the filter wheel was closed.
 
+        If self.use_wavecal is True then a dark is not subtracted off since this just  takes into account total counts
+        and not energy information
+
         :return: expected dark counts for each pixel over a flat observation
         '''
-        frames = np.zeros((140, 146, len(self.dark_start)))
-        getLogger(__name__).info('Loading dark frames for Laser flat')
-        for i, file in enumerate(self.dark_h5_file_names):
-            obs = ObsFile(file)
-            frame = obs.getPixelCountImage(integrationTime=self.dark_int[i])['image']
-            frames[:, :, i] = frame
-        total_counts = np.sum(frames, axis=2)
-        total_int_time = float(np.sum(self.dark_int))
-        counts_per_sec = total_counts / total_int_time
-        dark_frame = counts_per_sec
+        if not self.dark_h5_file_names or self.use_wavecal:
+            dark_frame = np.zeros_like(self.spectralCubes[0][:,:,0])
+        else:
+            self.dark_start = [self.cfg.flatcal.dark_data['start_times']]
+            self.dark_int = [self.cfg.flatcal.dark_data['int_times']]
+            self.dark_h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.dark_start]
+            frames = np.zeros((140, 146, len(self.dark_start)))
+            getLogger(__name__).info('Loading dark frames for Laser flat')
+
+            for i, file in enumerate(self.dark_h5_file_names):
+                obs = ObsFile(file)
+                frame = obs.getPixelCountImage(integrationTime=self.dark_int[i])['image']
+                frames[:, :, i] = frame
+            total_counts = np.sum(frames, axis=2)
+            total_int_time = float(np.sum(self.dark_int))
+            counts_per_sec = total_counts / total_int_time
+            dark_frame = counts_per_sec
         return dark_frame
 
 
