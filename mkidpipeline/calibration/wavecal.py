@@ -1150,7 +1150,7 @@ class Solution(object):
         keys = ('fit_array', 'configuration', 'beam_map', 'beam_map_flags')
         npz_file = np.load(file_path, allow_pickle=True, encoding='bytes', mmap_mode=file_mode)
         for key in keys:
-            if key not in npz_file.keys():
+            if key not in list(npz_file.keys()):
                 raise AttributeError('{} missing from {}, solution malformed'.format(key, file_path))
         self.npz = npz_file
         if overload:  # properties grab from self.npz if set to none
