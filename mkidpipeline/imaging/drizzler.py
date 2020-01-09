@@ -1,28 +1,48 @@
 """
 *** Warning ***
-The STScI drizzle module appears to have a bug. Line 474 (as of 4/23/19) should change from
 
-self.outcon = np.append(self.outcon, plane, axis=0)
+    The STScI drizzle module currently appears to have a bug which has been raised under issue #50.
+    In the meantime increment_id() patches the bug
 
-to
+Examples
 
-self.outcon = np.append(self.outcon, [plane], axis=0)
+    $ python drizzle.py /path/to/mkidpipeline/mkidpipeline/imaging/drizzler.yml
+
+    or
+
+    >>> dither = MKIDDitheredObservation(**kwargs)
+    >>> drizzled = drizzler.form(dither, mode='spatial')
+    >>> drizzled.writefits('output.fits')
+
+Classes
+
+    DrizzleParams   : Calculates and stores the relevant info for Drizzler
+    Canvas          : Called by the "Drizzler" classes. Generates the canvas that is drizzled onto
+    SpatialDrizzler : Generate a spatially dithered image from a set dithered dataset
+    TemporalDrizzler: Generates a spatially dithered 4-cube (xytw)
+    ListDrizzler    : Not implemented yet
+    DrizzledData    : Saves the drizzled data as FITS
+
+Functions
+
+    increment_id    : Monkey patch for STScI drizzle class of drizzle package
+    mp_worker       : Genereate a reduced, reformated photonlist
+    load_data       : Consolidate all dither positions
+    form            : Takes in a MKIDDitheredObservation object and drizzles the dithers onto a common sky grid
+    get_star_offset : Get the rotation_center offset parameter for a dither
+
+Note
+
+    Unfinished implementation of ListDrizzler for later development can be found in commit
+    6169b9d0836c03b669223c12a852a05e8f74ad7d
+
+TODO:
+    * Add astroplan, drizzle, to setup.py/yml. drizzle need to be pip installed. I found that astroplan needed to be pip
+    installed otherwise some astropy import fails
+    * Make and test ListDrizzler
 
 
-TODO
-Add astroplan, drizzle, to setup.py/yml. drizzle need to be pip installed. I found that astroplan needed to be pip
-installed otherwise some astropy import fails
-
-Consolidate Temporal and Spectral Drizzler
-
-Make and test ListDrizzler
-
-Usage
------
-
-python drizzle.py /mnt/data0/dodkins/src/mkidpipeline/mkidpipeline/imaging/drizzler.yml
-
-Author: Rupert Dodkins,                                 Date: April 2019
+Author: Rupert Dodkins,                                 Date: Jan 2020
 
 """
 import os
@@ -39,9 +59,7 @@ from astroplan import Observer
 import astropy
 from astropy.utils.data import Conf
 from astropy.io import fits
-from importlib.machinery import SourceFileLoader
-stdrizzle = SourceFileLoader("drizzle.drizzle", "/opt/anaconda3/envs/pipeline/lib/python3.6/site-packages/drizzle/drizzle.py").load_module()
-# from drizzle import drizzle as stdrizzle
+from drizzle import drizzle as stdrizzle
 from mkidcore import pixelflags
 from mkidpipeline.hdf.photontable import ObsFile
 from mkidcore.corelog import getLogger
@@ -51,6 +69,38 @@ from mkidcore.instruments import CONEX2PIXEL
 import argparse
 from mkidpipeline.utils.utils import get_device_orientation
 
+DRIZ_PROBLEM_FLAGS = ()  # currently no pixel flags make drizzler explode
+
+def increment_id(self):
+    """
+    monkey patch for STScI drizzle class of drizzle package
+
+    Increment the id count and add a plane to the context image if needed
+
+    Drizzle tracks which input images contribute to the output image
+    by setting a bit in the corresponding pixel in the context image.
+    The uniqid indicates which bit. So it must be incremented each time
+    a new image is added. Each plane in the context image can hold 32 bits,
+    so after each 32 images, a new plane is added to the context.
+    """
+
+    getLogger(__name__).warning('Using increment_id monkey patch')
+
+    # Compute what plane of the context image this input would
+    # correspond to:
+
+    planeid = int(self.uniqid / 32)
+
+    # Add a new plane to the context image if planeid overflows
+
+    if self.outcon.shape[0] == planeid:
+        plane = np.zeros_like(self.outcon[0])
+        self.outcon = np.append(self.outcon, [plane], axis=0)
+
+    # Increment the id
+    self.uniqid += 1
+
+stdrizzle.Drizzle.increment_id = increment_id
 
 class DrizzleParams(object):
     """
@@ -127,45 +177,63 @@ class DrizzleParams(object):
 
         return(max_timestep)
 
+def metadata_config_check(filename, conf_wcs):
+    """ Checks a photontable metadata and data.yml agree on the wcs params """
+    ob = ObsFile(filename)
+    md = ob.metadata()
+    for attribute in ['dither_home', 'dither_ref', 'platescale', 'device_orientation']:
+        if getattr(md, attribute) != getattr(conf_wcs,attribute):
+            getLogger(__name__).warning(f'{attribute} is different in config and obsfile metadata. metadata should be reapplied')
 
-def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_time=None, flags=None):
+def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, single_pa_time=None, exclude_flags=()):
     """
-    Genereate the reformated photonlists
+    Genereate the reduced, reformated photonlists
 
-    :param file:
-    :param startw:
-    :param stopw:
-    :param startt:
-    :param intt:
-    :param derotate:
-    :param wcs_timestep:
+    Params
+    ------
+    file : str
+        obsfile filename
+    startw : float
+        Lower bound on photon wavelengths (or phases) for photontable.query
+    stopw : float
+        Upper bound on photon wavelengths (or phases) for photontable.query
+    startt : float
+        Startime for photontable.query
+    intt : float
+        Effective integration time for photontable.query
+    derotate : bool
+        see photontable.get_wcs
+    wcs_timestep : float
+        see photontable.get_wcs
+    exclude_flags:
+        pixel flags to use in filter_photons_by_flags, see pixelflags.py
 
-    :param flags: None or a flag bitmask as per file.flag_bitmask()
-    :return:
+    Return
+    ------
+    Dictionary of reformated photon data for a single obsfile
+
     """
     obsfile = ObsFile(file)
     duration = obsfile.duration
 
     photons = obsfile.query(startw=startw, stopw=stopw, startt=startt, intt=intt)
-    weights = photons['SpecWeight'] * photons['NoiseWeight']
+    num_unfiltered = len(photons)
     getLogger(__name__).info("Fetched {} photons from dither {}".format(len(photons), file))
     if len(photons) == 0:
         getLogger(__name__).warning(f'No photons found using wavelength range {startw}-{stopw} nm and time range '
                                     f'{startt}-{intt} s. Is the obsfile not wavelength calibrated causing a mismatch '
                                     f'in the units?')
 
-    x, y = obsfile.xy(photons)
-
-    if flags is not None:
-        #TODO @dodkins fixme
-        usablelist = obsfile.flagMask(flags, (x, y))
-        getLogger(__name__).info("Removed {} photons from {} total from bad pix"
-                                 .format(len(photons) - len(photons[usablelist]), len(photons)))
-        photons = photons[usablelist]
+    exclude_flags += DRIZ_PROBLEM_FLAGS
+    photons = obsfile.filter_photons_by_flags(photons, allowed=(), disallowed=exclude_flags)
+    num_filtered = len(photons)
+    getLogger(__name__).info("Removed {} photons from {} total from bad pix"
+                             .format(num_unfiltered - num_filtered, num_unfiltered))
+    weights = photons['SpecWeight'] * photons['NoiseWeight']
     x, y = obsfile.xy(photons)
 
     # ob.get_wcs returns all wcs solutions (including those after intt), so just pass then remove post facto()
-    wcs = obsfile.get_wcs(derotate=derotate, wcs_timestep=wcs_timestep, first_time=first_time) #1545626973
+    wcs = obsfile.get_wcs(derotate=derotate, wcs_timestep=wcs_timestep, single_pa_time=single_pa_time) #1545626973
     nwcs = int(np.ceil(intt/wcs_timestep))
     wcs = wcs[:nwcs]
     del obsfile
@@ -175,7 +243,8 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, first_t
 
 
 def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfile='drizzler_tmp_{}.pkl',
-              tempdir=None, usecache=True, clearcache=False, derotate=True, ncpu=1, flags=True):
+              tempdir=None, usecache=True, clearcache=False, derotate=True, align_start_pa=False, ncpu=1,
+              exclude_flags=()):
     """
     Load the photons either by querying the obsfiles in parrallel or loading from pkl if it exists. The wcs
     solutions are added to this photon data dictionary but will likely be integrated into photontable.py directly
@@ -222,15 +291,14 @@ def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfi
         if not filenames:
             getLogger(__name__).info('No obsfiles found')
 
-        if derotate:
-            first_time = None
-        else:
-            first_time = ObsFile(filenames[0]).startTime
+        single_pa_time = ObsFile(filenames[0]).startTime if not derotate and align_start_pa else None
+
+        metadata_config_check(filenames[0], dither.wcscal)
 
         ncpu = min(mkidpipeline.config.n_cpus_available(), ncpu)
         p = mp.Pool(ncpu)
-        processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt, used_inttime, derotate, wcs_timestep, first_time,
-                                               flags)) for file in filenames]
+        processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt, used_inttime, derotate, wcs_timestep,
+                                               single_pa_time, exclude_flags)) for file in filenames]
         dithers_data = [res.get() for res in processes]
 
         dithers_data.sort(key=lambda k: filenames.index(k['file']))
@@ -331,58 +399,9 @@ class ListDrizzler(Canvas):
     def __init__(self, dithers_data, drizzle_params):
         super().__init__(self, dithers_data, drizzle_params.dither.obs[0], drizzle_params.coords)
 
-        getLogger(__name__).critical('This has not been tested')
+        getLogger(__name__).critical('ListDrizzler has not been written')
         raise NotImplementedError
 
-        inttime = drizzle_params.used_inttime
-
-        # if inttime is say 100 and wcs_timestep is say 60 then this yields [0,60,100]
-        # meaning the positions don't have constant integration time
-        self.wcs_times = np.append(np.arange(0, inttime, drizzle_params.wcs_timestep), inttime) * 1e6
-        self.run(pixfrac=drizzle_params.pixfrac)
-
-    def run(self, save_file=None, pixfrac=1.):
-        for ix, dither_photons in enumerate(self.dithers_data):
-            getLogger(__name__).debug('Processing %s', dither_photons)
-
-            tic = time.clock()
-            # driz = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=pixfrac)
-            for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):
-                inwcs = wcs.WCS(header=inwcs)
-                inwcs.pixel_shape = (self.xpix, self.ypix)
-
-                inds = [(yp, xp) for yp, xp in np.ndindex(self.ypix, self.xpix)]
-                allpix2world = []
-                for i in range(self.xpix*self.ypix):
-                    insci = np.ones((self.ypix, self.xpix))
-
-                    driz = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=pixfrac, wt_scl='')
-                    inwht = np.zeros((self.ypix, self.xpix))
-                    # print(inds[i])
-                    inwht[inds[i]] = 1
-                    driz.add_image(insci, inwcs, inwht=inwht)
-                    sky_inds = np.where(driz.outsci == 1)
-                    # print(sky_inds, np.shape(sky_inds), len(sky_inds), sky_inds is [], sky_inds == [])
-                    if np.shape(sky_inds)[1] == 0:
-                        pix2world = [[], []]
-                    else:
-                        pix2world = inwcs.all_pix2world(sky_inds[1], sky_inds[0], 1)
-                    # print(allpix2world)
-                    allpix2world.append(pix2world)
-
-                    # plt.imshow(driz.outsci)
-                    # plt.show(block=True)
-
-                radecs = []
-                for i, (xp, yp) in enumerate(zip(dither_photons['xPhotonPixels'], dither_photons['yPhotonPixels'])):
-                    ind = xp + yp * self.xpix
-                    # print(xp, yp, ind, )
-                    # print(allpix2world[ind])
-                    radecs.append(allpix2world[ind])
-
-                dither_photons['radecs'] = radecs  # list of [npix, npix]
-
-            getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
 
 
 class TemporalDrizzler(Canvas):
@@ -422,8 +441,6 @@ class TemporalDrizzler(Canvas):
         self.totHypCube = np.zeros((self.ntimebins * self.ndithers, self.nwvlbins, self.nPixDec, self.nPixRA))
         self.expmap = np.zeros((self.ntimebins * self.ndithers, self.nwvlbins, self.nPixDec, self.nPixRA))
         for ix, dither_photons in enumerate(self.dithers_data):
-
-            # getLogger(__name__).debug('Processing %s', dither_photons)
 
             thishyper = np.zeros((self.ntimebins, self.nwvlbins, self.nPixDec, self.nPixRA), dtype=np.float32)
 
@@ -550,7 +567,6 @@ class SpatialDrizzler(Canvas):
 
     def run(self, save_file=None):
         for ix, dither_photons in enumerate(self.dithers_data):
-            getLogger(__name__).debug('Processing %s', dither_photons)
 
             tic = time.clock()
             for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):
@@ -670,7 +686,8 @@ class DrizzledData(object):
 
 
 def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt=0., intt=60., pixfrac=.5, nwvlbins=1,
-         wcs_timestep=1., exp_timestep=1., fitsname=None, usecache=True, ncpu=1, flags=0):
+         wcs_timestep=1., exp_timestep=1., fitsname=None, usecache=True, ncpu=1, exclude_flags=(), whitelight=False,
+         align_start_pa=False):
     """
     Takes in a MKIDDitheredObservation object and drizzles the dithers onto a common sky grid.
 
@@ -707,6 +724,10 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
         Number of cpu used when loading and reformatting the dither obsfiles
     flags : int
         Bitmask containing the various flags on each pixel from previous steps
+    whitelight : bool
+        Relevant parameters are updated to perform a whitelight dither. Take presedence over derotate user input
+    align_start_pa : bool
+        If derotate is False then the images can be aligned to the first frame for the purpose of ADI
 
     Returns
     -------
@@ -733,14 +754,17 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
 
     used_inttime = min(intt, dither.inttime)
 
-    if dither.target == 'WL':
+    if whitelight:
         getLogger(__name__).warning('Changing some of the wcs params to white light mode')
         derotate = False
+        dither.ra = 0
+        dither.dec = 0
 
     drizzle_params = DrizzleParams(dither, used_inttime, wcs_timestep, pixfrac)
 
     dithers_data = load_data(dither, wvlMin, wvlMax, startt, used_inttime, drizzle_params.wcs_timestep,
-                             derotate=derotate, usecache=usecache, ncpu=ncpu, flags=flags)
+                             derotate=derotate, usecache=usecache, ncpu=ncpu, exclude_flags=exclude_flags,
+                             align_start_pa=align_start_pa)
     total_photons = sum([len(dither_data['timestamps']) for dither_data in dithers_data])
 
     if total_photons == 0:
