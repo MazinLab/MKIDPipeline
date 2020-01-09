@@ -119,7 +119,7 @@
   wcscal: wcscal1
   wavecal: wavecal1
   flatcal: flatcal1
-  target: WL  # setting target to WL will turn derotate off
+  target: WL
   ra: 00:00:00.0
   dec: +00:00:00.0
   observatory: Subaru
