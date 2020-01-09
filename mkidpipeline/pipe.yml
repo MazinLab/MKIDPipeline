@@ -72,6 +72,9 @@ drizzler: !configdict
   nwvlbins: 1  # the number of equal width bins in the temporally drizzled cube
   usecache: False  # if True the reformatted photontable data from each of the dithers is stored and reloaded for
                    # subsequent runs of drizzler.py
+  derotate: Fasle  # apply a rotation to each frame opposite to the sky rotation to align the objects
+  align_start_pa: False  # if derotate is False then the images can be aligned to the first frame for the purpose of ADI
+  whitelight: True  # tell drizzler to turn off derotation and set ra and dec to 0
 
 templar: !configdict
   file: the_conf.yml
