@@ -64,7 +64,7 @@ def estimate_ram_gb(directory, start, inttime):
 def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None, shuffle=True, bitshuffle=False,
                    wait_for_ram=3600, ndx_shuffle=True, ndx_bitshuffle=False):
     """wait_for_ram speficies the number of seconds to wait for sufficient ram"""
-    from mkidpipeline.hdf.mkidbin import extract
+    from mkidcore.hdf.mkidbin import extract
 
     if cfg.starttime < 1518222559:
         raise ValueError('Data prior to 1518222559 not supported without added fixtimestamps')

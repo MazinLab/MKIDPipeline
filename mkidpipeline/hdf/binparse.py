@@ -16,7 +16,7 @@ data cubes are sequenced by phase (pix value is total # counts per phase bin).
 
 import numpy as np
 import os
-from mkidpipeline.hdf.mkidbin import parse
+from mkidcore.hdf.mkidbin import parse
 import matplotlib.pyplot as plt
 from mkidcore.corelog import getLogger
 import mkidcore.corelog
