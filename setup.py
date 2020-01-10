@@ -17,14 +17,6 @@ gen_photon_list_extension = Extension(
     extra_compile_args=["-std=c99", "-O3", '-pthread']
 )
 
-mkidbin_extension = Extension(
-    name="mkidpipeline.hdf.mkidbin",
-    sources=["mkidpipeline/hdf/mkidbin.pyx", "mkidpipeline/hdf/binprocessor.c"],
-    library_dirs=["mkidpipeline/hdf"],  # Location of .o file
-    include_dirs=["mkidpipeline/hdf", numpy.get_include()], # Location of the .h file
-    extra_compile_args=["-std=c99", "-O3", '-pthread']
-)
-
 
 def compile_and_install_software():
     """Used the subprocess module to compile/install the C software."""
@@ -65,7 +57,7 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/MazinLab/MKIDPipeline",
     packages=setuptools.find_packages(),
-    ext_modules=cythonize([gen_photon_list_extension,mkidbin_extension]),
+    ext_modules=cythonize([gen_photon_list_extension]),
     classifiers=(
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
