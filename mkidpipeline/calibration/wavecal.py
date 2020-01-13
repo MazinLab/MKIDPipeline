@@ -669,7 +669,8 @@ class Calibrator(object):
             # update bin_width
             bin_width = self.cfg.bin_width * (2 ** update)
             # define bin edges being careful to start at the threshold cut
-            bin_edges = np.arange(max_phase, min_phase - bin_width,  -bin_width)[::-1]
+            num = (max_phase - (min_phase - bin_width)) / bin_width
+            bin_edges = np.linspace(max_phase, min_phase - bin_width, num=num+1, endpoint=True)[::-1]
             # make histogram
             counts, x0 = np.histogram(phase_list, bins=bin_edges)
             centers = (x0[:-1] + x0[1:]) / 2.0
