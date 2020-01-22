@@ -1153,7 +1153,8 @@ class ObsFile(object):
         elif wvlBinWidth is not None:
             wvlBinEdges = np.linspace(wvlStart, wvlStop, num=int((wvlStop - wvlStart) / wvlBinWidth) + 1)
         else:
-            wvlBinEdges = self.defaultWvlBins.size
+            wvlBinEdges = self.defaultWvlBins
+
         nWvlBins = wvlBinEdges.size - 1
 
         if integrationTime == -1 or integrationTime is None:
@@ -1750,7 +1751,7 @@ class ObsFile(object):
                     weights = soln['weight'].flatten()
                     errors = soln['err'].flatten()
                     if self.info['isWvlCalibrated'] and not any([self.flagMask(pixelflags.PROBLEM_FLAGS,
-                                                                              pixel=(row, column))]):
+                                                                               pixel=(row, column))]):
                         weightArr = np.poly1d(coeffs)(wavelengths)
                         if any(weightArr > 100) or any(weightArr < 0.01):
                             getLogger(__name__).debug('Unreasonable fitted weight of for resID {}'.format(resID))

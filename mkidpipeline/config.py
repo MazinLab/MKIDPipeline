@@ -98,7 +98,7 @@ def wavecal_id(wavedata_id, wavecal_cfg=None):
 class MKIDTimerange(object):
     yaml_tag = u'!ob'
 
-    def __init__(self, name, start, duration=None, stop=None, _common=None, wavecal=None, flatcal=None):
+    def __init__(self, name, start, duration=None, stop=None, _common=None, wavecal=None, flatcal=None, background=None):
 
         if _common is not None:
             self.__dict__.update(_common)
@@ -122,7 +122,7 @@ class MKIDTimerange(object):
 
 
         self.name = str(name)
-
+        self.background = str(background)
     def __str__(self):
         return '{} t={}:{}s'.format(self.name, self.start, self.duration)
 
@@ -151,8 +151,9 @@ class MKIDTimerange(object):
         start = d.pop('start', None)
         stop = d.pop('stop', None)
         duration = d.pop('duration', None)
+        background = d.pop('background', None)
         return cls(name, start, duration=duration, stop=stop, wavecal=d.pop('wavecal', None),
-                   flatcal=d.pop('flatcal', None), _common=d)
+                   flatcal=d.pop('flatcal', None),background=background, _common=d)
 
     @property
     def timerange(self):
@@ -269,6 +270,7 @@ class MKIDWavedataDescription(object):
         self.data = data
         self.data.sort(key=lambda x: x.start)
         self.wavelengths
+        self.backgrounds
 
     @property
     def timeranges(self):
@@ -277,7 +279,21 @@ class MKIDWavedataDescription(object):
 
     @property
     def wavelengths(self):
-        return [getnm(x.name) for x in self.data]
+        return [getnm(x.name) for x in self.data if not x.name.startswith('background')]
+
+    @property
+    def backgrounds(self):
+        laser_data = [x for x in self.data if not x.name.startswith('background')]
+        background_data = [x for x in self.data if x.name.startswith('background')]
+        backgrounds = np.zeros(len(self.wavelengths), dtype=[('wavelength', 'float'), ('background', '<U11'),
+                                                             ('start_time', 'int')])
+        backgrounds['wavelength'] = self.wavelengths
+        if len(background_data) == 0:
+            return backgrounds
+        backgrounds['background'] = [x.background if x.background else '' for x in laser_data]
+        backgrounds['start_time'] = [x.start if x.name == y.background else 0 for y in laser_data for x in
+                                     background_data]
+        return backgrounds
 
     def __str__(self):
         return '\n '.join("{} ({}-{})".format(x.name, x.start, x.stop) for x in self.data)
