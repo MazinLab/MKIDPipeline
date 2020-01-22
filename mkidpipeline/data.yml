@@ -2,9 +2,16 @@
   name: wavecal1
   data:
     - !ob
+      name: background1
+      start: 1545542300
+      duration: 100
+      header:
+        ND: 2.5
+    - !ob
       name: 850 nm
       start: 1545542036
-      stop: 1545542178  #if stop is < start it is interpreted as the final digits
+      stop: 1545542178 #if stop is < start it is interpreted as the final digits
+      background: background1
       comments:
         - dither at (0,0)
         - Charis_pickoff = 2 (gold mirror)
