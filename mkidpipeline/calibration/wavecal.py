@@ -325,7 +325,7 @@ class Calibrator(object):
                         photon_list = self.fetch_obsfile(wavelength).getPixelPhotonList(xCoord=pixel[0],
                                                                                         yCoord=pixel[1])
                         # create background phase list if specified
-                        if self.cfg.backgrounds['background'][index] != '':
+                        if self.cfg.backgrounds['background'][index] != 'None':
                             bkgd_photon_list = self.fetch_background(wavelength).getPixelPhotonList(xCoord=pixel[0],
                                                                                         yCoord=pixel[1])
                             bkgd_phase_list = bkgd_photon_list['Wavelength']
