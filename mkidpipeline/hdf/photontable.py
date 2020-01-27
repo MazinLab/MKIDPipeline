@@ -601,7 +601,7 @@ class ObsFile(object):
             raise NotImplementedError
 
         filtered = self.flagMask(disallowed, self.xy(photons))
-        return photons[filtered]
+        return photons[np.invert(filtered)]
 
     def get_wcs(self, derotate=True, wcs_timestep=None, target_coordinates=None, wave_axis=False, single_pa_time=None):
         """
