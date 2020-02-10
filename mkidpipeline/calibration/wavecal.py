@@ -72,7 +72,7 @@ class Configuration(object):
     yaml_tag = u'!wavecalconfig'
 
     def __init__(self, configfile=None, start_times=tuple(), exposure_times=tuple(), wavelengths=tuple(),
-                 background_start_times=tuple(), backgrounds=tuple(), beammap=None, h5dir='', outdir='', bindir='',
+                 background_start_times=tuple(), backgrounds_list=tuple(), beammap=None, h5dir='', outdir='', bindir='',
                  histogram_model_names=('GaussianAndExponential',), bin_width=2, histogram_fit_attempts=3,
                  calibration_model_names=('Quadratic', 'Linear'), dt=500, parallel=True, parallel_prefetch=False,
                  summary_plot=True, templarfile=''):
@@ -88,7 +88,7 @@ class Configuration(object):
         self.background_h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.background_start_times]
         self.exposure_times = list(map(int, exposure_times))
         self.wavelengths = np.array(wavelengths, dtype=float)
-        self.backgrounds = np.zeros(len(self.wavelengths),
+        self.backgrounds_list = np.zeros(len(self.wavelengths),
                                     dtype=[('wavelength', 'float'), ('background', '<U11'), ('start_time', 'int')])
 
         # Things with defaults
@@ -127,7 +127,7 @@ class Configuration(object):
 
             self.exposure_times = list(map(int, cfg.exposure_times))
             self.wavelengths = np.array(cfg.wavelengths, dtype=float)
-            self.backgrounds = cfg.backgrounds
+            self.backgrounds_list = cfg.backgrounds_list
             # Things with defaults
             self.histogram_model_names = list(cfg.wavecal.fit.histogram_model_names)
             self.bin_width = float(cfg.wavecal.fit.bin_width)
@@ -288,8 +288,8 @@ class Calibrator(object):
 
         :return: ObsFile
         '''
-        i = np.where(self.cfg.backgrounds['wavelength'] == wavelength)[0][0]
-        t = self.cfg.backgrounds['start_time'][i]
+        i = np.where(self.cfg.backgrounds_list['wavelength'] == wavelength)[0][0]
+        t = self.cfg.backgrounds_list['start_time'][i]
         h5 = os.path.join(self.cfg.h5_directory, str(t) + '.h5')
         return photontable.ObsFile(h5)
 
@@ -325,7 +325,7 @@ class Calibrator(object):
                         photon_list = self.fetch_obsfile(wavelength).getPixelPhotonList(xCoord=pixel[0],
                                                                                         yCoord=pixel[1])
                         # create background phase list if specified
-                        if self.cfg.backgrounds['background'][index] != 'None':
+                        if self.cfg.backgrounds_list['background'][index] != '':
                             bkgd_photon_list = self.fetch_background(wavelength).getPixelPhotonList(xCoord=pixel[0],
                                                                                         yCoord=pixel[1])
                             bkgd_phase_list = bkgd_photon_list['Wavelength']
@@ -2584,12 +2584,14 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
                 wcfg = mkidpipeline.config.load_task_config(pkg.resource_filename(__name__, 'wavecal.yml'))
             else:
                 wcfg = cfg.copy()
-            wcfg.register('start_times', [x.start for x in sd.data if not x.name.startswith('background')], update=True)
+
+            wcfg.register('start_times', [x.start for x in sd.data], update=True)
             wcfg.register('exposure_times', [x.duration for x in sd.data], update=True)
             wcfg.register('wavelengths', [w for w in sd.wavelengths], update=True)
-            wcfg.register('background_start_times', [x.start for x in sd.data if x.name.startswith('background')],
+            wcfg.register('background_start_times', [x.start for x in sd.backgrounds],
                           update=True)
             wcfg.register('backgrounds', sd.backgrounds)
+            wcfg.register('backgrounds_list', sd.backgrounds_list)
             if ncpu is not None:
                 wcfg.update('ncpu', ncpu)
             cal = Calibrator(wcfg, solution_name=sf)
