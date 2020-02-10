@@ -91,7 +91,8 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
 
     getLogger(__name__).debug('Starting build of {}'.format(cfg.h5file))
 
-    photons = extract(cfg.datadir, cfg.starttime, cfg.inttime, cfg.beamfile, cfg.x, cfg.y)
+    photons = extract(cfg.datadir, cfg.starttime, cfg.inttime, cfg.beamfile, cfg.x, cfg.y,
+                      include_baseline=cfg.include_baseline)
 
     getLogger(__name__).debug('Data Extracted for {}'.format(cfg.h5file))
 
@@ -362,10 +363,11 @@ class Bin2HdfConfig(object):
                  '{inttime}\n'
                  '{beamfile}\n'
                  '1\n'
-                 '{outdir}')
+                 '{outdir}\n'
+                 '{include_baseline}')
 
     def __init__(self, datadir='./', beamfile='./default.bmap', starttime=None, inttime=None,
-                 outdir='./', x=140, y=146, writeto=None, beammap=None):
+                 outdir='./', x=140, y=146, include_baseline=False, writeto=None, beammap=None):
 
         self.datadir = datadir
         self.starttime = starttime
@@ -374,6 +376,8 @@ class Bin2HdfConfig(object):
         self.beamfile = beamfile
         self.x = x
         self.y = y
+
+        self.include_baseline = include_baseline
 
         if beammap is not None:
             self.beamfile = beammap.file
@@ -483,7 +487,8 @@ def gen_configs(timeranges, config=None):
     for start_t, end_t in timeranges:
         bc = Bin2HdfConfig(datadir=_get_dir_for_start(cfg.paths.data, start_t),
                            beammap=cfg.beammap, outdir=cfg.paths.out,
-                           starttime=start_t, inttime=end_t - start_t)
+                           starttime=start_t, inttime=end_t - start_t,
+                           include_baseline=cfg.include_baseline)
         b2h_configs.append(bc)
 
     return b2h_configs
