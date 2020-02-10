@@ -62,6 +62,7 @@ from mkidcore.headers import PhotonCType, PhotonNumpyType, METADATA_BLOCK_BYTES
 from mkidcore.corelog import getLogger
 import mkidcore.pixelflags as pixelflags
 from mkidcore.config import yaml, StringIO
+import mkidpipeline.config as config
 
 from mkidcore.instruments import compute_wcs_ref_pixel
 
@@ -601,7 +602,7 @@ class ObsFile(object):
             raise NotImplementedError
 
         filtered = self.flagMask(disallowed, self.xy(photons))
-        return photons[filtered]
+        return photons[np.invert(filtered)]
 
     def get_wcs(self, derotate=True, wcs_timestep=None, target_coordinates=None, wave_axis=False, single_pa_time=None):
         """
@@ -634,11 +635,11 @@ class ObsFile(object):
         md = self.metadata()
         ditherHome = md.dither_home
         ditherReference = md.dither_ref
-        ditherPos = md.dither_pos
+        ditherPos = md.dither_home
         platescale = md.platescale  # units should be mas/pix
         getLogger(__name__).debug(f'ditherHome: {md.dither_home} (conex units -3<x<3), '
                                   f'ditherReference: {md.dither_ref} (pix 0<x<150), '
-                                  f'ditherPos: {md.dither_pos} (conex units -3<x<3), '
+                                  f'ditherPos: {md.dither_home} (conex units -3<x<3), '
                                   f'platescale: {md.platescale} (mas/pix ~10)')
 
         if isinstance(platescale, u.Quantity):
@@ -1667,7 +1668,7 @@ class ObsFile(object):
         """
         self._applyColWeight(resID, weightArr, 'NoiseWeight')
 
-    def applyFlatCal(self, calsolFile, use_wavecal=True, save_plots=False, startw=850, stopw=1375):
+    def applyFlatCal(self, calsolFile, use_wavecal=True, save_plots=False, startw=800, stopw=1375):
         """
         Applies a flat calibration to the "SpecWeight" column of a single pixel.
 
@@ -1766,8 +1767,8 @@ class ObsFile(object):
 
                     else:
                         assert use_wavecal
-                        getLogger(__name__).info('No wavecal for pixel with resID {} so no flatweight applied'.format(resID))
-                        pass
+                        getLogger(__name__).debug('No wavecal for pixel with resID {} so no flatweight applied'.format(resID))
+                        weightArr = np.zeros(len(wavelengths))
 
                     # enforce positive weights only
                     weightArr[weightArr < 0] = 0
