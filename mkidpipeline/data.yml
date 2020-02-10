@@ -1,12 +1,13 @@
 - !wc
   name: wavecal1
-  data:
+  backgrounds:
     - !ob
       name: background1
       start: 1545542300
       duration: 100
       header:
         ND: 2.5
+  data:
     - !ob
       name: 850 nm
       start: 1545542036
