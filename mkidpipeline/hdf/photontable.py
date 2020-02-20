@@ -62,6 +62,7 @@ from mkidcore.headers import PhotonCType, PhotonNumpyType, METADATA_BLOCK_BYTES
 from mkidcore.corelog import getLogger
 import mkidcore.pixelflags as pixelflags
 from mkidcore.config import yaml, StringIO
+import mkidpipeline.config as config
 
 from mkidcore.instruments import compute_wcs_ref_pixel
 
@@ -577,6 +578,7 @@ class ObsFile(object):
                                                  tuple(self.photonTable.will_query_use_indexing(query)), query,
                                                  *map(lambda x: '{:.2f}'.format(x) if x is not None else 'None',
                                                       (startt, stopt, startw, stopw))))
+
             return q
 
     def filter_photons_by_flags(self, photons, allowed=(), disallowed=()):
@@ -634,11 +636,11 @@ class ObsFile(object):
         md = self.metadata()
         ditherHome = md.dither_home
         ditherReference = md.dither_ref
-        ditherPos = md.dither_pos
+        ditherPos = md.dither_home
         platescale = md.platescale  # units should be mas/pix
         getLogger(__name__).debug(f'ditherHome: {md.dither_home} (conex units -3<x<3), '
                                   f'ditherReference: {md.dither_ref} (pix 0<x<150), '
-                                  f'ditherPos: {md.dither_pos} (conex units -3<x<3), '
+                                  f'ditherPos: {md.dither_home} (conex units -3<x<3), '
                                   f'platescale: {md.platescale} (mas/pix ~10)')
 
         if isinstance(platescale, u.Quantity):
@@ -1153,7 +1155,8 @@ class ObsFile(object):
         elif wvlBinWidth is not None:
             wvlBinEdges = np.linspace(wvlStart, wvlStop, num=int((wvlStop - wvlStart) / wvlBinWidth) + 1)
         else:
-            wvlBinEdges = self.defaultWvlBins.size
+            wvlBinEdges = self.defaultWvlBins
+
         nWvlBins = wvlBinEdges.size - 1
 
         if integrationTime == -1 or integrationTime is None:
@@ -1372,7 +1375,7 @@ class ObsFile(object):
         self.flag(self.flag_bitmask('pixcal.cold') * cold_mask)
         self.flag(self.flag_bitmask('pixcal.unstable') * unstable_mask)
         self.modifyHeaderEntry(headerTitle='isBadPixMasked', headerValue=True)
-        getLogger(__name__).info('Mask applied applied in {:.2f}s'.format(time.time()-tic))
+        getLogger(__name__).info('Mask applied in {:.3f}s'.format(time.time()-tic))
 
     @property
     def wavelength_calibrated(self):
@@ -1666,7 +1669,7 @@ class ObsFile(object):
         """
         self._applyColWeight(resID, weightArr, 'NoiseWeight')
 
-    def applyFlatCal(self, calsolFile, use_wavecal=True, save_plots=False, startw=850, stopw=1375):
+    def applyFlatCal(self, calsolFile, use_wavecal=True, save_plots=False, startw=800, stopw=1375):
         """
         Applies a flat calibration to the "SpecWeight" column of a single pixel.
 
@@ -1750,7 +1753,7 @@ class ObsFile(object):
                     weights = soln['weight'].flatten()
                     errors = soln['err'].flatten()
                     if self.info['isWvlCalibrated'] and not any([self.flagMask(pixelflags.PROBLEM_FLAGS,
-                                                                              pixel=(row, column))]):
+                                                                               pixel=(row, column))]):
                         weightArr = np.poly1d(coeffs)(wavelengths)
                         if any(weightArr > 100) or any(weightArr < 0.01):
                             getLogger(__name__).debug('Unreasonable fitted weight of for resID {}'.format(resID))
@@ -1765,8 +1768,8 @@ class ObsFile(object):
 
                     else:
                         assert use_wavecal
-                        getLogger(__name__).info('No wavecal for pixel with resID {} so no flatweight applied'.format(resID))
-                        pass
+                        getLogger(__name__).debug('No wavecal for pixel with resID {} so no flatweight applied'.format(resID))
+                        weightArr = np.zeros(len(wavelengths))
 
                     # enforce positive weights only
                     weightArr[weightArr < 0] = 0

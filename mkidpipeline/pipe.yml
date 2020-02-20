@@ -17,6 +17,7 @@ paths: !configdict
     tmp: /mnt/data0/baileyji/mec/scratch/  #(optional) can be used to specify a location for data intensive temp files
 
 ncpu: 7
+include_baseline: False # whether to include the baseline in h5 creation
 
 wavecal: !configdict
   plots: summary

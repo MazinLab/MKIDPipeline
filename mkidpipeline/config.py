@@ -38,7 +38,7 @@ STANDARD_KEYS = ('ra','dec', 'airmass','az','el','ha','equinox','parallactic','t
                  'dither_pos','platescale')
 
 REQUIRED_KEYS = ('ra','dec','target','observatory','instrument','dither_ref','dither_home','platescale',
-                 'device_orientation', 'dither_pos')
+                 'device_orientation', 'dither_ref')
 
 
 def load_task_config(file, use_global_config=True):
@@ -98,7 +98,7 @@ def wavecal_id(wavedata_id, wavecal_cfg=None):
 class MKIDTimerange(object):
     yaml_tag = u'!ob'
 
-    def __init__(self, name, start, duration=None, stop=None, _common=None, wavecal=None, flatcal=None):
+    def __init__(self, name, start, duration=None, stop=None, _common=None, wavecal=None, flatcal=None, background=None):
 
         if _common is not None:
             self.__dict__.update(_common)
@@ -122,7 +122,7 @@ class MKIDTimerange(object):
 
 
         self.name = str(name)
-
+        self.background = str(background)
     def __str__(self):
         return '{} t={}:{}s'.format(self.name, self.start, self.duration)
 
@@ -151,8 +151,9 @@ class MKIDTimerange(object):
         start = d.pop('start', None)
         stop = d.pop('stop', None)
         duration = d.pop('duration', None)
+        background = d.pop('background', None)
         return cls(name, start, duration=duration, stop=stop, wavecal=d.pop('wavecal', None),
-                   flatcal=d.pop('flatcal', None), _common=d)
+                   flatcal=d.pop('flatcal', None),background=background, _common=d)
 
     @property
     def timerange(self):
@@ -263,21 +264,37 @@ class MKIDWavedataDescription(object):
     """requires keys name and data"""
     yaml_tag = u'!wc'
 
-    def __init__(self, name, data):
+    def __init__(self, name, data, backgrounds):
 
         self.name = name
         self.data = data
+        self.backgrounds = backgrounds
         self.data.sort(key=lambda x: x.start)
-        self.wavelengths
+        self.wavelengths = []
+        self.backgrounds_list = []
 
     @property
     def timeranges(self):
         for o in self.data:
             yield o.timerange
+        for o in self.backgrounds:
+            yield o.timerange
 
     @property
     def wavelengths(self):
         return [getnm(x.name) for x in self.data]
+
+    @property
+    def backgrounds_list(self):
+        backgrounds_list = np.zeros(len(self.wavelengths), dtype=[('wavelength', 'float'), ('background', '<U11'),
+                                                                  ('start_time', 'int')])
+        backgrounds_list['wavelength'] = self.wavelengths
+        if len(self.backgrounds) == 0:
+            return backgrounds_list
+        backgrounds_list['background'] = [x.background if x.background else '' for x in self.data]
+        backgrounds_list['start_time'] = [x.start if x.name == y.background else 0 for y in self.data
+                                          for x in self.backgrounds]
+        return backgrounds_list
 
     def __str__(self):
         return '\n '.join("{} ({}-{})".format(x.name, x.start, x.stop) for x in self.data)
