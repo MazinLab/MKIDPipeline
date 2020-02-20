@@ -277,8 +277,9 @@ class MKIDWavedataDescription(object):
     def timeranges(self):
         for o in self.data:
             yield o.timerange
-        for o in self.backgrounds:
-            yield o.timerange
+        if self.backgrounds:
+            for o in self.backgrounds:
+                yield o.timerange
 
     @property
     def wavelengths(self):
