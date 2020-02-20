@@ -578,6 +578,7 @@ class ObsFile(object):
                                                  tuple(self.photonTable.will_query_use_indexing(query)), query,
                                                  *map(lambda x: '{:.2f}'.format(x) if x is not None else 'None',
                                                       (startt, stopt, startw, stopw))))
+
             return q
 
     def filter_photons_by_flags(self, photons, allowed=(), disallowed=()):
@@ -1374,7 +1375,7 @@ class ObsFile(object):
         self.flag(self.flag_bitmask('pixcal.cold') * cold_mask)
         self.flag(self.flag_bitmask('pixcal.unstable') * unstable_mask)
         self.modifyHeaderEntry(headerTitle='isBadPixMasked', headerValue=True)
-        getLogger(__name__).info('Mask applied applied in {:.2f}s'.format(time.time()-tic))
+        getLogger(__name__).info('Mask applied in {:.3f}s'.format(time.time()-tic))
 
     @property
     def wavelength_calibrated(self):
