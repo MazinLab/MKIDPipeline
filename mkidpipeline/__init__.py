@@ -20,7 +20,7 @@ log = getLogger('mkidpipeline')
 
 
 def wavecal_apply(o):
-    if o.flatcal is None:
+    if o.wavecal is None:
         getLogger(__name__).info('No wavecal to apply for {}'.format(o.h5))
         return
     try:
