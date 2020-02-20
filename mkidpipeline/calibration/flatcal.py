@@ -268,7 +268,6 @@ class FlatCalibrator(object):
         # Uncertainty in weighted average is sqrt(1/sum(averagingWeights)), normalize weights at each wavelength bin
         self.flatWeightErr = np.sqrt(summedAveragingWeights ** -1.)
         self.flatFlags = self.flatWeights.mask  # TODO for some reason this whole block isnt in the form you think it is, fix
-        self.checkForColdPix()  # TODO figure out what this does and fix it flag - wise
         wvlWeightMean = np.ma.mean(np.reshape(self.flatWeights, (-1, self.wavelengths.size)), axis=0)
         self.flatWeights = np.divide(self.flatWeights, wvlWeightMean)
         self.flatWeightsforplot = np.ma.sum(self.flatWeights, axis=-1)
@@ -546,17 +545,28 @@ class LaserCalibrator(FlatCalibrator):
         '''
         called from loadFlatSpectra
         :return:
-        list of counts per second cubes, lost of all of the integration times used to make the count per second cubes,
+        list of counts per second cubes, list of all of the integration times used to make the count per second cubes,
         bag pixel mask
         '''
         wavelengths = self.wavelengths
         nWavs = len(self.wavelengths)
-        ntimes = int(np.max(self.exposure_times) / self.intTime)
+        ntimes = int(self.cfg.flatcal.nchunks)
+        if np.any(self.intTime*self.cfg.flatcal.nchunks > self.exposure_times):
+            ntimes = self.exposure_times/self.intTime
+            getLogger(__name__).info('Number of chunks * chunk time is longer than the laser exposure. Using full'
+                                     'length of exposure ({} chunks)'.format(ntimes))
         cps_cube_list = np.zeros([ntimes, self.xpix, self.ypix, nWavs])
         mask = np.zeros([self.xpix, self.ypix, nWavs])
         int_times = np.zeros([self.xpix, self.ypix, nWavs])
+        if self.use_wavecal:
+            getLogger(__name__).info('Loading in wavecal solution to get median energy resolution R')
+            sol_file = [f for f in os.listdir(self.cfg.paths.database) if f.endswith('.npz')]
+            sol = mkidpipeline.calibration.wavecal.Solution(str(self.cfg.paths.database) + "/" + sol_file[0])
+            r, resid = sol.find_resolving_powers()
+            r_list = np.nanmedian(r, axis=0)
+            delta_list = wavelengths / r_list
         for iwvl, wvl in enumerate(wavelengths):
-            time = int(self.exposure_times[iwvl] / self.intTime)
+            time = int((self.cfg.flatcal.chunk_time*self.cfg.flatcal.nchunks)/ self.intTime)
             obs = ObsFile(self.h5_file_names[iwvl])
             # mask out hot pixels before finding the mean
             if not obs.info['isBadPixMasked'] and not self.use_wavecal:
@@ -564,7 +574,13 @@ class LaserCalibrator(FlatCalibrator):
                 badpix.mask_hot_pixels(self.h5_file_names[iwvl])
             hot_mask = obs.flagMask(['pixcal.hot', 'pixcal.cold'])
             mask[:, :, iwvl] = hot_mask
-            counts = obs.getTemporalCube(timeslice=self.intTime)
+            if self.use_wavecal:
+                counts = obs.getTemporalCube(integrationTime=self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks,
+                                             timeslice=self.intTime, startw=wvl-(delta_list[iwvl]/2.),
+                                             stopw=wvl+(delta_list[iwvl]/2.))
+            else:
+                counts = obs.getTemporalCube(integrationTime=self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks,
+                                             timeslice=self.intTime)
             getLogger(__name__).info('Loaded {}nm spectral cube'.format(wvl))
             cps_cube = counts['cube']/self.intTime  # TODO move this division outside of the loop
             cps_cube = np.moveaxis(cps_cube, 2, 0)
@@ -584,7 +600,7 @@ class LaserCalibrator(FlatCalibrator):
 
         :return: expected dark counts for each pixel over a flat observation
         '''
-        if not self.dark_h5_file_names or self.use_wavecal:
+        if not self.dark_h5_file_names:
             dark_frame = np.zeros_like(self.spectralCubes[0][:,:,0])
         else:
             self.dark_start = [self.cfg.flatcal.dark_data['start_times']]
@@ -742,7 +758,8 @@ def fetch(solution_descriptors, config=None, ncpu=np.inf, remake=False):
             fcfg.unregister('h5file')
 
             if fcfg.flatcal.method == 'Laser':
-                fcfg.register('start_times', np.array([x.start for x in sd.wavecal.data]), update=True)
+                fcfg.register('start_times', np.array([x.start for x in sd.wavecal.data]),
+                              update=True)
                 fcfg.register('exposure_times', np.array([x.duration for x in sd.wavecal.data]), update=True)
                 fcfg.register('wavelengths', np.array([w for w in sd.wavecal.wavelengths]), update=True)
                 flattner = LaserCalibrator(config=fcfg, h5dir=cfg.paths.out, cal_file_name=sd.id)
