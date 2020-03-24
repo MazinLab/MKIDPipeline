@@ -96,7 +96,7 @@ def _stddev_bias_corr(n):
     return 1.0 / corr
 
 
-def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.0, max_iter=5, dead_threshold=0, #TODO make nsigma_hot and nsigma_cold user specified parameters in the config file
+def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.0, max_iter=10, dead_threshold=0, #TODO make nsigma_hot and nsigma_cold user specified parameters in the config file
                        use_local_stdev=False, bkgd_percentile=50.0, dead_mask=None, min_background_sigma=.01):
     """
     Robust!  NOTE:  This is a routine that was ported over from the ARCONS pipeline.
@@ -516,7 +516,7 @@ def hpm_cps_cut(image, sigma=5, max_cut=2450, cold_mask=False):
     return {'bad_mask': bad_mask, 'dead_mask': dead_mask, 'hot_mask': hot_mask, 'image': raw_image}
 
 
-def mask_hot_pixels(file, method='hpm_flux_threshold', step=20, startt=0, stopt=None, ncpu=1, **methodkw):
+def mask_hot_pixels(file, method='hpm_flux_threshold', step=30, startt=0, stopt=None, ncpu=1, **methodkw):
     """
     This routine is the main code entry point of the bad pixel masking code.
     Takes an obs. file as input and writes a 'bad pixel table' to that h5 file where each entry is an indicator of
@@ -542,15 +542,11 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=20, startt=0, stopt=
     Appropriate args and kwargs that go into the chosen hpcut function
 
     :return:
-    Writes a 'bad pixel table' to an output h5 file titled 'badpixmask_--timestamp--.h5' where:
-            0 = Good pixel
-            1 = Hot pixel
-            2 = Cold Pixel
-            3 = Dead Pixel
+    Applies relevant pixelflags - see pixelflags.py
     """
     obs = ObsFile(file)
     if obs.info['isBadPixMasked']:
-        getLogger(__name__).info(('{} is already bad pixel calibrated').format(obs.fileName))
+        getLogger(__name__).info('{} is already bad pixel calibrated'.format(obs.fileName))
         return
 
     if stopt is None:
@@ -575,10 +571,10 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=20, startt=0, stopt=
         getLogger(__name__).info('Processing time slice: {} - {} s'.format(each_time, each_time + step))
         raw_image_dict = obs.getPixelCountImage(firstSec=each_time, integrationTime=step,
                                                 applyWeight=True, applyTPFWeight=True,
-                                                scaleByEffInt=method == 'hpm_cps_cut',
+                                                scaleByEffInt=method == 'hpm_cps_cut', # TODO scaleByEffInt currently does nothing
                                                 exclude_flags=['beammap.noDacTone'])
         bad_pixel_solution = func(raw_image_dict['image'], **methodkw)
-        hot_masks[:, :, i] = bad_pixel_solution['hot_mask'] # TODO make this include hot and cold pixels
+        hot_masks[:, :, i] = bad_pixel_solution['hot_mask']
         cold_masks[:, :, i] = bad_pixel_solution['cold_mask']
     unstable_mask = np.zeros((obs.nXPix, obs.nYPix), dtype=bool)
     for x in range(obs.nXPix):
