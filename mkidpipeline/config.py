@@ -290,9 +290,9 @@ class MKIDWavedataDescription(object):
         backgrounds_list = np.zeros(len(self.wavelengths), dtype=[('wavelength', 'float'), ('background', '<U11'),
                                                                   ('start_time', 'int')])
         backgrounds_list['wavelength'] = self.wavelengths
-        if len(self.backgrounds) == 0:
+        if self.backgrounds == None:
             return backgrounds_list
-        backgrounds_list['background'] = [x.background if x.background else '' for x in self.data]
+        backgrounds_list['background'] = [x.background if x.background else 'None' for x in self.data]
         backgrounds_list['start_time'] = [x.start if x.name == y.background else 0 for y in self.data
                                           for x in self.backgrounds]
         return backgrounds_list
