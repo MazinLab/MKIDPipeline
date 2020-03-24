@@ -648,10 +648,6 @@ def logL_array(ts, Ic_list, Is_list, Ip_list, IcpIs_list = None, deadtime = 1.e-
 
     return cube
 
-
-
-
-
 def logLMap_binfree_sliceIs(t, x_list, Ir_list, IcPlusIs = False,Is_slice=.1, deadtime = 0):
     """
     makes a map of the bin-free log likelihood function over the range of Ic+Is, Ir
@@ -695,9 +691,6 @@ def logLMap_binfree_sliceIs(t, x_list, Ir_list, IcPlusIs = False,Is_slice=.1, de
     X, Y = np.meshgrid(x_list, Ir_list)
 
     return X,Y,im
-
-
-
 
 def get_binfree_seed(ts, deadtime, Ir_zero = False):
     """
@@ -876,11 +869,6 @@ def check_binfree_loglike_max(ts, p1, deadtime = 0):
         else:
             return False
 
-
-
-
-
-
 def blurredMR(n, Ic, Is):
     """
     Depricated.
@@ -961,7 +949,7 @@ def fitBlurredMR(bins, intensityHist, effExpTime, **kwargs):
     return Ic, Is, pcov
 
 
-def maxBinMRlogL(n, Ic_guess=1., Is_guess=1., method='Newton-CG'):  # Newton-CG
+def maxBinMRlogL(n, Ic_guess=1., Is_guess=1., method='Newton-CG', effExpTime=0.02):  # Newton-CG
     """
     Depricated.
 

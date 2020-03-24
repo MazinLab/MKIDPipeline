@@ -97,7 +97,8 @@ def plotROC(Ic, Is, Ir, Ttot, tau=0.1, deadtime=10):
     plt.show()
 
 
-def optimize_IcIsIr2(dt, guessParams=[-1,-1,-1], deadtime=1.e-5, method='Newton-CG', prior=[np.nan]*3, prior_sig=[np.nan]*3, **kwargs):
+def optimize_IcIsIr2(dt, guessParams=[-1,-1,-1], deadtime=1.e-5, method='Newton-CG', prior=[np.nan]*3, prior_sig=[np.nan]*3,
+                     forceIp2zero=False, **kwargs):
     """
     Uses scipy.optimize.minimize
     """
@@ -115,6 +116,7 @@ def optimize_IcIsIr2(dt, guessParams=[-1,-1,-1], deadtime=1.e-5, method='Newton-
     
     if np.any(prior==None): prior[prior==None]=np.nan
     guessParams[np.isfinite(prior)]=prior[np.isfinite(prior)]
+    if forceIp2zero: guessParams[-1] = 0
     if np.any(guessParams<0):
         I_avg=(len(dt))/np.sum(dt)
         I_guess = (I_avg-np.sum(guessParams[guessParams>=0])) /np.sum(guessParams<0)
@@ -124,10 +126,11 @@ def optimize_IcIsIr2(dt, guessParams=[-1,-1,-1], deadtime=1.e-5, method='Newton-
     score = lambda p: _posterior_jacobian(p, dt=dt, deadtime=deadtime, prior=prior, prior_sig=prior_sig)
     hess = lambda p: _posterior_hessian(p, dt=dt, deadtime=deadtime, prior=prior, prior_sig=prior_sig)
 
-    res = minimize(loglike, guessParams, method='trust-constr',bounds=[[0,np.inf]]*3,jac=score, hess=hess, **kwargs)
+    ip_bound = [0,0] if forceIp2zero else [0, np.inf]
+    res = minimize(loglike, guessParams, method='trust-constr',bounds=[[1.e-15,np.inf], [1.e-15, np.inf], ip_bound], jac=score, hess=hess, **kwargs)
     return res
 
-def optimize_IcIsIr(dt, guessParams=[-1,-1,-1], deadtime=1.e-5, method='ncg', prior=[np.nan]*3, prior_sig=[np.nan]*3, **kwargs):
+def optimize_IcIsIr(dt, guessParams=[-1,-1,-1], deadtime=1.e-5, method='nm', prior=[np.nan]*3, prior_sig=[np.nan]*3, **kwargs):
     """
     This function optimizes the loglikelihood for the bin-free SSD analysis.
     It returns the model fit for the most likely I1, I2, Ir.
@@ -149,24 +152,27 @@ def optimize_IcIsIr(dt, guessParams=[-1,-1,-1], deadtime=1.e-5, method='ncg', pr
         See www.statsmodels.org/stable/dev/generated/statsmodels.base.model.GenericLikelihoodModelResults.html
     """
 
-    if prior is None: prior=[np.nan]*3
-    prior=np.append(prior, [np.nan]*(3-len(prior)))
-    if prior_sig is None: prior_sig=[np.nan]*3
-    prior_sig=np.append(prior_sig, [np.nan]*(3-len(prior_sig)))
+    if prior is None:
+        prior = [np.nan]*3
+    prior = np.append(prior, [np.nan]*(3-len(prior)))
+    if prior_sig is None:
+        prior_sig = [np.nan]*3
+    prior_sig = np.append(prior_sig, [np.nan]*(3-len(prior_sig)))
 
     #Provide a reasonable guess everywhere that guessParams<0
     #If a prior is given then make that the guess
     #equally distributes the average flux amongst params<0
     #ie. guess=[-1, 30, -1] and I_avg=330 then guess-->[150,30,150]. 
-    guessParams=np.asarray(guessParams)
-    assert len(guessParams)==3, "Must provide a guess for I1, I2, Ir. Choose -1 for automatic guess."
+    guessParams = np.asarray(guessParams)
+    assert len(guessParams) == 3, "Must provide a guess for I1, I2, Ir. Choose -1 for automatic guess."
     
-    if np.any(prior==None): prior[prior==None]=np.nan
-    guessParams[np.isfinite(prior)]=prior[np.isfinite(prior)]
-    if np.any(guessParams<0):
-        I_avg=(len(dt))/np.sum(dt)
-        I_guess = (I_avg-np.sum(guessParams[guessParams>=0])) /np.sum(guessParams<0)
-        guessParams[guessParams<0]=max(I_guess,0)
+    if np.any(prior == None):
+        prior[prior == None] = np.nan
+    guessParams[np.isfinite(prior)] = prior[np.isfinite(prior)]
+    if np.any(guessParams < 0):
+        I_avg = (len(dt))/np.sum(dt)
+        I_guess = (I_avg-np.sum(guessParams[guessParams >= 0])) /np.sum(guessParams < 0)
+        guessParams[guessParams < 0] = max(I_guess, 0)
 
     #Define some functions
     loglike = partial(posterior, dt=dt, deadtime=deadtime, prior=prior, prior_sig=prior_sig)
@@ -174,15 +180,15 @@ def optimize_IcIsIr(dt, guessParams=[-1,-1,-1], deadtime=1.e-5, method='ncg', pr
     hess = partial(posterior_hessian, dt=dt, deadtime=deadtime, prior=prior, prior_sig=prior_sig)
 
     #Setup model
-    endog=np.asarray(dt, dtype=[('dt','float64')])
+    endog = np.asarray(dt, dtype=[('dt','float64')])
     names = np.asarray(['Ic','Is','Ir'])
-    exog=np.ones(len(endog),dtype={'names':names,'formats':['float64']*len(names)})
-    model = GenericLikelihoodModel(endog,exog=exog, loglike=loglike, score=score, hessian=hess)
+    exog=np.ones(len(endog), dtype={'names': names,'formats': ['float64']*len(names)})
+    model = GenericLikelihoodModel(endog, exog=exog, loglike=loglike, score=score, hessian=hess)
     try: kwargs['disp']
-    except KeyError: kwargs['disp']=False   #change default disp kwarg to false
+    except KeyError: kwargs['disp'] = False   #change default disp kwarg to false
 
     #fit model
-    return model.fit(guessParams,method=method,**kwargs)
+    return model.fit(guessParams, method=method, **kwargs)
     
 
 
@@ -201,10 +207,10 @@ def MRlogL(params, dt, deadtime=1.e-5):
     OUTPUTS:
         [float] the Log likelihood.
     """
-    Ic=params[0]
-    Is=params[1]
-    try: Ir=params[2]
-    except IndexError: Ir=0
+    Ic = params[0]
+    Is = params[1]
+    try: Ir = params[2]
+    except IndexError: Ir = 0
 
     # Stellar Intensity should be strictly positive, and each Ic, Is, Ir should be nonnegative.
     if Ic < 0 or Is <= 0 or Ir < 0:
@@ -645,12 +651,12 @@ def maxMRlogL(ts, Ic_guess=1., Is_guess=1., method='Powell'):
         
     """
     dt = ts[1:] - ts[:-1]
-    dt=dt[np.where(dt<1.e6)]/10.**6
-    nLogL = lambda p: -1.*MRlogL(dt, p[0], p[1])
-    nScore=lambda params: -1.*MRlogL_Jacobian(dt, params[0], params[1])
-    nHess=lambda params: -1.*MRlogL_Hessian(dt, params[0], params[1])
-    res = minimize(nLogL, [Ic_guess, Is_guess], method=method,jac=nScore, hess=nHess)
-    #res = minimize(nLogL, [Ic_guess, Is_guess], method=method)
+    dt = dt[np.where(dt < 1.e6)]/10.**6
+    nLogL = lambda p: -1.*MRlogL([p[0], p[1]], dt)
+    # nScore=lambda params: -1.*MRlogL_Jacobian(dt, params[0], params[1])
+    # nHess=lambda params: -1.*MRlogL_Hessian(dt, params[0], params[1])
+    # res = minimize(nLogL, [Ic_guess, Is_guess], method=method, jac=nScore, hess=nHess)
+    res = minimize(nLogL, [Ic_guess, Is_guess], method=method)
     return res
 
 def getPixelPhotonList(filename, xCoord, yCoord,**kwargs):
@@ -679,9 +685,9 @@ if __name__ == "__main__":
 
     
     print("Getting photon list: ")
-    Ic, Is, Ir, Ttot, tau, deadTime = [30., 300.,0., 30., .1, 10.]
+    Ic, Is, Ir, Ttot, tau, deadTime = [30., 300., 0., 30., .1, 10.]
     print("[Ic, Is, Ir, Ttot, tau, deadTime]: "+str([Ic, Is, Ir, Ttot, tau, deadTime]))
-    print("\t...",end="", flush=True)
+    print("\t...", end="", flush=True)
     ts = genphotonlist(Ic, Is, Ir, Ttot, tau, deadTime)
     print("Done.\n")
     
@@ -699,7 +705,7 @@ if __name__ == "__main__":
 
     print("=====================================")
     print("Optimizing with Scipy...")
-    res=maxMRlogL(ts)
+    res = maxMRlogL(ts)
     print(res.message)
     print("Number of Iterations: "+str(res.nit))
     print("Max LogLikelihood: "+str(-res.fun))         # We minimized negative log likelihood
@@ -707,7 +713,7 @@ if __name__ == "__main__":
     #raise IOError
     print("Estimating Cov Matrix...")
     dt = ts[1:] - ts[:-1]
-    dt=dt[np.where(dt<1.e6)]/10.**6
+    dt = dt[np.where(dt < 1.e6)]/10.**6
     Ic_mle, Is_mle = res.x
     print(np.sqrt(MRlogL_opgCov(dt, Ic_mle, Is_mle)))
     print(np.sqrt(MRlogL_hessianCov(dt, Ic_mle, Is_mle)))
@@ -717,7 +723,7 @@ if __name__ == "__main__":
 
     print("Optimizing with StatModels...")
     m = MR_SpeckleModel(ts, deadtime=deadTime, inttime=Ttot)
-    res=m.fit()
+    res = m.fit()
     print(res.summary())
     #print(res.params)
     #print(res.bse)
@@ -730,23 +736,23 @@ if __name__ == "__main__":
 
 
     I = 1./dt
-    plt.hist(I, 10000, range=(0,25000))
+    plt.hist(I, 10000, range=(0, 25000))
     #plt.show()
     u_I = np.average(I,weights=dt)
     #var_I = np.var(I)
-    var_I=np.average((I-u_I)**2., weights=dt)
+    var_I = np.average((I-u_I)**2., weights=dt)
     print(u_I)
     print(var_I)
     print(Is+Ic)
     print(Is**2.+2.*Ic*Is+Ic+Is)
-    Ic_stat= np.sqrt(u_I**2 - var_I + u_I)
+    Ic_stat = np.sqrt(u_I**2 - var_I + u_I)
     Is_stat = u_I - Ic_stat
     print('Stat Ic, Is: '+str(Ic_stat)+', '+str(Is_stat))
 
     print("Mapping...")
-    Ic_list=np.arange(0.,200.,1.)
-    Is_list=np.arange(100.,400.,1.)
-    plotLogLMap(ts, Ic_list, Is_list,deadtime=deadTime, inttime=Ttot)
+    Ic_list = np.arange(0., 200., 1.)
+    Is_list = np.arange(100., 400., 1.)
+    plotLogLMap(ts, Ic_list, Is_list, deadtime=deadTime, inttime=Ttot)
     plt.show()
 
 
