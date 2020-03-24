@@ -293,8 +293,6 @@ class Calibrator(object):
         h5 = os.path.join(self.cfg.h5_directory, str(t) + '.h5')
         return photontable.ObsFile(h5)
 
-
-
     def make_histograms(self, pixels=None, wavelengths=None, verbose=False):
         """
         Compute the phase pulse-height histograms for the data specified in the
@@ -2588,8 +2586,11 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
             wcfg.register('start_times', [x.start for x in sd.data], update=True)
             wcfg.register('exposure_times', [x.duration for x in sd.data], update=True)
             wcfg.register('wavelengths', [w for w in sd.wavelengths], update=True)
-            wcfg.register('background_start_times', [x.start for x in sd.backgrounds],
+            if sd.backgrounds is not None:
+                wcfg.register('background_start_times', [x.start for x in sd.backgrounds],
                           update=True)
+            else:
+                wcfg.register('background_start_times', [], update=True)
             wcfg.register('backgrounds', sd.backgrounds)
             wcfg.register('backgrounds_list', sd.backgrounds_list)
             if ncpu is not None:
