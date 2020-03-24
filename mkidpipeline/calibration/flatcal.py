@@ -218,7 +218,7 @@ class FlatCalibrator(object):
             for iWvl in range(self.wavelengths.size):
                 wvlAverages[iWvl] = np.nanmean(cube[:, :, iWvl])
             weights = wvlAverages/cube
-            weights[(weights == 0) | (weights == np.inf)] = np.nan
+            weights[(weights == 0) | (weights == np.inf) | (weights < 0.01) | (weights > 10)] = np.nan
             cubeWeights[iCube, :, :, :] = weights
 
             # To get uncertainty in weight:
@@ -247,10 +247,10 @@ class FlatCalibrator(object):
                 sortedIndices, identityIndices[1], identityIndices[2], identityIndices[3]]
             weightErr = self.weightErr[
                 sortedIndices, identityIndices[1], identityIndices[2], identityIndices[3]]
-            sl = slice(self.fractionOfChunksToTrim * nCubes, (1 - self.fractionOfChunksToTrim) * nCubes)
-            trimmedWeights = sortedWeights[sl, :, :, :]
-            trimmedCountCubes = countCubes[sl, :, :, :]
-            trimmedWeightErr = weightErr[sl, :, :, :]
+            sl = self.fractionOfChunksToTrim
+            trimmedWeights = sortedWeights[sl:-sl, :, :, :]
+            trimmedCountCubes = countCubes[sl:-sl, :, :, :]
+            trimmedWeightErr = weightErr[sl:-sl, :, :, :]
             self.totalCube = np.ma.sum(trimmedCountCubes, axis=0)
             self.totalFrame = np.ma.sum(self.totalCube, axis=-1)
             self.flatWeights, summedAveragingWeights = np.ma.average(trimmedWeights, axis=0,
@@ -267,16 +267,11 @@ class FlatCalibrator(object):
 
         # Uncertainty in weighted average is sqrt(1/sum(averagingWeights)), normalize weights at each wavelength bin
         self.flatWeightErr = np.sqrt(summedAveragingWeights ** -1.)
-        self.flatFlags = self.flatWeights.mask  # TODO for some reason this whole block isnt in the form you think it is, fix
+        self.flatFlags = self.flatWeights.mask
         wvlWeightMean = np.ma.mean(np.reshape(self.flatWeights, (-1, self.wavelengths.size)), axis=0)
-        self.flatWeights = np.divide(self.flatWeights, wvlWeightMean)
+        self.flatWeights = np.divide(self.flatWeights.data, wvlWeightMean)
         self.flatWeightsforplot = np.ma.sum(self.flatWeights, axis=-1)
 
-    def checkForColdPix(self):
-        for iWvl in range(self.wavelengths.size):
-            weight_slice = self.flatWeights.data[:, :, iWvl]
-            # err_slice=self.flatWeightErr.data[:,:,iWvl]
-            self.flatFlags[:, :, iWvl][weight_slice >= 2] = True
 
     def plotFitbyPixel(self, pixbox=50, poly_power=2):
         """
@@ -500,7 +495,7 @@ class LaserCalibrator(FlatCalibrator):
         self.flatCalFileName = self.cfg.get('flatname', os.path.join(self.cfg.paths.database,
                                                                      cal_file_name))
         self.beamImage = self.cfg.beammap
-        self.wvlFlags = pixelflags.beammap_flagmap_to_h5_flagmap(self.beamImage.flagmap)  # TODO make sure this is the right way to format this
+        self.wvlFlags = pixelflags.beammap_flagmap_to_h5_flagmap(self.beamImage.flagmap)
         self.xpix = self.cfg.beammap.ncols
         self.ypix = self.cfg.beammap.nrows
         self.wavelengths = np.array(self.cfg.wavelengths, dtype=float)
@@ -532,9 +527,6 @@ class LaserCalibrator(FlatCalibrator):
                 dark_subtracted_cube[:, :, iwvl] = np.subtract(cube[:, :, iwvl], dark_frame)
             # mask out hot and cold pixels
             masked_cube = np.ma.masked_array(dark_subtracted_cube, mask=mask).data
-            # set any dead pixels or pixels who received less than the dark frame to nans -
-            # won't be included in weight calculation
-            masked_cube[masked_cube <= 0] = np.nan
             self.spectralCubes[icube] = masked_cube
         self.spectralCubes = np.array(self.spectralCubes)
         self.cubeEffIntTimes = np.array(self.cubeEffIntTimes)
@@ -560,7 +552,7 @@ class LaserCalibrator(FlatCalibrator):
         int_times = np.zeros([self.xpix, self.ypix, nWavs])
         if self.use_wavecal:
             getLogger(__name__).info('Loading in wavecal solution to get median energy resolution R')
-            sol_file = [f for f in os.listdir(self.cfg.paths.database) if f.endswith('.npz')]
+            sol_file = [f for f in os.listdir(self.cfg.paths.database) if f.endswith('.npz')] #TODO have a better way to pull out the wavecal solution file
             sol = mkidpipeline.calibration.wavecal.Solution(str(self.cfg.paths.database) + "/" + sol_file[0])
             r, resid = sol.find_resolving_powers()
             r_list = np.nanmedian(r, axis=0)
@@ -572,8 +564,8 @@ class LaserCalibrator(FlatCalibrator):
             if not obs.info['isBadPixMasked'] and not self.use_wavecal:
                 getLogger(__name__).info('Hot pixel masking laser h5 file for flatcal')
                 badpix.mask_hot_pixels(self.h5_file_names[iwvl])
-            hot_mask = obs.flagMask(['pixcal.hot', 'pixcal.cold'])
-            mask[:, :, iwvl] = hot_mask
+            bad_mask = obs.flagMask(pixelflags.PROBLEM_FLAGS)
+            mask[:, :, iwvl] = bad_mask
             if self.use_wavecal:
                 counts = obs.getTemporalCube(integrationTime=self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks,
                                              timeslice=self.intTime, startw=wvl-(delta_list[iwvl]/2.),

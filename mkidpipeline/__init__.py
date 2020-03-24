@@ -38,7 +38,7 @@ def flatcal_apply(o):
     try:
         of = mkidpipeline.hdf.photontable.ObsFile(o.h5, mode='a')
         cfg = mkidpipeline.config.config
-        of.applyFlatCal(o.flatcal.path, use_wavecal=cfg.flatcal.use_wavecal)
+        of.applyFlatCal(o.flatcal.path, use_wavecal=cfg.flatcal.use_wavecal, startw=850, stopw=1375)
         of.file.close()
     except Exception as e:
         getLogger(__name__).critical('Caught exception during run of {}'.format(o.h5), exc_info=True)
