@@ -67,7 +67,7 @@ import mkidpipeline.config as config
 from mkidcore.instruments import compute_wcs_ref_pixel
 
 import SharedArray
-
+from mkidpipeline.calibration import linearitycal
 import tables
 import tables.parameters
 import tables.file
@@ -1804,6 +1804,18 @@ class ObsFile(object):
         self.modifyHeaderEntry(headerTitle='isFlatCalibrated', headerValue=True)
         self.modifyHeaderEntry(headerTitle='fltCalFile', headerValue=calsolFile.encode())
         getLogger(__name__).info('Flatcal applied in {:.2f}s'.format(time.time()-tic))
+
+
+    def applyLinearitycal(self, dt=0, tau=0):
+        if self.info['isLinearityCorrected']:
+            getLogger(__name__).info("H5 {} is already linearity calibrated".format(self.fullFileName))
+            return
+        for (row, column), resID in np.ndenumerate(self.beamImage):
+            photon_list = self.getPixelPhotonList(xCoord=row, yCoord=column)
+            time_stamps = photon_list['Times']
+            weights = linearitycal.calculateWeights(time_stamps, dt, tau, pixel=(row, column))
+            self.applySpecWeight(resID, weights)
+        self.modifyHeaderEntry(headerTitle='isLinearityCorrected', headerValue=True)
 
 
     def modifyHeaderEntry(self, headerTitle, headerValue):

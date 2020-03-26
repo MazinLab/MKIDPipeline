@@ -9,6 +9,7 @@ if sys.version_info.major == 3:
     import mkidpipeline.imaging.movies as movies
     import mkidpipeline.badpix as badpix
     import mkidpipeline.config as config
+    import mkidpipeline.calibration.linearitycal as linearitycal
     import mkidpipeline.hdf.photontable
     from mkidpipeline.hdf.photontable import ObsFile
 
@@ -39,6 +40,16 @@ def flatcal_apply(o):
         of = mkidpipeline.hdf.photontable.ObsFile(o.h5, mode='a')
         cfg = mkidpipeline.config.config
         of.applyFlatCal(o.flatcal.path, use_wavecal=cfg.flatcal.use_wavecal, startw=850, stopw=1375)
+        of.file.close()
+    except Exception as e:
+        getLogger(__name__).critical('Caught exception during run of {}'.format(o.h5), exc_info=True)
+
+
+def linearitycal_apply(o):
+    try:
+        of = mkidpipeline.hdf.photontable.ObsFile(o.h5, mode='a')
+        cfg = mkidpipeline.config.config
+        of.applyLinearitycal(dt=cfg.linearity.dt, tau=cfg.instrument.deadtime)
         of.file.close()
     except Exception as e:
         getLogger(__name__).critical('Caught exception during run of {}'.format(o.h5), exc_info=True)
@@ -76,3 +87,8 @@ def batch_maskhot(obs, ncpu=None):
     pool.map(badpix.mask_hot_pixels, set([o.h5 for o in obs]))
     pool.close()
 
+
+def batch_apply_linearitycal(obs, ncpu=None):
+    pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
+    pool.map(linearitycal_apply, set([o.h5 for o in obs]))
+    pool.close()
