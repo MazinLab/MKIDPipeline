@@ -19,11 +19,11 @@ def calculateWeights(time_stamps, dt=float(), tau=float(), pixel=tuple()):
     :return: numpy ndarray of the linearity weights for each photon
     '''
     weights = np.zeros(len(time_stamps))
-    for i, t in enumerate(photon_list['Time']):
+    for i, t in enumerate(time_stamps):
         min_t = t - dt
         max_t = t + dt
         int_t = 2 * dt
-        num_phots = np.sum(time_stamps[min_t < time_stamps < max_t])
+        num_phots = np.sum(time_stamps[(min_t < time_stamps) & (time_stamps < max_t)])
         weights[i] = (1 - num_phots * (tau/int_t))**(-1.0)
     return weights
 

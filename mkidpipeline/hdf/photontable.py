@@ -57,7 +57,7 @@ import matplotlib.pyplot as plt
 
 from matplotlib.backends.backend_pdf import PdfPages
 from regions import CirclePixelRegion, PixCoord
-
+from progressbar import *
 from mkidcore.headers import PhotonCType, PhotonNumpyType, METADATA_BLOCK_BYTES
 from mkidcore.corelog import getLogger
 import mkidcore.pixelflags as pixelflags
@@ -1807,14 +1807,23 @@ class ObsFile(object):
 
 
     def applyLinearitycal(self, dt=0, tau=0):
+        tic = time.time()
         if self.info['isLinearityCorrected']:
             getLogger(__name__).info("H5 {} is already linearity calibrated".format(self.fullFileName))
             return
+        bar = ProgressBar(maxval=20439).start()
+        bari = 0
         for (row, column), resID in np.ndenumerate(self.beamImage):
+            if self.flagMask(pixelflags.PROBLEM_FLAGS, (row, column)) and any(pixelflags.PROBLEM_FLAGS):
+                continue
             photon_list = self.getPixelPhotonList(xCoord=row, yCoord=column)
-            time_stamps = photon_list['Times']
+            time_stamps = photon_list['Time']
             weights = linearitycal.calculateWeights(time_stamps, dt, tau, pixel=(row, column))
             self.applySpecWeight(resID, weights)
+            bari += 1
+            bar.update(bari)
+        bar.finish()
+        getLogger(__name__).info('Linearitycal applied to {} in {:.2f}s'.format(self.fileName, time.time() - tic))
         self.modifyHeaderEntry(headerTitle='isLinearityCorrected', headerValue=True)
 
 

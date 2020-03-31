@@ -47,7 +47,7 @@ def flatcal_apply(o):
 
 def linearitycal_apply(o):
     try:
-        of = mkidpipeline.hdf.photontable.ObsFile(o.h5, mode='a')
+        of = mkidpipeline.hdf.photontable.ObsFile(o, mode='a')
         cfg = mkidpipeline.config.config
         of.applyLinearitycal(dt=cfg.linearity.dt, tau=cfg.instrument.deadtime)
         of.file.close()
