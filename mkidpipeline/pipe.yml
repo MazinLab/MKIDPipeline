@@ -19,6 +19,9 @@ paths: !configdict
 ncpu: 7
 include_baseline: False # whether to include the baseline in h5 creation
 
+linearity: !configdict
+  dt: 500000 #time window around which to calculate the linearity weight (microsesonds)
+
 wavecal: !configdict
   plots: summary
   fit: !configdict
