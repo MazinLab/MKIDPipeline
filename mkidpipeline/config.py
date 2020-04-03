@@ -95,6 +95,17 @@ def wavecal_id(wavedata_id, wavecal_cfg=None):
     return 'wavcal_{}_{}'.format(wavedata_id, config_hash[-8:])
 
 
+def spectralcal_id(spectraldata_id, spectralcal_cfg=None):
+    """
+    Compute a spectralcal id string from a spectraldata id string and either the active or a specified spectralcal config
+    """
+    if spectralcal_cfg is None:
+        global config
+        spectralcal_cfg = config.spectralcal
+    config_hash = hashlib.md5(str(spectralcal_cfg).encode()).hexdigest()
+    return 'spectralcal_{}_{}'.format(spectraldata_id, config_hash[-8:])
+
+
 class MKIDTimerange(object):
     yaml_tag = u'!ob'
 
@@ -355,6 +366,34 @@ class MKIDFlatdataDescription(object):
         return cls(name, ob=ob, wavecal=wavecal, _common=d)
 
 
+class MKIDSpectraldataDescription(object):
+    '''
+    requires name, data, and reference keys
+    '''
+    yaml_tag = u'!sc'
+
+    def __init__(self, name, data, reference, _common=None):
+        if _common is not None:
+            self.__dict__.update(_common)
+
+        self.name = name
+        self.data = data
+        self.reference = reference
+
+    @property
+    def id(self):
+        meanstart = int(np.mean([x[0] for x in self.timeranges]))
+        hash = hashlib.md5(str(self).encode()).hexdigest()
+        return datetime.utcfromtimestamp(meanstart).strftime('%Y-%m-%d-%H%M_') + hash[-8:]
+
+    @property
+    def path(self):
+        return os.path.join(config.paths.database, spectralcal_id(self.id) + '.npz')
+
+    def __str__(self):
+        return '{}'.format(self.name)
+
+
 class MKIDWCSCalDescription(object):
     """
     The MKIDWCSCalDescription defines the coordinate relation between
@@ -563,6 +602,10 @@ class MKIDObservingDataset(object):
         return [r for r in self.meta if isinstance(r, MKIDDitheredObservation)]
 
     @property
+    def spectralcals(self):
+        return [r for r in self.meta if isinstance(r, MKIDSpectraldataDescription)]
+
+    @property
     def sobs(self):
         return [r for r in self.meta if isinstance(r, MKIDObservation)]
 
@@ -571,7 +614,7 @@ class MKIDObservingDataset(object):
         return ([o for o in self.meta if isinstance(o, MKIDObservation)] +
                 [o for d in self.meta if isinstance(d, MKIDDitheredObservation) for o in d.obs] +
                 [d.ob for d in self.meta if isinstance(d, MKIDFlatdataDescription) and d.ob is not None] +
-                [d.ob for d in self.meta if isinstance(d, MKIDWCSCalDescription) and d.ob is not None])
+                [d.ob for d in self.meta if isinstance(d, MKIDWCSCalDescription) and d.ob is not None]) #TODO figure out how to automatically wavecal the laser exposures
 
     @property
     def science_observations(self):
@@ -624,7 +667,7 @@ class MKIDOutput(object):
         self.startw = getnm(startw) if startw is not None else None
         self.stopw = getnm(stopw) if stopw is not None else None
         self.kind = kind.lower()
-        opt = ('stack', 'spatial', 'spectral', 'temporal', 'list', 'image','movie')
+        opt = ('stack', 'spatial', 'spectral', 'temporal', 'list', 'image', 'movie')
         if kind.lower() not in opt:
             raise ValueError('Output {} kind "{}" is not one of "{}" '.format(name, kind, ', '.join(opt)))
         self.enable_noise = True
@@ -644,7 +687,7 @@ class MKIDOutput(object):
 
     @property
     def wants_drizzled(self):
-        return self.kind in ('stack','spatial','spectral','temporal','list')
+        return self.kind in ('stack', 'spatial', 'spectral', 'temporal', 'list')
 
     @property
     def wants_movie(self):
@@ -863,6 +906,7 @@ yaml.register_class(MKIDTimerange)
 yaml.register_class(MKIDObservation)
 yaml.register_class(MKIDWavedataDescription)
 yaml.register_class(MKIDFlatdataDescription)
+yaml.register_class(MKIDSpectraldataDescription)
 yaml.register_class(MKIDWCSCalDescription)
 yaml.register_class(MKIDDitheredObservation)
 yaml.register_class(MKIDOutput)

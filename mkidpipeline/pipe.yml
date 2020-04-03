@@ -42,6 +42,14 @@ wavecal: !configdict
     parallel: True
     parallel_prefetch: False
 
+spectralcal: !configdict
+  start:
+  duration:
+  photometry_type: "aperture"
+  object_name:
+  plots:
+  save_plots:
+
 flatcal: !configdict
   #This section provides the parameters specific to the flat calibration function
   method: 'Laser' #either 'White' for a white light calibration or 'Laser' for a laser calibration
