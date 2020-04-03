@@ -97,6 +97,12 @@
     ND: 1
     lamp: 40
 
+- !sc #the data taken of the spectrophotometric standard
+  data:
+    - !ob
+      start:
+      duration:
+
 - !dither
   name: HIP 10680
   file: HD10680_1545544478_dither.log

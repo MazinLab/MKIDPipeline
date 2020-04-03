@@ -5,6 +5,7 @@ if sys.version_info.major == 3:
     import mkidpipeline.hdf.bin2hdf as bin2hdf
     import mkidpipeline.calibration.wavecal as wavecal
     import mkidpipeline.calibration.flatcal as flatcal
+    import mkidpipeline.calibration.spectralcal as spectralcal
     import mkidpipeline.imaging.drizzler as drizzler
     import mkidpipeline.imaging.movies as movies
     import mkidpipeline.badpix as badpix
@@ -50,6 +51,18 @@ def linearitycal_apply(o):
         of = mkidpipeline.hdf.photontable.ObsFile(o, mode='a')
         cfg = mkidpipeline.config.config
         of.applyLinearitycal(dt=cfg.linearity.dt, tau=cfg.instrument.deadtime)
+        of.file.close()
+    except Exception as e:
+        getLogger(__name__).critical('Caught exception during run of {}'.format(o.h5), exc_info=True)
+
+
+def specralcal_apply(o):
+    if o.spectralcal is None:
+        getLogger(__name__).info('No spectralcal to apply for {}'.format(o.h5))
+        return
+    try:
+        of = mkidpipeline.hdf.photontable.ObsFile(o.h5, mode='a')
+        of.applySpectralCal(spectralcal.load_solution(o.spectralcal.path))
         of.file.close()
     except Exception as e:
         getLogger(__name__).critical('Caught exception during run of {}'.format(o.h5), exc_info=True)
