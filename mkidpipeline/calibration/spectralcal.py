@@ -11,6 +11,7 @@ This curve is then written out to the obs file as spectral weights
 
 Flags are associated with each pixel - see mkidcore/pixelFlags.py for descriptions.
 
+Assumes h5 files are wavelength calibrated, flatcalibrated and linearity corrected (deadtime corrected)
 """
 
 import sys,os
@@ -31,10 +32,10 @@ class Configuration(object):
     """Configuration class for the spectrophotometric calibration analysis."""
     yaml_tag = u'!spectralcalconfig'
 
-    def __init__(self, configfile=None, start_time=tuple(), intTime=tuple(), beammap=None,
-                 h5dir='', outdir='', bindir='', savedir='', h5_file_name='', object_name='', photometry='',
-                 energy_bin_width=tuple(), wvlStart=tuple(), wvlStop=tuple(), energy_start=tuple(), energy_stop=tuple(),
-                 nWvlBins=tuple(), dead_time=tuple(), plots=True):
+    def __init__(self, configfile=None, start_time=tuple(), intTime=30, beammap=None,
+                 h5dir='', outdir='', bindir='', savedir='', h5_file_names='', sky_file_names='', object_name='',
+                 photometry='', method='', energy_bin_width=0.01, wvlStart=850, wvlStop=1375, energy_start=1.46,
+                 energy_stop=0.9, nWvlBins=50, dead_time=0.000001, collecting_area=0, plots=True):
 
         # parse arguments
         self.configuration_path = configfile
@@ -44,7 +45,8 @@ class Configuration(object):
         self.save_directory = savedir
         self.object_name = object_name
         self.start_time = list(map(int, start_time))
-        self.h5_file_name = list(map(str, h5_file_name))
+        self.h5_file_names = list(map(str, h5_file_names))
+        self.sky_file_names = list(map(str, sky_file_names))
         self.dead_time = float(dead_time)
         self.intTime = float(intTime)
         self.h5_directory = h5dir
@@ -55,16 +57,14 @@ class Configuration(object):
         self.energyStop = float(energy_stop)
         self.nWvlBins = float(nWvlBins)
         self.obs = None
-        self.flux_spectrum = None
-        self.sky_spectrum = None
+        self.sky_obs=None
         self.photometry = str(photometry)
-        self.std_wvls = np.array()
-        self.std_flux = np.array()
-        self.flux_spectrum = np.array()
-        self.sky_spectrum = np.array()
+        self.std_wvls = None
+        self.std_flux = None
         self.binned_std_spectrum = np.array()
         self.wvl_bin_edges = np.array()
         self.plots = bool(plots)
+        self.collecting_area = float(collecting_area)
         if self.configuration_path is not None:
             # load in the configuration file
             cfg = mkidcore.config.load(self.configuration_path)
@@ -72,7 +72,7 @@ class Configuration(object):
             self.beammap = cfg.beammap
             self.xpix = self.beammap.ncols
             self.ypix = self.beammap.nrows
-            self.beam_map_path = cfg.beammap.file
+            self.beam_map_path = self.beammap.file
             self.wvlStart = cfg.instrument.wvl_start * 10.0 # in angstroms
             self.wvlStop = cfg.instrument.wvl_stop * 10.0 # in angstroms
             self.energyStart = (c.h * c.c) / (self.wvlStart * 10**(-10) * c.e)
@@ -81,19 +81,22 @@ class Configuration(object):
             self.h5_directory = cfg.paths.out
             self.out_directory = cfg.paths.database
             self.bin_directory = cfg.paths.data
-            self.save_directory = self.cfg.paths.database
+            self.save_directory = cfg.paths.database
             self.start_time = list(map(int, cfg.spectralcal.start))
             self.dead_time = cfg.instrument.deadtime
             self.object_name = cfg.spectralcal.object_name
             self.energyBinWidth = cfg.instrument.energy_bin_width
             self.h5_directory = cfg.paths.out
             self.photometry = cfg.spectralcal.photometry_type
+            self.collecting_area = cfg.spectralcal.collecting_area
             self.plots = cfg.spectralcal.plots
             self.intTime = cfg.spectralcal.duration if cfg.spectralcal.duration else (cfg.spectralcal.start - cfg.spectralcal.stop)
             try:
-                self.h5_file_name = [os.path.join(self.h5_directory, cfg.h5_file_name)]
+                self.h5_file_names = [os.path.join(self.h5_directory, cfg.h5_file_names)]
+                self.sky_file_names = [os.path.join(self.h5_directory, cfg.sky_file_names)]
             except KeyError:
-                self.h5_file_name = [os.path.join(self.h5_directory, str(cfg.h5_file_name) + '.h5')]
+                self.h5_file_names = [os.path.join(self.h5_directory, str(cfg.h5_file_names) + '.h5')]
+                self.sky_file_names = [os.path.join(self.h5_directory, str(cfg.sky_file_names) + '.h5')]
             try:
                 self.templar_configuration_path = cfg.templar.file
             except KeyError:
@@ -142,14 +145,20 @@ class SpectralCalibrator(object):
         self.cfg = Configuration(configuration) if not isinstance(configuration, Configuration) else configuration
         self.solution_name = solution_name
         self.solution = SpectralSolution(configuration=self.cfg, fit_array=fit_array, beam_map=self.cfg.beammap.residmap,
-                                 beam_map_flags=self.cfg.beammap.flagmap, solution_name=self.solution_name)
-        getLogger(__name__).info("Computing Factors for FlatCal")
+                                         beam_map_flags=self.cfg.beammap.flagmap, solution_name=self.solution_name)
+        self.flux_spectrum = np.zeros((self.cfg.xpix, self.cfg.ypix))
+        self.flux_spectra = np.zeros((self.cfg.xpix, self.cfg.ypix))
+        self.flux_effTime = np.zeros((self.cfg.xpix, self.cfg.ypix))
+        self.wvl_bin_edges = None
+        self.sky_spectra = np.zeros((self.cfg.xpix, self.cfg.ypix))
+        self.sky_spectrum = np.zeros((self.cfg.xpix, self.cfg.ypix))
+        self.sky_effTime = np.zeros((self.cfg.xpix, self.cfg.ypix))
 
     def run(self, verbose=False, parallel=None, save=True, plot=None):
         """
         Compute the spectrophotometric calibration for the data specified in the configuration
-        object. This method runs load_MEC_spectrum(), load_standard_spectrum(), and
-        calculate_specweightd() sequentially.
+        object. This method runs load_relative_spectrum() and load_sky_spectrum() or load_absolute_sepctrum(),
+        load_standard_spectrum(), and calculate_specweights() sequentially.
 
         Args:
             verbose: a boolean specifying whether to print a progress bar to the stdout.
@@ -159,9 +168,17 @@ class SpectralCalibrator(object):
             plot: a boolean specifying if a summary plot for the computation will be
                   saved.
         """
+        getLogger(__name__).info("Loading Spectrum from MEC")
         try:
-            getLogger(__name__).info("Loading Spectrum from MEC")
-            self._run("load_MEC_spectrum", parallel=parallel, verbose=verbose)
+            if self.photometry == 'relative':
+                getLogger(__name__).info('Performing relative photometry')
+                self._run("load_relative_spectrum", parallel=parallel, verbose=verbose)
+                getLogger(__name__).info('Flux spectrum loaded')
+                self._run("load_sky_spectrum", parallel=parallel, verbose=verbose)
+                getLogger(__name__).info('Sky spectrum loaded ')
+            elif self.photometry == 'PSF' or self.photometry == 'aperture':
+                getLogger(__name__).info('Extracting point source spectrum ')
+                self._run("load_absolute_spectrum", parallel=parallel, verbose=verbose)
             if self._shared_tables is not None:
                 del self._shared_tables
                 self._shared_tables = None
@@ -170,7 +187,7 @@ class SpectralCalibrator(object):
             getLogger(__name__).info("Calculating Spectrophotometric Weights")
             self._run("calculate_specweights", parallel=parallel, verbose=verbose)
             if save:
-                self.solution.save(save_name=save if isinstance(save, str) else None)
+                self.solution.save(save_name=self.solution_name if isinstance(self.solution_name, str) else None)
             if plot or (plot is None and self.cfg.summary_plot):
                 save_name = self.solution_name.rpartition(".")[0] + ".pdf"
                 self.solution.plot_summary(save_name=save_name)
@@ -181,11 +198,12 @@ class SpectralCalibrator(object):
         getattr(self, method)(pixels=pixels, wavelengths=wavelengths, verbose=verbose)
 
 
-    def load_MEC_spectrum(self):
+    def load_absolute_spectrum(self):
         '''
          Extract the MEC measured spectrum of the spectrophotometric standard by breaking data into spectral cube
          and performing photometry (aperture or psf) on each spectral frame
          '''
+        getLogger(__name__).info('performing {} photometry on MEC spectrum').format(self.cfg.photometry)
         cube_dict = self.cfg.obs.getSpectralCube(firstSec=self.cfg.start_time, integrationTime=self.cfg.intTime,
                                                  applyWeight=True)
         cube = np.array(cube_dict['cube'], dtype=np.double)
@@ -196,58 +214,52 @@ class SpectralCalibrator(object):
         # put cube into counts/s in each pixel
         cube /= effIntTime
         light_curve = lightcurve.lightcurve() #TODO figure out what this is supposed to do
-
         self.flux_spectrum = np.empty(self.cfg.nWvlBins, dtype=float)
         self.sky_spectrum = np.zeros(self.cfg.nWvlBins, dtype=float)
-
-        for i in np.arange(self.nWvlBins):
+        for i in np.arange(self.cfg.nWvlBins):
             frame = cube[:, :, i]
-            if self.photometry == 'aperture':
-                flux_dict = light_curve.perform_photometry(self.photometry, frame, [[self.centroid_col, self.centroid_row]],
+            if self.cfg.photometry == 'aperture':
+                flux_dict = light_curve.perform_photometry(self.cfg.photometry, frame, [[self.centroid_col, self.centroid_row]],
                                              expTime=None, aper_radius=self.aperture, annulus_inner=self.annulus_inner,
                                              annulus_outer=self.annulus_outer, interpolation="linear")
                 self.flux_spectrum[i] = flux_dict['flux']
                 self.sky_spectrum[i] = flux_dict['sky_flux']
             else:
-                flux_dict = light_curve.perform_photometry(self.photometry, frame, [[self.centroid_col, self.centroid_row]],
+                # default or if 'PSF' is specified
+                flux_dict = light_curve.perform_photometry(self.cfg.photometry, frame, [[self.centroid_col, self.centroid_row]],
                                              expTime=None, aper_radius=self.aperture)
                 self.flux_spectrum[i] = flux_dict['flux']
-
-        self.flux_spectrum = self.flux_spectrum / self.bin_widths / self.collecting_area  # spectrum now in counts/s/Angs/cm^2
-        self.sky_spectrum = self.sky_spectrum / self.bin_widths / self.collecting_area
-
+        self.flux_spectrum = self.flux_spectrum / self.cfg.energyBinWidth / self.cfg.collecting_area  # spectrum now in counts/s/Angs/cm^2
+        self.sky_spectrum = self.sky_spectrum / self.cfg.energyBinWidth / self.cfg.collecting_area
         return self.flux_spectrum, self.sky_spectrum
 
-    def load_relativespectrum(self):
-        self.flux_spectra = [[[] for i in np.arange(self.nCol)] for j in np.arange(self.nRow)]
-        self.flux_effTime = [[[] for i in np.arange(self.nCol)] for j in np.arange(self.nRow)]
-        for iRow in np.arange(self.nRow):
-            for iCol in np.arange(self.nCol):
-                count = self.flux_file.getPixelCount(iRow, iCol)
-                flux_dict = self.flux_file.getPixelSpectrum(iRow, iCol, weighted=True, firstSec=0, integrationTime=-1)
-                self.flux_spectra[iRow][iCol], self.flux_effTime[iRow][iCol] = flux_dict['spectrum'], flux_dict['effIntTime']
-        self.flux_spectra = np.array(self.flux_spectra)
-        self.flux_effTime = np.array(self.flux_effTime)
-        deadtime_corr = self.get_deadtimecorrection(self.flux_file)
-        self.flux_spectra = self.flux_spectra / self.bin_widths / self.flux_effTime * deadtime_corr
+    def load_relative_spectrum(self):
+        '''
+        loads the relative spectrum
+        :return:
+        '''
+        for (x, y), res_id in np.ndenumerate(self.cfg.obs.beamImage):
+            flux_dict = self.cfg.obs.getPixelSpectrum(x, y, energyBinWidth=self.cfg.energyBinWidth,
+                                                      applyWeight=True, firstSec=0, integrationTime=-1)
+            self.flux_spectra[x, y], self.flux_effTime[x, y] = flux_dict['spectrum'], flux_dict['effIntTime']
+        self.flux_spectra = self.flux_spectra / self.cfg.energyBinWidth / self.flux_effTime
         self.flux_spectrum = self.calculate_median(self.flux_spectra)  # find median of subtracted spectra across whole array
         return self.flux_spectrum
 
-    def load_skyspectrum(self):
-        self.sky_spectra = [[[] for i in np.arange(self.nCol)] for j in np.arange(self.nRow)]
-        self.sky_effTime = [[[] for i in np.arange(self.nCol)] for j in np.arange(self.nRow)]
-        for iRow in np.arange(self.nRow):
-            for iCol in np.arange(self.nCol):
-                count = self.sky_file.getPixelCount(iRow, iCol)
-                sky_dict = self.sky_file.getPixelSpectrum(iRow, iCol, weighted=True, firstSec=0, integrationTime=-1)
-                self.sky_spectra[iRow][iCol], self.sky_effTime[iRow][iCol] = sky_dict['spectrum'], sky_dict['effIntTime']
-        self.sky_spectra = np.array(self.sky_spectra)
-        self.sky_effTime = np.array(self.sky_effTime)
-        deadtime_corr = self.get_deadtimecorrection(self.sky_file)
-        self.sky_spectra = self.sky_spectra / self.binWidths / self.sky_effTime * deadtime_corr
+    def load_sky_spectrum(self):
+        '''
+        loads the sky spectrum
+        :return:
+        '''
+        for (x, y), res_id in np.ndenumerate(self.cfg.sky_obs.beamImage):
+            flux_dict = self.cfg.sky_obs.getPixelSpectrum(x, y, energyBinWidth=self.cfg.energyBinWidth,
+                                                          applyWeight=True, firstSec=0, integrationTime=-1)
+            self.sky_spectra[x, y], self.sky_effTime[x, y] = flux_dict['spectrum'], flux_dict['effIntTime']
+        self.sky_spectra = self.sky_spectra / self.cfg.energyBinWidth / self.sky_effTime
         self.sky_spectrum = self.calculate_median(self.sky_spectra)  # find median of subtracted spectra across whole array
         return self.sky_spectrum
 
+    # TODO allow a model standard spectra to be uploaded
     def load_standard_spectrum(self):
         standard = mkidstandards.MKIDStandards()
         std_data = standard.load(self.cfg.object_name)
@@ -310,13 +322,10 @@ class SpectralCalibrator(object):
         For absolute calibration:
         self.flux_spectra already has sky subtraction included. Simply divide this spectrum into the known standard spectrum.
         """
-        self.subtracted_spectrum = self.flux_spectrum - self.sky_spectrum
-        self.subtracted_spectrum = np.array(self.subtracted_spectrum,
-                                           dtype=float)  # cast as floats so division does not fail later
-
-        if self.method == 'relative':
+        if self.cfg.photometry == 'relative':
+            self.subtracted_spectrum = self.flux_spectrum - self.sky_spectrum
             norm_wvl = 5500  # Angstroms. Choose an arbitrary wvl to normalize the relative correction at
-            ind = np.where(self.wvlBinEdges >= norm_wvl)[0][0] - 1
+            ind = np.where(self.cfg.wvl_bin_edges >= norm_wvl)[0][0] - 1
             self.subtracted_spectrum = self.subtracted_spectrum / (self.subtracted_spectrum[ind])  # normalize
             # normalize treated Std spectrum while we are at it
             self.binned_spectrum = self.binned_spectrum / (self.binned_spectrum[ind])
@@ -335,10 +344,10 @@ class SpectralCalibrator(object):
         self.flux_factors[self.flux_factors <= 0] = 1.0
 
     def calculate_median(self, spectra):
-        spectra2d = np.reshape(spectra,[self.nRow*self.nCol,self.nWvlBins])
-        wvl_median = np.empty(self.nWvlBins,dtype=float)
-        for iWvl in np.arange(self.nWvlBins):
-            spectrum = spectra2d[:,iWvl]
+        spectra2d = np.reshape(spectra,[self.cfg.xpix*self.cfg.ypix, self.cfg.nWvlBins])
+        wvl_median = np.zeros(self.cfg.nWvlBins, dtype=float)
+        for iWvl, wvl in enumerate(self.cfg.nWvlBins):
+            spectrum = spectra2d[:, iWvl]
             good_spectrum = spectrum[spectrum != 0]#dead pixels need to be taken out before calculating medians
             wvl_median[iWvl] = np.median(good_spectrum)
         return wvl_median
