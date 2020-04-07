@@ -2,13 +2,12 @@ import glob
 import math
 import os
 import sys
-
 import astropy.io.fits as pyfits
 import matplotlib.pyplot as plt
 import numpy
 from scipy.constants import *
 from mkidpipeline.utils import smooth
-
+import mkidcore.config as config
 
 class MKIDStandards:
     """
@@ -22,30 +21,31 @@ class MKIDStandards:
     citation, and a brief description of the object. 
     """
 
-    def __init__(self, referenceWavelength=5500):
+    def __init__(self, configuration_path='', referenceWavelength=5500):
         """
         Loads up the list of objects we know about, filters, and
         Balmer wavelengths.
         referenceWavelength is used in plot() to normalize spectra
         """
-        self.referenceWavelength=referenceWavelength
+        self.referenceWavelength = referenceWavelength
+        self.cfg = config.load(configuration_path)
+        self.data_dir = self.cfg.paths.standards
         self.objects = {}
         self.filters = {}
-        self.filterList = ['U','B','V','R','I','u','g','r','i','z']
+        self.filterList = ['U', 'B', 'V', 'R', 'I', 'u', 'g', 'r', 'i', 'z']
         self.this_dir, this_filename = os.path.split(__file__)
-        pattern = os.path.join(self.this_dir,"data","*.txt")
+        pattern = os.path.join(self.data_dir, "data", "*.txt")
         for file in glob.glob(pattern):
-            name,ext = os.path.splitext(os.path.basename(file))
+            name, ext = os.path.splitext(os.path.basename(file))
             dictionary = self._loadDictionary(file)
             self.objects[name] = dictionary
-        self.balmerwavelengths = [6563,4861,4341,4102,3970,3889,3835,3646]
-        self.lymanwavelengths = [1216,1026,973,950,938,931,926,923,921,919]
+        self.balmerwavelengths = [6563, 4861, 4341, 4102, 3970, 3889, 3835, 3646]
+        self.lymanwavelengths = [1216, 1026, 973, 950, 938, 931, 926, 923, 921, 919]
         self._loadUBVRIFilters()
         self._loadSDSSFilters()
         # h is in Joules/sec and c is in meters/sec. 
         # This k value is used in conversions between counts and ergs
         self.k = ((1.0*10**-10)/(1.0*10**7))/h/c
-
         self.vegaInCounts = "not loaded yet"
 
     def _loadFilter(self, filterName):
@@ -94,7 +94,6 @@ class MKIDStandards:
             for i in range(npts):
                 self.filters[filter][0,i] = temp[i,0]
                 self.filters[filter][1,i] = temp[i,3]
-            
 
     def _loadDictionary(self,file):
         retval = {}
@@ -103,7 +102,7 @@ class MKIDStandards:
             retval[vals[0]] = vals[1:]
         return retval
 
-    def load(self,name):
+    def load(self, name):
         """
         Returns a two dimensional numpy array where a[:,0] is
         wavelength in Angstroms and a[:,1] is flux in 
@@ -139,28 +138,28 @@ class MKIDStandards:
                 (a[:,0] * self.k)
         return a
     
-    def normalizeFlux(self,a):
+    def normalizeFlux(self, a):
         """
         This function normalizes the flux at self.referenceWavelength
         """
         referenceFlux = self.getFluxAtReferenceWavelength(a)
-        a[:,1] /= referenceFlux
+        a[:, 1] /= referenceFlux
         return a
 
-    def countsToErgs(self,a):
+    def countsToErgs(self, a):
         """
         This function changes the units of the spectra from counts to 
         ergs. 
         """
-        a[:,1] /= (a[:,0] * self.k)
+        a[:,1] /= (a[:, 0] * self.k)
         return a
 
-    def ergsToCounts(self,a):
+    def ergsToCounts(self, a):
         """
         This function changes the units of the spectra from ergs to 
         counts. 
         """
-        a[:,1] *= (a[:,0] * self.k)
+        a[:, 1] *= (a[:, 0] * self.k)
         return a
     
     def measureBandPassFlux(self,aFlux,aFilter):
