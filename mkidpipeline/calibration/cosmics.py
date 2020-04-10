@@ -23,7 +23,7 @@ DARKNESS_LASER_CAL_WAVELENGTH_RANGE = [808, 1310]
 BF_LASER_CAL_WAVELENGTH_RANGE = DARKNESS_LASER_CAL_WAVELENGTH_RANGE
 
 class CosmicCleaner(object):
-    def __init__(self, file, instrument=None, wavelengthCut=False, method="poisson", removalRange=[-50,100]):
+    def __init__(self, file, instrument=None, wavelengthCut=False, method="poisson", removalRange=(-50,100)):
         self.instrument = str(instrument) if instrument is not None else "MEC"
         self.obs = ObsFile(file)
         self.wavelengthCut = wavelengthCut  # Boolean that encodes the decision of which removal method to use:
@@ -51,6 +51,10 @@ class CosmicCleaner(object):
         # ray event. If self.method='peak-finding', not all bins with values greater than this will necessarily be
         # marked as cosmic rays, although all bins with values greater than this should still be removed (due to their
         # proximity to the cosmic ray event.
+        self.cosmictimes = None  # A list of all the timestamps of cosmic ray events. In the "poisson" method, there
+        # may be multiple timestamps corresponding to the same peak, as this shows all bins that have more counts than
+        # the calculated threshold. In "peak-finding method" this is not the case, and it should find the timestamp of
+        # the peak of the cosmic ray, allowing the code to generate the times around it to cut out.
         self.cutouttimes = None  # A list of all the timestamps affected by a cosmic ray event. This is the ultimate
         # information that is needed to clean the ObsFile cosmic rays and remove the
         # offending photons.
@@ -60,6 +64,7 @@ class CosmicCleaner(object):
         self.make_timestream()
         self.make_count_histogram()
         self.generate_poisson_pdf()
+        self.find_cutout_times()
 
     def get_photon_list(self):
         """
@@ -178,19 +183,32 @@ class CosmicCleaner(object):
         doing this, it will also create a 'trimmed' timestream where the cosmic rays are removed. The self.cutouttimes
         attribute will also be populated with all of the timestamps that should be removed in order to take cosmic rays
         out from the timestream.
+        TODO: More robustly debug, in self.trim_timestream it seems like the time stamps to cut out may not be catching
+              all of the photons associated with the cosmic ray events.
         """
         if self.method.lower() == "poisson":
             self.threshold = self._generate_poisson_threshold()
             cutmask = self.arraycounts >= self.threshold
-            cosmictimes = self.timebins[:-1][cutmask]
+            self.cosmictimes = self.timebins[:-1][cutmask]
 
         elif self.method.lower() == "peak-finding":
             self.threshold = self._generate_signal_threshold()
-            cosmictimes = signal.find_peaks(self.arraycounts, height=self.threshold, threshold=10, distance=30)[0] * 10
+            self.cosmictimes = signal.find_peaks(self.arraycounts, height=self.threshold, threshold=10, distance=30)[0] * 10
         else:
             print("Invalid method!!")
 
         cutouttimes = np.array([np.arange(i - self.removalRange[0],
-                                          i + self.removalRange[1], 1) for i in cosmictimes]).flatten()
+                                          i + self.removalRange[1], 1) for i in self.cosmictimes]).flatten()
         cutouttimes = np.array(list(dict.fromkeys(cutouttimes)))
         self.cutouttimes = cutouttimes
+
+    def trim_timestream(self):
+        """
+        Function designed to create a new timestream with the cosmic ray timestamped photos removed.
+        TODO: NEEDS DEBUGGING
+        """
+        trimmask = np.in1d(self.arrivaltimes, self.cutouttimes)
+        trimmedphotons = self.arrivaltimes[~trimmask]
+        trimmedarraycounts, timebins = np.histogram(trimmedphotons, self.timebins)
+        assert np.setdiff1d(timebins, self.timebins).size == 0
+        self.trimmedtimestream = np.array((self.timebins[:-1], trimmedarraycounts))
