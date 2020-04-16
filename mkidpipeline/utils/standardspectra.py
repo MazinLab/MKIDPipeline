@@ -22,7 +22,7 @@ from scipy.constants import *
 from specutils import Spectrum1D
 import ftplib
 
-class SpectrumManager:
+class StandardSpectrum:
     '''
     replaces the MKIDStandards class from the ARCONS pipeline for MEC.
     '''
@@ -38,13 +38,20 @@ class SpectrumManager:
         self.spectrum_file = None
         self.k = ((1.0*10**-10)/(1.0*10**7))/h/c
 
+    def get(self):
+        self.create_directory()
+        self.get_coords()
+        self.fetch_spectra()
+        data = self.load_spectra()
+        return data[:, 0], data[:, 1]
+
     def create_directory(self):
         '''
         creates a spectrum directory in the save directory to put the spectra. If not called then the spectrum will
         just be saved in save_path
         '''
         if os.path.exists(self.save_dir + '/spectra/'):
-            getLogger(__name__).info('Spectrum directory already exists in {}, not going to make a new one').format(self.save_dir)
+            getLogger(__name__).info('Spectrum directory already exists in {}, not going to make a new one'.format(self.save_dir))
         else:
             os.mkdir(self.save_dir + '/spectra/')
         self.savedir = self.save_dir + '/spectra/'
@@ -104,7 +111,7 @@ class SpectrumManager:
         self.object_name to not be None
         :return:
         '''
-        getLogger(__name__).info('Looking for {} specrrum in ESO catalog'.format(self.object_name))
+        getLogger(__name__).info('Looking for {} spectrum in ESO catalog'.format(self.object_name))
         ext = self.name_to_ESO_extension()
         path = 'ftp://ftp.eso.org/pub/stecf/standards/'
         folders = np.array(['ctiostan/', 'hststan/', 'okestan/', 'wdstan/', 'Xshooter/'])
@@ -215,3 +222,10 @@ class SpectrumManager:
         a[:, 1] /= (a[:, 0] * self.k)
         return a
 
+    def ergs_to_counts(self, a):
+        '''
+        converts units of the spectra from ergs to counts
+        :return:
+        '''
+        a[:, 1] *= (a[:, 0] * self.k)
+        return a
