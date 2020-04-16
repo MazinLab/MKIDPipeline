@@ -27,7 +27,7 @@ from astropy.io import fits
 from astropy.coordinates import Angle
 from mkidcore.corelog import getLogger
 from matplotlib.colors import LogNorm
-
+import scipy.constants as con
 
 
 
@@ -1203,9 +1203,9 @@ def fitBlackbody(wvls, flux, fraction=1.0, newWvls=None, tempGuess=6000):
     norm = flux.max()
     y = flux / norm
 
-    print("BBfit using last ", fraction * 100, "% of spectrum only")
-    fitx = x[(1.0 - fraction) * len(x)::]
-    fity = y[(1.0 - fraction) * len(x)::]
+    # print("BBfit using last ", fraction * 100, "% of spectrum only")
+    fitx = x[int((1.0 - fraction) * len(x))::]
+    fity = y[int((1.0 - fraction) * len(x))::]
 
     guess_a, guess_b = 1 / (2 * h * c ** 2 / 1e-9), tempGuess  # Constant, Temp
     guess = [guess_a, guess_b]
@@ -1219,7 +1219,7 @@ def fitBlackbody(wvls, flux, fraction=1.0, newWvls=None, tempGuess=6000):
     N, T = params
     print("BBFit:\nN = %s\nT = %s\n" % (N, T))
 
-    if newWvls != None:
+    if newWvls is not None:
         best_fit = lambda fx: N * 2 * h * c ** 2 / (fx) ** 5 * (
                     numpy.exp(h * c / (k * T * (fx))) - 1) ** -1  # Planck Law
         # best_fit = lambda fx: N*2*c*k*T/(fx)**4 # Rayleigh Jeans Tail
@@ -1286,10 +1286,10 @@ def gaussianConvolution(x, y, xEnMin=0.005, xEnMax=6.0, xdE=0.001, fluxUnits="la
         yOut - fluxes calculated at new x-values are returned in same units as original y provided
     """
     ##=======================  Define some Constants     ============================
-    c = 3.00E10  # cm/s
-    h = 6.626E-27  # erg*s
+    c = con.c*100  # cm/s
+    h = con.h  # erg*s
     k = 1.3806488E-16  # erg/K
-    heV = 4.13566751E-15
+    heV = h/con.e
     ##================  Convert to F_nu and put x-axis in frequency  ===================
     if fluxUnits == 'lambda':
         xEn = heV * (c * 1.0E8) / x
@@ -1304,38 +1304,44 @@ def gaussianConvolution(x, y, xEnMin=0.005, xEnMax=6.0, xdE=0.001, fluxUnits="la
     ##============  regrid to a constant energy spacing for convolution  ===============
     xNuGrid = numpy.arange(xEnMin, xEnMax, xdE) / heV  # make new x-axis gridding in constant freq bins
     yNuGrid = griddata(xNu, yNu, xNuGrid, 'linear', fill_value=0)
+    xNuGrid=xNuGrid[1:-1] #remove weird effects with first and last values #TODO figure out why this is happening
+    yNuGrid=yNuGrid[1:-1]
     if plots == True:
         plt.plot(xNuGrid, yNuGrid, label="Spectrum in energy space")
-    ##====== Integrate curve to get total flux, required to ensure flux conservation later =======
-    originalTotalFlux = scipy.integrate.simps(yNuGrid, x=xNuGrid)
     ##======  define gaussian for convolution, on same gridding as spectral data  ======
     # WARNING: right now flux is NOT conserved
-    amp = 1.0
     offset = 0
-    E0 = heV * c / (450 * 1E-7)  # 450rnm light is ~3eV
+    E0 = heV * c / (900 * 1E-7)  # 450rnm light is ~3eV
     dE = E0 / r
-    sig = dE / heV / 2.355  # define sigma as FWHM converted to frequency
-    gaussX = numpy.arange(-2, 2, 0.001) / heV
+    sig = dE / heV / 2.355 # define sigma as FWHM converted to frequency
+    # normalize the Gaussian
+    amp = 1.0 / (np.sqrt(2 * np.pi) * sig)
+    gaussX = numpy.arange(-3*sig, 3*sig, xdE/heV)
     gaussY = amp * numpy.exp(-1.0 * (gaussX - offset) ** 2 / (2.0 * (sig ** 2)))
+    gaussX = gaussX[1:-1]
+    gaussY = gaussY[1:-1]
+    window_size = int(len(gaussX)/2)
     if plots == True:
         plt.plot(gaussX, gaussY * yNuGrid.max(), label="Gaussian to be convolved")
         plt.legend()
         plt.show()
+    ##====== Integrate curve to get total flux, required to ensure flux conservation later =======
+    originalTotalFlux = scipy.integrate.simps(yNuGrid[window_size:-window_size], x=xNuGrid[window_size:-window_size])
     ##================================    convolve    ==================================
-    convY = numpy.convolve(yNuGrid, gaussY, 'same')
+    convY = numpy.convolve(yNuGrid, gaussY, 'valid')
     if plots == True:
         plt.plot(xNuGrid, convY, label="Convolved spectrum")
         plt.legend()
         plt.show()
     ##============ Conserve Flux ==============
-    newTotalFlux = scipy.integrate.simps(convY, x=xNuGrid)
+    newTotalFlux = scipy.integrate.simps(convY, x=xNuGrid[window_size:-window_size])
     convY *= (originalTotalFlux / newTotalFlux)
     ##==================   Convert back to wavelength space   ==========================
     if fluxUnits == 'lambda':
-        xOut = c / xNuGrid * 1E8
+        xOut = c / xNuGrid[window_size:-window_size] * 1E8
         yOut = convY / (xOut ** 2) * 3E-5  # convert Fnu(Jy) to Flambda
     else:
-        xOut = xNuGrid
+        xOut = xNuGrid[window_size:-window_size]
         yOut = convY
     if plots == True:
         plt.plot(xOut[xOut < 25000], yOut[xOut < 25000], label="Convolved Spectrum")
