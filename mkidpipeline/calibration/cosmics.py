@@ -17,6 +17,8 @@ from mkidpipeline.hdf.photontable import ObsFile
 import argparse
 from scipy.stats import poisson
 from scipy import signal
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 
 MEC_LASER_CAL_WAVELENGTH_RANGE = [850, 1375]
 DARKNESS_LASER_CAL_WAVELENGTH_RANGE = [808, 1310]
@@ -210,3 +212,34 @@ class CosmicCleaner(object):
         trimmedarraycounts, timebins = np.histogram(trimmedphotons, self.timebins)
         assert np.setdiff1d(timebins, self.timebins).size == 0
         self.trimmedtimestream = np.array((self.timebins[:-1], trimmedarraycounts))
+
+    def animate_cr_event(self, timestamp, saveName=None, timeBefore=150, timeAfter=250, frameSpacing=5, frameIntTime=10,
+                         wvlStart=None, wvlStop=None, fps=5, save=True):
+        """
+        Functionality to animate a cosmic ray event. This function is modeled off of the mkidpipeline.imaging.movies
+        _make_movie() function, but adapted for the specific functionality of animating a cosmic ray event. There is a
+        known bug that trying to animate the same event with different parameters multiple times in a row (e.g. with
+        no wavelength cut then with wavelength boundaries) it will properly make the frames 
+        TODO: Add colorbar functionality (maybe plot energy of photons?)
+        """
+        Writer = animation.writers['imagemagick']
+        writer = Writer(fps=fps, bitrate=-1)
+
+        ctimes = np.arange(timestamp-timeBefore, timestamp+timeAfter, frameSpacing)
+        frames = np.array([self.obs.getPixelCountImage(firstSec=i/1e6, integrationTime=frameIntTime/1e6,
+                                              wvlStart=wvlStart, wvlStop=wvlStop)['image'] for i in ctimes])
+
+        fig = plt.figure()
+        im = plt.imshow(frames[0])
+        # cbar = plt.colorbar()
+        plt.tight_layout()
+        plt.xlabel('Pixel')
+        plt.ylabel('Pixel')
+
+        if save:
+            with writer.saving(fig, f"cosmic{timestamp}.gif" if saveName is None else str(saveName), frames.shape[2]):
+                for i in frames:
+                    im.set_array(i)
+                    writer.grab_frame()
+        del fig, im
+        return frames
