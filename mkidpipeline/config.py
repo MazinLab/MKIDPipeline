@@ -95,7 +95,7 @@ def wavecal_id(wavedata_id, wavecal_cfg=None):
     return 'wavcal_{}_{}'.format(wavedata_id, config_hash[-8:])
 
 
-def spectralcal_id(spectraldata_id, spectralcal_cfg=None):
+def spectralcal_id(spectralreference_id, spectralcal_cfg=None):
     """
     Compute a spectralcal id string from a spectraldata id string and either the active or a specified spectralcal config
     """
@@ -103,7 +103,7 @@ def spectralcal_id(spectraldata_id, spectralcal_cfg=None):
         global config
         spectralcal_cfg = config.spectralcal
     config_hash = hashlib.md5(str(spectralcal_cfg).encode()).hexdigest()
-    return 'spectralcal_{}_{}'.format(spectraldata_id, config_hash[-8:])
+    return 'spectralcal_{}_{}'.format(spectralreference_id, config_hash[-8:])
 
 
 class MKIDTimerange(object):
@@ -366,25 +366,28 @@ class MKIDFlatdataDescription(object):
         return cls(name, ob=ob, wavecal=wavecal, _common=d)
 
 
-class MKIDSpectraldataDescription(object):
+class MKIDSpectralReference(object):
     '''
-    requires name, data, and reference keys
+    requires name, and data keys
     '''
     yaml_tag = u'!sc'
 
-    def __init__(self, name, data, reference, _common=None):
+    def __init__(self, name, data, _common=None):
         if _common is not None:
             self.__dict__.update(_common)
 
         self.name = name
         self.data = data
-        self.reference = reference
+
+    @property
+    def reference_name(self):
+        return self.data[0].name
 
     @property
     def id(self):
-        meanstart = int(np.mean([x[0] for x in self.timeranges]))
+        reference_name = self.reference_name
         hash = hashlib.md5(str(self).encode()).hexdigest()
-        return datetime.utcfromtimestamp(meanstart).strftime('%Y-%m-%d-%H%M_') + hash[-8:]
+        return reference_name + '_' + hash[-8:]
 
     @property
     def path(self):
@@ -543,9 +546,11 @@ class MKIDObservingDataset(object):
         wcdict = {w.name: w for w in self.wavecals}
         fcdict = {f.name: f for f in self.flatcals}
         wcsdict = {w.name: w for w in self.wcscals}
+        scdict = {s.name: s for s in self.spectralcals}
 
         for o in self.all_observations:
             o.wavecal = wcdict.get(o.wavecal, o.wavecal)
+            o.speccal = scdict.get(o.speccal, o.speccal)
 
         for o in self.science_observations:
             o.flatcal = fcdict.get(o.flatcal, o.flatcal)
@@ -603,7 +608,7 @@ class MKIDObservingDataset(object):
 
     @property
     def spectralcals(self):
-        return [r for r in self.meta if isinstance(r, MKIDSpectraldataDescription)]
+        return [r for r in self.meta if isinstance(r, MKIDSpectralReference)]
 
     @property
     def sobs(self):
@@ -862,6 +867,11 @@ def load_data_description(file, no_global=False):
             fc.wavecal = wcdict.get(fc.wavecal, fc.wavecal)
         except AttributeError:
             pass
+    for s in dataset.spectralcals:
+        try:
+            s.wavecal = wcdict.get(s.wavecal, s.wavecal)
+        except AttributeError:
+            pass
 
     fcdict = {f.name: f for f in dataset.flatcals}
     for o in dataset.science_observations:
@@ -869,6 +879,20 @@ def load_data_description(file, no_global=False):
     for d in dataset.dithers:
         try:
             d.flatcal = fcdict.get(d.flatcal, d.flatcal)
+        except AttributeError:
+            pass
+    for s in dataset.spectralcals:
+        try:
+            s.flatcal = fcdict.get(s.flatcal, s.flatcal)
+        except AttributeError:
+            pass
+
+    scdict = {s.name: s for s in dataset.spectralcals}
+    for o in dataset.science_observations:
+        o.speccal = scdict.get(o.speccal, o.speccal)
+    for d in dataset.dithers:
+        try:
+            d.speccal = scdict.get(d.speccal, d.speccal)
         except AttributeError:
             pass
 
@@ -906,7 +930,7 @@ yaml.register_class(MKIDTimerange)
 yaml.register_class(MKIDObservation)
 yaml.register_class(MKIDWavedataDescription)
 yaml.register_class(MKIDFlatdataDescription)
-yaml.register_class(MKIDSpectraldataDescription)
+yaml.register_class(MKIDSpectralReference)
 yaml.register_class(MKIDWCSCalDescription)
 yaml.register_class(MKIDDitheredObservation)
 yaml.register_class(MKIDOutput)
