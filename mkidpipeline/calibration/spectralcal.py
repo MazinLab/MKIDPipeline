@@ -22,33 +22,41 @@ from configparser import ConfigParser
 from mkidpipeline.hdf.photontable import ObsFile
 from mkidpipeline.utils.utils import rebin, gaussianConvolution, fitBlackbody
 from mkidpipeline.utils import mkidstandards
+from mkidpipeline.utils.photometry import perform_photometry
+from mkidpipeline.utils.standardspectra import StandardSpectrum
 from mkidcore.corelog import getLogger
 import mkidcore.corelog
 import scipy.constants as c
+import mkidpipeline
 from mkidcore.objects import Beammap
 import matplotlib.pyplot as plt
+# from mkidpipeline.utils.photometry import *
+
 
 class Configuration(object):
     """Configuration class for the spectrophotometric calibration analysis."""
     yaml_tag = u'!spectralcalconfig'
 
-    def __init__(self, configfile=None, start_time=tuple(), intTime=30, beammap=None,
-                 h5dir='', outdir='', bindir='', savedir='', h5_file_names='', sky_file_names='', object_name='',
-                 photometry='', method='', energy_bin_width=0.01, wvlStart=850, wvlStop=1375, energy_start=1.46,
-                 energy_stop=0.9, nWvlBins=50, dead_time=0.000001, collecting_area=0, plots=True):
-
+    def __init__(self, configfile=None, start_times=tuple(), sky_start_times=tuple(), intTimes=tuple(), beammap=None,
+                 h5dir='', outdir='', bindir='', savedir='', h5_file_names='', sky_file_names='', object_name='', ra=None,
+                 dec=None, photometry='', method='', energy_bin_width=0.01, wvlStart=850, wvlStop=1375, energy_start=1.46,
+                 energy_stop=0.9, nWvlBins=50, dead_time=0.000001, collecting_area=0, plots=True, url_path=''):
         # parse arguments
         self.configuration_path = configfile
         self.h5_directory = h5dir
         self.out_directory = outdir
         self.bin_directory = bindir
         self.save_directory = savedir
+        self.url_path=url_path
         self.object_name = object_name
-        self.start_time = list(map(int, start_time))
+        self.ra = ra
+        self.dec = dec
+        self.start_times = list(map(int, start_times))
+        self.sky_start_times = list(map(int, sky_start_times))
         self.h5_file_names = list(map(str, h5_file_names))
         self.sky_file_names = list(map(str, sky_file_names))
         self.dead_time = float(dead_time)
-        self.intTime = float(intTime)
+        self.intTimes = list(map(float, intTimes))
         self.h5_directory = h5dir
         self.energyBinWidth = float(energy_bin_width)
         self.wvlStart = float(wvlStart)
@@ -61,8 +69,8 @@ class Configuration(object):
         self.photometry = str(photometry)
         self.std_wvls = None
         self.std_flux = None
-        self.binned_std_spectrum = np.array()
-        self.wvl_bin_edges = np.array()
+        self.binned_std_spectrum = None
+        self.wvl_bin_edges = None
         self.plots = bool(plots)
         self.collecting_area = float(collecting_area)
         if self.configuration_path is not None:
@@ -82,27 +90,29 @@ class Configuration(object):
             self.out_directory = cfg.paths.database
             self.bin_directory = cfg.paths.data
             self.save_directory = cfg.paths.database
-            self.start_time = list(map(int, cfg.spectralcal.start))
+            self.url_path = cfg.spectralcal.standard_url
+            self.start_times = list(map(int, cfg.start_times))
+            self.sky_start_times = list(map(int, cfg.sky_start_times))
             self.dead_time = cfg.instrument.deadtime
-            self.object_name = cfg.spectralcal.object_name
+            self.object_name = cfg.object_name
+            self.ra = cfg.ra if cfg.ra else None
+            self.dec = cfg.dec if cfg.dec else None
             self.energyBinWidth = cfg.instrument.energy_bin_width
-            self.h5_directory = cfg.paths.out
             self.photometry = cfg.spectralcal.photometry_type
             self.collecting_area = cfg.spectralcal.collecting_area
-            self.plots = cfg.spectralcal.plots
-            self.intTime = cfg.spectralcal.duration if cfg.spectralcal.duration else (cfg.spectralcal.start - cfg.spectralcal.stop)
+            self.save_plots = cfg.spectralcal.save_plots
+            self.intTimes = cfg.exposure_times
             try:
-                self.h5_file_names = [os.path.join(self.h5_directory, cfg.h5_file_names)]
-                self.sky_file_names = [os.path.join(self.h5_directory, cfg.sky_file_names)]
-            except KeyError:
-                self.h5_file_names = [os.path.join(self.h5_directory, str(cfg.h5_file_names) + '.h5')]
-                self.sky_file_names = [os.path.join(self.h5_directory, str(cfg.sky_file_names) + '.h5')]
+                self.h5_file_names = [os.path.join(self.h5_directory, f) for f in self.start_times]
+                self.sky_file_names = [os.path.join(self.h5_directory, f) for f in self.sky_start_times]
+            except TypeError:
+                self.h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.start_times]
+                self.sky_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.sky_start_times]
             try:
                 self.templar_configuration_path = cfg.templar.file
             except KeyError:
                 if self.beammap.frequencies is None:
                     getLogger(__name__).warning('Beammap loaded without frequencies and no templar config specified.')
-            self.obs = ObsFile(self.h5_file_name)
         else: #TODO figure out what needs to go in the else
             self.beammap = beammap if beammap is not None else Beammap(default='MEC')
             self.xpix = self.beammap.ncols
@@ -140,19 +150,26 @@ class SpectralCalibrator(object):
     to be present. The obs file is then broken into spectral frames with photometry (psf or aper) performed
     on each frame to generate the observed spectrum.
     """
-    def __init__(self, configuration, solution_name='solution.npz', _shared_tables=None, fit_array=None, main=True):
+    def __init__(self, configuration, solution_name='solution.npz', _shared_tables=None, weight_array=None, main=True):
 
         self.cfg = Configuration(configuration) if not isinstance(configuration, Configuration) else configuration
         self.solution_name = solution_name
-        self.solution = SpectralSolution(configuration=self.cfg, fit_array=fit_array, beam_map=self.cfg.beammap.residmap,
+        self.solution = SpectralSolution(configuration=self.cfg, weight_array=weight_array, beam_map=self.cfg.beammap.residmap,
                                          beam_map_flags=self.cfg.beammap.flagmap, solution_name=self.solution_name)
+        self.obs = [ObsFile(f) for f in self.cfg.h5_file_names]
+        self.sky_obs = [ObsFile(f) for f in self.cfg.sky_file_names]
         self.flux_spectrum = np.zeros((self.cfg.xpix, self.cfg.ypix))
         self.flux_spectra = np.zeros((self.cfg.xpix, self.cfg.ypix))
         self.flux_effTime = np.zeros((self.cfg.xpix, self.cfg.ypix))
-        self.wvl_bin_edges = None
+        self.wvl_bin_edges = self.makeWvlBins()
         self.sky_spectra = np.zeros((self.cfg.xpix, self.cfg.ypix))
         self.sky_spectrum = np.zeros((self.cfg.xpix, self.cfg.ypix))
         self.sky_effTime = np.zeros((self.cfg.xpix, self.cfg.ypix))
+        self.std_spectrum = None
+        self.std_wvls = None
+        self.std_flux = None
+        self.rebin_std_wvls = None
+        self.rebin_std_flux = None
 
     def run(self, verbose=False, parallel=None, save=True, plot=None):
         """
@@ -170,22 +187,19 @@ class SpectralCalibrator(object):
         """
         getLogger(__name__).info("Loading Spectrum from MEC")
         try:
-            if self.photometry == 'relative':
+            if self.cfg.photometry == 'relative':
                 getLogger(__name__).info('Performing relative photometry')
-                self._run("load_relative_spectrum", parallel=parallel, verbose=verbose)
+                self.load_relative_spectrum()
                 getLogger(__name__).info('Flux spectrum loaded')
-                self._run("load_sky_spectrum", parallel=parallel, verbose=verbose)
+                self.load_sky_spectrum()
                 getLogger(__name__).info('Sky spectrum loaded ')
-            elif self.photometry == 'PSF' or self.photometry == 'aperture':
+            elif self.cfg.photometry == 'PSF' or self.cfg.photometry == 'aperture':
                 getLogger(__name__).info('Extracting point source spectrum ')
-                self._run("load_absolute_spectrum", parallel=parallel, verbose=verbose)
-            if self._shared_tables is not None:
-                del self._shared_tables
-                self._shared_tables = None
+                self.load_absolute_spectrum()
             getLogger(__name__).info("Loading Standard Spectrum")
-            self._run("load_standard_spectrum", parallel=parallel, verbose=verbose)
+            self.load_standard_spectrum()
             getLogger(__name__).info("Calculating Spectrophotometric Weights")
-            self._run("calculate_specweights", parallel=parallel, verbose=verbose)
+            self.calculate_specweights()
             if save:
                 self.solution.save(save_name=self.solution_name if isinstance(self.solution_name, str) else None)
             if plot or (plot is None and self.cfg.summary_plot):
@@ -194,9 +208,24 @@ class SpectralCalibrator(object):
         except KeyboardInterrupt:
             getLogger(__name__).info("Keyboard shutdown requested ... exiting")
 
-    def _run(self, method, pixels=None, wavelengths=None, verbose=False, parallel=True):
-        getattr(self, method)(pixels=pixels, wavelengths=wavelengths, verbose=verbose)
+    def makeWvlBins(self):
+        """
+        returns an array of wavelength bin edges, with a fixed energy bin width
+        withing the limits given in wvlStart and wvlStop
 
+        Returns:
+            an array of wavelength bin edges that can be used with numpy.histogram(bins=wvlBinEdges)
+        """
+
+        # Calculate upper and lower energy limits from wavelengths
+        # Note that start and stop switch when going to energy
+
+        nWvlBins = int((self.cfg.energyStart - self.cfg.energyStop) / self.cfg.energyBinWidth)
+        # Construct energy bin edges
+        energyBins = np.linspace(self.cfg.energyStart, self.cfg.energyStop, nWvlBins + 1)
+        # Convert back to wavelength
+        wvlBinEdges = np.array(c.h * c.c * 1.e10 / (energyBins * c.e))
+        return wvlBinEdges
 
     def load_absolute_spectrum(self):
         '''
@@ -205,7 +234,7 @@ class SpectralCalibrator(object):
          '''
         getLogger(__name__).info('performing {} photometry on MEC spectrum').format(self.cfg.photometry)
         cube_dict = self.cfg.obs.getSpectralCube(firstSec=self.cfg.start_time, integrationTime=self.cfg.intTime,
-                                                 applyWeight=True)
+                                                 applyWeight=True, energyBinWidth=self.cfg.energyBinWidth)
         cube = np.array(cube_dict['cube'], dtype=np.double)
         effIntTime = cube_dict['effIntTime']
         self.wvl_bin_edges = cube['WvlBinEdges']
@@ -213,20 +242,20 @@ class SpectralCalibrator(object):
         effIntTime = np.reshape(effIntTime, np.shape(effIntTime) + (1,))
         # put cube into counts/s in each pixel
         cube /= effIntTime
-        light_curve = lightcurve.lightcurve() #TODO figure out what this is supposed to do
         self.flux_spectrum = np.empty(self.cfg.nWvlBins, dtype=float)
         self.sky_spectrum = np.zeros(self.cfg.nWvlBins, dtype=float)
         for i in np.arange(self.cfg.nWvlBins):
+            # perform photometry on every wavelength bin
             frame = cube[:, :, i]
             if self.cfg.photometry == 'aperture':
-                flux_dict = light_curve.perform_photometry(self.cfg.photometry, frame, [[self.centroid_col, self.centroid_row]],
+                flux_dict = perform_photometry(self.cfg.photometry, frame, [[self.centroid_col, self.centroid_row]],
                                              expTime=None, aper_radius=self.aperture, annulus_inner=self.annulus_inner,
                                              annulus_outer=self.annulus_outer, interpolation="linear")
                 self.flux_spectrum[i] = flux_dict['flux']
                 self.sky_spectrum[i] = flux_dict['sky_flux']
             else:
                 # default or if 'PSF' is specified
-                flux_dict = light_curve.perform_photometry(self.cfg.photometry, frame, [[self.centroid_col, self.centroid_row]],
+                flux_dict = perform_photometry(self.cfg.photometry, frame, [[self.centroid_col, self.centroid_row]],
                                              expTime=None, aper_radius=self.aperture)
                 self.flux_spectrum[i] = flux_dict['flux']
         self.flux_spectrum = self.flux_spectrum / self.cfg.energyBinWidth / self.cfg.collecting_area  # spectrum now in counts/s/Angs/cm^2
@@ -259,42 +288,30 @@ class SpectralCalibrator(object):
         self.sky_spectrum = self.calculate_median(self.sky_spectra)  # find median of subtracted spectra across whole array
         return self.sky_spectrum
 
-    # TODO allow a model standard spectra to be uploaded
     def load_standard_spectrum(self):
-        standard = mkidstandards.MKIDStandards()
-        std_data = standard.load(self.cfg.object_name)
-        std_data = standard.countsToErgs(std_data)  # convert standard star spectrum to ergs/s/Angs/cm^2 for BB fitting and cleaning
-        self.std_wvls = np.array(std_data[:, 0])
-        self.std_flux = np.array(std_data[:, 1])  # standard star object spectrum in ergs/s/Angs/cm^2
-
-        convX_rev, convY_rev = self.extend_spectrum(self.std_wvls, self.std_flux)
+        standard = StandardSpectrum(save_path=self.cfg.save_directory, url_path=self.cfg.url_path,
+                                    object_name=self.cfg.object_name[0], object_ra=self.cfg.ra[0],
+                                    object_dec=self.cfg.dec[0])
+        self.std_wvls, self.std_flux = standard.get()  # standard star object spectrum in ergs/s/Angs/cm^2
+        ind = np.where(self.std_wvls > self.cfg.wvlStart)
+        #TODO confirm spectra is in the correct units
+        convX_rev, convY_rev = self.extend_spectrum(self.std_wvls[ind], self.std_flux[ind])
         convX = convX_rev[::-1]  # convolved spectrum comes back sorted backwards, from long wvls to low which screws up rebinning
         convY = convY_rev[::-1]
         # rebin cleaned spectrum to flat cal's wvlBinEdges
-        rebin_std_data = rebin(convX, convY, self.wvl_bin_edges)
-        rebin_std_wvls = np.array(rebin_std_data[:, 0])
-        rebin_std_flux = np.array(rebin_std_data[:, 1])
-        if self.cfg.plots:
-            #plot final resampled spectrum
-            plt.plot(convX, convY*1E15,color='blue')
-            plt.step(rebin_std_wvls, rebin_std_flux*1E15, color='black', where='mid')
-            plt.legend(['%s Spectrum'%self.cfg.object_name, 'Blackbody Fit', 'Gaussian Convolved Spectrum',
-                        'Rebinned Spectrum'], 'upper right', numpoints=1)
-            plt.xlabel("Wavelength (\r{A})")
-            plt.ylabel("Flux (10$^{-15}$ ergs s$^{-1}$ cm$^{-2}$ \r{A}$^{-1}$)")
-            plt.ylim(0.9*min(rebin_std_flux)*1E15, 1.1*max(rebin_std_flux)*1E15)
-            plt.savefig(self.cfg.save_directory + 'FluxCal_StdSpectrum_%s.eps'%self.cfg.object_name, format='eps')
+        rebin_std_data = rebin(convX, convY, self.wvl_bin_edges[self.wvl_bin_edges<convX.max()])
         # convert standard spectrum back into counts/s/angstrom/cm^2
-        rebin_star_data = standard.ergsToCounts(rebin_std_data)
-        self.binned_std_spectrum = np.array(rebin_star_data[:, 1])
+        rebin_std_data = standard.ergs_to_counts(rebin_std_data)
+        self.rebin_std_flux = np.array(rebin_std_data[:, 1])
+        self.rebin_std_wvls = np.array(rebin_std_data[:, 0])
 
     def extend_spectrum(self, x, y):
         '''
-        BB Fit to extend standard spectrum to  1500 nm
+        BB Fit to extend standard spectrum to 1500 nm and to convolve it with a gaussian kernel
         '''
 
         fraction = 1.0 / 3.0
-        nirX = np.arange(int(x[(1.0 - fraction) * len(x)]), 20000)
+        nirX = np.arange(int(x[int((1.0 - fraction) * len(x))]), self.cfg.wvlStop)
         T, nirY = fitBlackbody(x, y, fraction=fraction, newWvls=nirX, tempGuess=5600)
 
         extended_wvl = np.concatenate((x, nirX[nirX > max(x)]))
@@ -305,10 +322,9 @@ class SpectralCalibrator(object):
         sol = mkidpipeline.calibration.wavecal.Solution(str(self.cfg.save_directory) + "/" + sol_file[0])
         r_list, resid = sol.find_resolving_powers()
         r = np.median(np.nanmedian(r_list, axis=0))
-
         # Gaussian convolution to smooth std spectrum to MKIDs median resolution
-        newX, newY = gaussianConvolution(extended_wvl, extended_flux, xEnMin=0.005, xEnMax=6.0, xdE=0.001,
-                                         fluxUnits="lambda", r=r, plots=False)
+        newX, newY = gaussianConvolution(extended_wvl, extended_flux, xEnMin=self.cfg.energyStop,
+                                         xEnMax=self.cfg.energyStart, fluxUnits="lambda", r=r, plots=False)
         return newX, newY
 
     def calculate_specweights(self):
@@ -354,13 +370,13 @@ class SpectralCalibrator(object):
 
 
 class SpectralSolution(object):
-    def __init__(self, file_path=None, fit_array=None, configuration=None, beam_map=None,
+    def __init__(self, file_path=None, weight_array=None, configuration=None, beam_map=None,
                  beam_map_flags=None, solution_name='spectral_solution'):
         # default parameters
         self._parse = True
         # load in arguments
         self._file_path = os.path.abspath(file_path) if file_path is not None else file_path
-        self.fit_array = fit_array
+        self.weight_array = weight_array
         self.beam_map = beam_map.astype(int) if isinstance(beam_map, np.ndarray) else beam_map
         self.beam_map_flags = beam_map_flags
         self.cfg = configuration
@@ -371,7 +387,6 @@ class SpectralSolution(object):
         else:
             self.name = solution_name  # use the default or specified name for saving
             self.npz = None  # no npz file so all the properties should be set
-            self._finish_init()
 
     def save(self, save_name=None):
         """Save the solution to a file. The directory is given by the configuration."""
@@ -387,22 +402,22 @@ class SpectralSolution(object):
             self.cfg = Configuration(self.cfg.configuration_path)
 
         getLogger(__name__).info("Saving spectrophotometric solution to {}".format(save_path))
-        np.savez(save_path, fit_array=self.weight_array, configuration=self.cfg, beam_map=self.beam_map,
+        np.savez(save_path, weight_array=self.weight_array, configuration=self.cfg, beam_map=self.beam_map,
                  beam_map_flags=self.beam_map_flags)
         self._file_path = save_path  # new file_path for the solution
 
-    def plot_summary(self):
+    def plot_summary(self, save_name='summary_plot.pdf'):
         #TODO write this function
         pass
 
 def load_solution(sc, singleton_ok=True):
-    """sc is a solution filename string, a SpectralSolution object, or a mkidpipeline.config.MKIDSpectraldataDescription"""
+    """sc is a solution filename string, a SpectralSolution object, or a mkidpipeline.config.MKIDSpectralReference"""
     global _loaded_solutions
     if not singleton_ok:
         raise NotImplementedError('Must implement solution copying')
     if isinstance(sc, SpectralSolution):
         return sc
-    if isinstance(sc, mkidpipeline.config.MKIDSpectraldataDescription):
+    if isinstance(sc, mkidpipeline.config.MKIDSpectralReference):
         sc = mkidpipeline.config.spectralcal_id(sc.id)+'.npz'
     sc = sc if os.path.isfile(sc) else os.path.join(mkidpipeline.config.config.paths.database, sc)
     try:
@@ -424,8 +439,12 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
                 scfg = mkidpipeline.config.load_task_config(pkg.resource_filename(__name__, 'spectralcal.yml'))
             else:
                 scfg = cfg.copy()
-            scfg.register('start_time', [x.start for x in sd.data], update=True)
-            scfg.register('exposure_time', [x.duration for x in sd.data], update=True)
+            scfg.register('start_times', [x.start for x in sd.data], update=True)
+            scfg.register('sky_start_times', [x.start for x in sd.sky_data], update=True)
+            scfg.register('exposure_times', [x.duration for x in sd.data], update=True)
+            scfg.register('ra', [x.ra for x in sd.data], update=True)
+            scfg.register('dec', [x.dec for x in sd.data], update=True)
+            scfg.register('object_name', [x.name for x in sd.data], update=True)
             if ncpu is not None:
                 scfg.update('ncpu', ncpu)
             cal = SpectralCalibrator(scfg, solution_name=sf)
