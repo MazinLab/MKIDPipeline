@@ -1097,7 +1097,8 @@ class ObsFile(object):
         else:
             # May not include data at tail end if timeslice does not evenly divide time window
             timeslices = np.arange(0 if firstSec is None else firstSec,
-                                   (self.duration if integrationTime is None else integrationTime) + 1e-9, timeslice)
+                                   (self.duration if integrationTime is None else integrationTime + firstSec) + 1e-9,
+                                   timeslice)
             firstSec = timeslices.min()
             integrationTime = timeslices.max() - timeslices.min()
 
