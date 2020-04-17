@@ -186,6 +186,8 @@ class CosmicCleaner(object):
         doing this, it will also create a 'trimmed' timestream where the cosmic rays are removed. The self.cutouttimes
         attribute will also be populated with all of the timestamps that should be removed in order to take cosmic rays
         out from the timestream.
+        TODO: Determine if signal.find_peaks() is really necessary at all or if just generating a threshold
+         is a better way to make the cuts (i.e. is it better to just use the "poisson" method?)
         """
         if self.method.lower() == "poisson":
             self.threshold = self._generate_poisson_threshold()
@@ -219,7 +221,7 @@ class CosmicCleaner(object):
         Functionality to animate a cosmic ray event. This function is modeled off of the mkidpipeline.imaging.movies
         _make_movie() function, but adapted for the specific functionality of animating a cosmic ray event. There is a
         known bug that trying to animate the same event with different parameters multiple times in a row (e.g. with
-        no wavelength cut then with wavelength boundaries) it will properly make the frames 
+        no wavelength cut then with wavelength boundaries) it will properly make the frames
         TODO: Add colorbar functionality (maybe plot energy of photons?)
         """
         Writer = animation.writers['imagemagick']
@@ -231,7 +233,6 @@ class CosmicCleaner(object):
 
         fig = plt.figure()
         im = plt.imshow(frames[0])
-        # cbar = plt.colorbar()
         plt.tight_layout()
         plt.xlabel('Pixel')
         plt.ylabel('Pixel')
