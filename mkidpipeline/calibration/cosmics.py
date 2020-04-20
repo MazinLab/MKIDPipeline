@@ -6,10 +6,10 @@ event, the method used for peak finding (more on that in the code itself), a set
 creating a histogram of bincounts, and more as needed. This docstring will be edited as code
 is updated and refined.
 TODO: logging
-TODO: Add plotting/saving functionality
-TODO: Make this usable from the command line
-TODO: Test everything with real files (the 4 'paths' the data can take for CR removal)
 TODO: Integrate into pipeline
+TODO: Add statistics to be reported, such as number of CR events, amount of time removed, time intervals removed, etc.
+TODO: When multiple bins are found for a single CR, narrow them down to 1 bin.
+TODO: Test if each method works with WL cut and non-WL cut data
 """
 
 import numpy as np
@@ -28,8 +28,7 @@ class CosmicCleaner(object):
     def __init__(self, file, instrument=None, wavelengthCut=False, method="poisson", removalRange=(50,100)):
         self.instrument = str(instrument) if instrument is not None else "MEC"
         self.obs = ObsFile(file)
-        self.wavelengthCut = wavelengthCut  # Boolean that encodes the decision of which removal method to use:
-        # peak finding (no cut) or poisson statistics of arrival times (cut)
+        self.wavelengthCut = wavelengthCut
         self.method = method
         self.removalRange = removalRange
         self.allphotons = None  # Master photon list from the ObsFile, should not be modified at any point
@@ -66,6 +65,7 @@ class CosmicCleaner(object):
         self.make_timestream()
         self.make_count_histogram()
         self.generate_poisson_pdf()
+        self.find_cosmic_times()
         self.find_cutout_times()
         self.trim_timestream()
 
@@ -180,14 +180,8 @@ class CosmicCleaner(object):
         threshold = np.ceil(6 * poisson.std(avgcounts, loc=0) + avgcounts)
         return threshold
 
-    def find_cutout_times(self):
+    def find_cosmic_times(self):
         """
-        This function will generate the threshold of counts in a given bin that we can consider to be a cosmic ray. In
-        doing this, it will also create a 'trimmed' timestream where the cosmic rays are removed. The self.cutouttimes
-        attribute will also be populated with all of the timestamps that should be removed in order to take cosmic rays
-        out from the timestream.
-        TODO: Determine if signal.find_peaks() is really necessary at all or if just generating a threshold
-         is a better way to make the cuts (i.e. is it better to just use the "poisson" method?)
         """
         if self.method.lower() == "poisson":
             self.threshold = self._generate_poisson_threshold()
@@ -200,6 +194,15 @@ class CosmicCleaner(object):
         else:
             print("Invalid method!!")
 
+    def narrow_cosmic_times(self):
+        t1 = self.cosmictimes
+        t2 = np.reshape(self.cosmictimes, (len(self.cosmictimes), 1))
+        smear_grid = t2 - t1
+        narrow_mask = smear_grid <= np.sum(self.removalRange)
+
+    def find_cutout_times(self):
+        """
+        """
         cutouttimes = np.array([np.arange(i - self.removalRange[0],
                                           i + self.removalRange[1], 1) for i in self.cosmictimes]).flatten()
         cutouttimes = np.array(list(dict.fromkeys(cutouttimes)))
@@ -222,7 +225,6 @@ class CosmicCleaner(object):
         _make_movie() function, but adapted for the specific functionality of animating a cosmic ray event. There is a
         known bug that trying to animate the same event with different parameters multiple times in a row (e.g. with
         no wavelength cut then with wavelength boundaries) it will properly make the frames
-        TODO: Add colorbar functionality (maybe plot energy of photons?)
         """
         Writer = animation.writers['imagemagick']
         writer = Writer(fps=fps, bitrate=-1)
