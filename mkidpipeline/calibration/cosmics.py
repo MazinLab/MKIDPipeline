@@ -1,4 +1,5 @@
 """
+Author: Noah Swimmer
 Cosmic Cleaner is a class that will find the cosmic correction and will create a file that
 has the associated ObsFile name (beginning timestamp) as well as a list of the timestamps
 to be removed plus some metadata, such as the cutout times before and after the cosmic ray
@@ -9,23 +10,50 @@ TODO: logging
 TODO: Integrate into pipeline
 TODO: Add statistics to be reported, such as number of CR events, amount of time removed, time intervals removed, etc.
 TODO: When multiple bins are found for a single CR, narrow them down to 1 bin.
-TODO: Test if each method works with WL cut and non-WL cut data
+TODO: Add warning that "peak-finding" may take longer and "poisson" with non-WL-cut data cuts more than it probably needs to
 """
 
 import numpy as np
+import os
 from mkidpipeline.hdf.photontable import ObsFile
 import argparse
 from scipy.stats import poisson
 from scipy import signal
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import mkidcore.corelog as pipelinelog
+from datetime import datetime
 
 MEC_LASER_CAL_WAVELENGTH_RANGE = [850, 1375]
 DARKNESS_LASER_CAL_WAVELENGTH_RANGE = [808, 1310]
 BF_LASER_CAL_WAVELENGTH_RANGE = DARKNESS_LASER_CAL_WAVELENGTH_RANGE
 
+log = pipelinelog.getLogger('mkidpipeline.calibration.cosmiccal', setup=False)
+
+def setup_logging(tologfile='', toconsole=True, time_stamp=None):
+    """
+    Set up logging for the wavelength calibration module for running from the command line.
+
+    Args:
+        tologfile: directory where the logs folder will be placed. If empty, no logfile is made.
+        toconsole: boolean specifying if the console log is set up.
+        time_stamp: utc time stamp to name the log file.
+    """
+    if time_stamp is None:
+        time_stamp = int(datetime.utcnow().timestamp())
+    if toconsole:
+        log_format = "%(levelname)s : %(message)s"
+        pipelinelog.create_log('mkidpipeline', console=True, fmt=log_format, level="INFO")
+
+    if tologfile:
+        log_directory = os.path.join(tologfile, 'logs')
+        log_file = os.path.join(log_directory, '{:.0f}.log'.format(time_stamp))
+        log_format = '%(asctime)s : %(funcName)s : %(levelname)s : %(message)s'
+        pipelinelog.create_log('mkidpipeline', logfile=log_file, console=False, fmt=log_format, level="DEBUG")
+
+
 class CosmicCleaner(object):
-    def __init__(self, file, instrument=None, wavelengthCut=False, method="poisson", removalRange=(50,100)):
+    def __init__(self, file, instrument=None, wavelengthCut=True, method="poisson", removalRange=(50,100)):
         self.instrument = str(instrument) if instrument is not None else "MEC"
         self.obs = ObsFile(file)
         self.wavelengthCut = wavelengthCut
@@ -56,6 +84,9 @@ class CosmicCleaner(object):
         # may be multiple timestamps corresponding to the same peak, as this shows all bins that have more counts than
         # the calculated threshold. In "peak-finding method" this is not the case, and it should find the timestamp of
         # the peak of the cosmic ray, allowing the code to generate the times around it to cut out.
+        self.cosmicpeaktimes = None  # A list of all of the timestamps of the peaks of cosmic ray events. This is needed
+        # as single cosmic ray events can have sequential bins over the calculated threshold. This picks out the
+        # timestamp of the highest number of counts in each cosmic ray.
         self.cutouttimes = None  # A list of all the timestamps affected by a cosmic ray event. This is the ultimate
         # information that is needed to clean the ObsFile cosmic rays and remove the
         # offending photons.
@@ -194,11 +225,27 @@ class CosmicCleaner(object):
         else:
             print("Invalid method!!")
 
-    def narrow_cosmic_times(self):
-        t1 = self.cosmictimes
-        t2 = np.reshape(self.cosmictimes, (len(self.cosmictimes), 1))
-        smear_grid = t2 - t1
-        narrow_mask = smear_grid <= np.sum(self.removalRange)
+        self._narrow_cosmic_times(500)
+
+    def _narrow_cosmic_times(self, width):
+        """
+        Since the algorithm for determining the cosmic ray events does not distinguish if two 'cosmic rays' are really
+        just two time bins with counts above the calculated CR threshold. So - for reporting - we find the peaks of each
+        of these events and their associated timestamps so we can say how many CR events were removed and not
+        artificially inflate those numbers.
+        """
+        cosmic_peak_times = []
+        for i in self.cosmictimes:
+            mask = abs(self.cosmictimes - i) <= width
+            temp = self.cosmictimes[mask]
+            locations = [np.where(self.timestream[0] == j) for j in temp]
+            counts = [self.timestream[1][j] for j in locations]
+            max_idx = np.argmax(counts)
+            max_time_idx = np.where(self.timestream[0] == temp[max_idx])[0][0]
+            peak_time = self.timestream[0][max_time_idx]
+            cosmic_peak_times.append(peak_time)
+        cosmic_peak_times = list(dict.fromkeys(cosmic_peak_times))
+        self.cosmicpeaktimes = cosmic_peak_times
 
     def find_cutout_times(self):
         """
