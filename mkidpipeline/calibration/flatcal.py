@@ -542,9 +542,9 @@ class LaserCalibrator(FlatCalibrator):
         '''
         wavelengths = self.wavelengths
         nWavs = len(self.wavelengths)
-        ntimes = int(self.cfg.flatcal.nchunks)
+        ntimes = self.cfg.flatcal.nchunks
         if np.any(self.intTime*self.cfg.flatcal.nchunks > self.exposure_times):
-            ntimes = self.exposure_times/self.intTime
+            ntimes = int((self.exposure_times/self.intTime).max())
             getLogger(__name__).info('Number of chunks * chunk time is longer than the laser exposure. Using full'
                                      'length of exposure ({} chunks)'.format(ntimes))
         cps_cube_list = np.zeros([ntimes, self.xpix, self.ypix, nWavs])
@@ -567,7 +567,7 @@ class LaserCalibrator(FlatCalibrator):
             bad_mask = obs.flagMask(pixelflags.PROBLEM_FLAGS)
             mask[:, :, iwvl] = bad_mask
             if self.use_wavecal:
-                counts = obs.getTemporalCube(integrationTime=self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks,
+                counts = obs.getTemporalCube(integrationTime=self.intTime * self.cfg.flatcal.nchunks,
                                              timeslice=self.intTime, startw=wvl-(delta_list[iwvl]/2.),
                                              stopw=wvl+(delta_list[iwvl]/2.))
             else:
@@ -577,7 +577,7 @@ class LaserCalibrator(FlatCalibrator):
             cps_cube = counts['cube']/self.intTime  # TODO move this division outside of the loop
             cps_cube = np.moveaxis(cps_cube, 2, 0)
             int_times[:, :, iwvl] = self.intTime
-            cps_cube_list[:time, :, :, iwvl] = cps_cube
+            cps_cube_list[:, :, :, iwvl] = cps_cube
         return cps_cube_list, int_times, mask
 
     def get_dark_frame(self):
