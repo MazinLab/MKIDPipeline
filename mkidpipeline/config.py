@@ -380,6 +380,14 @@ class MKIDSpectralReference(object):
         self.data = data
 
     @property
+    def timeranges(self):
+        for o in self.data:
+            yield o.timerange
+        if self.sky_data:
+            for o in self.sky_data:
+                yield o.timerange
+
+    @property
     def reference_name(self):
         return self.data[0].name
 
