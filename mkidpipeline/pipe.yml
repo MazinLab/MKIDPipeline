@@ -10,10 +10,10 @@ beammap: !bmap
 
 paths: !configdict
     dithers: /mnt/data0/baileyji/mec/dithers/
-    data: /mnt/data0/ScienceData/Subaru
+    data: /mnt/data0/ScienceData/Subaru/
     #a processing cache directory, calibrations, configs, etc will be retrieved/stored here
-    database: /mnt/data0/baileyji/mec/database
-    out: /mnt/data0/baileyji/mec/out
+    database: /mnt/data0/steiger/MEC/
+    out: /mnt/data0/baileyji/mec/out/
     tmp: /mnt/data0/baileyji/mec/scratch/  #(optional) can be used to specify a location for data intensive temp files
 
 ncpu: 7
@@ -43,12 +43,16 @@ wavecal: !configdict
     parallel_prefetch: False
 
 spectralcal: !configdict
-  start:
-  duration:
-  photometry_type: "aperture"
-  object_name:
-  plots:
-  save_plots:
+  #Mandatory
+  photometry_type: 'aperture' #'aperture' or 'psf'
+  aperture_radius: 3 #in pixels
+  summary_plot: True
+  collecting_area: .0016 # for Subaru its 219.5 MEC pixels/cm
+  sky_position: (85, 93) #location center reference sky pixel
+  #optional
+  standard_url: #url link to a standard spectrum text file must be in 2 column format where first column is wvl in angstroms and second column is flux in erg/s/cm^2/A
+  object_position: (85, 93) #in pixel coordinates - if blank the code will attempt to locate the object location
+  interpolation: 'linear' #'linear', 'cubic' or 'nearest'
 
 flatcal: !configdict
   #This section provides the parameters specific to the flat calibration function
@@ -56,7 +60,7 @@ flatcal: !configdict
   rate_cutoff: 20000 #Count Rate Cutoff in inverse seconds (number)
   trim_fraction: 0 #Fraction of Chunks to trim (integer)
   #Integration time to break up larger h5 files into in seconds (number) (5 sec recommended)
-  #Flatcal will calculate weights over EXPTIME/INTTIME time chunks and median-average them
+  #Flatcal will calculate weights over EXPTIME/CHUNK_TIME time chunks and median-average them
   chunk_time: 30
   dark_data:
     start_times: 1567945938 #list of all start times of any dark obs you may have
@@ -71,9 +75,9 @@ instrument: !configdict
   #Energy bin width in eV  (number)
   energy_bin_width: 0.01
   #Starting Wavelength in nanometers (number)
-  wvl_start: 700
+  wvl_start: 400
   #Final Wavelength in nanometers (number)
-  wvl_stop: 1500
+  wvl_stop: 1400
   platescale: 10.4 #mas
 
 drizzler: !configdict
