@@ -1168,7 +1168,8 @@ class ObsFile(object):
         effIntTime = np.full((self.nXPix, self.nYPix), integrationTime)
 
         ## Retrieval rate is about 2.27Mphot/s for queries in the 100-200M photon range
-        masterPhotonList = self.query(startt=firstSec if firstSec else None, intt=integrationTime)
+        masterPhotonList = self.query(startt=firstSec if firstSec else None, intt=integrationTime, startw=wvlStart,
+                                      stopw=wvlStop)
 
         # tic=time.time()  #14.39
         # r=self.photonTable.read(field='ResID')
@@ -1220,7 +1221,7 @@ class ObsFile(object):
         toc = time.time()
         xe = xedg[:-1]
         for (x, y), resID in np.ndenumerate(self.beamImage):  # 3% % of the time
-            if not self.flagMask(exclude_flags, (x, y)):
+            if self.flagMask(exclude_flags, (x, y)):
                 continue
             cube[x, y, :] = hist[xe == resID]
         toc2 = time.time()
