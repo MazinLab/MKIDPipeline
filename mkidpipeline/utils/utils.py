@@ -1267,7 +1267,7 @@ def rebin(x, y, binedges):
     return rebinned
 
 
-def gaussianConvolution(x, y, xEnMin=0.005, xEnMax=6.0, xdE=0.001, fluxUnits="lambda", r=8, plots=False):
+def gaussianConvolution(x, y, xEnMin=0.005, xEnMax=6.0, xdE=0.001, fluxUnits="lambda", r=8,nsig_gauss=1, plots=False):
     """
     Seth 2-16-2015
     Given arrays of wavelengths and fluxes (x and y) convolves with gaussian of a given energy resolution (r)
@@ -1316,7 +1316,7 @@ def gaussianConvolution(x, y, xEnMin=0.005, xEnMax=6.0, xdE=0.001, fluxUnits="la
     sig = dE / heV / 2.355 # define sigma as FWHM converted to frequency
     # normalize the Gaussian
     amp = 1.0 / (np.sqrt(2 * np.pi) * sig)
-    gaussX = numpy.arange(-3*sig, 3*sig, xdE/heV)
+    gaussX = numpy.arange(-nsig_gauss*sig, nsig_gauss*sig, xdE/heV)
     gaussY = amp * numpy.exp(-1.0 * (gaussX - offset) ** 2 / (2.0 * (sig ** 2)))
     gaussX = gaussX[1:-1]
     gaussY = gaussY[1:-1]
