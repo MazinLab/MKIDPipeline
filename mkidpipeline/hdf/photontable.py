@@ -1806,7 +1806,6 @@ class ObsFile(object):
         self.modifyHeaderEntry(headerTitle='fltCalFile', headerValue=calsolFile.encode())
         getLogger(__name__).info('Flatcal applied in {:.2f}s'.format(time.time()-tic))
 
-
     def applyLinearitycal(self, dt=0, tau=0):
         tic = time.time()
         if self.info['isLinearityCorrected']:
@@ -1827,6 +1826,9 @@ class ObsFile(object):
         getLogger(__name__).info('Linearitycal applied to {} in {:.2f}s'.format(self.fileName, time.time() - tic))
         self.modifyHeaderEntry(headerTitle='isLinearityCorrected', headerValue=True)
 
+    def applySpectralCal(self):
+        # TODO write this
+        return None
 
     def modifyHeaderEntry(self, headerTitle, headerValue):
         """
