@@ -56,7 +56,7 @@ def linearitycal_apply(o):
         getLogger(__name__).critical('Caught exception during run of {}'.format(o.h5), exc_info=True)
 
 
-def specralcal_apply(o):
+def speccal_apply(o):
     if o.spectralcal is None:
         getLogger(__name__).info('No spectralcal to apply for {}'.format(o.h5))
         return
@@ -66,6 +66,13 @@ def specralcal_apply(o):
         of.file.close()
     except Exception as e:
         getLogger(__name__).critical('Caught exception during run of {}'.format(o.h5), exc_info=True)
+
+
+def batch_apply_speccals(obs, ncpu=None):
+    pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
+    obs = {o.h5: o for o in obs if o.spectralcal is not None}.values()
+    pool.map(speccal_apply, obs)
+    pool.close()
 
 
 def batch_apply_metadata(dataset):
