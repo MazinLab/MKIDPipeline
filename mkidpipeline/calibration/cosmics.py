@@ -8,9 +8,8 @@ creating a histogram of bincounts, and more as needed. This docstring will be ed
 is updated and refined.
 TODO: logging
 TODO: Integrate into pipeline
-TODO: Add statistics to be reported, such as number of CR events, amount of time removed, time intervals removed, etc.
-TODO: When multiple bins are found for a single CR, narrow them down to 1 bin.
-TODO: Add warning that "peak-finding" may take longer and "poisson" with non-WL-cut data cuts more than it probably needs to
+TODO: Create performance report, such as number of CR events, amount of time removed, time intervals removed, etc.
+TODO: Remove CR photons from table
 """
 
 import numpy as np
@@ -29,6 +28,7 @@ DARKNESS_LASER_CAL_WAVELENGTH_RANGE = [808, 1310]
 BF_LASER_CAL_WAVELENGTH_RANGE = DARKNESS_LASER_CAL_WAVELENGTH_RANGE
 
 log = pipelinelog.getLogger('mkidpipeline.calibration.cosmiccal', setup=False)
+
 
 def setup_logging(tologfile='', toconsole=True, time_stamp=None):
     """
@@ -91,7 +91,15 @@ class CosmicCleaner(object):
         # information that is needed to clean the ObsFile cosmic rays and remove the
         # offending photons.
 
+        if not self.wavelengthCut:
+            log.warning("With the increased number of photons, cosmic ray removal may take significantly longer!")
+            if self.method.lower() == "poisson":
+                log.warning("The poisson method is not optimized for non-wavelength "
+                            "cut data and may remove more time than desired!")
+
     def run(self):
+        start = datetime.utcnow().timestamp()
+        log.debug(f"Cosmic ray cleaning of {self.obs.fileName} began at {start}")
         self.get_photon_list()
         self.make_timestream()
         self.make_count_histogram()
@@ -99,6 +107,9 @@ class CosmicCleaner(object):
         self.find_cosmic_times()
         self.find_cutout_times()
         self.trim_timestream()
+        end = datetime.utcnow().timestamp()
+        log.debug(f"Cosmic ray cleaning of {self.obs.fileName} finished at {end}")
+        log.info(f"Cosmic ray cleaning of {self.obs.fileName}took {end - start} s")
 
     def get_photon_list(self):
         """
@@ -249,6 +260,7 @@ class CosmicCleaner(object):
 
     def find_cutout_times(self):
         """
+        Generates the timestamps in microseconds to be removed from the obsFile. Removes doubles for clarity.
         """
         cutouttimes = np.array([np.arange(i - self.removalRange[0],
                                           i + self.removalRange[1], 1) for i in self.cosmictimes]).flatten()
@@ -293,3 +305,7 @@ class CosmicCleaner(object):
                     writer.grab_frame()
         del fig, im
         return frames
+
+#
+# if __name__ == '__main__':
+#     setup_logging(tologfile='', toconsole=True, timestamp=int(datetime.utcnow().timestamp()))
