@@ -50,19 +50,19 @@ def linearitycal_apply(o):
     try:
         of = mkidpipeline.hdf.photontable.ObsFile(o, mode='a')
         cfg = mkidpipeline.config.config
-        of.applyLinearitycal(dt=cfg.linearity.dt, tau=cfg.instrument.deadtime)
+        of.applyLinearitycal(dt=cfg.linearitycal.dt, tau=cfg.instrument.deadtime*1*10**6)
         of.file.close()
     except Exception as e:
-        getLogger(__name__).critical('Caught exception during run of {}'.format(o.h5), exc_info=True)
+        getLogger(__name__).critical('Caught exception during run of {}'.format(o), exc_info=True)
 
 
 def speccal_apply(o):
-    if o.spectralcal is None:
-        getLogger(__name__).info('No spectralcal to apply for {}'.format(o.h5))
+    if o.speccal is None:
+        getLogger(__name__).info('No spectrophotometric calibration to apply for {}'.format(o.h5))
         return
     try:
         of = mkidpipeline.hdf.photontable.ObsFile(o.h5, mode='a')
-        of.applySpectralCal(spectralcal.load_solution(o.spectralcal.path))
+        of.applySpectralCal(spectralcal.load_solution(o.speccal.path))
         of.file.close()
     except Exception as e:
         getLogger(__name__).critical('Caught exception during run of {}'.format(o.h5), exc_info=True)
@@ -70,7 +70,7 @@ def speccal_apply(o):
 
 def batch_apply_speccals(obs, ncpu=None):
     pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
-    obs = {o.h5: o for o in obs if o.spectralcal is not None}.values()
+    obs = {o.h5: o for o in obs if o.speccal is not None}.values()
     pool.map(speccal_apply, obs)
     pool.close()
 

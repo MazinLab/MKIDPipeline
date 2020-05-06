@@ -1784,7 +1784,7 @@ class ObsFile(object):
                     self.photonTable.modify_coordinates(indices, rows)
                     getLogger(__name__).debug('Flat weights updated in {:.2f}s'.format(time.time() - tic2))
 
-                if save_plots:  #TODO:  plotting is inefficient, speed up, turn into single pixel plotting fxn maybe
+                if save_plots:  # TODO:plotting is inefficient, speed up, turn into single pixel plotting fxn maybe
                     if iPlot % nPlotsPerPage == 0:
                         fig = plt.figure(figsize=(10, 10), dpi=100)
                     ax = fig.add_subplot(nPlotsPerCol, nPlotsPerRow, iPlot % nPlotsPerPage + 1)
@@ -1806,7 +1806,7 @@ class ObsFile(object):
         self.modifyHeaderEntry(headerTitle='fltCalFile', headerValue=calsolFile.encode())
         getLogger(__name__).info('Flatcal applied in {:.2f}s'.format(time.time()-tic))
 
-    def applyLinearitycal(self, dt=0, tau=0):
+    def applyLinearitycal(self, dt=1000, tau=0.000001):
         tic = time.time()
         if self.info['isLinearityCorrected']:
             getLogger(__name__).info("H5 {} is already linearity calibrated".format(self.fullFileName))
@@ -1826,9 +1826,32 @@ class ObsFile(object):
         getLogger(__name__).info('Linearitycal applied to {} in {:.2f}s'.format(self.fileName, time.time() - tic))
         self.modifyHeaderEntry(headerTitle='isLinearityCorrected', headerValue=True)
 
-    def applySpectralCal(self):
-        # TODO write this
-        return None
+    def applySpectralCal(self, response_curve):
+        """
+
+        :param response_curve: numpy array with the first element being the wavelenght in angstroms and the second
+        element as the flux values of the MEC spectrum divided by the flux values of the standard spectrum
+        :param startw: start wavelength (nm)
+        :param stopw: stop wavelength (nm)
+        :return:
+        """
+        if self.info['isFluxCalibrated']:
+            getLogger(__name__).info("H5 {} is already Flux calibrated".format(self.fullFileName))
+            return
+        # dont include nan or inf values
+        ind = np.where((response_curve.curve[1] != np.inf) & (~np.isnan(response_curve.curve[1])))
+        getLogger(__name__).info('Applying {} to {}'.format(response_curve, self.fullFileName))
+        coeffs = np.polyfit(response_curve.curve[0][ind]/10.0, response_curve.curve[1][ind], 3)
+        func = np.poly1d(coeffs)
+        tic = time.time()
+        for (row, column), resID in np.ndenumerate(self.beamImage):
+            if self.flagMask(pixelflags.PROBLEM_FLAGS, (row, column)) and any(pixelflags.PROBLEM_FLAGS):
+                continue
+            photon_list = self.getPixelPhotonList(xCoord=row, yCoord=column)
+            weight_arr = func(photon_list['Wavelength'])
+            self.applySpecWeight(resID, weight_arr)
+        self.modifyHeaderEntry(headerTitle='isFluxCalibrated', headerValue=True)
+        getLogger(__name__).info('Spectrophotometric Calibration applied in {:.2f}s'.format(time.time() - tic))
 
     def modifyHeaderEntry(self, headerTitle, headerValue):
         """
