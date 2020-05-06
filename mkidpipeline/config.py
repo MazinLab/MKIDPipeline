@@ -183,7 +183,8 @@ class MKIDObservation(object):
     """requires keys name, wavecal, flatcal, wcscal, and all the things from ob"""
     yaml_tag = u'!sob'
     #TODO make subclass of MKIDTimerange, keep in sync for now
-    def __init__(self, name, start, duration=None, stop=None, wavecal=None, flatcal=None, wcscal=None, _common=None):
+    def __init__(self, name, start, duration=None, stop=None, wavecal=None, flatcal=None, speccal=None, wcscal=None,
+                 _common=None):
 
         if _common is not None:
             self.__dict__.update(_common)
@@ -206,6 +207,7 @@ class MKIDObservation(object):
         self.wavecal = wavecal
         self.flatcal = flatcal
         self.wcscal = wcscal
+        self.speccal = speccal
 
         self.name = str(name)
 
@@ -238,7 +240,8 @@ class MKIDObservation(object):
         stop = d.pop('stop', None)
         duration = d.pop('duration', None)
         return cls(name, start, duration=duration, stop=stop, wavecal=d.pop('wavecal', None),
-                   flatcal=d.pop('flatcal', None), wcscal=d.pop('wcscal', None), _common=d)
+                   flatcal=d.pop('flatcal', None), wcscal=d.pop('wcscal', None), speccal=d.pop('speccal', None),
+                   _common=d)
 
     @property
     def timerange(self):
@@ -254,7 +257,7 @@ class MKIDObservation(object):
 
     @property
     def metadata(self):
-        exclude = ('wavecal', 'flatcal', 'wcscal', 'start', 'stop')
+        exclude = ('wavecal', 'flatcal', 'wcscal', 'speccal', 'start', 'stop')
         d = {k: v for k, v in self.__dict__.items() if k not in exclude}
         try:
             wc = wavecal_id(self.wavecal.id)
@@ -264,7 +267,11 @@ class MKIDObservation(object):
             fc = self.flatcal.id
         except AttributeError:
             fc = 'None'
-        d2 = dict(wavecal=wc, flatcal=fc, platescale=self.wcscal.platescale,
+        try:
+            sc = spectralcal_id(self.speccal.id)
+        except AttributeError:
+            sc = 'None'
+        d2 = dict(wavecal=wc, flatcal=fc, speccal=sc, platescale=self.wcscal.platescale,
                   dither_ref=self.wcscal.dither_ref, dither_home=self.wcscal.dither_home,
                   device_orientation=self.wcscal.device_orientation)
         d.update(d2)
@@ -367,17 +374,20 @@ class MKIDFlatdataDescription(object):
 
 
 class MKIDSpectralReference(object):
-    '''
-    requires name, and data keys
-    '''
+    """
+    requires name, data, wavecal, and flatcal keys
+    """
     yaml_tag = u'!sc'
 
-    def __init__(self, name, data, _common=None):
+    def __init__(self, name, data, wavecal, flatcal, wcscal, _common=None):
         if _common is not None:
             self.__dict__.update(_common)
 
         self.name = name
         self.data = data
+        self.wavecal = wavecal
+        self.flatcal = flatcal
+        self.wcscal = wcscal
 
     @property
     def timeranges(self):
@@ -400,6 +410,16 @@ class MKIDSpectralReference(object):
     @property
     def path(self):
         return os.path.join(config.paths.database, spectralcal_id(self.id) + '.npz')
+
+    @classmethod
+    def from_yaml(cls, loader, node):
+        d = dict(loader.construct_pairs(node))  #WTH this one line took half a day to get right
+        name = d.pop('name')
+        data = d.pop('data', None)
+        wavecal = d.pop('wavecal', None)
+        flatcal = d.pop('flatcal', None)
+        wcscal = d.pop('wcscal', None)
+        return cls(name, data=data, wavecal=wavecal, flatcal=flatcal, wcscal=wcscal, _common=d)
 
     def __str__(self):
         return '{}'.format(self.name)
@@ -471,7 +491,7 @@ def parseLegacyDitherLog(file):
 class MKIDDitheredObservation(object):
     yaml_tag = '!dither'
 
-    def __init__(self, name, wavecal, flatcal, wcscal, obs=None, byLegacyFile=None, byTimestamp=None,
+    def __init__(self, name, wavecal, flatcal, wcscal, speccal, obs=None, byLegacyFile=None, byTimestamp=None,
                  use=None, _common=None):
         """
         Obs, byLegacy, or byTimestamp must be specified. byTimestamp is normal.
@@ -489,6 +509,7 @@ class MKIDDitheredObservation(object):
         self.wavecal = wavecal
         self.flatcal = flatcal
         self.wcscal = wcscal
+        self.speccal = speccal
 
         if obs is not None:
             self.obs=obs
@@ -519,21 +540,21 @@ class MKIDDitheredObservation(object):
             _common.pop('dither_pos', None)
             _common['dither_pos'] = p
             self.obs.append(MKIDObservation(name, b, stop=e, wavecal=wavecal, flatcal=flatcal, wcscal=wcscal,
-                                            _common=_common))
+                                            speccal=speccal, _common=_common))
 
     @classmethod
     def from_yaml(cls, loader, node):
         d = dict(loader.construct_pairs(node))
         if 'approximate_time' in d:
-            d.pop('file',None)
-            return cls(d.pop('name'), d.pop('wavecal', None), d.pop('flatcal', None), d.pop('wcscal'),
-                       byTimestamp=d.pop('approximate_time'), use=d.pop('use', None), _common=d)
+            d.pop('file', None)
+            return cls(d.pop('name'), d.pop('wavecal', None), d.pop('flatcal', None),  d.pop('wcscal'),
+                       d.pop('speccal', None), byTimestamp=d.pop('approximate_time'), use=d.pop('use', None), _common=d)
 
         if not os.path.isfile(d['file']):
             getLogger(__name__).info('Treating {} as relative dither path.'.format(d['file']))
             d['file'] = os.path.join(config.paths.dithers, d['file'])
-        return cls(d.pop('name'), d.pop('wavecal', None), d.pop('flatcal', None), d.pop('wcscal'), byLegacyFile=d.pop('file'),
-                   use=d.pop('use', None), _common=d)
+        return cls(d.pop('name'), d.pop('wavecal', None), d.pop('flatcal', None), d.pop('wcscal'),
+                   d.pop('speccal', None), byLegacyFile=d.pop('file'), use=d.pop('use', None), _common=d)
 
     @property
     def timeranges(self):
@@ -559,16 +580,33 @@ class MKIDObservingDataset(object):
         for o in self.all_observations:
             o.wavecal = wcdict.get(o.wavecal, o.wavecal)
             o.speccal = scdict.get(o.speccal, o.speccal)
+            o.flatcal = fcdict.get(o.flatcal, o.flatcal)
 
         for o in self.science_observations:
             o.flatcal = fcdict.get(o.flatcal, o.flatcal)
             o.wcscal = wcsdict.get(o.wcscal, o.wcscal)
+            o.speccal = scdict.get(o.speccal, o.speccal)
 
         for fc in self.flatcals:
             try:
                 fc.wavecal = wcdict.get(fc.wavecal, fc.wavecal)
             except AttributeError:
                 pass
+
+        for sc in self.spectralcals:
+            for d in sc.data:
+                try:
+                    d.wavecal = wcdict.get(d.wavecal, d.wavecal)
+                except AttributeError:
+                    pass
+                try:
+                    d.flatcal = fcdict.get(d.flatcal, d.flatcal)
+                except AttributeError:
+                    pass
+                try:
+                    d.wcscal = wcsdict.get(d.wcscal, d.wcscal)
+                except AttributeError:
+                    pass
 
         for d in self.dithers:
             try:
@@ -627,7 +665,8 @@ class MKIDObservingDataset(object):
         return ([o for o in self.meta if isinstance(o, MKIDObservation)] +
                 [o for d in self.meta if isinstance(d, MKIDDitheredObservation) for o in d.obs] +
                 [d.ob for d in self.meta if isinstance(d, MKIDFlatdataDescription) and d.ob is not None] +
-                [d.ob for d in self.meta if isinstance(d, MKIDWCSCalDescription) and d.ob is not None]) #TODO figure out how to automatically wavecal the laser exposures
+                [d.ob for d in self.meta if isinstance(d, MKIDWCSCalDescription) and d.ob is not None] +
+                [d.data[0] for d in self.meta if isinstance(d, MKIDSpectralReference)]) #TODO figure out how to automatically wavecal the laser exposures
 
     @property
     def science_observations(self):
