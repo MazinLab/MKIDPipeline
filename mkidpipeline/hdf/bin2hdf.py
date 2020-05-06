@@ -143,6 +143,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
     headerContents = headerTable.row
     headerContents['isWvlCalibrated'] = False
     headerContents['isFlatCalibrated'] = False
+    headerContents['isFluxCalibrated'] = False
     headerContents['isSpecCalibrated'] = False
     headerContents['isLinearityCorrected'] = False
     headerContents['isPhaseNoiseCorrected'] = False
