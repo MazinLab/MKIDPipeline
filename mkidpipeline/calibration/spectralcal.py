@@ -295,6 +295,8 @@ class SpectralCalibrator(object):
             self.load_standard_spectrum()
             getLogger(__name__).info("Calculating Spectrophotometric Response Curve")
             self.calculate_response_curve()
+            self.solution = ResponseCurve(configuration=self.cfg, curve=self.curve,
+                                          solution_name=self.solution_name)
             if save:
                 self.solution.save(save_name=self.solution_name if isinstance(self.solution_name, str) else None)
             if plot or (plot is None and self.cfg.summary_plot):
@@ -394,9 +396,8 @@ class SpectralCalibrator(object):
 
     def calculate_response_curve(self):
         """
-        Divide the MEC Spectrum by the standard spectrum
+        Divide the MEC Spectrum by the rebinned and gaussian conivlved standard spectrum
         """
-        #TODO is this how we want to store the solution?
         curve_x = self.rebin_std_wvls
         curve_y = self.flux_spectrum/self.rebin_std_flux
         self.curve = np.vstack((curve_x, curve_y))
@@ -415,7 +416,7 @@ class SpectralCalibrator(object):
         axes_list[1].step(self.bb_wvls, self.bb_flux, where='mid', label='BB fit')
         axes_list[1].step(self.conv_wvls, self.conv_flux, where='mid', label='Convolved Spectrum')
         axes_list[1].set_xlabel('Wavelength (A)')
-        axes_list[1].set_ylabel('Flux (counts/s/cm^2)')
+        axes_list[1].set_ylabel('Flux (erg/s/cm^2)')
         axes_list[1].legend(loc='upper right', prop={'size': 6})
 
         axes_list[2].step(self.rebin_std_wvls, self.rebin_std_flux, where='mid',
@@ -442,7 +443,7 @@ class ResponseCurve(object):
         self.cfg = configuration
         # if we've specified a file load it without overloading previously set arguments
         if self._file_path is not None:
-            self.load(self._file_path, overload=False)
+            self.load(self._file_path)
         # if not finish the init
         else:
             self.name = solution_name  # use the default or specified name for saving
@@ -456,23 +457,13 @@ class ResponseCurve(object):
             save_path = os.path.join(self.cfg.save_directory, save_name)
         if not save_path.endswith('.npz'):
             save_path += '.npz'
-        # make sure the configuration is pickleable if created from __main__
-        if self.cfg.__class__.__module__ == "__main__":
-            from mkidpipeline.calibration.spectralcal import Configuration
-            self.cfg = Configuration(self.cfg.configuration_path)
-
         getLogger(__name__).info("Saving spectrophotometric response curve to {}".format(save_path))
         np.savez(save_path, curve=self.curve, configuration=self.cfg)
         self._file_path = save_path  # new file_path for the solution
 
-    def load(self, file_path, overload=True, file_mode='c'):
+    def load(self, file_path, file_mode='c'):
         """
-        Load a solution from a file, optionally overloading previously defined attributes.
-        The data will not be pulled from the npz file until first access of the data which
-        can take a while.
-
-        file_mode defaults to copy on write. For valid options see
-        https://docs.scipy.org/doc/numpy/reference/generated/numpy.memmap.html#numpy.memmap
+        loads in a response curve from a saved npz file and sets rleevant attributes
         """
         getLogger(__name__).info("Loading solution from {}".format(file_path))
         keys = ('curve', 'configuration')
@@ -481,12 +472,12 @@ class ResponseCurve(object):
             if key not in list(npz_file.keys()):
                 raise AttributeError('{} missing from {}, solution malformed'.format(key, file_path))
         self.npz = npz_file
-        if overload:  # properties grab from self.npz if set to none
-            for attr in keys:
-                setattr(self, attr, None)
+        self.curve = self.npz['curve']
+        self.cfg = self.npz['configuration']
         self._file_path = file_path  # new file_path for the solution
         self.name = os.path.splitext(os.path.basename(file_path))[0]  # new name for saving
         getLogger(__name__).info("Complete")
+
 
 def name_to_ESO_extension(object_name):
     """
@@ -586,7 +577,7 @@ def psf_photometry(img, sigma_psf, x0=None, y0=None):
     :param img: 2D array on which to perform photometry
     :param sigma_psf: standard deviation of the fitted PSF
     :param x0: x centroid location to fit PSF
-    :param y0: ycentroid location to fit PSF, if x0 and y0 are None will find the brightest source in img and fit that
+    :param y0: y centroid location to fit PSF, if x0 and y0 are None will find the brightest source in img and fit that
     :return: x0, y0, and total flux
     """
     image = ndimage.gaussian_filter(img, sigma=3, order=0)
@@ -726,7 +717,7 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
             scfg.register('exposure_times', [x.duration for x in sd.data], update=True)
             scfg.register('ra', [x.ra for x in sd.data], update=True)
             scfg.register('dec', [x.dec for x in sd.data], update=True)
-            scfg.register('object_name', [x.name for x in sd.data], update=True)
+            scfg.register('object_name', [x.target for x in sd.data], update=True)
             if ncpu is not None:
                 scfg.update('ncpu', ncpu)
             cal = SpectralCalibrator(scfg, solution_name=sf)
