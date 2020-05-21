@@ -171,9 +171,15 @@ class CosmicCleaner(object):
         data visualization as well as create the Poisson PDF to determine the cosmic ray threshold value.
         """
         unique, counts = np.unique(self.arraycounts, return_counts=True)
-        self.countsperbin = unique  # This is the x-axis of the histogram. It will be filled with all of the values
+        unique_full = np.arange(np.min(unique), np.max(unique)+1, 1)
+        counts_full = np.zeros(len(unique_full))
+        for i,j in enumerate(unique_full):
+            if j in unique:
+                m = unique == j
+                counts_full[i] = counts[m]
+        self.countsperbin = unique_full  # This is the x-axis of the histogram. It will be filled with all of the values
         # that occur in the self.arraycounts attribute.
-        self.countoccurrences = counts  # The y-axis of the histogram. It will be filled with the correspongding number
+        self.countoccurrences = counts_full  # The y-axis of the histogram. It will be filled with the correspongding number
         # of times that each value in self.countsperbin occurs.
         self.countshistogram = np.array((self.countsperbin, self.countoccurrences))
 
@@ -190,7 +196,7 @@ class CosmicCleaner(object):
         # data if there is a low probability of no counts over the array.
         mask = pdf < 1 / np.sum(self.arraycounts)  # Creates a mask where the probability of that number of countsperbin
         # happening is less than 1-in-all the counts during the observation.
-        pdf[mask] = 1 / np.sum(self.arraycounts)  # Applies the 'low-probability mask' to the PDF for (1) plotting and
+        pdf[mask] = 0  # Applies the 'low-probability mask' to the PDF for (1) plotting and
         # (2) helping determine where the threshold for cosmic ray cuts should be made.
         self.pdf = pdf
 
