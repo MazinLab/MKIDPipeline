@@ -699,24 +699,23 @@ class Calibrator(object):
             # update bin_width
             bin_width = self.cfg.bin_width * (2 ** update)
             # define bin edges being careful to start at the threshold cut
-            num = (max_phase - (min_phase - bin_width)) / bin_width
+            num = int((max_phase - (min_phase - bin_width)) / bin_width)
             bin_edges = np.linspace(max_phase, min_phase - bin_width, num=num+1, endpoint=True)[::-1]
             # make histogram
             counts, x0 = np.histogram(phase_list, bins=bin_edges)
             # find background counts and subtract them off
             centers = (x0[:-1] + x0[1:]) / 2.0
             # update counters
-            max_count = np.max(counts)
+            max_count = counts.max()
             update += 1
             if isinstance(bkgd_phase_list, np.ndarray): #TODO might not be the best way to do this
                 bkgd_counts, bkgd_x0 = np.histogram(bkgd_phase_list, bins=bin_edges)
                 counts -= bkgd_counts
         # gaussian mle for the variance of poisson distributed data
         # https://doi.org/10.1016/S0168-9002(00)00756-7
+        variance = np.sqrt(counts ** 2 + 0.25) - 0.5
         if isinstance(bkgd_phase_list, np.ndarray):
-            variance = np.sqrt(counts**2 + 0.25) - 0.5 + np.sqrt(bkgd_counts**2 + 0.25) - 0.5
-        else:
-            variance = np.sqrt(counts ** 2 + 0.25) - 0.5
+            variance += np.sqrt(bkgd_counts**2 + 0.25) - 0.5
         return centers, counts, variance
 
     def _update_histogram_model(self, wavelength, histogram_model_class, pixel):
