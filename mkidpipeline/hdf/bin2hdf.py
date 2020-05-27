@@ -144,7 +144,6 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
     headerContents['isWvlCalibrated'] = False
     headerContents['isFlatCalibrated'] = False
     headerContents['isFluxCalibrated'] = False
-    headerContents['isSpecCalibrated'] = False
     headerContents['isLinearityCorrected'] = False
     headerContents['isPhaseNoiseCorrected'] = False
     headerContents['isPhotonTailCorrected'] = False
@@ -337,7 +336,7 @@ def _add_header(cfg, wvlBinStart=700, wvlBinEnd=1500, energyBinWidth=0.1):
     headerContents = headerTable.row
     headerContents['isWvlCalibrated'] = False
     headerContents['isFlatCalibrated'] = False
-    headerContents['isSpecCalibrated'] = False
+    headerContents['isFluxCalibrated'] = False
     headerContents['isLinearityCorrected'] = False
     headerContents['isPhaseNoiseCorrected'] = False
     headerContents['isPhotonTailCorrected'] = False

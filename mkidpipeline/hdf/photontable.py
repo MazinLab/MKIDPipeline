@@ -1430,7 +1430,7 @@ class ObsFile(object):
         # beammapFile = StringCol(255)
         # isWvlCalibrated = BoolCol()
         # isFlatCalibrated = BoolCol()
-        # isSpecCalibrated = BoolCol()
+        # isFluxalibrated = BoolCol()
         # isLinearityCorrected = BoolCol()
         # isPhaseNoiseCorrected = BoolCol()
         # isPhotonTailCorrected = BoolCol()
@@ -1449,7 +1449,7 @@ class ObsFile(object):
         # header['NWEIGHT'] = (applyTPFWeight and self.info['isPhaseNoiseCorrected'], 'Noise weight corrected')
         # header['LWEIGHT'] = (applyWeight and self.info['isLinearityCorrected'], 'Linearity corrected')
         # header['FWEIGHT'] = (applyWeight and self.info['isFlatCalibrated'], 'Flatcal corrected')
-        # header['SWEIGHT'] = (applyWeight and self.info['isSpecCalibrated'], 'QE corrected')
+        # header['SWEIGHT'] = (applyWeight and self.info['isFluxCalibrated'], 'QE corrected')
 
         if not omd:
             return None
