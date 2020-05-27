@@ -20,7 +20,7 @@ from mkidcore.config import yaml, yaml_object
 import mkidcore.utils
 from mkidcore.objects import Beammap
 
-from mkidpipeline.hdf.photontable import ObsFile
+from mkidpipeline.hdf.photontable import Photontable
 import mkidpipeline.config
 
 _datadircache = {}
@@ -434,7 +434,7 @@ class HDFBuilder(object):
                 done = False
             else:
                 try:
-                    done = ObsFile(self.cfg.h5file).duration >= self.cfg.inttime
+                    done = Photontable(self.cfg.h5file).duration >= self.cfg.inttime
                     if not done:
                         getLogger(__name__).info(('{} does not contain full duration, '
                                                   'will remove and rebuild').format(self.cfg.h5file))

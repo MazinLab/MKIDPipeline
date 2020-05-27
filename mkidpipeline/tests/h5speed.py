@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 
 import mkidpipeline as pipe
-from mkidpipeline.hdf.photontable import ObsFile
+from mkidpipeline.hdf.photontable import Photontable
 import mkidpipeline.hdf.bin2hdf as bin2hdf
 from mkidcore.corelog import getLogger
 
@@ -103,7 +103,7 @@ def test_settings(cfg, settings, queries, do_build=True, do_query=True, cleanup=
         b.run()
         toc = time.time()
         results[b.cfg.h5file] = dict(creation=toc - tic)
-        of = ObsFile(b.cfg.h5file)
+        of = Photontable(b.cfg.h5file)
         results[b.cfg.h5file].update(dict(size=os.stat(b.cfg.h5file).st_size/1024**2, nphotons=len(of.photonTable),
                                           file_nfo=str(of), table_nfo=repr(of.photonTable)))
         del of
@@ -122,7 +122,7 @@ def test_settings(cfg, settings, queries, do_build=True, do_query=True, cleanup=
                 continue
             if str(q) in results[key]:
                 continue
-            of = ObsFile(b.cfg.h5file)
+            of = Photontable(b.cfg.h5file)
             tic = time.time()
             result = of.query(**q)
             toc = time.time()
@@ -195,7 +195,7 @@ class SpeedResults:
                 i = np.array([r.queryt for r in res]).argmin()
                 fast_file = res[i].file
                 print('This might take a while: {:.0f} s'.format(res[i].queryt))
-                of = ObsFile(fast_file)
+                of = Photontable(fast_file)
                 cnt_img = of.getPixelCountImage(firstSec=30, integrationTime=5)['image']
                 cnt_img *= of.info['expTime']/5
                 del of
@@ -553,7 +553,7 @@ def cachetest():
 #
 #
 #
-# for f in [ObsFile(uli9timefile)]:
+# for f in [Photontable(uli9timefile)]:
 #     f.query(resid=resid, startt=firstSec, intt=intTime, startw=wvlStart, stopw=wvlStop)
 #     f.query(resid=resid)
 #     f.query(resid=resids)
@@ -561,9 +561,9 @@ def cachetest():
 #
 #
 # files = [binfile, csifile, ulitimefile, ulitimenoindexfile, ulinoindexfile, ulifile, csitimefile]
-# of = [ObsFile(f) for f in files]
+# of = [Photontable(f) for f in files]
 # for f in of:
-#     # f=ObsFile(fi)
+#     # f=Photontable(fi)
 #     f.query(resid=resid, startt=firstSec, intt=intTime, startw=wvlStart, stopw=wvlStop)
 #     # f.file.close()
 # # 2019-01-23 09:33:44,465 DEBUG Retrieved 148 rows in 1.731s using indices ('Wavelength', 'Time', 'ResID') for query (ResID==91416)&(((Time >= startt) & (Time < stopt))&((Wavelength >= startw) & (Wavelength < stopw))) (pid=29222)
@@ -575,7 +575,7 @@ def cachetest():
 # # 2019-01-23 10:44:45,547 DEBUG Retrieved 148 rows in 1.350s using indices ('Time', 'ResID', 'Wavelength') for query (ResID==91416)&(((Time >= startt) & (Time < stopt))&((Wavelength >= startw) & (Wavelength < stopw))) (pid=31119)
 #
 # for f in of:
-#     # f = ObsFile(fi)
+#     # f = Photontable(fi)
 #     f.query(resid=resid)
 #     # f.file.close()
 # # 2019-01-23 09:33:54,056 DEBUG Retrieved 47412 rows in 0.163s using indices ('ResID',) for query (ResID==91416) (pid=29222)
@@ -587,7 +587,7 @@ def cachetest():
 # # 2019-01-23 10:44:51,968 DEBUG Retrieved 47783 rows in 6.420s using indices ('ResID',) for query (ResID==91416) (pid=31119)
 #
 # for fi in files:
-#     f = ObsFile(fi)
+#     f = Photontable(fi)
 #     f.query(resid=resids)
 #     f.file.close()
 # # 2019-01-23 09:34:06,995 DEBUG Retrieved 432866 rows in 1.473s using indices ('ResID',) for query ((ResID==91416)|(ResID==101119)|(ResID==90116)|(ResID==80881)|(ResID==81572)|(ResID==101471)|(ResID==90267)|(ResID==10603)|(ResID==80867)|(ResID==80180)) (pid=29222)
@@ -599,7 +599,7 @@ def cachetest():
 # # 2019-01-23 10:44:59,295 DEBUG Retrieved 436192 rows in 7.327s using indices ('ResID',) for query ((ResID==91416)|(ResID==101119)|(ResID==90116)|(ResID==80881)|(ResID==81572)|(ResID==101471)|(ResID==90267)|(ResID==10603)|(ResID==80867)|(ResID==80180)) (pid=31119)
 #
 # for fi in files:
-#     f = ObsFile(fi)
+#     f = Photontable(fi)
 #     f.query(startt=0, intt=10)
 #     f.file.close()
 # # 2019-01-23 09:36:05,951 DEBUG Retrieved 20543781 rows in 50.942s using indices ('Time',) for query ((Time >= startt) & (Time < stopt)) (pid=29222)

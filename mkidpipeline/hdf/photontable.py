@@ -4,7 +4,7 @@ Author: Matt Strader        Date: August 19, 2012
 Modified 2017 for Darkness/MEC
 Authors: Seth Meeker, Neelay Fruitwala, Alex Walter
 
-The class ObsFile is an interface to observation files.  It provides methods 
+The class Photontable is an interface to observation files.  It provides methods
 for typical ways of accessing photon list observation data.  It can also load 
 and apply wavelength and flat calibration.  
 
@@ -171,7 +171,7 @@ class SharedTable(object):
 def load_shareable_photonlist(file):
     #TODO Add arguments to pass through a query
     tic = time.time()
-    f = ObsFile(file)
+    f = Photontable(file)
     table = SharedTable(f.photonTable.shape)
     f.photonTable.read(out=table.data)
     ram = table.data.size*table.data.itemsize/1024/1024/1024.0
@@ -192,7 +192,7 @@ class SharedPhotonList(object):
             getLogger(__name__).debug("Deleted existing shared memory store {}".format(self._name))
         except FileNotFoundError:
             pass
-        f = ObsFile(file)
+        f = Photontable(file)
         tic = time.time()
         self.data = np.frombuffer(SharedArray.create("shm://{}".format(self._name), f.photonTable.shape,
                                                      dtype=PhotonNumpyType), dtype=PhotonNumpyType)
@@ -220,7 +220,7 @@ class SharedPhotonList(object):
             SharedArray.delete("shm://{}".format(self._name))
 
 
-class ObsFile(object):
+class Photontable(object):
     h = astropy.constants.h.to('eV s').value
     c = astropy.constants.c.to('m/s').value
     nCalCoeffs = 3
@@ -228,7 +228,7 @@ class ObsFile(object):
 
     def __init__(self, fileName, mode='read', verbose=False):
         """
-        Create ObsFile object and load in specified HDF5 file.
+        Create Photontable object and load in specified HDF5 file.
 
         Parameters
         ----------
@@ -241,12 +241,12 @@ class ObsFile(object):
                 Prints debug messages if True
         Returns
         -------
-            ObsFile instance
+            Photontable instance
                 
         """
         self.mode = 'write' if mode.lower() in ('write', 'w', 'a', 'append') else 'read'
         self.verbose = verbose
-        self.tickDuration = ObsFile.tickDuration
+        self.tickDuration = Photontable.tickDuration
         self.noResIDFlag = 2 ** 32 - 1  # All pixels should have a unique resID. But if for some reason it doesn't, it'll have this resID
         self.wvlLowerLimit = None
         self.wvlUpperLimit = None
@@ -279,7 +279,7 @@ class ObsFile(object):
             pass
 
     def __str__(self):
-        return 'ObsFile: '+self.fullFileName
+        return 'Photontable: '+self.fullFileName
 
     def enablewrite(self):
         """USE CARE IN A THREADED ENVIRONMENT"""
@@ -313,8 +313,8 @@ class ObsFile(object):
         self.info = self.header[0]  # header is a table with one row
 
         # get important cal params
-        self.defaultWvlBins = ObsFile.makeWvlBins(self.info['energyBinWidth'], self.info['wvlBinStart'],
-                                                  self.info['wvlBinEnd'])
+        self.defaultWvlBins = Photontable.makeWvlBins(self.info['energyBinWidth'], self.info['wvlBinStart'],
+                                                      self.info['wvlBinEnd'])
         # get the beam image.
         self.beamImage = self.file.get_node('/BeamMap/Map').read()
         self._flagArray = self.file.get_node('/BeamMap/Flag')  #The absence of .read() here is correct
@@ -746,8 +746,8 @@ class ObsFile(object):
             If None, includes all wavelengths greater than wvlStart. If file is not wavelength calibrated, this parameter
             specifies the range of desired phase heights.
         forceRawPhase: bool
-            If the ObsFile is not wavelength calibrated this flag does nothing.
-            If the ObsFile is wavelength calibrated (ObsFile.info['isWvlCalibrated'] = True) then:
+            If the Photontable is not wavelength calibrated this flag does nothing.
+            If the Photontable is wavelength calibrated (Photontable.info['isWvlCalibrated'] = True) then:
              - forceRawPhase=True will return all the photons in the list (might be phase heights instead of wavelengths)
              - forceRawPhase=False is guaranteed to only return properly wavelength calibrated photons in the photon list
 
@@ -1059,7 +1059,7 @@ class ObsFile(object):
                 spectrum, wvlBinEdges = np.histogram(wvlList, bins=wvlBinEdges, weights=weights)
             elif energyBinWidth is not None:
                 assert wvlBinWidth is None, 'Cannot specify both wavelength and energy bin widths!'
-                wvlBinEdges = ObsFile.makeWvlBins(energyBinWidth=energyBinWidth, wvlStart=wvlStart, wvlStop=wvlStop)
+                wvlBinEdges = Photontable.makeWvlBins(energyBinWidth=energyBinWidth, wvlStart=wvlStart, wvlStop=wvlStop)
                 spectrum, wvlBinEdges = np.histogram(wvlList, bins=wvlBinEdges, weights=weights)
             elif wvlBinWidth is not None:
                 nWvlBins = int((wvlStop - wvlStart) / wvlBinWidth)
@@ -1315,7 +1315,7 @@ class ObsFile(object):
     def applyWaveCal(self, solution):
         """
         loads the wavelength cal coefficients from a given file and applies them to the
-        wavelengths table for each pixel. ObsFile must be loaded in write mode. Dont call updateWavelengths !!!
+        wavelengths table for each pixel. Photontable must be loaded in write mode. Dont call updateWavelengths !!!
 
         Note that run-times longer than ~330s for a full MEC dither (~70M photons, 8kpix) is a regression and
         something is wrong. -JB 2/19/19
@@ -1365,7 +1365,7 @@ class ObsFile(object):
     def applyBadPixelMask(self, hot_mask, cold_mask, unstable_mask):
         """
         loads the wavelength cal coefficients from a given file and applies them to the
-        wavelengths table for each pixel. ObsFile must be loaded in write mode. Dont call updateWavelengths !!!
+        wavelengths table for each pixel. Photontable must be loaded in write mode. Dont call updateWavelengths !!!
 
         Note that run-times longer than ~330s for a full MEC dither (~70M photons, 8kpix) is a regression and
         something is wrong. -JB 2/19/19
@@ -1487,13 +1487,13 @@ class ObsFile(object):
 
         # Calculate upper and lower energy limits from wavelengths
         # Note that start and stop switch when going to energy
-        energyStop = ObsFile.h * ObsFile.c * 1.e9 / wvlStart
-        energyStart = ObsFile.h * ObsFile.c * 1.e9 / wvlStop
+        energyStop = Photontable.h * Photontable.c * 1.e9 / wvlStart
+        energyStart = Photontable.h * Photontable.c * 1.e9 / wvlStop
         nWvlBins = int((energyStop - energyStart) / energyBinWidth)
         # Construct energy bin edges
         energyBins = np.linspace(energyStart, energyStop, nWvlBins + 1)
         # Convert back to wavelength and reverse the order to get increasing wavelengths
-        wvlBinEdges = np.array(ObsFile.h * ObsFile.c * 1.e9 / energyBins)
+        wvlBinEdges = np.array(Photontable.h * Photontable.c * 1.e9 / energyBins)
         wvlBinEdges = wvlBinEdges[::-1]
         return wvlBinEdges
 
@@ -1540,7 +1540,7 @@ class ObsFile(object):
     def switchOffHotPixTimeMask(self):
         """
         Switch off hot pixel time masking - bad pixel times will no longer be
-        removed (although the mask remains 'loaded' in ObsFile instance).
+        removed (although the mask remains 'loaded' in Photontable instance).
         """
         # self.hotPixIsApplied = False
         raise NotImplementedError
@@ -1561,7 +1561,7 @@ class ObsFile(object):
         """
         Changes wavelengths for a single pixel. Overwrites "Wavelength" column w/
         contents of wvlCalArr. NOT reversible unless you have a copy of the original contents.
-        ObsFile must be open in "write" mode to use.
+        Photontable must be open in "write" mode to use.
 
         Parameters
         ----------

@@ -61,7 +61,7 @@ from astropy.utils.data import Conf
 from astropy.io import fits
 from drizzle import drizzle as stdrizzle
 from mkidcore import pixelflags
-from mkidpipeline.hdf.photontable import ObsFile
+from mkidpipeline.hdf.photontable import Photontable
 from mkidcore.corelog import getLogger
 import mkidcore.corelog as pipelinelog
 import mkidpipeline
@@ -179,7 +179,7 @@ class DrizzleParams(object):
 
 def metadata_config_check(filename, conf_wcs):
     """ Checks a photontable metadata and data.yml agree on the wcs params """
-    ob = ObsFile(filename)
+    ob = Photontable(filename)
     md = ob.metadata()
     for attribute in ['dither_home', 'dither_ref', 'platescale', 'device_orientation']:
         if getattr(md, attribute) != getattr(conf_wcs,attribute):
@@ -213,7 +213,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, single_
     Dictionary of reformated photon data for a single obsfile
 
     """
-    obsfile = ObsFile(file)
+    obsfile = Photontable(file)
     duration = obsfile.duration
 
     photons = obsfile.query(startw=startw, stopw=stopw, startt=startt, intt=intt)
@@ -291,7 +291,7 @@ def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfi
         if not filenames:
             getLogger(__name__).info('No obsfiles found')
 
-        single_pa_time = ObsFile(filenames[0]).startTime if not derotate and align_start_pa else None
+        single_pa_time = Photontable(filenames[0]).startTime if not derotate and align_start_pa else None
 
         metadata_config_check(filenames[0], dither.wcscal)
 

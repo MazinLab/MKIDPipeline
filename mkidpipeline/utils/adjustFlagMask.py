@@ -3,7 +3,7 @@ import glob
 
 import numpy as np
 
-from mkidpipeline.hdf.photontable import ObsFile
+from mkidpipeline.hdf.photontable import Photontable
 
 # path='/mnt/data0/Darkness/20171003/'
 # fns = ['ps_r119_FL1_a_faceless_lf_train_doub_NEW.txt', 'ps_r120_FL1_b_faceless_hf_train_doub_NEW.txt','ps_r112_FL3_a_faceless_lf_train_doub_NEW.txt', 'ps_r114_FL3_b_faceless_hf_train_doub_NEW.txt','ps_r115_FL4_a_faceless_lf_train_doub_NEW.txt', 'ps_r116_FL4_b_faceless_hf_train_doub_NEW.txt','ps_r121_FL5_a_faceless_lf_train_doub_NEW.txt', 'ps_r122_FL5_b_faceless_hf_train_doub_NEW.txt']
@@ -47,7 +47,7 @@ while tmp not in ['Y','N']:
 if tmp == 'Y':
     for fn in fns:
         print('Adjusting flags in: '+fn)
-        obs = ObsFile(fn,mode='w')
+        obs = Photontable(fn, mode='w')
         resIDs = obs.beamImage[:,:]
         flags = obs.beamFlagImage[:,:]
 

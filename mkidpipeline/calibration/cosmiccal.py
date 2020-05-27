@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import pyximport; pyximport.install()
 ###import mkidpipeline.calibration.ts_binner as ts_binner
 from utils import utils
-from mkidpipeline.hdf.photontable import ObsFile
+from mkidpipeline.hdf.photontable import Photontable
 import inspect
 from interval import interval, inf, imath
 
@@ -30,7 +30,7 @@ class Cosmic:
         self.nRow=140
         self.nCol=146
         self.h5file='test'
-        self.obs = ObsFile(self.h5file)
+        self.obs = Photontable(self.h5file)
 
 
 

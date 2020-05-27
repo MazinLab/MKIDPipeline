@@ -12,7 +12,7 @@ if sys.version_info.major == 3:
     import mkidpipeline.config as config
     import mkidpipeline.calibration.linearitycal as linearitycal
     import mkidpipeline.hdf.photontable
-    from mkidpipeline.hdf.photontable import ObsFile
+    from mkidpipeline.hdf.photontable import Photontable
 
 from mkidpipeline.config import configure_pipeline, load_data_description, load_task_config, load_output_description, \
     logtoconsole
@@ -26,7 +26,7 @@ def wavecal_apply(o):
         getLogger(__name__).info('No wavecal to apply for {}'.format(o.h5))
         return
     try:
-        of = mkidpipeline.hdf.photontable.ObsFile(o.h5, mode='a')
+        of = mkidpipeline.hdf.photontable.Photontable(o.h5, mode='a')
         of.applyWaveCal(wavecal.load_solution(o.wavecal.path))
         of.file.close()
     except Exception as e:
@@ -38,7 +38,7 @@ def flatcal_apply(o):
         getLogger(__name__).info('No flatcal to apply for {}'.format(o.h5))
         return
     try:
-        of = mkidpipeline.hdf.photontable.ObsFile(o.h5, mode='a')
+        of = mkidpipeline.hdf.photontable.Photontable(o.h5, mode='a')
         cfg = mkidpipeline.config.config
         of.applyFlatCal(o.flatcal.path, use_wavecal=cfg.flatcal.use_wavecal, startw=850, stopw=1375)
         of.file.close()
@@ -48,7 +48,7 @@ def flatcal_apply(o):
 
 def linearitycal_apply(o):
     try:
-        of = mkidpipeline.hdf.photontable.ObsFile(o, mode='a')
+        of = mkidpipeline.hdf.photontable.Photontable(o, mode='a')
         cfg = mkidpipeline.config.config
         of.applyLinearitycal(dt=cfg.linearitycal.dt, tau=cfg.instrument.deadtime*1*10**6)
         of.file.close()
@@ -61,7 +61,7 @@ def speccal_apply(o):
         getLogger(__name__).info('No spectrophotometric calibration to apply for {}'.format(o.h5))
         return
     try:
-        of = mkidpipeline.hdf.photontable.ObsFile(o.h5, mode='a')
+        of = mkidpipeline.hdf.photontable.Photontable(o.h5, mode='a')
         of.applySpectralCal(spectralcal.load_solution(o.speccal.path))
         of.file.close()
     except Exception as e:
@@ -81,7 +81,7 @@ def batch_apply_metadata(dataset):
     metadata = config.load_observing_metadata()
     # Associate metadata
     for ob in dataset.all_observations:
-        o = mkidpipeline.hdf.photontable.ObsFile(ob.h5, mode='w')
+        o = mkidpipeline.hdf.photontable.Photontable(ob.h5, mode='w')
         mdl = config.select_metadata_for_h5(ob, metadata)
         o.attach_observing_metadata(mdl)
         del o

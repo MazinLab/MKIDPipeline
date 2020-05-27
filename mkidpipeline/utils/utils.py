@@ -1238,7 +1238,7 @@ def rebin(x, y, binedges):
     Seth Meeker 1-29-2013
     Given arrays of wavelengths and fluxes (x and y) rebins to specified bin size by taking average value of input data within each bin
     use: rebinnedData = rebin(x,y,binedges)
-    binedges typically can be imported from a FlatCal after being applied in an ObsFile
+    binedges typically can be imported from a FlatCal after being applied in an Photontable
     returns rebinned data as 2D array:
         rebinned[:,0] = centers of wvl bins
         rebinned[:,1] = average of y-values per new bins

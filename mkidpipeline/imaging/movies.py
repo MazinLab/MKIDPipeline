@@ -64,7 +64,7 @@ def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, sta
             raise ValueError
     except Exception:
         getLogger(__name__).info('Fetching temporal cube from {}'.format(h5file))
-        of = mkidpipeline.hdf.photontable.ObsFile(h5file)
+        of = mkidpipeline.hdf.photontable.Photontable(h5file)
         cube = of.getTemporalCube(firstSec=startt, integrationTime=stopt, timeslice=timestep, startw=startw,
                                   stopw=stopw, applyWeight=True, applyTPFWeight=True)
         wcs = of.get_wcs(wcs_timestep=startt) if usewcs else None
@@ -157,9 +157,9 @@ def test_writers(out='garbage.gif',showaxes=False, fps=5):
 
 
 
-# from mkidpipeline.hdf.photontable import ObsFile
+# from mkidpipeline.hdf.photontable import Photontable
 # h5file='/scratch/steiger/MEC/DeltaAnd/output/1567930101.h5'
-# of = ObsFile('/scratch/steiger/MEC/DeltaAnd/output/1567930101.h5')
+# of = Photontable('/scratch/steiger/MEC/DeltaAnd/output/1567930101.h5')
 # # 1567930101, 1567931601
 # cube = of.getTemporalCube(None, 10, timeslice=.1, startw=None, stopw=None,
 #                           applyWeight=True, applyTPFWeight=True)

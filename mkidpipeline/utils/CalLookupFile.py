@@ -12,7 +12,7 @@ import os
 import tables
 
 from mkidcore.headers  import CalLookup_Description
-from mkidpipeline.hdf.photontable import ObsFile
+from mkidpipeline.hdf.photontable import Photontable
 from mkidpipeline.utils import utils
 from mkidpipeline.utils.FileName import FileName
 
@@ -183,7 +183,7 @@ def populateTimeMasks(runPath,lookupPath=None):
             obsPath = os.path.join(root,obsFilename)
             
             try:
-                obs = ObsFile(obsPath)
+                obs = Photontable(obsPath)
                 fn = FileName(obsFile=obsPath)
                 params = {}
                 params['obs_run'],params['obs_date'],params['obs_tstamp'] = fn.getComponents()
@@ -206,7 +206,7 @@ def populateFluxCals(runPath,lookupPath=None):
             obsPath = os.path.join(root,obsFilename)
             
             try:
-                obs = ObsFile(obsPath)
+                obs = Photontable(obsPath)
                 fn = FileName(obsFile=obsPath)
                 params = {}
                 params['obs_run'],params['obs_date'],params['obs_tstamp'] = fn.getComponents()
@@ -239,7 +239,7 @@ def populateFlatCals(runPath,lookupPath=None):
             obsPath = os.path.join(root,obsFilename)
             
             try:
-                obs = ObsFile(obsPath)
+                obs = Photontable(obsPath)
                 fn = FileName(obsFile=obsPath)
                 params = {}
                 params['obs_run'],params['obs_date'],params['obs_tstamp'] = fn.getComponents()
@@ -268,7 +268,7 @@ def populateWaveCals(runPath,lookupPath=None):
             obsPath = os.path.join(root,obsFilename)
             
             try:
-                obs = ObsFile(obsPath)
+                obs = Photontable(obsPath)
                 fn = FileName(obsFile=obsPath)
                 params = {}
                 params['obs_run'],params['obs_date'],params['obs_tstamp'] = fn.getComponents()

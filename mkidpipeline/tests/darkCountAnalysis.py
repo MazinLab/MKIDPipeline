@@ -5,7 +5,7 @@ TODO: Convert print statements to logging
 TODO: Make WaveCalComparer part of main and runnable from command line
 """
 from mkidpipeline.calibration.wavecal import Solution
-from mkidpipeline.hdf.photontable import ObsFile
+from mkidpipeline.hdf.photontable import Photontable
 import numpy as np
 import glob
 import time
@@ -162,7 +162,7 @@ class DataHandler(object):
         if thresh is not None:
             print(f"Using a threshold of {thresh} counts per bin to identify cosmic ray events in {obsFilePath}")
 
-        obs = ObsFile(obsFilePath)
+        obs = Photontable(obsFilePath)
         cosmicPeaks, cosmicCutout = self.findCosmicRayTimeStamps(obs.photonTable.read(), threshold=thresh)
         s1 = time.time()
         for count1, j in enumerate(self.resIDs):
@@ -192,7 +192,7 @@ class DataHandler(object):
                                            formats='i4, f8, f8, f8, f8, f8, f8, f8, f8, f8, f8, f8')
 
         e1 = time.time()
-        print(f"--- It took {int(e1 - s1)} seconds to generate counts from ObsFile {obsFilePath} ---")
+        print(f"--- It took {int(e1 - s1)} seconds to generate counts from Photontable {obsFilePath} ---")
         obs.file.close()
         return data
 
@@ -238,7 +238,7 @@ class DataHandler(object):
         print(f"{self.wlLimits[0][4]:.2f} - {self.wlLimits[1][4]:.2f} nm bin : {((np.sum(self.data['bin5']-self.data['bin5cosmics']))/len(self.data['ResID']))/self.data['duration'][0]:.4e} cts/s/pixel")
 
     def plot_counts_on_array(self, obsFile, timeStep=10):
-        obs = ObsFile(obsFile)
+        obs = Photontable(obsFile)
         photons = obs.photonTable.read()
 
         hist = np.bincount((photons['Time']/timeStep).astype(int))

@@ -8,7 +8,7 @@ from photutils import DAOStarFinder, centroids, centroid_2dg, centroid_1dg, cent
 from scipy.stats import chisquare
 from astropy import stats
 from mkidpipeline.config import MKIDDitheredObservation
-from mkidpipeline.hdf.photontable import ObsFile
+from mkidpipeline.hdf.photontable import Photontable
 
 
 def get_transforms(ditherfile, datadir, wvl_start=None, wvl_stop=None, fwhm_guess=3.0, fit_power=1, CONEX_ERROR=0.0001,
@@ -23,7 +23,7 @@ def get_transforms(ditherfile, datadir, wvl_start=None, wvl_stop=None, fwhm_gues
     source_est = []
 
     for file in obs_files:
-        obs = ObsFile(file)
+        obs = Photontable(file)
         data = obs.getPixelCountImage(applyWeight=False, exclude_flags=pixelflags.PROBLEM_FLAGS, wvlStart=wvl_start,
                                       wvlStop=wvl_stop)['image']
         data = np.transpose(data)
