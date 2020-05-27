@@ -26,6 +26,7 @@ dependencies:
   - mpmath>=1.0
   - lmfit>=0.9.11
   - sharedarray
+  - psutil
   #Required but might be able to be trimmed or made optional functionality
   - pypdf2
   - astroplan
