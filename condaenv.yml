@@ -13,6 +13,8 @@ dependencies:
   - pytables>=3.4.4
   - mkl
   - astropy
+  - astroquery
+  - specutils
   - scipy
   - matplotlib
   - scikit-image
