@@ -32,7 +32,7 @@ def cosmicCorrection(file, binsize = 10, removalRange = 10):
             'goodones': list of times with no cosmic ray suspects      
 
     '''
-    file = pt.ObsFile(str(file))  # grab data
+    file = pt.Photontable(str(file))  # grab data
 
     start_time = time.time()  # def bin size in microseconds
     photons = file.photonTable.read()  # grabs list for all photon arrivals (read)

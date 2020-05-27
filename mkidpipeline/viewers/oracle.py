@@ -27,7 +27,7 @@ import sys, os
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import pyqtSignal
-from mkidpipeline.hdf.photontable import ObsFile
+from mkidpipeline.hdf.photontable import Photontable
 import mkidpipeline.hdf.binparse as binparse
 from mkidpipeline.badpix import hpm_flux_threshold as hft
 from scipy.optimize import curve_fit
@@ -284,7 +284,7 @@ class timeStream(subWindow):
         self.photonList = self.get_photon_list()
 
         self.eff_exp_time = self.spinbox_eff_exp_time.value() / 1000
-        if type(self.a).__name__ == 'ObsFile':
+        if type(self.a).__name__ == 'Photontable':
             self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(
                 self.photonList['Time'] / 1e6, self.spinbox_startTime.value(),
                 self.spinbox_startTime.value() + self.spinbox_integrationTime.value(), self.eff_exp_time)
@@ -325,7 +325,7 @@ class intensityHistogram(subWindow):
 
         self.eff_exp_time = self.spinbox_eff_exp_time.value() / 1000
 
-        if type(self.a).__name__ == 'ObsFile':
+        if type(self.a).__name__ == 'Photontable':
             self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(ts,
                                                                                                                     self.spinbox_startTime.value(),
                                                                                                                     self.spinbox_startTime.value() + self.spinbox_integrationTime.value(),
@@ -508,7 +508,7 @@ class main_window(QMainWindow):
     def load_data_from_h5(self, *args):
         if os.path.isfile(self.filename):
             try:
-                self.a = ObsFile(self.filename)
+                self.a = Photontable(self.filename)
             except:
                 print('darkObsFile failed to load file. Check filename.\n', self.filename)
             else:
@@ -686,7 +686,7 @@ class main_window(QMainWindow):
             # clear the axes
             self.ax1.clear()
 
-            if type(self.a).__name__ == 'ObsFile':
+            if type(self.a).__name__ == 'Photontable':
                 t1 = time.time()
                 temp = self.a.getPixelCountImage(firstSec=self.spinbox_startTime.value(),
                                                  integrationTime=self.spinbox_integrationTime.value(),

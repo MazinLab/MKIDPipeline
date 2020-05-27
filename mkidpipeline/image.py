@@ -1,4 +1,4 @@
-from mkidpipeline.hdf.photontable import ObsFile
+from mkidpipeline.hdf.photontable import Photontable
 import scipy.ndimage as ndi
 import numpy as np
 from multiprocessing import Pool
@@ -9,7 +9,7 @@ from mkidpipeline.config import n_cpus_available
 
 
 def fetchimg(ob, kwargs):
-    of = ObsFile(ob.h5)
+    of = Photontable(ob.h5)
     if kwargs['nwvl'] > 1:
         im = of.getSpectralCube(hdu=True, **kwargs)
     else:

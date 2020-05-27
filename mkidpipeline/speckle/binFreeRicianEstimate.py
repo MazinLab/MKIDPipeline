@@ -17,7 +17,7 @@ from scipy import integrate
 from scipy.optimize import minimize
 from statsmodels.base.model import GenericLikelihoodModel
 
-from mkidpipeline.hdf.photontable import ObsFile
+from mkidpipeline.hdf.photontable import Photontable
 from mkidpipeline.speckle.genphotonlist_IcIsIr import genphotonlist
 
 
@@ -671,7 +671,7 @@ def getPixelPhotonList(filename, xCoord, yCoord,**kwargs):
     OUTPUTS:
         ts - timestamps in us of photon arrival times
     """
-    obs = ObsFile(filename)
+    obs = Photontable(filename)
     photonList = obs.getPixelPhotonList(xCoord, yCoord,**kwargs)
     times=photonList['Time']
     print("#photons: "+str(len(times)))

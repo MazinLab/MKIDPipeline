@@ -192,7 +192,7 @@ class Configuration(object):
 
 class Calibrator(object):
     """
-    Class for creating wavelength calibrations from ObsFile formatted data. After the
+    Class for creating wavelength calibrations from Photontable formatted data. After the
     Calibrator object is initialized with the configuration object, run() should be called
     to compute the calibration solution. All methods modify self.solution which is an
     instance of the Solution class.
@@ -276,22 +276,22 @@ class Calibrator(object):
         except KeyError:
             # wavelengths might be unordered, so we get the right order of h5 files
             index = np.where(wavelength == np.asarray(self.cfg.wavelengths))[0].squeeze()
-            self._obsfiles[wavelength] = photontable.ObsFile(self.cfg.h5_file_names[index])
+            self._obsfiles[wavelength] = photontable.Photontable(self.cfg.h5_file_names[index])
         return self._obsfiles[wavelength]
 
     def fetch_background(self, wavelength):
         '''
         Determines if a given laser has a specified background to remove. Then finds the relevant h5 for that
-        particular background and returns it as an ObsFile object.
+        particular background and returns it as an Photontable object.
 
         :param wavelength: wavelength of laser you want to find the background for
 
-        :return: ObsFile
+        :return: Photontable
         '''
         i = np.where(self.cfg.backgrounds_list['wavelength'] == wavelength)[0][0]
         t = self.cfg.backgrounds_list['start_time'][i]
         h5 = os.path.join(self.cfg.h5_directory, str(t) + '.h5')
-        return photontable.ObsFile(h5)
+        return photontable.Photontable(h5)
 
     def make_histograms(self, pixels=None, wavelengths=None, verbose=False):
         """
@@ -2348,7 +2348,7 @@ class Solution(object):
         info = (r"\textbf{Solution File Name:} \\" +
                 r"{} \\ \\ \\".format(os.path.basename(self.name).replace('_', r'\_')))
         info += r" \begin{tabular}{@{}>{\raggedright}p{1.5in} | p{1.5in}}"
-        info += r"\textbf{ObsFile Names:} & \textbf{Wavelengths [nm]:} \\"
+        info += r"\textbf{Photontable Names:} & \textbf{Wavelengths [nm]:} \\"
         for index, file_name in enumerate(self.cfg.h5_file_names):
             info += r"{} & {:g} \\".format(os.path.basename(file_name), self.cfg.wavelengths[index])
         info += table_end

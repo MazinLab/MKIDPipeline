@@ -38,7 +38,7 @@ from PyPDF2 import PdfFileMerger, PdfFileReader
 from matplotlib.backends.backend_pdf import PdfPages
 from mkidpipeline.calibration import wavecal
 from mkidcore.headers import FlatCalSoln_Description
-from mkidpipeline.hdf.photontable import ObsFile
+from mkidpipeline.hdf.photontable import Photontable
 from mkidcore.corelog import getLogger
 import mkidcore.corelog
 import mkidpipeline.config
@@ -445,14 +445,14 @@ class WhiteCalibrator(FlatCalibrator):
 
     def loadData(self):
         getLogger(__name__).info('Loading calibration data from {}'.format(self.h5file))
-        self.obs = ObsFile(self.h5file)
+        self.obs = Photontable(self.h5file)
         if not self.obs.wavelength_calibrated:
             raise RuntimeError('Photon data is not wavelength calibrated.')
         self.beamImage = self.obs.beamImage
         self.wvlFlags = pixelflags.beammap_flagmap_to_h5_flagmap(self.obs.beamFlagImage)
         self.xpix = self.obs.nXPix
         self.ypix = self.obs.nYPix
-        self.wvlBinEdges = ObsFile.makeWvlBins(self.energyBinWidth, self.wvlStart, self.wvlStop)
+        self.wvlBinEdges = Photontable.makeWvlBins(self.energyBinWidth, self.wvlStart, self.wvlStop)
         self.wavelengths = self.wvlBinEdges[: -1] + np.diff(self.wvlBinEdges)
         self.wavelengths = self.wavelengths.flatten()
         self.sol = False
@@ -559,7 +559,7 @@ class LaserCalibrator(FlatCalibrator):
             delta_list = wavelengths / r_list
         for iwvl, wvl in enumerate(wavelengths):
             time = int((self.cfg.flatcal.chunk_time*self.cfg.flatcal.nchunks)/ self.intTime)
-            obs = ObsFile(self.h5_file_names[iwvl])
+            obs = Photontable(self.h5_file_names[iwvl])
             # mask out hot pixels before finding the mean
             if not obs.info['isBadPixMasked'] and not self.use_wavecal:
                 getLogger(__name__).info('Hot pixel masking laser h5 file for flatcal')
@@ -602,7 +602,7 @@ class LaserCalibrator(FlatCalibrator):
             getLogger(__name__).info('Loading dark frames for Laser flat')
 
             for i, file in enumerate(self.dark_h5_file_names):
-                obs = ObsFile(file)
+                obs = Photontable(file)
                 frame = obs.getPixelCountImage(integrationTime=self.dark_int[i])['image']
                 frames[:, :, i] = frame
             total_counts = np.sum(frames, axis=2)
@@ -819,7 +819,7 @@ if __name__ == '__main__':
         bin2hdf.makehdf(b2h_config, maxprocs=1)
         getLogger(__name__).info('Made h5 file at {}.h5'.format(flattner.cfg.start_time))
 
-    obsfile = ObsFile(flattner.h5file, mode='write')
+    obsfile = Photontable(flattner.h5file, mode='write')
     if not obsfile.wavelength_calibrated:
         obsfile.applyWaveCal(wavecal.load_solution(flattner.cfg.wavesol))
         getLogger(__name__).info('Applied Wavecal {} to {}.h5'.format(flattner.cfg.wavesol, flattner.h5file))

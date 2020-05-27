@@ -32,7 +32,7 @@ tstamp -- in format yyyymmdd-hhmmss -- such as 20120920-123350
 
 NOTES
 Updated 4/25/2013, JvE - if root directory names not provided, looks for system variables.
-5/22/2013 - can now optionally supply an ObsFile instance on calling instead of run, date, and tstamp.
+5/22/2013 - can now optionally supply an Photontable instance on calling instead of run, date, and tstamp.
 
 """
 
@@ -67,7 +67,7 @@ class FileName:
             self.date = date
             self.tstamp = tstamp
         else:
-            # Split full file path of ObsFile instance into 
+            # Split full file path of Photontable instance into
             # individual directory names
             
             if type(obsFile) is str:

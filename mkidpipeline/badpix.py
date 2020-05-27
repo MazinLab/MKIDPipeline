@@ -74,7 +74,7 @@ import scipy.ndimage.filters as spfilters
 from mkidpipeline.speckle.binned_rician import *
 import scipy.stats
 
-from mkidpipeline.hdf.photontable import ObsFile
+from mkidpipeline.hdf.photontable import Photontable
 from mkidpipeline.utils import utils
 from mkidpipeline.utils.plottingTools import plot_array as pa
 from mkidcore.corelog import getLogger
@@ -544,7 +544,7 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=30, startt=0, stopt=
     :return:
     Applies relevant pixelflags - see pixelflags.py
     """
-    obs = ObsFile(file)
+    obs = Photontable(file)
     if obs.info['isBadPixMasked']:
         getLogger(__name__).info('{} is already bad pixel calibrated'.format(obs.fileName))
         return

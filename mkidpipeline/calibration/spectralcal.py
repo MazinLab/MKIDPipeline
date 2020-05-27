@@ -17,7 +17,7 @@ Assumes h5 files are wavelength calibrated, flatcalibrated and linearity correct
 import sys,os
 import numpy as np
 from mkidcore import pixelflags
-from mkidpipeline.hdf.photontable import ObsFile
+from mkidpipeline.hdf.photontable import Photontable
 from mkidpipeline.utils.utils import rebin, gaussianConvolution, fitBlackbody
 from mkidcore.corelog import getLogger
 import mkidcore.corelog
@@ -251,9 +251,9 @@ class SpectralCalibrator(object):
         self.conv_wvls = None
         self.conv_flux = None
         if h5_file_names:
-            self.obs = [ObsFile(f) for f in h5_file_names]
+            self.obs = [Photontable(f) for f in h5_file_names]
         if sky_h5_file_names:
-            self.sky_obs = [ObsFile(f) for f in sky_h5_file_names]
+            self.sky_obs = [Photontable(f) for f in sky_h5_file_names]
         if configuration:
             self.cfg = Configuration(configuration) if not isinstance(configuration, Configuration) else configuration
             self.obj_pos = self.cfg.obj_pos
@@ -263,8 +263,8 @@ class SpectralCalibrator(object):
             self.interpolation = self.cfg.interpolation
             self.solution = ResponseCurve(configuration=self.cfg, curve=curve,
                                           solution_name=self.solution_name)
-            self.obs = [ObsFile(f) for f in self.cfg.h5_file_names]
-            self.sky_obs = [ObsFile(f) for f in self.cfg.sky_file_names]
+            self.obs = [Photontable(f) for f in self.cfg.h5_file_names]
+            self.sky_obs = [Photontable(f) for f in self.cfg.sky_file_names]
             self.wvl_bin_widths = self.cfg.wvl_bin_widths
 
     def run(self, save=True, plot=None):
