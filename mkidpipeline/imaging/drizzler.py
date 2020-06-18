@@ -50,6 +50,7 @@ import numpy as np
 import time
 import multiprocessing as mp
 import matplotlib.pylab as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.colors import LogNorm
 import pickle
 from astropy import wcs
@@ -112,6 +113,8 @@ class DrizzleParams(object):
         self.used_inttime = used_inttime
         self.pixfrac = pixfrac
         self.get_coords()
+        self.nPixRA = None
+        self.nPixDec = None
 
         if wcs_timestep:
             self.wcs_timestep = wcs_timestep
@@ -314,7 +317,7 @@ def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfi
 
 
 class Canvas(object):
-    def __init__(self, dithers_data, ob, coords):
+    def __init__(self, dithers_data, ob, coords, nPixRA=None, nPixDec=None):
         """
         Class common to SpatialDrizzler, TemporalDrizzler and ListDrizzler. It generates the canvas that is
         drizzled onto
@@ -326,10 +329,12 @@ class Canvas(object):
         :param dithers_data:
         :param ob:
         :param coords:
+        :param nPixRA: int, None will calculate the minimum required to fit all the dithers on
+        :param nPixDec: see nPixDec
         """
 
-        self.nPixRA = None
-        self.nPixDec = None
+        self.nPixRA = nPixRA
+        self.nPixDec = nPixDec
         self.square_grid = True
 
         self.config = None
@@ -397,7 +402,8 @@ class ListDrizzler(Canvas):
     """
 
     def __init__(self, dithers_data, drizzle_params):
-        super().__init__(self, dithers_data, drizzle_params.dither.obs[0], drizzle_params.coords)
+        super().__init__(self, dithers_data, drizzle_params.dither.obs[0], drizzle_params.coords, drizzle_params.nPixRA,
+                         drizzle_params.nPixDec)
 
         getLogger(__name__).critical('ListDrizzler has not been written')
         raise NotImplementedError
@@ -413,7 +419,8 @@ class TemporalDrizzler(Canvas):
     """
 
     def __init__(self, dithers_data, drizzle_params, nwvlbins=1, exp_timestep=1, wvlMin=0, wvlMax=np.inf):
-        super().__init__(dithers_data, drizzle_params.dither.obs[0], drizzle_params.coords)
+        super().__init__(dithers_data, drizzle_params.dither.obs[0], drizzle_params.coords, drizzle_params.nPixRA,
+                         drizzle_params.nPixDec)
 
         self.nwvlbins = nwvlbins
         self.exp_timestep = exp_timestep  # seconds
@@ -545,7 +552,8 @@ class SpatialDrizzler(Canvas):
     """ Generate a spatially dithered fits image from a set dithered dataset """
 
     def __init__(self, dithers_data, drizzle_params, stack=False):
-        super().__init__(dithers_data, drizzle_params.dither.obs[0], drizzle_params.coords)
+        super().__init__(dithers_data, drizzle_params.dither.obs[0], drizzle_params.coords, drizzle_params.nPixRA,
+                         drizzle_params.nPixDec)
 
         self.cps = None
         self.outwcs = None
@@ -684,10 +692,52 @@ class DrizzledData(object):
         hdul.writeto(filename, overwrite=overwrite)
         getLogger(__name__).info('FITS file {} saved'.format(filename))
 
+def debug_dither_image(dithers_data, drizzle_params):
+    """ Plot the location of frames with simple boxes for calibration/debugging purposes. """
+
+    drizzle_params.nPixRA, drizzle_params.nPixDec = 1000, 1000  # hand set to large number to ensure all frames are captured
+    driz = SpatialDrizzler(dithers_data, drizzle_params)
+    driz.run()
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+    axes[0].imshow(driz.driz.outsci, cmap='viridis', origin='lower', norm=LogNorm())
+
+    output_image = np.zeros_like(driz.driz.outsci)
+    canvas_wcs, xpix, ypix = driz.wcs, driz.xpix, driz.ypix
+    del driz
+
+    for ix, dither_photons in enumerate(dithers_data):
+        driz = stdrizzle.Drizzle(outwcs=canvas_wcs, wt_scl='')  # make a new driz object so the color of each frame is uniform
+        for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):
+            inwcs = wcs.WCS(header=inwcs)
+            inwcs.pixel_shape = (xpix, ypix)
+
+            image = np.zeros((ypix, xpix))  # create a simple image consisting of the array boarder and the diagonals
+            image[[0, -1]] = 1
+            image[:, [0, -1]] = 1
+            image[np.eye(ypix, xpix).astype(bool)] = 1
+            image[np.eye(ypix, xpix).astype(bool)[::-1]] = 1
+
+            driz.add_image(image, inwcs)
+            driz.outsci = driz.outsci.astype(bool)
+            output_image[driz.outsci] = ix
+
+    output_image[output_image == 0] = np.nan
+
+    axes[0].grid(True, color='k', which='both', axis='both')
+    im = axes[1].imshow(output_image, cmap='Reds', origin='lower')
+    divider = make_axes_locatable(axes[1])
+    axes[1].grid(True, color='k', which='both', axis='both')
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    clb = fig.colorbar(im, cax=cax)
+    clb.ax.set_title('Dither index')
+
+    plt.show(block=True)
+
 
 def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt=0., intt=60., pixfrac=.5, nwvlbins=1,
          wcs_timestep=1., exp_timestep=1., fitsname=None, usecache=True, ncpu=1, exclude_flags=(), whitelight=False,
-         align_start_pa=False):
+         align_start_pa=False, debug_dither_plot=False):
     """
     Takes in a MKIDDitheredObservation object and drizzles the dithers onto a common sky grid.
 
@@ -728,6 +778,9 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
         Relevant parameters are updated to perform a whitelight dither. Take presedence over derotate user input
     align_start_pa : bool
         If derotate is False then the images can be aligned to the first frame for the purpose of ADI
+    debug_dither_plot : bool
+        Plot the location of frames with simple boxes for calibration/debugging purposes and compare to a simple spatial
+        drizzled image
 
     Returns
     -------
@@ -770,6 +823,9 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
     if total_photons == 0:
         getLogger(__name__).critical('No photons found in any of the dithers. Check your wavelength and time ranges')
         raise ValueError
+
+    if debug_dither_plot:
+        debug_dither_image(dithers_data, drizzle_params)
 
     if mode not in ['stack', 'spatial', 'temporal', 'list']:
         raise ValueError('Not calling one of the available functions')
