@@ -1431,6 +1431,20 @@ class Solution(object):
 
         return responses, res_ids
 
+    def save_cal_coeffs(self, minimum=None, maximum=None, feedline=None):
+        """
+        Saves npz file of calibration coeffiecients to allow for loading into dashboard
+
+        Args:
+            see find_calibrations
+        """
+
+        calibrations, res_ids = self.find_calibrations(minimum, maximum, feedline)
+        np.savez(os.path.splitext(self._file_path)[0] + '_cal_coeffs.npz', 
+                calibrations=calibrations, res_ids=res_ids, min_r=minimum, max_r=maximum,
+                feedline=feedline)
+
+
     def find_calibrations(self, minimum=None, maximum=None, feedline=None):
         """
         Returns a tuple containing an array of calibration coefficients and a corresponding res_id
