@@ -1442,7 +1442,7 @@ class Solution(object):
         calibrations, res_ids = self.find_calibrations(minimum, maximum, feedline)
         np.savez(os.path.splitext(self._file_path)[0] + '_cal_coeffs.npz', 
                 calibrations=calibrations, res_ids=res_ids, min_r=minimum, max_r=maximum,
-                feedline=feedline)
+                feedline=feedline, solution_file_path=self._file_path)
 
 
     def find_calibrations(self, minimum=None, maximum=None, feedline=None):
