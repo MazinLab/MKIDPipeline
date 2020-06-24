@@ -636,7 +636,7 @@ class Photontable(object):
         md = self.metadata()
         ditherHome = md.dither_home
         ditherReference = md.dither_ref
-        ditherPos = md.dither_home
+        ditherPos = md.dither_pos
         platescale = md.platescale  # units should be mas/pix
         getLogger(__name__).debug(f'ditherHome: {md.dither_home} (conex units -3<x<3), '
                                   f'ditherReference: {md.dither_ref} (pix 0<x<150), '
