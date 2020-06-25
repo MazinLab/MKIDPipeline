@@ -519,8 +519,7 @@ class Calibrator(object):
                             model.fit(guess)
                             if model.has_good_solution():
                                 message = "({}, {}) : {} nm : histogram fit recomputed and successful with model '{}'"
-                                log.debug(message.format(pixel[0], pixel[1], wavelength,
-                                                         type(model).__name__))
+                                log.debug(message.format(pixel[0], pixel[1], wavelength, type(model).__name__))
                                 break
                             tried_models.append(model.copy())
                         else:
@@ -1485,8 +1484,8 @@ class Solution(object):
                       feedlines are used if it is not specified.
         Returns:
             calibrations: an MxN array of resolving powers where M is the number of
-                              res_ids the search criterion and N is the number of
-                              wavelengths requested.
+                          res_ids the search criterion and N is the number of
+                          wavelengths requested.
             res_ids: an array of size M with the res ids in the same order as responses
         Note:
             Only works if no models other than Quadratic and Linear are used for the calibration fit.
@@ -1698,6 +1697,63 @@ class Solution(object):
         models = self.histogram_models(wavelengths, pixel=pixel)
         widths = np.array([np.abs(np.diff(model.x))[0] for model in models])
         return widths
+
+    def refit_calibration(self, pixel=None, res_id=None, model_class=None, guess=None):
+        """
+        Refit the wavelength calibration. The old fit will be overwritten.
+
+        Args:
+            pixel: the x and y position for the plotted pixel. Can use res_id
+                   keyword-arg instead. (length 2 list of integers)
+            res_id: the resonator ID for the plotted pixel. Can use pixel
+                    keyword-arg instead. (integer)
+            model_class: The model class to use. If not supplied the first
+                         model in the configuration will be used.
+            guess: The guess to start the fit at. If not supplied,
+                   model.guess() is used.
+        """
+        pixel, res_id = self._parse_resonators(pixel, res_id)
+        model = self.calibration_model_list[0](pixel, res_id) if model_class is None else model_class(pixel, res_id)
+        old_model = self.calibration_model(pixel=pixel)
+        # copy over data
+        model.x = old_model.x
+        model.y = old_model.y
+        model.variance = old_model.variance
+        model.min_x = old_model.min_x
+        model.max_x = old_model.max_x
+        if guess is None:
+            guess = model.guess()
+        model.fit(guess)
+        self.set_calibration_model(model, pixel=pixel)
+
+    def refit_histogram(self, wavelength, pixel=None, res_id=None, model_class=None, guess=None):
+        """
+        Refit the phase histogram for a particular wavelength. The old fit will
+        be overwritten.
+
+        Args:
+            wavelength: The wavelength corresponding to the histogram to fit.
+            pixel: the x and y position for the plotted pixel. Can use res_id
+                   keyword-arg instead. (length 2 list of integers)
+            res_id: the resonator ID for the plotted pixel. Can use pixel
+                    keyword-arg instead. (integer)
+            model_class: The model class to use. If not supplied the first
+                         model in the configuration will be used.
+            guess: The guess to start the fit at. If not supplied,
+                   model.guess() is used.
+        """
+        pixel, res_id = self._parse_resonators(pixel, res_id)
+        wavelength = self._parse_wavelengths(wavelength)
+        model = self.histogram_model_list[0](pixel, res_id) if model_class is None else model_class(pixel, res_id)
+        old_model = self.histogram_models(wavelengths=wavelength, pixel=pixel)
+        # copy over data
+        model.x = old_model.x
+        model.y = old_model.y
+        model.variance = old_model.variance
+        if guess is None:
+            guess = model.guess()
+        model.fit(guess)
+        self.set_histogram_models(model, wavelengths=wavelength, pixel=pixel)
 
     def plot_calibration(self, axes=None, pixel=None, res_id=None, r_text=True,
                          **model_kwargs):
