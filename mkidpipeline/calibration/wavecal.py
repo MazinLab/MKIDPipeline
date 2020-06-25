@@ -201,12 +201,11 @@ class Calibrator(object):
         configuration: wavecal.py Configuration object
         solution_name: save name for the Solution object (optional)
         _shared_tables: shared memory for photon lists (optional)
-        fit_array: precomputed data from Solution object (optional)
         main: boolean specifying if part of the main thread (default True)
 
     Created by: Nicholas Zobrist, January 2018
     """
-    def __init__(self, configuration, solution_name='solution.npz', _shared_tables=None, fit_array=None, main=True):
+    def __init__(self, configuration, solution_name='solution.npz', _shared_tables=None, main=True):
         # save configuration
         self.cfg = Configuration(configuration) if not isinstance(configuration, Configuration) else configuration
         # define attributes
@@ -217,12 +216,39 @@ class Calibrator(object):
         self._max_queue_size = 300  # max queue size for _parallel() method
         self._shared_tables = _shared_tables  # shared photon tables
         self._obsfiles = {}  # container for opened obsfiles
-        # initialize fit array
-        self.solution = Solution(configuration=self.cfg, fit_array=fit_array, beam_map=self.cfg.beammap.residmap,
-                                 beam_map_flags=self.cfg.beammap.flagmap, solution_name=self.solution_name)
+        # defer initializing the solution
+        self._solution = None
         if main:
             log.info('Wave Calibrator configured with: {}'.format(self.cfg.configuration_path))
             log.info('Parallel mode: {}'.format(self.cfg.parallel))
+
+    @classmethod
+    def from_solution(cls, solution, **kwargs):
+        """Class factory method for making a calibrator from a solution."""
+        kws = {"solution_name": solution.name}
+        kws.update(kwargs)
+        cal = cls(solution.cfg, **kws)
+        cal.solution = solution
+        return cal
+
+    @classmethod
+    def from_fit_array(cls, configuration, fit_array, **kwargs):
+        """Class factory method from making a calibrator from a fit array."""
+        cal = cls(configuration, **kwargs)
+        cal.solution = Solution(configuration=cal.cfg, fit_array=fit_array, beam_map=cal.cfg.beammap.residmap,
+                                beam_map_flags=cal.cfg.beammap.flagmap, solution_name=cal.solution_name)
+        return cal
+
+    @property
+    def solution(self):
+        if self._solution is None:
+            self._solution = Solution(configuration=self.cfg, beam_map=self.cfg.beammap.residmap,
+                                      beam_map_flags=self.cfg.beammap.flagmap, solution_name=self.solution_name)
+        return self._solution
+
+    @solution.setter
+    def solution(self, value):
+        self._solution = value
 
     def run(self, pixels=None, wavelengths=None, verbose=False, parallel=None, save=True, plot=None):
         """
@@ -996,7 +1022,7 @@ class Worker(mp.Process):
     def __init__(self, configuration, method, event, input_queue, output_queue=None,
                  progress_queue=None, shared_tables=None, fit_array=None, name=''):
         super(Worker, self).__init__()
-        self.calibrator = Calibrator(configuration, _shared_tables=shared_tables, fit_array=fit_array, main=False)
+        self.calibrator = Calibrator.from_fit_array(configuration, fit_array, _shared_tables=shared_tables, main=False)
         self.method = method
         self.input_queue = input_queue
         self.output_queue = output_queue
