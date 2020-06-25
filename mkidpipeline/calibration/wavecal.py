@@ -289,7 +289,7 @@ class Calibrator(object):
             self._run("fit_calibrations", pixels=pixels, wavelengths=wavelengths, parallel=parallel, verbose=verbose)
             log.info("Caching resolving powers")
             for pixel in pixels.T:
-                self.solution._cached_resolving_powers[pixel[0], pixel[1], :] = self.solution.resolving_powers(pixel)
+                self.solution.cached_resolving_powers[pixel[0], pixel[1], :] = self.solution.resolving_powers(pixel)
             if save:
                 self.solution.save(save_name=save if isinstance(save, str) else None)
             if plot or (plot is None and self.cfg.summary_plot):
@@ -1108,6 +1108,7 @@ class Solution(object):
         # default parameters
         self._color_map = cm.get_cmap('viridis')
         self._parse = True
+        self._cache = None
         # load in arguments
         self._file_path = os.path.abspath(file_path) if file_path is not None else file_path
         self.fit_array = fit_array
@@ -1140,9 +1141,6 @@ class Solution(object):
         self._reverse_beam_map[:, indices] = lookup_table[1:, :]
         # quick vectorized type operation
         self._type = np.vectorize(type, otypes=[str])
-        # cached resolving powers
-        self._cached_resolving_powers = np.full((self.cfg.beammap.ncols, self.cfg.beammap.nrows,
-                                                 len(self.cfg.wavelengths)), np.nan)
 
     @classmethod
     def to_yaml(cls, representer, node):
@@ -1205,7 +1203,7 @@ class Solution(object):
 
         log.info("Saving solution to {}".format(save_path))
         np.savez(save_path, fit_array=self.fit_array, configuration=self.cfg, beam_map=self.beam_map,
-                 beam_map_flags=self.beam_map_flags)
+                 beam_map_flags=self.beam_map_flags, cache=self.cached_resolving_powers)
         self._file_path = save_path  # new file_path for the solution
 
     def load(self, file_path, overload=True, file_mode='c'):
@@ -1247,6 +1245,17 @@ class Solution(object):
     @fit_array.setter
     def fit_array(self, value):
         self._fit_array = value
+
+    @property
+    def cached_resolving_powers(self):
+        """An array of resolving powers cached after fitting (rows, columns, wavelengths)."""
+        if self._cache is not None:
+            return self._cache
+        elif self.npz is not None:
+            self._cache = self.npz['cache']
+            return self._cache
+        else:
+            self._cache = np.full((self.cfg.beammap.ncols, self.cfg.beammap.nrows, len(self.cfg.wavelengths)), np.nan)
 
     @property
     def cfg(self):
@@ -1310,7 +1319,7 @@ class Solution(object):
         if cache:
             for index, wavelength in enumerate(wavelengths):
                 logic = wavelength == np.asarray(self.cfg.wavelengths)
-                resolving_powers[index] = self._cached_resolving_powers[pixel[0], pixel[1], logic]
+                resolving_powers[index] = self.cached_resolving_powers[pixel[0], pixel[1], logic]
             return resolving_powers
         self._parse = False
         good = self.has_good_histogram_solutions(wavelengths, pixel=pixel)
@@ -1740,7 +1749,7 @@ class Solution(object):
         model.fit(guess)
         self.set_calibration_model(model, pixel=pixel)
         # cache resolving powers
-        self.solution._cached_resolving_powers[pixel[0], pixel[1], :] = self.solution.resolving_powers(pixel)
+        self.solution.cached_resolving_powers[pixel[0], pixel[1], :] = self.solution.resolving_powers(pixel)
 
     def refit_histogram(self, wavelength, pixel=None, res_id=None, model_class=None, guess=None):
         """
