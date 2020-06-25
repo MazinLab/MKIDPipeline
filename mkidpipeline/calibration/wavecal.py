@@ -287,6 +287,9 @@ class Calibrator(object):
             self._run("fit_histograms", pixels=pixels, wavelengths=wavelengths, parallel=parallel, verbose=verbose)
             log.info("Fitting phase-energy calibration")
             self._run("fit_calibrations", pixels=pixels, wavelengths=wavelengths, parallel=parallel, verbose=verbose)
+            log.info("Caching resolving powers")
+            for pixel in pixels.T:
+                self.solution._cached_resolving_powers[pixel[0], pixel[1], :] = self.solution.resolving_powers(pixel)
             if save:
                 self.solution.save(save_name=save if isinstance(save, str) else None)
             if plot or (plot is None and self.cfg.summary_plot):
@@ -1137,6 +1140,9 @@ class Solution(object):
         self._reverse_beam_map[:, indices] = lookup_table[1:, :]
         # quick vectorized type operation
         self._type = np.vectorize(type, otypes=[str])
+        # cached resolving powers
+        self._cached_resolving_powers = np.full((self.cfg.beammap.ncols, self.cfg.beammap.nrows,
+                                                 len(self.cfg.wavelengths)), np.nan)
 
     @classmethod
     def to_yaml(cls, representer, node):
@@ -1281,7 +1287,7 @@ class Solution(object):
     def beam_map_flags(self, value):
         self._beam_map_flags = value
 
-    def resolving_powers(self, pixel=None, res_id=None, wavelengths=None):
+    def resolving_powers(self, pixel=None, res_id=None, wavelengths=None, cache=False):
         """
         Returns the resolving power for a resonator specified by either its pixel
         (x_cord, y_cord) or its res_id.
@@ -1294,13 +1300,19 @@ class Solution(object):
             wavelengths: list of wavelengths to report resolving powers for. All
                          resolving powers for valid wavelengths will be returned if it is
                          not specified
+            cache: use results cached when the data was first calibrated.
         Returns:
             resolving_powers: array of resolving powers of the same length as wavelengths
         """
         pixel, _ = self._parse_resonators(pixel, res_id)
         wavelengths = self._parse_wavelengths(wavelengths)
-        self._parse = False
         resolving_powers = np.zeros((len(wavelengths),))
+        if cache:
+            for index, wavelength in enumerate(wavelengths):
+                logic = wavelength == np.asarray(self.cfg.wavelengths)
+                resolving_powers[index] = self._cached_resolving_powers[pixel[0], pixel[1], logic]
+            return resolving_powers
+        self._parse = False
         good = self.has_good_histogram_solutions(wavelengths, pixel=pixel)
         if self.has_good_calibration_solution(pixel=pixel):
             calibration_function = self.calibration_function(pixel=pixel)
@@ -1319,7 +1331,7 @@ class Solution(object):
         return resolving_powers
 
     def find_resolving_powers(self, wavelengths=None, minimum=None, maximum=None,
-                              feedline=None):
+                              feedline=None, cache=False):
         """
         Returns a tuple containing an array of resolving powers and a corresponding res_id
         array.
@@ -1334,6 +1346,7 @@ class Solution(object):
                      is used if it is not specified.
             feedline: integer corresponding to the feedline from which to use. All
                       feedlines are used if it is not specified.
+            cache: use results cached when the data was first calibrated.
         Returns:
             resolving_powers: an MxN array of resolving powers where M is the number of
                               res_ids the search criterion and N is the number of
@@ -1343,13 +1356,12 @@ class Solution(object):
         wavelengths = self._parse_wavelengths(wavelengths)
         res_ids = self._parse_res_ids()
         pixels, _ = self._parse_resonators(res_ids=res_ids)
-        resolving_powers = np.empty((res_ids.size, len(wavelengths)))
-        resolving_powers.fill(np.nan)
+        resolving_powers = np.full((res_ids.size, len(wavelengths)), np.nan)
         for index, pixel in enumerate(pixels.T):
             in_feedline = (np.floor(res_ids[index] / 10000) == feedline
                            if feedline is not None else True)
             if in_feedline:
-                r = self.resolving_powers(pixel=pixel, wavelengths=wavelengths)
+                r = self.resolving_powers(pixel=pixel, wavelengths=wavelengths, cache=cache)
                 resolving_powers[index, :] = r
         with warnings.catch_warnings():
             # rows with all nan values will give an unnecessary RuntimeWarning
@@ -1466,9 +1478,8 @@ class Solution(object):
 
         calibrations, res_ids = self.find_calibrations(minimum, maximum, feedline)
         np.savez(os.path.splitext(self._file_path)[0] + '_cal_coeffs.npz', 
-                calibrations=calibrations, res_ids=res_ids, min_r=minimum, max_r=maximum,
-                feedline=feedline, solution_file_path=self._file_path)
-
+                 calibrations=calibrations, res_ids=res_ids, min_r=minimum, max_r=maximum,
+                 feedline=feedline, solution_file_path=self._file_path)
 
     def find_calibrations(self, minimum=None, maximum=None, feedline=None):
         """
@@ -1728,6 +1739,8 @@ class Solution(object):
             guess = model.guess()
         model.fit(guess)
         self.set_calibration_model(model, pixel=pixel)
+        # cache resolving powers
+        self.solution._cached_resolving_powers[pixel[0], pixel[1], :] = self.solution.resolving_powers(pixel)
 
     def refit_histogram(self, wavelength, pixel=None, res_id=None, model_class=None, guess=None):
         """
