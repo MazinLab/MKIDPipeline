@@ -1604,17 +1604,20 @@ class Solution(object):
         pixel, _ = self._parse_resonators(pixel, res_id)
         wavelengths = self._parse_wavelengths(wavelengths)
         models = self._parse_models(models, 'histograms', wavelengths=wavelengths)
-        logic = (wavelengths == np.asarray(self.cfg.wavelengths))
-        self[pixel[0], pixel[1]]['histograms'][logic] = models
+        for index, wavelength in enumerate(wavelengths):
+            logic = (wavelength == np.asarray(self.cfg.wavelengths))
+            self[pixel[0], pixel[1]]['histograms'][logic] = models[index]
 
     def histogram_models(self, wavelengths=None, pixel=None, res_id=None):
         """Returns a numpy array of models used for the histogram fit for a particular
-        resonator at the specified wavelengths wavelength."""
+        resonator at the specified wavelengths."""
         pixel, _ = self._parse_resonators(pixel, res_id)
         wavelengths = self._parse_wavelengths(wavelengths)
-        logic = (wavelengths == np.asarray(self.cfg.wavelengths))
-        models = self[pixel[0], pixel[1]]['histograms'][logic]
-        return models
+        models = []
+        for wavelength in wavelengths:
+            logic = (wavelength == np.asarray(self.cfg.wavelengths))
+            models.append(self[pixel[0], pixel[1]]['histograms'][logic])
+        return np.asarray(models)
 
     def histogram_parameters(self, wavelengths=None, pixel=None, res_id=None):
         """Returns a numpy array of the fit parameters for the histogram solutions for a
