@@ -1636,7 +1636,7 @@ class Solution(object):
         models = []
         for wavelength in wavelengths:
             logic = (wavelength == np.asarray(self.cfg.wavelengths))
-            models.append(self[pixel[0], pixel[1]]['histograms'][logic])
+            models.append(self[pixel[0], pixel[1]]['histograms'][logic].item())
         return np.asarray(models)
 
     def histogram_parameters(self, wavelengths=None, pixel=None, res_id=None):
