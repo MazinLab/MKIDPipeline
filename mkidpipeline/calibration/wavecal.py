@@ -136,7 +136,7 @@ class Configuration(object):
             self.dt = float(cfg.wavecal.fit.dt)
             self.parallel = cfg.wavecal.fit.parallel
             self.parallel_prefetch = cfg.wavecal.fit.parallel_prefetch
-            self.summary_plot = cfg.wavecal.plots.lower() in ('all', 'summary')
+            self.summary_plot = str(cfg.wavecal.plots).lower() in ('all', 'summary')
 
             try:
                 self.templar_configuration_path = cfg.templar.file
@@ -1256,6 +1256,7 @@ class Solution(object):
             return self._cache
         else:
             self._cache = np.full((self.cfg.beammap.ncols, self.cfg.beammap.nrows, len(self.cfg.wavelengths)), np.nan)
+            return self._cache
 
     @property
     def cfg(self):
@@ -2707,8 +2708,7 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
             wcfg.register('exposure_times', [x.duration for x in sd.data], update=True)
             wcfg.register('wavelengths', [w for w in sd.wavelengths], update=True)
             if sd.backgrounds is not None:
-                wcfg.register('background_start_times', [x.start for x in sd.backgrounds],
-                          update=True)
+                wcfg.register('background_start_times', [x.start for x in sd.backgrounds], update=True)
             else:
                 wcfg.register('background_start_times', [], update=True)
             wcfg.register('backgrounds', sd.backgrounds)
@@ -2755,7 +2755,7 @@ if __name__ == "__main__":
         exit()
     time_ranges = [(ymlcfg.start_times[i], ymlcfg.start_times[i] + ymlcfg.exposure_times[i])
                    for i in range(len(ymlcfg.start_times))]
-    bin2hdf.buildtables(time_ranges, ymlcfg, ncpu=6, remake=args.force_h5, timesort=False)
+    bin2hdf.buildtables(time_ranges, ymlcfg, ncpu=args.n_cpu, remake=args.force_h5, timesort=False)
     if args.h5_only:
         exit()
     # run the wavelength calibration
