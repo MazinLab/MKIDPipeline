@@ -392,7 +392,11 @@ class MKIDSpectralReference(object):
     @property
     def timeranges(self):
         for o in self.data:
-            yield o.timerange
+            if isinstance(o, MKIDDitheredObservation):
+                for obs in self.o.obs:
+                    yield obs.timerange
+            else:
+                yield o.timerange
         if self.sky_data:
             for o in self.sky_data:
                 yield o.timerange
@@ -581,6 +585,7 @@ class MKIDObservingDataset(object):
             o.wavecal = wcdict.get(o.wavecal, o.wavecal)
             o.speccal = scdict.get(o.speccal, o.speccal)
             o.flatcal = fcdict.get(o.flatcal, o.flatcal)
+            o.wcscal = wcsdict.get(o.wcscal, o.wcscal)
 
         for o in self.science_observations:
             o.flatcal = fcdict.get(o.flatcal, o.flatcal)
@@ -662,11 +667,22 @@ class MKIDObservingDataset(object):
 
     @property
     def all_observations(self):
+        try:
+            speccal_obs = [d.data[0] for d in self.meta if isinstance(d, MKIDSpectralReference)][0]
+        except IndexError:
+            speccal_obs= [d.data[0] for d in self.meta if isinstance(d, MKIDSpectralReference)]
+        if isinstance(speccal_obs, MKIDDitheredObservation):
+            speccal_obs = [d.data[0].obs for d in self.meta if isinstance(d, MKIDSpectralReference)][0][0]
+            return ([o for o in self.meta if isinstance(o, MKIDObservation)] +
+                    [o for d in self.meta if isinstance(d, MKIDDitheredObservation) for o in d.obs] +
+                    [d.ob for d in self.meta if isinstance(d, MKIDFlatdataDescription) and d.ob is not None] +
+                    [d.ob for d in self.meta if isinstance(d, MKIDWCSCalDescription) and d.ob is not None] +
+                    [speccal_obs])
         return ([o for o in self.meta if isinstance(o, MKIDObservation)] +
                 [o for d in self.meta if isinstance(d, MKIDDitheredObservation) for o in d.obs] +
                 [d.ob for d in self.meta if isinstance(d, MKIDFlatdataDescription) and d.ob is not None] +
                 [d.ob for d in self.meta if isinstance(d, MKIDWCSCalDescription) and d.ob is not None] +
-                [d.data[0] for d in self.meta if isinstance(d, MKIDSpectralReference)]) #TODO figure out how to automatically wavecal the laser exposures
+                speccal_obs)
 
     @property
     def science_observations(self):

@@ -83,6 +83,7 @@ class Configuration(object):
         self.sky_pos = sky_pos
         self.nwvlbins = None
         self.interpolation = interpolation
+        self.data = None
         if self.configuration_path is not None:
             # load in the configuration file
             cfg = mkidcore.config.load(self.configuration_path)
@@ -107,6 +108,7 @@ class Configuration(object):
             self.summary_plot = cfg.spectralcal.summary_plot
             self.intTimes = cfg.exposure_times
             self.aperture_radius = float(cfg.spectralcal.aperture_radius)
+            self.data = cfg.data
             self.obj_pos = tuple(float(s) for s in cfg.spectralcal.object_position.strip("()").split(",")) \
                 if cfg.spectralcal.object_position else None
             self.sky_pos = tuple(float(s) for s in cfg.spectralcal.sky_position.strip("()").split(","))
@@ -160,8 +162,8 @@ class StandardSpectrum:
 
     def get(self):
         """
-        function which creates a spectrum directory, populates it with the sepctrum file either pulled from the ESO
-        catalog, SDSS catalog or from a URL and returns the wavelength and flux column in the appropriate units
+        function which creates a spectrum directory, populates it with the spectrum file either pulled from the ESO
+        catalog, SDSS catalog, a URL, or a specified path to a .txt file and returns the wavelength and flux column in the appropriate units
         :return: wavelengths (Angstroms), flux (erg/s/cm^2/A)
         """
         self.save_dir = create_spectra_directory(save_dir=self.save_dir)
@@ -176,9 +178,12 @@ class StandardSpectrum:
         :return:
         '''
         if self.url_path is not None:
-            self.spectrum_file = fetch_spectra_URL(object_name=self.object_name, url_path=self.url_path,
-                                                   save_dir=self.save_dir)
-            data = np.loadtxt(self.spectrum_file)
+            if self.url_path.endswith('.txt'):
+                data = np.loadtxt(self.url_path)
+            else:
+                self.spectrum_file = fetch_spectra_URL(object_name=self.object_name, url_path=self.url_path,
+                                                       save_dir=self.save_dir)
+                data = np.loadtxt(self.spectrum_file)
             return data
         else:
             self.spectrum_file = fetch_spectra_ESO(object_name=self.object_name, save_dir=self.save_dir)
@@ -250,6 +255,7 @@ class SpectralCalibrator(object):
         self.bb_wvls = None
         self.conv_wvls = None
         self.conv_flux = None
+        self.data = None
         if h5_file_names:
             self.obs = [Photontable(f) for f in h5_file_names]
         if sky_h5_file_names:
@@ -266,6 +272,7 @@ class SpectralCalibrator(object):
             self.obs = [Photontable(f) for f in self.cfg.h5_file_names]
             self.sky_obs = [Photontable(f) for f in self.cfg.sky_file_names]
             self.wvl_bin_widths = self.cfg.wvl_bin_widths
+            self.data = self.cfg.data
 
     def run(self, save=True, plot=None):
         """
@@ -311,29 +318,49 @@ class SpectralCalibrator(object):
          and performing photometry (aperture or psf) on each spectral frame
          """
         getLogger(__name__).info('performing {} photometry on MEC spectrum'.format(self.cfg.photometry))
-        cube_dict = self.obs[0].getSpectralCube(integrationTime=self.cfg.intTimes[0],
-                                                applyWeight=True, wvlStart=self.cfg.wvlStart/10, wvlStop=self.cfg.wvlStop/10,
-                                                energyBinWidth=self.cfg.energyBinWidth, exclude_flags=pixelflags.PROBLEM_FLAGS)
-        cube = np.array(cube_dict['cube'], dtype=np.double)
+        if len(self.obs) == 1:
+            cube_dict = self.obs[0].getSpectralCube(integrationTime=self.cfg.intTimes[0],
+                                                    applyWeight=True, wvlStart=self.cfg.wvlStart/10,
+                                                    wvlStop=self.cfg.wvlStop/10, energyBinWidth=self.cfg.energyBinWidth,
+                                                    exclude_flags=pixelflags.PROBLEM_FLAGS)
+            cube = np.array(cube_dict['cube'], dtype=np.double)
+            effIntTime = cube_dict['effIntTime']
+            self.wvl_bin_edges = cube_dict['wvlBinEdges'] * 10  # get this into units of Angstroms
+            # add third dimension to effIntTime for broadcasting
+            effIntTime = np.reshape(effIntTime, np.shape(effIntTime) + (1,))
+            # put cube into counts/s in each pixel
+            cube /= effIntTime
+        else:
+            cube = []
+            ref_obs = self.obs[0].getSpectralCube(integrationTime=self.cfg.intTimes[0],
+                                                  applyWeight=True, wvlStart=self.cfg.wvlStart/10,
+                                                  wvlStop=self.cfg.wvlStop/10, energyBinWidth=self.cfg.energyBinWidth,
+                                                  exclude_flags=pixelflags.PROBLEM_FLAGS)
+            self.wvl_bin_edges = ref_obs['wvlBinEdges'] * 10
+            for wvl in range(len(self.wvl_bin_edges) - 1):
+                getLogger(__name__).info(
+                    'using wavelength range {} - {}'.format(self.wvl_bin_edges[wvl]/10, self.wvl_bin_edges[wvl+1]/10))
+                drizzled = mkidpipeline.drizzler.form(self.data, mode='spatial', wvlMin=self.wvl_bin_edges[wvl]/10,
+                                                      wvlMax=self.wvl_bin_edges[wvl+1]/10, pixfrac=0.5, wcs_timestep=1,
+                                                      exp_timestep=1, exclude_flags=pixelflags.PROBLEM_FLAGS,
+                                                      usecache=False, ncpu=1, derotate=True, align_start_pa=False,
+                                                      whitelight=False, debug_dither_plot=False)
+                getLogger(__name__).info(('finished image {}/ {}'.format(wvl, len(self.wvl_bin_edges) - 1)))
+                cube.append(drizzled.cps)
+            cube = np.moveaxis(cube, 0, -1)
         self.image = np.sum(cube, axis=2)
-        effIntTime = cube_dict['effIntTime']
-        self.wvl_bin_edges = cube_dict['wvlBinEdges'] * 10 # get this into units of Angstroms
         n_wvl_bins = len(self.wvl_bin_edges) - 1
         for i, edge in enumerate(self.wvl_bin_edges):
             try:
                 self.wvl_bin_widths[i] = self.wvl_bin_edges[i + 1] - self.wvl_bin_edges[i]
             except IndexError:
                 pass
-        # add third dimension to effIntTime for broadcasting
-        effIntTime = np.reshape(effIntTime, np.shape(effIntTime) + (1,))
-        # put cube into counts/s in each pixel
-        cube /= effIntTime
         self.flux_spectrum = np.empty(n_wvl_bins, dtype=float)
         self.sky_spectrum = np.empty(n_wvl_bins, dtype=float)
         if self.obj_pos is None:
             getLogger(__name__).info('No coordinate specified for the object. Performing a PSF fit '
                                      'to find the location')
-            x, y, flux = psf_photometry(cube[:, :, 0], 3.0)
+            x, y, flux = psf_photometry(self.image, 3.0)
             self.obj_pos = (x[0], y[0])
             getLogger(__name__).info('Found the object at {}'.format(self.obj_pos))
         for i in np.arange(n_wvl_bins):
@@ -500,7 +527,7 @@ def name_to_ESO_extension(object_name):
 
 def fetch_spectra_ESO(object_name, save_dir):
     """
-    fetches a standard spectrum from the ESO catalog and downloads it to self.savedir if it exist. Requires
+    fetches a standard spectrum from the ESO catalog and downloads it to self.savedir if it exists. Requires
     self.object_name to not be None
     :return:
     """
@@ -508,6 +535,7 @@ def fetch_spectra_ESO(object_name, save_dir):
     ext = name_to_ESO_extension(object_name)
     path = 'ftp://ftp.eso.org/pub/stecf/standards/'
     folders = np.array(['ctiostan/', 'hststan/', 'okestan/', 'wdstan/', 'Xshooter/'])
+    spectrum_file = None
     if os.path.exists(save_dir + ext):
         getLogger(__name__).info('Spectrum already loaded, will not be reloaded')
         spectrum_file = save_dir + ext
@@ -708,16 +736,27 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
                 scfg = mkidpipeline.config.load_task_config(pkg.resource_filename(__name__, 'spectralcal.yml'))
             else:
                 scfg = cfg.copy()
-            scfg.register('start_times', [x.start for x in sd.data], update=True)
+            try:
+                scfg.register('start_times', [x.start for x in sd.data], update=True)
+            except AttributeError:
+                scfg.register('start_times', [x.start for x in sd.data[0].obs], update=True)
             if sd.sky_data is not None:
                 scfg.register('sky_start_times', [x.start for x in sd.sky_data],
                               update=True)
             else:
                 scfg.register('sky_start_times', [], update=True)
-            scfg.register('exposure_times', [x.duration for x in sd.data], update=True)
-            scfg.register('ra', [x.ra for x in sd.data], update=True)
-            scfg.register('dec', [x.dec for x in sd.data], update=True)
-            scfg.register('object_name', [x.target for x in sd.data], update=True)
+            try:
+                scfg.register('exposure_times', [x.duration for x in sd.data], update=True)
+                scfg.register('ra', [x.ra for x in sd.data], update=True)
+                scfg.register('dec', [x.dec for x in sd.data], update=True)
+                scfg.register('object_name', [x.target for x in sd.data], update=True)
+                scfg.register('data', sd.data, update=True)
+            except AttributeError:
+                scfg.register('exposure_times', [x.duration for x in sd.data[0].obs], update=True)
+                scfg.register('ra', [x.ra for x in sd.data[0].obs], update=True)
+                scfg.register('dec', [x.dec for x in sd.data[0].obs], update=True)
+                scfg.register('object_name', [x.target for x in sd.data[0].obs], update=True)
+                scfg.register('data', sd.data[0], update=True)
             if ncpu is not None:
                 scfg.update('ncpu', ncpu)
             cal = SpectralCalibrator(scfg, solution_name=sf)
