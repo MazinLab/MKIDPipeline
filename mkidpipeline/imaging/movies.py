@@ -45,13 +45,29 @@ def make_movie(out, usewcs=False, showaxes=True, inpainting=False, **kwargs):
         fps = False
         duration = 1/out.movieduration
 
+    try:
+        cps_cutoff = out.cps_cutoff
+    except AttributeError:
+        cps_cutoff = 100
+
+    try:
+        maskbadpix = out.maskbadpix
+    except AttributeError:
+        maskbadpix = False
+
+    try:
+        colormap = out.colormap
+    except AttributeError:
+        colormap = 'Blue'
+
     _make_movie(h5file, outfile, timestep, duration, title=title, usewcs=usewcs,
                 startw=startw, stopw=stopw, startt=startt, stopt=stopt,
-                fps=fps, showaxes=showaxes, inpainting=inpainting)
+                fps=fps, showaxes=showaxes, inpainting=inpainting, cps_cutoff=cps_cutoff, 
+                maskbadpix=maskbadpix, colormap=colormap)
 
 
 def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, startw=None, stopw=None, startt=None, stopt=None,
-                fps=False, showaxes=False, inpainting=False, cps_cutoff=50):
+                fps=False, showaxes=False, inpainting=False, cps_cutoff=50, maskbadpix=False, colormap='Blue', dpi=400):
     """returns the movie frames"""
     global _cache
     movietype = os.path.splitext(outfile)[1].lower()
@@ -102,8 +118,13 @@ def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, sta
     fig = plt.figure()
     if usewcs:
         plt.subplot(projection=wcs)
-    im = plt.imshow(frames[0], interpolation='none', origin='lower', vmin=frames.min(),
-                    vmax=np.percentile(frames, 98), cmap=plt.get_cmap('Blues'))
+    if maskbadpix:
+        of = mkidpipeline.hdf.photontable.Photontable(h5file)
+        for i in range(frames.shape[0]):
+            frames[i][of.pixelBadMask.T] = np.nan
+    im = plt.imshow(frames[0], interpolation='none', origin='lower', vmin=0,
+                    vmax=cps_cutoff*timestep, cmap=plt.get_cmap(colormap))
+    im.cmap.set_bad('black')
     cbar = plt.colorbar()
     ticks = cbar.get_ticks()
     cbar.set_label('Photons/s')
@@ -122,7 +143,7 @@ def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, sta
             plt.ylabel('Pixel')
         plt.tight_layout()
 
-    with writer.saving(fig, outfile, frames.shape[2]):
+    with writer.saving(fig, outfile, dpi):
         for a in frames:
             im.set_array(a)
             writer.grab_frame()
