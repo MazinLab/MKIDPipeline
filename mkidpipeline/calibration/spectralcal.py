@@ -54,7 +54,7 @@ class Configuration(object):
 
     def __init__(self, configfile=None, start_times=tuple(), sky_start_times=tuple(), intTimes=tuple(),
                  h5dir='', savedir='', h5_file_names='', sky_file_names='', object_name='', ra=None, dec=None,
-                 photometry='', energy_bin_width=0.01, wvlStart=850, wvlStop=1375, collecting_area=0.0016, summary_plot=True,
+                 photometry='', energy_bin_width=0.01, wvlStart=850, wvlStop=1375, collecting_area=5 * 10**5, summary_plot=True,
                  url_path='', aperture_radius=3, obj_pos=None, sky_pos=None, interpolation='linear'):
         # parse arguments
         self.configuration_path = configfile
@@ -104,10 +104,10 @@ class Configuration(object):
             self.ra = cfg.ra if cfg.ra else None
             self.dec = cfg.dec if cfg.dec else None
             self.photometry = cfg.spectralcal.photometry_type
-            self.collecting_area = cfg.spectralcal.collecting_area
             self.summary_plot = cfg.spectralcal.summary_plot
             self.intTimes = cfg.exposure_times
             self.aperture_radius = float(cfg.spectralcal.aperture_radius)
+            self.collecting_area = 5 * 10**5 #TODO check this conversion
             self.data = cfg.data
             self.obj_pos = tuple(float(s) for s in cfg.spectralcal.object_position.strip("()").split(",")) \
                 if cfg.spectralcal.object_position else None
@@ -345,7 +345,7 @@ class SpectralCalibrator(object):
                                                       exp_timestep=1, exclude_flags=pixelflags.PROBLEM_FLAGS,
                                                       usecache=False, ncpu=1, derotate=True, align_start_pa=False,
                                                       whitelight=False, debug_dither_plot=False)
-                getLogger(__name__).info(('finished image {}/ {}'.format(wvl, len(self.wvl_bin_edges) - 1)))
+                getLogger(__name__).info(('finished image {}/ {}'.format(wvl+1.0, len(self.wvl_bin_edges) - 1)))
                 cube.append(drizzled.cps)
             cube = np.moveaxis(cube, 0, -1)
         self.image = np.sum(cube, axis=2)
@@ -390,6 +390,7 @@ class SpectralCalibrator(object):
         # convolved spectrum comes back sorted backwards, from long wvls to low which screws up rebinning
         self.conv_wvls = convX_rev[::-1]
         self.conv_flux = convY_rev[::-1]
+
         # rebin cleaned spectrum to flat cal's wvlBinEdges
         rebin_std_data = rebin(self.conv_wvls, self.conv_flux, self.wvl_bin_edges)
 
@@ -405,15 +406,18 @@ class SpectralCalibrator(object):
 
         fraction = 1.0 / 3.0
         nirX = np.arange(int(x[int((1.0 - fraction) * len(x))]), self.cfg.wvlStop)
-        T, nirY = fitBlackbody(x, y, fraction=fraction, newWvls=nirX, tempGuess=5600)
-
-        self.bb_wvls = np.concatenate((x, nirX[nirX > max(x)]))
-        self.bb_flux = np.concatenate((y, nirY[nirX > max(x)]))
+        T, nirY = fitBlackbody(x, y, fraction=fraction, newWvls=nirX)
+        if np.any(x >= self.cfg.wvlStop):
+            self.bb_wvls = x
+            self.bb_flux = y
+        else:
+            self.bb_wvls = np.concatenate((x, nirX[nirX > max(x)]))
+            self.bb_flux = np.concatenate((y, nirY[nirX > max(x)]))
 
         getLogger(__name__).info('Loading in wavecal solution to get median energy resolution R')
         sol_file = [f for f in os.listdir(self.cfg.save_directory) if f.endswith('.npz') and f.startswith('wavcal')]  # TODO have a better way to pull out the wavecal solution file
         sol = mkidpipeline.calibration.wavecal.Solution(str(self.cfg.save_directory) + "/" + sol_file[0])
-        r_list, resid = sol.find_resolving_powers()
+        r_list, resid = sol.find_resolving_powers(cache=True)
         r = np.median(np.nanmedian(r_list, axis=0))
 
         # Gaussian convolution to smooth std spectrum to MKIDs median resolution
@@ -426,7 +430,7 @@ class SpectralCalibrator(object):
         Divide the MEC Spectrum by the rebinned and gaussian conivlved standard spectrum
         """
         curve_x = self.rebin_std_wvls
-        curve_y = self.flux_spectrum/self.rebin_std_flux
+        curve_y = self.rebin_std_flux/self.flux_spectrum
         self.curve = np.vstack((curve_x, curve_y))
         return self.curve
 
@@ -436,7 +440,8 @@ class SpectralCalibrator(object):
         axes_list = np.array([figure.add_subplot(gs[0, 0]), figure.add_subplot(gs[0, 1]),
                               figure.add_subplot(gs[1, 0]), figure.add_subplot(gs[1, 1])])
         axes_list[0].imshow(self.image)
-        axes_list[0].scatter(self.obj_pos[0], self.obj_pos[1], color='red', s=2)
+        circle = plt.Circle((self.obj_pos[0], self.obj_pos[1]), self.aperture_radius, fill=False, color='r')
+        axes_list[0].add_artist(circle)
         axes_list[0].set_title('MKID Instrument Image of Standard', size=8)
 
         axes_list[1].step(self.std_wvls, self.std_flux, where='mid', label='{} Spectrum'.format(self.cfg.object_name[0]))
@@ -452,6 +457,8 @@ class SpectralCalibrator(object):
                           label='MKID Histogram of Object')
         axes_list[2].set_title('Object Histograms', size=8)
         axes_list[2].legend(loc='upper right', prop={'size': 6})
+        axes_list[2].set_xlabel('Wavelength (A)')
+        axes_list[2].set_ylabel('counts/s/cm^2/A')
 
         axes_list[3].plot(self.curve[0], self.curve[1])
         axes_list[3].set_title('Response Curve', size=8)
@@ -564,8 +571,7 @@ def fetch_spectra_SDSS(object_name, save_dir, coords):
     getLogger(__name__).info('Looking for {} spectrum in SDSS catalog'.format(object_name))
     result = SDSS.query_region(coords, spectro=True)
     if not result:
-        getLogger(__name__).warning('Could not find spectrum for {} at ({},{}) in SDSS catalog')\
-            .format(object_name, coords[0], coords[1])
+        getLogger(__name__).warning('Could not find spectrum for {} at {},{} in SDSS catalog'.format(object_name, coords[0], coords[1]))
         spectrum_file = None
         return spectrum_file
     spec = SDSS.get_spectra(matches=result)
