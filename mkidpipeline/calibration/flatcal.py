@@ -554,7 +554,7 @@ class LaserCalibrator(FlatCalibrator):
             getLogger(__name__).info('Loading in wavecal solution to get median energy resolution R')
             sol_file = [f for f in os.listdir(self.cfg.paths.database) if f.endswith('.npz')] #TODO have a better way to pull out the wavecal solution file
             sol = mkidpipeline.calibration.wavecal.Solution(str(self.cfg.paths.database) + "/" + sol_file[0])
-            r, resid = sol.find_resolving_powers()
+            r, resid = sol.find_resolving_powers(cache=True)
             r_list = np.nanmedian(r, axis=0)
             delta_list = wavelengths / r_list
         for iwvl, wvl in enumerate(wavelengths):
