@@ -107,7 +107,7 @@ class Configuration(object):
             self.summary_plot = cfg.spectralcal.summary_plot
             self.intTimes = cfg.exposure_times
             self.aperture_radius = float(cfg.spectralcal.aperture_radius)
-            self.collecting_area = 5 * 10**5 #TODO check this conversion
+            self.collecting_area = 5 * 10**5
             self.data = cfg.data
             self.obj_pos = tuple(float(s) for s in cfg.spectralcal.object_position.strip("()").split(",")) \
                 if cfg.spectralcal.object_position else None
@@ -267,12 +267,12 @@ class SpectralCalibrator(object):
             self.aperture_radius = self.cfg.aperture_radius
             self.solution_name = solution_name
             self.interpolation = self.cfg.interpolation
-            self.solution = ResponseCurve(configuration=self.cfg, curve=curve,
-                                          solution_name=self.solution_name)
             self.obs = [Photontable(f) for f in self.cfg.h5_file_names]
             self.sky_obs = [Photontable(f) for f in self.cfg.sky_file_names]
             self.wvl_bin_widths = self.cfg.wvl_bin_widths
             self.data = self.cfg.data
+            self.solution = ResponseCurve(configuration=self.cfg, curve=curve, wvl_bin_widths=self.wvl_bin_widths,
+                                          solution_name=self.solution_name)
 
     def run(self, save=True, plot=None):
         """
@@ -302,7 +302,7 @@ class SpectralCalibrator(object):
             self.load_standard_spectrum()
             getLogger(__name__).info("Calculating Spectrophotometric Response Curve")
             self.calculate_response_curve()
-            self.solution = ResponseCurve(configuration=self.cfg, curve=self.curve,
+            self.solution = ResponseCurve(configuration=self.cfg, curve=self.curve, wvl_bin_widths=self.wvl_bin_widths,
                                           solution_name=self.solution_name)
             if save:
                 self.solution.save(save_name=self.solution_name if isinstance(self.solution_name, str) else None)
@@ -468,13 +468,15 @@ class SpectralCalibrator(object):
 
 
 class ResponseCurve(object):
-    def __init__(self, file_path=None, curve=None, configuration=None, solution_name='spectral_solution'):
+    def __init__(self, file_path=None, curve=None, configuration=None, wvl_bin_widths=None,
+                 solution_name='spectral_solution'):
         # default parameters
         self._parse = True
         # load in arguments
         self._file_path = os.path.abspath(file_path) if file_path is not None else file_path
         self.curve = curve
         self.cfg = configuration
+        self.wvl_bin_widths = wvl_bin_widths
         # if we've specified a file load it without overloading previously set arguments
         if self._file_path is not None:
             self.load(self._file_path)
@@ -492,7 +494,7 @@ class ResponseCurve(object):
         if not save_path.endswith('.npz'):
             save_path += '.npz'
         getLogger(__name__).info("Saving spectrophotometric response curve to {}".format(save_path))
-        np.savez(save_path, curve=self.curve, configuration=self.cfg)
+        np.savez(save_path, curve=self.curve, wvl_bin_widths=self.wvl_bin_widths, configuration=self.cfg)
         self._file_path = save_path  # new file_path for the solution
 
     def load(self, file_path, file_mode='c'):
@@ -508,6 +510,7 @@ class ResponseCurve(object):
         self.npz = npz_file
         self.curve = self.npz['curve']
         self.cfg = self.npz['configuration']
+        self.wvl_bin_widths = self.npz['wvl_bin_widths']
         self._file_path = file_path  # new file_path for the solution
         self.name = os.path.splitext(os.path.basename(file_path))[0]  # new name for saving
         getLogger(__name__).info("Complete")
