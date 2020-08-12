@@ -571,8 +571,7 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=30, startt=0, stopt=
         getLogger(__name__).info('Processing time slice: {} - {} s'.format(each_time, each_time + step))
         raw_image_dict = obs.getPixelCountImage(firstSec=each_time, integrationTime=step,
                                                 applyWeight=True, applyTPFWeight=True,
-                                                scaleByEffInt=method == 'hpm_cps_cut', # TODO scaleByEffInt currently does nothing
-                                                exclude_flags=['beammap.noDacTone'])
+                                                scaleByEffInt=method == 'hpm_cps_cut')
         bad_pixel_solution = func(raw_image_dict['image'], **methodkw)
         hot_masks[:, :, i] = bad_pixel_solution['hot_mask']
         cold_masks[:, :, i] = bad_pixel_solution['cold_mask']
