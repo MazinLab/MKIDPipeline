@@ -12,7 +12,7 @@ Examples
 
     >>> dither = MKIDDitheredObservation(**kwargs)
     >>> drizzled = drizzler.form(dither, mode='spatial')
-    >>> drizzled.writefits('output.fits')
+    >>> drizzled.write('output.fits')
 
 Classes
 
@@ -20,7 +20,7 @@ Classes
     Canvas          : Called by the "Drizzler" classes. Generates the canvas that is drizzled onto
     SpatialDrizzler : Generate a spatially dithered image from a set dithered dataset
     TemporalDrizzler: Generates a spatially dithered 4-cube (xytw)
-    ListDrizzler    : Not implemented yet
+    ListDrizzler    : Generates photonlist with RA/Dec coordinates assigned
     DrizzledData    : Saves the drizzled data as FITS
 
 Functions
@@ -30,11 +30,6 @@ Functions
     load_data       : Consolidate all dither positions
     form            : Takes in a MKIDDitheredObservation object and drizzles the dithers onto a common sky grid
     get_star_offset : Get the rotation_center offset parameter for a dither
-
-Note
-
-    Unfinished implementation of ListDrizzler for later development can be found in commit
-    6169b9d0836c03b669223c12a852a05e8f74ad7d
 
 TODO:
     * Add astroplan, drizzle, to setup.py/yml. drizzle need to be pip installed. I found that astroplan needed to be pip
@@ -687,8 +682,9 @@ class DrizzledData(object):
             header[key] = (val, comment)
         return header
 
-    def writefits(self, filename, overwrite=True, compress=False, dashboard_orient=False):
+    def write(self, filename, overwrite=True, compress=False, dashboard_orient=False):
         """
+        Write a fits file for either stacked, spatially drizzled or temporally drizzled data
 
         :param filename:
         :param overwrite:
@@ -868,8 +864,8 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
     elif mode == 'list':
         driz = ListDrizzler(dithers_data, drizzle_params)
         driz.run()
-        driz.save_photontable()
-        raise NotImplementedError
+        # driz.save_photontable()
+        # raise NotImplementedError
         # return
 
     elif mode == 'spatial' or mode == 'stack':
@@ -883,7 +879,7 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
     drizzle = DrizzledData(driz, mode, drizzle_params=drizzle_params)
 
     if fitsname:
-        drizzle.writefits(file=fitsname + '.fits')  # unless path specified, save in cwd
+        drizzle.write(file=fitsname + '.fits')  # unless path specified, save in cwd
 
     getLogger(__name__).info('Finished forming drizzled data')
 
