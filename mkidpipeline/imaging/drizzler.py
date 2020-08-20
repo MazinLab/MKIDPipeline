@@ -398,16 +398,50 @@ class Canvas(object):
 
 class ListDrizzler(Canvas):
     """
-    Drizzle individual photons onto the celestial grid
+    Assign photons an RA and Dec.
     """
 
     def __init__(self, dithers_data, drizzle_params):
-        super().__init__(self, dithers_data, drizzle_params.dither.obs[0], drizzle_params.coords, drizzle_params.nPixRA,
+        super().__init__(dithers_data, drizzle_params.dither.obs[0], drizzle_params.coords, drizzle_params.nPixRA,
                          drizzle_params.nPixDec)
 
-        getLogger(__name__).critical('ListDrizzler has not been written')
-        raise NotImplementedError
+        self.driz = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=drizzle_params.pixfrac, wt_scl='')
+        self.wcs_timestep = drizzle_params.wcs_timestep
+        inttime = drizzle_params.used_inttime
 
+        # if inttime is say 100 and wcs_timestep is say 60 then this yeilds [0,60,100]
+        # meaning the positions don't have constant integration time
+        self.wcs_times = np.append(np.arange(0, inttime, self.wcs_timestep), inttime)
+        self.wcs_times_ms = self.wcs_times * 1e6
+        self.stackedim = np.zeros((len(drizzle_params.dither.obs) * (len(self.wcs_times) - 1), self.ypix, self.xpix))
+        self.stacked_wcs = []
+
+    def run(self):
+        tic = time.clock()
+        for ix, dither_photons in enumerate(self.dithers_data):
+
+            for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):
+                inwcs = wcs.WCS(header=inwcs)
+                inwcs.pixel_shape = (self.xpix, self.ypix)
+
+                # the sky grid ref and dither ref should match (crpix varies between dithers)
+                if not np.all(np.round(inwcs.wcs.crval, decimals=4) == np.round(self.wcs.wcs.crval, decimals=4)):
+                    getLogger(__name__).critical(
+                        'sky grid ref and dither ref do not match (crpix varies between dithers)!')
+                    raise RuntimeError('sky grid ref and dither ref do not match (crpix varies between dithers)!')
+
+                pix_grid = np.array(np.meshgrid(range(140), range(146)))
+                refpix_grid = pix_grid - inwcs.wcs.crpix[:,np.newaxis, np.newaxis]
+                rot_grid = np.dot(refpix_grid.T, inwcs.wcs.pc)
+                coord_grid = rot_grid*inwcs.wcs.cdelt  # [:,np.newaxis, np.newaxis]
+                sky_grid = coord_grid + inwcs.wcs.crval
+
+                dither_photons['RA'], dither_photons['Dec'] = sky_grid[dither_photons['xPhotonPixels'], dither_photons['xPhotonPixels']].T
+
+        getLogger(__name__).debug('Assigning of RA/Decs completed. Time taken (s): %s', time.clock() - tic)
+
+    def save_photontable(self):
+        raise NotImplementedError
 
 
 class TemporalDrizzler(Canvas):
@@ -428,6 +462,7 @@ class TemporalDrizzler(Canvas):
         self.ndithers = len(self.dithers_data)
         self.pixfrac = drizzle_params.pixfrac
         self.wvlbins = np.linspace(wvlMin, wvlMax, self.nwvlbins + 1)
+        self.wvlbins[0] = wvlMin  # linspace(0,inf) -> [nan,inf] which throws off the binning
 
         inttime = drizzle_params.used_inttime
         self.wcs_times = np.append(np.arange(0, inttime, drizzle_params.wcs_timestep), inttime)
@@ -832,7 +867,10 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
 
     elif mode == 'list':
         driz = ListDrizzler(dithers_data, drizzle_params)
-        return driz.dithers_data
+        driz.run()
+        driz.save_photontable()
+        raise NotImplementedError
+        # return
 
     elif mode == 'spatial' or mode == 'stack':
         stack = mode=='stack'
