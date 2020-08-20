@@ -45,13 +45,14 @@ wavecal: !configdict
 spectralcal: !configdict
   #Mandatory
   photometry_type: 'aperture' #'aperture' or 'psf'
-  aperture_radius: 3 #in pixels
+  aperture_radius: 6 #in pixels
   summary_plot: True
-  collecting_area: .0016 # for Subaru its 219.5 MEC pixels/cm
-  sky_position: (85, 93) #location center reference sky pixel
+  sky_position: (60, 170) #location center reference sky pixel
   #optional
-  standard_url: #url link to a standard spectrum text file must be in 2 column format where first column is wvl in angstroms and second column is flux in erg/s/cm^2/A
-  object_position: (85, 93) #in pixel coordinates - if blank the code will attempt to locate the object location
+  #url link to a standard spectrum text file must be in 2 column format where first column is wvl in angstroms and
+  #second column is flux in erg/s/cm^2/A
+  standard_url: '/mnt/data0/steiger/MEC/20200705/spectra/BD_172803_spectrum_PHEONIX.txt'
+  object_position: (93, 134) #in pixel coordinates - if blank the code will attempt to locate the object location
   interpolation: 'linear' #'linear', 'cubic' or 'nearest'
 
 flatcal: !configdict
@@ -88,7 +89,7 @@ drizzler: !configdict
   nwvlbins: 1  # the number of equal width bins in the temporally drizzled cube
   usecache: False  # if True the reformatted photontable data from each of the dithers is stored and reloaded for
                    # subsequent runs of drizzler.py
-  derotate: Fasle  # apply a rotation to each frame opposite to the sky rotation to align the objects
+  derotate: False  # apply a rotation to each frame opposite to the sky rotation to align the objects
   align_start_pa: False  # if derotate is False then the images can be aligned to the first frame for the purpose of ADI
   whitelight: True  # tell drizzler to turn off derotation and set ra and dec to 0
 

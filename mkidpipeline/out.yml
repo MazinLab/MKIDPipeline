@@ -3,11 +3,12 @@
   data: HD22179
   startw: 811
   stopw: 1351
-  kind: stack  # stack (align MKID array) | spatial (align sky coords) | temporal (many "spatial" maps stacked) | dither (?)
+  kind: spatial  # stack (align MKID array) | spatial (align sky coords) | temporal (many "spatial" maps stacked) |
   enable_noise: True
   enable_photom: True
   enable_ssd: True
-#  filename: test.f
+  filename: HD22179_spatial.fits
+
 - !out
   name: out2
   data: HD22179
@@ -18,12 +19,13 @@
   enable_photom: True
   enable_ssd: True
 #  filename: test.f
+
 - !out
   name: out3
   data: HD22179
   startw: 811
   stopw: 1351
-  kind: dither
+  kind: stack
   enable_noise: True
   enable_photom: True
   enable_ssd: True
