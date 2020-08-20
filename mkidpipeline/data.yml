@@ -97,11 +97,21 @@
     ND: 1
     lamp: 40
 
-- !sc #the data taken of the spectrophotometric standard
+- !sc
+  name: speccal1
   data:
-    - !ob
-      start:
-      duration:
+    - !dither #can be a dither or sob
+      name: BD_172803
+      target: Hip 73106
+      observatory: Subaru
+      instrument: MEC
+      approximate_time: 1594026002
+      wcscal: wcscal1
+      wavecal: wavecal1
+      flatcal: flatcal1
+      ra: 14 56 29.9358459459
+      dec: +17 06 11.569247006
+  sky_data:
 
 - !dither
   name: HIP 10680
@@ -116,16 +126,18 @@
     - astrogrid
 
 - !dither
-  name: HD22179
-  file: HD22179_1545548901_dither.log
-  wcscal: wcscal2
+  name: Hip109427_dither
+  approximate_time: 1596278720
+  wcscal: wcscal1
   wavecal: wavecal1
-  flatcal: flatcal2
+  flatcal: flatcal1
+  target: Hip109427
+  observatory: Subaru
+  instrument: MEC
+  ra: 22 10 11.9852752
+  dec: +06 11 52.307750
   comments:
-    - 113mas Lyot
-    - Astrogrid
-    - Faint - J=7.8
-    - 1545549968 - 1545551005,  Network error. Lost FL8a,b
+    -ND 1.0
 
 - !dither
   name: WL_dither

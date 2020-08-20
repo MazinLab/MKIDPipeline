@@ -37,8 +37,6 @@ def run_stage1(dataset):
     times.append(time.time())
     pipe.batch_apply_wavecals(dataset.wavecalable, ncpu=ncpu)
     times.append(time.time())
-    pipe.getLogger('mkidpipeline.hdf.photontable').setLevel('DEBUG')
-    times.append(time.time())
     pipe.batch_maskhot(dataset.science_observations, ncpu=ncpu)
     times.append(time.time())
     pipe.batch_apply_linearitycal(dataset.science_observations, ncpu=ncpu)
@@ -49,7 +47,7 @@ def run_stage1(dataset):
     times.append(time.time())
     pipe.spectralcal.fetch(dataset.spectralcals, ncpu=ncpu)
     times.append(time.time())
-    pipe.batch_apply_speccals(dataset.science_observations, ncpu=ncpu)
+    pipe.getLogger('mkidpipeline.hdf.photontable').setLevel('INFO')
     times.append(time.time())
 
     steps = ('H5 Creation', 'Metadata Application', 'Wavecal Fetch', 'Wavecal Application',
@@ -77,10 +75,10 @@ def generate_outputs(outputs):
                 raise TypeError('a dither is not specified in the out.yml')
             drizzled = pipe.drizzler.form(o.data, mode=o.kind, wvlMin=o.startw, wvlMax=o.stopw,
                                           pixfrac=config.drizzler.pixfrac, wcs_timestep=config.drizzler.wcs_timestep,
-                                          exp_timestep=config.drizzler.exp_timestep, exclude_flags=(), #exclude_flags=config.exclude_flags?
+                                          exp_timestep=config.drizzler.exp_timestep, exclude_flags=pixelflags.PROBLEM_FLAGS,
                                           usecache=config.drizzler.usecache, ncpu=config.ncpu,
                                           derotate=config.drizzler.derotate, align_start_pa=config.drizzler.align_start_pa,
-                                          whitelight=config.drizzler.whitelight)
+                                          whitelight=config.drizzler.whitelight, save_file=config.drizzler.save_file)
             drizzled.writefits(o.output_file)
         if o.wants_movie:
             pipe.getLogger('mkidpipeline.hdf.photontable').setLevel('DEBUG')
@@ -92,7 +90,9 @@ out_collection = pipe.load_output_description(outfile)
 outputs = out_collection.outputs
 dataset = out_collection.dataset
 
+# dataset = out_collection.dataset
+
 # First we need to process data
 run_stage1(dataset)
+# Generate desired outputs
 generate_outputs(outputs)
-
