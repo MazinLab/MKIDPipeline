@@ -435,7 +435,7 @@ class ListDrizzler(Canvas):
 
         getLogger(__name__).debug('Assigning of RA/Decs completed. Time taken (s): %s', time.clock() - tic)
 
-    def save_photontable(self):
+    def write(self, file='photonlist_RADec.h5'):
         raise NotImplementedError
 
 
@@ -767,7 +767,7 @@ def debug_dither_image(dithers_data, drizzle_params):
 
 
 def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt=0., intt=60., pixfrac=.5, nwvlbins=1,
-         wcs_timestep=1., exp_timestep=1., fitsname=None, usecache=True, ncpu=1, exclude_flags=(), whitelight=False,
+         wcs_timestep=1., exp_timestep=1., usecache=True, ncpu=1, exclude_flags=(), whitelight=False,
          align_start_pa=False, debug_dither_plot=False):
     """
     Takes in a MKIDDitheredObservation object and drizzles the dithers onto a common sky grid.
@@ -797,8 +797,6 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
         Time between different wcs parameters (eg orientations). 0 will use the calculated non-blurring min
     exp_timestep : float (0<= exp_timestep <=intt)
         Duration of the time bins in the output cube when using mode == 'temporal'
-    fitsname : str
-        Output FITS file name
     usecache : bool
         True means the output of load_data() is stored and reloaded for subsequent runs of form
     ncpu : int
@@ -861,29 +859,25 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
     if mode not in ['stack', 'spatial', 'temporal', 'list']:
         raise ValueError('Not calling one of the available functions')
 
-    elif mode == 'list':
+    if mode == 'list':
         driz = ListDrizzler(dithers_data, drizzle_params)
         driz.run()
-        # driz.save_photontable()
-        # raise NotImplementedError
-        # return
+        drizzle_data = driz
 
-    elif mode == 'spatial' or mode == 'stack':
-        stack = mode=='stack'
-        driz = SpatialDrizzler(dithers_data, drizzle_params, stack=stack)
+    else:
+        if mode == 'spatial' or mode == 'stack':
+            stack = mode=='stack'
+            driz = SpatialDrizzler(dithers_data, drizzle_params, stack=stack)
 
-    elif mode == 'temporal':
-        driz = TemporalDrizzler(dithers_data, drizzle_params, nwvlbins=nwvlbins, exp_timestep=exp_timestep,
-                                 wvlMin=wvlMin, wvlMax=wvlMax)
-    driz.run()
-    drizzle = DrizzledData(driz, mode, drizzle_params=drizzle_params)
-
-    if fitsname:
-        drizzle.write(file=fitsname + '.fits')  # unless path specified, save in cwd
+        elif mode == 'temporal':
+            driz = TemporalDrizzler(dithers_data, drizzle_params, nwvlbins=nwvlbins, exp_timestep=exp_timestep,
+                                     wvlMin=wvlMin, wvlMax=wvlMax)
+        driz.run()
+        drizzle_data = DrizzledData(driz, mode, drizzle_params=drizzle_params)
 
     getLogger(__name__).info('Finished forming drizzled data')
 
-    return drizzle
+    return drizzle_data
 
 
 def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0,0), zoom=2.):
@@ -995,7 +989,9 @@ if __name__ == '__main__':
     # main function of drizzler
     scidata = form(dither, mode='spatial', wvlMin=wvlMin,
                    wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac,
-                   derotate=True, fitsname=fitsname)
+                   derotate=True)
+
+    scidata.write(fitsname)
 
     if args.gdo:
         if not os.path.exists(fitsname):
