@@ -944,6 +944,7 @@ class Photontable(object):
             return {'image': image, 'effIntTime': effIntTime, 'spec_weights': masterPhotonList['SpecWeight'],
                     'noise_weights': masterPhotonList['NoiseWeight']}
 
+
     def getCircularAperturePhotonList(self, centerXCoord, centerYCoord, radius,
                                       firstSec=0, integrationTime=-1, wvlStart=None,
                                       wvlStop=None, flagToUse=0):
@@ -1726,16 +1727,16 @@ class Photontable(object):
 
                 soln = calsoln[resID == calsoln['resid']]
 
-                if len(soln) > 1:
-                    msg = 'Flatcal {} has non-unique resIDs'.format(calsolFile)
-                    getLogger(__name__).critical(msg)
-                    raise RuntimeError(msg)
+                # if len(soln) > 1:
+                #     msg = 'Flatcal {} has non-unique resIDs'.format(calsolFile)
+                #     getLogger(__name__).critical(msg)
+                #     raise RuntimeError(msg)
 
                 if not len(soln) and not self.flagMask(pixelflags.PROBLEM_FLAGS, (x, y)):
                     getLogger(__name__).warning('No flat calibration for good pixel {}'.format(resID))
                     continue
 
-                if soln['bad']:
+                if np.any([sol['bad'] for sol in soln]):
                     getLogger(__name__).debug('No flat calibration bad for pixel {}'.format(resID))
                     continue
 

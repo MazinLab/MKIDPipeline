@@ -12,7 +12,7 @@ Examples
 
     >>> dither = MKIDDitheredObservation(**kwargs)
     >>> drizzled = drizzler.form(dither, mode='spatial')
-    >>> drizzled.writefits('output.fits')
+    >>> drizzled.write('output.fits')
 
 Classes
 
@@ -20,7 +20,7 @@ Classes
     Canvas          : Called by the "Drizzler" classes. Generates the canvas that is drizzled onto
     SpatialDrizzler : Generate a spatially dithered image from a set dithered dataset
     TemporalDrizzler: Generates a spatially dithered 4-cube (xytw)
-    ListDrizzler    : Not implemented yet
+    ListDrizzler    : Generates photonlist with RA/Dec coordinates assigned
     DrizzledData    : Saves the drizzled data as FITS
 
 Functions
@@ -30,11 +30,6 @@ Functions
     load_data       : Consolidate all dither positions
     form            : Takes in a MKIDDitheredObservation object and drizzles the dithers onto a common sky grid
     get_star_offset : Get the rotation_center offset parameter for a dither
-
-Note
-
-    Unfinished implementation of ListDrizzler for later development can be found in commit
-    6169b9d0836c03b669223c12a852a05e8f74ad7d
 
 TODO:
     * Add astroplan, drizzle, to setup.py/yml. drizzle need to be pip installed. I found that astroplan needed to be pip
@@ -246,7 +241,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, single_
 
 
 def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfile='drizzler_tmp_{}.pkl',
-              tempdir=None, usecache=True, clearcache=False, derotate=True, align_start_pa=False, ncpu=1,
+              tempdir=None, usecache=False, clearcache=False, derotate=True, align_start_pa=False, ncpu=1,
               exclude_flags=()):
     """
     Load the photons either by querying the obsfiles in parrallel or loading from pkl if it exists. The wcs
@@ -398,16 +393,50 @@ class Canvas(object):
 
 class ListDrizzler(Canvas):
     """
-    Drizzle individual photons onto the celestial grid
+    Assign photons an RA and Dec.
     """
 
     def __init__(self, dithers_data, drizzle_params):
-        super().__init__(self, dithers_data, drizzle_params.dither.obs[0], drizzle_params.coords, drizzle_params.nPixRA,
+        super().__init__(dithers_data, drizzle_params.dither.obs[0], drizzle_params.coords, drizzle_params.nPixRA,
                          drizzle_params.nPixDec)
 
-        getLogger(__name__).critical('ListDrizzler has not been written')
-        raise NotImplementedError
+        self.driz = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=drizzle_params.pixfrac, wt_scl='')
+        self.wcs_timestep = drizzle_params.wcs_timestep
+        inttime = drizzle_params.used_inttime
 
+        # if inttime is say 100 and wcs_timestep is say 60 then this yeilds [0,60,100]
+        # meaning the positions don't have constant integration time
+        self.wcs_times = np.append(np.arange(0, inttime, self.wcs_timestep), inttime)
+        self.wcs_times_ms = self.wcs_times * 1e6
+        self.stackedim = np.zeros((len(drizzle_params.dither.obs) * (len(self.wcs_times) - 1), self.ypix, self.xpix))
+        self.stacked_wcs = []
+
+    def run(self):
+        tic = time.clock()
+        for ix, dither_photons in enumerate(self.dithers_data):
+
+            for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):
+                inwcs = wcs.WCS(header=inwcs)
+                inwcs.pixel_shape = (self.xpix, self.ypix)
+
+                # the sky grid ref and dither ref should match (crpix varies between dithers)
+                if not np.all(np.round(inwcs.wcs.crval, decimals=4) == np.round(self.wcs.wcs.crval, decimals=4)):
+                    getLogger(__name__).critical(
+                        'sky grid ref and dither ref do not match (crpix varies between dithers)!')
+                    raise RuntimeError('sky grid ref and dither ref do not match (crpix varies between dithers)!')
+
+                pix_grid = np.array(np.meshgrid(range(140), range(146)))
+                refpix_grid = pix_grid - inwcs.wcs.crpix[:,np.newaxis, np.newaxis]
+                rot_grid = np.dot(refpix_grid.T, inwcs.wcs.pc)
+                coord_grid = rot_grid*inwcs.wcs.cdelt  # [:,np.newaxis, np.newaxis]
+                sky_grid = coord_grid + inwcs.wcs.crval
+
+                dither_photons['RA'], dither_photons['Dec'] = sky_grid[dither_photons['xPhotonPixels'], dither_photons['xPhotonPixels']].T
+
+        getLogger(__name__).debug('Assigning of RA/Decs completed. Time taken (s): %s', time.clock() - tic)
+
+    def save_photontable(self):
+        raise NotImplementedError
 
 
 class TemporalDrizzler(Canvas):
@@ -551,7 +580,7 @@ class TemporalDrizzler(Canvas):
 class SpatialDrizzler(Canvas):
     """ Generate a spatially dithered fits image from a set dithered dataset """
 
-    def __init__(self, dithers_data, drizzle_params, stack=False):
+    def __init__(self, dithers_data, drizzle_params, stack=False, save_file=''):
         super().__init__(dithers_data, drizzle_params.dither.obs[0], drizzle_params.coords, drizzle_params.nPixRA,
                          drizzle_params.nPixDec)
 
@@ -572,10 +601,10 @@ class SpatialDrizzler(Canvas):
         self.wcs_times_ms = self.wcs_times * 1e6
         self.stackedim = np.zeros((len(drizzle_params.dither.obs) * (len(self.wcs_times)-1), self.ypix, self.xpix))
         self.stacked_wcs = []
+        self.save_file = save_file
 
-    def run(self, save_file=None):
+    def run(self):
         for ix, dither_photons in enumerate(self.dithers_data):
-
             tic = time.clock()
             for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):
                 inwcs = wcs.WCS(header=inwcs)
@@ -600,8 +629,8 @@ class SpatialDrizzler(Canvas):
 
                 # Input units as cps means Drizzle() will scale the output image by the # of contributions to each pix
                 self.driz.add_image(cps, inwcs, in_units='cps', inwht=inwht)
-            if save_file:
-                self.driz.write(save_file)
+            if self.save_file:
+                self.driz.write(self.save_file + 'drizzler_step_' + str(ix).zfill(3) + '.fits')
 
         if self.stack:
             self.counts = self.stackedim
@@ -737,7 +766,7 @@ def debug_dither_image(dithers_data, drizzle_params):
 
 def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt=0., intt=60., pixfrac=.5, nwvlbins=1,
          wcs_timestep=1., exp_timestep=1., fitsname=None, usecache=True, ncpu=1, exclude_flags=(), whitelight=False,
-         align_start_pa=False, debug_dither_plot=False):
+         align_start_pa=False, debug_dither_plot=True, save_file=''):
     """
     Takes in a MKIDDitheredObservation object and drizzles the dithers onto a common sky grid.
 
@@ -836,7 +865,7 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
 
     elif mode == 'spatial' or mode == 'stack':
         stack = mode=='stack'
-        driz = SpatialDrizzler(dithers_data, drizzle_params, stack=stack)
+        driz = SpatialDrizzler(dithers_data, drizzle_params, stack=stack, save_file=save_file)
 
     elif mode == 'temporal':
         driz = TemporalDrizzler(dithers_data, drizzle_params, nwvlbins=nwvlbins, exp_timestep=exp_timestep,
@@ -845,7 +874,7 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
     drizzle = DrizzledData(driz, mode, drizzle_params=drizzle_params)
 
     if fitsname:
-        drizzle.writefits(file=fitsname + '.fits')  # unless path specified, save in cwd
+        drizzle.write(file=fitsname + '.fits')  # unless path specified, save in cwd
 
     getLogger(__name__).info('Finished forming drizzled data')
 
