@@ -55,6 +55,8 @@ from astroplan import Observer
 import astropy
 from astropy.utils.data import Conf
 from astropy.io import fits
+import tables
+import shutil
 from drizzle import drizzle as stdrizzle
 from mkidcore import pixelflags
 from mkidpipeline.hdf.photontable import Photontable
@@ -223,7 +225,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, single_
                                     f'in the units?')
 
     exclude_flags += DRIZ_PROBLEM_FLAGS
-    photons = obsfile.filter_photons_by_flags(photons, allowed=(), disallowed=exclude_flags)
+    # photons = obsfile.filter_photons_by_flags(photons, allowed=(), disallowed=exclude_flags)
     num_filtered = len(photons)
     getLogger(__name__).info("Removed {} photons from {} total from bad pix"
                              .format(num_unfiltered - num_filtered, num_unfiltered))
@@ -414,7 +416,7 @@ class ListDrizzler(Canvas):
     def run(self):
         tic = time.clock()
         for ix, dither_photons in enumerate(self.dithers_data):
-
+            getLogger(__name__).debug('Assigning RA/Decs for dither %s', ix)
             for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):
                 inwcs = wcs.WCS(header=inwcs)
                 inwcs.pixel_shape = (self.xpix, self.ypix)
@@ -425,19 +427,55 @@ class ListDrizzler(Canvas):
                         'sky grid ref and dither ref do not match (crpix varies between dithers)!')
                     raise RuntimeError('sky grid ref and dither ref do not match (crpix varies between dithers)!')
 
-                pix_grid = np.array(np.meshgrid(range(140), range(146)))
+                pix_grid = np.array(np.meshgrid(range(self.xpix), range(self.ypix)))
                 refpix_grid = pix_grid - inwcs.wcs.crpix[:,np.newaxis, np.newaxis]
                 rot_grid = np.dot(refpix_grid.T, inwcs.wcs.pc)
                 coord_grid = rot_grid*inwcs.wcs.cdelt  # [:,np.newaxis, np.newaxis]
                 sky_grid = coord_grid + inwcs.wcs.crval
 
-                dither_photons['RA'], dither_photons['Dec'] = sky_grid[dither_photons['xPhotonPixels'], dither_photons['xPhotonPixels']].T
+                dither_photons['RA'], dither_photons['Dec'] = sky_grid[dither_photons['xPhotonPixels'][:], dither_photons['xPhotonPixels'][:]].T
 
         getLogger(__name__).debug('Assigning of RA/Decs completed. Time taken (s): %s', time.clock() - tic)
 
-    def write(self, file='photonlist_RADec.h5'):
-        raise NotImplementedError
+    def write(self, file=None, chunkshape=None, shuffle=True, bitshuffle=False):
+        """ adapted from https://github.com/PyTables/PyTables/blob/master/examples/add-column.py """
 
+        for ix, dither_photons in enumerate(self.dithers_data):
+            getLogger(__name__).debug('Creating new photontable for dither %s', ix)
+
+            newfile = dither_photons['file'].split('.')[0] + '_RADec.h5'
+            shutil.copyfile(dither_photons['file'], newfile)
+            ob = Photontable(newfile, mode='write')
+
+            descr = ob.file.root.Photons.PhotonTable.description._v_colobjects
+
+            newdescr = ob.file.root.Photons.PhotonTable.description._v_colobjects.copy()
+            newdescr["RA"] = tables.UInt32Col()
+            newdescr["Dec"] = tables.UInt32Col()
+
+            filter = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=shuffle, bitshuffle=bitshuffle,
+                                    fletcher32=False)
+            newtable = ob.file.create_table(ob.file.root.Photons, name='PhotonTable2', description=newdescr,
+                                            title="Photon Datatable", expectedrows=len(dither_photons['timestamps']),
+                                            filters=filter, chunkshape=chunkshape)
+
+            for i in range(ob.photonTable.nrows)[:]:  # Fill the rows of new table with default values
+                newtable.row.append()
+
+            newtable.flush()  # Flush the rows to disk
+
+            for col in descr:
+                getattr(newtable.cols, col)[:] = getattr(ob.photonTable.cols, col)[:]
+
+            newtable.cols.RA[:] = dither_photons['RA']
+            newtable.cols.Dec[:] = dither_photons['Dec']
+
+            ob.photonTable.remove()   # Remove the original table
+
+            newtable.move('/Photons', 'photonTable')  # Move table2 to table
+
+            ob.file.close()  # Finally, close the file
+            
 
 class TemporalDrizzler(Canvas):
     """
@@ -682,7 +720,7 @@ class DrizzledData(object):
             header[key] = (val, comment)
         return header
 
-    def writefits(self, filename, overwrite=True, compress=False, dashboard_orient=False):
+    def write(self, filename, overwrite=True, compress=False, dashboard_orient=False):
         """
 
         :param filename:
