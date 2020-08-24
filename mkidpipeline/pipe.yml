@@ -62,6 +62,7 @@ flatcal: !configdict
   trim_fraction: 0 #Fraction of Chunks to trim (integer)
   #Integration time to break up larger h5 files into in seconds (number) (5 sec recommended)
   #Flatcal will calculate weights over EXPTIME/CHUNK_TIME time chunks and median-average them
+  use_wavecal: True
   chunk_time: 30
   dark_data:
     start_times: 1567945938 #list of all start times of any dark obs you may have

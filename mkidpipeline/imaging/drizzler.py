@@ -241,7 +241,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, single_
 
 
 def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfile='drizzler_tmp_{}.pkl',
-              tempdir=None, usecache=True, clearcache=False, derotate=True, align_start_pa=False, ncpu=1,
+              tempdir=None, usecache=False, clearcache=False, derotate=True, align_start_pa=False, ncpu=1,
               exclude_flags=()):
     """
     Load the photons either by querying the obsfiles in parrallel or loading from pkl if it exists. The wcs
@@ -581,7 +581,7 @@ class TemporalDrizzler(Canvas):
 class SpatialDrizzler(Canvas):
     """ Generate a spatially dithered fits image from a set dithered dataset """
 
-    def __init__(self, dithers_data, drizzle_params, stack=False):
+    def __init__(self, dithers_data, drizzle_params, stack=False, save_file=''):
         super().__init__(dithers_data, drizzle_params.dither.obs[0], drizzle_params.coords, drizzle_params.nPixRA,
                          drizzle_params.nPixDec)
 
@@ -602,10 +602,10 @@ class SpatialDrizzler(Canvas):
         self.wcs_times_ms = self.wcs_times * 1e6
         self.stackedim = np.zeros((len(drizzle_params.dither.obs) * (len(self.wcs_times)-1), self.ypix, self.xpix))
         self.stacked_wcs = []
+        self.save_file = save_file
 
-    def run(self, save_file=None):
+    def run(self):
         for ix, dither_photons in enumerate(self.dithers_data):
-
             tic = time.clock()
             for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):
                 inwcs = wcs.WCS(header=inwcs)
@@ -630,8 +630,8 @@ class SpatialDrizzler(Canvas):
 
                 # Input units as cps means Drizzle() will scale the output image by the # of contributions to each pix
                 self.driz.add_image(cps, inwcs, in_units='cps', inwht=inwht)
-            if save_file:
-                self.driz.write(save_file)
+            if self.save_file:
+                self.driz.write(self.save_file + 'drizzler_step_' + str(ix).zfill(3) + '.fits')
 
         if self.stack:
             self.counts = self.stackedim
@@ -682,9 +682,8 @@ class DrizzledData(object):
             header[key] = (val, comment)
         return header
 
-    def write(self, filename, overwrite=True, compress=False, dashboard_orient=False):
+    def writefits(self, filename, overwrite=True, compress=False, dashboard_orient=False):
         """
-        Write a fits file for either stacked, spatially drizzled or temporally drizzled data
 
         :param filename:
         :param overwrite:
@@ -768,7 +767,7 @@ def debug_dither_image(dithers_data, drizzle_params):
 
 def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt=0., intt=60., pixfrac=.5, nwvlbins=1,
          wcs_timestep=1., exp_timestep=1., usecache=True, ncpu=1, exclude_flags=(), whitelight=False,
-         align_start_pa=False, debug_dither_plot=False):
+         align_start_pa=False, debug_dither_plot=False, save_file=''):
     """
     Takes in a MKIDDitheredObservation object and drizzles the dithers onto a common sky grid.
 
@@ -867,7 +866,7 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
     else:
         if mode == 'spatial' or mode == 'stack':
             stack = mode=='stack'
-            driz = SpatialDrizzler(dithers_data, drizzle_params, stack=stack)
+            driz = SpatialDrizzler(dithers_data, drizzle_params, stack=stack, save_file=save_file)
 
         elif mode == 'temporal':
             driz = TemporalDrizzler(dithers_data, drizzle_params, nwvlbins=nwvlbins, exp_timestep=exp_timestep,
