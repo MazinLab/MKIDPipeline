@@ -2,7 +2,7 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 import matplotlib.animation as manimation
-
+from mkidpipeline.config import *
 from mkidcore.corelog import getLogger
 import mkidpipeline.hdf.photontable
 from skimage import data
@@ -11,7 +11,14 @@ from skimage.restoration import inpaint
 def make_movie(out, usewcs=False, showaxes=True, inpainting=False, **kwargs):
     title = out.name
     outfile = out.output_file
-    h5file = out.data.h5
+    try:
+        h5file = out.data.h5
+    except AttributeError:
+        try:
+            idx = int(out.startt/out.data.inttime)
+            h5file = out.data.obs[idx].h5
+        except AttributeError:
+            h5file = out.data.obs[0].h5
     timestep = out.timestep
     try:
         out.frameduration
@@ -29,14 +36,26 @@ def make_movie(out, usewcs=False, showaxes=True, inpainting=False, **kwargs):
         startw = out.startw
     except AttributeError:
         startw = None
-    try:
-        startt = out.startt
-    except AttributeError:
-        startt = None
-    try:
-        stopt = out.stopt
-    except AttributeError:
-        stopt = None
+    if isinstance(out.data, MKIDDitheredObservation):
+        try:
+            startt = out.startt % out.data.inttime
+        except AttributeError:
+            startt = None
+        try:
+            stopt = out.stopt % out.data.inttime
+            if stopt == 0:
+                stopt = out.data.inttime
+        except AttributeError:
+            stopt = None
+    else:
+        try:
+            startt = out.startt
+        except AttributeError:
+            startt = None
+        try:
+            stopt = out.stopt
+        except AttributeError:
+            stopt = None
 
     try:
         fps = True
@@ -58,7 +77,7 @@ def make_movie(out, usewcs=False, showaxes=True, inpainting=False, **kwargs):
     try:
         colormap = out.colormap
     except AttributeError:
-        colormap = 'Blue'
+        colormap = 'viridis'
 
     _make_movie(h5file, outfile, timestep, duration, title=title, usewcs=usewcs,
                 startw=startw, stopw=stopw, startt=startt, stopt=stopt,
@@ -67,7 +86,7 @@ def make_movie(out, usewcs=False, showaxes=True, inpainting=False, **kwargs):
 
 
 def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, startw=None, stopw=None, startt=None, stopt=None,
-                fps=False, showaxes=False, inpainting=False, cps_cutoff=50, maskbadpix=False, colormap='Blue', dpi=400):
+                fps=False, showaxes=False, inpainting=False, cps_cutoff=5000, maskbadpix=False, colormap='Blue', dpi=400):
     """returns the movie frames"""
     global _cache
     movietype = os.path.splitext(outfile)[1].lower()
@@ -75,7 +94,7 @@ def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, sta
         raise ValueError('Only mp4 and gif movies are supported')
 
     try:
-        cube,wcs,nfo = _cache
+        cube, wcs, nfo = _cache
         if (h5file, timestep, startt,stopt, usewcs,startw,stopw)!=nfo:
             raise ValueError
     except Exception:
@@ -149,6 +168,7 @@ def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, sta
             writer.grab_frame()
 
     return frames
+
 
 
 def test_writers(out='garbage.gif',showaxes=False, fps=5):

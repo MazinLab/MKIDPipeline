@@ -77,7 +77,7 @@ instrument: !configdict
   #Energy bin width in eV  (number)
   energy_bin_width: 0.01
   #Starting Wavelength in nanometers (number)
-  wvl_start: 400
+  wvl_start: 800
   #Final Wavelength in nanometers (number)
   wvl_stop: 1400
   platescale: 10.4 #mas
