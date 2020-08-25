@@ -433,12 +433,17 @@ class ListDrizzler(Canvas):
                 coord_grid = rot_grid*inwcs.wcs.cdelt  # [:,np.newaxis, np.newaxis]
                 sky_grid = coord_grid + inwcs.wcs.crval
 
-                dither_photons['RA'], dither_photons['Dec'] = sky_grid[dither_photons['xPhotonPixels'][:], dither_photons['xPhotonPixels'][:]].T
+                dither_photons['RA'], dither_photons['Dec'] = sky_grid[dither_photons['xPhotonPixels'][:], dither_photons['yPhotonPixels'][:]].T
 
         getLogger(__name__).debug('Assigning of RA/Decs completed. Time taken (s): %s', time.clock() - tic)
 
     def write(self, file=None, chunkshape=None, shuffle=True, bitshuffle=False):
-        """ adapted from https://github.com/PyTables/PyTables/blob/master/examples/add-column.py """
+        """
+        Writes out a photontable with two extra columns RA and Dec
+
+        Adapted from https://github.com/PyTables/PyTables/blob/master/examples/add-column.py.
+
+        TODO find a quicker way to do this? """
 
         for ix, dither_photons in enumerate(self.dithers_data):
             getLogger(__name__).debug('Creating new photontable for dither %s', ix)
@@ -450,8 +455,8 @@ class ListDrizzler(Canvas):
             descr = ob.file.root.Photons.PhotonTable.description._v_colobjects
 
             newdescr = ob.file.root.Photons.PhotonTable.description._v_colobjects.copy()
-            newdescr["RA"] = tables.UInt32Col()
-            newdescr["Dec"] = tables.UInt32Col()
+            newdescr["RA"] = tables.Float32Col()
+            newdescr["Dec"] = tables.Float32Col()
 
             filter = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=shuffle, bitshuffle=bitshuffle,
                                     fletcher32=False)
@@ -460,6 +465,7 @@ class ListDrizzler(Canvas):
                                             filters=filter, chunkshape=chunkshape)
 
             for i in range(ob.photonTable.nrows)[:]:  # Fill the rows of new table with default values
+                if i % 1000 == 0: print(i)
                 newtable.row.append()
 
             newtable.flush()  # Flush the rows to disk
@@ -470,12 +476,11 @@ class ListDrizzler(Canvas):
             newtable.cols.RA[:] = dither_photons['RA']
             newtable.cols.Dec[:] = dither_photons['Dec']
 
-            ob.photonTable.remove()   # Remove the original table
+            ob.photonTable.remove()  # Remove the original table
 
             newtable.move('/Photons', 'photonTable')  # Move table2 to table
 
             ob.file.close()  # Finally, close the file
-            
 
 class TemporalDrizzler(Canvas):
     """
