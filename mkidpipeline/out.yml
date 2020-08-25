@@ -30,3 +30,21 @@
   enable_photom: True
   enable_ssd: True
 #  filename: test.f
+
+- !out
+  name: out4
+  data: HD22179
+  kind: movie
+  movieduration: 20
+  startt: 2
+  stopt: 10
+#  startw: 850
+#  stopw: 1375
+#  colormap: 'viridis'
+  timestep: 0.1
+#  frameduration: 1
+#  cps_cutoff: 100
+  enable_noise: True
+  enable_photom: True
+  enable_ssd: True
+  filename: movie.gif
