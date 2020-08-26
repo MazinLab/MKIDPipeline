@@ -433,7 +433,8 @@ class ListDrizzler(Canvas):
                 coord_grid = rot_grid*inwcs.wcs.cdelt  # [:,np.newaxis, np.newaxis]
                 sky_grid = coord_grid + inwcs.wcs.crval
 
-                dither_photons['RA'], dither_photons['Dec'] = sky_grid[dither_photons['xPhotonPixels'][:], dither_photons['yPhotonPixels'][:]].T
+                sky_list = sky_grid[dither_photons['xPhotonPixels'], dither_photons['yPhotonPixels']]
+                dither_photons['RA'], dither_photons['Dec'] = sky_list[:,0], sky_list[:,1]
 
         getLogger(__name__).debug('Assigning of RA/Decs completed. Time taken (s): %s', time.clock() - tic)
 
@@ -442,8 +443,7 @@ class ListDrizzler(Canvas):
         Writes out a photontable with two extra columns RA and Dec
 
         Adapted from https://github.com/PyTables/PyTables/blob/master/examples/add-column.py.
-
-        TODO find a quicker way to do this? """
+        """
 
         for ix, dither_photons in enumerate(self.dithers_data):
             getLogger(__name__).debug('Creating new photontable for dither %s', ix)
@@ -451,8 +451,6 @@ class ListDrizzler(Canvas):
             newfile = dither_photons['file'].split('.')[0] + '_RADec.h5'
             shutil.copyfile(dither_photons['file'], newfile)
             ob = Photontable(newfile, mode='write')
-
-            descr = ob.file.root.Photons.PhotonTable.description._v_colobjects
 
             newdescr = ob.file.root.Photons.PhotonTable.description._v_colobjects.copy()
             newdescr["RA"] = tables.Float32Col()
@@ -464,21 +462,22 @@ class ListDrizzler(Canvas):
                                             title="Photon Datatable", expectedrows=len(dither_photons['timestamps']),
                                             filters=filter, chunkshape=chunkshape)
 
-            for i in range(ob.photonTable.nrows)[:]:  # Fill the rows of new table with default values
-                if i % 1000 == 0: print(i)
-                newtable.row.append()
+            photons = np.zeros(len(dither_photons["timestamps"]),
+                               dtype=np.dtype([('ResID', np.uint32), ('Time', np.uint32), ('Wavelength', np.float32),
+                                               ('SpecWeight', np.float32), ('NoiseWeight', np.float32),
+                                               ('RA', np.float32), ('Dec', np.float32)]))
 
-            newtable.flush()  # Flush the rows to disk
+            photons['ResID'] = ob.beamImage[dither_photons['xPhotonPixels'], dither_photons['yPhotonPixels']]
+            photons['Time'] = dither_photons["timestamps"]
+            photons['Wavelength'] = dither_photons["wavelengths"]
+            photons['SpecWeight'] = dither_photons["weight"]  #todo allow different weights to be stored
+            photons['NoiseWeight'] = dither_photons["weight"]
+            photons['RA'] = dither_photons["RA"]
+            photons['Dec'] = dither_photons["Dec"]
 
-            for col in descr:
-                getattr(newtable.cols, col)[:] = getattr(ob.photonTable.cols, col)[:]
+            newtable.append(photons)
 
-            newtable.cols.RA[:] = dither_photons['RA']
-            newtable.cols.Dec[:] = dither_photons['Dec']
-
-            ob.photonTable.remove()  # Remove the original table
-
-            newtable.move('/Photons', 'photonTable')  # Move table2 to table
+            newtable.move('/Photons', 'PhotonTable', overwrite=True)  # Move table2 to table
 
             ob.file.close()  # Finally, close the file
 
