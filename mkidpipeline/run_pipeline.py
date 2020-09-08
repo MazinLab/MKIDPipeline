@@ -79,7 +79,7 @@ def generate_outputs(outputs):
                                           usecache=config.drizzler.usecache, ncpu=config.ncpu,
                                           derotate=config.drizzler.derotate, align_start_pa=config.drizzler.align_start_pa,
                                           whitelight=config.drizzler.whitelight, save_file=config.drizzler.save_file)
-            drizzled.writefits(o.output_file)
+            drizzled.write(o.output_file)
         if o.wants_movie:
             pipe.getLogger('mkidpipeline.hdf.photontable').setLevel('DEBUG')
             pipe.movies.make_movie(o, inpainting=False)

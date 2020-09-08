@@ -55,6 +55,8 @@ from astroplan import Observer
 import astropy
 from astropy.utils.data import Conf
 from astropy.io import fits
+import tables
+import shutil
 from drizzle import drizzle as stdrizzle
 from mkidcore import pixelflags
 from mkidpipeline.hdf.photontable import Photontable
@@ -223,7 +225,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, single_
                                     f'in the units?')
 
     exclude_flags += DRIZ_PROBLEM_FLAGS
-    photons = obsfile.filter_photons_by_flags(photons, allowed=(), disallowed=exclude_flags)
+    # photons = obsfile.filter_photons_by_flags(photons, allowed=(), disallowed=exclude_flags)
     num_filtered = len(photons)
     getLogger(__name__).info("Removed {} photons from {} total from bad pix"
                              .format(num_unfiltered - num_filtered, num_unfiltered))
@@ -414,7 +416,7 @@ class ListDrizzler(Canvas):
     def run(self):
         tic = time.clock()
         for ix, dither_photons in enumerate(self.dithers_data):
-
+            getLogger(__name__).debug('Assigning RA/Decs for dither %s', ix)
             for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):
                 inwcs = wcs.WCS(header=inwcs)
                 inwcs.pixel_shape = (self.xpix, self.ypix)
@@ -425,19 +427,59 @@ class ListDrizzler(Canvas):
                         'sky grid ref and dither ref do not match (crpix varies between dithers)!')
                     raise RuntimeError('sky grid ref and dither ref do not match (crpix varies between dithers)!')
 
-                pix_grid = np.array(np.meshgrid(range(140), range(146)))
+                pix_grid = np.array(np.meshgrid(range(self.xpix), range(self.ypix)))
                 refpix_grid = pix_grid - inwcs.wcs.crpix[:,np.newaxis, np.newaxis]
                 rot_grid = np.dot(refpix_grid.T, inwcs.wcs.pc)
                 coord_grid = rot_grid*inwcs.wcs.cdelt  # [:,np.newaxis, np.newaxis]
                 sky_grid = coord_grid + inwcs.wcs.crval
 
-                dither_photons['RA'], dither_photons['Dec'] = sky_grid[dither_photons['xPhotonPixels'], dither_photons['xPhotonPixels']].T
+                sky_list = sky_grid[dither_photons['xPhotonPixels'], dither_photons['yPhotonPixels']]
+                dither_photons['RA'], dither_photons['Dec'] = sky_list[:,0], sky_list[:,1]
 
         getLogger(__name__).debug('Assigning of RA/Decs completed. Time taken (s): %s', time.clock() - tic)
 
-    def save_photontable(self):
-        raise NotImplementedError
+    def write(self, file=None, chunkshape=None, shuffle=True, bitshuffle=False):
+        """
+        Writes out a photontable with two extra columns RA and Dec
 
+        Adapted from https://github.com/PyTables/PyTables/blob/master/examples/add-column.py.
+        """
+
+        for ix, dither_photons in enumerate(self.dithers_data):
+            getLogger(__name__).debug('Creating new photontable for dither %s', ix)
+
+            newfile = dither_photons['file'].split('.')[0] + '_RADec.h5'
+            shutil.copyfile(dither_photons['file'], newfile)
+            ob = Photontable(newfile, mode='write')
+
+            newdescr = ob.file.root.Photons.PhotonTable.description._v_colobjects.copy()
+            newdescr["RA"] = tables.Float32Col()
+            newdescr["Dec"] = tables.Float32Col()
+
+            filter = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=shuffle, bitshuffle=bitshuffle,
+                                    fletcher32=False)
+            newtable = ob.file.create_table(ob.file.root.Photons, name='PhotonTable2', description=newdescr,
+                                            title="Photon Datatable", expectedrows=len(dither_photons['timestamps']),
+                                            filters=filter, chunkshape=chunkshape)
+
+            photons = np.zeros(len(dither_photons["timestamps"]),
+                               dtype=np.dtype([('ResID', np.uint32), ('Time', np.uint32), ('Wavelength', np.float32),
+                                               ('SpecWeight', np.float32), ('NoiseWeight', np.float32),
+                                               ('RA', np.float32), ('Dec', np.float32)]))
+
+            photons['ResID'] = ob.beamImage[dither_photons['xPhotonPixels'], dither_photons['yPhotonPixels']]
+            photons['Time'] = dither_photons["timestamps"]
+            photons['Wavelength'] = dither_photons["wavelengths"]
+            photons['SpecWeight'] = dither_photons["weight"]  #todo allow different weights to be stored
+            photons['NoiseWeight'] = dither_photons["weight"]
+            photons['RA'] = dither_photons["RA"]
+            photons['Dec'] = dither_photons["Dec"]
+
+            newtable.append(photons)
+
+            newtable.move('/Photons', 'PhotonTable', overwrite=True)  # Move table2 to table
+
+            ob.file.close()  # Finally, close the file
 
 class TemporalDrizzler(Canvas):
     """
@@ -457,6 +499,7 @@ class TemporalDrizzler(Canvas):
         self.ndithers = len(self.dithers_data)
         self.pixfrac = drizzle_params.pixfrac
         self.wvlbins = np.linspace(wvlMin, wvlMax, self.nwvlbins + 1)
+        self.wvlbins[0] = wvlMin  # linspace(0,inf) -> [nan,inf] which throws off the binning
 
         inttime = drizzle_params.used_inttime
         self.wcs_times = np.append(np.arange(0, inttime, drizzle_params.wcs_timestep), inttime)
@@ -681,7 +724,7 @@ class DrizzledData(object):
             header[key] = (val, comment)
         return header
 
-    def writefits(self, filename, overwrite=True, compress=False, dashboard_orient=False):
+    def write(self, filename, overwrite=True, compress=False, dashboard_orient=False):
         """
 
         :param filename:
@@ -765,8 +808,8 @@ def debug_dither_image(dithers_data, drizzle_params):
 
 
 def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt=0., intt=60., pixfrac=.5, nwvlbins=1,
-         wcs_timestep=1., exp_timestep=1., fitsname=None, usecache=True, ncpu=1, exclude_flags=(), whitelight=False,
-         align_start_pa=False, debug_dither_plot=True, save_file=''):
+         wcs_timestep=1., exp_timestep=1., usecache=True, ncpu=1, exclude_flags=(), whitelight=False,
+         align_start_pa=False, debug_dither_plot=False, save_file=''):
     """
     Takes in a MKIDDitheredObservation object and drizzles the dithers onto a common sky grid.
 
@@ -795,8 +838,6 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
         Time between different wcs parameters (eg orientations). 0 will use the calculated non-blurring min
     exp_timestep : float (0<= exp_timestep <=intt)
         Duration of the time bins in the output cube when using mode == 'temporal'
-    fitsname : str
-        Output FITS file name
     usecache : bool
         True means the output of load_data() is stored and reloaded for subsequent runs of form
     ncpu : int
@@ -859,26 +900,25 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
     if mode not in ['stack', 'spatial', 'temporal', 'list']:
         raise ValueError('Not calling one of the available functions')
 
-    elif mode == 'list':
+    if mode == 'list':
         driz = ListDrizzler(dithers_data, drizzle_params)
-        return driz.dithers_data
+        driz.run()
+        drizzle_data = driz
 
-    elif mode == 'spatial' or mode == 'stack':
-        stack = mode=='stack'
-        driz = SpatialDrizzler(dithers_data, drizzle_params, stack=stack, save_file=save_file)
+    else:
+        if mode == 'spatial' or mode == 'stack':
+            stack = mode=='stack'
+            driz = SpatialDrizzler(dithers_data, drizzle_params, stack=stack, save_file=save_file)
 
-    elif mode == 'temporal':
-        driz = TemporalDrizzler(dithers_data, drizzle_params, nwvlbins=nwvlbins, exp_timestep=exp_timestep,
-                                 wvlMin=wvlMin, wvlMax=wvlMax)
-    driz.run()
-    drizzle = DrizzledData(driz, mode, drizzle_params=drizzle_params)
-
-    if fitsname:
-        drizzle.write(file=fitsname + '.fits')  # unless path specified, save in cwd
+        elif mode == 'temporal':
+            driz = TemporalDrizzler(dithers_data, drizzle_params, nwvlbins=nwvlbins, exp_timestep=exp_timestep,
+                                     wvlMin=wvlMin, wvlMax=wvlMax)
+        driz.run()
+        drizzle_data = DrizzledData(driz, mode, drizzle_params=drizzle_params)
 
     getLogger(__name__).info('Finished forming drizzled data')
 
-    return drizzle
+    return drizzle_data
 
 
 def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0,0), zoom=2.):
@@ -990,7 +1030,9 @@ if __name__ == '__main__':
     # main function of drizzler
     scidata = form(dither, mode='spatial', wvlMin=wvlMin,
                    wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac,
-                   derotate=True, fitsname=fitsname)
+                   derotate=True)
+
+    scidata.write(fitsname)
 
     if args.gdo:
         if not os.path.exists(fitsname):
