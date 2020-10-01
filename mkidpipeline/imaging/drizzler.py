@@ -427,11 +427,11 @@ class ListDrizzler(Canvas):
                         'sky grid ref and dither ref do not match (crpix varies between dithers)!')
                     raise RuntimeError('sky grid ref and dither ref do not match (crpix varies between dithers)!')
 
-                pix_grid = np.array(np.meshgrid(range(self.xpix), range(self.ypix)))
-                refpix_grid = pix_grid - inwcs.wcs.crpix[:,np.newaxis, np.newaxis]
-                rot_grid = np.dot(refpix_grid.T, inwcs.wcs.pc)
-                coord_grid = rot_grid*inwcs.wcs.cdelt  # [:,np.newaxis, np.newaxis]
-                sky_grid = coord_grid + inwcs.wcs.crval
+                x = np.arange(self.ypix)
+                y = np.arange(self.xpix)
+                X, Y = np.meshgrid(x, y)
+                ra, dec = inwcs.wcs_pix2world(X, Y, 0)
+                sky_grid = np.dstack((ra, dec))
 
                 sky_list = sky_grid[dither_photons['xPhotonPixels'], dither_photons['yPhotonPixels']]
                 dither_photons['RA'], dither_photons['Dec'] = sky_list[:,0], sky_list[:,1]
