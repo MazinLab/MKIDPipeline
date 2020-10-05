@@ -267,7 +267,7 @@ class Photontable(object):
         self.nXPix = None
         self.nYPix = None
         self._mdcache = None
-        self.inmemory = None
+        self.inmemory = inmemory
         self.loadFile(fileName, inmemory)
 
     def __del__(self):
@@ -288,7 +288,7 @@ class Photontable(object):
             return
         self.file.close()
         self.mode = 'write'
-        self.loadFile(self.fullFileName)
+        self.loadFile(self.fullFileName, inmemory=False)
 
     def disablewrite(self):
         """USE CARE IN A THREADED ENVIRONMENT"""
@@ -296,7 +296,7 @@ class Photontable(object):
             return
         self.file.close()
         self.mode = 'read'
-        self.loadFile(self.fullFileName)
+        self.loadFile(self.fullFileName, inmemory=self.inmemory)
 
     def loadFile(self, fileName, inmemory=False):
         """ Opens file and loads obs file attributes and beammap """
