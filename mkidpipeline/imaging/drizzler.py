@@ -344,28 +344,26 @@ class Canvas(object):
         self.centerDec = coords.dec.deg
 
         if self.nPixRA is None or self.nPixDec is None:
-            dith_cellestial_min = np.zeros((len(dithers_data), 2))
-            dith_cellestial_max = np.zeros((len(dithers_data), 2))
+            dith_pix_min = np.zeros((len(dithers_data), 2))
+            dith_pix_max = np.zeros((len(dithers_data), 2))
             for ip, photonlist in enumerate(dithers_data):
                 # find the max and min coordinate for each dither (assuming those occur at the beginning/end of
                 # the dither)
-                dith_cellestial_span = np.vstack((wcs.WCS(photonlist['obs_wcs_seq'][0]).wcs.crpix,
-                                                  wcs.WCS(photonlist['obs_wcs_seq'][-1]).wcs.crpix))
-                dith_cellestial_min[ip] = np.min(dith_cellestial_span, axis=0)  # takes the min of both ra and dec
-                dith_cellestial_max[ip] = np.max(dith_cellestial_span, axis=0)
+                dith_pix_span = np.vstack((wcs.WCS(photonlist['obs_wcs_seq'][0]).wcs.crpix,
+                                           wcs.WCS(photonlist['obs_wcs_seq'][-1]).wcs.crpix))
+                dith_pix_min[ip] = np.min(dith_pix_span, axis=0)  # takes the min of both ra and dec
+                dith_pix_max[ip] = np.max(dith_pix_span, axis=0)
 
             # find the min and max coordinate of all dithers
-            raMin = min(dith_cellestial_min[:, 0])
-            raMax = max(dith_cellestial_max[:, 0])
-            decMin = min(dith_cellestial_min[:, 1])
-            decMax = max(dith_cellestial_max[:, 1])
+            pix_ra_span = [min(dith_pix_min[:, 0]), max(dith_pix_max[:, 0])]
+            pix_dec_span = [min(dith_pix_min[:, 1]), min(dith_pix_min[:, 1])]
 
             # Set size of virtual grid to accommodate the limits of the offsets.
             # max_detector_dist = np.sqrt(self.xpix ** 2 + self.ypix **2)
             buffer = 100  # if any part of the image falls off the canvas it can cause stsci.drizzle to produce nothing
                           # so add a safety perimeter
-            self.nPixRA = (2 * (raMax - raMin) + self.xpix + buffer).astype(int)
-            self.nPixDec = (2 * (decMax - decMin) + self.ypix + buffer).astype(int)
+            self.nPixRA = (2 * (pix_ra_span[1] - pix_ra_span[0]) + self.xpix + buffer).astype(int)
+            self.nPixDec = (2 * (pix_dec_span[1] - pix_dec_span[0]) + self.ypix + buffer).astype(int)
 
         if self.square_grid:
             nPix = max((self.nPixRA, self.nPixDec))
@@ -496,32 +494,32 @@ class TemporalDrizzler(Canvas):
                          drizzle_params.nPixDec)
 
         self.nwvlbins = nwvlbins
-        self.exp_timestep = exp_timestep  # seconds
 
-        self.ndithers = len(self.dithers_data)
         self.pixfrac = drizzle_params.pixfrac
         self.wvlbins = np.linspace(wvlMin, wvlMax, self.nwvlbins + 1)
         self.wvlbins[0] = wvlMin  # linspace(0,inf) -> [nan,inf] which throws off the binning
 
         inttime = drizzle_params.used_inttime
         self.wcs_times = np.append(np.arange(0, inttime, drizzle_params.wcs_timestep), inttime)
-        self.wcs_times_ms = self.wcs_times * 1e6
-        self.nwcs_times = len(self.wcs_times) -1
 
-        self.timebins = np.append(np.arange(0, inttime, self.exp_timestep), inttime) * 1e6  # timestamps are in microseconds
-        self.nexp_time = len(self.timebins) -1
-        self.totHypCube = None
-        self.totWeightCube = None
+        self.timebins = np.append(np.arange(0, inttime, exp_timestep), inttime) * 1e6  # timestamps are in microseconds
+
+        self.cps = None
+        self.counts = None
 
     def run(self):
         tic = time.clock()
 
-        self.totHypCube = np.zeros((self.nexp_time * self.ndithers, self.nwvlbins, self.nPixDec, self.nPixRA))  # use exp_timestep for final spacing
-        self.expmap = np.zeros((self.nexp_time * self.ndithers, self.nwvlbins, self.nPixDec, self.nPixRA))
+        nexp_time = len(self.timebins) -1
+        ndithers = len(self.dithers_data)
+        wcs_times_ms = self.wcs_times * 1e6
+
+        self.cps = np.zeros((nexp_time * ndithers, self.nwvlbins, self.nPixDec, self.nPixRA))  # use exp_timestep for final spacing
+        expmap = np.zeros((nexp_time * ndithers, self.nwvlbins, self.nPixDec, self.nPixRA))
         for ix, dither_photons in enumerate(self.dithers_data):  # iterate over dithers
 
-            dithhyper = np.zeros((self.nexp_time, self.nwvlbins, self.nPixDec, self.nPixRA), dtype=np.float32)
-            dithexp = np.zeros((self.nexp_time, self.nwvlbins, self.nPixDec, self.nPixRA), dtype=np.float32)
+            dithhyper = np.zeros((nexp_time, self.nwvlbins, self.nPixDec, self.nPixRA), dtype=np.float32)
+            dithexp = np.zeros((nexp_time, self.nwvlbins, self.nPixDec, self.nPixRA), dtype=np.float32)
 
             for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):  # iterate through each of the wcs time spacing
 
@@ -533,11 +531,11 @@ class TemporalDrizzler(Canvas):
                     getLogger(__name__).critical('sky grid ref and dither ref do not match (crpix varies between dithers)!')
                     raise RuntimeError('sky grid ref and dither ref do not match (crpix varies between dithers)!')
 
-                counts = self.makeTess(dither_photons, (self.wcs_times_ms[t], self.wcs_times_ms[t+1]))
+                counts = self.makeTess(dither_photons, (wcs_times_ms[t], wcs_times_ms[t+1]))
                 cps = counts/(self.wcs_times[t + 1] - self.wcs_times[t])  # scale this frame by its exposure time
 
                 # get expsure bin of current wcs time
-                wcs_time = self.wcs_times_ms[t]
+                wcs_time = wcs_times_ms[t]
                 ie = np.where([np.logical_and(wcs_time >= self.timebins[i], wcs_time < self.timebins[i + 1]) for i in
                       range(len(self.timebins) - 1)])[0][0]
 
@@ -551,18 +549,16 @@ class TemporalDrizzler(Canvas):
                         drizhyper.add_image(cps[ia, iw], inwcs, inwht=inwht)  # in_units='cps' shouldn't have any affect
                                                                               # for a single drizzle
                         dithhyper[ie+ia, iw] += drizhyper.outsci  # sum all those tess' in the same exposure bin (ie)
-                        dithexp[ie+ia, iw] += drizhyper.outwht * (self.wcs_times[t + 1] - self.wcs_times[t]) / self.nwcs_times
+                        dithexp[ie+ia, iw] += drizhyper.outwht * (self.wcs_times[t + 1] - self.wcs_times[t]) / (len(self.wcs_times) -1)
 
-            self.totHypCube[ix * self.nexp_time: (ix + 1) * self.nexp_time] = dithhyper
-            self.expmap[ix * self.nexp_time: (ix + 1) * self.nexp_time] = dithexp
+            self.cps[ix * nexp_time: (ix + 1) * nexp_time] = dithhyper
+            self.expmap[ix * nexp_time: (ix + 1) * nexp_time] = dithexp
 
         getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
 
         self.header_4d()
 
-        self.cps = self.totHypCube
-        self.counts = self.cps * self.expmap
-        self.outwcs = self.wcs
+        self.counts = self.cps * expmap
 
     def makeTess(self, dither_photons, timespan, applyweights=False, maxCountsCut=False):
         """
@@ -585,7 +581,7 @@ class TemporalDrizzler(Canvas):
                             dither_photons['xPhotonPixels'][timespan_mask],
                             dither_photons['yPhotonPixels'][timespan_mask]))
 
-        if self.nexp_time > self.nwcs_times:  # exposure sampling finer than wcs (rotation) sampling
+        if len(self.timebins) > len(self.wcs_times):  # exposure sampling finer than wcs (rotation) sampling
             timebins = self.timebins[(self.timebins >= timespan[0]) & (self.timebins <= timespan[1])]
         else:  # otherwise just sample ever wcs_timestep (and sum later)
             timebins = timespan
@@ -615,7 +611,7 @@ class TemporalDrizzler(Canvas):
         w4d.wcs.crpix = [self.wcs.wcs.crpix[0], self.wcs.wcs.crpix[1], 1, 1]
         w4d.wcs.crval = [self.wcs.wcs.crval[0], self.wcs.wcs.crval[1], self.wvlbins[0]/1e9, self.timebins[0]/1e6]
         w4d.wcs.ctype = [self.wcs.wcs.ctype[0], self.wcs.wcs.ctype[1], "WAVE", "TIME"]
-        w4d.pixel_shape = (self.wcs.pixel_shape[0], self.wcs.pixel_shape[1], self.nwvlbins, self.nexp_time)
+        w4d.pixel_shape = (self.wcs.pixel_shape[0], self.wcs.pixel_shape[1], self.nwvlbins, len(self.timebins) -1)
         w4d.wcs.pc = np.eye(4)
         w4d.wcs.cdelt = [self.wcs.wcs.cdelt[0], self.wcs.wcs.cdelt[1],
                          (self.wvlbins[1] - self.wvlbins[0])/1e9,
@@ -718,7 +714,7 @@ class DrizzledData(object):
 
         self.cps = driz.cps
         self.counts = driz.counts
-        self.wcs = driz.outwcs
+        self.wcs = driz.wcs
         self.expmap = driz.expmap
         self.mode = mode
         self.header_keys = ['WCSTIME', 'PIXFRAC']
