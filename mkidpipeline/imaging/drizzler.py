@@ -552,7 +552,7 @@ class TemporalDrizzler(Canvas):
                         dithexp[ie+ia, iw] += drizhyper.outwht * (self.wcs_times[t + 1] - self.wcs_times[t]) / (len(self.wcs_times) -1)
 
             self.cps[ix * nexp_time: (ix + 1) * nexp_time] = dithhyper
-            self.expmap[ix * nexp_time: (ix + 1) * nexp_time] = dithexp
+            expmap[ix * nexp_time: (ix + 1) * nexp_time] = dithexp
 
         getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
 
