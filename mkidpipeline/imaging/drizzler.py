@@ -630,7 +630,6 @@ class SpatialDrizzler(Canvas):
                          drizzle_params.nPixDec)
 
         self.cps = None
-        self.outwcs = None
         self.counts = None
         self.expmap = None
 
@@ -679,11 +678,10 @@ class SpatialDrizzler(Canvas):
 
         if self.stack:
             self.counts = self.stackedim
-            self.outwcs = self.stacked_wcs
+            self.wcs = self.stacked_wcs
         else:
             self.cps = self.driz.outsci
             self.counts = self.driz.outwht * self.cps * np.mean(self.wcs_times)
-            self.outwcs = self.wcs
 
     def makeImage(self, dither_photons, timespan, applyweights=False, maxCountsCut=10000):
         # TODO mixing pixels and radians per variable names
