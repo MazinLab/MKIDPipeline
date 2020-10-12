@@ -506,6 +506,7 @@ class TemporalDrizzler(Canvas):
 
         self.cps = None
         self.counts = None
+        self.expmap = None
 
     def run(self):
         tic = time.clock()
