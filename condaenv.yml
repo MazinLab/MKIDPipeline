@@ -1,6 +1,6 @@
 #conda update -n base conda
 #conda env create -f <thisfile>
-name: pipeline-new
+name: pipeline
 channels:
   - defaults
   - conda-forge
@@ -56,5 +56,5 @@ dependencies:
     - multiprocessing-logging>=0.2.6
     - pyinterval
 
-prefix: /opt/anaconda/envs/pipeline-new
+#prefix: ~/.conda/envs/pipeline
 
