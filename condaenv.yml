@@ -12,7 +12,7 @@ dependencies:
   - hdf5>=1.10.3
   - pytables>=3.4.4
   - mkl
-  - astropy
+  - astropy==3.2.3
   - astroquery
   - specutils
   - scipy
