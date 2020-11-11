@@ -118,21 +118,24 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
 
     parser = argparse.ArgumentParser(description="Temporal drizzle animation utility")
-    parser.add_argument('fits', type=str, dest='fits_file', help='The temporally drizzled FITS file to animate')
-    parser.add_argument('outfile', type=str, dest='out_file', help='The desired output file name')
-    parser.add_argument('--target', type=str, dest='target', help='The target of the drizzled observation')
+    parser.add_argument('fits', type=str, help='The temporally drizzled FITS file to animate')
+    parser.add_argument('out_file', type=str, help='The desired output file name')
+    parser.add_argument('--target', type=str, dest='target', default=None, help='The target of the drizzled observation')
     parser.add_argument('-f', '--fps', type=int, dest='fps', default=None,
                         help='The desired number of frames per second in the animation')
     parser.add_argument('-s', '--size', type=int, dest='square_size', default=None,
                         help='Number of pixels around the host star')
-    parser.add_argument('-e', '--exposure', type=float, dest='exp_time', default=None,
+    parser.add_argument('-e', '--exp_time', type=float, dest='exp_time', default=None,
                         help='The exposure time of each frame in the temporally drizzled dither.')
     parser.add_argument('--smooth', type=bool, default=True, dest='smooth',
                         help='Try to smooth out any spikes in count rate over the observation')
     parser.add_argument('--stretch', type=str, default='linear', dest='stretch', help='Colorbar stretch')
-    parser.add_argument('--start', type=float, default=0, dest='tStart', help='Start time within the dither')
-    parser.add_argument('--stop', type=float, default=None, dest='tStop', help='Stop time within the dither')
+    parser.add_argument('--start', type=float, default=0, dest='start', help='Start time within the dither')
+    parser.add_argument('--stop', type=float, default=None, dest='stop', help='Stop time within the dither')
     parser.add_argument('--duration', type=float, default=None, dest='duration', help='Duration of desired animation')
+    parser.add_argument('--wvlbin', '-w', type=int, default=None, dest='wvl_bin', help='The wavelength bin to use (for '
+                        'temporal movie). None defaults to all wavelength bins (no need to specify if nWvlBin=1). '
+                        'Otherwise 0 is the lowest wvlBin, 1 the 2nd lowest, etc.')
 
     args = parser.parse_args()
 
@@ -182,5 +185,5 @@ if __name__ == "__main__":
         time_range = [args.start, np.inf]
     log.info(f"Movie will run from {time_range[0]}s to {time_range[1]}s.")
 
-    moviefy_frames(fits_file=args.fits, outfile=args.outfile, target=target, fps=10, square_size=args.square_size,
-                   exp_time=exp_time, time_range=time_range, smooth=args.smooth, stretch=args.stretch)
+    stacked_data = generate_stack_data(args.fits_file, args.exp_time, args.smooth,
+                                       args.square_size, time_range, args.wvl_bin)
