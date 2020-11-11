@@ -23,63 +23,129 @@ import logging
 log = logging.getLogger(__name__)
 
 
-def moviefy_frames(fits_file, outfile, target, fps=10, square_size=None, exp_time=None,
-                   time_range=None, smooth=True, stretch='linear'):
+def read_fits(file, wvl_bin=None):
+    """
+    Reads a fits file into temporal and spectral cubes. Temporal cube has dimensions of [time, x, y] and spectral cube
+    has dimensions of [wvl, x, y].
 
-    # Set up writer to actually make the movie
-    FFMpegWriter = anim.writers['ffmpeg']
-    metadata = dict(title=f"Dither Movie: {outfile}", artist='Matplotlib', fits=fits_file, target=target, fps=fps,
-                    exp_time=exp_time, smoothed=smooth, colorbar_stretch=stretch, time_range_in_drizzle=time_range)
-    writer = FFMpegWriter(fps=fps, metadata=metadata)
-
-    # Read and format the data. At this point the only available option of data to look at is count rates. With the
-    # exposure time given, convert those count rates to counts (for integrating the image. It doesn't make sense to add
-    # count rates, unless we play with some averaging, but that is a different visualization)
-    fit = fits.open(fits_file)
-    data = fit[1].data[:, 0, :, :]  # This is in cts/sec
-    data = data * exp_time
-    counts = np.array([np.sum(i) for i in data])
+    """
+    fit = fits.open(file)
+    fits_data = fit[1].data  # Fits data has axes of [time, wvl, x, y]
+    if wvl_bin:
+        temporal = fits_data[:, int(wvl_bin), :, :]  # temporal has axes of [time, x, y]
+    else:
+        temporal = np.average(fits_data, axis=1)
+    spectral = np.average(fits_data, axis=0)  # spectral has axes of [wvl, x, y]
+    return {'temporal': temporal, 'spectral': spectral}
 
 
-    # Create an appropriate time range. This began as being useful for debugging, but can also be used to make a
-    # lightcurve or timeseries data.
-    # TODO: Add a lightcurve option.
-    # times = np.arange(0, exp_time * len(data) - exp_time, exp_time)
-    times = np.arange(0, exp_time * len(data), exp_time)
+def generate_lightcurve(temporal_data, exp_time):
+    if type(temporal_data) is dict:
+        lc_data = temporal_data['temporal']
+    else:
+        lc_data = temporal_data
+
+    counts = np.array([np.sum(i) for i in lc_data])
+    time_bins = np.linspace(0, (len(lc_data) * exp_time) - exp_time, len(lc_data))
+
+    return {'time': time_bins, 'counts': counts}
+
+
+def smooth_data(light_curve):
+    residuals = []
+    stddevs = []
+    fits = []
+    orders = []
+    for i in np.arange(1, 21, 1):
+        orders.append(i)
+        fit = np.polyfit(light_curve['time'], light_curve['counts'], i)
+        fits.append(fit)
+        predicted_data = np.poly1d(fit)
+
+        resid = light_curve['counts'] - predicted_data(light_curve['time'])
+        residuals.append(resid)
+        std = np.std(resid)
+        stddevs.append(std)
+
+    residuals = np.array(residuals)
+    stddevs = np.array(stddevs)
+    fits = np.array(fits)
+    orders = np.array(orders)
+
+    best_mask = stddevs == np.min(stddevs)
+    log.info(f"Best fit was of order {orders[best_mask]}")
+    best_fit_coeffs = fits[best_mask]
+    best_fit_residuals = residuals[best_mask]
+    smooth_mask = (abs(best_fit_residuals) <= 2 * (stddevs[best_mask]))
+    return {'order': orders[best_mask], 'std_dev': np.min(stddevs), 'coeffs': best_fit_coeffs,
+            'residuals': best_fit_residuals, 'mask': smooth_mask[0]}
+
+
+def stack(fits_data):
+    temporal_stack = [fits_data['temporal'][0]]
+    spectral_stack = [fits_data['spectral'][0]]
+
+    for i in fits_data['temporal'][1:]:
+        temporal_stack.append(temporal_stack[-1] + i)
+    for i in fits_data['spectral'][1:]:
+        spectral_stack.append(spectral_stack[-1] + i)
+
+    # Each frame in the spectral_stack is in CPS, not Counts. To keep the scale consistent (adding CPS values to a
+    # 'stack' doesn't make sense). We make sure to average by the number of frames (in the fits data) that went into
+    # that stacked frame. In essence, CPS_frameN = (CPS_wvlBin1 + CPS_wvlBin2 + ... + CPS_wvlBinN) / N (this has to be
+    # 1-indexed, not 0,since a 1 wvlBin stack or the first wvlBin of every spectral stack would blow up with a
+    # DivideByZeroError). *Final note: This assumes that the exposure times for each wvl bin are the same. This should
+    # be the case, but if it is not then this next line breaks and must be treated more explicitly with time weighting.
+    spectral_stack = [frame/(counter+1) for counter, frame in enumerate(spectral_stack)]
+
+    return {'temporal': np.array(temporal_stack), 'spectral': np.array(spectral_stack)}
+
+
+def generate_stack_data(fits_file, exp_time, smooth, square_size, time_range, wvl_bin=None):
+    data = read_fits(fits_file, wvl_bin=wvl_bin)
+    data['temporal'] = data['temporal'] * exp_time  # Convert from count rate to counts
+    lightcurve = generate_lightcurve(data['temporal'], exp_time)
+
     if time_range:
-        time_mask = (times >= time_range[0]) & (times <= time_range[1])
+        time_mask = (lightcurve['time'] >= time_range[0]) & (lightcurve['time'] <= time_range[1])
+        lightcurve['time'] = lightcurve['time'][time_mask]
+        lightcurve['counts'] = lightcurve['counts'][time_mask]
+        data['temporal'] = data['temporal'][time_mask]
 
-        times = times[time_mask]
-        data = data[time_mask]
-        counts = counts[time_mask]
+    if smooth:
+        smooth_dict = smooth_data(lightcurve)
+        mask = smooth_dict['mask']
+        data['temporal'] = data['temporal'][mask]
+        lightcurve['time'] = lightcurve['time'][mask]
+        lightcurve['counts'] = lightcurve['counts'][mask]
 
-    # By default, the entire array is used. If desired, we can 'zoom in' to a smaller square around the center.
     if square_size:
-        max_size = np.min(data[0].shape)
+        max_size = np.min(data['spectral'][0].shape)  # The spectral and temporal data have the same (x,y) sizes.
         if square_size <= max_size:
             half_size = np.ceil(square_size / 2)
-            ctr = [np.ceil(data.shape[1]/2), np.ceil(data.shape[2]/2)]
-            data = data[:, int(ctr[0]-half_size):int(ctr[0]+half_size), int(ctr[1]-half_size):int(ctr[1]+half_size)]
+            ctr = [np.ceil(data['spectral'].shape[1]/2), np.ceil(data['spectral'].shape[2]/2)]
+            data['temporal'] = data['temporal'][:, int(ctr[0]-half_size):int(ctr[0]+half_size), int(ctr[1]-half_size):int(ctr[1]+half_size)]
+            data['spectral'] = data['spectral'][:, int(ctr[0]-half_size):int(ctr[0]+half_size), int(ctr[1]-half_size):int(ctr[1]+half_size)]
 
-    # Empirically, we've seen that there's some artifact from the drizzle code that results in flashes from the array.
-    # What follows is an attempt to remedy that and remove those flashes.
-    if smooth:
-        data_fit = np.polyfit(times, counts, 8)
-        predicted_data = np.poly1d(data_fit)
+    stacks = stack(data)
+    return {'data': data, 'stacks': stacks, 'lightcurve': lightcurve}
 
-        residuals = counts - predicted_data(times)
-        std = np.std(residuals)
-        smooth_mask = (abs(residuals) <= 1.5 * std)
 
-        data = data[smooth_mask]
-        times = times[smooth_mask]
+def set_up_writer(metadata: dict):
+    FFMpegWriter = anim.writers['ffmpeg']
+    if 'fps' not in metadata.keys():
+        metadata['fps'] = 10
+    return FFMpegWriter(fps=metadata['fps'], metadata=metadata)
 
-    # Create a set of data where each successive frame is a sum of the data before it and the current frame. This is for
-    # animating the stacking up of each successive image
-    stack = []
-    stack.append(data[0])
-    for i in data[1:]:
-        stack.append(stack[-1] + i)
+
+def make_movie(fits_file, outfile, target, fps=10, square_size=None, exp_time=None,
+                   time_range=None, smooth=True, stretch='linear'):
+    writer = set_up_writer(dict(title=f"Dither Movie: {outfile}", artist='Matplotlib', fits=fits_file,
+                                target=target, fps=fps, exp_time=exp_time, smoothed=smooth,
+                                colorbar_stretch=stretch, time_range_in_drizzle=time_range))
+
+# TODO: Animate function, make more robust, add spectral category, add ability to do side-by-side or alone
+def animate(data, writer, target, exp_time, time_range, outfile, stretch):
 
     fig, axs = plt.subplots(1, 2, constrained_layout=True)
     plt.suptitle(f"{target}, {exp_time} s Frame exposure time, {fps} fps, {time_range[1] - time_range[0]} s of data")
