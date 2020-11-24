@@ -1,13 +1,11 @@
 """
 Author: Noah Swimmer
 
-Program to allow temporal drizzles to be animated.
+Program to allow temporal and spectral drizzles to be animated.
 
-TODO: Allow input of matplotlib keywords (maybe)
+
 
 TODO: Maybe combine this with movies.py?
-
-TODO: Allow ONLY stacked images or ONLY unstacked?
 """
 
 import argparse
@@ -16,25 +14,36 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as anim
 import matplotlib.colors as colors
 from astropy.io import fits
-from astropy.visualization import ImageNormalize, SinhStretch, SquaredStretch
+from astropy.visualization import ImageNormalize, AsinhStretch, LinearStretch, \
+    LogStretch, PowerDistStretch, PowerStretch, SinhStretch, SqrtStretch, SquaredStretch
 import logging
+import mkidpipeline as pipe
 
+VALID_STRETCHES = {'asinh': AsinhStretch(),
+                   'linear': LinearStretch(),
+                   'log': LogStretch(),
+                   'powerdist': PowerDistStretch(),
+                   'sinh': SinhStretch(),
+                   'sqrt': SqrtStretch(),
+                   'squared': SquaredStretch()}
 
 log = logging.getLogger(__name__)
+
+cfgfile = '/home/nswimmer/src/mkidpipeline/mkidpipeline/imaging/animator.yml'
 
 
 def read_fits(file, wvl_bin=None):
     """
     Reads a fits file into temporal and spectral cubes. Temporal cube has dimensions of [time, x, y] and spectral cube
     has dimensions of [wvl, x, y].
-
+    If wvl_bin is none, it takes the count rates from all of the spectral bins
     """
     fit = fits.open(file)
     fits_data = fit[1].data  # Fits data has axes of [time, wvl, x, y]
     if wvl_bin:
         temporal = fits_data[:, int(wvl_bin), :, :]  # temporal has axes of [time, x, y]
     else:
-        temporal = np.average(fits_data, axis=1)
+        temporal = np.sum(fits_data, axis=1)
     spectral = np.average(fits_data, axis=0)  # spectral has axes of [wvl, x, y]
     return {'temporal': temporal, 'spectral': spectral}
 
@@ -103,7 +112,7 @@ def stack(fits_data):
 
 def generate_stack_data(fits_file, exp_time, smooth, square_size, time_range, wvl_bin=None):
     data = read_fits(fits_file, wvl_bin=wvl_bin)
-    data['temporal'] = data['temporal'] * exp_time  # Convert from count rate to counts
+    data['temporal'] = (data['temporal'] * exp_time).astype(int)
     lightcurve = generate_lightcurve(data['temporal'], exp_time)
 
     if time_range:
@@ -128,7 +137,7 @@ def generate_stack_data(fits_file, exp_time, smooth, square_size, time_range, wv
             data['spectral'] = data['spectral'][:, int(ctr[0]-half_size):int(ctr[0]+half_size), int(ctr[1]-half_size):int(ctr[1]+half_size)]
 
     stacks = stack(data)
-    return {'data': data, 'stacks': stacks, 'lightcurve': lightcurve}
+    return {'data': data, 'stacks': stacks, 'lightcurve': lightcurve, 'file': fits_file, 'exp_time': exp_time, 'smoothed': smooth}
 
 
 def set_up_writer(metadata: dict):
@@ -138,45 +147,99 @@ def set_up_writer(metadata: dict):
     return FFMpegWriter(fps=metadata['fps'], metadata=metadata)
 
 
-def make_movie(fits_file, outfile, target, fps=10, square_size=None, exp_time=None,
-                   time_range=None, smooth=True, stretch='linear'):
-    writer = set_up_writer(dict(title=f"Dither Movie: {outfile}", artist='Matplotlib', fits=fits_file,
-                                target=target, fps=fps, exp_time=exp_time, smoothed=smooth,
+def animate(data, outfile=None, target='', stretch='linear', type='temporal', fps=10,
+            plot_data=True, plot_stack=True, title=True):
+    outfile = f'{target}.mp4' if outfile is None else outfile
+
+    time_range = [data['lightcurve']['time'][0], data['lightcurve']['time'][-1]+data['exp_time']]
+    exp_time = data['exp_time']
+
+    writer = set_up_writer(dict(title=f"Dither Movie: {outfile}", artist='Matplotlib', fits=data['fits_file'],
+                                target=target, fps=fps, exp_time=exp_time, smoothed=data['smoothed'],
                                 colorbar_stretch=stretch, time_range_in_drizzle=time_range))
 
-# TODO: Animate function, make more robust, add spectral category, add ability to do side-by-side or alone
-def animate(data, writer, target, exp_time, time_range, outfile, stretch):
+    if type == 'temporal':
+        anim_data = data['temporal']
+    elif type == 'spectral':
+        anim_data = data['spectral']
+    else:
+        log.error(f"Trying to animate an unsupported data type!!")
+        return None
 
-    fig, axs = plt.subplots(1, 2, constrained_layout=True)
-    plt.suptitle(f"{target}, {exp_time} s Frame exposure time, {fps} fps, {time_range[1] - time_range[0]} s of data")
+    if plot_data and not plot_stack:
+        log.info(f"Only plotting real-time data!")
+        anim_data = anim_data['data']
+        side_by_side = False
+    elif plot_stack and not plot_data:
+        log.info(f"Only plotting the frames being stacked!")
+        anim_data = anim_data['stack']
+        side_by_side = False
+    elif plot_data and plot_stack:
+        log.info(f"Plotting real-time data and stacked frames side-by-side!")
+        side_by_side = True
+    else:
+        log.error(f"Trying not to animate real-time data or image stacking!")
+        return None
 
-    ims = []
-    with writer.saving(fig, outfile, data[0].shape[1] * 3):
-        for count, i in enumerate(zip(data, stack)):
-            if (count % 10) == 0:
-                log.debug(f"Frame {count} of {len(data)}")
-            if count == 0:
-                # Initialize the subplots
-                if stretch == 'linear':
-                    im1 = axs[0].imshow(i[0], cmap='hot', vmin=0, vmax=np.max(data))
-                    im2 = axs[1].imshow(i[1], cmap='hot', vmin=0, vmax=np.max(stack))
+    if stretch not in VALID_STRETCHES.keys():
+        log.warning(f"Invalid colorbar stretch specified: {stretch}. Using linear stretch by default.")
+        stretch = 'linear'
+
+    if side_by_side:
+        fig, axs = plt.subplots(1, 2, constrained_layout=True)
+        if title:
+            plt.suptitle(f"{target}, {exp_time} s Frame exposure time, "
+                         f"{fps} fps, {time_range[1] - time_range[0]} s of data")
+
+        ims = []
+        with writer.saving(fig, outfile, anim_data['data'][0].shape[1] * 3):
+            for count, i in enumerate(zip(anim_data['data'], anim_data['stack'])):
+                if (count % 10) == 0:
+                    log.debug(f"Frame {count} of {len(anim_data['data'])}")
+                if count == 0:
+                    norm_d = ImageNormalize(vmin=-10, vmax=np.max(data) + 5, stretch=VALID_STRETCHES[stretch])
+                    norm_s = ImageNormalize(vmin=-10, vmax=np.max(stack) + 5, stretch=VALID_STRETCHES[stretch])
+                    im1 = axs[0].imshow(i[0], cmap='cool', norm=norm_d)
+                    im2 = axs[1].imshow(i[1], cmap='cool', norm=norm_s)
+                    axs[0].set_title('Instantaneous Data')
+                    axs[1].set_title('Integrated Data')
+                    ims.append([im1, im2])
+                    c1 = fig.colorbar(im1, ax=axs[0], location='bottom', shrink=0.7, ticks=[0, int(np.max(data))])
+                    c2 = fig.colorbar(im2, ax=axs[1], location='bottom', shrink=0.7, ticks=[0, int(np.max(stack))])
+
                 else:
-                    norm_d = ImageNormalize(vmin=-10, vmax=np.max(data) + 5, stretch=SinhStretch())
-                    norm_s = ImageNormalize(vmin=-10, vmax=np.max(stack) + 5, stretch=SinhStretch())
-                    im1 = axs[0].imshow(i[0], cmap='hot', norm=norm_d)
-                    im2 = axs[1].imshow(i[1], cmap='hot', norm=norm_s)
-                axs[0].set_title('Instantaneous Data')
-                axs[1].set_title('Integrated Data')
-                ims.append([im1, im2])
-                c1 = fig.colorbar(im1, ax=axs[0], location='bottom', shrink=0.7, ticks=[0, np.max(data)])
-                c2 = fig.colorbar(im2, ax=axs[1], location='bottom', shrink=0.7, ticks=[0, np.max(stack)])
+                    im1.set_data(i[0])
+                    im2.set_data(i[1])
+                    ims.append([im1, im2])
 
-            else:
-                im1.set_data(i[0])
-                im2.set_data(i[1])
-                ims.append([im1, im2])
+                writer.grab_frame()
 
-            writer.grab_frame()
+    else:
+        fig, axs = plt.subplots(1, 1, constrained_layout=True)
+        if title:
+            plt.suptitle(f"{target}, {exp_time} s Frame exposure time, "
+                         f"{fps} fps, {time_range[1] - time_range[0]} s of data")
+
+        ims = []
+        with writer.saving(fig, outfile, anim_data[0].shape[1] * 3):
+            for count, i in enumerate(anim_data):
+                if (count % 10) == 0:
+                    log.debug(f"Frame {count} of {len(anim_data)}")
+                if count == 0:
+                    norm_d = ImageNormalize(vmin=-10, vmax=np.max(anim_data) + 5, stretch=VALID_STRETCHES[stretch])
+                    im1 = axs[0].imshow(i[0], cmap='cool', norm=norm_d)
+                    if plot_data:
+                        axs[0].set_title('Instantaneous Data')
+                    elif plot_stack:
+                        axs[0].set_title('Stacked Data')
+                    ims.append([im1])
+                    c1 = fig.colorbar(im1, ax=axs[0], location='bottom', shrink=0.7, ticks=[0, int(np.max(data))])
+
+                else:
+                    im1.set_data(i[0])
+                    ims.append([im1])
+
+                writer.grab_frame()
 
 
 if __name__ == "__main__":
@@ -184,72 +247,39 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
 
     parser = argparse.ArgumentParser(description="Temporal drizzle animation utility")
-    parser.add_argument('fits', type=str, help='The temporally drizzled FITS file to animate')
-    parser.add_argument('out_file', type=str, help='The desired output file name')
-    parser.add_argument('--target', type=str, dest='target', default=None, help='The target of the drizzled observation')
-    parser.add_argument('-f', '--fps', type=int, dest='fps', default=None,
-                        help='The desired number of frames per second in the animation')
-    parser.add_argument('-s', '--size', type=int, dest='square_size', default=None,
-                        help='Number of pixels around the host star')
-    parser.add_argument('-e', '--exp_time', type=float, dest='exp_time', default=None,
-                        help='The exposure time of each frame in the temporally drizzled dither.')
-    parser.add_argument('--smooth', type=bool, default=True, dest='smooth',
-                        help='Try to smooth out any spikes in count rate over the observation')
-    parser.add_argument('--stretch', type=str, default='linear', dest='stretch', help='Colorbar stretch')
-    parser.add_argument('--start', type=float, default=0, dest='start', help='Start time within the dither')
-    parser.add_argument('--stop', type=float, default=None, dest='stop', help='Stop time within the dither')
-    parser.add_argument('--duration', type=float, default=None, dest='duration', help='Duration of desired animation')
-    parser.add_argument('--wvlbin', '-w', type=int, default=None, dest='wvl_bin', help='The wavelength bin to use (for '
-                        'temporal movie). None defaults to all wavelength bins (no need to specify if nWvlBin=1). '
-                        'Otherwise 0 is the lowest wvlBin, 1 the 2nd lowest, etc.')
+    parser.add_argument('cfg', type=str, help='YML config file for the drizzle animator.')
 
     args = parser.parse_args()
 
-    if args.target:
-        log.info(f"Creating a movie from a drizzle of {args.target}")
-        target = args.target
+    pipe.configure_pipeline(args.cfg)
+    config = pipe.config.config
+
+    if config.animation.power:
+        VALID_STRETCHES['power'] = PowerStretch(config.animation.power)
+
+    if not config.animation.target:
+        log.warning('Target missing! Must be specified in the config for metadata.')
+
+    if not config.data.startt:
+        start = 0
     else:
-        log.warning(f"Unspecified target, using 'Target Not Specified' for title")
-        target = "Target Not Specified"
+        start = config.data.startt
 
-    if args.fps:
-        log.info(f"Movie will be made with {args.fps} fps")
-        fps = args.fps
+    if config.data.duration and config.data.stopt:
+        end = start + config.data.duration
+    elif config.data.duration and not config.data.stopt:
+        end = start + config.data.duration
+    elif not config.data.duration and config.data.stopt:
+        end = config.data.stopt
     else:
-        log.warning(f"Using default rate of 10 fps (or you've specified that you want 10 fps, nice choice!)")
-        fps = 10
+        end = np.inf
 
-    if args.square_size:
-        log.info(f"The size of the image will be a {args.square_size}-by-{args.square_size} square (in pixel coords)")
-    else:
-        log.info(f"No image size specified, using the full array")
+    time_range = [start, end]
 
-    if args.exp_time:
-        log.info(f"The input drizzle has {args.exp_time} s frames.")
-        exp_time = args.exp_time
-    else:
-        log.critical(f"No exposure time per frame was specified! Using the default of 1 s/frame. "
-                     f"Make sure that this is correct! If not, the number of counts on the array will not be able to be"
-                     f" calculated correctly")
-        exp_time = 1
+    stacked_data = generate_stack_data(config.data.fits_file, config.data.exp_time, config.data.smooth,
+                                       config.data.square_size, time_range, config.data.wvl_bin)
 
-    if args.smooth:
-        log.info(f"Using smoothing to try to remove any array 'flashes'")
-    else:
-        log.warning(f"No attempt will be made to correct for any array 'flashes'")
-
-    log.info(f"The colorbar scale used will be '{args.stretch}' from astropy.visualizations module.")
-
-    if args.stop and not args.duration:
-        time_range = [args.start, args.stop]
-    elif args.duration and not args.stop:
-        time_range = [args.start, args.start + args.duration]
-    elif args.stop and args.duration:
-        time_range = [args.start, args.start + args.duration]
-    else:
-        log.warning(f"No stop time or duration specified, using the entire drizzle")
-        time_range = [args.start, np.inf]
-    log.info(f"Movie will run from {time_range[0]}s to {time_range[1]}s.")
-
-    stacked_data = generate_stack_data(args.fits_file, args.exp_time, args.smooth,
-                                       args.square_size, time_range, args.wvl_bin)
+    animate(stacked_data, outfile=config.paths.out_file, target=config.animation.target,
+            stretch=config.animation.stretch, type=config.animation.type, fps=config.animation.fps,
+            plot_data=config.animation.plot_data, plot_stack=config.animation.plot_stack,
+            title=config.animation.show_title)
