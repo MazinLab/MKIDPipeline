@@ -379,7 +379,7 @@ class MKIDSpectralReference(object):
     """
     yaml_tag = u'!sc'
 
-    def __init__(self, name, data, wavecal, flatcal, wcscal, sky_data=None, _common=None):
+    def __init__(self, name, data, wavecal, flatcal, wcscal, _common=None):
         if _common is not None:
             self.__dict__.update(_common)
 
