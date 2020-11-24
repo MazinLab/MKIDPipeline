@@ -1349,11 +1349,12 @@ class Photontable(object):
                 self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=calibration(phase),
                                                colname='Wavelength')
             else:  # This takes 3.5s on a 70Mphot file!!!
-                raise NotImplementedError('This code path is impractically slow at present.')
+                # raise NotImplementedError('This code path is impractically slow at present.')
                 getLogger(__name__).debug('Using modify_coordinates')
                 rows = self.photonTable.read_coordinates(indices)
                 rows['Wavelength'] = calibration(rows['Wavelength'])
                 self.photonTable.modify_coordinates(indices, rows)
+                tic2 = time.time()
                 getLogger(__name__).debug('Wavelength updated in {:.2f}s'.format(time.time() - tic2))
 
         self.modifyHeaderEntry(headerTitle='isWvlCalibrated', headerValue=True)
@@ -1830,7 +1831,7 @@ class Photontable(object):
     def applySpectralCal(self, response_curve):
         """
 
-        :param response_curve: numpy array with the first element being the wavelenght in angstroms and the second
+        :param response_curve: numpy array with the first element being the wavelength in angstroms and the second
         element as the flux values of the MEC spectrum divided by the flux values of the standard spectrum
         :param startw: start wavelength (nm)
         :param stopw: stop wavelength (nm)
