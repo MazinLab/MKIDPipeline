@@ -18,7 +18,7 @@ import sys,os
 import numpy as np
 from mkidcore import pixelflags
 from mkidpipeline.hdf.photontable import Photontable
-from mkidpipeline.utils.utils import rebin, gaussianConvolution, fitBlackbody
+from mkidpipeline.utils.speccal_utils import rebin, gaussianConvolution, fitBlackbody
 from mkidcore.corelog import getLogger
 import mkidcore.corelog
 import scipy.constants as c
@@ -32,18 +32,9 @@ from contextlib import closing
 from astroquery.sdss import SDSS
 import astropy.coordinates as coord
 from specutils import Spectrum1D
-from photutils.detection import IRAFStarFinder
-from photutils.psf import IntegratedGaussianPRF, DAOGroup
-from photutils.background import MMMBackground, MADStdBackgroundRMS
-from astropy.modeling.fitting import LevMarLSQFitter
-from astropy.stats import gaussian_sigma_to_fwhm
-import scipy.ndimage as ndimage
-from photutils import aperture_photometry
-from photutils import CircularAperture
-from photutils import CircularAnnulus
+from mkidpipeline.utils.photometry import *
 from scipy.interpolate import griddata
 import pkg_resources as pkg
-from astropy.table import Table
 import matplotlib.gridspec as gridspec
 
 _loaded_solutions = {}
@@ -56,12 +47,12 @@ class Configuration(object):
     def __init__(self, configfile=None, start_times=tuple(), intTimes=tuple(),
                  h5dir='', savedir='', h5_file_names='', object_name='', ra=None, dec=None,
                  photometry='', energy_bin_width=0.01, wvlStart=850, wvlStop=1375, collecting_area=5.3*10**5, summary_plot=True,
-                 url_path='', aperture_radius=3, obj_pos=None, use_satellite_spots=False, interpolation='linear'):
+                 std_path='', aperture_radius=3, obj_pos=None, use_satellite_spots=False, interpolation='linear'):
         # parse arguments
         self.configuration_path = configfile
         self.h5_directory = h5dir
         self.save_directory = savedir
-        self.url_path = url_path
+        self.url_path = std_path
         self.object_name = object_name
         self.ra = ra
         self.dec = dec
@@ -99,7 +90,7 @@ class Configuration(object):
             self.wvl_bin_centers = np.zeros(self.nwvlbins)
             self.h5_directory = cfg.paths.out
             self.save_directory = cfg.paths.database
-            self.url_path = cfg.spectralcal.standard_url
+            self.std_path = cfg.spectralcal.standard_path
             self.start_times = list(map(int, cfg.start_times))
             self.object_name = cfg.object_name
             self.ra = cfg.ra if cfg.ra else None
@@ -146,14 +137,14 @@ class StandardSpectrum:
     """
     replaces the MKIDStandards class from the ARCONS pipeline for MEC.
     """
-    def __init__(self, save_path='', url_path=None, object_name=None, object_ra=None, object_dec=None, coords=None,
+    def __init__(self, save_path='', std_path=None, object_name=None, object_ra=None, object_dec=None, coords=None,
                  reference_wavelength=5500):
         self.save_dir = save_path
         self.ref_wvl = reference_wavelength
         self.object_name = object_name
         self.ra = object_ra
         self.dec = object_dec
-        self.url_path = url_path
+        self.std_path = std_path
         self.coords = coords # SkyCoord object
         self.spectrum_file = None
         self.k = 5.03411259e7
@@ -175,11 +166,11 @@ class StandardSpectrum:
         the retrieved spectrum in a '/spectrum/' folder in self.save_dir
         :return:
         '''
-        if self.url_path is not None:
-            if self.url_path.endswith('.txt'):
-                data = np.loadtxt(self.url_path)
+        if self.std_path is not None:
+            if self.std_path.endswith('.txt'):
+                data = np.loadtxt(self.std_path)
             else:
-                self.spectrum_file = fetch_spectra_URL(object_name=self.object_name, url_path=self.url_path,
+                self.spectrum_file = fetch_spectra_URL(object_name=self.object_name, url_path=self.std_path,
                                                        save_dir=self.save_dir)
                 data = np.loadtxt(self.spectrum_file)
             return data
@@ -192,9 +183,10 @@ class StandardSpectrum:
                     data = np.loadtxt(self.spectrum_file)
                     return data
                 except ValueError:
-                    getLogger(__name__).warning(
-                        'Could not find standard spectrum for this object in SDSS or ESO catalog')
-                    return self.spectrum_file
+                    getLogger(__name__).error(
+                        'Could not find standard spectrum for this object, please find a spectrum and point to it in '
+                        'the standard_path in your pipe.yml')
+                    sys.exit()
             data = np.loadtxt(self.spectrum_file)
             # to convert to the appropriate units if ESO spectra
             data[:, 1] = data[:, 1] * 10**(-16)
@@ -280,15 +272,9 @@ class SpectralCalibrator(object):
             plot: a boolean specifying if a summary plot for the computation will be
                   saved.
         """
-        getLogger(__name__).info("Loading Spectrum from MEC")
+
         try:
-            if self.cfg.photometry == 'relative':
-                getLogger(__name__).info('Performing relative photometry')
-                self.load_relative_spectrum()
-                getLogger(__name__).info('Flux spectrum loaded')
-                self.load_sky_spectrum()
-                getLogger(__name__).info('Sky spectrum loaded ')
-            getLogger(__name__).info('Extracting point source spectrum ')
+            getLogger(__name__).info("Loading Spectrum from MEC")
             self.load_absolute_spectrum()
             getLogger(__name__).info("Loading Standard Spectrum")
             self.load_standard_spectrum()
@@ -359,8 +345,9 @@ class SpectralCalibrator(object):
         if self.obj_pos is None:
             getLogger(__name__).info('No coordinate specified for the object. Performing a PSF fit '
                                      'to find the location')
-            x, y, flux = psf_photometry(self.image, 3.0)
-            self.obj_pos = (x[0], y[0])
+            x, y, flux = psf_photometry(cube[:,:,0], 5.0)
+            ind = np.where(flux == flux.max())
+            self.obj_pos = (x.data.data[ind][0], y.data.data[ind][0])
             getLogger(__name__).info('Found the object at {}'.format(self.obj_pos))
         for i in np.arange(n_wvl_bins):
             # perform photometry on every wavelength bin
@@ -380,13 +367,13 @@ class SpectralCalibrator(object):
                 self.flux_spectrum[i] = obj_flux
             else:
                 # default or if 'PSF' is specified
-                x, y, flux = psf_photometry(cube[:, :, i], 4.0, x0=self.cfg.obj_pos[0], y0=self.cfg.obj_pos[1]) #TODO make sure this takes background into account
+                x, y, flux = psf_photometry(cube[:, :, i], 5.0, x0=self.cfg.obj_pos[0], y0=self.cfg.obj_pos[1]) #TODO make sure this takes background into account
                 self.flux_spectrum[i] = flux
         self.flux_spectrum = self.flux_spectrum / self.wvl_bin_widths / self.cfg.collecting_area  # spectrum now in counts/s/Angs/cm^2
         return self.flux_spectrum
 
     def load_standard_spectrum(self):
-        standard = StandardSpectrum(save_path=self.cfg.save_directory, url_path=self.cfg.url_path,
+        standard = StandardSpectrum(save_path=self.cfg.save_directory, std_path=self.cfg.std_path,
                                     object_name=self.cfg.object_name[0], object_ra=self.cfg.ra[0],
                                     object_dec=self.cfg.dec[0])
         self.std_wvls, self.std_flux = standard.get()  # standard star object spectrum in ergs/s/Angs/cm^2
@@ -456,7 +443,7 @@ class SpectralCalibrator(object):
         axes_list = np.array([figure.add_subplot(gs[0, 0]), figure.add_subplot(gs[0, 1]),
                               figure.add_subplot(gs[1, 0]), figure.add_subplot(gs[1, 1])])
         axes_list[0].imshow(self.image)
-        circle = plt.Circle((self.obj_pos[0], self.obj_pos[1]), self.aperture_radius, fill=False, color='r')
+        circle = plt.Circle((self.obj_pos[0], self.obj_pos[1]), self.cfg.aperture_radius, fill=False, color='r')
         axes_list[0].add_artist(circle)
         axes_list[0].set_title('MKID Instrument Image of Standard', size=8)
 
@@ -597,7 +584,7 @@ def fetch_spectra_SDSS(object_name, save_dir, coords):
     getLogger(__name__).info('Looking for {} spectrum in SDSS catalog'.format(object_name))
     result = SDSS.query_region(coords, spectro=True)
     if not result:
-        getLogger(__name__).warning('Could not find spectrum for {} at {},{} in SDSS catalog'.format(object_name, coords[0], coords[1]))
+        getLogger(__name__).warning('Could not find spectrum for {} at {},{} in SDSS catalog'.format(object_name, coords.ra, coords.dec))
         spectrum_file = None
         return spectrum_file
     spec = SDSS.get_spectra(matches=result)
@@ -611,64 +598,6 @@ def fetch_spectra_SDSS(object_name, save_dir, coords):
     np.savetxt(spectrum_file, res, fmt='%1.4e')
     getLogger(__name__).info('Spectrum loaded for {} from SDSS catalog'.format(object_name))
     return spectrum_file
-
-
-def aper_photometry(image, obj_position, radius):
-    """
-    wrapper for aperture_photometry
-    :param image: 2D array on which aperture photometry will be performed
-    :param obj_position: tuple, (x, Y) coordinate of the object
-    :param sky_position: tuple (x, y ) coordinate of where you wouldl ike the background reference flux to be found
-    :param radius: radius of the aperture
-    :return: object flux, sky flux in the units of image
-    """
-    position = np.array([obj_position])
-    circ_aperture = CircularAperture(position, r=radius)
-    annulus_aperture = CircularAnnulus(position, r_in=radius, r_out=radius + (0.5 * radius))
-    apers = [circ_aperture, annulus_aperture]
-    photometry_table = aperture_photometry(image, apers)
-    object_flux = photometry_table['aperture_sum_0']
-    bkgd_mean = photometry_table['aperture_sum_1']/annulus_aperture.area
-    sky_flux = bkgd_mean * circ_aperture.area
-    return object_flux - sky_flux
-
-
-def psf_photometry(img, sigma_psf, aperture=3, x0=None, y0=None):
-    """
-    Function for performing PSF photometry using astropy modules
-
-    :param img: 2D array on which to perform photometry
-    :param sigma_psf: standard deviation of the fitted PSF
-    :param x0: x centroid location to fit PSF
-    :param y0: y centroid location to fit PSF, if x0 and y0 are None will find the brightest source in img and fit that
-    :return: x0, y0, and total flux
-    """
-    image = ndimage.gaussian_filter(img, sigma=1, order=0)
-    bkgrms = MADStdBackgroundRMS()
-    std = bkgrms(image[image!=0])
-    iraffind = IRAFStarFinder(threshold=2 * std, fwhm=sigma_psf * gaussian_sigma_to_fwhm, minsep_fwhm=0.01,
-                              roundhi=5.0, roundlo=-5.0, sharplo=0.0, sharphi=2.0)
-    daogroup = DAOGroup(2.0 * sigma_psf * gaussian_sigma_to_fwhm)
-    mmm_bkg = MMMBackground()
-    fitter = LevMarLSQFitter()
-    psf_model = IntegratedGaussianPRF(sigma=sigma_psf)
-    if x0 and y0:
-        from photutils.psf import BasicPSFPhotometry
-        psf_model.x_0.fixed = True
-        psf_model.y_0.fixed = True
-        pos = Table(names=['x_0', 'y_0'], data=[x0, y0])
-        photometry = BasicPSFPhotometry(group_maker=daogroup,bkg_estimator=mmm_bkg, psf_model=psf_model,
-                                        fitter=LevMarLSQFitter(), fitshape=(11,11))
-        res = photometry(image=image, init_guesses=pos)
-        return res['x_0'], res['y_0'], res['flux_0']
-    from photutils.psf import IterativelySubtractedPSFPhotometry
-    photometry = IterativelySubtractedPSFPhotometry(finder=iraffind, group_maker=daogroup, bkg_estimator=mmm_bkg,
-                                                    psf_model=psf_model, fitter=fitter, niters=10, fitshape=(11, 11),
-                                                    aperture_radius=aperture)
-    res = photometry(image=image)
-    # ind = np.where(res['flux_0'] == res['flux_0'].max())
-    return res['x_0'], res['y_0'], res['flux_0']
-
 
 def fetch_spectra_URL(object_name, url_path, save_dir):
     """
