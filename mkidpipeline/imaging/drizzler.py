@@ -225,7 +225,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, single_
                                     f'in the units?')
 
     exclude_flags += DRIZ_PROBLEM_FLAGS
-    # photons = obsfile.filter_photons_by_flags(photons, allowed=(), disallowed=exclude_flags)
+    photons = obsfile.filter_photons_by_flags(photons, allowed=(), disallowed=exclude_flags)
     num_filtered = len(photons)
     getLogger(__name__).info("Removed {} photons from {} total from bad pix"
                              .format(num_unfiltered - num_filtered, num_unfiltered))
@@ -296,10 +296,17 @@ def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfi
         metadata_config_check(filenames[0], dither.wcscal)
 
         ncpu = min(mkidpipeline.config.n_cpus_available(), ncpu)
-        p = mp.Pool(ncpu)
-        processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt, used_inttime, derotate, wcs_timestep,
+        if ncpu == 1:
+            dithers_data = []
+            for file in filenames:
+                data = mp_worker(file, wvlMin, wvlMax, startt, used_inttime, derotate, wcs_timestep,
+                                         single_pa_time, exclude_flags)
+                dithers_data.append(data)
+        else:
+            p = mp.Pool(ncpu)
+            processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt, used_inttime, derotate, wcs_timestep,
                                                single_pa_time, exclude_flags)) for file in filenames]
-        dithers_data = [res.get() for res in processes]
+            dithers_data = [res.get() for res in processes]
 
         dithers_data.sort(key=lambda k: filenames.index(k['file']))
 
@@ -692,7 +699,7 @@ class SpatialDrizzler(Canvas):
                                                dither_photons['timestamps'] <= timespan[1]))[0]
 
         thisImage, _, _ = np.histogram2d(dither_photons['xPhotonPixels'][timespan_ind],
-                                         dither_photons['yPhotonPixels'][timespan_ind],  weights=weights,
+                                         dither_photons['yPhotonPixels'][timespan_ind],  weights=weights[timespan_ind],
                                          bins=[range(self.ypix+1), range(self.xpix+1)], normed=False)
 
         if maxCountsCut:
