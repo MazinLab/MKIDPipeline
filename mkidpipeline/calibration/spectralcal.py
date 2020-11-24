@@ -40,6 +40,7 @@ from astropy.stats import gaussian_sigma_to_fwhm
 import scipy.ndimage as ndimage
 from photutils import aperture_photometry
 from photutils import CircularAperture
+from photutils import CircularAnnulus
 from scipy.interpolate import griddata
 import pkg_resources as pkg
 from astropy.table import Table
@@ -52,10 +53,10 @@ class Configuration(object):
     """Configuration class for the spectrophotometric calibration analysis."""
     yaml_tag = u'!spectralcalconfig'
 
-    def __init__(self, configfile=None, start_times=tuple(), sky_start_times=tuple(), intTimes=tuple(),
-                 h5dir='', savedir='', h5_file_names='', sky_file_names='', object_name='', ra=None, dec=None,
-                 photometry='', energy_bin_width=0.01, wvlStart=850, wvlStop=1375, collecting_area=5 * 10**5, summary_plot=True,
-                 url_path='', aperture_radius=3, obj_pos=None, sky_pos=None, interpolation='linear'):
+    def __init__(self, configfile=None, start_times=tuple(), intTimes=tuple(),
+                 h5dir='', savedir='', h5_file_names='', object_name='', ra=None, dec=None,
+                 photometry='', energy_bin_width=0.01, wvlStart=850, wvlStop=1375, collecting_area=5.3*10**5, summary_plot=True,
+                 url_path='', aperture_radius=3, obj_pos=None, use_satellite_spots=False, interpolation='linear'):
         # parse arguments
         self.configuration_path = configfile
         self.h5_directory = h5dir
@@ -65,9 +66,7 @@ class Configuration(object):
         self.ra = ra
         self.dec = dec
         self.start_times = list(map(int, start_times))
-        self.sky_start_times = list(map(int, sky_start_times))
         self.h5_file_names = list(map(str, h5_file_names))
-        self.sky_file_names = list(map(str, sky_file_names))
         self.intTimes = list(map(float, intTimes))
         self.h5_directory = h5dir
         self.energyBinWidth = float(energy_bin_width)
@@ -76,17 +75,19 @@ class Configuration(object):
         self.photometry = str(photometry)
         self.wvl_bin_edges = None
         self.wvl_bin_widths = None
+        self.wvl_bin_centers = None
         self.summary_plot = bool(summary_plot)
         self.collecting_area = float(collecting_area)
         self.aperture_radius = aperture_radius
         self.obj_pos = obj_pos
-        self.sky_pos = sky_pos
         self.nwvlbins = None
         self.interpolation = interpolation
         self.data = None
+        self.use_satellite_spots = use_satellite_spots
         if self.configuration_path is not None:
             # load in the configuration file
             cfg = mkidcore.config.load(self.configuration_path)
+            self.use_satellite_spots = cfg.spectralcal.use_satellite_spots
             self.ncpu = cfg.ncpu
             self.wvlStart = cfg.instrument.wvl_start * 10.0 # in angstroms
             self.wvlStop = cfg.instrument.wvl_stop * 10.0 # in angstroms
@@ -95,30 +96,27 @@ class Configuration(object):
             self.energyBinWidth = cfg.instrument.energy_bin_width
             self.nwvlbins = int((self.energyStart - self.energyStop) / self.energyBinWidth)
             self.wvl_bin_widths = np.zeros(self.nwvlbins)
+            self.wvl_bin_centers = np.zeros(self.nwvlbins)
             self.h5_directory = cfg.paths.out
             self.save_directory = cfg.paths.database
             self.url_path = cfg.spectralcal.standard_url
             self.start_times = list(map(int, cfg.start_times))
-            self.sky_start_times = list(map(int, cfg.sky_start_times))
             self.object_name = cfg.object_name
             self.ra = cfg.ra if cfg.ra else None
             self.dec = cfg.dec if cfg.dec else None
             self.photometry = cfg.spectralcal.photometry_type
             self.summary_plot = cfg.spectralcal.summary_plot
+            self.aperture_radius = cfg.spectralcal.aperture_radius
             self.intTimes = cfg.exposure_times
-            self.aperture_radius = float(cfg.spectralcal.aperture_radius)
-            self.collecting_area = 5 * 10**5
+            self.collecting_area = 5.3 * 10**5 # For Subaru
             self.data = cfg.data
             self.obj_pos = tuple(float(s) for s in cfg.spectralcal.object_position.strip("()").split(",")) \
                 if cfg.spectralcal.object_position else None
-            self.sky_pos = tuple(float(s) for s in cfg.spectralcal.sky_position.strip("()").split(","))
             self.interpolation = cfg.spectralcal.interpolation
             try:
                 self.h5_file_names = [os.path.join(self.h5_directory, f) for f in self.start_times]
-                self.sky_file_names = [os.path.join(self.h5_directory, f) for f in self.sky_start_times]
             except TypeError:
                 self.h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.start_times]
-                self.sky_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.sky_start_times]
             try:
                 self.templar_configuration_path = cfg.templar.file
             except KeyError:
@@ -228,26 +226,21 @@ class SpectralCalibrator(object):
     to be present. The obs file is then broken into spectral frames with photometry (psf or aper) performed
     on each frame to generate the observed spectrum.
     """
-    def __init__(self, configuration=None, h5_file_names=None, sky_h5_file_names=None, interpolation='linear',
-                 solution_name='solution.npz', curve=None, aperture_radius=3, sky_pos=None, obj_pos=None):
+    def __init__(self, configuration=None, h5_file_names=None, interpolation='linear', use_satellite_spots=False,
+                 solution_name='solution.npz', curve=None, obj_pos=None):
         self.flux_spectrum = None
         self.flux_spectra = None
         self.flux_effTime = None
         self.wvl_bin_edges = None
-        self.sky_spectra = None
-        self.sky_spectrum = None
-        self.sky_effTime = None
         self.std_spectrum = None
         self.std_wvls = None
         self.std_flux = None
         self.rebin_std_wvls = None
         self.rebin_std_flux = None
         self.obs = None
-        self.sky_obs = None
         self.interpolation = interpolation
-        self.aperture_radius = aperture_radius
         self.obj_pos = obj_pos
-        self.sky_pos = sky_pos
+        self.use_satellite_spots = use_satellite_spots
         self.wvl_bin_widths = None
         self.curve = curve
         self.image = None
@@ -256,21 +249,20 @@ class SpectralCalibrator(object):
         self.conv_wvls = None
         self.conv_flux = None
         self.data = None
+        self.rebin_plot_data = None
+        self.wvl_bin_centers = None
         if h5_file_names:
             self.obs = [Photontable(f) for f in h5_file_names]
-        if sky_h5_file_names:
-            self.sky_obs = [Photontable(f) for f in sky_h5_file_names]
         if configuration:
             self.cfg = Configuration(configuration) if not isinstance(configuration, Configuration) else configuration
             self.obj_pos = self.cfg.obj_pos
-            self.sky_pos = self.cfg.sky_pos
-            self.aperture_radius = self.cfg.aperture_radius
             self.solution_name = solution_name
+            self.use_satellite_spots = self.cfg.use_satellite_spots
             self.interpolation = self.cfg.interpolation
             self.obs = [Photontable(f) for f in self.cfg.h5_file_names]
-            self.sky_obs = [Photontable(f) for f in self.cfg.sky_file_names]
             self.wvl_bin_widths = self.cfg.wvl_bin_widths
             self.data = self.cfg.data
+            self.wvl_bin_centers = self.cfg.wvl_bin_centers
             self.solution = ResponseCurve(configuration=self.cfg, curve=curve, wvl_bin_widths=self.wvl_bin_widths,
                                           solution_name=self.solution_name)
 
@@ -290,12 +282,12 @@ class SpectralCalibrator(object):
         """
         getLogger(__name__).info("Loading Spectrum from MEC")
         try:
-            # if self.cfg.photometry == 'relative':
-            #     getLogger(__name__).info('Performing relative photometry')
-            #     self.load_relative_spectrum()
-            #     getLogger(__name__).info('Flux spectrum loaded')
-            #     self.load_sky_spectrum()
-            #     getLogger(__name__).info('Sky spectrum loaded ')
+            if self.cfg.photometry == 'relative':
+                getLogger(__name__).info('Performing relative photometry')
+                self.load_relative_spectrum()
+                getLogger(__name__).info('Flux spectrum loaded')
+                self.load_sky_spectrum()
+                getLogger(__name__).info('Sky spectrum loaded ')
             getLogger(__name__).info('Extracting point source spectrum ')
             self.load_absolute_spectrum()
             getLogger(__name__).info("Loading Standard Spectrum")
@@ -350,13 +342,20 @@ class SpectralCalibrator(object):
             cube = np.moveaxis(cube, 0, -1)
         self.image = np.sum(cube, axis=2)
         n_wvl_bins = len(self.wvl_bin_edges) - 1
+
+        # define useful quantities
         for i, edge in enumerate(self.wvl_bin_edges):
             try:
                 self.wvl_bin_widths[i] = self.wvl_bin_edges[i + 1] - self.wvl_bin_edges[i]
             except IndexError:
                 pass
+        for i, edge in enumerate(self.wvl_bin_edges):
+            try:
+                self.wvl_bin_centers[i] = (self.wvl_bin_edges[i + 1] + self.wvl_bin_edges[i])/2.0
+            except IndexError:
+                pass
+
         self.flux_spectrum = np.empty(n_wvl_bins, dtype=float)
-        self.sky_spectrum = np.empty(n_wvl_bins, dtype=float)
         if self.obj_pos is None:
             getLogger(__name__).info('No coordinate specified for the object. Performing a PSF fit '
                                      'to find the location')
@@ -366,68 +365,85 @@ class SpectralCalibrator(object):
         for i in np.arange(n_wvl_bins):
             # perform photometry on every wavelength bin
             frame = cube[:, :, i]
+            if self.use_satellite_spots:
+                # find center of the satellite spot at the given wavelength using obj_pos as guess location
+                getLogger(__name__).info('Using Satellite Spots as Reference')
+                x, y, flux = psf_photometry(frame, 5.0, aperture=self.cfg.aperture_radius)
+                use_x = find_nearest(x, self.obj_pos[0])
+                use_y = find_nearest(y, self.obj_pos[1])
+                self.obj_pos = (use_x, use_y)
+                getLogger(__name__).info('Found center at {}'.format(self.obj_pos))
             if self.cfg.photometry == 'aperture':
                 if self.interpolation is not None:
                     frame = interpolateImage(frame, method=self.interpolation)
-                obj_flux, sky_flux = aper_photometry(frame, self.obj_pos, self.sky_pos, self.aperture_radius)
+                obj_flux = aper_photometry(frame, self.obj_pos, self.cfg.aperture_radius)
                 self.flux_spectrum[i] = obj_flux
-                self.sky_spectrum[i] = sky_flux
             else:
                 # default or if 'PSF' is specified
-                x, y, flux = psf_photometry(cube[:, :, i], 4.0, x0=self.cfg.obj_pos[0], y0=self.cfg.obj_pos[1])
+                x, y, flux = psf_photometry(cube[:, :, i], 4.0, x0=self.cfg.obj_pos[0], y0=self.cfg.obj_pos[1]) #TODO make sure this takes background into account
                 self.flux_spectrum[i] = flux
         self.flux_spectrum = self.flux_spectrum / self.wvl_bin_widths / self.cfg.collecting_area  # spectrum now in counts/s/Angs/cm^2
-        self.sky_spectrum = self.sky_spectrum / self.wvl_bin_widths / self.cfg.collecting_area
-        return self.flux_spectrum, self.sky_spectrum
+        return self.flux_spectrum
 
     def load_standard_spectrum(self):
         standard = StandardSpectrum(save_path=self.cfg.save_directory, url_path=self.cfg.url_path,
                                     object_name=self.cfg.object_name[0], object_ra=self.cfg.ra[0],
                                     object_dec=self.cfg.dec[0])
         self.std_wvls, self.std_flux = standard.get()  # standard star object spectrum in ergs/s/Angs/cm^2
-        ind = np.where(self.std_wvls > self.cfg.wvlStart)
-        convX_rev, convY_rev = self.extend_spectrum(self.std_wvls[ind], self.std_flux[ind])
+        # ind = np.where(self.std_wvls > self.cfg.wvlStart)
+        # convX_rev, convY_rev = self.extend_spectrum(self.std_wvls[ind], self.std_flux[ind]) #TODO why is this here?
+        conv_wvls_rev, conv_flux_rev = self.extend_spectrum(self.std_wvls, self.std_flux)
         # convolved spectrum comes back sorted backwards, from long wvls to low which screws up rebinning
-        self.conv_wvls = convX_rev[::-1]
-        self.conv_flux = convY_rev[::-1]
+        self.conv_wvls = conv_wvls_rev[::-1]
+        self.conv_flux = conv_flux_rev[::-1]
 
         # rebin cleaned spectrum to flat cal's wvlBinEdges
         rebin_std_data = rebin(self.conv_wvls, self.conv_flux, self.wvl_bin_edges)
-
-        # convert standard spectrum back into counts/s/angstrom/cm^2
+        # convert standard spectrum back into counts/s/cm^2
+        if self.use_satellite_spots:
+            for i, wvl in enumerate(self.wvl_bin_centers):
+                contrast = satellite_spot_contrast(wvl)
+                rebin_std_data[i,1] = rebin_std_data[i,1] * contrast
         rebin_std_data = standard.ergs_to_counts(rebin_std_data)
         self.rebin_std_flux = np.array(rebin_std_data[:, 1])
         self.rebin_std_wvls = np.array(rebin_std_data[:, 0])
 
     def extend_spectrum(self, x, y):
         """
-        BB Fit to extend standard spectrum to 1500 nm and to convolve it with a gaussian kernel
+        BB Fit to extend standard spectrum to 1500 nm and to convolve it with a gaussian kernel corresponding to the
+        energy resolution of the detector
         """
-
-        fraction = 1.0 / 3.0
-        nirX = np.arange(int(x[int((1.0 - fraction) * len(x))]), self.cfg.wvlStop)
-        T, nirY = fitBlackbody(x, y, fraction=fraction, newWvls=nirX)
-        if np.any(x >= self.cfg.wvlStop):
-            self.bb_wvls = x
-            self.bb_flux = y
-        else:
-            self.bb_wvls = np.concatenate((x, nirX[nirX > max(x)]))
-            self.bb_flux = np.concatenate((y, nirY[nirX > max(x)]))
-
         getLogger(__name__).info('Loading in wavecal solution to get median energy resolution R')
         sol_file = [f for f in os.listdir(self.cfg.save_directory) if f.endswith('.npz') and f.startswith('wavcal')]  # TODO have a better way to pull out the wavecal solution file
         sol = mkidpipeline.calibration.wavecal.Solution(str(self.cfg.save_directory) + "/" + sol_file[0])
         r_list, resid = sol.find_resolving_powers(cache=True)
         r = np.median(np.nanmedian(r_list, axis=0))
 
-        # Gaussian convolution to smooth std spectrum to MKIDs median resolution
-        newX, newY = gaussianConvolution(self.bb_wvls, self.bb_flux, xEnMin=self.cfg.energyStop,
-                                         xEnMax=self.cfg.energyStart, fluxUnits="lambda", r=r, plots=False)
+        if np.round(x[-1]) < self.cfg.wvlStop:
+            fraction = 1.0 / 3.0
+            nirX = np.arange(int(x[int((1.0 - fraction) * len(x))]), self.cfg.wvlStop)
+            T, nirY = fitBlackbody(x, y, fraction=fraction, newWvls=nirX)
+            if np.any(x >= self.cfg.wvlStop):
+                self.bb_wvls = x
+                self.bb_flux = y
+            else:
+                self.bb_wvls = np.concatenate((x, nirX[nirX > max(x)]))
+                self.bb_flux = np.concatenate((y, nirY[nirX > max(x)]))
+            # Gaussian convolution to smooth std spectrum to MKIDs median resolution
+            newX, newY = gaussianConvolution(self.bb_wvls, self.bb_flux, xEnMin=self.cfg.energyStop,
+                                             xEnMax=self.cfg.energyStart, fluxUnits="lambda", r=r, plots=False)
+        else:
+            getLogger(__name__).info('Standard Spectrum spans whole energy range - no need to perform blackbody fit')
+            # Gaussian convolution to smooth std spectrum to MKIDs median resolution
+            std_stop = (c.h * c.c) / (self.std_wvls[0] * 10**(-10) * c.e)
+            std_start = (c.h * c.c) / (self.std_wvls[-1] * 10 ** (-10) * c.e)
+            newX, newY = gaussianConvolution(x, y, xEnMin=std_start, xEnMax=std_stop, fluxUnits="lambda", r=r,
+                                             plots=False)
         return newX, newY
 
     def calculate_response_curve(self):
         """
-        Divide the MEC Spectrum by the rebinned and gaussian conivlved standard spectrum
+        Divide the MEC Spectrum by the rebinned and gaussian convolved standard spectrum
         """
         curve_x = self.rebin_std_wvls
         curve_y = self.rebin_std_flux/self.flux_spectrum
@@ -444,15 +460,19 @@ class SpectralCalibrator(object):
         axes_list[0].add_artist(circle)
         axes_list[0].set_title('MKID Instrument Image of Standard', size=8)
 
-        axes_list[1].step(self.std_wvls, self.std_flux, where='mid', label='{} Spectrum'.format(self.cfg.object_name[0]))
-        axes_list[1].step(self.bb_wvls, self.bb_flux, where='mid', label='BB fit')
-        axes_list[1].step(self.conv_wvls, self.conv_flux, where='mid', label='Convolved Spectrum')
+        std_idx = np.where(np.logical_and(self.cfg.wvlStart < self.std_wvls, self.std_wvls < self.cfg.wvlStop))
+        conv_idx = np.where(np.logical_and(self.cfg.wvlStart < self.conv_wvls, self.conv_wvls < self.cfg.wvlStop))
+
+        axes_list[1].step(self.std_wvls[std_idx], self.std_flux[std_idx], where='mid', label='{} Spectrum'.format(self.cfg.object_name[0]))
+        if self.bb_flux:
+            axes_list[1].step(self.bb_wvls, self.bb_flux, where='mid', label='BB fit')
+        axes_list[1].step(self.conv_wvls[conv_idx], self.conv_flux[conv_idx], where='mid', label='Convolved Spectrum')
+        # axes_list[1].step(self.rebin_plot_data[:,0], self.rebin_plot_data[:,1], where='mid', label='Re-Binned Standard Spectrum')
         axes_list[1].set_xlabel('Wavelength (A)')
         axes_list[1].set_ylabel('Flux (erg/s/cm^2)')
         axes_list[1].legend(loc='upper right', prop={'size': 6})
 
-        axes_list[2].step(self.rebin_std_wvls, self.rebin_std_flux, where='mid',
-                          label='Rebinned Standard Histogram of Object')
+
         axes_list[2].step(self.rebin_std_wvls, self.flux_spectrum, where='mid',
                           label='MKID Histogram of Object')
         axes_list[2].set_title('Object Histograms', size=8)
@@ -468,7 +488,7 @@ class SpectralCalibrator(object):
 
 
 class ResponseCurve(object):
-    def __init__(self, file_path=None, curve=None, configuration=None, wvl_bin_widths=None,
+    def __init__(self, file_path=None, curve=None, configuration=None, wvl_bin_widths=None, wvl_bin_centers=None,
                  solution_name='spectral_solution'):
         # default parameters
         self._parse = True
@@ -477,6 +497,7 @@ class ResponseCurve(object):
         self.curve = curve
         self.cfg = configuration
         self.wvl_bin_widths = wvl_bin_widths
+        self.wvl_bin_centers = wvl_bin_centers
         # if we've specified a file load it without overloading previously set arguments
         if self._file_path is not None:
             self.load(self._file_path)
@@ -494,12 +515,13 @@ class ResponseCurve(object):
         if not save_path.endswith('.npz'):
             save_path += '.npz'
         getLogger(__name__).info("Saving spectrophotometric response curve to {}".format(save_path))
-        np.savez(save_path, curve=self.curve, wvl_bin_widths=self.wvl_bin_widths, configuration=self.cfg)
+        np.savez(save_path, curve=self.curve, wvl_bin_widths=self.wvl_bin_widths, wvl_bin_centers=self.wvl_bin_centers,
+                 configuration=self.cfg)
         self._file_path = save_path  # new file_path for the solution
 
     def load(self, file_path, file_mode='c'):
         """
-        loads in a response curve from a saved npz file and sets rleevant attributes
+        loads in a response curve from a saved npz file and sets relevant attributes
         """
         getLogger(__name__).info("Loading solution from {}".format(file_path))
         keys = ('curve', 'configuration')
@@ -511,6 +533,7 @@ class ResponseCurve(object):
         self.curve = self.npz['curve']
         self.cfg = self.npz['configuration']
         self.wvl_bin_widths = self.npz['wvl_bin_widths']
+        self.wvl_bin_centers = self.npz['wvl_bin_centers']
         self._file_path = file_path  # new file_path for the solution
         self.name = os.path.splitext(os.path.basename(file_path))[0]  # new name for saving
         getLogger(__name__).info("Complete")
@@ -590,24 +613,27 @@ def fetch_spectra_SDSS(object_name, save_dir, coords):
     return spectrum_file
 
 
-def aper_photometry(image, obj_position, sky_position, radius):
+def aper_photometry(image, obj_position, radius):
     """
     wrapper for aperture_photometry
-    :param image: 2D array pn which aperture photometry will be performed
+    :param image: 2D array on which aperture photometry will be performed
     :param obj_position: tuple, (x, Y) coordinate of the object
     :param sky_position: tuple (x, y ) coordinate of where you wouldl ike the background reference flux to be found
     :param radius: radius of the aperture
     :return: object flux, sky flux in the units of image
     """
-    positions = np.array([obj_position, sky_position])
-    aperture = CircularAperture(positions, r=radius)
-    photometry_table = aperture_photometry(image, aperture)
-    object_flux = photometry_table[0]['aperture_sum']
-    sky_flux = photometry_table[1]['aperture_sum']
-    return object_flux, sky_flux
+    position = np.array([obj_position])
+    circ_aperture = CircularAperture(position, r=radius)
+    annulus_aperture = CircularAnnulus(position, r_in=radius, r_out=radius + (0.5 * radius))
+    apers = [circ_aperture, annulus_aperture]
+    photometry_table = aperture_photometry(image, apers)
+    object_flux = photometry_table['aperture_sum_0']
+    bkgd_mean = photometry_table['aperture_sum_1']/annulus_aperture.area
+    sky_flux = bkgd_mean * circ_aperture.area
+    return object_flux - sky_flux
 
 
-def psf_photometry(img, sigma_psf, x0=None, y0=None):
+def psf_photometry(img, sigma_psf, aperture=3, x0=None, y0=None):
     """
     Function for performing PSF photometry using astropy modules
 
@@ -617,10 +643,10 @@ def psf_photometry(img, sigma_psf, x0=None, y0=None):
     :param y0: y centroid location to fit PSF, if x0 and y0 are None will find the brightest source in img and fit that
     :return: x0, y0, and total flux
     """
-    image = ndimage.gaussian_filter(img, sigma=3, order=0)
+    image = ndimage.gaussian_filter(img, sigma=1, order=0)
     bkgrms = MADStdBackgroundRMS()
-    std = bkgrms(image)
-    iraffind = IRAFStarFinder(threshold=3.5 * std, fwhm=sigma_psf * gaussian_sigma_to_fwhm, minsep_fwhm=0.01,
+    std = bkgrms(image[image!=0])
+    iraffind = IRAFStarFinder(threshold=2 * std, fwhm=sigma_psf * gaussian_sigma_to_fwhm, minsep_fwhm=0.01,
                               roundhi=5.0, roundlo=-5.0, sharplo=0.0, sharphi=2.0)
     daogroup = DAOGroup(2.0 * sigma_psf * gaussian_sigma_to_fwhm)
     mmm_bkg = MMMBackground()
@@ -637,10 +663,11 @@ def psf_photometry(img, sigma_psf, x0=None, y0=None):
         return res['x_0'], res['y_0'], res['flux_0']
     from photutils.psf import IterativelySubtractedPSFPhotometry
     photometry = IterativelySubtractedPSFPhotometry(finder=iraffind, group_maker=daogroup, bkg_estimator=mmm_bkg,
-                                                    psf_model=psf_model, fitter=fitter, niters=1, fitshape=(11, 11))
+                                                    psf_model=psf_model, fitter=fitter, niters=10, fitshape=(11, 11),
+                                                    aperture_radius=aperture)
     res = photometry(image=image)
-    ind = np.where(res['flux_0'] == res['flux_0'].max())
-    return res['x_0'][ind], res['y_0'][ind], res['flux_0'][ind]
+    # ind = np.where(res['flux_0'] == res['flux_0'].max())
+    return res['x_0'], res['y_0'], res['flux_0']
 
 
 def fetch_spectra_URL(object_name, url_path, save_dir):
@@ -732,6 +759,34 @@ def load_solution(sc, singleton_ok=True):
         _loaded_solutions[sc] = ResponseCurve(file_path=sc)
     return _loaded_solutions[sc]
 
+def get_aperture_radius(lam):
+    """
+
+    :param lam: wavelength (in angstroms!)
+    :return: radius of the aperture in pixels
+    """
+
+    D = 7.92 *(10**10)
+    theta_rad = 1.22 * (lam/D)
+    a = 4.8481368e-9
+    theta_mas = theta_rad * (1/a)
+    r = 0.5 * theta_mas * (1/10.4)
+    return r
+
+def satellite_spot_contrast(lam):
+    """
+
+    :param lam: wavelength in angstroms
+    :return: contrast
+    """
+    ref = 1.55*10**4
+    contrast = 2.73e-3*(ref / lam)**2
+    return contrast
+
+def find_nearest(array, value):
+    array = np.asarray(array)
+    idx = (np.abs(array - value)).argmin()
+    return array[idx]
 
 def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
     cfg = mkidpipeline.config.config if config is None else config
