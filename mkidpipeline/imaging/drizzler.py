@@ -694,12 +694,13 @@ class SpatialDrizzler(Canvas):
     def makeImage(self, dither_photons, timespan, applyweights=False, maxCountsCut=10000):
         # TODO mixing pixels and radians per variable names
 
-        weights = dither_photons['weight'] if applyweights else None
         timespan_ind = np.where(np.logical_and(dither_photons['timestamps'] >= timespan[0],
                                                dither_photons['timestamps'] <= timespan[1]))[0]
 
+        weights = dither_photons['weight'][timespan_ind] if applyweights else None
+
         thisImage, _, _ = np.histogram2d(dither_photons['xPhotonPixels'][timespan_ind],
-                                         dither_photons['yPhotonPixels'][timespan_ind],  weights=weights[timespan_ind],
+                                         dither_photons['yPhotonPixels'][timespan_ind],  weights=weights,
                                          bins=[range(self.ypix+1), range(self.xpix+1)], normed=False)
 
         if maxCountsCut:
