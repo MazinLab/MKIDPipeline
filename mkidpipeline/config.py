@@ -1,4 +1,3 @@
-
 import numpy as np
 import os
 from glob import glob
@@ -20,8 +19,8 @@ from mkidcore.objects import Beammap
 #TODO this is a placeholder to help integrating metadata
 InstrumentInfo = namedtuple('InstrumentInfo', ('beammap', 'platescale'))
 
-#Ensure that the beammap gets registered with yaml, technically the import does this
-#but without this note an IDE or human might remove the import
+# Ensure that the beammap gets registered with yaml, the import does this
+# but without this instantiation and note an IDE or human might remove the import
 Beammap()
 
 config = None

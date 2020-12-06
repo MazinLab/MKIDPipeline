@@ -1,0 +1,32 @@
+!configdict
+beammap: !bmap
+  file: data/finalMap_20181218.bmap
+  freqfiles: data/ps_freqs_FL*_clip.txt
+  nrows: 146
+  ncols: 140
+
+paths: !configdict
+    dithers: dithers/
+    data: /data/ScienceData/Subaru/
+    database: database/
+    out: out/
+    tmp: tmp/
+
+ncpu: 1
+
+#instrument: !configdict
+#  #This section provides information about the specific wavelength and energy parameters for this instrument
+#  #deadtime (number)
+#  deadtime: 0.000001
+#  #Energy bin width in eV  (number)
+#  energy_bin_width: 0.01
+#  #Starting Wavelength in nanometers (number)
+#  wvl_start: 700
+#  #Final Wavelength in nanometers (number)
+#  wvl_stop: 1500
+#  device_orientation: -48.0
+#
+#templar: !configdict
+#  file: the_conf.yml
+#
+#verbose: True
