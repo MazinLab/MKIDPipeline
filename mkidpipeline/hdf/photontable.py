@@ -226,7 +226,7 @@ class Photontable(object):
     nCalCoeffs = 3
     tickDuration = 1e-6  # each integer value is 1 microsecond
 
-    def __init__(self, fileName, mode='read', verbose=False):
+    def __init__(self, fileName, mode='read', verbose=False, inmemory=False):
         """
         Create Photontable object and load in specified HDF5 file.
 
@@ -267,7 +267,8 @@ class Photontable(object):
         self.nXPix = None
         self.nYPix = None
         self._mdcache = None
-        self.loadFile(fileName)
+        self.inmemory = inmemory
+        self.loadFile(fileName, inmemory)
 
     def __del__(self):
         """
@@ -287,7 +288,7 @@ class Photontable(object):
             return
         self.file.close()
         self.mode = 'write'
-        self.loadFile(self.fullFileName)
+        self.loadFile(self.fullFileName, inmemory=False)
 
     def disablewrite(self):
         """USE CARE IN A THREADED ENVIRONMENT"""
@@ -295,15 +296,22 @@ class Photontable(object):
             return
         self.file.close()
         self.mode = 'read'
-        self.loadFile(self.fullFileName)
+        self.loadFile(self.fullFileName, inmemory=self.inmemory)
 
-    def loadFile(self, fileName):
+    def loadFile(self, fileName, inmemory=False):
         """ Opens file and loads obs file attributes and beammap """
         self.fileName = os.path.basename(fileName)
         self.fullFileName = fileName
-        getLogger(__name__).debug("Loading {} in {} mode.".format(self.fullFileName, self.mode))
+
         try:
-            self.file = tables.open_file(self.fullFileName, mode='a' if self.mode == 'write' else 'r')
+            mode = 'a' if self.mode == 'write' else 'r'
+            driver = None if mode == 'a' or not inmemory else 'H5FD_CORE'
+            if driver is not None:
+                msg = "Loading {} in {} mode with HDF5 driver {}.".format(self.fullFileName, self.mode, driver)
+            else:
+                msg = "Loading {} in {} mode.".format(self.fullFileName, self.mode)
+            getLogger(__name__).debug(msg)
+            self.file = tables.open_file(self.fullFileName, mode=mode, driver=driver)
         except (IOError, OSError):
             raise
 
