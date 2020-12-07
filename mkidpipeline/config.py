@@ -623,6 +623,22 @@ class MKIDObservingDataset(object):
             except AttributeError:
                 pass
 
+    def by_name(self, name):
+        """
+        Look through the metadata and return any items that have a matching name. Exact matching used.
+        None if nothing matches, the item if one matches, a tuple of matches otherwise.
+        """
+        ret = []
+        for i, m in enumerate(self.meta):
+            try:
+                if m.name==name:
+                    ret.append(m)
+                getLogger(__name__).debug(f'Metadate record {i} ({m}) does not have a naame!')
+            except AttributeError:
+                pass
+        ret = ret[0] if len(ret == 1) else tuple(ret)
+        return ret if ret else None
+
     @property
     def timeranges(self):
         for x in self.meta:
