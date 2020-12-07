@@ -13,6 +13,7 @@ paths: !configdict
     tmp: tmp/
 
 ncpu: 1
+include_baseline: False # whether to include the baseline in h5 creation
 
 #instrument: !configdict
 #  #This section provides information about the specific wavelength and energy parameters for this instrument

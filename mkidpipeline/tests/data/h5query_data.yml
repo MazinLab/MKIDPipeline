@@ -1,0 +1,22 @@
+- !ob
+  name: Vega
+  start: 1567922621
+  duration: 900
+  #stop: 1567924200  #the full 1500+ seconds is absurd
+  comments:
+    - very high photon rate
+    - 25 MB/s
+- !ob
+  name: HD36546
+  start: 1547280150
+  duration: 900
+  comments:
+    - moderate counts
+    - 4MB/s
+- !ob
+  name: LkCa15
+  start: 1545552775
+  stop: 1545553007
+  comments:
+    - low counts
+    - 11MB/s
