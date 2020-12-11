@@ -115,7 +115,7 @@ def stack(fits_data):
 
 def generate_stack_data(fits_file, exp_time, smooth, square_size, time_range, wvl_bin=None):
     data = read_fits(fits_file, wvl_bin=wvl_bin)
-    data['temporal'] = (data['temporal'] * exp_time).astype(int)
+    data['temporal'] = (data['temporal'] * exp_time).astype(int)  # Convert count rate to counts
     lightcurve = generate_lightcurve(data['temporal'], exp_time)
 
     if time_range:
