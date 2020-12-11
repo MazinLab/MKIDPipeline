@@ -140,14 +140,7 @@ def generate_stack_data(fits_file, exp_time, smooth, square_size, time_range, wv
             data['spectral'] = data['spectral'][:, int(ctr[0]-half_size):int(ctr[0]+half_size), int(ctr[1]-half_size):int(ctr[1]+half_size)]
 
     stacks = stack(data)
-    return {'data': data, 'stacks': stacks, 'lightcurve': lightcurve, 'file': fits_file, 'exp_time': exp_time, 'smoothed': smooth}
-
-
-def set_up_writer(metadata: dict):
-    FFMpegWriter = anim.writers['ffmpeg']
-    if 'fps' not in metadata.keys():
-        metadata['fps'] = 10
-    return FFMpegWriter(fps=metadata['fps'], metadata=metadata)
+    return {'data': data, 'stack': stacks, 'lightcurve': lightcurve, 'fits': fits_file, 'exp_time': exp_time, 'smoothed': smooth}
 
 
 def animate(data, outfile=None, target='', stretch='linear', type='temporal', fps=10,
@@ -157,14 +150,16 @@ def animate(data, outfile=None, target='', stretch='linear', type='temporal', fp
     time_range = [data['lightcurve']['time'][0], data['lightcurve']['time'][-1]+data['exp_time']]
     exp_time = data['exp_time']
 
-    writer = set_up_writer(dict(title=f"Dither Movie: {outfile}", artist='Matplotlib', fits=data['fits_file'],
-                                target=target, fps=fps, exp_time=exp_time, smoothed=data['smoothed'],
-                                colorbar_stretch=stretch, time_range_in_drizzle=time_range))
+    FFMpegWriter = anim.writers['ffmpeg']
+    writer = FFMpegWriter(fps, metadata=dict(title=f"Dither Movie: {outfile}", artist='Matplotlib'))
+    # writer = set_up_writer(dict(title=f"Dither Movie: {outfile}", artist='Matplotlib', fits=data['fits'],
+    #                             target=target, fps=fps, exp_time=exp_time, smoothed=data['smoothed'],
+    #                             colorbar_stretch=stretch, time_range_in_drizzle=time_range))
 
     if type == 'temporal':
-        anim_data = data['temporal']
+        anim_data = {'data': data['data']['temporal'], 'stack': data['stack']['temporal']}
     elif type == 'spectral':
-        anim_data = data['spectral']
+        anim_data = {'data': data['data']['spectral'], 'stack': data['stack']['spectral']}
     else:
         log.error(f"Trying to animate an unsupported data type!!")
         return None
