@@ -30,8 +30,6 @@ VALID_STRETCHES = {'asinh': AsinhStretch(),
 
 log = logging.getLogger(__name__)
 
-cfgfile = '/home/nswimmer/src/mkidpipeline/mkidpipeline/imaging/animator.yml'
-
 
 def read_fits(file, wvl_bin=None):
     """
