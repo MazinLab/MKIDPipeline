@@ -3,7 +3,8 @@ Author: Noah Swimmer
 
 Program to allow temporal and spectral drizzles to be animated.
 
-
+TODO: There is a bug where if you use the entire field ('square_size: ') there is a bug where the colorbar for the
+ stacked data matches that of the instantaneous data. If you use a defined square size, this does not happen. FIX!
 
 TODO: Maybe combine this with movies.py?
 """
