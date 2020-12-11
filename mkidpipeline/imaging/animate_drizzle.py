@@ -190,20 +190,20 @@ def animate(data, outfile=None, target='', stretch='linear', type='temporal', fp
                          f"{fps} fps, {time_range[1] - time_range[0]} s of data")
 
         ims = []
-        with writer.saving(fig, outfile, anim_data['data'][0].shape[1] * 3):
+        with writer.saving(fig, outfile, anim_data['data'][0].shape[1] * 2):
             for count, i in enumerate(zip(anim_data['data'], anim_data['stack'])):
                 if (count % 10) == 0:
-                    log.debug(f"Frame {count} of {len(anim_data['data'])}")
+                    print(f"Frame {count} of {len(anim_data['data'])}")
                 if count == 0:
-                    norm_d = ImageNormalize(vmin=-10, vmax=np.max(data) + 5, stretch=VALID_STRETCHES[stretch])
-                    norm_s = ImageNormalize(vmin=-10, vmax=np.max(stack) + 5, stretch=VALID_STRETCHES[stretch])
-                    im1 = axs[0].imshow(i[0], cmap='cool', norm=norm_d)
-                    im2 = axs[1].imshow(i[1], cmap='cool', norm=norm_s)
+                    norm_d = ImageNormalize(vmin=-10, vmax=np.max(anim_data['data']) + 5, stretch=VALID_STRETCHES[stretch])
+                    norm_s = ImageNormalize(vmin=-10, vmax=np.max(anim_data['stack']) + 5, stretch=VALID_STRETCHES[stretch])
+                    im1 = axs[0].imshow(i[0], cmap='hot', norm=norm_d)
+                    im2 = axs[1].imshow(i[1], cmap='hot', norm=norm_s)
                     axs[0].set_title('Instantaneous Data')
                     axs[1].set_title('Integrated Data')
                     ims.append([im1, im2])
-                    c1 = fig.colorbar(im1, ax=axs[0], location='bottom', shrink=0.7, ticks=[0, int(np.max(data))])
-                    c2 = fig.colorbar(im2, ax=axs[1], location='bottom', shrink=0.7, ticks=[0, int(np.max(stack))])
+                    c1 = fig.colorbar(im1, ax=axs[0], location='bottom', shrink=0.7, ticks=[0, int(np.max(anim_data['data']))])
+                    c2 = fig.colorbar(im2, ax=axs[1], location='bottom', shrink=0.7, ticks=[0, int(np.max(anim_data['stack']))])
 
                 else:
                     im1.set_data(i[0])
@@ -211,7 +211,7 @@ def animate(data, outfile=None, target='', stretch='linear', type='temporal', fp
                     ims.append([im1, im2])
 
                 writer.grab_frame()
-
+                
     else:
         fig, axs = plt.subplots(1, 1, constrained_layout=True)
         if title:
@@ -219,22 +219,22 @@ def animate(data, outfile=None, target='', stretch='linear', type='temporal', fp
                          f"{fps} fps, {time_range[1] - time_range[0]} s of data")
 
         ims = []
-        with writer.saving(fig, outfile, anim_data[0].shape[1] * 3):
+        with writer.saving(fig, outfile, anim_data[0].shape[1] * 2):
             for count, i in enumerate(anim_data):
                 if (count % 10) == 0:
                     log.debug(f"Frame {count} of {len(anim_data)}")
                 if count == 0:
                     norm_d = ImageNormalize(vmin=-10, vmax=np.max(anim_data) + 5, stretch=VALID_STRETCHES[stretch])
-                    im1 = axs[0].imshow(i[0], cmap='cool', norm=norm_d)
+                    im1 = axs.imshow(i, cmap='hot', norm=norm_d)
                     if plot_data:
-                        axs[0].set_title('Instantaneous Data')
+                        axs.set_title('Instantaneous Data')
                     elif plot_stack:
-                        axs[0].set_title('Stacked Data')
+                        axs.set_title('Stacked Data')
                     ims.append([im1])
-                    c1 = fig.colorbar(im1, ax=axs[0], location='bottom', shrink=0.7, ticks=[0, int(np.max(data))])
+                    c1 = fig.colorbar(im1, ax=axs, location='bottom', shrink=0.7, ticks=[0, int(np.max(anim_data))])
 
                 else:
-                    im1.set_data(i[0])
+                    im1.set_data(i)
                     ims.append([im1])
 
                 writer.grab_frame()
