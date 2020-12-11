@@ -48,6 +48,10 @@ def read_fits(file, wvl_bin=None):
 
 
 def generate_lightcurve(temporal_data, exp_time):
+    """
+    Generates a light curve from data in a temporal drizzler. Assumes that the data has been converted from count rate
+    to counts (N_counts = count_rate * exp_time)
+    """
     if type(temporal_data) is dict:
         lc_data = temporal_data['temporal']
     else:
