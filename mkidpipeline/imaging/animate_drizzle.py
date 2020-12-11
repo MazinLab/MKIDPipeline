@@ -274,10 +274,10 @@ if __name__ == "__main__":
 
     time_range = [start, end]
 
-    stacked_data = generate_stack_data(config.data.fits_file, config.data.exp_time, config.data.smooth,
+    stacked_data = generate_stack_data(config.paths.fits, config.data.exp_time, config.data.smooth,
                                        config.data.square_size, time_range, config.data.wvl_bin)
 
-    animate(stacked_data, outfile=config.paths.out_file, target=config.animation.target,
+    animate(stacked_data, outfile=config.paths.out, target=config.animation.target,
             stretch=config.animation.stretch, type=config.animation.type, fps=config.animation.fps,
             plot_data=config.animation.plot_data, plot_stack=config.animation.plot_stack,
             title=config.animation.show_title)
