@@ -9,12 +9,13 @@ is updated and refined.
 TODO: logging
 TODO: Integrate into pipeline
 TODO: Create performance report, such as number of CR events, amount of time removed, time intervals removed, etc.
-TODO: Remove CR photons from table
+
+TODO: Finalize best way to incorporate as pipeline step (flag photons, list of CR timestamps, new col in h5?)
 """
 
 import numpy as np
 import os
-from mkidpipeline.hdf.photontable import ObsFile
+from mkidpipeline.hdf.photontable import Photontable
 import argparse
 from scipy.stats import poisson
 from scipy import signal
@@ -54,7 +55,7 @@ def setup_logging(tologfile='', toconsole=True, time_stamp=None):
 class CosmicCleaner(object):
     def __init__(self, file, instrument=None, wavelengthCut=True, method="poisson", removalRange=(50, 100)):
         self.instrument = str(instrument) if instrument is not None else "MEC"
-        self.obs = ObsFile(file)
+        self.obs = Photontable(file)
         self.wavelengthCut = wavelengthCut
         self.method = method
         self.removalRange = removalRange
