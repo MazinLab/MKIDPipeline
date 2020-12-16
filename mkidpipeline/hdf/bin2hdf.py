@@ -55,7 +55,7 @@ def _get_dir_for_start(base, start):
 
 def estimate_ram_gb(directory, start, inttime):
     PHOTON_BIN_SIZE_BYTES = 8
-    files = [os.path.join(directory, '{}.bin'.format(t)) for t in range(start-1, start+inttime+1)]
+    files = [os.path.join(directory, '{}.bin'.format(t)) for t in range(int(start-1), int(np.ceil(start)+inttime+1))]
     files = filter(os.path.exists, files)
     n_max_photons = int(np.ceil(sum([os.stat(f).st_size for f in files])/PHOTON_BIN_SIZE_BYTES))
     return n_max_photons*PHOTON_BIN_SIZE_BYTES/1024/1024/1024
@@ -370,8 +370,8 @@ class Bin2HdfConfig(object):
                  outdir='./', x=140, y=146, include_baseline=False, writeto=None, beammap=None):
 
         self.datadir = datadir
-        self.starttime = starttime
-        self.inttime = inttime
+        self.starttime = int(starttime)
+        self.inttime = int(np.ceil(inttime))
 
         self.beamfile = beamfile
         self.x = x

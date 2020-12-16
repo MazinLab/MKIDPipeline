@@ -81,7 +81,7 @@ def configure_pipeline(*args, **kwargs):
 
 
 def h5_for_MKIDodd(observing_data_desc):
-    return os.path.join(config.paths.out, '{}.h5'.format(observing_data_desc.start))
+    return os.path.join(config.paths.out, '{}.h5'.format(int(observing_data_desc.start)))
 
 
 def wavecal_id(wavedata_id, wavecal_cfg=None):
@@ -127,6 +127,7 @@ class MKIDTimerange(object):
 
         if stop is not None:
             self.stop = int(np.ceil(stop))
+
 
         if self.stop < self.start:
             raise ValueError('Stop ({}) must come after start ({})'.format(self.stop,self.start))
@@ -193,13 +194,20 @@ class MKIDObservation(object):
             raise ValueError('Must specify stop or duration')
         if duration is not None and stop is not None:
             raise ValueError('Must only specify stop or duration')
-        self.start = int(start)
+        # self.start = int(start)
+        #
+        # if duration is not None:
+        #     self.stop = self.start + int(np.ceil(duration))
+        #
+        # if stop is not None:
+        #     self.stop = int(np.ceil(stop))
 
+        self.start = start
         if duration is not None:
-            self.stop = self.start + int(np.ceil(duration))
+            self.stop = self.start + duration
 
         if stop is not None:
-            self.stop = int(np.ceil(stop))
+            self.stop = stop
 
         if self.stop < self.start:
             raise ValueError('Stop ({}) must come after start ({})'.format(self.stop,self.start))
