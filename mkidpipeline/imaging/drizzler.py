@@ -291,6 +291,9 @@ def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfi
         if not filenames:
             getLogger(__name__).info('No obsfiles found')
 
+        offset = [o.start - int(o.start) for o in dither.obs]
+        durations = [o.durations for o in dither.obs]
+
         single_pa_time = Photontable(filenames[0]).startTime if not derotate and align_start_pa else None
 
         metadata_config_check(filenames[0], dither.wcscal)
@@ -299,13 +302,13 @@ def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfi
         if ncpu == 1:
             dithers_data = []
             for file in filenames:
-                data = mp_worker(file, wvlMin, wvlMax, startt, used_inttime, derotate, wcs_timestep,
+                data = mp_worker(file, wvlMin, wvlMax, startt+offset, used_inttime, derotate, wcs_timestep,
                                          single_pa_time, exclude_flags)
                 dithers_data.append(data)
         else:
             p = mp.Pool(ncpu)
-            processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt, used_inttime, derotate, wcs_timestep,
-                                               single_pa_time, exclude_flags)) for file in filenames]
+            processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt+offsett, dur, derotate, wcs_timestep,
+                                               single_pa_time, exclude_flags)) for file, offsett, dur in zip(filenames, offset, durations)]
             dithers_data = [res.get() for res in processes]
 
         dithers_data.sort(key=lambda k: filenames.index(k['file']))
