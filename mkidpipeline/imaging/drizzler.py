@@ -292,7 +292,7 @@ def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfi
             getLogger(__name__).info('No obsfiles found')
 
         offset = [o.start - int(o.start) for o in dither.obs]
-        durations = [o.durations for o in dither.obs]
+        durations = [o.duration for o in dither.obs]
 
         single_pa_time = Photontable(filenames[0]).startTime if not derotate and align_start_pa else None
 
