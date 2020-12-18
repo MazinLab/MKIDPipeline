@@ -100,18 +100,25 @@
 - !sc
   name: speccal1
   data:
-    - !dither #can be a dither or sob
-      name: BD_172803
-      target: Hip 73106
+    - !dither
+      name: Hip109427_dither
+      target: Hip109427
       observatory: Subaru
       instrument: MEC
-      approximate_time: 1594026002
+      approximate_time: 1602047815
       wcscal: wcscal1
       wavecal: wavecal1
       flatcal: flatcal1
-      ra: 14 56 29.9358459459
-      dec: +17 06 11.569247006
-  sky_data:
+      ra: 22 10 11.9852752
+      dec: +06 11 52.307750
+
+  aperture_radius: 3
+  object_position: (143, 126)
+  # if true will move the aperture with the satellite spot as a function of wavelength
+  use_satellite_spots: True #assumes 25 nm amplitude astrogrid (standard for Subaru)
+  #url link to a standard spectrum text file must be in 2 column format where first column is wvl in angstroms and
+  #second column is flux in erg/s/cm^2/A
+  standard_path: '/data/steiger/MEC/20201006/Hip109427/PHEONIX_spectrum/Hip109427_synthetic_spectrum_primary.txt'
 
 - !dither
   name: HIP 10680
