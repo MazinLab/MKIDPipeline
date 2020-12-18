@@ -227,7 +227,7 @@ class FlatCalibrator(object):
                 wvlAverages[iWvl] = np.nanmean(cube[:, :, iWvl])
                 wvlAverages_array = np.full(np.shape(cube[:,:,iWvl]), wvlAverages[iWvl])
                 weights[:,:,iWvl] = wvlAverages_array/cube[:,:,iWvl]
-            weights[weights == np.inf] = np.nan
+            weights[(weights == np.inf) | (weights == 0)] = np.nan
             cubeWeights[iCube, :, :, :] = weights
 
             # To get uncertainty in weight:
