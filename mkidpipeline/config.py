@@ -387,7 +387,8 @@ class MKIDSpectralReference(object):
     """
     yaml_tag = u'!sc'
 
-    def __init__(self, name, data, wavecal, flatcal, wcscal, _common=None):
+    def __init__(self, name, data, wavecal, flatcal, wcscal, object_position, aperture_radius, use_satellite_spots,
+                 standard_path, _common=None):
         if _common is not None:
             self.__dict__.update(_common)
 
@@ -396,6 +397,10 @@ class MKIDSpectralReference(object):
         self.wavecal = wavecal
         self.flatcal = flatcal
         self.wcscal = wcscal
+        self.object_position = object_position
+        self.aperture_radius = aperture_radius
+        self.use_satellite_spots = use_satellite_spots
+        self.standard_path = standard_path
 
     @property
     def timeranges(self):
@@ -428,7 +433,13 @@ class MKIDSpectralReference(object):
         wavecal = d.pop('wavecal', None)
         flatcal = d.pop('flatcal', None)
         wcscal = d.pop('wcscal', None)
-        return cls(name, data=data, wavecal=wavecal, flatcal=flatcal, wcscal=wcscal, _common=d)
+        obj_pos = d.pop('object_position', None)
+        aperture_radius = d.pop('aperture_radius', None)
+        use_sat_spots = d.pop('use_satellite_spots', None)
+        std_path = d.pop('standard_path', None)
+        return cls(name, data=data, wavecal=wavecal, flatcal=flatcal, wcscal=wcscal, object_position=obj_pos,
+                   aperture_radius=aperture_radius, use_satellite_spots=use_sat_spots, standard_path=std_path,
+                   _common=d)
 
     def __str__(self):
         return '{}'.format(self.name)
