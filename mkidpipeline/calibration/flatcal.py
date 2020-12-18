@@ -28,6 +28,7 @@ import os
 import time
 from datetime import datetime
 import multiprocessing as mp
+import scipy.constants as c
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -75,7 +76,6 @@ class FlatCalibrator(object):
         self.ypix = self.cfg.beammap.nrows
         self.deadtime = self.cfg.instrument.deadtime
 
-        self.energyBinWidth = self.cfg.instrument.energy_bin_width
         self.wvlStart = self.cfg.instrument.wvl_start
         self.wvlStop = self.cfg.instrument.wvl_stop
 
@@ -88,6 +88,14 @@ class FlatCalibrator(object):
         self.wvlFlags = None
         self.wvlBinEdges = None
         self.wavelengths = None
+
+        if self.use_wavecal:
+            sol_file = self.cfg.wavcal #TODO make sure this works then utilize this in speccal as well
+            sol = mkidpipeline.calibration.wavecal.Solution(sol_file[0])
+            r, resid = sol.find_resolving_powers(cache=True)
+            self.r_list = np.nanmedian(r, axis=0)
+        else:
+            self.r_list = None
 
         self.save_plots = self.cfg.flatcal.plots.lower() == 'all'
         self.summary_plot = self.cfg.flatcal.plots.lower() in ('all', 'summary')
@@ -213,12 +221,13 @@ class FlatCalibrator(object):
         cubeWeights = np.zeros_like(self.spectralCubes)
         deltaWeights = np.zeros_like(self.spectralCubes)
         for iCube, cube in enumerate(self.spectralCubes):
-            effIntTime = self.cubeEffIntTimes[iCube]
             wvlAverages = np.zeros_like(self.wavelengths)
+            weights = np.ones_like(cube)
             for iWvl in range(self.wavelengths.size):
                 wvlAverages[iWvl] = np.nanmean(cube[:, :, iWvl])
-            weights = wvlAverages/cube
-            weights[(weights == 0) | (weights == np.inf)] = np.nan
+                wvlAverages_array = np.full(np.shape(cube[:,:,iWvl]), wvlAverages[iWvl])
+                weights[:,:,iWvl] = wvlAverages_array/cube[:,:,iWvl]
+            weights[weights == np.inf] = np.nan
             cubeWeights[iCube, :, :, :] = weights
 
             # To get uncertainty in weight:
@@ -229,7 +238,7 @@ class FlatCalibrator(object):
             # deltaWeight=weight/sqrt(RawCounts)
             # but 'cube' is in units cps, not raw counts so multiply by effIntTime before sqrt
 
-            deltaWeights[iCube, :, :, :] = weights / np.sqrt(effIntTime * cube)
+            deltaWeights[iCube, :, :, :] = weights / np.sqrt(self.cubeEffIntTimes * cube)
 
 
         weightsMask = np.isnan(cubeWeights)
@@ -452,6 +461,11 @@ class WhiteCalibrator(FlatCalibrator):
         self.wvlFlags = pixelflags.beammap_flagmap_to_h5_flagmap(self.obs.beamFlagImage)
         self.xpix = self.obs.nXPix
         self.ypix = self.obs.nYPix
+
+        self.energies = [(c.h * c.c) / (i * 10 ** (-9) * c.e) for i in self.wavelengths]
+        middle = int(len(self.wavelengths) / 2.0)
+        self.energyBinWidth = self.energies[middle] / (5.0 * self.r_list[middle])
+
         self.wvlBinEdges = Photontable.makeWvlBins(self.energyBinWidth, self.wvlStart, self.wvlStop)
         self.wavelengths = self.wvlBinEdges[: -1] + np.diff(self.wvlBinEdges)
         self.wavelengths = self.wavelengths.flatten()
@@ -551,14 +565,8 @@ class LaserCalibrator(FlatCalibrator):
         mask = np.zeros([self.xpix, self.ypix, nWavs])
         int_times = np.zeros([self.xpix, self.ypix, nWavs])
         if self.use_wavecal:
-            getLogger(__name__).info('Loading in wavecal solution to get median energy resolution R')
-            sol_file = [f for f in os.listdir(self.cfg.paths.database) if f.endswith('.npz')] #TODO have a better way to pull out the wavecal solution file
-            sol = mkidpipeline.calibration.wavecal.Solution(str(self.cfg.paths.database) + "/" + sol_file[0])
-            r, resid = sol.find_resolving_powers(cache=True)
-            r_list = np.nanmedian(r, axis=0)
-            delta_list = wavelengths / r_list
+            delta_list = wavelengths / self.r_list
         for iwvl, wvl in enumerate(wavelengths):
-            time = int((self.cfg.flatcal.chunk_time*self.cfg.flatcal.nchunks)/ self.intTime)
             obs = Photontable(self.h5_file_names[iwvl])
             # mask out hot pixels before finding the mean
             if not obs.info['isBadPixMasked'] and not self.use_wavecal:
@@ -657,13 +665,15 @@ def summaryPlot(flatsol, save_plot=False):
         ax = fig.add_subplot(2, 2, 1)
         ax.set_title('Mean Flat weight across the array')
         maxValue = np.nanmean(meanWeightList) + 1 * np.nanstd(meanWeightList)
-        plt.imshow(meanWeightList.T, cmap=plt.get_cmap('viridis'), vmin=0, vmax=maxValue)
+        meanWeightList[np.isnan(meanWeightList)] = 0
+        plt.imshow(meanWeightList.T, cmap=plt.get_cmap('viridis'), vmin=0.0, vmax=maxValue)
         plt.colorbar()
 
         ax = fig.add_subplot(2, 2, 2)
         ax.set_title('Mean Flat value across the array')
         maxValue = np.nanmean(meanSpecList) + 1 * np.nanstd(meanSpecList)
-        plt.imshow(meanSpecList.T, cmap=plt.get_cmap('viridis'), vmin=0, vmax=maxValue)
+        meanSpecList[np.isnan(meanSpecList)] = 0
+        plt.imshow(meanSpecList.T, cmap=plt.get_cmap('viridis'), vmin=0.0, vmax=maxValue)
         plt.colorbar()
 
         ax = fig.add_subplot(2, 2, 3)
@@ -734,8 +744,11 @@ def _run(flattner):
     flattner.makeCalibration()
 
 
-def fetch(solution_descriptors, config=None, ncpu=np.inf, remake=False):
+def fetch(dataset, config=None, ncpu=np.inf, remake=False):
+    solution_descriptors = dataset.flatcals
     cfg = mkidpipeline.config.config if config is None else config
+    for sd in dataset.wavecals:
+        wavcal = os.path.join(cfg.paths.database, mkidpipeline.config.wavecal_id(sd.id)+'.npz')
     solutions = []
     flattners = []
     for sd in solution_descriptors:
@@ -754,6 +767,7 @@ def fetch(solution_descriptors, config=None, ncpu=np.inf, remake=False):
                               update=True)
                 fcfg.register('exposure_times', np.array([x.duration for x in sd.wavecal.data]), update=True)
                 fcfg.register('wavelengths', np.array([w for w in sd.wavecal.wavelengths]), update=True)
+                fcfg.register('wavcal', np.array([wavcal]), update=True)
                 flattner = LaserCalibrator(config=fcfg, h5dir=cfg.paths.out, cal_file_name=sd.id)
             elif fcfg.flatcal.method == 'White':
                 fcfg.register('start_time', sd.ob.start, update=True)
