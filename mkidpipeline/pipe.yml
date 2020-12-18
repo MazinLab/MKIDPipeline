@@ -45,30 +45,27 @@ wavecal: !configdict
 spectralcal: !configdict
   #Mandatory
   photometry_type: 'aperture' #'aperture' or 'psf'
-  aperture_radius: 6 #in pixels
   summary_plot: True
-  sky_position: (60, 170) #location center reference sky pixel
   #optional
-  #url link to a standard spectrum text file must be in 2 column format where first column is wvl in angstroms and
-  #second column is flux in erg/s/cm^2/A
-  standard_url: '/mnt/data0/steiger/MEC/20200705/spectra/BD_172803_spectrum_PHEONIX.txt'
-  object_position: (93, 134) #in pixel coordinates - if blank the code will attempt to locate the object location
   interpolation: 'linear' #'linear', 'cubic' or 'nearest'
 
 flatcal: !configdict
+  method: 'Laser' #either 'White' for a white for a white light calibration or 'Laser' for a laser calibration
   #This section provides the parameters specific to the flat calibration function
-  method: 'Laser' #either 'White' for a white light calibration or 'Laser' for a laser calibration
   rate_cutoff: 20000 #Count Rate Cutoff in inverse seconds (number)
-  trim_fraction: 0 #Fraction of Chunks to trim (integer)
-  #Integration time to break up larger h5 files into in seconds (number) (5 sec recommended)
-  #Flatcal will calculate weights over EXPTIME/CHUNK_TIME time chunks and median-average them
+  trim_fraction: 1  #number of Chunks to trim (integer)
   use_wavecal: True
-  chunk_time: 30
+  #Integration time to break up larger h5 files into in seconds (number) (5 sec recommended)
+  #Flatcal will calculate weights over chunk_time*nchunks (number of chunks) and median-average them
+  chunk_time: 10
+  nchunks: 6
   dark_data:
-    start_times: 1567945938 #list of all start times of any dark obs you may have
-    int_times: 30 # list of how long each of those dark obs was
-  power: 2
+    start_times: 1576498833
+    int_times: 30
+  #power of the polynomial to fit - recommended to not go above 2
+  power: 1
   plots: summary  # None|summary|all  (all will add ~30 min to the process!)
+
 
 instrument: !configdict
   #This section provides information about the specific wavelength and energy parameters for this instrument
