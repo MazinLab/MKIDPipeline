@@ -449,8 +449,7 @@ class SpectralCalibrator(object):
         conv_idx = np.where(np.logical_and(self.cfg.wvlStart < self.conv_wvls, self.conv_wvls < self.cfg.wvlStop))
 
         axes_list[1].step(self.std_wvls[std_idx], self.std_flux[std_idx], where='mid', label='{} Spectrum'.format(self.cfg.object_name[0]))
-        if self.bb_flux:
-            axes_list[1].step(self.bb_wvls, self.bb_flux, where='mid', label='BB fit')
+        axes_list[1].step(self.bb_wvls, self.bb_flux, where='mid', label='BB fit')
         axes_list[1].step(self.conv_wvls[conv_idx], self.conv_flux[conv_idx], where='mid', label='Convolved Spectrum')
         # axes_list[1].step(self.rebin_plot_data[:,0], self.rebin_plot_data[:,1], where='mid', label='Re-Binned Standard Spectrum')
         axes_list[1].set_xlabel('Wavelength (A)')
@@ -708,6 +707,7 @@ def satellite_spot_contrast(lam):
     :param lam: wavelength in angstroms
     :return: contrast
     """
+    getLogger(__name__).info('Using satellite spot contrast for a 25 nm astrogrid')
     ref = 1.55*10**4
     contrast = 2.73e-3*(ref / lam)**2
     return contrast
