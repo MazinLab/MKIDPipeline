@@ -81,7 +81,7 @@ def configure_pipeline(*args, **kwargs):
 
 
 def h5_for_MKIDodd(observing_data_desc):
-    return os.path.join(config.paths.out, '{}.h5'.format(observing_data_desc.start))
+    return os.path.join(config.paths.out, '{}.h5'.format(int(observing_data_desc.start)))
 
 
 def wavecal_id(wavedata_id, wavecal_cfg=None):
@@ -127,6 +127,7 @@ class MKIDTimerange(object):
 
         if stop is not None:
             self.stop = int(np.ceil(stop))
+
 
         if self.stop < self.start:
             raise ValueError('Stop ({}) must come after start ({})'.format(self.stop,self.start))
@@ -193,13 +194,20 @@ class MKIDObservation(object):
             raise ValueError('Must specify stop or duration')
         if duration is not None and stop is not None:
             raise ValueError('Must only specify stop or duration')
-        self.start = int(start)
+        # self.start = int(start)
+        #
+        # if duration is not None:
+        #     self.stop = self.start + int(np.ceil(duration))
+        #
+        # if stop is not None:
+        #     self.stop = int(np.ceil(stop))
 
+        self.start = start
         if duration is not None:
-            self.stop = self.start + int(np.ceil(duration))
+            self.stop = self.start + duration
 
         if stop is not None:
-            self.stop = int(np.ceil(stop))
+            self.stop = stop
 
         if self.stop < self.start:
             raise ValueError('Stop ({}) must come after start ({})'.format(self.stop,self.start))
@@ -379,7 +387,8 @@ class MKIDSpectralReference(object):
     """
     yaml_tag = u'!sc'
 
-    def __init__(self, name, data, wavecal, flatcal, wcscal, _common=None):
+    def __init__(self, name, data, wavecal, flatcal, wcscal, object_position, aperture_radius, use_satellite_spots,
+                 standard_path, _common=None):
         if _common is not None:
             self.__dict__.update(_common)
 
@@ -388,6 +397,10 @@ class MKIDSpectralReference(object):
         self.wavecal = wavecal
         self.flatcal = flatcal
         self.wcscal = wcscal
+        self.object_position = object_position
+        self.aperture_radius = aperture_radius
+        self.use_satellite_spots = use_satellite_spots
+        self.standard_path = standard_path
 
     @property
     def timeranges(self):
@@ -396,9 +409,6 @@ class MKIDSpectralReference(object):
                 for obs in self.o.obs:
                     yield obs.timerange
             else:
-                yield o.timerange
-        if self.sky_data:
-            for o in self.sky_data:
                 yield o.timerange
 
     @property
@@ -423,7 +433,13 @@ class MKIDSpectralReference(object):
         wavecal = d.pop('wavecal', None)
         flatcal = d.pop('flatcal', None)
         wcscal = d.pop('wcscal', None)
-        return cls(name, data=data, wavecal=wavecal, flatcal=flatcal, wcscal=wcscal, _common=d)
+        obj_pos = d.pop('object_position', None)
+        aperture_radius = d.pop('aperture_radius', None)
+        use_sat_spots = d.pop('use_satellite_spots', None)
+        std_path = d.pop('standard_path', None)
+        return cls(name, data=data, wavecal=wavecal, flatcal=flatcal, wcscal=wcscal, object_position=obj_pos,
+                   aperture_radius=aperture_radius, use_satellite_spots=use_sat_spots, standard_path=std_path,
+                   _common=d)
 
     def __str__(self):
         return '{}'.format(self.name)

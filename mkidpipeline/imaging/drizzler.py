@@ -225,7 +225,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, single_
                                     f'in the units?')
 
     exclude_flags += DRIZ_PROBLEM_FLAGS
-    # photons = obsfile.filter_photons_by_flags(photons, allowed=(), disallowed=exclude_flags)
+    photons = obsfile.filter_photons_by_flags(photons, allowed=(), disallowed=exclude_flags)
     num_filtered = len(photons)
     getLogger(__name__).info("Removed {} photons from {} total from bad pix"
                              .format(num_unfiltered - num_filtered, num_unfiltered))
@@ -291,15 +291,25 @@ def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfi
         if not filenames:
             getLogger(__name__).info('No obsfiles found')
 
+        offsets = [o.start - int(o.start) for o in dither.obs]
+        durations = [o.duration for o in dither.obs]
+
         single_pa_time = Photontable(filenames[0]).startTime if not derotate and align_start_pa else None
 
         metadata_config_check(filenames[0], dither.wcscal)
 
         ncpu = min(mkidpipeline.config.n_cpus_available(), ncpu)
-        p = mp.Pool(ncpu)
-        processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt, used_inttime, derotate, wcs_timestep,
-                                               single_pa_time, exclude_flags)) for file in filenames]
-        dithers_data = [res.get() for res in processes]
+        if ncpu == 1:
+            dithers_data = []
+            for file, offset, duration in zip(filenames, offsets, durations):
+                data = mp_worker(file, wvlMin, wvlMax, startt+offset, duration, derotate, wcs_timestep,
+                                         single_pa_time, exclude_flags)
+                dithers_data.append(data)
+        else:
+            p = mp.Pool(ncpu)
+            processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt+offsett, dur, derotate, wcs_timestep,
+                                               single_pa_time, exclude_flags)) for file, offsett, dur in zip(filenames, offsets, durations)]
+            dithers_data = [res.get() for res in processes]
 
         dithers_data.sort(key=lambda k: filenames.index(k['file']))
 
@@ -687,9 +697,10 @@ class SpatialDrizzler(Canvas):
     def makeImage(self, dither_photons, timespan, applyweights=False, maxCountsCut=10000):
         # TODO mixing pixels and radians per variable names
 
-        weights = dither_photons['weight'] if applyweights else None
         timespan_ind = np.where(np.logical_and(dither_photons['timestamps'] >= timespan[0],
                                                dither_photons['timestamps'] <= timespan[1]))[0]
+
+        weights = dither_photons['weight'][timespan_ind] if applyweights else None
 
         thisImage, _, _ = np.histogram2d(dither_photons['xPhotonPixels'][timespan_ind],
                                          dither_photons['yPhotonPixels'][timespan_ind],  weights=weights,
