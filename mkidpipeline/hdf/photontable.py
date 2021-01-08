@@ -1081,14 +1081,19 @@ class Photontable(object):
                         exclude_flags=pixelflags.PROBLEM_FLAGS, hdu=False):
         """
         Return a wavelength-flattened spectral cube of the counts integrated from firstSec to firstSec+integrationTime.
-        If stopt is None, all time after startt is used.
         If weighted is True, flat cal weights are applied.
         If fluxWeighted is True, spectral shape weights are applied.
 
-        Timeslices is an optional array of cube time bin edges in seconds. If provided, timeslices takes precedence over startt,
-        stopt, and timeslice.
+        firstSec = seconds of first second in the cube, entered as number of seconds after start of the h5 file
+        integrationTime = seconds, duration of the cube (second of last tstep after firstSec)
+        timeslice = bin width of the timescale axis (integration time of each bin along z axis of cube)
+        ** note here, you do not enter the times in unix timestamp, rather by actual seconds where 0 is the start of the
+        h5 file
 
-        the timeslices returned will be in seconds
+        Timeslices is an optional array of cube time bin edges in seconds. If provided, timeslices takes precedence over
+        firstSec, integrationTime, and timeslice.
+
+        the timeslices returned will be in seconds as default unless timeslice is specified
 
         [nx,ny,time]
         """
