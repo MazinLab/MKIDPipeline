@@ -119,6 +119,7 @@
   #url link to a standard spectrum text file must be in 2 column format where first column is wvl in angstroms and
   #second column is flux in erg/s/cm^2/A
   standard_path: '/data/steiger/MEC/20201006/Hip109427/PHEONIX_spectrum/Hip109427_synthetic_spectrum_primary.txt'
+  wvl_bin_edges:
 
 - !dither
   name: HIP 10680
