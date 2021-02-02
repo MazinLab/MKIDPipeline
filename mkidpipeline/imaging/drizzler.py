@@ -694,7 +694,7 @@ class SpatialDrizzler(Canvas):
             self.cps = self.driz.outsci
             self.counts = self.driz.outwht * self.cps * np.mean(self.wcs_times)
 
-    def makeImage(self, dither_photons, timespan, applyweights=False, maxCountsCut=10000):
+    def makeImage(self, dither_photons, timespan, applyweights=True, maxCountsCut=10000):
         # TODO mixing pixels and radians per variable names
 
         timespan_ind = np.where(np.logical_and(dither_photons['timestamps'] >= timespan[0],

@@ -74,7 +74,7 @@ def rebin(x, y, binedges):
     """
     # must be passed binedges array since spectra will not be binned with evenly sized bins
     start = binedges[0]
-    stop = x[-1]
+    stop = binedges[-1]
     # calculate how many new bins we will have
     nbins = len(binedges) - 1
     # create output arrays
@@ -86,7 +86,7 @@ def rebin(x, y, binedges):
     while start + (binsize / 2.0) < stop:
         rebinned[n, 0] = (start + (binsize / 2.0))
         ind = np.where((x > start) & (x < start + binsize))
-        rebinned[n, 1] = np.mean(y[ind])
+        rebinned[n, 1] = (scipy.integrate.trapz(y[ind], x=x[ind]))/binsize
         start += binsize
         n += 1
         try:
@@ -180,3 +180,4 @@ def gaussianConvolution(x, y, xEnMin=0.005, xEnMax=6.0, xdE=0.001, fluxUnits="la
         plt.show()
 
     return [xOut, yOut]
+
