@@ -649,12 +649,12 @@ class Photontable(object):
             platescale = platescale * u.mas
 
         # TODO remove this check once the relevant h5 files have been corrected
-        try:
-            rough_mec_platescale_mas = 10*u.mas
-            np.testing.assert_array_almost_equal(platescale.value, rough_mec_platescale_mas.value)
-        except AssertionError:
-            getLogger(__name__).warning(f"Setting the platescale to MEC's {rough_mec_platescale_mas.value} mas/pix")
-            platescale = rough_mec_platescale_mas
+        # try:
+        #     rough_mec_platescale_mas = 10*u.mas
+        #     np.testing.assert_array_almost_equal(platescale.value, rough_mec_platescale_mas.value)
+        # except AssertionError:
+        #     getLogger(__name__).warning(f"Setting the platescale to MEC's {rough_mec_platescale_mas.value} mas/pix")
+        #     platescale = rough_mec_platescale_mas
 
         if target_coordinates is not None:
             if not isinstance(target_coordinates, SkyCoord):
