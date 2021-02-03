@@ -36,7 +36,7 @@ def get_aperture_radius(lam):
     r = 0.5 * theta_mas * (1/10.4)
     return r
 
-def aper_photometry(image, obj_position, radius, bkgd_subtraction_type='plane'):
+def aper_photometry(image, obj_position, radius, box_size=10, bkgd_subtraction_type='plane'):
     """
     performs aperture photometry on an image. Sums all of the photons in a circular aperture around the target and
     subtracts off the sky background. Sky background is determined by looking at the average counts in an annulus of
@@ -53,13 +53,13 @@ def aper_photometry(image, obj_position, radius, bkgd_subtraction_type='plane'):
     if bkgd_subtraction_type == 'plane':
         xp = obj_position[1]
         yp = obj_position[0]
-        crop_img = image[int(xp) - 20:int(xp) + 21, int(yp) - 20:int(yp) + 21]
+        crop_img = image[int(xp) - box_size:int(xp) + (box_size+1), int(yp) - box_size:int(yp) + (box_size+1)]
         p_back_init = Polynomial2D(degree=1)
         fit_p = fitting.LevMarLSQFitter()
         x, y = np.meshgrid(np.arange(np.shape(crop_img)[0]), np.arange(np.shape(crop_img)[0]))
         p = fit_p(p_back_init, x, y, crop_img)
         background = p(x, y)
-        image[int(xp) - 20:int(xp) + 21, int(yp) - 20:int(yp) + 21] -= background
+        image[int(xp) - box_size:int(xp) + (box_size+1), int(yp) - box_size:int(yp) + (box_size+1)] -= background
         circ_aperture = CircularAperture(position, r=radius)
         photometry_table = aperture_photometry(image, circ_aperture)
         object_flux = photometry_table['aperture_sum']
@@ -233,7 +233,7 @@ def mec_measure_satellite_spot_flux(cube, aperradii=None, wvl_start=[], wvl_stop
         R_spot[2] = (206265 / 0.0104) * 15.91 * lambdamax / D
         halflength = R_spot[2] - R_spot[1]
 
-        ROT_ANG = [42.73, 90+(90-43.96), 180+46.9, -49.26]
+        ROT_ANG = [42.73, 90+(90-43.96), 180+46.9, -48.26]
         ROT_ANG = np.deg2rad(ROT_ANG)
 
         xs0 = starx + R_spot[1] * np.cos(ROT_ANG[0])
@@ -275,12 +275,13 @@ def racetrack_aper(img, imgspare, x_guess, y_guess, rotang, aper_radii, halfleng
     spot_halflen = halflength
     dims = np.shape(img)
 
-    crop_img = img[int(x_guess) - 20:int(x_guess) + 21, int(y_guess) - 20:int(y_guess) + 21]
+    crop_img = img[int(y_guess) - 20:int(y_guess) + 21, int(x_guess) - 20:int(x_guess) + 21]
     xpos = x_guess
     ypos = y_guess
     xcoord, ycoord = np.meshgrid(np.arange(dims[0]), np.arange(dims[1]))
     xppos = np.cos(rotang) * xpos - np.sin(rotang) * ypos
     yppos = np.sin(rotang) * xpos + np.cos(rotang) * ypos
+
     xpcoord = np.cos(rotang) * xcoord - np.sin(rotang) * ycoord
     ypcoord = np.sin(rotang) * xcoord + np.cos(rotang) * ycoord
 
@@ -298,7 +299,7 @@ def racetrack_aper(img, imgspare, x_guess, y_guess, rotang, aper_radii, halfleng
     x, y = np.meshgrid(np.arange(np.shape(crop_img)[0]), np.arange(np.shape(crop_img)[0]))
     p = fit_p(p_back_init, x, y, crop_img)
     background = p(x, y)
-    img[int(xpos)-20:int(xpos)+21, int(ypos)-20:int(ypos)+21] -= background
+    img[int(ypos)-20:int(ypos)+21, int(xpos)-20:int(xpos)+21] -= background
     flux = np.sum(img[source])
 
     imgspare[source] = 10000
