@@ -56,25 +56,6 @@ def linearitycal_apply(o):
         getLogger(__name__).critical('Caught exception during run of {}'.format(o), exc_info=True)
 
 
-def speccal_apply(o):
-    if o.speccal is None:
-        getLogger(__name__).info('No spectrophotometric calibration to apply for {}'.format(o.h5))
-        return
-    try:
-        of = mkidpipeline.hdf.photontable.Photontable(o.h5, mode='a')
-        of.applySpectralCal(spectralcal.load_solution(o.speccal.path))
-        of.file.close()
-    except Exception as e:
-        getLogger(__name__).critical('Caught exception during run of {}'.format(o.h5), exc_info=True)
-
-
-def batch_apply_speccals(obs, ncpu=None):
-    pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
-    obs = {o.h5: o for o in obs if o.speccal is not None}.values()
-    pool.map(speccal_apply, obs)
-    pool.close()
-
-
 def batch_apply_metadata(dataset):
     """Function associates things not known at hdf build time (e.g. that aren't in the bin files)"""
     # Retrieve metadata database
