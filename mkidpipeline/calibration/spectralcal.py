@@ -375,7 +375,7 @@ class SpectralCalibrator(object):
         if self.use_satellite_spots:
             fluxes = mec_measure_satellite_spot_flux(self.cube, wvl_start=self.wvl_bin_edges[:-1],
                                                      wvl_stop=self.wvl_bin_edges[1:])
-            self.flux_spectrum = np.mean(fluxes, axis=1)
+            self.flux_spectrum = np.nanmean(fluxes, axis=1)
         else:
             if self.obj_pos is None:
                 getLogger(__name__).info('No coordinate specified for the object. Performing a PSF fit '
@@ -720,7 +720,7 @@ def get_aperture_radius(lam):
     theta_rad = 1.22 * (lam/D)
     a = 4.8481368e-9
     theta_mas = theta_rad * (1/a)
-    r = 0.5 * theta_mas * (1/10.4)
+    r = 0.5*theta_mas * (1/10.4)
     return r
 
 def satellite_spot_contrast(lam):
@@ -731,7 +731,7 @@ def satellite_spot_contrast(lam):
     """
     getLogger(__name__).info('Using satellite spot contrast for a 25 nm astrogrid')
     ref = 1.55*10**4
-    contrast = 3e-3*(ref / lam)**2
+    contrast = 2.72e-3*(ref / lam)**2 # 2.72e-3 number from Currie et. al. 2018b
     return contrast
 
 def find_nearest(array, value):
