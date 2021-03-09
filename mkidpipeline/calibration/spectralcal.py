@@ -268,6 +268,7 @@ class SpectralCalibrator(object):
             self.contrast = np.zeros_like(self.wvl_bin_centers)
             self.aperture_centers = np.zeros((len(self.wvl_bin_centers), 2))
             self.aperture_radii = np.zeros_like(self.wvl_bin_centers)
+            self.platescale = self.data.wcscal.platescale
             self.solution = ResponseCurve(configuration=self.cfg, curve=self.curve, wvl_bin_widths=self.wvl_bin_widths,
                                           wvl_bin_centers= self.wvl_bin_centers, cube=self.cube,
                                           solution_name=self.solution_name, errors=self.errors)
@@ -352,8 +353,8 @@ class SpectralCalibrator(object):
                                                           whitelight=False, debug_dither_plot=False)
                     getLogger(__name__).info(('finished image {}/ {}'.format(wvl + 1.0, len(self.wvl_bin_edges) - 1)))
                     cube.append(drizzled.cps)
-            cube = np.moveaxis(cube, 2, 0)
-            self.cube = cube
+            # cube = np.moveaxis(cube, 2, 0)
+            self.cube = np.array(cube)
         self.image = np.sum(self.cube, axis=0)
         n_wvl_bins = len(self.wvl_bin_edges) - 1
 
@@ -389,7 +390,7 @@ class SpectralCalibrator(object):
                 frame = cube[:, :, i]
                 if self.interpolation is not None:
                     frame = interpolateImage(frame, method=self.interpolation)
-                rad = get_aperture_radius(self.wvl_bin_centers[i])
+                rad = get_aperture_radius(self.wvl_bin_centers[i], self.platescale)
                 self.aperture_radii[i] = rad
                 obj_flux = aper_photometry(frame, self.obj_pos, rad)
                 self.flux_spectrum[i] = obj_flux
@@ -709,7 +710,7 @@ def load_solution(sc, singleton_ok=True):
         _loaded_solutions[sc] = ResponseCurve(file_path=sc)
     return _loaded_solutions[sc]
 
-def get_aperture_radius(lam):
+def get_aperture_radius(lam, platescale=10.4):
     """
 
     :param lam: wavelength (in angstroms!)
@@ -720,7 +721,7 @@ def get_aperture_radius(lam):
     theta_rad = 1.22 * (lam/D)
     a = 4.8481368e-9
     theta_mas = theta_rad * (1/a)
-    r = 0.5*theta_mas * (1/10.4)
+    r = 0.5 * theta_mas * (1/platescale)
     return r
 
 def satellite_spot_contrast(lam):
