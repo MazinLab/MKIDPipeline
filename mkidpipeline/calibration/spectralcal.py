@@ -43,10 +43,10 @@ class Configuration(object):
     """Configuration class for the spectrophotometric calibration analysis."""
     yaml_tag = u'!spectralcalconfig'
 
-    def __init__(self, configfile=None, start_times=tuple(), intTimes=tuple(),
-                 h5dir='', savedir='', h5_file_names='', object_name='', ra=None, dec=None, photometry='',
-                 energy_bin_width=0.01, wvl_start=850, wvl_stop=1375, wvl_bin_edges=None, summary_plot=True,
-                 std_path='', aperture_radius=3, obj_pos=None, use_satellite_spots=True, interpolation='linear'):
+    def __init__(self, configfile=None, start_times=tuple(), h5dir='', savedir='', h5_file_names='', object_name='',
+                 ra=None, dec=None, photometry='', energy_bin_width=0.01, wvl_start=850, wvl_stop=1375,
+                 wvl_bin_edges=None, summary_plot=True, std_path='', aperture_radius=3, obj_pos=None,
+                 use_satellite_spots=True, interpolation='linear'):
         # parse arguments
         self.configuration_path = configfile
         self.h5_directory = h5dir
@@ -57,7 +57,6 @@ class Configuration(object):
         self.dec = dec
         self.start_times = list(map(int, start_times))
         self.h5_file_names = list(map(str, h5_file_names))
-        self.intTimes = list(map(float, intTimes))
         self.h5_directory = h5dir
         self.energyBinWidth = float(energy_bin_width)
         self.wvlStart = float(wvl_start)
@@ -100,7 +99,6 @@ class Configuration(object):
             self.photometry = cfg.spectralcal.photometry_type
             self.summary_plot = cfg.spectralcal.summary_plot
             self.aperture_radius = cfg.aperture_radius
-            self.intTimes = cfg.exposure_times
             self.data = cfg.data
             self.obj_pos = tuple(float(s) for s in cfg.obj_pos.strip("()").split(",")) \
                 if cfg.obj_pos else None
@@ -109,11 +107,6 @@ class Configuration(object):
                 self.h5_file_names = [os.path.join(self.h5_directory, f) for f in self.start_times]
             except TypeError:
                 self.h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.start_times]
-            try:
-                self.templar_configuration_path = cfg.templar.file
-            except KeyError:
-                if self.beammap.frequencies is None:
-                    getLogger(__name__).warning('Beammap loaded without frequencies and no templar config specified.')
         else: #TODO figure out what needs to go in the else
             pass
 
@@ -138,10 +131,8 @@ class StandardSpectrum:
     """
     replaces the MKIDStandards class from the ARCONS pipeline for MEC.
     """
-    def __init__(self, save_path='', std_path=None, object_name=None, object_ra=None, object_dec=None, coords=None,
-                 reference_wavelength=5500):
+    def __init__(self, save_path='', std_path=None, object_name=None, object_ra=None, object_dec=None, coords=None):
         self.save_dir = save_path
-        self.ref_wvl = reference_wavelength
         self.object_name = object_name
         self.ra = object_ra
         self.dec = object_dec
@@ -168,9 +159,9 @@ class StandardSpectrum:
         :return:
         '''
         if self.std_path is not None:
-            if self.std_path.endswith('.txt'):
+            try:
                 data = np.loadtxt(self.std_path)
-            else:
+            except OSError:
                 self.spectrum_file = fetch_spectra_URL(object_name=self.object_name, url_path=self.std_path,
                                                        save_dir=self.save_dir)
                 data = np.loadtxt(self.spectrum_file)
@@ -243,13 +234,11 @@ class SpectralCalibrator(object):
         self.conv_wvls = None
         self.conv_flux = None
         self.data = None
-        self.rebin_plot_data = None
         self.wvl_bin_centers = None
         self.flux_spectrum = None
         self.cube = None
         self.aperture_centers = None
         self.aperture_radii = None
-        self.errors=None
         self.contrast = None
 
         if h5_file_names:
@@ -271,7 +260,7 @@ class SpectralCalibrator(object):
             self.platescale = self.data.wcscal.platescale
             self.solution = ResponseCurve(configuration=self.cfg, curve=self.curve, wvl_bin_widths=self.wvl_bin_widths,
                                           wvl_bin_centers= self.wvl_bin_centers, cube=self.cube,
-                                          solution_name=self.solution_name, errors=self.errors)
+                                          solution_name=self.solution_name)
 
     def run(self, save=True, plot=None):
         """
@@ -294,7 +283,7 @@ class SpectralCalibrator(object):
             self.calculate_response_curve()
             self.solution = ResponseCurve(configuration=self.cfg, curve=self.curve, wvl_bin_widths=self.wvl_bin_widths,
                                           wvl_bin_centers=self.wvl_bin_centers, cube=self.cube,
-                                          solution_name=self.solution_name, errors=self.errors)
+                                          solution_name=self.solution_name)
             if save:
                 self.solution.save(save_name=self.solution_name if isinstance(self.solution_name, str) else None)
             if plot or (plot is None and self.cfg.summary_plot):
@@ -370,7 +359,6 @@ class SpectralCalibrator(object):
                 pass
 
         self.flux_spectrum = np.zeros(n_wvl_bins)
-        self.errors = np.zeros(n_wvl_bins)
 
         if self.use_satellite_spots:
             fluxes = mec_measure_satellite_spot_flux(self.cube, wvl_start=self.wvl_bin_edges[:-1],
@@ -500,7 +488,6 @@ class ResponseCurve(object):
         self.wvl_bin_widths = wvl_bin_widths
         self.wvl_bin_centers = wvl_bin_centers
         self.cube = cube
-        self.errors=errors
         # if we've specified a file load it without overloading previously set arguments
         if self._file_path is not None:
             self.load(self._file_path)
@@ -519,7 +506,7 @@ class ResponseCurve(object):
             save_path += '.npz'
         getLogger(__name__).info("Saving spectrophotometric response curve to {}".format(save_path))
         np.savez(save_path, curve=self.curve, wvl_bin_widths=self.wvl_bin_widths, wvl_bin_centers=self.wvl_bin_centers,
-                 cube=self.cube, errors=self.errors, configuration=self.cfg)
+                 cube=self.cube, configuration=self.cfg)
         self._file_path = save_path  # new file_path for the solution
 
     def load(self, file_path, file_mode='c'):
@@ -538,7 +525,6 @@ class ResponseCurve(object):
         self.wvl_bin_widths = self.npz['wvl_bin_widths']
         self.wvl_bin_centers = self.npz['wvl_bin_centers']
         self.cube = self.npz['cube']
-        self.errors=self.npz['errors']
         self._file_path = file_path  # new file_path for the solution
         self.name = os.path.splitext(os.path.basename(file_path))[0]  # new name for saving
         getLogger(__name__).info("Complete")
