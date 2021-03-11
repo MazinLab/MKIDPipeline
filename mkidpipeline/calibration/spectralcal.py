@@ -237,7 +237,6 @@ class SpectralCalibrator(object):
         self.wvl_bin_centers = None
         self.flux_spectrum = None
         self.cube = None
-        self.aperture_centers = None
         self.aperture_radii = None
         self.contrast = None
 
@@ -255,7 +254,6 @@ class SpectralCalibrator(object):
             self.data = self.cfg.data
             self.wvl_bin_centers = self.cfg.wvl_bin_centers
             self.contrast = np.zeros_like(self.wvl_bin_centers)
-            self.aperture_centers = np.zeros((len(self.wvl_bin_centers), 2))
             self.aperture_radii = np.zeros_like(self.wvl_bin_centers)
             self.platescale = self.data.wcscal.platescale
             self.solution = ResponseCurve(configuration=self.cfg, curve=self.curve, wvl_bin_widths=self.wvl_bin_widths,
@@ -445,9 +443,6 @@ class SpectralCalibrator(object):
         axes_list = np.array([figure.add_subplot(gs[0, 0]), figure.add_subplot(gs[0, 1]),
                               figure.add_subplot(gs[1, 0]), figure.add_subplot(gs[1, 1])])
         axes_list[0].imshow(self.image)
-        for i, wvl in enumerate(self.wvl_bin_centers):
-            circle = plt.Circle(self.aperture_centers[i], self.aperture_radii[i], fill=False, color='r')
-            axes_list[0].add_artist(circle)
         axes_list[0].set_title('MKID Instrument Image of Standard', size=8)
 
         std_idx = np.where(np.logical_and(self.cfg.wvlStart < self.std_wvls, self.std_wvls < self.cfg.wvlStop))
@@ -694,20 +689,6 @@ def load_solution(sc, singleton_ok=True):
     except KeyError:
         _loaded_solutions[sc] = ResponseCurve(file_path=sc)
     return _loaded_solutions[sc]
-
-def get_aperture_radius(lam, platescale=10.4):
-    """
-
-    :param lam: wavelength (in angstroms!)
-    :return: radius of the aperture in pixels equal to 2x diffraction limit
-    """
-
-    D = 8.2 *(10**10)
-    theta_rad = 1.22 * (lam/D)
-    a = 4.8481368e-9
-    theta_mas = theta_rad * (1/a)
-    r = 0.5 * theta_mas * (1/platescale)
-    return r
 
 def satellite_spot_contrast(lam):
     """
