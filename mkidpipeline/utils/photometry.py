@@ -28,7 +28,6 @@ def get_aperture_radius(lam):
     :param lam: wavelength in angstroms
     :return: radius (in pixels)
     """
-
     D = 8.2 *(10**10)
     theta_rad = 1.22 * (lam/D)
     a = 4.8481368e-9
@@ -85,7 +84,7 @@ def astropy_psf_photometry(img, sigma_psf, aperture=3, x0=None, y0=None, filter=
 
     :param img: 2D array, image on which to perform PSF photometry
     :param sigma_psf: float, standard deviation of the PSF
-    :param aperture: int, size of the paerture (pixels)
+    :param aperture: int, size of the aperture (pixels)
     :param x0: x position of the target (pixels)
     :param y0: y position of the target (pixels)
     :param filter: If True will apply a gaussian filter to the image with standard deviation sigma_filter before
@@ -116,6 +115,7 @@ def astropy_psf_photometry(img, sigma_psf, aperture=3, x0=None, y0=None, filter=
                                                     aperture_radius=aperture)
     res = photometry(image=image)
     return res['x_0'], res['y_0'], res['flux_0']
+
 
 def gaussian_fit_psf_photometry(image, obj_pos, box_size=15, bkgd_poly_deg=1, x_std = 0.5, y_std=2, theta=np.pi/4,
                              interpolate=False):
@@ -150,35 +150,6 @@ def gaussian_fit_psf_photometry(image, obj_pos, box_size=15, bkgd_poly_deg=1, x_
         signal = p[0](x,y)
         return np.sum(signal)
 
-# def companion_psf_photometry(image, obj_pos, box_size=20, bkgd_poly_deg=1):
-#     """
-#
-#     :param image:
-#     :param obj_pos:
-#     :param box_size:
-#     :param bkgd_poly_deg:
-#     :return:
-#     """
-#     x_pos = int(obj_pos[1])
-#     y_pos = int(obj_pos[0])
-#     frame = image[x_pos-box_size:x_pos+box_size, y_pos-box_size:y_pos+box_size]
-#     x, y = np.meshgrid(np.arange(np.shape(frame)[0]), np.arange(np.shape(frame)[0]))
-#     p_init = Gaussian2D(x_mean=box_size, y_mean=box_size, x_stddev=0.5, y_stddev=0.5)
-#     p_back_init = Polynomial2D(degree=bkgd_poly_deg)
-#     fit_p1 = fitting.LevMarLSQFitter()
-#     masked_frame = frame.copy()
-#     masked_frame[box_size-2:box_size+2, box_size-2:box_size+2] = np.median(frame)
-#     p_background = fit_p1(p_back_init, x, y, masked_frame)
-#
-#     background = p_background(x, y)
-#     background_subtracted = frame - background
-#     fit_p2 = fitting.LevMarLSQFitter()
-#     p = fit_p2(p_init, x, y, background_subtracted)
-#     comp_model = p(x, y)
-#
-#     residuals = background_subtracted - comp_model
-#     return np.sum(comp_model), residuals
-
 def interpolateImage(inputArray, method='linear'):
     """
     Seth 11/13/14
@@ -205,7 +176,7 @@ def interpolateImage(inputArray, method='linear'):
 
     return interpolatedFrame
 
-def mec_measure_satellite_spot_flux(cube, aperradii=None, wvl_start=[], wvl_stop=[]):
+def mec_measure_satellite_spot_flux(cube, aperradii=None, wvl_start=np.array([950]), wvl_stop=np.array([1375])):
     """
     performs aperture photometry using an adaptation of the racetrack aperture from the polarimetry mode of the
      GPI pipeline (http://docs.planetimager.org/pipeline/usage/tutorial_polphotometry.html)
