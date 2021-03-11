@@ -353,7 +353,6 @@ class SpectralCalibrator(object):
                                                           whitelight=False, debug_dither_plot=False)
                     getLogger(__name__).info(('finished image {}/ {}'.format(wvl + 1.0, len(self.wvl_bin_edges) - 1)))
                     cube.append(drizzled.cps)
-            # cube = np.moveaxis(cube, 2, 0)
             self.cube = np.array(cube)
         self.image = np.sum(self.cube, axis=0)
         n_wvl_bins = len(self.wvl_bin_edges) - 1
