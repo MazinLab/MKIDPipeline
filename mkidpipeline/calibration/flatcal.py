@@ -487,8 +487,6 @@ class WhiteCalibrator(FlatCalibrator):
             cubeDict = self.obs.getSpectralCube(firstSec=firstSec, integrationTime=self.intTime, applyWeight=False,
                                                 applyTPFWeight=False, wvlBinEdges=self.wvlBinEdges)
             cube = cubeDict['cube'] / cubeDict['effIntTime'][:, :, None]
-            # TODO:  remove when we have deadtime removal code in pipeline
-            cube /= (1 - cube.sum(axis=2) * self.deadtime)[:, :, None]
             bad = np.isnan(cube)  # TODO need to update masks to note why these 0s appeared
             cube[bad] = 0
 
