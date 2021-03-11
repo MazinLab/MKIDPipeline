@@ -74,14 +74,12 @@ class FlatCalibrator(object):
 
         self.xpix = self.cfg.beammap.ncols
         self.ypix = self.cfg.beammap.nrows
-        self.deadtime = self.cfg.instrument.deadtime
 
         self.wvlStart = self.cfg.instrument.wvl_start
         self.wvlStop = self.cfg.instrument.wvl_stop
 
         self.countRateCutoff = self.cfg.flatcal.rate_cutoff
         self.fractionOfChunksToTrim = self.cfg.flatcal.trim_fraction
-        self.timeSpacingCut = None
 
         self.obs = None
         self.beamImage = None
@@ -108,7 +106,6 @@ class FlatCalibrator(object):
         self.cubeWeights = None
         self.weightErr = None
         self.totalCube = None
-        self.totalFrame = None
         self.flatWeights = None
         self.countCubesToSave = None
         self.flatWeightErr = None
@@ -261,14 +258,12 @@ class FlatCalibrator(object):
             trimmedCountCubes = countCubes[sl:-sl, :, :, :]
             trimmedWeightErr = weightErr[sl:-sl, :, :, :]
             self.totalCube = np.ma.sum(trimmedCountCubes, axis=0)
-            self.totalFrame = np.ma.sum(self.totalCube, axis=-1)
             self.flatWeights, summedAveragingWeights = np.ma.average(trimmedWeights, axis=0,
                                                                      weights=trimmedWeightErr ** -2.,
                                                                      returned=True)
             self.countCubesToSave = np.ma.sum(trimmedCountCubes, axis=0)
         else:
             self.totalCube = np.ma.sum(self.countCubes, axis=0)
-            self.totalFrame = np.ma.sum(self.totalCube, axis=-1)
             self.flatWeights, summedAveragingWeights = np.ma.average(self.cubeWeights, axis=0,
                                                                      weights=self.weightErr ** -2.,
                                                                      returned=True)
@@ -476,7 +471,6 @@ class WhiteCalibrator(FlatCalibrator):
         Reads the flat data into a spectral cube whose dimensions are determined
         by the number of x and y pixels and the number of wavelength bins.
         Each element will be the spectral cube for a time chunk
-        Find factors to correct nonlinearity due to deadtime in firmware
 
         To be used for whitelight flat data
         """
