@@ -7,11 +7,10 @@ Opens MKID observation of a spectrophotometric standard star and associated wave
 reads in all photons and converts to energies.
 Bins photons to generate a spectrum, then divides this into the known spectrum (published)
 of the object to create a sensitivity curve.
-This curve is then written out to the obs file as spectral weights
+This curve is then saved as a calibration data product
 
-Flags are associated with each pixel - see mkidcore/pixelFlags.py for descriptions.
-
-Assumes h5 files are wavelength calibrated, flatcalibrated and linearity corrected (deadtime corrected)
+Assumes h5 files are wavelength calibrated, and they should also first be flatcalibrated and linearity corrected
+ (deadtime corrected)
 """
 
 import sys,os
@@ -262,14 +261,10 @@ class SpectralCalibrator(object):
 
     def run(self, save=True, plot=None):
         """
-        Compute the spectrophotometric calibration for the data specified in the configuration
-        object. This method runs load_relative_spectrum() and load_sky_spectrum() or load_absolute_sepctrum(),
-        load_standard_spectrum(), and calculate_specweights() sequentially.
 
-        Args:
-            save: a boolean specifying if the result will be saved.
-            plot: a boolean specifying if a summary plot for the computation will be
-                  saved.
+        :param save:
+        :param plot:
+        :return:
         """
 
         try:
@@ -318,28 +313,19 @@ class SpectralCalibrator(object):
                 self.wvl_bin_edges = ref_obs['wvlBinEdges'] * 10
             for wvl in range(len(self.wvl_bin_edges) - 1):
                 if self.use_satellite_spots:
-                    getLogger(__name__).info(
-                        'using wavelength range {} - {}'.format(self.wvl_bin_edges[wvl]/10, self.wvl_bin_edges[wvl+1]/10))
-                    drizzled = mkidpipeline.drizzler.form(self.data, mode='spatial', wvlMin=self.wvl_bin_edges[wvl]/10,
-                                                          wvlMax=self.wvl_bin_edges[wvl+1]/10, pixfrac=0.5, wcs_timestep=1,
-                                                          exp_timestep=1, exclude_flags=pixelflags.PROBLEM_FLAGS,
-                                                          usecache=False, ncpu=1, derotate=False, align_start_pa=False,
-                                                          whitelight=False, debug_dither_plot=False)
-                    getLogger(__name__).info(('finished image {}/ {}'.format(wvl+1.0, len(self.wvl_bin_edges) - 1)))
-                    cube.append(drizzled.cps)
+                    derotate=False
                 else:
-                    getLogger(__name__).info(
-                        'using wavelength range {} - {}'.format(self.wvl_bin_edges[wvl] / 10,
-                                                                self.wvl_bin_edges[wvl + 1] / 10))
-                    drizzled = mkidpipeline.drizzler.form(self.data, mode='spatial',
-                                                          wvlMin=self.wvl_bin_edges[wvl] / 10,
-                                                          wvlMax=self.wvl_bin_edges[wvl + 1] / 10, pixfrac=0.5,
-                                                          wcs_timestep=1, exp_timestep=1,
-                                                          exclude_flags=pixelflags.PROBLEM_FLAGS, usecache=False,
-                                                          ncpu=1, derotate=True, align_start_pa=False,
-                                                          whitelight=False, debug_dither_plot=False)
-                    getLogger(__name__).info(('finished image {}/ {}'.format(wvl + 1.0, len(self.wvl_bin_edges) - 1)))
-                    cube.append(drizzled.cps)
+                    derotate=True
+                getLogger(__name__).info('using wavelength range {} - {}'.format(self.wvl_bin_edges[wvl] / 10,
+                                                            self.wvl_bin_edges[wvl + 1] / 10))
+                drizzled = mkidpipeline.drizzler.form(self.data, mode='spatial', wvlMin=self.wvl_bin_edges[wvl] / 10,
+                                                      wvlMax=self.wvl_bin_edges[wvl + 1] / 10, pixfrac=0.5,
+                                                      wcs_timestep=1, exp_timestep=1,
+                                                      exclude_flags=pixelflags.PROBLEM_FLAGS, usecache=False, ncpu=1,
+                                                      derotate=derotate, align_start_pa=False, whitelight=False,
+                                                      debug_dither_plot=False)
+                getLogger(__name__).info(('finished image {}/ {}'.format(wvl + 1.0, len(self.wvl_bin_edges) - 1)))
+                cube.append(drizzled.cps)
             self.cube = np.array(cube)
         self.image = np.sum(self.cube, axis=0)
         n_wvl_bins = len(self.wvl_bin_edges) - 1
