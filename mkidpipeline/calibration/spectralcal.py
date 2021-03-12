@@ -456,7 +456,6 @@ class SpectralCalibrator(object):
         plt.savefig(save_name)
         return axes_list
 
-
 class ResponseCurve(object):
     def __init__(self, file_path=None, curve=None, configuration=None, wvl_bin_widths=None, wvl_bin_centers=None,
                  cube=None, errors=None, solution_name='spectral_solution'):
@@ -529,7 +528,6 @@ def name_to_ESO_extension(object_name):
             extension = extension + char
     return 'f{}.dat'.format(extension)
 
-
 def fetch_spectra_ESO(object_name, save_dir):
     """
     fetches a standard spectrum from the ESO catalog and downloads it to self.savedir if it exists. Requires
@@ -554,7 +552,6 @@ def fetch_spectra_ESO(object_name, save_dir):
         except URLError:
             pass
     return spectrum_file
-
 
 def fetch_spectra_SDSS(object_name, save_dir, coords):
     """
@@ -686,11 +683,6 @@ def satellite_spot_contrast(lam):
     ref = 1.55*10**4
     contrast = 2.72e-3*(ref / lam)**2 # 2.72e-3 number from Currie et. al. 2018b
     return contrast
-
-def find_nearest(array, value):
-    array = np.asarray(array)
-    idx = (np.abs(array - value)).argmin()
-    return array[idx]
 
 def fetch(dataset, config=None, ncpu=None, remake=False, **kwargs):
     solution_descriptors = dataset.spectralcals
