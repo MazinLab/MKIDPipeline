@@ -360,7 +360,7 @@ class SpectralCalibrator(object):
                 # perform photometry on every wavelength bin
                 frame = cube[:, :, i]
                 if self.interpolation is not None:
-                    frame = interpolateImage(frame, method=self.interpolation)
+                    frame = interpolate_image(frame, method=self.interpolation)
                 rad = get_aperture_radius(self.wvl_bin_centers[i], self.platescale)
                 self.aperture_radii[i] = rad
                 obj_flux = aper_photometry(frame, self.obj_pos, rad)
@@ -389,7 +389,7 @@ class SpectralCalibrator(object):
     def extend_spectrum(self, x, y):
         """
         BB Fit to extend standard spectrum to 1500 nm and to convolve it with a gaussian kernel corresponding to the
-        energy resolution of the detector
+        energy resolution of the detector. If spectrum spans whole MKID range will just convolve with the gaussian
         """
         r = np.median(np.nanmedian(self.cfg.r_list, axis=0))
         if np.round(x[-1]) < self.cfg.wvlStop:
@@ -600,33 +600,29 @@ def fetch_spectra_URL(object_name, url_path, save_dir):
         spectrum_file = save_dir + object_name + 'spectrum.dat'
         return spectrum_file
 
-
-def interpolateImage(inputArray, method='linear'):
+def interpolate_image(input_array, method='linear'):
     """
     Seth 11/13/14
     2D interpolation to smooth over missing pixels using built-in scipy methods
-    INPUTS:
-        inputArray - 2D input array of values
-        method - method of interpolation. Options are scipy.interpolate.griddata methods:
-                 'linear' (default), 'cubic', or 'nearest'
-    OUTPUTS:
-        the interpolated image with same shape as input array
+    :param input_array: N x M array
+    :param method:
+    :return: N x M interpolated image array
     """
+    final_shape = np.shape(input_array)
+    # data points for interp are only pixels with counts
+    data_points = np.where(np.logical_or(np.isnan(input_array), input_array == 0) == False)
+    data = input_array[data_points]
+    # griddata expects them in this order
+    data_points = np.array((data_points[0], data_points[1]), dtype=np.int).transpose()
+    # should include all points as interpolation points
+    interp_points = np.where(input_array != np.nan)
+    interp_points = np.array((interp_points[0], interp_points[1]), dtype=np.int).transpose()
 
-    finalshape = np.shape(inputArray)
+    interpolated_frame = griddata(data_points, data, interp_points, method)
+    # reshape interpolated frame into original shape
+    interpolated_frame = np.reshape(interpolated_frame, final_shape)
 
-    dataPoints = np.where(np.logical_or(np.isnan(inputArray), inputArray == 0) == False)  # data points for interp are only pixels with counts
-    data = inputArray[dataPoints]
-    dataPoints = np.array((dataPoints[0], dataPoints[1]), dtype=np.int).transpose()  # griddata expects them in this order
-
-    interpPoints = np.where(inputArray != np.nan)  # should include all points as interpolation points
-    interpPoints = np.array((interpPoints[0], interpPoints[1]), dtype=np.int).transpose()
-
-    interpolatedFrame = griddata(dataPoints, data, interpPoints, method)
-    interpolatedFrame = np.reshape(interpolatedFrame, finalshape)  # reshape interpolated frame into original shape
-
-    return interpolatedFrame
-
+    return interpolated_frame
 
 def get_coords(object_name, ra, dec):
     """
