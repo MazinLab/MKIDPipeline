@@ -197,12 +197,7 @@ class StandardSpectrum:
 
 class SpectralCalibrator(object):
     """
-    Opens flux file, prepares standard spectrum, and calculates flux factors for the file.
-    Method is provided in param file. If 'relative' is selected, an obs file with standard star defocused over
-    the entire array is expected, with accompanying sky file to do sky subtraction.
-    If any other method is provided, 'absolute' will be done by default, wherein a point source is assumed
-    to be present. The obs file is then broken into spectral frames with photometry (psf or aper) performed
-    on each frame to generate the observed spectrum.
+
     """
     def __init__(self, configuration=None, h5_file_names=None, solution_name='solution.npz', interpolation=None,
                  use_satellite_spots=True, obj_pos=None):
