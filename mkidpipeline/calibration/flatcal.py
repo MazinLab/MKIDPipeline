@@ -41,8 +41,7 @@ import mkidpipeline.config
 import pkg_resources as pkg
 from mkidcore.utils import query
 import mkidcore.pixelflags as pixelflags
-import mkidpipeline.config as config
-import mkidpipeline.badpix as badpix
+import mkidpipeline.calibration.badpix as badpix
 
 DEFAULT_CONFIG_FILE = pkg.resource_filename('mkidpipeline.calibration.flatcal', 'flatcal.yml')
 
@@ -83,7 +82,7 @@ class FlatCalibrator(object):
         self.wavelengths = None
 
         if self.use_wavecal:
-            sol_file = self.cfg.wavcal #TODO make sure this works then utilize this in speccal as well
+            sol_file = self.cfg.wavcal
             sol = mkidpipeline.calibration.wavecal.Solution(sol_file[0])
             r, resid = sol.find_resolving_powers(cache=True)
             self.r_list = np.nanmedian(r, axis=0)

@@ -8,7 +8,7 @@ if sys.version_info.major == 3:
     import mkidpipeline.calibration.spectralcal as spectralcal
     import mkidpipeline.imaging.drizzler as drizzler
     import mkidpipeline.imaging.movies as movies
-    import mkidpipeline.badpix as badpix
+    import mkidpipeline.calibration.badpix as badpix
     import mkidpipeline.config as config
     import mkidpipeline.calibration.linearitycal as linearitycal
     import mkidpipeline.hdf.photontable
