@@ -9,10 +9,8 @@ tables.index.profile = True
 import mkidpipeline.hdf.bin2hdf as bin2hdf
 import mkidpipeline.calibration.wavecal as wavecal
 import mkidpipeline.calibration.flatcal as flatcal
-import mkidpipeline.badpix as badpix
 import mkidpipeline.config
 import mkidpipeline.hdf.photontable
-from mkidcore.config import getLogger
 import multiprocessing as mp
 from mkidpipeline.hdf.photontable import Photontable
 
@@ -70,10 +68,6 @@ def pipe_time():
     batch_apply_flatcals(dataset.science_observations, 10)
 
 
-from line_profiler import LineProfiler
-
-
-import tables
 #@profile
 def tsectest(f):
     of = Photontable(f)
