@@ -16,11 +16,6 @@ Per pixel:  plots of weights vs wavelength next to twilight spectrum OR
 
 
 Edited by: Sarah Steiger    Date:October 31, 2019
-
-changed the implementation of the laser flat for MEC. Instead of only applying the laser flat to wavelength calibrated
-pixels it uses all of the not hot or dead but still photosensitive pixels. It is assumed that the laser light is
-monochromatic and a dark frame is subtracted out of the flat calculations to exclude non monochromatic light that
-might leak into MEC.
 """
 import argparse
 import atexit
@@ -119,8 +114,6 @@ class FlatCalibrator(object):
         self.loadData()
         getLogger(__name__).info("Loading flat spectra")
         self.loadFlatSpectra()
-        getLogger(__name__).info("Checking count rates")
-        self.checkCountRates()
         getLogger(__name__).info("Calculating weights")
         self.calculateWeights()
         getLogger(__name__).info("Writing weights")
@@ -193,19 +186,6 @@ class FlatCalibrator(object):
         flatCalFile.close()
         getLogger(__name__).info("Wrote to {}".format(self.flatCalFileName))
 
-    def checkCountRates(self):
-        """
-        masks out frames (time chunks) from the flatcal that are too bright so as to skew the results.
-        If a lasercal is used for the flatcal then there is only one frame so this function is irrelevant
-        and hits the pass condition.
-        """
-        frames = np.copy(self.spectralCubes).sum(axis=3) #want to sum over all wavelengths
-        if len(frames) == 1:
-            pass
-        else:
-            medianCountRates = np.array([np.nanmedian(frame) for frame in frames])
-            mask = medianCountRates <= self.countRateCutoff
-            self.spectralCubes = np.array([cube for cube, use in zip(self.spectralCubes, mask) if use])
 
     def calculateWeights(self):
         """
