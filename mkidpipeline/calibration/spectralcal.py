@@ -1,16 +1,12 @@
 """
-Author: Seth Meeker        Date:November 21, 2012
+Author: Sarah Steiger    Date: April 1, 2020
 
-Edited for MEC by: Sarah Steiger    Date: April 1, 2020
-
-Opens MKID observation of a spectrophotometric standard star and associated wavelength cal file,
-reads in all photons and converts to energies.
-Bins photons to generate a spectrum, then divides this into the known spectrum (published)
-of the object to create a sensitivity curve.
-This curve is then saved as a calibration data product
+Loads a standard spectrum from and convolves and rebind it ot match the MKID energy resolution and bin size. Then
+generates an MKID spectrum of the object by performing photometry (aperture or PSF) on the MKID image. Finally
+divides the flux values for the standard by the MKID flux values for each bin to get a calibration curve.
 
 Assumes h5 files are wavelength calibrated, and they should also first be flatcalibrated and linearity corrected
- (deadtime corrected)
+(deadtime corrected)
 """
 
 import sys,os
@@ -265,7 +261,6 @@ class SpectralCalibrator(object):
         :param plot:
         :return:
         """
-
         try:
             getLogger(__name__).info("Loading Spectrum from MEC")
             self.load_absolute_spectrum()
