@@ -146,7 +146,6 @@ class StandardSpectrum:
         catalog, SDSS catalog, a URL, or a specified path to a .txt file and returns the wavelength and flux column in the appropriate units
         :return: wavelengths (Angstroms), flux (erg/s/cm^2/A)
         """
-        self.save_dir = create_spectra_directory(save_dir=self.save_dir)
         self.coords = get_coords(object_name=self.object_name, ra=self.ra, dec=self.dec)
         data = self.fetch_spectra()
         return data[:, 0], data[:, 1]
@@ -639,19 +638,6 @@ def get_coords(object_name, ra, dec):
     if not coords:
         getLogger(__name__).error('No coordinates found for spectrophotometric calibration object')
     return coords
-
-
-def create_spectra_directory(save_dir):
-    """
-    creates a spectrum directory in the save directory to put the spectra. If not called then the spectrum will
-    just be saved in save_path
-    """
-    if os.path.exists(save_dir + '/spectra/'):
-        getLogger(__name__).info('Spectrum directory already exists in {}, not going to make a new one'.format(save_dir))
-    else:
-        os.mkdir(save_dir + '/spectra/')
-    return save_dir + '/spectra/'
-
 
 def load_solution(sc, singleton_ok=True):
     """sc is a solution filename string, a ResponseCurve object, or a mkidpipeline.config.MKIDSpectralReference"""
