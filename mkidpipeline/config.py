@@ -1,4 +1,3 @@
-
 import numpy as np
 import os
 from glob import glob
@@ -20,8 +19,8 @@ from mkidcore.objects import Beammap
 #TODO this is a placeholder to help integrating metadata
 InstrumentInfo = namedtuple('InstrumentInfo', ('beammap', 'platescale'))
 
-#Ensure that the beammap gets registered with yaml, technically the import does this
-#but without this note an IDE or human might remove the import
+# Ensure that the beammap gets registered with yaml, the import does this
+# but without this note an IDE or human might remove the import
 Beammap()
 
 config = None
@@ -31,7 +30,6 @@ _parsedDitherLogs = {}
 yaml = mkidcore.config.yaml
 
 pipline_settings = ('beammap', 'paths', 'templar', 'instrument', 'ncpu')
-
 
 STANDARD_KEYS = ('ra','dec', 'airmass','az','el','ha','equinox','parallactic','target','utctcs','laser','flipper',
                  'filter','observatory','utc','comment','device_orientation','instrument','dither_ref','dither_home',
@@ -106,6 +104,25 @@ def spectralcal_id(spectralreference_id, spectralcal_cfg=None):
     return 'spectralcal_{}_{}'.format(spectralreference_id, config_hash[-8:])
 
 
+class BaseStepConfig(mkidcore.config.ConfigThing):
+    @classmethod
+    def from_yaml(cls, loader, node):
+
+        ret = super().from_yaml(loader, node)
+        errors = ret._verify_attribues() + ret._vet_errors()
+
+        if errors:
+            raise ValueError(f'{ret.yaml_tag} collected errors: \n' + '\n\t'.join(errors))
+        return ret
+
+    def _verify_attribues(self):
+        missing = [k for k in self.REQUIRED_KEYS if k not in self]
+        return ['Missing required keys: ' + ', '.join(missing)] if missing else []
+
+    def _vet_errors(self):
+        return []
+
+
 class MKIDTimerange(object):
     yaml_tag = u'!ob'
 
@@ -135,6 +152,7 @@ class MKIDTimerange(object):
 
         self.name = str(name)
         self.background = str(background)
+
     def __str__(self):
         return '{} t={}:{}s'.format(self.name, self.start, self.duration)
 
@@ -358,7 +376,7 @@ class MKIDFlatdataDescription(object):
 
     @property
     def path(self):
-        #TODO flat data doesn't really have a path, tts the flatcal that has a phath
+        # TODO flat data doesn't really have a path, its the flatcal that has a phath
         return os.path.join(config.paths.database, self.id)
 
     @property
@@ -941,6 +959,8 @@ def load_data_description(file, no_global=False):
             d.wavecal = wcdict.get(d.wavecal, d.wavecal)
         except AttributeError:
             pass
+
+    # TODO what is going on with this code, looks redundant with that in MKIDObservingDataset.__init__
     for fc in dataset.flatcals:
         try:
             fc.wavecal = wcdict.get(fc.wavecal, fc.wavecal)
@@ -995,8 +1015,9 @@ def n_cpus_available(max=np.inf):
     return mcpu
 
 
-def logtoconsole(file=''):
-    logs = (create_log('mkidcore'), create_log('mkidreadout'), create_log('mkidpipeline'), create_log('__main__'))
+def logtoconsole(file='',**kwargs):
+    logs = (create_log('mkidcore',**kwargs), create_log('mkidreadout',**kwargs), create_log('mkidpipeline', **kwargs),
+            create_log('__main__',**kwargs))
     if file:
         import logging
         handler = MakeFileHandler(file)
