@@ -46,13 +46,34 @@ import mkidpipeline.calibration.badpix as badpix
 DEFAULT_CONFIG_FILE = pkg.resource_filename('mkidpipeline.calibration.flatcal', 'flatcal.yml')
 
 
+class StepConfig(mkidpipeline.config.BaseStepConfig):
+    yaml_tag = u'!flatcal_cfg'
+    REQUIRED_KEYS = ('count_rate_cutoff', 'trim_chunks_fraction', 'chunk_time', 'power', 'plots')
+    OPTIONAL_KEYS = tuple()
+
+    def _vet_errors(self):
+        ret = []
+        try:
+            assert 0 <= self.count_rate_cutoff <= 20000
+        except:
+            ret.append('count_rate_cutoff must be [0, 20000]')
+
+        try:
+            assert isinstance(self.trim_chunks_fraction, float) and 0 <= self.trim_chunks_fraction <= 1
+        except:
+            ret.append('trim_chunks_fraction must be a float in [0,1]')
+
+        return ret
+
+# NB mkidcore.config.yaml.register_class(StepConfig) Must be called
+
 # TODO need to create a calibrator factory that works with three options: wavecal, white light, and filtered or laser
 #  light. In essence each needs a loadData functionand maybe a loadflatspectra in the parlance of the current
 #  structure. The individual cases can be determined by seeing if the input data has a starttime or a wavesol
 #  Subclasses for special functions and a factory function for deciding which to instantiate.
 
-class FlatCalibrator(object):
 
+class FlatCalibrator:
     def __init__(self, config=None):
         self.config_file = DEFAULT_CONFIG_FILE if config is None else config
 
