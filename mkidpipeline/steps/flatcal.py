@@ -32,7 +32,7 @@ import tables
 from PyPDF2 import PdfFileMerger, PdfFileReader
 
 from matplotlib.backends.backend_pdf import PdfPages
-from mkidpipeline.calibration import wavecal
+from mkidpipeline.steps import wavecal
 from mkidcore.headers import FlatCalSoln_Description
 from mkidpipeline.hdf.photontable import Photontable
 from mkidcore.corelog import getLogger
@@ -41,7 +41,7 @@ import mkidpipeline.config
 import pkg_resources as pkg
 from mkidcore.utils import query
 import mkidcore.pixelflags as pixelflags
-import mkidpipeline.calibration.badpix as badpix
+import mkidpipeline.steps.badpix as badpix
 
 DEFAULT_CONFIG_FILE = pkg.resource_filename('mkidpipeline.calibration.flatcal', 'flatcal.yml')
 
@@ -104,7 +104,7 @@ class FlatCalibrator:
 
         if self.use_wavecal:
             sol_file = self.cfg.wavcal
-            sol = mkidpipeline.calibration.wavecal.Solution(sol_file[0])
+            sol = wavecal.Solution(sol_file[0])
             r, resid = sol.find_resolving_powers(cache=True)
             self.r_list = np.nanmedian(r, axis=0)
         else:

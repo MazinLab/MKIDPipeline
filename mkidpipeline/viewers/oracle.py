@@ -29,7 +29,7 @@ from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import pyqtSignal
 from mkidpipeline.hdf.photontable import Photontable
 import mkidpipeline.hdf.binparse as binparse
-from mkidpipeline.calibration.badpix import hpm_flux_threshold as hft
+from mkidpipeline.steps.badpix import hpm_flux_threshold as hft
 from scipy import optimize
 import os.path
 from mkidpipeline.speckle import binned_rician as binnedRE

@@ -4,7 +4,7 @@ TODO: Comment everything stop being lazy.
 TODO: Convert print statements to logging
 TODO: Make WaveCalComparer part of main and runnable from command line
 """
-from mkidpipeline.calibration.wavecal import Solution
+from mkidpipeline.steps.wavecal import Solution
 from mkidpipeline.hdf.photontable import Photontable
 import numpy as np
 import glob

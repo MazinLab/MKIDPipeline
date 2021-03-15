@@ -3,15 +3,13 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm
-import matplotlib
 from astropy.io import fits
 from scipy.ndimage import rotate, zoom
 import argparse
 # from vip_hci import pca
-from mkidpipeline.imaging.drizzler import form
+from mkidpipeline.steps.drizzler import form
 import mkidpipeline
-import mkidcore.corelog as pipelinelog
+
 
 def rot_array(img, pivot,angle):
     padX = [img.shape[1] - pivot[0], pivot[0]]
