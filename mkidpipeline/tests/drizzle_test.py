@@ -1,20 +1,18 @@
 import numpy as np
 import matplotlib.pylab as plt
-# import RADecImage as rdi
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 from astropy.convolution import AiryDisk2DKernel
-import sys, os
 from astropy.coordinates import EarthLocation, SkyCoord
 import astropy.units as u
 from astropy import time
 from astroplan import Observer
+from astropy import wcs
 import random
-from scipy import misc
 from scipy.ndimage import rotate
-from imaging import drizzler
+from drizzle import drizzle as stdrizzle
 
-# from .distribution import Distribution
+
 
 class Distribution(object):
     """
@@ -332,7 +330,7 @@ nVPix = 800
 width =150
 vPlateScale = 10e-3
 
-from astropy import wcs
+
 coords = SkyCoord.from_name('* kap And')
 
 def get_header():
@@ -353,7 +351,6 @@ def get_header():
 
 w = get_header()
 print(w)
-from drizzle import drizzle as stdrizzle
 driz = stdrizzle.Drizzle(outwcs=w, pixfrac=1)
 
 def makeImage(angle, xy, plot=False):
