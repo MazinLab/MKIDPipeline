@@ -44,10 +44,10 @@ wavecal: !configdict
 
 spectralcal: !configdict
   #Mandatory
-  photometry_type: 'aperture' #'aperture' or 'psf'
+  photometry_type: aperture  # aperture | psf
   summary_plot: True
   #optional
-  interpolation: 'linear' #'linear', 'cubic' or 'nearest'
+  interpolation: linear  # linear | cubic | nearest
 
 flatcal: !configdict
   method: 'Laser' #either 'White' for a white for a white light calibration or 'Laser' for a laser calibration
