@@ -17,7 +17,6 @@ from matplotlib.widgets import Button, Slider
 from matplotlib import cm, lines, pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from mpl_toolkits.axes_grid1 import axes_size, make_axes_locatable
-import time
 import mkidcore.corelog as pipelinelog
 import mkidpipeline.config
 import mkidcore.config
@@ -36,7 +35,7 @@ if sys.version_info.major==3:
 else:
     log.warning("Using python 2. Only Configuration and Solution classes supported")
 
-import mkidpipeline.calibration.wavecal_models as wm
+import mkidpipeline.utils.wavecal_models as wm
 
 PLANK_CONSTANT_EVS = astropy.constants.h.to('eV s').value
 SPEED_OF_LIGHT_NMS = astropy.constants.c.to('nm/s').value
@@ -1199,7 +1198,7 @@ class Solution(object):
             save_path += '.npz'
         # make sure the configuration is pickleable if created from __main__
         if self.cfg.__class__.__module__ == "__main__":
-            from mkidpipeline.calibration.wavecal import Configuration
+            from mkidpipeline.steps.wavecal import Configuration
             self.cfg = Configuration(self.cfg.configuration_path)
 
         log.info("Saving solution to {}".format(save_path))

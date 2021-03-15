@@ -9,6 +9,7 @@ from scipy.constants import *
 from mkidpipeline.utils import smooth
 import mkidcore.config as config
 
+
 class MKIDStandards:
     """
     This class contains the spectra of several standard stars and other

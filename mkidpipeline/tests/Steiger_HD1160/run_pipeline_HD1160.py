@@ -51,7 +51,7 @@ def run_stage1(dataset):
 
 def generate_outputs(outputs):
     from mkidpipeline.config import config
-    import mkidpipeline.imaging.drizzler as drizzler
+    import mkidpipeline.steps.drizzler as drizzler
     import mkidpipeline as pipe
     for o in outputs:
         pipe.getLogger(__name__).info('Generating {}'.format(o))

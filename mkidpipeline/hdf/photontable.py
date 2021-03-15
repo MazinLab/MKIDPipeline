@@ -62,12 +62,11 @@ from mkidcore.headers import PhotonCType, PhotonNumpyType, METADATA_BLOCK_BYTES
 from mkidcore.corelog import getLogger
 import mkidcore.pixelflags as pixelflags
 from mkidcore.config import yaml, StringIO
-import mkidpipeline.config as config
 
 from mkidcore.instruments import compute_wcs_ref_pixel
 
 import SharedArray
-from mkidpipeline.calibration import linearitycal
+from mkidpipeline.steps import linearitycal
 import tables
 import tables.parameters
 import tables.file

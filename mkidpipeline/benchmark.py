@@ -7,8 +7,8 @@ import tables.index
 tables.index.profile = True
 
 import mkidpipeline.hdf.bin2hdf as bin2hdf
-import mkidpipeline.calibration.wavecal as wavecal
-import mkidpipeline.calibration.flatcal as flatcal
+import mkidpipeline.steps.wavecal as wavecal
+import mkidpipeline.steps.flatcal as flatcal
 import mkidpipeline.config
 import mkidpipeline.hdf.photontable
 import multiprocessing as mp
