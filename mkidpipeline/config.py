@@ -72,9 +72,12 @@ def load_task_config(file, use_global_config=True):
     return cfg
 
 
-def configure_pipeline(*args, **kwargs):
+
+
+def configure_pipeline(pipeline_config):
+    """ Load a pipeline config, configuring the pipeline. Any existing configuration will be replaced"""
     global config
-    config = mkidcore.config.load(*args, **kwargs)
+    config = mkidcore.config.load(pipeline_config, namespace=None)
     return config
 
 
@@ -308,38 +311,40 @@ class MKIDWavedataDescription(object):
     """requires keys name and data"""
     yaml_tag = u'!wc'
 
-    def __init__(self, name, data, backgrounds):
+    def __init__(self, name, data, backgrounds=tuple(), _common=None):
+        """
+        backgrounds is an optional iterable of background !ob
+        """
+        if _common is not None:
+            self.__dict__.update(_common)
 
         self.name = name
         self.data = data
-        self.backgrounds = backgrounds
-        self.data.sort(key=lambda x: x.start)
-        self.wavelengths = []
-        self.backgrounds_list = []
+        self._background_ob = backgrounds
+        self.backgrounds = {}
+        for wave, ob in zip(self.wavelengths, self.data):
+            for bg in backgrounds:
+                if bg.name == ob.background:
+                    self.backgrounds[wave] = bg.h5
+
+    @classmethod
+    def from_yaml(cls, loader, node):
+        d = dict(loader.construct_pairs(node, deep=True))  #WTH this one line took half a day to get right
+        name = d.pop('name')
+        data = list(d.pop('data'))
+        backgrounds = tuple(d.pop('backgrounds', tuple()))
+        return cls(name, data, backgrounds=backgrounds, _common=d)
 
     @property
     def timeranges(self):
         for o in self.data:
             yield o.timerange
-        if self.backgrounds:
-            for o in self.backgrounds:
+            for o in self._background_ob:
                 yield o.timerange
 
     @property
     def wavelengths(self):
         return [getnm(x.name) for x in self.data]
-
-    @property
-    def backgrounds_list(self):
-        backgrounds_list = np.zeros(len(self.wavelengths), dtype=[('wavelength', 'float'), ('background', '<U11'),
-                                                                  ('start_time', 'int')])
-        backgrounds_list['wavelength'] = self.wavelengths
-        if self.backgrounds == None:
-            return backgrounds_list
-        backgrounds_list['background'] = [x.background if x.background else 'None' for x in self.data]
-        backgrounds_list['start_time'] = [x.start if x.name == y.background else 0 for y in self.data
-                                          for x in self.backgrounds]
-        return backgrounds_list
 
     def __str__(self):
         return '\n '.join("{} ({}-{})".format(x.name, x.start, x.stop) for x in self.data)
