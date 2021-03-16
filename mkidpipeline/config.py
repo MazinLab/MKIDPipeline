@@ -72,13 +72,17 @@ def load_task_config(file, use_global_config=True):
     return cfg
 
 
-
-
 def configure_pipeline(pipeline_config):
     """ Load a pipeline config, configuring the pipeline. Any existing configuration will be replaced"""
     global config
     config = mkidcore.config.load(pipeline_config, namespace=None)
     return config
+
+
+def update_paths(d):
+    global config
+    for k, v in d.items():
+        config.update(f'paths.{k}', v)
 
 
 def h5_for_MKIDodd(observing_data_desc):
@@ -124,6 +128,23 @@ class BaseStepConfig(mkidcore.config.ConfigThing):
 
     def _vet_errors(self):
         return []
+
+
+def make_paths(config=None, output_dirs=tuple()):
+
+    if config is None:
+        config = globals()['config']
+
+    paths = set([config.paths.out, config.paths.database, config.paths.tmp]+list(output_dirs))
+
+    for p in filter(os.path.exists, paths):
+        getLogger(__name__).info(f'"{p}" exists, and will be used.')
+
+    for p in filter(lambda p: not os.path.exists(p), paths):
+        if not p:
+            continue
+        getLogger(__name__).info(f'Creating "{p}"')
+        os.makedirs(p, exist_ok=True)
 
 
 class MKIDTimerange(object):
@@ -186,7 +207,7 @@ class MKIDTimerange(object):
         duration = d.pop('duration', None)
         background = d.pop('background', None)
         return cls(name, start, duration=duration, stop=stop, wavecal=d.pop('wavecal', None),
-                   flatcal=d.pop('flatcal', None),background=background, _common=d)
+                   flatcal=d.pop('flatcal', None), background=background, _common=d)
 
     @property
     def timerange(self):
@@ -339,8 +360,8 @@ class MKIDWavedataDescription(object):
     def timeranges(self):
         for o in self.data:
             yield o.timerange
-            for o in self._background_ob:
-                yield o.timerange
+        for o in self._background_ob:
+            yield o.timerange
 
     @property
     def wavelengths(self):
@@ -845,6 +866,10 @@ class MKIDOutputCollection:
                 o.data = data.by_name(o.data)
             except ValueError as e:
                 getLogger(__name__).critical(e)
+
+    def __iter__(self):
+        for o in self.meta:
+            yield o
 
     @property
     def outputs(self):
