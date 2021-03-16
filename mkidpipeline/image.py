@@ -100,7 +100,7 @@ def drizzle(dither, config=None):
     # startt = args.startt
     # intt = args.intt
 
-    form = mkidpipeline.imaging.drizzler.form
+    form = mkidpipeline.steps.drizzler.form
     out = form(dither, mode=cfg.drizzler.mode, rotation_center=cfg.drizzler.rotation_origin,
                wvlMin=dither.out.startw, wvlMax=dither.out.stopw,
                pixfrac= cfg.drizzler.pixfrac, target_radec=cfg.drizzler.target_radec,

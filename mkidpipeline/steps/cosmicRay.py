@@ -3,7 +3,7 @@ import time
 import matplotlib.pyplot as plt
 from mkidpipeline.hdf import photontable as pt
 from scipy.stats import poisson
-import math
+
 import scipy
 from scipy import signal
 
