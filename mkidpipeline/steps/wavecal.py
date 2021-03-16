@@ -71,24 +71,24 @@ class Configuration(object):
     yaml_tag = u'!wavecalconfig'
 
     def __init__(self, configfile=None, start_times=tuple(), exposure_times=tuple(), wavelengths=tuple(),
-                 background_start_times=tuple(), backgrounds_list=tuple(), beammap=None, h5dir='', outdir='', bindir='',
+                 backgrounds=None, beammap=None, h5dir='', outdir='', bindir='',
                  histogram_model_names=('GaussianAndExponential',), bin_width=2, histogram_fit_attempts=3,
                  calibration_model_names=('Quadratic', 'Linear'), dt=500, parallel=True, parallel_prefetch=False,
                  summary_plot=True, templarfile=''):
+        """ backgrounds should be a dict with fully qualified h5 paths to background files. wavelengths are keys.
+        missing backgrounds are fine """
 
         # parse arguments
-        self.background_start_times = list(map(int, background_start_times))
         self.configuration_path = configfile
         self.h5_directory = h5dir
         self.out_directory = outdir
         self.bin_directory = bindir
         self.start_times = list(map(int, start_times))
         self.h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.start_times]
-        self.background_h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.background_start_times]
+        self.backgrounds = {} if backgrounds is None else backgrounds
+
         self.exposure_times = list(map(int, exposure_times))
         self.wavelengths = np.array(wavelengths, dtype=float)
-        self.backgrounds_list = np.zeros(len(self.wavelengths),
-                                    dtype=[('wavelength', 'float'), ('background', '<U11'), ('start_time', 'int')])
 
         # Things with defaults
         self.histogram_model_names = list(histogram_model_names)
@@ -116,17 +116,12 @@ class Configuration(object):
             self.bin_directory = cfg.paths.data
 
             self.start_times = list(map(int, cfg.start_times))
-            self.background_start_times = list(map(int, cfg.background_start_times))
-            try:
-                self.h5_file_names = [os.path.join(self.h5_directory, f) for f in cfg.h5_file_names]
-                self.background_h5_file_names = [os.path.join(self.background_h5_directory, f) for f in cfg.background_h5_file_names]
-            except KeyError:
                 self.h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.start_times]
-                self.background_h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.background_start_times]
 
             self.exposure_times = list(map(int, cfg.exposure_times))
             self.wavelengths = np.array(cfg.wavelengths, dtype=float)
-            self.backgrounds_list = cfg.backgrounds_list
+            self.backgrounds = cfg.backgrounds
+
             # Things with defaults
             self.histogram_model_names = list(cfg.wavecal.fit.histogram_model_names)
             self.bin_width = float(cfg.wavecal.fit.bin_width)
@@ -307,20 +302,6 @@ class Calibrator(object):
             self._obsfiles[wavelength] = photontable.Photontable(self.cfg.h5_file_names[index])
         return self._obsfiles[wavelength]
 
-    def fetch_background(self, wavelength):
-        '''
-        Determines if a given laser has a specified background to remove. Then finds the relevant h5 for that
-        particular background and returns it as an Photontable object.
-
-        :param wavelength: wavelength of laser you want to find the background for
-
-        :return: Photontable
-        '''
-        i = np.where(self.cfg.backgrounds_list['wavelength'] == wavelength)[0][0]
-        t = self.cfg.backgrounds_list['start_time'][i]
-        h5 = os.path.join(self.cfg.h5_directory, str(t) + '.h5')
-        return photontable.Photontable(h5)
-
     def make_histograms(self, pixels=None, wavelengths=None, verbose=False):
         """
         Compute the phase pulse-height histograms for the data specified in the
@@ -351,18 +332,17 @@ class Calibrator(object):
                         photon_list = self.fetch_obsfile(wavelength).getPixelPhotonList(xCoord=pixel[0],
                                                                                         yCoord=pixel[1])
                         # create background phase list if specified
-                        if self.cfg.backgrounds_list['background'][index] != 'None' and\
-                                self.cfg.backgrounds_list['background'][index] != '':
-                            bkgd_photon_list = self.fetch_background(wavelength).getPixelPhotonList(xCoord=pixel[0],
-                                                                                        yCoord=pixel[1])
+                        bkgd_phase_list = None
+                        if self.cfg.backgrounds.get(wavelength, None):
+                            table = photontable.Photontable(self.cfg.backgrounds[wavelength])
+                            bkgd_photon_list = table.getPixelPhotonList(xCoord=pixel[0], yCoord=pixel[1])
                             bkgd_phase_list = bkgd_photon_list['Wavelength']
                             bkgd_phase_list = bkgd_phase_list[bkgd_phase_list < 0]
-                        else:
-                            bkgd_phase_list = None
                     else:
                         table_data = self._shared_tables[index].data
                         photon_list = table_data[table_data['ResID'] == self.solution.beam_map[tuple(pixel)]]
                         #TODO: figure out what to do with the background here
+
                     # check for enough photons
                     if photon_list.size < 2:
                         model.flag = wm.pixel_flags['photon data']
@@ -2707,12 +2687,8 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
             wcfg.register('start_times', [x.start for x in sd.data], update=True)
             wcfg.register('exposure_times', [x.duration for x in sd.data], update=True)
             wcfg.register('wavelengths', [w for w in sd.wavelengths], update=True)
-            if sd.backgrounds is not None:
-                wcfg.register('background_start_times', [x.start for x in sd.backgrounds], update=True)
-            else:
-                wcfg.register('background_start_times', [], update=True)
-            wcfg.register('backgrounds', sd.backgrounds)
-            wcfg.register('backgrounds_list', sd.backgrounds_list)
+            wcfg.register('backgrounds', sd.backgrounds, update=True)
+
             if ncpu is not None:
                 wcfg.update('ncpu', ncpu)
             cal = Calibrator(wcfg, solution_name=sf)
