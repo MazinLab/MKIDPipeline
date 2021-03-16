@@ -4,21 +4,13 @@ Author:  Isabel Lipartito and Clarissa Rizzo  Date: January 17, 2018
 Identify synchronous photons
 '''
 
-import sys,os
-import tables
 import numpy as np
 import matplotlib.pyplot as plt
-import pyximport; pyximport.install()
-###import mkidpipeline.calibration.ts_binner as ts_binner
-from utils import utils
+# import pyximport; pyximport.install()
+
 from mkidpipeline.hdf.photontable import Photontable
-import inspect
-from interval import interval, inf, imath
+from interval import interval
 
-
-from scipy.optimize import curve_fit
-from scipy.stats import expon
-import time
 
 
 class Cosmic:

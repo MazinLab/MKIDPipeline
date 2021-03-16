@@ -74,7 +74,7 @@ class Configuration(object):
             self.wvl_bin_edges = cfg.wvl_bin_edges
             self.energyStart = (c.h * c.c) / (self.wvlStart * 10**(-10) * c.e)
             self.energyStop = (c.h * c.c) / (self.wvlStop * 10**(-10) * c.e)
-            sol = mkidpipeline.calibration.wavecal.Solution(cfg.wavcal)
+            sol = mkidpipeline.steps.wavecal.Solution(cfg.wavcal)
             r, resid = sol.find_resolving_powers(cache=True)
             self.r_list = np.nanmedian(r, axis=0)
             self.energyBinWidth = ((self.energyStart + self.energyStop)/2)/(np.median(self.r_list) * 5.0)
@@ -307,7 +307,7 @@ class SpectralCalibrator(object):
                     derotate=True
                 getLogger(__name__).info('using wavelength range {} - {}'.format(self.wvl_bin_edges[wvl] / 10,
                                                             self.wvl_bin_edges[wvl + 1] / 10))
-                drizzled = mkidpipeline.drizzler.form(self.data, mode='spatial', wvlMin=self.wvl_bin_edges[wvl] / 10,
+                drizzled = mkidpipeline.steps.drizzler.form(self.data, mode='spatial', wvlMin=self.wvl_bin_edges[wvl] / 10,
                                                       wvlMax=self.wvl_bin_edges[wvl + 1] / 10, pixfrac=0.5,
                                                       wcs_timestep=1, exp_timestep=1,
                                                       exclude_flags=pixelflags.PROBLEM_FLAGS, usecache=False, ncpu=1,

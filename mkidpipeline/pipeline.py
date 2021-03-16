@@ -6,7 +6,9 @@ import mkidpipeline
 import mkidpipeline.hdf.photontable
 import mkidpipeline.config as config
 import mkidpipeline.steps
-
+from mkidpipeline.steps import *
+from mkidpipeline.steps import wavecal
+from mkidpipeline.hdf import bin2hdf
 
 log = getLogger('mkidpipeline')
 

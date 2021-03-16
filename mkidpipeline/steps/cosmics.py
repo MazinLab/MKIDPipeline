@@ -16,7 +16,6 @@ TODO: Finalize best way to incorporate as pipeline step (flag photons, list of C
 import numpy as np
 import os
 from mkidpipeline.hdf.photontable import Photontable
-import argparse
 from scipy.stats import poisson
 from scipy import signal
 import matplotlib.pyplot as plt
@@ -28,7 +27,7 @@ MEC_LASER_CAL_WAVELENGTH_RANGE = [850, 1375]
 DARKNESS_LASER_CAL_WAVELENGTH_RANGE = [808, 1310]
 BF_LASER_CAL_WAVELENGTH_RANGE = DARKNESS_LASER_CAL_WAVELENGTH_RANGE
 
-log = pipelinelog.getLogger('mkidpipeline.calibration.cosmiccal', setup=False)
+log = pipelinelog.getLogger('mkidpipeline.steps.cosmiccal', setup=False)
 
 
 def setup_logging(tologfile='', toconsole=True, time_stamp=None):

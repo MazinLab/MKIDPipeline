@@ -43,7 +43,7 @@ from mkidcore.utils import query
 import mkidcore.pixelflags as pixelflags
 import mkidpipeline.steps.badpix as badpix
 
-DEFAULT_CONFIG_FILE = pkg.resource_filename('mkidpipeline.calibration.flatcal', 'flatcal.yml')
+DEFAULT_CONFIG_FILE = pkg.resource_filename('mkidpipeline.steps.flatcal', 'flatcal.yml')
 
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
