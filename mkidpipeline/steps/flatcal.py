@@ -142,11 +142,6 @@ class FlatCalibrator:
             getLogger(__name__).info("Writing detailed plots, go get some tea.")
             getLogger(__name__).info('Plotting Weights by Wvl Slices at WeightsWvlSlices_{0}'.format(self.start_time))
             self.plotWeightsWvlSlices()
-            getLogger(__name__).info(
-                'Plotting Weights by Pixel against the Wavelength Solution at WeightsByPixel_{0}'.format(
-                    self.start_time))
-            self.plotWeightsByPixelWvlCompare()
-
         getLogger(__name__).info('Done')
 
     def calculate_weights(self):
@@ -268,73 +263,12 @@ class FlatCalibrator:
     def make_summary(self):
         generate_summary_plot(flatsol=self.save_name, save_plot=True)
 
-    def plotFitbyPixel(self, pixbox=50, poly_power=2):
-        """
-        Plot weights of each wavelength bin for every single pixel
-        Makes a plot of wavelength vs weights, twilight spectrum, and wavecal solution for each pixel
-        """
-        self.plotName = 'FitByPixel_{0}'.format(self.start_time)
-        self._setupPlots()
-        # path to your wavecal solution file
-        matplotlib.rcParams['font.size'] = 3
-        wavelengths = self.wavelengths
-        nCubes = len(self.flat_weights)
-        if pixbox == None:
-            xrange = self.xpix
-            yrange = self.ypix
-        else:
-            xrange = pixbox
-            yrange = pixbox
-        for iRow in range(xrange):
-            for iCol in range(yrange):
-                weights = self.flat_weights[iRow, iCol, :].data
-                errors = self.flat_weight_err[iRow, iCol, :].data
-                if not np.any(self.flat_flags[iRow, iCol, :]):
-                    if self.iPlot % self.nPlotsPerPage == 0:
-                        self.fig = plt.figure(figsize=(10, 10), dpi=100)
-                    ax = self.fig.add_subplot(self.nPlotsPerCol, self.nPlotsPerRow, self.iPlot % self.nPlotsPerPage + 1)
-                    ax.scatter(wavelengths, weights, label='weights', alpha=.7, color='green')
-                    ax.errorbar(wavelengths, weights, yerr=errors, label='weights', color='k', fmt='o')
-                    ax.set_ylim(min(weights) - 2 * np.nanstd(weights), max(weights) + 2 * np.nanstd(weights))
-                    wavelengths_expanded = np.linspace(wavelengths.min(), wavelengths.max(), 1000)
-                    weights_expanded = np.poly1d(np.polyfit(wavelengths, weights, poly_power, w=1 / errors ** 2))(
-                        wavelengths_expanded)
-                    ax.plot(wavelengths_expanded, weights_expanded)
-                    ax.set_title('p %d,%d' % (iRow, iCol))
-                    ax.set_ylabel('weight')
-                    ax.set_xlabel(r'$\lambda$ ($\AA$)')
-                    if self.iPlot % self.nPlotsPerPage == self.nPlotsPerPage - 1 or (
-                            iRow == self.xpix - 1 and iCol == self.ypix - 1):
-                        pdf = PdfPages(os.path.join(self.out_directory, 'temp.pdf'))
-                        pdf.savefig(self.fig)
-                    self.iPlot += 1
-                    # Put a plot of twilight spectrums for this pixel
-                    if self.iPlot % self.nPlotsPerPage == 0:
-                        self.fig = plt.figure(figsize=(10, 10), dpi=100)
-                    ax = self.fig.add_subplot(self.nPlotsPerCol, self.nPlotsPerRow, self.iPlot % self.nPlotsPerPage + 1)
-                    spectrum = self.spectral_cube_in_counts[iRow, iCol, :].data
-                    ax.scatter(wavelengths, spectrum, label='spectrum', alpha=.7, color='green')
-                    ax.set_ylim(min(spectrum) - 2 * np.nanstd(spectrum), max(spectrum) + 2 * np.nanstd(spectrum))
-                    ax.set_title('p %d,%d' % (iRow, iCol))
-                    ax.set_ylabel('spectrum')
-                    ax.set_xlabel(r'$\lambda$ ($\AA$)')
-                    if self.iPlot % self.nPlotsPerPage == self.nPlotsPerPage - 1 or (
-                            iRow == self.xpix - 1 and iCol == self.ypix - 1):
-                        pdf = PdfPages(os.path.join(self.out_directory, 'temp.pdf'))
-                        pdf.savefig(self.fig)
-                        pdf.close()
-                        self._mergePlots()
-                        self.saved = True
-                        plt.close('all')
-                    self.iPlot += 1
-        self._closePlots()
-
     def plotWeightsWvlSlices(self):
         """
         Plot weights in images of a single wavelength bin (wavelength-sliced images)
         """
         self.plotName = 'WeightsWvlSlices_{0}'.format(self.start_time)
-        self._setupPlots()
+        self._setup_plots()
         matplotlib.rcParams['font.size'] = 4
         wavelengths = self.wavelengths
         for iWvl, wvl in enumerate(wavelengths):
@@ -374,7 +308,7 @@ class FlatCalibrator:
                 self.iPlot += 1
         self._closePlots()
 
-    def _setupPlots(self):
+    def _setup_plots(self):
         """
         Initialize plotting variables
         """
