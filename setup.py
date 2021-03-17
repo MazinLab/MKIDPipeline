@@ -19,15 +19,11 @@ gen_photon_list_extension = Extension(
 
 
 def compile_and_install_software():
-    """Used the subprocess module to compile/install the C software."""
-    src_path = './mkidpipeline/hdf/'
-    try:
-        subprocess.check_call('/usr/local/hdf5/bin/h5cc -shlib -pthread -O3 -o bin2hdf bin2hdf.c',
+    """Used the subprocess module to compile/install the C software.
+    e.g. subprocess.check_call('/usr/local/hdf5/bin/h5cc -shlib -pthread -O3 -o bin2hdf bin2hdf.c',
                               cwd=src_path, shell=True)
-
-    except Exception as e:
-        print(str(e))
-        #raise e don't raise because on some machines h5cc might not exist.
+    """
+    pass
 
 
 class CustomInstall(install, object):
