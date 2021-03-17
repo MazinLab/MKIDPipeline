@@ -79,8 +79,8 @@ class Configuration(object):
     """Configuration class for the wavelength calibration analysis."""
     yaml_tag = u'!wavecalconfig'
 
-    def __init__(self, configfile=None, start_times=tuple(), wavelengths=tuple(),
-                 backgrounds=None, beammap=None, h5dir='', outdir='', bindir='',
+    def __init__(self, configfile=None, h5s=tuple(), wavelengths=tuple(),
+                 backgrounds=None, beammap=None, outdir='',
                  histogram_model_names=('GaussianAndExponential',), bin_width=2, histogram_fit_attempts=3,
                  calibration_model_names=('Quadratic', 'Linear'), dt=500, parallel=True, parallel_prefetch=False,
                  summary_plot=True, templarfile='', max_count_rate=2000):
@@ -91,9 +91,7 @@ class Configuration(object):
 
         # parse arguments
         self.configuration_path = configfile
-        self.h5_directory = h5dir
         self.out_directory = outdir
-        self.start_times = list(map(int, start_times))
         self.wavelengths = list(map(float, wavelengths))
 
         self.backgrounds = {} if backgrounds is None else backgrounds
@@ -116,8 +114,6 @@ class Configuration(object):
             self.beammap = cfg.beammap
             # load in the parameters
             self.beam_map_path = cfg.beammap.file
-
-            self.h5_directory = cfg.paths.out
             self.out_directory = cfg.paths.database
 
             # Things with defaults
@@ -138,8 +134,7 @@ class Configuration(object):
         else:
             self.beammap = beammap if beammap is not None else Beammap(default='MEC')
 
-        self.h5_file_names = {wave: os.path.join(self.h5_directory, f"{t:.0f}.h5")
-                              for wave, t in zip(self.wavelengths, self.start_times)}
+        self.h5_file_names = {wave: h5 for wave, h5 in zip(self.wavelengths, h5s)}
 
         for model in self.histogram_model_names:
             assert issubclass(getattr(wm, model), wm.PartialLinearModel), \
@@ -2683,8 +2678,8 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
             if ncpu is not None:
                 wcfg.update('ncpu', ncpu)
 
-            cfg = Configuration(wcfg, start_times=[x.start for x in sd.data],
-                                wavelengths=[w for w in sd.wavelengths], backgrounds=sd.backgrounds)
+            cfg = Configuration(wcfg, h5s=[x.h5 for x in sd.data], wavelengths=[w for w in sd.wavelengths],
+                                backgrounds=sd.backgrounds)
             cal = Calibrator(cfg, solution_name=sf)
             cal.run(**kwargs)
             solutions.append(cal.solution)
