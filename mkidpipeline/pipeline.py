@@ -9,6 +9,7 @@ import mkidpipeline.steps
 from mkidpipeline.steps import *
 from mkidpipeline.steps import wavecal
 from mkidpipeline.hdf import bin2hdf
+import mkidcore.config
 
 log = getLogger('mkidpipeline')
 
@@ -17,6 +18,47 @@ for info in pkgutil.iter_modules(mkidpipeline.steps.__path__):
     mod = import_module(f"mkidpipeline.steps.{info.name}")
     globals()[info.name] = mod
     PIPELINE_STEPS[info.name] = mod
+
+
+class BaseConfig(mkidcore.config.ConfigThing):
+    REQUIRED_KEYS = (('ncpu', 1, 'number of cpus'),
+                     ('verbosity', 0, 'level of verbosity'),
+                     ('flow', ('wavecal','metadata','flatcal','cosmiccal','photcal','lincal'), 'Calibration steps to apply')
+                      )
+
+    def __init__(self):
+        super().__init__()
+        for k, v, c in self.REQUIRED_KEYS:
+            self.register(k, v, comment=c, update=False)
+
+    # @classmethod
+    # def from_yaml(cls, loader, node):
+    #     ret = super().from_yaml(loader, node)
+    #     errors = ret._verify_attribues() + ret._vet_errors()
+    #
+    #     if errors:
+    #         raise ValueError(f'{ret.yaml_tag} collected errors: \n' + '\n\t'.join(errors))
+    #     return ret
+    #
+    # def _verify_attribues(self):
+    #     missing = [k for k in self.REQUIRED_KEYS if k not in self]
+    #     return ['Missing required keys: ' + ', '.join(missing)] if missing else []
+    #
+    # def _vet_errors(self):
+    #     return []
+
+
+def generate_default_config():
+    cfg = BaseConfig()
+    for name, step in PIPELINE_STEPS.items():
+        try:
+            cfg.register(name, step.StepConfig(), update=True)
+        except AttributeError:
+            getLogger(__name__).warning(f'Pipeline step mkidpipeline.steps.{name} does not '
+                                        f'support automatic configuration discovery.')
+    cfg.register('beammap', mkidcore.objects.Beammap(default='MEC'))
+    cfg.register('instrument', mkidcore.instruments.InstrumentInfo('MEC'))
+    return cfg
 
 
 def wavecal_apply(o):
