@@ -48,7 +48,11 @@ DEFAULT_CONFIG_FILE = pkg.resource_filename('mkidpipeline.steps.flatcal', 'flatc
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!flatcal_cfg'
-    REQUIRED_KEYS = ('count_rate_cutoff', 'trim_chunks_fraction', 'chunk_time', 'power', 'plots')
+    REQUIRED_KEYS = (('count_rate_cutoff',  0, 'TODO'),
+                     ('trim_chunks_fraction',  0, 'TODO'),
+                     ('chunk_time', 0, 'TODO'),
+                     ('power',  0, 'TODO'),
+                     ('plots','summary','TODO'))
     OPTIONAL_KEYS = tuple()
 
     def _vet_errors(self):
