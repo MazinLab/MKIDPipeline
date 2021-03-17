@@ -1,6 +1,3 @@
-#!/opt/anaconda3/envs/pipeline/bin/python
-import tempfile
-import subprocess
 import os
 import tables
 import time
@@ -58,7 +55,7 @@ def estimate_ram_gb(directory, start, inttime):
     files = [os.path.join(directory, '{}.bin'.format(t)) for t in range(int(start-1), int(np.ceil(start)+inttime+1))]
     files = filter(os.path.exists, files)
     n_max_photons = int(np.ceil(sum([os.stat(f).st_size for f in files])/PHOTON_BIN_SIZE_BYTES))
-    return n_max_photons*PHOTON_BIN_SIZE_BYTES/1024/1024/1024
+    return n_max_photons*PHOTON_BIN_SIZE_BYTES/1024**3
 
 
 def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None, shuffle=True, bitshuffle=False,
@@ -173,58 +170,6 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None
 
     h5file.close()
     getLogger(__name__).debug('Done with {}'.format(cfg.h5file))
-
-
-def build_bin2hdf(cfg, exc, polltime=.1):
-    tfile = tempfile.NamedTemporaryFile('w', suffix='.cfg', delete=False)
-    cfg.write(tfile)
-    tfile.close()
-
-    getLogger(__name__).debug('Wrote temp file for bin2hdf {}'.format(tfile.name))
-
-    proc = psutil.Popen((exc, tfile.name),
-                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                        shell=False, cwd=None, env=None, creationflags=0)
-    tic = time.time()
-    while True:
-        try:
-            out, err = proc.communicate(timeout=polltime)
-            if out:
-                getLogger(__name__).info(out.decode('utf-8'))
-            if err:
-                getLogger(__name__).error(err.decode('utf-8'))
-        except subprocess.TimeoutExpired:
-            if time.time() - tic > 5:
-                tic = time.time()
-                getLogger(__name__).debug('Waiting on bin2hdf (pid={}) for {}'.format(proc.pid, cfg.h5file))
-
-        if proc.poll() is not None:
-            break
-
-    if exc == __file__:
-        getLogger(__name__).info('Dummy run done')
-        return
-
-    _postprocess(cfg)
-
-    getLogger(__name__).info('Postprocessing complete, cleaning temp files')
-    try:
-        os.remove(tfile.name)
-    except IOError:
-        getLogger(__name__).debug('Failed to delete temp file {}'.format(tfile.name))
-
-
-def _postprocess(cfg, event=None):
-    time.sleep(.1)
-    _add_header(cfg)
-    time.sleep(.1)
-    if cfg.starttime < 1518222559:
-        fix_timestamp_bug(cfg.h5file)
-    time.sleep(.1)
-    # Prior to Ben's speedup of bin2hdf.c the consolidatePhotonTablesCmd step would need to be here
-    _index_hdf(cfg)
-    if event is not None:
-        event.set()
 
 
 def _correct_timestamps(timestamps):
@@ -417,10 +362,8 @@ class Bin2HdfConfig(object):
 
 
 class HDFBuilder(object):
-    def __init__(self, cfg, force=False, executable_path=pkg.resource_filename('mkidpipeline.hdf', 'bin2hdf'),
-                 **kwargs):
+    def __init__(self, cfg, force=False, **kwargs):
         self.cfg = cfg
-        self.exc = executable_path
         self.done = False
         self.force = force
         self.kwargs = kwargs
@@ -452,20 +395,16 @@ class HDFBuilder(object):
                 getLogger(__name__).info('H5 {} already built. Remake not requested. Done.'.format(self.cfg.h5file))
                 self.done = True
 
-    def run(self, polltime=0.1, usepytables=True, **kwargs):
-        """kwargs is passed on to build_pytables or buildbin2hdf"""
+    def run(self, **kwargs):
+        """kwargs is passed on to build_pytables"""
         self.kwargs.update(kwargs)
         self.handle_existing()
         if self.done:
             return
 
         tic = time.time()
-        if usepytables:
-            build_pytables(self.cfg, **self.kwargs)
-        else:
-            build_bin2hdf(self.cfg, self.exc, polltime=polltime)
+        build_pytables(self.cfg, **self.kwargs)
         self.done = True
-
         getLogger(__name__).info('Created {} in {:.0f}s'.format(self.cfg.h5file, time.time()-tic))
 
 
@@ -485,9 +424,8 @@ def gen_configs(timeranges, config=None):
 
     b2h_configs = []
     for start_t, end_t in timeranges:
-        bc = Bin2HdfConfig(datadir=_get_dir_for_start(cfg.paths.data, start_t),
-                           beammap=cfg.beammap, outdir=cfg.paths.out,
-                           starttime=start_t, inttime=end_t - start_t,
+        bc = Bin2HdfConfig(datadir=_get_dir_for_start(cfg.paths.data, start_t), beammap=cfg.beammap,
+                           outdir=cfg.paths.out, starttime=start_t, inttime=end_t - start_t,
                            include_baseline=cfg.include_baseline)
         b2h_configs.append(bc)
 
@@ -520,17 +458,3 @@ def buildtables(timeranges, config=None, ncpu=1, asynchronous=False, remake=Fals
         pool.map(runbuilder, builders)
         pool.close()
         pool.join()
-
-
-def tests(file):
-    """tests that should be good on a h5 file"""
-    import h5py
-    t = h5py.File(file, 'r')
-    badrids = np.array(t['BeamMap']['Map'])[np.array(t['BeamMap']['Flag']) > 0].ravel()
-    rid = np.array(t['Photons']['PhotonTable']['ResID'])
-    assert np.isin(rid, badrids).sum()==0
-
-
-if __name__ == '__main__':
-    """run as a dummy for testing"""
-    print('Pretending to run bin2hdf on ' + sys.argv[1])
