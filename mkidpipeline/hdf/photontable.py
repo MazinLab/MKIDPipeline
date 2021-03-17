@@ -943,7 +943,6 @@ class Photontable(object):
             return {'image': image, 'effIntTime': effIntTime, 'spec_weights': masterPhotonList['SpecWeight'],
                     'noise_weights': masterPhotonList['NoiseWeight']}
 
-
     def getCircularAperturePhotonList(self, centerXCoord, centerYCoord, radius,
                                       firstSec=0, integrationTime=-1, wvlStart=None,
                                       wvlStop=None, flagToUse=0):

@@ -58,7 +58,7 @@ spectralcal: !spectralcal_cfg
   #optional
   interpolation: linear  # linear | cubic | nearest
 
-flatcal: !configdict
+flatcal: !flatcal_cfg
   method: 'Laser' #either 'White' for a white for a white light calibration or 'Laser' for a laser calibration
   #This section provides the parameters specific to the flat calibration function
   rate_cutoff: 20000 #Count Rate Cutoff in inverse seconds (number)
@@ -68,9 +68,6 @@ flatcal: !configdict
   #Flatcal will calculate weights over chunk_time*nchunks (number of chunks) and median-average them
   chunk_time: 10
   nchunks: 6
-  dark_data:
-    start_times: 1576498833
-    int_times: 30
   #power of the polynomial to fit - recommended to not go above 2
   power: 1
   plots: summary  # None|summary|all  (all will add ~30 min to the process!)

@@ -23,8 +23,12 @@ for info in pkgutil.iter_modules(mkidpipeline.steps.__path__):
 class BaseConfig(mkidcore.config.ConfigThing):
     REQUIRED_KEYS = (('ncpu', 1, 'number of cpus'),
                      ('verbosity', 0, 'level of verbosity'),
-                     ('flow', ('wavecal','metadata','flatcal','cosmiccal','photcal','lincal'), 'Calibration steps to apply')
-                      )
+                     ('flow', ('wavecal','metadata','flatcal','cosmiccal','photcal','lincal'), 'Calibration steps to apply'),
+                     ('paths.dithers', '/darkdata/MEC/logs/','dither log location'),
+                     ('paths.data', '/darkdata/ScienceData/Subaru/','bin file parent folder'),
+                     ('paths.database', '/work/temp/database/', 'calibrations will be retrieved/stored here'),
+                     ('paths.out', '/work/temp/out/', 'root of output'),
+                     ('paths.tmp', '/work/temp/scratch/', 'use for data intensive temp files'))
 
     def __init__(self):
         super().__init__()
