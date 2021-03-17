@@ -808,7 +808,6 @@ class MKIDOutput(object):
                 if k not in self.__dict__:
                     self.__dict__[k] = _extra[k]
 
-
     @property
     def wants_image(self):
         return self.kind == 'image'
@@ -840,12 +839,13 @@ class MKIDOutput(object):
     def output_file(self):
         global config
         if not self.filename:
-            # TODO generate the filename programatically if one isn't specified
             raise ValueError('No output filename for output, it may be time to add code for a default')
         if os.pathsep in self.filename:
             return self.filename
         else:
-            return os.path.join(config.paths.out, self.filename)
+            return os.path.join(config.paths.out,
+                                self.data if isinstance(self.data, str) else self.data.name,
+                                self.filename)
 
 
 class MKIDOutputCollection:
@@ -865,7 +865,7 @@ class MKIDOutputCollection:
             try:
                 o.data = data.by_name(o.data)
             except ValueError as e:
-                getLogger(__name__).critical(e)
+                getLogger(__name__).critical(f'Unable to find data description for "{o.data}"')
 
     def __iter__(self):
         for o in self.meta:
