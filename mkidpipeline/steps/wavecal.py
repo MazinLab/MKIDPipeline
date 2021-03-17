@@ -24,16 +24,8 @@ from mkidcore.objects import Beammap
 from mkidcore import pixelflags
 import astropy.constants
 import pkg_resources as pkg
-
-log = pipelinelog.getLogger('mkidpipeline.calibration.wavecal', setup=False)
-
-if sys.version_info.major==3:
-    import progressbar as pb
-    import mkidpipeline.hdf.photontable as photontable
-    from mkidpipeline.hdf import bin2hdf
-
-else:
-    log.warning("Using python 2. Only Configuration and Solution classes supported")
+from mkidpipeline.hdf import photontable
+log = pipelinelog.getLogger('mkidpipeline.steps.wavecal', setup=False)
 
 import mkidpipeline.utils.wavecal_models as wm
 
