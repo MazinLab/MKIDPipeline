@@ -5,9 +5,7 @@ import hashlib
 from datetime import datetime
 import multiprocessing as mp
 import pkg_resources as pkg
-import astropy.units as units
 import json
-from astropy.coordinates import SkyCoord
 from collections import namedtuple
 import ast
 
@@ -15,6 +13,7 @@ import mkidcore.config
 from mkidcore.corelog import getLogger, create_log, MakeFileHandler
 from mkidcore.utils import getnm, derangify
 from mkidcore.objects import Beammap
+from mkidpipeline.hdf.photontable import Photontable
 
 #TODO this is a placeholder to help integrating metadata
 InstrumentInfo = namedtuple('InstrumentInfo', ('beammap', 'platescale'))
@@ -150,6 +149,25 @@ def make_paths(config=None, output_dirs=tuple()):
             continue
         getLogger(__name__).info(f'Creating "{p}"')
         os.makedirs(p, exist_ok=True)
+
+
+class H5Subset:
+    def __init__(self, timerange, duration=None, start=None):
+        self.timerange = timerange
+        self.h5start = int(timerange.start)
+        self.start = float(self.h5start) if start is None else float(start)
+        self.duration = timerange.duration if duration is None else float(duration)
+
+    @property
+    def photontable(self):
+        return Photontable(self.timerange.h5)
+
+    @property
+    def first_second(self):
+        return self.start-self.h5start
+
+    def __str__(self):
+        return f'{os.path.basename(self.timerange.h5)} @ {self.start} for {self.duration}s'
 
 
 class MKIDTimerange(object):
