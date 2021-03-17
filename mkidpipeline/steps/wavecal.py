@@ -60,7 +60,6 @@ def setup_logging(tologfile='', toconsole=True, time_stamp=None):
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!wavecal_cfg'
-    STEP_NAME = 'wavecal'
     REQUIRED_KEYS = (('plots', 'summary', 'summary or all'),
                      ('histogram_models', ('GaussianAndExponential',), 'model types from wavecal_models.py to attempt to fit to the phase peak histograms'),
                      ('bin_width', 2, 'minimum bin width for the phase histogram. Larger widths will be used for low photon  count pixels (number)'),
