@@ -66,7 +66,7 @@ from mkidcore.config import yaml, StringIO
 from mkidcore.instruments import compute_wcs_ref_pixel
 
 import SharedArray
-from mkidpipeline.steps import linearitycal
+from mkidpipeline.steps import lincal
 import tables
 import tables.parameters
 import tables.file
@@ -1819,7 +1819,7 @@ class Photontable(object):
                 continue
             photon_list = self.getPixelPhotonList(xCoord=row, yCoord=column)
             time_stamps = photon_list['Time']
-            weights = linearitycal.calculateWeights(time_stamps, dt, tau, pixel=(row, column))
+            weights = lincal.calculate_weights(time_stamps, dt, tau, pixel=(row, column))
             self.applySpecWeight(resID, weights)
             bari += 1
             bar.update(bari)
