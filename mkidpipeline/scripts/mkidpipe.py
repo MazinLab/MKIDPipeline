@@ -1,10 +1,15 @@
 import argparse
 import os
-import shutil
-import mkidpipeline.pipeline as pipe
-import mkidpipeline.config as config
+
 import sys
 import pkg_resources as pkg
+import shutil
+
+import mkidcore
+import mkidcore.config
+from mkidcore.corelog import getLogger
+import mkidpipeline.pipeline as pipe
+import mkidpipeline.config as config
 
 if __name__ == "__main__":
     # read in command line arguments
@@ -32,16 +37,12 @@ if __name__ == "__main__":
 
     config.configure_pipeline(args.pipe_cfg)
     config.load_data_description(args.data_cfg)
-    config.load_output_description(args.out_cfg)
+    output = config.load_output_description(args.out_cfg)
 
     if args.init:
-        config.make_paths()
+        config.make_paths(output_dirs=[os.path.dirname(o.output_file) for o in output])
 
     if args.vet:
         sys.exit(0)
 
 
-def generate_default_pipeline_config():
-    cfg = mkidcore.cofig.ConfigThing()
-    for name, step in pipe.PIPELINE_STEPS.items():
-        cfg.register(step.name, step.StepConfig())
