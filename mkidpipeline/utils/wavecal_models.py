@@ -23,7 +23,7 @@ import mkidcore.corelog as pipelinelog
 PLANK_CONSTANT_EVS = astropy.constants.h.to('eV s').value
 SPEED_OF_LIGHT_NMS = astropy.constants.c.to('nm/s').value
 
-log = pipelinelog.getLogger('mkidpipeline.calibration.wavecal_models', setup=False)
+log = pipelinelog.getLogger('mkidpipeline.utils.wavecal_models', setup=False)
 
 pixel_flags = {
     "good histogram": 0,

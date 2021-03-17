@@ -349,7 +349,7 @@ class Canvas(object):
 
         self.xpix = ob.beammap.ncols
         self.ypix = ob.beammap.nrows
-        self.vPlateScale = ob.instrument_info.platescale.to(u.deg).value
+        self.vPlateScale = ob.platescale.to(u.deg).value
         self.centerRA = coords.ra.deg
         self.centerDec = coords.dec.deg
 

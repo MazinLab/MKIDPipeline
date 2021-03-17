@@ -72,10 +72,17 @@ def load_task_config(file, use_global_config=True):
     return cfg
 
 
-def configure_pipeline(*args, **kwargs):
+def configure_pipeline(pipeline_config):
+    """ Load a pipeline config, configuring the pipeline. Any existing configuration will be replaced"""
     global config
-    config = mkidcore.config.load(*args, **kwargs)
+    config = mkidcore.config.load(pipeline_config, namespace=None)
     return config
+
+
+def update_paths(d):
+    global config
+    for k, v in d.items():
+        config.update(f'paths.{k}', v)
 
 
 def h5_for_MKIDodd(observing_data_desc):
@@ -105,6 +112,11 @@ def spectralcal_id(spectralreference_id, spectralcal_cfg=None):
 
 
 class BaseStepConfig(mkidcore.config.ConfigThing):
+    def __init__(self):
+        super().__init__()
+        for k,v,c in self.REQUIRED_KEYS:
+            self.register(k, v, comment=c, update=False)
+
     @classmethod
     def from_yaml(cls, loader, node):
 
@@ -123,10 +135,27 @@ class BaseStepConfig(mkidcore.config.ConfigThing):
         return []
 
 
+def make_paths(config=None, output_dirs=tuple()):
+
+    if config is None:
+        config = globals()['config']
+
+    paths = set([config.paths.out, config.paths.database, config.paths.tmp]+list(output_dirs))
+
+    for p in filter(os.path.exists, paths):
+        getLogger(__name__).info(f'"{p}" exists, and will be used.')
+
+    for p in filter(lambda p: not os.path.exists(p), paths):
+        if not p:
+            continue
+        getLogger(__name__).info(f'Creating "{p}"')
+        os.makedirs(p, exist_ok=True)
+
+
 class MKIDTimerange(object):
     yaml_tag = u'!ob'
 
-    def __init__(self, name, start, duration=None, stop=None, _common=None, wavecal=None, flatcal=None, background=None):
+    def __init__(self, name, start, duration=None, stop=None, _common=None, background=None):
 
         if _common is not None:
             self.__dict__.update(_common)
@@ -137,18 +166,16 @@ class MKIDTimerange(object):
             raise ValueError('Must only specify stop or duration')
         if duration is not None and duration > 43200:
             raise ValueError('Specified duration is longer than 12 hours!')
-        self.start = int(start)
+        self.start = start #int(start)
 
         if duration is not None:
-            self.stop = self.start + int(np.ceil(duration))
+            self.stop = self.start + duration #int(np.ceil(duration))
 
         if stop is not None:
-            self.stop = int(np.ceil(stop))
-
+            self.stop = stop #int(np.ceil(stop))
 
         if self.stop < self.start:
             raise ValueError('Stop ({}) must come after start ({})'.format(self.stop,self.start))
-
 
         self.name = str(name)
         self.background = str(background)
@@ -161,13 +188,11 @@ class MKIDTimerange(object):
         return datetime.utcfromtimestamp(self.start)
 
     @property
-    def instrument_info(self):
-        #TODO remove or sync this with the metadata in the H5 files
-        return InstrumentInfo(beammap=self.beammap, platescale=config.instrument.platescale * units.mas)
+    def platescale(self):
+        return config.instrument.nominal_platescale_mas
 
     @property
     def beammap(self):
-        #TODO need to move beammap from pipe.yml to data.yml
         return config.beammap
 
     @property
@@ -183,7 +208,7 @@ class MKIDTimerange(object):
         duration = d.pop('duration', None)
         background = d.pop('background', None)
         return cls(name, start, duration=duration, stop=stop, wavecal=d.pop('wavecal', None),
-                   flatcal=d.pop('flatcal', None),background=background, _common=d)
+                   flatcal=d.pop('flatcal', None), background=background, _common=d)
 
     @property
     def timerange(self):
@@ -198,65 +223,17 @@ class MKIDTimerange(object):
         return h5_for_MKIDodd(self)
 
 
-class MKIDObservation(object):
+class MKIDObservation(MKIDTimerange):
     """requires keys name, wavecal, flatcal, wcscal, and all the things from ob"""
     yaml_tag = u'!sob'
-    #TODO make subclass of MKIDTimerange, keep in sync for now
+
     def __init__(self, name, start, duration=None, stop=None, wavecal=None, flatcal=None, speccal=None, wcscal=None,
-                 _common=None):
-
-        if _common is not None:
-            self.__dict__.update(_common)
-
-        if duration is None and stop is None:
-            raise ValueError('Must specify stop or duration')
-        if duration is not None and stop is not None:
-            raise ValueError('Must only specify stop or duration')
-        # self.start = int(start)
-        #
-        # if duration is not None:
-        #     self.stop = self.start + int(np.ceil(duration))
-        #
-        # if stop is not None:
-        #     self.stop = int(np.ceil(stop))
-
-        self.start = start
-        if duration is not None:
-            self.stop = self.start + duration
-
-        if stop is not None:
-            self.stop = stop
-
-        if self.stop < self.start:
-            raise ValueError('Stop ({}) must come after start ({})'.format(self.stop,self.start))
-
+                 background=None, _common=None):
+        super().__init__(name, start, duration=duration, stop=stop, _common=_common, background=background)
         self.wavecal = wavecal
         self.flatcal = flatcal
         self.wcscal = wcscal
         self.speccal = speccal
-
-        self.name = str(name)
-
-    def __str__(self):
-        return '{} t={}:{}s'.format(self.name, self.start, self.duration)
-
-    @property
-    def date(self):
-        return datetime.utcfromtimestamp(self.start)
-
-    @property
-    def instrument_info(self):
-        #TODO remove or sync this with the metadata in the H5 files
-        return InstrumentInfo(beammap=self.beammap, platescale=config.instrument.platescale * units.mas)
-
-    @property
-    def beammap(self):
-        #TODO need to move beammap from pipe.yml to data.yml
-        return config.beammap
-
-    @property
-    def duration(self):
-        return self.stop-self.start
 
     @classmethod
     def from_yaml(cls, loader, node):
@@ -268,18 +245,6 @@ class MKIDObservation(object):
         return cls(name, start, duration=duration, stop=stop, wavecal=d.pop('wavecal', None),
                    flatcal=d.pop('flatcal', None), wcscal=d.pop('wcscal', None), speccal=d.pop('speccal', None),
                    _common=d)
-
-    @property
-    def timerange(self):
-        return self.start, self.stop
-
-    @property
-    def timeranges(self):
-        return self.timerange,
-
-    @property
-    def h5(self):
-        return h5_for_MKIDodd(self)
 
     @property
     def metadata(self):
@@ -308,38 +273,40 @@ class MKIDWavedataDescription(object):
     """requires keys name and data"""
     yaml_tag = u'!wc'
 
-    def __init__(self, name, data, backgrounds):
+    def __init__(self, name, data, backgrounds=tuple(), _common=None):
+        """
+        backgrounds is an optional iterable of background !ob
+        """
+        if _common is not None:
+            self.__dict__.update(_common)
 
         self.name = name
         self.data = data
-        self.backgrounds = backgrounds
-        self.data.sort(key=lambda x: x.start)
-        self.wavelengths = []
-        self.backgrounds_list = []
+        self._background_ob = backgrounds
+        self.backgrounds = {}
+        for wave, ob in zip(self.wavelengths, self.data):
+            for bg in backgrounds:
+                if bg.name == ob.background:
+                    self.backgrounds[wave] = bg.h5
+
+    @classmethod
+    def from_yaml(cls, loader, node):
+        d = dict(loader.construct_pairs(node, deep=True))  #WTH this one line took half a day to get right
+        name = d.pop('name')
+        data = list(d.pop('data'))
+        backgrounds = tuple(d.pop('backgrounds', tuple()))
+        return cls(name, data, backgrounds=backgrounds, _common=d)
 
     @property
     def timeranges(self):
         for o in self.data:
             yield o.timerange
-        if self.backgrounds:
-            for o in self.backgrounds:
-                yield o.timerange
+        for o in self._background_ob:
+            yield o.timerange
 
     @property
     def wavelengths(self):
         return [getnm(x.name) for x in self.data]
-
-    @property
-    def backgrounds_list(self):
-        backgrounds_list = np.zeros(len(self.wavelengths), dtype=[('wavelength', 'float'), ('background', '<U11'),
-                                                                  ('start_time', 'int')])
-        backgrounds_list['wavelength'] = self.wavelengths
-        if self.backgrounds == None:
-            return backgrounds_list
-        backgrounds_list['background'] = [x.background if x.background else 'None' for x in self.data]
-        backgrounds_list['start_time'] = [x.start if x.name == y.background else 0 for y in self.data
-                                          for x in self.backgrounds]
-        return backgrounds_list
 
     def __str__(self):
         return '\n '.join("{} ({}-{})".format(x.name, x.start, x.stop) for x in self.data)
@@ -782,7 +749,6 @@ class MKIDOutput(object):
                 if k not in self.__dict__:
                     self.__dict__[k] = _extra[k]
 
-
     @property
     def wants_image(self):
         return self.kind == 'image'
@@ -814,12 +780,13 @@ class MKIDOutput(object):
     def output_file(self):
         global config
         if not self.filename:
-            # TODO generate the filename programatically if one isn't specified
             raise ValueError('No output filename for output, it may be time to add code for a default')
         if os.pathsep in self.filename:
             return self.filename
         else:
-            return os.path.join(config.paths.out, self.filename)
+            return os.path.join(config.paths.out,
+                                self.data if isinstance(self.data, str) else self.data.name,
+                                self.filename)
 
 
 class MKIDOutputCollection:
@@ -839,7 +806,11 @@ class MKIDOutputCollection:
             try:
                 o.data = data.by_name(o.data)
             except ValueError as e:
-                getLogger(__name__).critical(e)
+                getLogger(__name__).critical(f'Unable to find data description for "{o.data}"')
+
+    def __iter__(self):
+        for o in self.meta:
+            yield o
 
     @property
     def outputs(self):

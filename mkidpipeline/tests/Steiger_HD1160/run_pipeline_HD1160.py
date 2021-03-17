@@ -17,8 +17,8 @@ pipe.logtoconsole()
 
 pcfg = pipe.configure_pipeline(cfgfile)
 
-pipe.getLogger('mkidpipeline.calibration.wavecal').setLevel('INFO')
-pipe.getLogger('mkidpipeline.badpix').setLevel('INFO')
+pipe.getLogger('mkidpipeline.steps.wavecal').setLevel('INFO')
+pipe.getLogger('mkidpipeline.steps.badpix').setLevel('INFO')
 pipe.getLogger('mkidpipeline.hdf.photontable').setLevel('INFO')
 
 ncpu = 7

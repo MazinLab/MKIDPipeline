@@ -13,7 +13,6 @@ from scipy.ndimage import rotate
 from drizzle import drizzle as stdrizzle
 
 
-
 class Distribution(object):
     """
     draws samples from a one dimensional probability distribution,

@@ -34,6 +34,13 @@ import matplotlib.gridspec as gridspec
 _loaded_solutions = {}
 
 
+class StepConfig(mkidpipeline.config.BaseStepConfig):
+    yaml_tag = u'!spectralcal_cfg'
+    REQUIRED_KEYS = (('photometry_type', 'aperture', 'aperture | psf'),
+                     ('plots', 'summary', 'summary | none'),
+                     ('interpolation', 'linear', ' linear | cubic | nearest'))
+
+
 class Configuration(object):
     """Configuration class for the spectrophotometric calibration analysis."""
     yaml_tag = u'!spectralcalconfig'
@@ -69,12 +76,12 @@ class Configuration(object):
             cfg = mkidcore.config.load(self.configuration_path)
             self.use_satellite_spots = cfg.use_satellite_spots
             self.ncpu = cfg.ncpu
-            self.wvlStart = cfg.instrument.wvl_start * 10.0 # in angstroms
-            self.wvlStop = cfg.instrument.wvl_stop * 10.0 # in angstroms
+            self.wvlStart = cfg.instrument.minimum_wavelength * 10.0 # in angstroms
+            self.wvlStop = cfg.instrument.maximum_wavelength * 10.0 # in angstroms
             self.wvl_bin_edges = cfg.wvl_bin_edges
             self.energyStart = (c.h * c.c) / (self.wvlStart * 10**(-10) * c.e)
             self.energyStop = (c.h * c.c) / (self.wvlStop * 10**(-10) * c.e)
-            sol = mkidpipeline.calibration.wavecal.Solution(cfg.wavcal)
+            sol = mkidpipeline.steps.wavecal.Solution(cfg.wavcal)
             r, resid = sol.find_resolving_powers(cache=True)
             self.r_list = np.nanmedian(r, axis=0)
             self.energyBinWidth = ((self.energyStart + self.energyStop)/2)/(np.median(self.r_list) * 5.0)
@@ -147,11 +154,11 @@ class StandardSpectrum:
         return data[:, 0], data[:, 1]
 
     def fetch_spectra(self):
-        '''
+        """
         called from get(), searches either a URL, ESO catalog or uses astroquery.SDSS to search the SDSS catalog. Puts
         the retrieved spectrum in a '/spectrum/' folder in self.save_dir
         :return:
-        '''
+        """
         if self.std_path is not None:
             try:
                 data = np.loadtxt(self.std_path)
@@ -179,26 +186,23 @@ class StandardSpectrum:
             return data
 
     def counts_to_ergs(self, a):
-        '''
+        """
         converts units of the spectra from counts to ergs
         :return:
-        '''
+        """
         a[:, 1] /= (a[:, 0] * self.k)
         return a
 
     def ergs_to_counts(self, a):
-        '''
+        """
         converts units of the spectra from ergs to counts
         :return:
-        '''
+        """
         a[:, 1] *= (a[:, 0] * self.k)
         return a
 
 
-class SpectralCalibrator(object):
-    """
-
-    """
+class SpectralCalibrator:
     def __init__(self, configuration=None, h5_file_names=None, solution_name='solution.npz', interpolation=None,
                  use_satellite_spots=True, obj_pos=None):
 
@@ -307,7 +311,7 @@ class SpectralCalibrator(object):
                     derotate=True
                 getLogger(__name__).info('using wavelength range {} - {}'.format(self.wvl_bin_edges[wvl] / 10,
                                                             self.wvl_bin_edges[wvl + 1] / 10))
-                drizzled = mkidpipeline.drizzler.form(self.data, mode='spatial', wvlMin=self.wvl_bin_edges[wvl] / 10,
+                drizzled = mkidpipeline.steps.drizzler.form(self.data, mode='spatial', wvlMin=self.wvl_bin_edges[wvl] / 10,
                                                       wvlMax=self.wvl_bin_edges[wvl + 1] / 10, pixfrac=0.5,
                                                       wcs_timestep=1, exp_timestep=1,
                                                       exclude_flags=pixelflags.PROBLEM_FLAGS, usecache=False, ncpu=1,
@@ -445,6 +449,7 @@ class SpectralCalibrator(object):
         plt.savefig(save_name)
         return axes_list
 
+
 class ResponseCurve(object):
     def __init__(self, file_path=None, curve=None, configuration=None, wvl_bin_widths=None, wvl_bin_centers=None,
                  cube=None, errors=None, solution_name='spectral_solution'):
@@ -517,6 +522,7 @@ def name_to_ESO_extension(object_name):
             extension = extension + char
     return 'f{}.dat'.format(extension)
 
+
 def fetch_spectra_ESO(object_name, save_dir):
     """
     fetches a standard spectrum from the ESO catalog and downloads it to self.savedir if it exists. Requires
@@ -541,6 +547,7 @@ def fetch_spectra_ESO(object_name, save_dir):
         except URLError:
             pass
     return spectrum_file
+
 
 def fetch_spectra_SDSS(object_name, save_dir, coords):
     """
@@ -570,6 +577,7 @@ def fetch_spectra_SDSS(object_name, save_dir, coords):
     getLogger(__name__).info('Spectrum loaded for {} from SDSS catalog'.format(object_name))
     return spectrum_file
 
+
 def fetch_spectra_URL(object_name, url_path, save_dir):
     """
     grabs the spectrum from a given URL and saves it in self.savedir
@@ -588,6 +596,7 @@ def fetch_spectra_URL(object_name, url_path, save_dir):
                 shutil.copyfileobj(r, f)
         spectrum_file = save_dir + object_name + 'spectrum.dat'
         return spectrum_file
+
 
 def interpolate_image(input_array, method='linear'):
     """
@@ -613,6 +622,7 @@ def interpolate_image(input_array, method='linear'):
 
     return interpolated_frame
 
+
 def get_coords(object_name, ra, dec):
     """
     finds the SkyCoord object given a specified ra and dec or object_name
@@ -628,6 +638,7 @@ def get_coords(object_name, ra, dec):
     if not coords:
         getLogger(__name__).error('No coordinates found for spectrophotometric calibration object')
     return coords
+
 
 def load_solution(sc, singleton_ok=True):
     """sc is a solution filename string, a ResponseCurve object, or a mkidpipeline.config.MKIDSpectralReference"""
@@ -645,6 +656,7 @@ def load_solution(sc, singleton_ok=True):
         _loaded_solutions[sc] = ResponseCurve(file_path=sc)
     return _loaded_solutions[sc]
 
+
 def satellite_spot_contrast(lam):
     """
 
@@ -655,6 +667,7 @@ def satellite_spot_contrast(lam):
     ref = 1.55*10**4
     contrast = 2.72e-3*(ref / lam)**2 # 2.72e-3 number from Currie et. al. 2018b
     return contrast
+
 
 def fetch(dataset, config=None, ncpu=None, remake=False, **kwargs):
     solution_descriptors = dataset.spectralcals

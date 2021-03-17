@@ -1,4 +1,3 @@
-#!/bin/env python3
 """
 Author: Sarah Steiger   Data: March 25, 2020
 
@@ -6,18 +5,23 @@ Implementation of a linearity correction to account for photons that may arrive 
 """
 import numpy as np
 import mkidpipeline.config
-cfg = mkidpipeline.config.config
 
 
-def calculateWeights(time_stamps, dt=float(), tau=float(), pixel=tuple()):
-    '''
+class StepConfig(mkidpipeline.config.BaseStepConfig):
+    yaml_tag = u'!lincal_cfg'
+    REQUIRED_KEYS = (('dt', 1000, 'time range over which to calculate the weights (us)'),)
+
+
+def calculate_weights(time_stamps, dt, tau, pixel:tuple=None):
+    """
     Function for calculating the linearity weighting for all of the photons in an h5 file
-    :param file: file to calculate the weights
+    :param time_stamps: array of timestamps
     :param dt: time range over which to calculate the weights (microseconds)
     :param tau: detector dead time (microseconds)
     :param pixel: pixel location to calculate the weights for
     :return: numpy ndarray of the linearity weights for each photon
-    '''
+    """
+    # TODO convert away from a for loop scipy.ndimage.general_filter?
     weights = np.zeros(len(time_stamps))
     for i, t in enumerate(time_stamps):
         min_t = t - dt

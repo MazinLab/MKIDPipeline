@@ -43,12 +43,14 @@ from mkidcore.utils import query
 import mkidcore.pixelflags as pixelflags
 import mkidpipeline.steps.badpix as badpix
 
-DEFAULT_CONFIG_FILE = pkg.resource_filename('mkidpipeline.calibration.flatcal', 'flatcal.yml')
-
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!flatcal_cfg'
-    REQUIRED_KEYS = ('count_rate_cutoff', 'chunks_to_trim', 'chunk_time', 'power', 'plots')
+    REQUIRED_KEYS = (('count_rate_cutoff',  0, 'TODO'),
+                     ('trim_chunks_fraction',  0, 'TODO'),
+                     ('chunk_time', 0, 'TODO'),
+                     ('power',  0, 'TODO'),
+                     ('plots','summary','TODO'))
     OPTIONAL_KEYS = tuple()
 
     def _vet_errors(self):
@@ -90,8 +92,8 @@ class FlatCalibrator:
         self.xpix = self.cfg.beammap.ncols
         self.ypix = self.cfg.beammap.nrows
 
-        self.wvl_start = self.cfg.instrument.wvl_start
-        self.wvl_stop = self.cfg.instrument.wvl_stop
+        self.wvl_start = self.cfg.instrument.minimum_wavelength
+        self.wvl_stop = self.cfg.instrument.maximum_wavelength
 
         self.chunks_to_trim = self.cfg.flatcal.trim_fraction
 
