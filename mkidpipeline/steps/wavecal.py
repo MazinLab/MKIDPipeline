@@ -66,9 +66,11 @@ class Configuration(object):
                  backgrounds=None, beammap=None, h5dir='', outdir='', bindir='',
                  histogram_model_names=('GaussianAndExponential',), bin_width=2, histogram_fit_attempts=3,
                  calibration_model_names=('Quadratic', 'Linear'), dt=500, parallel=True, parallel_prefetch=False,
-                 summary_plot=True, templarfile=''):
+                 summary_plot=True, templarfile='', max_count_rate=2000):
         """ backgrounds should be a dict with fully qualified h5 paths to background files. wavelengths are keys.
         missing backgrounds are fine """
+
+        self.max_count_rate = max_count_rate
 
         # parse arguments
         self.configuration_path = configfile
@@ -338,24 +340,28 @@ class Calibrator(object):
                     # check for enough photons
                     if photon_list.size < 2:
                         model.flag = wm.pixel_flags['photon data']
-                        message = "({}, {}) : {} nm : there are no photons"
-                        log.debug(message.format(pixel[0], pixel[1], wavelength))
+                        log.debug(f"{pixel} : {wavelength} nm : there are no photons")
                         continue
+
                     # remove hot pixels
                     rate = (len(photon_list['Wavelength']) * 1e6 /
                             (max(photon_list['Time']) - min(photon_list['Time'])))
-                    if rate > 2000:
+
+                    if rate > self.cfg.max_count_rate:
                         model.flag = wm.pixel_flags['hot pixel']
-                        message = "({}, {}) : {} nm : removed for being too hot ({:.2f} > 2000 cps)"
-                        log.debug(message.format(pixel[0], pixel[1], wavelength, rate))
+                        message = "({}, {}) : {} nm : removed for being too hot ({:.2f} > {} cps)"
+                        log.debug(message.format(pixel[0], pixel[1], wavelength, rate, self.cfg.max_count_rate))
                         continue
+
                     # remove photons too close together in time
                     photon_list = self._remove_tail_riding_photons(photon_list)
+
                     if photon_list.size == 0:
                         model.flag = wm.pixel_flags['time cut']
                         message = "({}, {}) : {} nm : all the photons were removed after the arrival time cut"
                         log.debug(message.format(pixel[0], pixel[1], wavelength))
                         continue
+
                     # remove photons with positive peak heights
                     phase_list = photon_list['Wavelength']
                     phase_list = phase_list[phase_list < 0]
