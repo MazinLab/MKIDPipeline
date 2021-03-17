@@ -35,7 +35,7 @@ if __name__ == "__main__":
         shutil.copy2(pkg.resource_filename('mkidpipeline', 'data.yml'), args.data_cfg)
         shutil.copy2(pkg.resource_filename('mkidpipeline', 'out.yml'), args.out_cfg)
 
-    config.configure_pipeline(args.pipe_cfg)
+    config.configure_pipeline(pipe.generate_default_config())
     config.load_data_description(args.data_cfg)
     output = config.load_output_description(args.out_cfg)
 

@@ -13,7 +13,6 @@ import mkidcore.config
 from mkidcore.corelog import getLogger, create_log, MakeFileHandler
 from mkidcore.utils import getnm, derangify
 from mkidcore.objects import Beammap
-from mkidpipeline.hdf.photontable import Photontable
 
 #TODO this is a placeholder to help integrating metadata
 InstrumentInfo = namedtuple('InstrumentInfo', ('beammap', 'platescale'))
@@ -160,6 +159,7 @@ class H5Subset:
 
     @property
     def photontable(self):
+        from mkidpipeline.hdf.photontable import Photontable
         return Photontable(self.timerange.h5)
 
     @property
@@ -225,8 +225,7 @@ class MKIDTimerange(object):
         stop = d.pop('stop', None)
         duration = d.pop('duration', None)
         background = d.pop('background', None)
-        return cls(name, start, duration=duration, stop=stop, wavecal=d.pop('wavecal', None),
-                   flatcal=d.pop('flatcal', None), background=background, _common=d)
+        return cls(name, start, duration=duration, stop=stop, background=background, _common=d)
 
     @property
     def timerange(self):
@@ -344,13 +343,18 @@ class MKIDFlatdataDescription(object):
     """attributes name and either ob or wavecal"""
     yaml_tag = u'!fc'
 
-    def __init__(self, name, ob=None, wavecal=None, _common=None):
+    def __init__(self, name, ob=None, wavecal=None, dark=None, _common=None):
         if _common is not None:
             self.__dict__.update(_common)
 
         self.name = name
         self.ob = ob
         self.wavecal = wavecal
+        self.dark = (dark,) if isinstance(dark, MKIDTimerange) else dark
+
+    @property
+    def method(self):
+        return 'laser' if self.ob is None else 'white'
 
     @property
     def id(self):
@@ -358,6 +362,12 @@ class MKIDFlatdataDescription(object):
             return 'flatcal_{}.h5'.format(self.ob.start)
         except AttributeError:
             return 'flatcal_{}.h5'.format(wavecal_id(self.wavecal.id))
+
+    @property
+    def h5s(self):
+        h5s = {w: H5Subset(x)
+               for w, x in zip(self.wavecal.wavelengths, self.wavecal.data)}
+        return h5s
 
     @property
     def path(self):
@@ -381,7 +391,8 @@ class MKIDFlatdataDescription(object):
         name = d.pop('name')
         ob = d.pop('ob', None)
         wavecal = d.pop('wavecal', None)
-        return cls(name, ob=ob, wavecal=wavecal, _common=d)
+        dark = d.pop('dark', None)
+        return cls(name, ob=ob, wavecal=wavecal, dark=dark, _common=d)
 
 
 class MKIDSpectralReference(object):

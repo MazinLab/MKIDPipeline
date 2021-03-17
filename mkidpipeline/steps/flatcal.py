@@ -17,11 +17,7 @@ Per pixel:  plots of weights vs wavelength next to twilight spectrum OR
 
 Edited by: Sarah Steiger    Date: October 31, 2019
 """
-import argparse
-import atexit
 import os
-import time
-from datetime import datetime
 import multiprocessing as mp
 import scipy.constants as c
 
@@ -36,27 +32,27 @@ from mkidpipeline.steps import wavecal
 from mkidcore.headers import FlatCalSoln_Description
 from mkidpipeline.hdf.photontable import Photontable
 from mkidcore.corelog import getLogger
-import mkidcore.corelog
 import mkidpipeline.config
-import pkg_resources as pkg
+from mkidpipeline.config import H5Subset
 from mkidcore.utils import query
 import mkidcore.pixelflags as pixelflags
-import mkidpipeline.steps.badpix as badpix
 
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!flatcal_cfg'
-    REQUIRED_KEYS = (('count_rate_cutoff',  0, 'TODO'),
-                     ('trim_chunks_fraction',  0, 'TODO'),
-                     ('chunk_time', 0, 'TODO'),
+    REQUIRED_KEYS = (('rate_cutoff',  0, 'Count Rate Cutoff in inverse seconds (number)'),
+                     ('trim_chunks',  1, 'number of Chunks to trim (integer)'),
+                     ('chunk_time', 10, 'duration of chunks used for weights (s)'),
+                     ('nchunks', 6, 'number of chunks to median combine'),
+                     ('power', 1, 'power of polynomial to fit, <3 advised'),
                      ('power',  0, 'TODO'),
-                     ('plots','summary','TODO'))
+                     ('plots', 'summary', 'none|summary|all'))
     OPTIONAL_KEYS = tuple()
 
     def _vet_errors(self):
         ret = []
         try:
-            assert 0 <= self.count_rate_cutoff <= 20000
+            assert 0 <= self.rate_cutoff <= 20000
         except:
             ret.append('count_rate_cutoff must be [0, 20000]')
 
@@ -77,10 +73,7 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
 
 class FlatCalibrator:
     def __init__(self, config=None):
-        self.config_file = DEFAULT_CONFIG_FILE if config is None else config
-
-        self.cfg = mkidpipeline.config.load_task_config(config)
-        self.use_wavecal = self.cfg.flatcal.use_wavecal
+        self.cfg = mkidpipeline.config.load_task_config(StepConfig() if config is None else config)  #TODO
         self.data_dir = self.cfg.paths.data
         self.out_directory = self.cfg.paths.out
 
@@ -95,20 +88,19 @@ class FlatCalibrator:
         self.wvl_start = self.cfg.instrument.minimum_wavelength
         self.wvl_stop = self.cfg.instrument.maximum_wavelength
 
-        self.chunks_to_trim = self.cfg.flatcal.trim_fraction
+        self.chunks_to_trim = self.cfg.flatcal.trim_chunks
 
         self.obs = None
         self.beamImage = None
         self.wvl_bin_edges = None
         self.wavelengths = None
+        self.r_list = None
 
-        if self.use_wavecal:
-            sol_file = self.cfg.wavcal
-            sol = wavecal.Solution(sol_file[0])
-            r, resid = sol.find_resolving_powers(cache=True)
+        if self.cfg.flatcal.use_wavecal:
+            sol = wavecal.Solution(self.cfg.flatcal.wavsol)
+            r, _ = sol.find_resolving_powers(cache=True)
             self.r_list = np.nanmedian(r, axis=0)
-        else:
-            self.r_list = None
+            #TODO shouldn't this pull the wavelengths from the wavesol
 
         self.save_plots = self.cfg.flatcal.plots.lower() == 'all'
         self.summary_plot = self.cfg.flatcal.plots.lower() in ('all', 'summary')
@@ -126,6 +118,12 @@ class FlatCalibrator:
         self.plotName = None
         self.fig = None
 
+    def load_data(self):
+        pass
+
+    def load_flat_spectra(self):
+        pass
+
     def makeCalibration(self):
         getLogger(__name__).info("Loading Data")
         self.load_data()
@@ -142,7 +140,7 @@ class FlatCalibrator:
 
         if self.save_plots:
             getLogger(__name__).info("Writing detailed plots, go get some tea.")
-            getLogger(__name__).info('Plotting Weights by Wvl Slices at WeightsWvlSlices_{0}'.format(self.start_time))
+            getLogger(__name__).info('Plotting Weights by Wvl Slices at WeightsWvlSlices')
             self.plotWeightsWvlSlices()
         getLogger(__name__).info('Done')
 
@@ -241,7 +239,7 @@ class FlatCalibrator:
                      title='Wavelength bin edges corresponding to third dimension of weights array')
         description_dict = FlatCalSoln_Description(nWvlBins=len(self.wavelengths), max_power=poly_power)
         caltable = flatsol.create_table(calgroup, 'calsoln', description_dict, title='Flat Cal Table',
-                                            expectedrows=self.xpix*self.ypix)
+                                        expectedrows=self.xpix*self.ypix)
         for iRow in range(self.xpix):
             for iCol in range(self.ypix):
                 entry = caltable.row
@@ -269,11 +267,10 @@ class FlatCalibrator:
         """
         Plot weights in images of a single wavelength bin (wavelength-sliced images)
         """
-        self.plotName = 'WeightsWvlSlices_{0}'.format(self.start_time)
+        self.plotName = 'WeightsWvlSlices_{0}'.format('TODO')  #TODO
         self._setup_plots()
         matplotlib.rcParams['font.size'] = 4
-        wavelengths = self.wavelengths
-        for iWvl, wvl in enumerate(wavelengths):
+        for iWvl, wvl in enumerate(self.wavelengths):
             if self.iPlot % self.nPlotsPerPage == 0:
                 self.fig = plt.figure(figsize=(10, 10), dpi=100)
             ax = self.fig.add_subplot(self.nPlotsPerCol, self.nPlotsPerRow, self.iPlot % self.nPlotsPerPage + 1)
@@ -292,22 +289,14 @@ class FlatCalibrator:
             vmax = np.nanmean(image) + 3 * np.nanstd(image)
             plt.imshow(image.T, cmap=plt.get_cmap('viridis'), origin='lower', vmin=0, vmax=vmax)
             plt.colorbar()
-            if self.sol and iWvl == len(wavelengths) - 1:
+            if self.iPlot % self.nPlotsPerPage == self.nPlotsPerPage - 1:
                 pdf = PdfPages(os.path.join(self.out_directory, 'temp.pdf'))
                 pdf.savefig(self.fig)
                 pdf.close()
                 self._mergePlots()
                 self.saved = True
                 plt.close('all')
-            else:
-                if self.iPlot % self.nPlotsPerPage == self.nPlotsPerPage - 1:
-                    pdf = PdfPages(os.path.join(self.out_directory, 'temp.pdf'))
-                    pdf.savefig(self.fig)
-                    pdf.close()
-                    self._mergePlots()
-                    self.saved = True
-                    plt.close('all')
-                self.iPlot += 1
+            self.iPlot += 1
         self._closePlots()
 
     def _setup_plots(self):
@@ -363,20 +352,21 @@ class WhiteCalibrator(FlatCalibrator):
     and in wavelength-sliced images.
     """
 
-    def __init__(self, config=None, cal_file_name='flatsol_{start}.h5'):
+    def __init__(self, h5, config=None, cal_file_name='flatsol_{id}.h5'):
         """
         Reads in the param file and opens appropriate flat file.  Sets wavelength binning parameters.
         """
         super().__init__(config)
-        self.start_time = self.cfg.start_time
         self.exposure_time = self.cfg.exposure_time
-        self.h5file = self.cfg.get('h5file', os.path.join(self.cfg.paths.out, str(self.start_time) + '.h5'))
-        self.save_name = self.cfg.get('flatname', os.path.join(self.cfg.paths.database,
-                                                                     cal_file_name.format(start=self.start_time)))
+        self.h5 = h5
+        self.save_name = self.cfg.get('flatname', os.path.join(self.cfg.paths.database, cal_file_name.format(id=h5)))
+
+        self.energies = None
+        self.energyBinWidth = None
 
     def load_data(self):
-        getLogger(__name__).info('Loading calibration data from {}'.format(self.h5file))
-        self.obs = Photontable(self.h5file)
+        getLogger(__name__).info('Loading calibration data from {}'.format(self.h5))
+        self.obs = self.h5.photontable
         if not self.obs.wavelength_calibrated:
             raise RuntimeError('Photon data is not wavelength calibrated.')
         self.beamImage = self.obs.beamImage
@@ -386,11 +376,8 @@ class WhiteCalibrator(FlatCalibrator):
         self.energies = [(c.h * c.c) / (i * 10 ** (-9) * c.e) for i in self.wavelengths]
         middle = int(len(self.wavelengths) / 2.0)
         self.energyBinWidth = self.energies[middle] / (5.0 * self.r_list[middle])
-
         self.wvl_bin_edges = Photontable.makeWvlBins(self.energyBinWidth, self.wvl_start, self.wvl_stop)
-        self.wavelengths = self.wvl_bin_edges[: -1] + np.diff(self.wvl_bin_edges)
-        self.wavelengths = self.wavelengths.flatten()
-        self.sol = False
+        self.wavelengths = (self.wvl_bin_edges[: -1] + np.diff(self.wvl_bin_edges)).flatten()
 
     def load_flat_spectra(self):
         """
@@ -400,7 +387,6 @@ class WhiteCalibrator(FlatCalibrator):
 
         To be used for whitelight flat data
         """
-
         self.spectral_cube = []
         self.eff_int_times = []
         for firstSec in range(0, self.exposure_time, self.chunk_time):  # for each time chunk
@@ -422,33 +408,17 @@ class WhiteCalibrator(FlatCalibrator):
 
 
 class LaserCalibrator(FlatCalibrator):
-    def __init__(self, h5dir='', config=None, cal_file_name='flatsol_laser.h5'):
+    def __init__(self, h5s, config=None, cal_file_name='flatsol_laser.h5', darks=None):
         super().__init__(config)
-        self.save_name = self.cfg.get('flatname', os.path.join(self.cfg.paths.database,
-                                                                     cal_file_name))
+        self.save_name = self.cfg.get('flatname', os.path.join(self.cfg.paths.database, cal_file_name))
         self.beamImage = self.cfg.beammap
         self.xpix = self.cfg.beammap.ncols
         self.ypix = self.cfg.beammap.nrows
-        self.wavelengths = np.array(self.cfg.wavelengths, dtype=float)
-        self.exposure_times = self.cfg.exposure_times
-        self.start_times = self.cfg.start_times
-        self.h5_directory = h5dir
-        self.h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.start_times]
-        self.dark_h5_file_names = []
-
-    def load_data(self):
-        """
-
-        :return:
-        """
-        getLogger(__name__).info('No need to load wavecal solution data for a Laser Flat, passing through')
-        pass
+        self.h5s = h5s
+        self.wavelengths = np.array(h5s.keys(), dtype=float)
+        self.darks = darks
 
     def load_flat_spectra(self):
-        """
-
-        :return:
-        """
         cps_cube_list, int_times, mask = self.make_spectralcube()
         self.spectral_cube = cps_cube_list
         self.eff_int_times = int_times
@@ -466,73 +436,60 @@ class LaserCalibrator(FlatCalibrator):
         self.spectral_cube_in_counts = self.eff_int_times * self.spectral_cube
 
     def make_spectralcube(self):
-        """
-
-        :return:
-        """
-        wavelengths = self.wavelengths
         n_wvls = len(self.wavelengths)
         n_times = self.cfg.flatcal.nchunks
-        if np.any(self.chunk_time*self.cfg.flatcal.nchunks > self.exposure_times):
-            n_times = int((self.exposure_times/self.chunk_time).max())
+        exposure_times = np.array([x.duration for x in self.h5s])
+        if np.any(self.chunk_time*self.cfg.flatcal.nchunks > exposure_times):
+            n_times = int((exposure_times/self.chunk_time).max())
             getLogger(__name__).info('Number of chunks * chunk time is longer than the laser exposure. Using full'
                                      'length of exposure ({} chunks)'.format(n_times))
         cps_cube_list = np.zeros([n_times, self.xpix, self.ypix, n_wvls])
         mask = np.zeros([self.xpix, self.ypix, n_wvls])
         int_times = np.zeros([self.xpix, self.ypix, n_wvls])
-        if self.use_wavecal:
-            delta_list = wavelengths / self.r_list
-        for iwvl, wvl in enumerate(wavelengths):
-            obs = Photontable(self.h5_file_names[iwvl])
-            if not obs.info['isBadPixMasked'] and not self.use_wavecal:
+
+        if self.cfg.flatcal.use_wavecal:
+            delta_list = self.wavelengths / self.r_list / 2
+
+        startw, stopw = None, None
+        for wvl, h5 in self.h5s.items():
+            obs = h5.photontable
+            if not obs.info['isBadPixMasked'] and not self.cfg.flatcal.use_wavecal:
                 getLogger(__name__).warning('H5 File not hot pixel masked, could skew flat weights')
-            bad_mask = obs.flagMask(pixelflags.PROBLEM_FLAGS)
-            mask[:, :, iwvl] = bad_mask
-            if self.use_wavecal:
-                counts = obs.getTemporalCube(integrationTime=self.chunk_time * self.cfg.flatcal.nchunks,
-                                             timeslice=self.chunk_time, startw=wvl-(delta_list[iwvl]/2.),
-                                             stopw=wvl+(delta_list[iwvl]/2.))
-            else:
-                counts = obs.getTemporalCube(integrationTime=self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks,
-                                             timeslice=self.chunk_time)
+
+            w_mask = self.wavelengths==wvl
+
+            mask[:, :, w_mask] = obs.flagMask(pixelflags.PROBLEM_FLAGS)
+            if self.cfg.flatcal.use_wavecal:
+                startw = wvl - delta_list[w_mask]
+                stopw = wvl + delta_list[w_mask]
+
+            counts = obs.getTemporalCube(integrationTime=self.chunk_time * self.cfg.flatcal.nchunks,
+                                         timeslice=self.chunk_time, startw=startw, stopw=stopw)['cube']
             getLogger(__name__).info('Loaded {}nm spectral cube'.format(wvl))
-            cps_cube = counts['cube']/self.chunk_time  # TODO move this division outside of the loop
-            cps_cube = np.moveaxis(cps_cube, 2, 0)
-            int_times[:, :, iwvl] = self.chunk_time
-            cps_cube_list[:, :, :, iwvl] = cps_cube
+            int_times[:, :, w_mask] = self.chunk_time
+            cps_cube_list[:, :, :, w_mask] = np.moveaxis(counts/self.chunk_time, 2, 0)
         return cps_cube_list, int_times, mask
 
     def get_dark_frame(self):
-        '''
+        """
         takes however many dark files that are specified in the pipe.yml and computes the counts/pixel/sec for the sum
         of all the dark obs. This creates a stitched together long dark obs from all of the smaller obs given. This
         is useful for legacy data where there may not be a specified dark observation but parts of observations where
         the filter wheel was closed.
 
-        If self.use_wavecal is True then a dark is not subtracted off since this just  takes into account total counts
-        and not energy information
-
         :return: expected dark counts for each pixel over a flat observation
-        '''
-        if not self.dark_h5_file_names:
-            dark_frame = np.zeros_like(self.spectral_cube[0][:,:,0])
-        else:
-            self.dark_start = [self.cfg.flatcal.dark_data['start_times']]
-            self.dark_int = [self.cfg.flatcal.dark_data['int_times']]
-            self.dark_h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.dark_start]
-            frames = np.zeros((140, 146, len(self.dark_start)))
-            getLogger(__name__).info('Loading dark frames for Laser flat')
+        """
+        if not self.darks:
+            return np.zeros_like(self.spectral_cube[0][:, :, 0])
 
-            for i, file in enumerate(self.dark_h5_file_names):
-                obs = Photontable(file)
-                frame = obs.getPixelCountImage(integrationTime=self.dark_int[i])['image']
-                frames[:, :, i] = frame
-            total_counts = np.sum(frames, axis=2)
-            total_int_time = float(np.sum(self.dark_int))
-            counts_per_sec = total_counts / total_int_time
-            dark_frame = counts_per_sec
-        return dark_frame
-
+        getLogger(__name__).info('Loading dark frames for Laser flat')
+        frames = []
+        itime = 0
+        for dark in self.darks:
+            frames.append(dark.photontable.getPixelCountImage(startTime=dark.start,
+                                                              integrationTime=dark.duration)['image'])
+            itime += dark.duration
+        return np.sum(frames, axis=2)/itime
 
 
 def generate_summary_plot(flatsol, save_plot=False):
@@ -661,36 +618,20 @@ def _run(flattner):
 def fetch(dataset, config=None, ncpu=np.inf, remake=False):
     solution_descriptors = dataset.flatcals
     cfg = mkidpipeline.config.config if config is None else config
-    for sd in dataset.wavecals:
-        wavcal = os.path.join(cfg.paths.database, mkidpipeline.config.wavecal_id(sd.id)+'.npz')
+
     solutions = []
     flattners = []
     for sd in solution_descriptors:
         sf = os.path.join(cfg.paths.database, sd.id)
         if not os.path.exists(sf) or remake:
-            if 'flatcal' not in cfg:
-                fcfg = mkidpipeline.config.load_task_config(pkg.resource_filename(__name__, 'flatcal.yml'))
+
+            fcfg = mkidpipeline.config.load_task_config(StepConfig()) if 'flatcal' not in cfg else cfg.copy()
+            fcfg.register('flatcal.wavsol', sd.wavecal, update=True)
+            if sd.method == 'laser':
+                flattner = LaserCalibrator(h5s=sd.h5s, config=fcfg, cal_file_name=sd.id,
+                                           darks=[H5Subset(d) for d in sd.darks])
             else:
-                fcfg = cfg.copy()
-
-            fcfg.unregister('flatname')
-            fcfg.unregister('h5file')
-
-            if fcfg.flatcal.method == 'Laser':
-                fcfg.register('start_times', np.array([x.start for x in sd.wavecal.data]),
-                              update=True)
-                fcfg.register('exposure_times', np.array([x.duration for x in sd.wavecal.data]), update=True)
-                fcfg.register('wavelengths', np.array([w for w in sd.wavecal.wavelengths]), update=True)
-                fcfg.register('wavcal', np.array([wavcal]), update=True)
-                flattner = LaserCalibrator(config=fcfg, h5dir=cfg.paths.out, cal_file_name=sd.id)
-            elif fcfg.flatcal.method == 'White':
-                fcfg.register('start_time', sd.ob.start, update=True)
-                fcfg.register('exposure_time', sd.ob.duration, update=True)
-                fcfg.unregister('wavesol')
-                flattner = WhiteCalibrator(config=fcfg, cal_file_name=sd.id)
-            else:
-                raise TypeError(str(fcfg.flatcal.method) + ' is an invalid method keyword argument')
-
+                flattner = WhiteCalibrator(H5Subset(sd.ob), config=fcfg, cal_file_name=sd.id)
 
             solutions.append(sf)
             flattners.append(flattner)
@@ -709,50 +650,3 @@ def fetch(dataset, config=None, ncpu=np.inf, remake=False):
         pool.join()
 
     return solutions
-
-
-if __name__ == '__main__':
-
-    timestamp = datetime.utcnow().timestamp()
-
-    parser = argparse.ArgumentParser(description='MKID Flat Calibration Utility')
-    parser.add_argument('cfgfile', type=str, help='The config file')
-    parser.add_argument('--vet', action='store_true', dest='vetonly', default=False,
-                        help='Only verify config file')
-    parser.add_argument('--h5', action='store_true', dest='h5only', default=False,
-                        help='Only make h5 files')
-    parser.add_argument('--forceh5', action='store_true', dest='forcehdf', default=False,
-                        help='Force HDF creation')
-    parser.add_argument('--quiet', action='store_true', dest='quiet',
-                        help='Disable logging')
-    args = parser.parse_args()
-
-    if not args.quiet:
-        mkidcore.corelog.create_log('__main__', logfile='flatcalib_{}.log'.format(timestamp), console=True,
-                                    propagate=False, fmt='Flatcal: %(levelname)s %(message)s',
-                                    level=mkidcore.corelog.INFO)
-
-    atexit.register(lambda x: print('Execution took {:.0f}s'.format(time.time() - x)), time.time())
-
-    args = parser.parse_args()
-
-    flattner = WhiteCalibrator(args.cfgfile, cal_file_name='calsol_{}.h5'.format(timestamp))
-
-    if not os.path.isfile(flattner.cfg.h5file):
-        raise RuntimeError('Not up to date')
-        b2h_config = bin2hdf.Bin2HdfConfig(datadir=flattner.cfg.paths.data, beamfile=flattner.cfg.beammap.file,
-                                           outdir=flattner.paths.out, starttime=flattner.cfg.start_time,
-                                           inttime=flattner.cfg.expTime,
-                                           x=flattner.cfg.beammap.ncols, y=flattner.cfg.beammap.ncols)
-        bin2hdf.makehdf(b2h_config, maxprocs=1)
-        getLogger(__name__).info('Made h5 file at {}.h5'.format(flattner.cfg.start_time))
-
-    obsfile = Photontable(flattner.h5file, mode='write')
-    if not obsfile.wavelength_calibrated:
-        obsfile.applyWaveCal(wavecal.load_solution(flattner.cfg.wavesol))
-        getLogger(__name__).info('Applied Wavecal {} to {}.h5'.format(flattner.cfg.wavesol, flattner.h5file))
-
-    if args.h5only:
-        exit()
-
-    flattner.makeCalibration()
