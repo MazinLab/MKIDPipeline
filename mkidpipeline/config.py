@@ -188,13 +188,11 @@ class MKIDTimerange(object):
         return datetime.utcfromtimestamp(self.start)
 
     @property
-    def instrument_info(self):
-        #TODO remove or sync this with the metadata in the H5 files
-        return InstrumentInfo(beammap=self.beammap, platescale=config.instrument.platescale * units.mas)
+    def platescale(self):
+        return config.instrument.nominal_platescale_mas
 
     @property
     def beammap(self):
-        #TODO need to move beammap from pipe.yml to data.yml
         return config.beammap
 
     @property
