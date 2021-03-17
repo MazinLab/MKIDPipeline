@@ -24,16 +24,8 @@ from mkidcore.objects import Beammap
 from mkidcore import pixelflags
 import astropy.constants
 import pkg_resources as pkg
-
-log = pipelinelog.getLogger('mkidpipeline.calibration.wavecal', setup=False)
-
-if sys.version_info.major==3:
-    import progressbar as pb
-    import mkidpipeline.hdf.photontable as photontable
-    from mkidpipeline.hdf import bin2hdf
-
-else:
-    log.warning("Using python 2. Only Configuration and Solution classes supported")
+from mkidpipeline.hdf import photontable
+log = pipelinelog.getLogger('mkidpipeline.steps.wavecal', setup=False)
 
 import mkidpipeline.utils.wavecal_models as wm
 
@@ -66,29 +58,42 @@ def setup_logging(tologfile='', toconsole=True, time_stamp=None):
         pipelinelog.create_log('mkidpipeline', logfile=log_file, console=False, fmt=log_format, level="DEBUG")
 
 
+class StepConfig(mkidpipeline.config.BaseStepConfig):
+    yaml_tag = u'!wavecal_cfg'
+    REQUIRED_KEYS = (('plots', 'summary', 'summary or all'),
+                     ('histogram_models', ('GaussianAndExponential',), 'model types from wavecal_models.py to attempt to fit to the phase peak histograms'),
+                     ('bin_width', 2, 'minimum bin width for the phase histogram. Larger widths will be used for low photon  count pixels (number)'),
+                     ('histogram_fit_attempts', 3, 'how many times should the code try to fit each histogram model before giving up'),
+                     ('calibration_models', ('Quadratic', 'Linear'), 'model types from wavecal_models.py to attempt to fit to the phase-energy relationship'),
+                     ('dt', 500,'ignore photons which arrive this many microseconds from another photon (number)'),
+                     ('parallel', True, 'Fitting using more than one core'),
+                     ('parallel_prefetch', False, 'use shared memory to load ALL the photon data into ram'))
+    OPTIONAL_KEYS = tuple()
+
+    def _vet_errors(self):
+        return []
+
+
 class Configuration(object):
     """Configuration class for the wavelength calibration analysis."""
     yaml_tag = u'!wavecalconfig'
 
-    def __init__(self, configfile=None, start_times=tuple(), exposure_times=tuple(), wavelengths=tuple(),
-                 background_start_times=tuple(), backgrounds_list=tuple(), beammap=None, h5dir='', outdir='', bindir='',
+    def __init__(self, configfile=None, h5s=tuple(), wavelengths=tuple(),
+                 backgrounds=None, beammap=None, outdir='',
                  histogram_model_names=('GaussianAndExponential',), bin_width=2, histogram_fit_attempts=3,
                  calibration_model_names=('Quadratic', 'Linear'), dt=500, parallel=True, parallel_prefetch=False,
-                 summary_plot=True, templarfile=''):
+                 summary_plot=True, templarfile='', max_count_rate=2000):
+        """ backgrounds should be a dict with fully qualified h5 paths to background files. wavelengths are keys.
+        missing backgrounds are fine """
+
+        self.max_count_rate = max_count_rate
 
         # parse arguments
-        self.background_start_times = list(map(int, background_start_times))
         self.configuration_path = configfile
-        self.h5_directory = h5dir
         self.out_directory = outdir
-        self.bin_directory = bindir
-        self.start_times = list(map(int, start_times))
-        self.h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.start_times]
-        self.background_h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.background_start_times]
-        self.exposure_times = list(map(int, exposure_times))
-        self.wavelengths = np.array(wavelengths, dtype=float)
-        self.backgrounds_list = np.zeros(len(self.wavelengths),
-                                    dtype=[('wavelength', 'float'), ('background', '<U11'), ('start_time', 'int')])
+        self.wavelengths = list(map(float, wavelengths))
+
+        self.backgrounds = {} if backgrounds is None else backgrounds
 
         # Things with defaults
         self.histogram_model_names = list(histogram_model_names)
@@ -107,34 +112,17 @@ class Configuration(object):
             self.ncpu = cfg.ncpu
             self.beammap = cfg.beammap
             # load in the parameters
-            self.x_pixels = cfg.beammap.ncols
-            self.y_pixels = cfg.beammap.nrows
             self.beam_map_path = cfg.beammap.file
-
-            self.h5_directory = cfg.paths.out
             self.out_directory = cfg.paths.database
-            self.bin_directory = cfg.paths.data
 
-            self.start_times = list(map(int, cfg.start_times))
-            self.background_start_times = list(map(int, cfg.background_start_times))
-            try:
-                self.h5_file_names = [os.path.join(self.h5_directory, f) for f in cfg.h5_file_names]
-                self.background_h5_file_names = [os.path.join(self.background_h5_directory, f) for f in cfg.background_h5_file_names]
-            except KeyError:
-                self.h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.start_times]
-                self.background_h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.background_start_times]
-
-            self.exposure_times = list(map(int, cfg.exposure_times))
-            self.wavelengths = np.array(cfg.wavelengths, dtype=float)
-            self.backgrounds_list = cfg.backgrounds_list
             # Things with defaults
-            self.histogram_model_names = list(cfg.wavecal.fit.histogram_model_names)
-            self.bin_width = float(cfg.wavecal.fit.bin_width)
-            self.histogram_fit_attempts = int(cfg.wavecal.fit.histogram_fit_attempts)
-            self.calibration_model_names = list(cfg.wavecal.fit.calibration_model_names)
-            self.dt = float(cfg.wavecal.fit.dt)
-            self.parallel = cfg.wavecal.fit.parallel
-            self.parallel_prefetch = cfg.wavecal.fit.parallel_prefetch
+            self.histogram_model_names = list(cfg.wavecal.histogram_model_names)
+            self.bin_width = float(cfg.wavecal.bin_width)
+            self.histogram_fit_attempts = int(cfg.wavecal.histogram_fit_attempts)
+            self.calibration_model_names = list(cfg.wavecal.calibration_model_names)
+            self.dt = float(cfg.wavecal.dt)
+            self.parallel = cfg.wavecal.parallel
+            self.parallel_prefetch = cfg.wavecal.parallel_prefetch
             self.summary_plot = str(cfg.wavecal.plots).lower() in ('all', 'summary')
 
             try:
@@ -144,10 +132,8 @@ class Configuration(object):
                     log.warning('Beammap loaded without frequencies and no templar config specified.')
         else:
             self.beammap = beammap if beammap is not None else Beammap(default='MEC')
-            self.x_pixels = beammap.ncols
-            self.y_pixels = beammap.nrows
-            self.beam_map_path = beammap.file
-            self.h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.start_times]
+
+        self.h5_file_names = {wave: h5 for wave, h5 in zip(self.wavelengths, h5s)}
 
         for model in self.histogram_model_names:
             assert issubclass(getattr(wm, model), wm.PartialLinearModel), \
@@ -157,13 +143,13 @@ class Configuration(object):
             assert issubclass(getattr(wm, model), wm.XErrorsModel), \
                    '{} is not a subclass of wavecal_models.XErrorsModel'.format(model)
 
-        self._sort_wavelengths()
+        self.wavelengths, self.start_times = zip(*sorted(zip(self.wavelengths, self.start_times)))
+
 
     @classmethod
     def to_yaml(cls, representer, node):
         d = node.__dict__.copy()
         d.pop('config')
-        d['wavelengths'] = [float(x) for x in node.wavelengths]
         return representer.represent_mapping(cls.yaml_tag, d)
 
     @classmethod
@@ -174,19 +160,12 @@ class Configuration(object):
 
     def hdf_exist(self):
         """Check if all hdf5 files specified exist."""
-        return all(map(os.path.isfile, self.h5_file_names))
+        return all(map(os.path.isfile, self.h5_file_names.values()))
 
     def write(self, file_):
         """Save the configuration to a file"""
         with open(file_, 'w') as f:
             mkidcore.config.yaml.dump(self, f)
-
-    def _sort_wavelengths(self):
-        indices = np.argsort(self.wavelengths)
-        self.wavelengths = list(np.array(self.wavelengths)[indices])
-        self.exposure_times = list(np.array(self.exposure_times)[indices])
-        self.start_times = list(np.array(self.start_times)[indices])
-        self.h5_file_names = list(np.array(self.h5_file_names)[indices])
 
 
 class Calibrator(object):
@@ -274,14 +253,23 @@ class Calibrator(object):
         # load in all the data from h5 files into shared memory if requested
         if parallel and self.cfg.parallel_prefetch:
             log.info("Prefetching ALL data")
-            self._shared_tables = [photontable.load_shareable_photonlist(f) for f in self.cfg.h5_file_names]
+            self._shared_tables = {w: photontable.load_shareable_photonlist(f)
+                                   for w, f in self.cfg.h5_file_names.items()}
+            for w in self._shared_tables:
+                if w in self.cfg.backgrounds:
+                    self._shared_tables[w] = (self._shared_tables[w],
+                                              photontable.load_shareable_photonlist(self.cfg.backgrounds[w]))
+                else:
+                    self._shared_tables[w] = (self._shared_tables[w], None)
+
         # run the main methods
         try:
             log.info("Computing phase histograms")
             self._run("make_histograms", pixels=pixels, wavelengths=wavelengths, parallel=parallel, verbose=verbose)
-            if self._shared_tables is not None:
-                del self._shared_tables
-                self._shared_tables = None
+
+            del self._shared_tables
+            self._shared_tables = None
+
             log.info("Fitting phase histograms")
             self._run("fit_histograms", pixels=pixels, wavelengths=wavelengths, parallel=parallel, verbose=verbose)
             log.info("Fitting phase-energy calibration")
@@ -297,29 +285,15 @@ class Calibrator(object):
         except KeyboardInterrupt:
             log.info("Keyboard shutdown requested ... exiting")
 
-    def fetch_obsfile(self, wavelength):
-        """Return an obsfile for the specified laser wavelength."""
+    def fetch_obsfile(self, wavelength, background=False):
+        """Return an obsfile for the specified laser wavelength. May return None for a background"""
+        key = (wavelength, background)
         try:
-            return self._obsfiles[wavelength]
+            return self._obsfiles[key]
         except KeyError:
-            # wavelengths might be unordered, so we get the right order of h5 files
-            index = np.where(wavelength == np.asarray(self.cfg.wavelengths))[0].squeeze()
-            self._obsfiles[wavelength] = photontable.Photontable(self.cfg.h5_file_names[index])
-        return self._obsfiles[wavelength]
-
-    def fetch_background(self, wavelength):
-        '''
-        Determines if a given laser has a specified background to remove. Then finds the relevant h5 for that
-        particular background and returns it as an Photontable object.
-
-        :param wavelength: wavelength of laser you want to find the background for
-
-        :return: Photontable
-        '''
-        i = np.where(self.cfg.backgrounds_list['wavelength'] == wavelength)[0][0]
-        t = self.cfg.backgrounds_list['start_time'][i]
-        h5 = os.path.join(self.cfg.h5_directory, str(t) + '.h5')
-        return photontable.Photontable(h5)
+            file = self.cfg.backgrounds.get(wavelength, None) if background else self.cfg.h5_file_names[wavelength]
+            self._obsfiles[key] = photontable.Photontable(file) if file else None
+        return self._obsfiles[key]
 
     def make_histograms(self, pixels=None, wavelengths=None, verbose=False):
         """
@@ -347,43 +321,48 @@ class Calibrator(object):
                 for index, wavelength in enumerate(wavelengths):
                     model = models[index]
                     # load the data
+                    bkgd_phase_list = None
                     if self._shared_tables is None:
                         photon_list = self.fetch_obsfile(wavelength).getPixelPhotonList(xCoord=pixel[0],
                                                                                         yCoord=pixel[1])
                         # create background phase list if specified
-                        if self.cfg.backgrounds_list['background'][index] != 'None' and\
-                                self.cfg.backgrounds_list['background'][index] != '':
-                            bkgd_photon_list = self.fetch_background(wavelength).getPixelPhotonList(xCoord=pixel[0],
-                                                                                        yCoord=pixel[1])
-                            bkgd_phase_list = bkgd_photon_list['Wavelength']
+                        bg = self.fetch_obsfile(wavelength, background=True)
+                        if bg is not None:
+                            bkgd_phase_list = bg.getPixelPhotonList(xCoord=pixel[0], yCoord=pixel[1])['Wavelength']
                             bkgd_phase_list = bkgd_phase_list[bkgd_phase_list < 0]
-                        else:
-                            bkgd_phase_list = None
                     else:
-                        table_data = self._shared_tables[index].data
+                        table_data, bg = self._shared_tables[wavelength].data
                         photon_list = table_data[table_data['ResID'] == self.solution.beam_map[tuple(pixel)]]
-                        #TODO: figure out what to do with the background here
+
+                        if bg is not None:
+                            bkgd_phase_list = bg['Wavelength'][bg['ResID'] == self.solution.beam_map[tuple(pixel)]]
+                            bkgd_phase_list = bkgd_phase_list[bkgd_phase_list < 0]
+
                     # check for enough photons
                     if photon_list.size < 2:
                         model.flag = wm.pixel_flags['photon data']
-                        message = "({}, {}) : {} nm : there are no photons"
-                        log.debug(message.format(pixel[0], pixel[1], wavelength))
+                        log.debug(f"{pixel} : {wavelength} nm : there are no photons")
                         continue
+
                     # remove hot pixels
                     rate = (len(photon_list['Wavelength']) * 1e6 /
                             (max(photon_list['Time']) - min(photon_list['Time'])))
-                    if rate > 2000:
+
+                    if rate > self.cfg.max_count_rate:
                         model.flag = wm.pixel_flags['hot pixel']
-                        message = "({}, {}) : {} nm : removed for being too hot ({:.2f} > 2000 cps)"
-                        log.debug(message.format(pixel[0], pixel[1], wavelength, rate))
+                        message = "({}, {}) : {} nm : removed for being too hot ({:.2f} > {} cps)"
+                        log.debug(message.format(pixel[0], pixel[1], wavelength, rate, self.cfg.max_count_rate))
                         continue
+
                     # remove photons too close together in time
                     photon_list = self._remove_tail_riding_photons(photon_list)
+
                     if photon_list.size == 0:
                         model.flag = wm.pixel_flags['time cut']
                         message = "({}, {}) : {} nm : all the photons were removed after the arrival time cut"
                         log.debug(message.format(pixel[0], pixel[1], wavelength))
                         continue
+
                     # remove photons with positive peak heights
                     phase_list = photon_list['Wavelength']
                     phase_list = phase_list[phase_list < 0]
@@ -393,25 +372,24 @@ class Calibrator(object):
                                    "after the negative phase only cut")
                         log.debug(message.format(pixel[0], pixel[1], wavelength))
                         continue
+
                     # make histogram
                     centers, counts, variance = self._histogram(phase_list, bkgd_phase_list)
                     # assign x, y and variance data to the fit model
-                    model.x = centers
-                    model.y = counts
+                    model.x, model.y = centers, counts
                     # gaussian mle for the variance of poisson distributed data
                     # https://doi.org/10.1016/S0168-9002(00)00756-7
                     model.variance = variance
                     message = "({}, {}), : {} nm : histogram successfully computed"
                     log.debug(message.format(pixel[0], pixel[1], wavelength))
+
             # update progress bar
             self._update_progress(finish=True, verbose=verbose)
+
         except KeyboardInterrupt:
             raise KeyboardInterrupt  # don't log keyboard interrupt
         except Exception as error:
-            if wavelength is None:
-                message = "({}, {}) : ".format(pixel[0], pixel[1]) + + str(error)
-            else:
-                message = "({}, {}) : {} nm : ".format(pixel[0], pixel[1], wavelength) + str(error)
+            message = f"{pixel} : {error}" if wavelength is None else f"{pixel} : {wavelength} nm : {error}"
             log.error(message, exc_info=True)
             raise error
 
@@ -714,16 +692,13 @@ class Calibrator(object):
         photon_list = photon_list[logic]
         return photon_list
 
-    def _histogram(self, phase_list, bkgd_phase_list):
+    def _histogram(self, phase_list, bkgd_phase_list=None):
         # initialize variables
-        min_phase = np.min(phase_list)
-        max_phase = np.max(phase_list)
-        max_count = 0
+        min_phase, max_phase = np.min(phase_list), np.max(phase_list)
         update = 0
-        centers = None
-        counts = None
+
         # make histogram
-        while max_count < 400 and update < 3:
+        while update < 3:
             # update bin_width
             bin_width = self.cfg.bin_width * (2 ** update)
             # define bin edges being careful to start at the threshold cut
@@ -733,17 +708,16 @@ class Calibrator(object):
             counts, x0 = np.histogram(phase_list, bins=bin_edges)
             # find background counts and subtract them off
             centers = (x0[:-1] + x0[1:]) / 2.0
-            # update counters
-            max_count = counts.max()
             update += 1
-            if isinstance(bkgd_phase_list, np.ndarray): #TODO might not be the best way to do this
-                bkgd_counts, bkgd_x0 = np.histogram(bkgd_phase_list, bins=bin_edges)
-                counts -= bkgd_counts
+            bkgd_counts = np.histogram(bkgd_phase_list, bins=bin_edges)[0] if bkgd_phase_list is not None else 0
+            if (counts-bkgd_counts).max() >= 400:
+                break
         # gaussian mle for the variance of poisson distributed data
         # https://doi.org/10.1016/S0168-9002(00)00756-7
         variance = np.sqrt(counts ** 2 + 0.25) - 0.5
-        if isinstance(bkgd_phase_list, np.ndarray):
-            variance += np.sqrt(bkgd_counts**2 + 0.25) - 0.5
+        if bkgd_counts:
+            counts -= bkgd_counts
+            variance += np.sqrt(bkgd_counts ** 2 + 0.25) - 0.5
         return centers, counts, variance
 
     def _update_histogram_model(self, wavelength, histogram_model_class, pixel):
@@ -1196,10 +1170,6 @@ class Solution(object):
             save_path = os.path.join(self.cfg.out_directory, save_name)
         if not save_path.endswith('.npz'):
             save_path += '.npz'
-        # make sure the configuration is pickleable if created from __main__
-        if self.cfg.__class__.__module__ == "__main__":
-            from mkidpipeline.steps.wavecal import Configuration
-            self.cfg = Configuration(self.cfg.configuration_path)
 
         log.info("Saving solution to {}".format(save_path))
         np.savez(save_path, fit_array=self.fit_array, configuration=self.cfg, beam_map=self.beam_map,
@@ -2471,8 +2441,8 @@ class Solution(object):
                 r"{} \\ \\ \\".format(os.path.basename(self.name).replace('_', r'\_')))
         info += r" \begin{tabular}{@{}>{\raggedright}p{1.5in} | p{1.5in}}"
         info += r"\textbf{Photontable Names:} & \textbf{Wavelengths [nm]:} \\"
-        for index, file_name in enumerate(self.cfg.h5_file_names):
-            info += r"{} & {:g} \\".format(os.path.basename(file_name), self.cfg.wavelengths[index])
+        for wave, file_name in self.cfg.h5_file_names.items():
+            info += r"{} & {:g} \\".format(os.path.basename(file_name), wave)
         info += table_end
 
         # add text to axes
@@ -2700,64 +2670,20 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
             solutions.append(load_solution(sf))
         else:
             if 'wavecal' not in cfg:
-                wcfg = mkidpipeline.config.load_task_config(pkg.resource_filename(__name__, 'wavecal.yml'))
-            else:
-                wcfg = cfg.copy()
+                cfg = mkidpipeline.config.load_task_config(StepConfig())
 
-            wcfg.register('start_times', [x.start for x in sd.data], update=True)
-            wcfg.register('exposure_times', [x.duration for x in sd.data], update=True)
-            wcfg.register('wavelengths', [w for w in sd.wavelengths], update=True)
-            if sd.backgrounds is not None:
-                wcfg.register('background_start_times', [x.start for x in sd.backgrounds], update=True)
-            else:
-                wcfg.register('background_start_times', [], update=True)
-            wcfg.register('backgrounds', sd.backgrounds)
-            wcfg.register('backgrounds_list', sd.backgrounds_list)
+            wcfg = cfg.copy()
+
             if ncpu is not None:
                 wcfg.update('ncpu', ncpu)
-            cal = Calibrator(wcfg, solution_name=sf)
-            cal.run(**kwargs)
-            # solutions.append(load_solution(sf))  # don't need to reload from file
-            solutions.append(cal.solution)  # TODO: solutions.append(load_solution(cal.solution))
 
+            cfg = Configuration(wcfg, h5s=[x.h5 for x in sd.data], wavelengths=[w for w in sd.wavelengths],
+                                backgrounds=sd.backgrounds)
+            cal = Calibrator(cfg, solution_name=sf)
+            cal.run(**kwargs)
+            solutions.append(cal.solution)
     return solutions
 
 
 mkidpipeline.config.yaml.register_class(Configuration)
 mkidpipeline.config.yaml.register_class(Solution)
-
-
-if __name__ == "__main__":
-    timestamp = int(datetime.utcnow().timestamp())
-    # print execution time on exit
-    atexit.register(lambda: print('Time: {:.2f} minutes'.format((datetime.utcnow().timestamp() - timestamp) / 60)))
-    # read in command line arguments
-    parser = argparse.ArgumentParser(description='MKID Wavelength Calibration Utility')
-    parser.add_argument('cfg_file', type=str, help='The configuration file')
-    parser.add_argument('--vet', action='store_true', dest='vet_only', help='Only verify the configuration file')
-    parser.add_argument('--h5', action='store_true', dest='h5_only', help='Only make the h5 files')
-    parser.add_argument('--force', action='store_true', dest='force_h5', help='Force h5 file creation')
-    parser.add_argument('--ncpu', type=int, dest='n_cpu', default=0, help="Number of CPUs to use for bin2hdf, "
-                                                                          "default is number of wavelengths")
-    parser.add_argument('--progress', action='store_true', dest='progress', help='Enable the progress bar')
-    parser.add_argument('--quiet', action='store_true', dest='quiet', help="Don't log to the console")
-    args = parser.parse_args()
-    # load wavecal configuration file
-    wcalcfg = Configuration(args.cfg_file)
-    # set up logging
-    setup_logging(tologfile=wcalcfg.out_directory, toconsole=not args.quiet, time_stamp=timestamp)
-    # load as a task configuration
-    ymlcfg = mkidpipeline.config.load_task_config(args.cfg_file)
-    # set up bin2hdf
-    if args.n_cpu == 0:
-        args.n_cpu = len(wcalcfg.wavelengths)
-    if args.vet_only:
-        exit()
-    time_ranges = [(ymlcfg.start_times[i], ymlcfg.start_times[i] + ymlcfg.exposure_times[i])
-                   for i in range(len(ymlcfg.start_times))]
-    bin2hdf.buildtables(time_ranges, ymlcfg, ncpu=args.n_cpu, remake=args.force_h5, timesort=False)
-    if args.h5_only:
-        exit()
-    # run the wavelength calibration
-    c = Calibrator(wcalcfg, solution_name='wavecal_solution_{}.npz'.format(timestamp))
-    c.run(verbose=args.progress)
