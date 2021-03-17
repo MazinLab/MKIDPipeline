@@ -90,8 +90,8 @@ class FlatCalibrator:
         self.xpix = self.cfg.beammap.ncols
         self.ypix = self.cfg.beammap.nrows
 
-        self.wvlStart = self.cfg.instrument.wvl_start
-        self.wvlStop = self.cfg.instrument.wvl_stop
+        self.wvlStart = self.cfg.instrument.minimum_wavelength
+        self.wvlStop = self.cfg.instrument.maximum_wavelength
 
         self.countRateCutoff = self.cfg.flatcal.rate_cutoff
         self.fractionOfChunksToTrim = self.cfg.flatcal.trim_fraction

@@ -69,8 +69,8 @@ class Configuration(object):
             cfg = mkidcore.config.load(self.configuration_path)
             self.use_satellite_spots = cfg.use_satellite_spots
             self.ncpu = cfg.ncpu
-            self.wvlStart = cfg.instrument.wvl_start * 10.0 # in angstroms
-            self.wvlStop = cfg.instrument.wvl_stop * 10.0 # in angstroms
+            self.wvlStart = cfg.instrument.minimum_wavelength * 10.0 # in angstroms
+            self.wvlStop = cfg.instrument.maximum_wavelength * 10.0 # in angstroms
             self.wvl_bin_edges = cfg.wvl_bin_edges
             self.energyStart = (c.h * c.c) / (self.wvlStart * 10**(-10) * c.e)
             self.energyStop = (c.h * c.c) / (self.wvlStop * 10**(-10) * c.e)
