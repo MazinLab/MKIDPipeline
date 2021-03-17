@@ -1,5 +1,10 @@
 !configdict
-badpix: median
+
+
+verbosity: 10000
+ncpu: 7
+
+
 
 beammap: !bmap
   default: MEC
@@ -16,10 +21,15 @@ paths: !configdict
     out: /work/temp/out/
     tmp: /work/temp/scratch/  #(optional) can be used to specify a location for data intensive temp files
 
-ncpu: 7
-include_baseline: False # whether to include the baseline in h5 creation
 
-linearity: !configdict
+hdf: !configdict
+  chunkshape: 250
+  include_baseline: False # whether to include the baseline in h5 creation
+
+badpix: !badpix_cfg
+  method: median
+
+lincal: !lincal_cfg
   dt: 500000 #time window around which to calculate the linearity weight (microsesonds)
 
 wavecal: !wavecal_cfg
@@ -41,7 +51,7 @@ wavecal: !wavecal_cfg
   parallel: True
   parallel_prefetch: False
 
-spectralcal: !configdict
+spectralcal: !spectralcal_cfg
   #Mandatory
   photometry_type: aperture  # aperture | psf
   summary_plot: True
@@ -89,8 +99,3 @@ drizzler: !configdict
   derotate: False  # apply a rotation to each frame opposite to the sky rotation to align the objects
   align_start_pa: False  # if derotate is False then the images can be aligned to the first frame for the purpose of ADI
   whitelight: True  # tell drizzler to turn off derotation and set ra and dec to 0
-
-templar: !configdict
-  file: the_conf.yml
-
-verbose: True

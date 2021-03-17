@@ -8,7 +8,8 @@ import mkidpipeline.config
 
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
-    REQUIRED_KEYS = (('tau_us', 10, 'detector dead time (microseconds)'),)
+    yaml_tag = u'!lincal_cfg'
+    REQUIRED_KEYS = (('dt', 1000, 'time range over which to calculate the weights (us)'),)
 
 
 def calculate_weights(time_stamps, dt, tau, pixel:tuple=None):
