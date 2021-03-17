@@ -174,10 +174,8 @@ class MKIDTimerange(object):
         if stop is not None:
             self.stop = int(np.ceil(stop))
 
-
         if self.stop < self.start:
             raise ValueError('Stop ({}) must come after start ({})'.format(self.stop,self.start))
-
 
         self.name = str(name)
         self.background = str(background)
