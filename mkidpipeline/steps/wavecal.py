@@ -256,8 +256,8 @@ class Calibrator(object):
             log.info("Computing phase histograms")
             self._run("make_histograms", pixels=pixels, wavelengths=wavelengths, parallel=parallel, verbose=verbose)
 
-                del self._shared_tables
-                self._shared_tables = None
+            del self._shared_tables
+            self._shared_tables = None
 
             log.info("Fitting phase histograms")
             self._run("fit_histograms", pixels=pixels, wavelengths=wavelengths, parallel=parallel, verbose=verbose)
@@ -681,16 +681,13 @@ class Calibrator(object):
         photon_list = photon_list[logic]
         return photon_list
 
-    def _histogram(self, phase_list, bkgd_phase_list):
+    def _histogram(self, phase_list, bkgd_phase_list=None):
         # initialize variables
-        min_phase = np.min(phase_list)
-        max_phase = np.max(phase_list)
-        max_count = 0
+        min_phase, max_phase = np.min(phase_list), np.max(phase_list)
         update = 0
-        centers = None
-        counts = None
+
         # make histogram
-        while max_count < 400 and update < 3:
+        while update < 3:
             # update bin_width
             bin_width = self.cfg.bin_width * (2 ** update)
             # define bin edges being careful to start at the threshold cut
@@ -700,17 +697,16 @@ class Calibrator(object):
             counts, x0 = np.histogram(phase_list, bins=bin_edges)
             # find background counts and subtract them off
             centers = (x0[:-1] + x0[1:]) / 2.0
-            # update counters
-            max_count = counts.max()
             update += 1
-            if isinstance(bkgd_phase_list, np.ndarray): #TODO might not be the best way to do this
-                bkgd_counts, bkgd_x0 = np.histogram(bkgd_phase_list, bins=bin_edges)
-                counts -= bkgd_counts
+            bkgd_counts = np.histogram(bkgd_phase_list, bins=bin_edges)[0] if bkgd_phase_list is not None else 0
+            if (counts-bkgd_counts).max() >= 400:
+                break
         # gaussian mle for the variance of poisson distributed data
         # https://doi.org/10.1016/S0168-9002(00)00756-7
         variance = np.sqrt(counts ** 2 + 0.25) - 0.5
-        if isinstance(bkgd_phase_list, np.ndarray):
-            variance += np.sqrt(bkgd_counts**2 + 0.25) - 0.5
+        if bkgd_counts:
+            counts -= bkgd_counts
+            variance += np.sqrt(bkgd_counts ** 2 + 0.25) - 0.5
         return centers, counts, variance
 
     def _update_histogram_model(self, wavelength, histogram_model_class, pixel):
