@@ -63,12 +63,8 @@ hpm_poisson_dist:  Checks if photons arriving at pixels are obeying Poisson stat
 
 
 """
-
-import os.path
-from datetime import datetime
 import warnings
-import argparse
-import numpy as np
+
 
 import scipy.ndimage.filters as spfilters
 from mkidpipeline.speckle.binned_rician import *
@@ -76,9 +72,8 @@ import scipy.stats
 
 from mkidpipeline.hdf.photontable import Photontable
 from mkidpipeline.utils import utils
-from mkidpipeline.utils.plottingTools import plot_array as pa
+import mkidpipeline.config
 from mkidcore.corelog import getLogger
-import mkidcore.corelog
 import mkidcore.pixelflags as pixelflags
 
 
@@ -94,6 +89,11 @@ def _stddev_bias_corr(n):
         lut_ndx = max(min(n - 2, len(lut) - 1), 0)
         corr = lut[lut_ndx]
     return 1.0 / corr
+
+
+class StepConfig(mkidpipeline.config.BaseStepConfig):
+    yaml_tag = u'!badpix_cfg'
+    REQUIRED_KEYS = (('method', 'median', 'method to use'),)
 
 
 def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.0, max_iter=10, dead_threshold=0, #TODO make nsigma_hot and nsigma_cold user specified parameters in the config file
