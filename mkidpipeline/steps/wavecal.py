@@ -1159,10 +1159,6 @@ class Solution(object):
             save_path = os.path.join(self.cfg.out_directory, save_name)
         if not save_path.endswith('.npz'):
             save_path += '.npz'
-        # make sure the configuration is pickleable if created from __main__
-        if self.cfg.__class__.__module__ == "__main__":
-            from mkidpipeline.steps.wavecal import Configuration
-            self.cfg = Configuration(self.cfg.configuration_path)
 
         log.info("Saving solution to {}".format(save_path))
         np.savez(save_path, fit_array=self.fit_array, configuration=self.cfg, beam_map=self.beam_map,
@@ -2680,39 +2676,3 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
 
 mkidpipeline.config.yaml.register_class(Configuration)
 mkidpipeline.config.yaml.register_class(Solution)
-
-
-if __name__ == "__main__":
-    timestamp = int(datetime.utcnow().timestamp())
-    # print execution time on exit
-    atexit.register(lambda: print('Time: {:.2f} minutes'.format((datetime.utcnow().timestamp() - timestamp) / 60)))
-    # read in command line arguments
-    parser = argparse.ArgumentParser(description='MKID Wavelength Calibration Utility')
-    parser.add_argument('cfg_file', type=str, help='The configuration file')
-    parser.add_argument('--vet', action='store_true', dest='vet_only', help='Only verify the configuration file')
-    parser.add_argument('--h5', action='store_true', dest='h5_only', help='Only make the h5 files')
-    parser.add_argument('--force', action='store_true', dest='force_h5', help='Force h5 file creation')
-    parser.add_argument('--ncpu', type=int, dest='n_cpu', default=0, help="Number of CPUs to use for bin2hdf, "
-                                                                          "default is number of wavelengths")
-    parser.add_argument('--progress', action='store_true', dest='progress', help='Enable the progress bar')
-    parser.add_argument('--quiet', action='store_true', dest='quiet', help="Don't log to the console")
-    args = parser.parse_args()
-    # load wavecal configuration file
-    wcalcfg = Configuration(args.cfg_file)
-    # set up logging
-    setup_logging(tologfile=wcalcfg.out_directory, toconsole=not args.quiet, time_stamp=timestamp)
-    # load as a task configuration
-    ymlcfg = mkidpipeline.config.load_task_config(args.cfg_file)
-    # set up bin2hdf
-    if args.n_cpu == 0:
-        args.n_cpu = len(wcalcfg.wavelengths)
-    if args.vet_only:
-        exit()
-    time_ranges = [(ymlcfg.start_times[i], ymlcfg.start_times[i] + ymlcfg.exposure_times[i])
-                   for i in range(len(ymlcfg.start_times))]
-    bin2hdf.buildtables(time_ranges, ymlcfg, ncpu=args.n_cpu, remake=args.force_h5, timesort=False)
-    if args.h5_only:
-        exit()
-    # run the wavelength calibration
-    c = Calibrator(wcalcfg, solution_name='wavecal_solution_{}.npz'.format(timestamp))
-    c.run(verbose=args.progress)
