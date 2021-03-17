@@ -112,6 +112,11 @@ def spectralcal_id(spectralreference_id, spectralcal_cfg=None):
 
 
 class BaseStepConfig(mkidcore.config.ConfigThing):
+    def __init__(self):
+        super().__init__()
+        for k,v,c in self.REQUIRED_KEYS:
+            self.register(k, v, comment=c, update=False)
+
     @classmethod
     def from_yaml(cls, loader, node):
 
