@@ -58,6 +58,23 @@ def setup_logging(tologfile='', toconsole=True, time_stamp=None):
         pipelinelog.create_log('mkidpipeline', logfile=log_file, console=False, fmt=log_format, level="DEBUG")
 
 
+class StepConfig(mkidpipeline.config.BaseStepConfig):
+    yaml_tag = u'!wavecal_cfg'
+    STEP_NAME = 'wavecal'
+    REQUIRED_KEYS = (('plots', 'summary', 'summary or all'),
+                     ('histogram_models', ('GaussianAndExponential',), 'model types from wavecal_models.py to attempt to fit to the phase peak histograms'),
+                     ('bin_width', 2, 'minimum bin width for the phase histogram. Larger widths will be used for low photon  count pixels (number)'),
+                     ('histogram_fit_attempts', 3, 'how many times should the code try to fit each histogram model before giving up'),
+                     ('calibration_models', ('Quadratic', 'Linear'), 'model types from wavecal_models.py to attempt to fit to the phase-energy relationship'),
+                     ('dt', 500,'ignore photons which arrive this many microseconds from another photon (number)'),
+                     ('parallel', True, 'Fitting using more than one core'),
+                     ('parallel_prefetch', False, 'use shared memory to load ALL the photon data into ram'))
+    OPTIONAL_KEYS = tuple()
+
+    def _vet_errors(self):
+        return []
+
+
 class Configuration(object):
     """Configuration class for the wavelength calibration analysis."""
     yaml_tag = u'!wavecalconfig'
@@ -104,13 +121,13 @@ class Configuration(object):
             self.out_directory = cfg.paths.database
 
             # Things with defaults
-            self.histogram_model_names = list(cfg.wavecal.fit.histogram_model_names)
-            self.bin_width = float(cfg.wavecal.fit.bin_width)
-            self.histogram_fit_attempts = int(cfg.wavecal.fit.histogram_fit_attempts)
-            self.calibration_model_names = list(cfg.wavecal.fit.calibration_model_names)
-            self.dt = float(cfg.wavecal.fit.dt)
-            self.parallel = cfg.wavecal.fit.parallel
-            self.parallel_prefetch = cfg.wavecal.fit.parallel_prefetch
+            self.histogram_model_names = list(cfg.wavecal.histogram_model_names)
+            self.bin_width = float(cfg.wavecal.bin_width)
+            self.histogram_fit_attempts = int(cfg.wavecal.histogram_fit_attempts)
+            self.calibration_model_names = list(cfg.wavecal.calibration_model_names)
+            self.dt = float(cfg.wavecal.dt)
+            self.parallel = cfg.wavecal.parallel
+            self.parallel_prefetch = cfg.wavecal.parallel_prefetch
             self.summary_plot = str(cfg.wavecal.plots).lower() in ('all', 'summary')
 
             try:
@@ -2659,7 +2676,7 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
             solutions.append(load_solution(sf))
         else:
             if 'wavecal' not in cfg:
-                cfg = mkidpipeline.config.load_task_config(pkg.resource_filename(__name__, 'wavecal.yml'))
+                cfg = mkidpipeline.config.load_task_config(StepConfig())
 
             wcfg = cfg.copy()
 

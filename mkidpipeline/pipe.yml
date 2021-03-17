@@ -22,25 +22,24 @@ include_baseline: False # whether to include the baseline in h5 creation
 linearity: !configdict
   dt: 500000 #time window around which to calculate the linearity weight (microsesonds)
 
-wavecal: !configdict
+wavecal: !wavecal_cfg
   plots: summary
-  fit: !configdict
-    # model types from wavecal_models.py to attempt to fit to the phase peak histograms
-    # (list of strings)
-    histogram_model_names: ['GaussianAndExponential']
-    # minimum bin width for the phase histogram. Larger widths will be used for low photon
-    # count pixels (number)
-    bin_width: 2
-    # how many times should the code try to fit each histogram model before giving up
-    histogram_fit_attempts: 3
-    # model types from wavecal_models.py to attempt to fit to the phase-energy relationship
-    # (list of strings)
-    calibration_model_names: ['Quadratic', 'Linear']
-    # ignore photons which arrive this many microseconds from another photon (number)
-    dt: 500
-    # do the fitting using more than one core (True/False)
-    parallel: True
-    parallel_prefetch: False
+  # model types from wavecal_models.py to attempt to fit to the phase peak histograms
+  # (list of strings)
+  histogram_model_names: ['GaussianAndExponential']
+  # minimum bin width for the phase histogram. Larger widths will be used for low photon
+  # count pixels (number)
+  bin_width: 2
+  # how many times should the code try to fit each histogram model before giving up
+  histogram_fit_attempts: 3
+  # model types from wavecal_models.py to attempt to fit to the phase-energy relationship
+  # (list of strings)
+  calibration_model_names: ['Quadratic', 'Linear']
+  # ignore photons which arrive this many microseconds from another photon (number)
+  dt: 500
+  # do the fitting using more than one core (True/False)
+  parallel: True
+  parallel_prefetch: False
 
 spectralcal: !configdict
   #Mandatory
