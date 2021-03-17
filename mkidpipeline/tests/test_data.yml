@@ -4,14 +4,14 @@
     - !ob
       name: background1
       start: 1545542300
-      duration: 10 #100
+      duration: 100 #100
       header:
         ND: 2.5
   data:
     - !ob
       name: 850 nm
       start: 1545542036
-      duration: 10 # stop: 1545542178 #if stop is < start it is interpreted as the final digits
+      duration: 100 # stop: 1545542178
       background: background1
       comments:
         - dither at (0,0)
@@ -22,28 +22,28 @@
     - !ob
       name: 950 nm
       start: 1545542180
-      duration: 10 #stop: 1545542310
+      duration: 100 #stop: 1545542310
       header:
         ND: open
         lamp: 100
     - !ob
       name: 1100 nm
       start: 1545542340
-      duration: 10 #stop: 1545542450
+      duration: 100 #stop: 1545542450
       header:
         ND: .5
         lamp: 40
     - !ob
       name: 1250 nm
       start: 1545542463
-      duration: 10 #stop: 1545542575
+      duration: 100 #stop: 1545542575
       header:
         ND: 1
         lamp: 40
     - !ob
       name: 1375 nm
       start: 1545542578
-      duration: 10 #duration: 297       #duration may be used instead of stop
+      duration: 100 #duration: 297
       header:
         ND: 1.0
         lamp: 40
