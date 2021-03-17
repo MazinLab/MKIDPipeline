@@ -1,20 +1,20 @@
 !configdict
 badpix: median
 
-#TODO move this to data.yml? -Jeb
 beammap: !bmap
-  file: /mnt/data0/baileyji/mec/finalMap_20181218.bmap
-  freqfiles: /mnt/data0/baileyji/mec/psfreq_dec/ps_freqs_FL*_clip.txt
-  nrows: 146
-  ncols: 140
+  default: MEC
+#  file: /some/bath/to/beammap.bmap
+#  freqfiles: /some/path/to/ps_freqs_FL*_clip.txt
+#  nrows: 146
+#  ncols: 140
 
 paths: !configdict
-    dithers: /mnt/data0/baileyji/mec/dithers/
-    data: /mnt/data0/ScienceData/Subaru/
+    dithers: /darkdata/MEC/logs/
+    data: /darkdata/ScienceData/Subaru/
     #a processing cache directory, calibrations, configs, etc will be retrieved/stored here
-    database: /mnt/data0/steiger/MEC/
-    out: /mnt/data0/baileyji/mec/out/
-    tmp: /mnt/data0/baileyji/mec/scratch/  #(optional) can be used to specify a location for data intensive temp files
+    database: /work/temp/database/
+    out: /work/temp/out/
+    tmp: /work/temp/scratch/  #(optional) can be used to specify a location for data intensive temp files
 
 ncpu: 7
 include_baseline: False # whether to include the baseline in h5 creation
