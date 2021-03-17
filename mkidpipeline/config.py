@@ -155,7 +155,7 @@ def make_paths(config=None, output_dirs=tuple()):
 class MKIDTimerange(object):
     yaml_tag = u'!ob'
 
-    def __init__(self, name, start, duration=None, stop=None, _common=None, wavecal=None, flatcal=None, background=None):
+    def __init__(self, name, start, duration=None, stop=None, _common=None, background=None):
 
         if _common is not None:
             self.__dict__.update(_common)
@@ -166,13 +166,13 @@ class MKIDTimerange(object):
             raise ValueError('Must only specify stop or duration')
         if duration is not None and duration > 43200:
             raise ValueError('Specified duration is longer than 12 hours!')
-        self.start = int(start)
+        self.start = start #int(start)
 
         if duration is not None:
-            self.stop = self.start + int(np.ceil(duration))
+            self.stop = self.start + duration #int(np.ceil(duration))
 
         if stop is not None:
-            self.stop = int(np.ceil(stop))
+            self.stop = stop #int(np.ceil(stop))
 
         if self.stop < self.start:
             raise ValueError('Stop ({}) must come after start ({})'.format(self.stop,self.start))
@@ -225,65 +225,17 @@ class MKIDTimerange(object):
         return h5_for_MKIDodd(self)
 
 
-class MKIDObservation(object):
+class MKIDObservation(MKIDTimerange):
     """requires keys name, wavecal, flatcal, wcscal, and all the things from ob"""
     yaml_tag = u'!sob'
-    #TODO make subclass of MKIDTimerange, keep in sync for now
+
     def __init__(self, name, start, duration=None, stop=None, wavecal=None, flatcal=None, speccal=None, wcscal=None,
-                 _common=None):
-
-        if _common is not None:
-            self.__dict__.update(_common)
-
-        if duration is None and stop is None:
-            raise ValueError('Must specify stop or duration')
-        if duration is not None and stop is not None:
-            raise ValueError('Must only specify stop or duration')
-        # self.start = int(start)
-        #
-        # if duration is not None:
-        #     self.stop = self.start + int(np.ceil(duration))
-        #
-        # if stop is not None:
-        #     self.stop = int(np.ceil(stop))
-
-        self.start = start
-        if duration is not None:
-            self.stop = self.start + duration
-
-        if stop is not None:
-            self.stop = stop
-
-        if self.stop < self.start:
-            raise ValueError('Stop ({}) must come after start ({})'.format(self.stop,self.start))
-
+                 background=None, _common=None):
+        super().__init__(name, start, duration=duration, stop=stop, _common=_common, background=background)
         self.wavecal = wavecal
         self.flatcal = flatcal
         self.wcscal = wcscal
         self.speccal = speccal
-
-        self.name = str(name)
-
-    def __str__(self):
-        return '{} t={}:{}s'.format(self.name, self.start, self.duration)
-
-    @property
-    def date(self):
-        return datetime.utcfromtimestamp(self.start)
-
-    @property
-    def instrument_info(self):
-        #TODO remove or sync this with the metadata in the H5 files
-        return InstrumentInfo(beammap=self.beammap, platescale=config.instrument.platescale * units.mas)
-
-    @property
-    def beammap(self):
-        #TODO need to move beammap from pipe.yml to data.yml
-        return config.beammap
-
-    @property
-    def duration(self):
-        return self.stop-self.start
 
     @classmethod
     def from_yaml(cls, loader, node):
@@ -295,18 +247,6 @@ class MKIDObservation(object):
         return cls(name, start, duration=duration, stop=stop, wavecal=d.pop('wavecal', None),
                    flatcal=d.pop('flatcal', None), wcscal=d.pop('wcscal', None), speccal=d.pop('speccal', None),
                    _common=d)
-
-    @property
-    def timerange(self):
-        return self.start, self.stop
-
-    @property
-    def timeranges(self):
-        return self.timerange,
-
-    @property
-    def h5(self):
-        return h5_for_MKIDodd(self)
 
     @property
     def metadata(self):
