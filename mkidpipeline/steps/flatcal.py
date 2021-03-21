@@ -72,7 +72,7 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
 
 
 class FlatCalibrator:
-    def __init__(self, config=None):
+    def __init__(self, config=None, solution_name='flat_solution.npz'):
         self.cfg = mkidpipeline.config.load_task_config(StepConfig() if config is None else config)  #TODO
         self.data_dir = self.cfg.paths.data
         self.out_directory = self.cfg.paths.out
@@ -95,6 +95,7 @@ class FlatCalibrator:
         self.wvl_bin_edges = None
         self.wavelengths = None
         self.r_list = None
+        self.solution_name = solution_name
 
         if self.cfg.flatcal.use_wavecal:
             sol = wavecal.Solution(self.cfg.flatcal.wavsol)
@@ -117,6 +118,7 @@ class FlatCalibrator:
         self.flat_flags = None
         self.plotName = None
         self.fig = None
+        self.coeff_array = np.zeros(self.xpix, self.ypix)
 
     def load_data(self):
         pass
@@ -124,19 +126,21 @@ class FlatCalibrator:
     def load_flat_spectra(self):
         pass
 
-    def makeCalibration(self):
+    def run(self):
         getLogger(__name__).info("Loading Data")
         self.load_data()
         getLogger(__name__).info("Loading flat spectra")
         self.load_flat_spectra()
         getLogger(__name__).info("Calculating weights")
         self.calculate_weights()
-        getLogger(__name__).info("Writing weights")
-        self.write_weights(poly_power=self.cfg.flatcal.power)
+        self.calculate_coefficients()
+        sol = FlatSolution(configuration=self.cfg, flat_weights=self.flat_weights, flat_weight_err=self.flat_weight_err,
+                           flat_flags=self.flat_flags, coeff_array=self.coeff_array)
+        sol.save(save_name=self.solution_name)
 
         if self.summary_plot:
             getLogger(__name__).info('Making a summary plot')
-            self.make_summary()
+            sol.summary_plot()
 
         if self.save_plots:
             getLogger(__name__).info("Writing detailed plots, go get some tea.")
@@ -212,53 +216,13 @@ class FlatCalibrator:
         wvl_weight_avg = np.ma.mean(np.reshape(self.flat_weights, (-1, self.wavelengths.size)), axis=0)
         self.flat_weights = np.divide(self.flat_weights.data, wvl_weight_avg)
 
-    def write_weights(self, poly_power=2):
-        """
-        Writes an h5 file to put calculated flat cal factors in
-        """
-        if not os.path.exists(self.out_directory):
-            os.makedirs(self.out_directory)
-        try:
-            flatsol = tables.open_file(self.save_name, mode='w')
-        except IOError:
-            getLogger(__name__).error("Couldn't create flat cal file: {} ", self.save_name)
-            return
-        header = flatsol.create_group(flatsol.root, 'header', 'Calibration information')
-        tables.Array(header, 'beamMap', obj=self.beamImage.residmap)
-        tables.Array(header, 'xpix', obj=self.xpix)
-        tables.Array(header, 'ypix', obj=self.ypix)
-        calgroup = flatsol.create_group(flatsol.root, 'flatcal',
-                                            'Table of flat calibration weights by pixel and wavelength')
-        tables.Array(calgroup, 'weights', obj=self.flat_weights.data,
-                     title='Flat calibration Weights indexed by pixelRow,pixelCol,wavelengthBin')
-        tables.Array(calgroup, 'spectrum', obj=self.spectral_cube_in_counts.data,
-                     title='Twilight spectrum indexed by pixelRow,pixelCol,wavelengthBin')
-        tables.Array(calgroup, 'flags', obj=self.flat_flags,
-                     title='Flat cal flags indexed by pixelRow,pixelCol,wavelengthBin. 0 is Good')
-        tables.Array(calgroup, 'wavelength_bins', obj=self.wavelengths,
-                     title='Wavelength bin edges corresponding to third dimension of weights array')
-        description_dict = FlatCalSoln_Description(nWvlBins=len(self.wavelengths), max_power=poly_power)
-        caltable = flatsol.create_table(calgroup, 'calsoln', description_dict, title='Flat Cal Table',
-                                        expectedrows=self.xpix*self.ypix)
-        for iRow in range(self.xpix):
-            for iCol in range(self.ypix):
-                entry = caltable.row
-                entry['resid'] = self.beamImage.residmap[iRow, iCol]
-                entry['y'] = iRow
-                entry['x'] = iCol
-                entry['weight'] = self.flat_weights.data[iRow, iCol, :]
-                entry['err'] = self.flat_weight_err[iRow, iCol, :]
-                fittable = (entry['weight'] != 0) & np.isfinite(entry['weight']+entry['err'])
-                if fittable.sum() < poly_power+1:
-                    entry['bad'] = True
-                else:
-                    entry['coeff'] = np.polyfit(self.wavelengths[fittable], entry['weight'][fittable], poly_power,
-                                                w=1 / entry['err'][fittable] ** 2)
-                    entry['bad'] = self.flat_flags[iRow, iCol, :].any()
-                entry['spectrum'] = self.spectral_cube_in_counts.data[iRow, iCol, :]
-                entry.append()
-        flatsol.close()
-        getLogger(__name__).info("Wrote to {}".format(self.save_name))
+    def calculate_coefficients(self):
+        for x in range(self.xpix):
+            for y in range(self.ypix):
+                fittable = (self.flat_weights[x,y] != 0) & np.isfinite(self.flat_weights[x,y] + self.flat_weight_err[x,y])
+                self.coeff_array[x, y]= np.polyfit(self.wavelengths[fittable], self.flat_weights[fittable],
+                                                   self.cfg.flatcal.power, w=1 / self.flat_weight_err[fittable] ** 2)
+        getLogger(__name__).info('Calculated Flat coefficients')
 
     def make_summary(self):
         generate_summary_plot(flatsol=self.save_name, save_plot=True)
@@ -352,17 +316,16 @@ class WhiteCalibrator(FlatCalibrator):
     and in wavelength-sliced images.
     """
 
-    def __init__(self, h5, config=None, cal_file_name='flatsol_{id}.h5'):
+    def __init__(self, h5, config=None, solution_name='flat_solution.npz'):
         """
         Reads in the param file and opens appropriate flat file.  Sets wavelength binning parameters.
         """
         super().__init__(config)
         self.exposure_time = self.cfg.exposure_time
         self.h5 = h5
-        self.save_name = self.cfg.get('flatname', os.path.join(self.cfg.paths.database, cal_file_name.format(id=h5)))
-
         self.energies = None
         self.energyBinWidth = None
+        self.solution_name = solution_name
 
     def load_data(self):
         getLogger(__name__).info('Loading calibration data from {}'.format(self.h5))
@@ -408,15 +371,15 @@ class WhiteCalibrator(FlatCalibrator):
 
 
 class LaserCalibrator(FlatCalibrator):
-    def __init__(self, h5s, config=None, cal_file_name='flatsol_laser.h5', darks=None):
+    def __init__(self, h5s, solution_name='flat_solution.npz', config=None, darks=None):
         super().__init__(config)
-        self.save_name = self.cfg.get('flatname', os.path.join(self.cfg.paths.database, cal_file_name))
         self.beamImage = self.cfg.beammap
         self.xpix = self.cfg.beammap.ncols
         self.ypix = self.cfg.beammap.nrows
         self.h5s = h5s
         self.wavelengths = np.array(h5s.keys(), dtype=float)
         self.darks = darks
+        self.solution_name = solution_name
 
     def load_flat_spectra(self):
         cps_cube_list, int_times, mask = self.make_spectralcube()
@@ -609,29 +572,108 @@ def plotCalibrations(flatsol, wvlCalFile, pixel):
     else:
         print('Pixel Failed Wavecal')
 
+class FlatSolution(object):
+    yaml_tag = '!fsoln'
+    def __init__(self, file_path=None, configuration=None, beam_map=None, flat_weights=None, coeff_array=None,
+                 wavelengths=None, flat_weight_err=None, flat_flags=None, solution_name='flat_solution'):
+        self.cfg = configuration
+        self.file_path = file_path
+        self.beam_map = beam_map
+        self.flat_weights = flat_weights
+        self.wavelengths = wavelengths
+        self.save_name = solution_name
+        self.flat_flags = flat_flags
+        self.flat_weight_err = flat_weight_err
+        self.coeff_array=coeff_array
+        self._file_path = os.path.abspath(file_path) if file_path is not None else file_path
+        # if we've specified a file load it without overloading previously set arguments
+        if self._file_path is not None:
+            self.load(self._file_path, overload=False)
+        # if not finish the init
+        else:
+            self.name = solution_name  # use the default or specified name for saving
+            self.npz = None  # no npz file so all the properties should be set
+
+    def save(self, save_name=None):
+        """Save the solution to a file. The directory is given by the configuration."""
+        if save_name is None:
+            save_path = os.path.join(self.cfg.out_directory, self.name)
+        else:
+            save_path = os.path.join(self.cfg.out_directory, save_name)
+        if not save_path.endswith('.npz'):
+            save_path += '.npz'
+
+        getLogger(__name__).info("Saving solution to {}".format(save_path))
+        np.savez(save_path, coeff_array=self.coeff_array, flat_weights=self.flat_weights, wavelengths=self.wavelengths,
+                 flat_weight_err=self.flat_weight_err, configuration=self.cfg, beam_map=self.beam_map)
+        self._file_path = save_path  # new file_path for the solution
+
+    def load(self, file_path, overload=True, file_mode='c'):
+        """
+        Load a solution from a file, optionally overloading previously defined attributes.
+        The data will not be pulled from the npz file until first access of the data which
+        can take a while.
+
+        """
+        getLogger(__name__).info("Loading solution from {}".format(file_path))
+        keys = ('coeff_array', 'configuration', 'beam_map', 'flat_weights', 'flat_weight_err', 'wavelengths')
+        npz_file = np.load(file_path, allow_pickle=True, encoding='bytes', mmap_mode=file_mode)
+        for key in keys:
+            if key not in list(npz_file.keys()):
+                raise AttributeError('{} missing from {}, solution malformed'.format(key, file_path))
+        self.npz = npz_file
+        if overload:  # properties grab from self.npz if set to none
+            for attr in keys:
+                setattr(self, attr, None)
+        self._file_path = file_path  # new file_path for the solution
+        self.name = os.path.splitext(os.path.basename(file_path))[0]  # new name for saving
+        getLogger(__name__).info("Complete")
+
+    def summary_plot(self):
+        return None
 
 def _run(flattner):
-    getLogger(__name__).debug('Calling makeCalibration on {}'.format(flattner))
-    flattner.makeCalibration()
+    getLogger(__name__).debug('Calling run on {}'.format(flattner))
+    flattner.run()
+
+
+def load_solution(sc, singleton_ok=True):
+    """sc is a solution filename string, a FlatSolution object, or a mkidpipeline.config.MKIDFlatdataDescription"""
+    global _loaded_solutions
+    if not singleton_ok:
+        raise NotImplementedError('Must implement solution copying')
+    if isinstance(sc, FlatSolution):
+        return sc
+    if isinstance(sc, mkidpipeline.config.MKIDFlatdataDescription):
+        sc = mkidpipeline.config.spectralcal_id(sc.id)+'.npz'
+    sc = sc if os.path.isfile(sc) else os.path.join(mkidpipeline.config.config.paths.database, sc)
+    try:
+        return _loaded_solutions[sc]
+    except KeyError:
+        _loaded_solutions[sc] = FlatSolution(file_path=sc)
+    return _loaded_solutions[sc]
 
 
 def fetch(dataset, config=None, ncpu=np.inf, remake=False):
     solution_descriptors = dataset.flatcals
     cfg = mkidpipeline.config.config if config is None else config
-
     solutions = []
     flattners = []
     for sd in solution_descriptors:
-        sf = os.path.join(cfg.paths.database, sd.id)
-        if not os.path.exists(sf) or remake:
-
+        sf = os.path.join(cfg.paths.database, mkidpipeline.config.flatcal_id(sd.id) + '.npz')
+        if os.path.exists(sf) and not remake:
+            solutions.append(load_solution(sf))
+        else:
             fcfg = mkidpipeline.config.load_task_config(StepConfig()) if 'flatcal' not in cfg else cfg.copy()
-            fcfg.register('flatcal.wavsol', sd.wavecal, update=True)
+            #fcfg.register('flatcal.wavsol', sd.wavecal, update=True) #TODO whats the point of this line
             if sd.method == 'laser':
-                flattner = LaserCalibrator(h5s=sd.h5s, config=fcfg, cal_file_name=sd.id,
-                                           darks=[H5Subset(d) for d in sd.darks])
+                if sd.darks:
+                    flattner = LaserCalibrator(h5s=sd.h5s, config=fcfg, solution_name=sf,
+                                               darks=[H5Subset(d) for d in sd.darks])
+                else:
+                    flattner = LaserCalibrator(h5s=sd.h5s, config=fcfg, solution_name=sf)
             else:
-                flattner = WhiteCalibrator(H5Subset(sd.ob), config=fcfg, cal_file_name=sd.id)
+                flattner = WhiteCalibrator(H5Subset(sd.ob), config=fcfg, solution_name=sf)
 
             solutions.append(sf)
             flattners.append(flattner)
@@ -642,7 +684,7 @@ def fetch(dataset, config=None, ncpu=np.inf, remake=False):
     ncpu = mkidpipeline.config.n_cpus_available(max=min(fcfg.ncpu, ncpu))
     if ncpu == 1 or len(flattners) == 1:
         for f in flattners:
-            f.makeCalibration()
+            f.run()
     else:
         pool = mp.Pool(ncpu)
         pool.map(_run, flattners)

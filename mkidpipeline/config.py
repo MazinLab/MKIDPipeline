@@ -27,7 +27,7 @@ _parsedDitherLogs = {}
 
 yaml = mkidcore.config.yaml
 
-pipline_settings = ('beammap', 'paths', 'templar', 'instrument', 'ncpu')
+pipeline_settings = ('beammap', 'paths', 'instrument', 'ncpu')
 
 STANDARD_KEYS = ('ra','dec', 'airmass','az','el','ha','equinox','parallactic','target','utctcs','laser','flipper',
                  'filter','observatory','utc','comment','device_orientation','instrument','dither_ref','dither_home',
@@ -58,13 +58,13 @@ def load_task_config(file, use_global_config=True):
 
     if config is None:
         configure_pipeline(pkg.resource_filename('mkidpipeline', 'pipe.yml'))
-        for k in pipline_settings:
+        for k in pipeline_settings:
             try:
                 config.update(k, cfg.get(k))
             except KeyError:
                 pass
 
-    for k in pipline_settings:
+    for k in pipeline_settings:
         cfg.register(k, config.get(k), update=use_global_config)
 
     return cfg
@@ -108,6 +108,15 @@ def spectralcal_id(spectralreference_id, spectralcal_cfg=None):
     config_hash = hashlib.md5(str(spectralcal_cfg).encode()).hexdigest()
     return 'spectralcal_{}_{}'.format(spectralreference_id, config_hash[-8:])
 
+def flatcal_id(flat_id, flat_cfg=None):
+    """
+    Compute a spectralcal id string from a spectraldata id string and either the active or a specified spectralcal config
+    """
+    if flat_cfg is None:
+        global config
+        flat_cfg = config.flatcal
+    config_hash = hashlib.md5(str(flat_cfg).encode()).hexdigest()
+    return '{}_{}'.format(flat_id, config_hash[-8:])
 
 class BaseStepConfig(mkidcore.config.ConfigThing):
     def __init__(self):
@@ -311,7 +320,10 @@ class MKIDWavedataDescription(object):
         d = dict(loader.construct_pairs(node, deep=True))  #WTH this one line took half a day to get right
         name = d.pop('name')
         data = list(d.pop('data'))
-        backgrounds = tuple(d.pop('backgrounds', tuple()))
+        try:
+            backgrounds = tuple(d.pop('backgrounds', tuple()))
+        except TypeError:
+            backgrounds = tuple()
         return cls(name, data, backgrounds=backgrounds, _common=d)
 
     @property
@@ -350,7 +362,7 @@ class MKIDFlatdataDescription(object):
         self.name = name
         self.ob = ob
         self.wavecal = wavecal
-        self.dark = (dark,) if isinstance(dark, MKIDTimerange) else dark
+        self.darks = (dark,) if isinstance(dark, MKIDTimerange) else dark
 
     @property
     def method(self):
@@ -359,9 +371,9 @@ class MKIDFlatdataDescription(object):
     @property
     def id(self):
         try:
-            return 'flatcal_{}.h5'.format(self.ob.start)
+            return 'flatcal_{}'.format(self.ob.start)
         except AttributeError:
-            return 'flatcal_{}.h5'.format(wavecal_id(self.wavecal.id))
+            return 'flatcal_{}'.format(wavecal_id(self.wavecal.id))
 
     @property
     def h5s(self):
