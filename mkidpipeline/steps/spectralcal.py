@@ -452,7 +452,7 @@ class SpectralCalibrator:
 
 class ResponseCurve(object):
     def __init__(self, file_path=None, curve=None, configuration=None, wvl_bin_widths=None, wvl_bin_centers=None,
-                 cube=None, errors=None, solution_name='spectral_solution'):
+                 cube=None, solution_name='spectral_solution'):
         # default parameters
         self._parse = True
         # load in arguments
