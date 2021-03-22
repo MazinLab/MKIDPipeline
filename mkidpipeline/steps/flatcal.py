@@ -27,11 +27,13 @@ import numpy as np
 import tables
 from PyPDF2 import PdfFileMerger, PdfFileReader
 
+
 from matplotlib.backends.backend_pdf import PdfPages
 from mkidpipeline.steps import wavecal
 from mkidcore.headers import FlatCalSoln_Description
 from mkidpipeline.hdf.photontable import Photontable
 from mkidcore.corelog import getLogger
+import mkidcore.config
 import mkidpipeline.config
 from mkidpipeline.config import H5Subset
 from mkidcore.utils import query
@@ -54,16 +56,14 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
         try:
             assert 0 <= self.rate_cutoff <= 20000
         except:
-            ret.append('count_rate_cutoff must be [0, 20000]')
+            ret.append('rate_cutoff must be [0, 20000]')
 
         try:
-            assert isinstance(self.chunks_to_trim, float) and 0 <= self.chunks_to_trim <= 1
+            assert 0 <= self.trim_chunks <= 1
         except:
-            ret.append('chunks_to_trim must be a float in [0,1]')
+            ret.append(f'trim_chunks must be a float in [0,1]: {type(self.trim_chunks)}')
 
         return ret
-
-# NB mkidcore.config.yaml.register_class(StepConfig) Must be called
 
 # TODO need to create a calibrator factory that works with three options: wavecal, white light, and filtered or laser
 #  light. In essence each needs a load_data functionand maybe a load_flat_spectra in the parlance of the current
