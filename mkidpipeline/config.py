@@ -118,15 +118,15 @@ def flatcal_id(flat_id, flat_cfg=None):
     config_hash = hashlib.md5(str(flat_cfg).encode()).hexdigest()
     return '{}_{}'.format(flat_id, config_hash[-8:])
 
+
 class BaseStepConfig(mkidcore.config.ConfigThing):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         for k,v,c in self.REQUIRED_KEYS:
             self.register(k, v, comment=c, update=False)
 
     @classmethod
     def from_yaml(cls, loader, node):
-
         ret = super().from_yaml(loader, node)
         errors = ret._verify_attribues() + ret._vet_errors()
 
@@ -135,7 +135,7 @@ class BaseStepConfig(mkidcore.config.ConfigThing):
         return ret
 
     def _verify_attribues(self):
-        missing = [k for k in self.REQUIRED_KEYS if k not in self]
+        missing = [key for key, default, comment in self.REQUIRED_KEYS if key not in self]
         return ['Missing required keys: ' + ', '.join(missing)] if missing else []
 
     def _vet_errors(self):
@@ -836,7 +836,7 @@ class MKIDOutputCollection:
         self.meta = mkidcore.config.load(file)
 
         if datafile:
-            data = load_data_description(datafile)
+            data = load_data_description(datafile, no_global=True)
         else:
             global _dataset
             data = _dataset

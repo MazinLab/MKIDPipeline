@@ -5,6 +5,7 @@ Implementation of a linearity correction to account for photons that may arrive 
 """
 import numpy as np
 import mkidpipeline.config
+import mkidcore.config
 
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):

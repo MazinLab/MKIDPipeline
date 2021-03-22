@@ -18,9 +18,14 @@ for info in pkgutil.iter_modules(mkidpipeline.steps.__path__):
     mod = import_module(f"mkidpipeline.steps.{info.name}")
     globals()[info.name] = mod
     PIPELINE_STEPS[info.name] = mod
+    try:
+        mkidcore.config.yaml.register_class(mod.StepConfig)
+    except AttributeError:
+        pass
 
 
 class BaseConfig(mkidcore.config.ConfigThing):
+    yaml_tag = u'!pipe_cfg'
     REQUIRED_KEYS = (('ncpu', 1, 'number of cpus'),
                      ('verbosity', 0, 'level of verbosity'),
                      ('flow', ('wavecal','metadata','flatcal','cosmiccal','photcal','lincal'), 'Calibration steps to apply'),
@@ -30,26 +35,13 @@ class BaseConfig(mkidcore.config.ConfigThing):
                      ('paths.out', '/work/temp/out/', 'root of output'),
                      ('paths.tmp', '/work/temp/scratch/', 'use for data intensive temp files'))
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         for k, v, c in self.REQUIRED_KEYS:
             self.register(k, v, comment=c, update=False)
 
-    # @classmethod
-    # def from_yaml(cls, loader, node):
-    #     ret = super().from_yaml(loader, node)
-    #     errors = ret._verify_attribues() + ret._vet_errors()
-    #
-    #     if errors:
-    #         raise ValueError(f'{ret.yaml_tag} collected errors: \n' + '\n\t'.join(errors))
-    #     return ret
-    #
-    # def _verify_attribues(self):
-    #     missing = [k for k in self.REQUIRED_KEYS if k not in self]
-    #     return ['Missing required keys: ' + ', '.join(missing)] if missing else []
-    #
-    # def _vet_errors(self):
-    #     return []
+
+mkidcore.config.yaml.register_class(BaseConfig)
 
 
 def generate_default_config():
