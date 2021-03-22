@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import argparse
 import os
 
@@ -14,12 +15,13 @@ import mkidpipeline.config as config
 if __name__ == "__main__":
     # read in command line arguments
     parser = argparse.ArgumentParser(description='MKID Pipeline CLI')
-    parser.add_argument('-o', type=str, help='An output specification file', default='out.yml')
-    parser.add_argument('-p', type=str, help='A pipeline config file', default='pipe.yml')
-    parser.add_argument('-d', type=str, help='A input config file', default='data.yml')
+    parser.add_argument('-o', type=str, help='An output specification file', default='out.yml', dest='out_cfg')
+    parser.add_argument('-p', type=str, help='A pipeline config file', default='pipe.yml', dest='pipe_cfg')
+    parser.add_argument('-d', type=str, help='A input config file', default='data.yml', dest='data_cfg')
     parser.add_argument('--vet',  action='store_true', help='Check pipeline configuration', default=False)
     parser.add_argument('--init', action='store_true', help='Setup the pipeline, clobbers files freely')
     parser.add_argument('--verbose', action='store_true', help='Verbose')
+    parser.add_argument('--run-step', dest='single_step', help='Run a single named step', type=str)
 
     getLogger('mkidcore').setLevel('INFO')
     log = getLogger('mkidpipeline')
@@ -31,18 +33,23 @@ if __name__ == "__main__":
         getLogger('mkidcore').setLevel('DEBUG')
 
     if args.init:
-        shutil.copy2(pkg.resource_filename('mkidpipeline', 'pipe.yml'), args.pipe_cfg)
+        default_pipe_config = pipe.generate_default_config()
+        with open('pipe.yml', 'w') as f:
+            config.yaml.dump(default_pipe_config, f)
         shutil.copy2(pkg.resource_filename('mkidpipeline', 'data.yml'), args.data_cfg)
         shutil.copy2(pkg.resource_filename('mkidpipeline', 'out.yml'), args.out_cfg)
 
-    config.configure_pipeline(pipe.generate_default_config())
-    config.load_data_description(args.data_cfg)
-    output = config.load_output_description(args.out_cfg)
+    config.configure_pipeline(args.pipe_cfg)
+    output = config.MKIDOutputCollection(args.out_cfg, datafile=args.data_cfg)
+    dataset = output.dataset
 
     if args.init:
         config.make_paths(output_dirs=[os.path.dirname(o.output_file) for o in output])
 
     if args.vet:
         sys.exit(0)
+
+    if args.single_step:
+        pipe.PIPELINE_STEPS[args.single_step].run(dataset)
 
 

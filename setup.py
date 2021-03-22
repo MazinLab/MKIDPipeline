@@ -30,7 +30,7 @@ class CustomInstall(install, object):
     """Custom handler for the 'install' command."""
     def run(self):
         compile_and_install_software()
-        super(CustomInstall,self).run()
+        super(CustomInstall, self).run()
 
 
 class CustomDevelop(develop, object):
@@ -45,7 +45,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="mkidpipeline",
-    version="0.0.1",
+    version="0.1",
     author="MazinLab",
     author_email="mazinlab@ucsb.edu",
     description="An UVOIR MKID Data Reduction Package",
@@ -61,5 +61,6 @@ setuptools.setup(
         "Development Status :: 1 - Planning",
         "Intended Audience :: Science/Research"),
     zip_safe=False,
-    cmdclass={'install': CustomInstall,'develop': CustomDevelop}
+    cmdclass={'install': CustomInstall, 'develop': CustomDevelop},
+    scripts=['scripts/mkidpipe']
 )
