@@ -6,62 +6,39 @@ to be removed plus some metadata, such as the cutout times before and after the 
 event, the method used for peak finding (more on that in the code itself), a set of data for
 creating a histogram of bincounts, and more as needed. This docstring will be edited as code
 is updated and refined.
-TODO: logging
 TODO: Integrate into pipeline
 TODO: Create performance report, such as number of CR events, amount of time removed, time intervals removed, etc.
 
 TODO: Finalize best way to incorporate as pipeline step (flag photons, list of CR timestamps, new col in h5?)
 """
-
 import numpy as np
-import os
-from photontable import Photontable
 from scipy.stats import poisson
 from scipy import signal
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-import mkidcore.corelog as pipelinelog
+from logging import getLogger
 from datetime import datetime
 
-MEC_LASER_CAL_WAVELENGTH_RANGE = [850, 1375]
-DARKNESS_LASER_CAL_WAVELENGTH_RANGE = [808, 1310]
-BF_LASER_CAL_WAVELENGTH_RANGE = DARKNESS_LASER_CAL_WAVELENGTH_RANGE
-
-log = pipelinelog.getLogger('mkidpipeline.steps.cosmiccal', setup=False)
+import mkidpipeline.config
+from mkidpipeline.photontable import Photontable
 
 
-def setup_logging(tologfile='', toconsole=True, time_stamp=None):
-    """
-    Set up logging for the wavelength calibration module for running from the command line.
-    Args:
-        tologfile: directory where the logs folder will be placed. If empty, no logfile is made.
-        toconsole: boolean specifying if the console log is set up.
-        time_stamp: utc time stamp to name the log file.
-    """
-    if time_stamp is None:
-        time_stamp = int(datetime.utcnow().timestamp())
-    if toconsole:
-        log_format = "%(levelname)s : %(message)s"
-        pipelinelog.create_log('mkidpipeline', console=True, fmt=log_format, level="INFO")
-
-    if tologfile:
-        log_directory = os.path.join(tologfile, 'logs')
-        log_file = os.path.join(log_directory, '{:.0f}.log'.format(time_stamp))
-        log_format = '%(asctime)s : %(funcName)s : %(levelname)s : %(message)s'
-        pipelinelog.create_log('mkidpipeline', logfile=log_file, console=False, fmt=log_format, level="DEBUG")
+class StepConfig(mkidpipeline.config.BaseStepConfig):
+    yaml_tag = u'!badpix_cfg'
+    REQUIRED_KEYS = (('plots', 'all', 'Which plots to generate'),
+                     ('wave_range', (-np.inf, np.inf), 'TODO'),
+                     ('method', 'poisson', 'TODO'),
+                     ('removal_range', 1, 'TODO'))
 
 
-class CosmicCleaner(object):
-    def __init__(self, file, instrument=None, wavelengthCut=True, method="poisson", removalRange=(50, 100)):
-        self.instrument = str(instrument) if instrument is not None else "MEC"
+class CosmicCleaner:
+    def __init__(self, file,  wave_range=(-np.inf, np.inf), method="poisson", removal_range=(50, 100)):
         self.obs = Photontable(file)
-        self.wavelengthCut = wavelengthCut
+        self.wave_range = wave_range
         self.method = method
-        self.removalRange = removalRange
-        self.allphotons = None  # Master photon list from the ObsFile, should not be modified at any point
+        self.removalRange = removal_range
         self.photons = None  # The photon list used for the cosmic ray removal. Not modified from allphotons if no cut
         self.photonMask = None  # The mask used to remove photons from the master list (e.g. wvl outside of allowed range)
-        self.arrivaltimes = None  # Arrival times from photons in self.photons, taken from self.photons for convenience
         self.arraycounts = None  # Number of counts across the array for each time bin
         self.timebins = None  # Edges of the time bins (microseconds) used to bin photon arrival times and generate
         # a photon timestream for the file. This is a property rather than an immediate step for
@@ -90,16 +67,16 @@ class CosmicCleaner(object):
         # information that is needed to clean the ObsFile cosmic rays and remove the
         # offending photons.
 
-        if not self.wavelengthCut:
-            log.warning("With the increased number of photons, cosmic ray removal may take significantly longer!")
-            if self.method.lower() == "poisson":
-                log.warning("The poisson method is not optimized for non-wavelength "
-                            "cut data and may remove more time than desired!")
+        if not np.isfinite(np.sum(self.wave_range)):
+            getLogger(__name__).warning("Consider using a wavelength cut to speed removal.")
+            if self.method.lower() is "poisson":
+                getLogger(__name__).warning("The Poisson method is not optimized for broadband data and may remove "
+                                            "more time than desired!")
 
     def run(self):
         start = datetime.utcnow().timestamp()
-        log.debug(f"Cosmic ray cleaning of {self.obs.fileName} began at {start}")
-        self.get_photon_list()
+        getLogger(__name__).debug(f"Cosmic ray cleaning of {self.obs.fileName} began at {start}")
+        self.photons = self.obs.query(startw=self.wave_range[0], stopw=self.wave_range[1])
         self.make_timestream()
         self.make_count_histogram()
         self.generate_poisson_pdf()
@@ -107,47 +84,8 @@ class CosmicCleaner(object):
         self.find_cutout_times()
         self.trim_timestream()
         end = datetime.utcnow().timestamp()
-        log.debug(f"Cosmic ray cleaning of {self.obs.fileName} finished at {end}")
-        log.info(f"Cosmic ray cleaning of {self.obs.fileName}took {end - start} s")
-
-    def get_photon_list(self):
-        """
-        Reads the photon list from the ObsFile, also creates a mask if wavelengthCut=True and
-        applies it. Modifies self.allphotons and self.photons. If wavelengthCut=False
-        self.allphotons=self.photons. If wavelengthCut=True, all photons outside the laser calibrated
-        wavelengths will be removed from self.photons, self.allphotons will remain unchanged.
-        """
-        self.allphotons = self.obs.photonTable.read()
-        if self.wavelengthCut:
-            # With the wavelength cut, this step creates a mask and applies it so that we only keep photons within the
-            # laser calibrated wavelength range. At this point the black fridge and darkness laser boxes are the same,
-            # and therefore have the same range. Any future instruments can be added to this by adding a dictionary
-            # with their info at the top of the file.
-            if self.instrument.upper() == "MEC":
-                self.photonMask = (self.allphotons['Wavelength'] >= MEC_LASER_CAL_WAVELENGTH_RANGE[0]) & \
-                                  (self.allphotons['Wavelength'] <= MEC_LASER_CAL_WAVELENGTH_RANGE[1])
-                self.photons = self.allphotons[self.photonMask]
-            elif self.instrument.upper() == "DARKNESS":
-                self.photonMask = (self.allphotons['Wavelength'] >= DARKNESS_LASER_CAL_WAVELENGTH_RANGE[0]) & \
-                                  (self.allphotons['Wavelength'] <= DARKNESS_LASER_CAL_WAVELENGTH_RANGE[1])
-                self.photons = self.allphotons[self.photonMask]
-            elif (self.instrument.upper() == "BLACKFRIDGE") or (self.instrument.upper() == "BF"):
-                self.photonMask = (self.allphotons['Wavelength'] >= BF_LASER_CAL_WAVELENGTH_RANGE[0]) & \
-                                  (self.allphotons['Wavelength'] <= BF_LASER_CAL_WAVELENGTH_RANGE[1])
-                self.photons = self.allphotons[self.photonMask]
-            else:
-                print(f"WARNING: {self.instrument} is not a recognized instrument. No cut applied")
-        else:
-            self.photons = self.allphotons
-
-    def get_time_info(self):
-        """
-        Extracts the timestamps of all the remaining photons and generates the bin edges to make the
-        photon timestream (counts over array vs. time)
-        """
-        self.arrivaltimes = self.photons['Time']
-        self.timebins = np.arange(0, int(np.ceil(self.arrivaltimes.max() / 10) * 10) + 10, 10)
-        assert self.timebins[-1] >= self.arrivaltimes.max()
+        getLogger(__name__).debug(f"Cosmic ray cleaning of {self.obs.fileName} finished at {end}")
+        getLogger(__name__).info(f"Cosmic ray cleaning of {self.obs.fileName}took {end - start} s")
 
     def make_timestream(self):
         """
@@ -158,7 +96,9 @@ class CosmicCleaner(object):
         times larger than the bin size it ultimately doesn't matter.
         """
         self.get_time_info()
-        self.arraycounts, timebins = np.histogram(self.arrivaltimes, self.timebins)
+        self.timebins = np.arange(0, int(np.ceil(self.photons['Time'].max() / 10) * 10) + 10, 10)
+        assert self.timebins[-1] >= self.photons['Time'].max()
+        self.arraycounts, timebins = np.histogram(self.photons['Time'], self.timebins)
         assert np.setdiff1d(timebins, self.timebins).size == 0
         self.timestream = np.array((self.timebins[:-1], self.arraycounts))
 
@@ -277,8 +217,8 @@ class CosmicCleaner(object):
         """
         Function designed to create a new timestream with the cosmic ray timestamped photos removed.
         """
-        trimmask = np.in1d(self.arrivaltimes, self.cutouttimes)
-        trimmedphotons = self.arrivaltimes[~trimmask]
+        trimmask = np.in1d(self.photons['Time'], self.cutouttimes)
+        trimmedphotons = self.photons['Time'][~trimmask]
         trimmedarraycounts, timebins = np.histogram(trimmedphotons, self.timebins)
         assert np.setdiff1d(timebins, self.timebins).size == 0
         self.trimmedtimestream = np.array((self.timebins[:-1], trimmedarraycounts))
