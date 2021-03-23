@@ -11,7 +11,7 @@
 
 - !out
   name: out2
-  data: HD22179
+  data: Vega
   startw: 811
   stopw: 1351
   kind: temporal

@@ -122,7 +122,7 @@ def flatcal_id(flat_id, flat_cfg=None):
 class BaseStepConfig(mkidcore.config.ConfigThing):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        for k,v,c in self.REQUIRED_KEYS:
+        for k, v, c in self.REQUIRED_KEYS:
             self.register(k, v, comment=c, update=False)
 
     @classmethod
@@ -432,10 +432,19 @@ class MKIDSpectralReference(object):
     def timeranges(self):
         for o in self.data:
             if isinstance(o, MKIDDitheredObservation):
-                for obs in self.o.obs:
+                for obs in o.obs:
                     yield obs.timerange
             else:
                 yield o.timerange
+
+    @property
+    def obs(self):
+        for o in self.data:
+            if isinstance(o, MKIDDitheredObservation):
+                for obs in o.obs:
+                    yield obs
+            else:
+                yield o
 
     @property
     def reference_name(self):
@@ -556,6 +565,8 @@ class MKIDDitheredObservation(object):
         self.flatcal = flatcal
         self.wcscal = wcscal
         self.speccal = speccal
+        self.pos = None
+        self.inttime = None
 
         if obs is not None:
             self.obs=obs
@@ -563,8 +574,14 @@ class MKIDDitheredObservation(object):
             self.inttime = None
             return
         elif byTimestamp is not None:
-            startt, endt, pos = getDitherInfoByTime(byTimestamp)
-            self.inttime = (np.array(endt) - np.array(startt))[0]
+            try:
+                startt, endt, pos = getDitherInfoByTime(byTimestamp)
+                self.inttime = (np.array(endt) - np.array(startt))[0]
+            except ValueError:
+                getLogger(__name__).warning(f'No dither found for {self.name} @ {byTimestamp} in {config.paths.dithers}')
+                endt = []
+                startt = []
+                pos = []
 
         else:
             startt, endt, pos, inttime= parseLegacyDitherLog(byLegacyFile)
@@ -709,17 +726,7 @@ class MKIDObservingDataset(object):
 
     @property
     def all_observations(self):
-        try:
-            speccal_obs = [d.data[0] for d in self.meta if isinstance(d, MKIDSpectralReference)][0]
-        except IndexError:
-            speccal_obs= [d.data[0] for d in self.meta if isinstance(d, MKIDSpectralReference)]
-        if isinstance(speccal_obs, MKIDDitheredObservation):
-            speccal_obs = [d.data[0].obs for d in self.meta if isinstance(d, MKIDSpectralReference)][0][0]
-            return ([o for o in self.meta if isinstance(o, MKIDObservation)] +
-                    [o for d in self.meta if isinstance(d, MKIDDitheredObservation) for o in d.obs] +
-                    [d.ob for d in self.meta if isinstance(d, MKIDFlatdataDescription) and d.ob is not None] +
-                    [d.ob for d in self.meta if isinstance(d, MKIDWCSCalDescription) and d.ob is not None] +
-                    [speccal_obs])
+        speccal_obs = [o for d in self.meta if isinstance(d, MKIDSpectralReference) for o in d.obs]
         return ([o for o in self.meta if isinstance(o, MKIDObservation)] +
                 [o for d in self.meta if isinstance(d, MKIDDitheredObservation) for o in d.obs] +
                 [d.ob for d in self.meta if isinstance(d, MKIDFlatdataDescription) and d.ob is not None] +
