@@ -30,10 +30,8 @@ from PyPDF2 import PdfFileMerger, PdfFileReader
 
 from matplotlib.backends.backend_pdf import PdfPages
 from mkidpipeline.steps import wavecal
-from mkidcore.headers import FlatCalSoln_Description
-from mkidpipeline.hdf.photontable import Photontable
+from photontable import Photontable
 from mkidcore.corelog import getLogger
-import mkidcore.config
 import mkidpipeline.config
 from mkidpipeline.config import H5Subset
 from mkidcore.utils import query

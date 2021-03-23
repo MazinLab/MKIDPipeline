@@ -168,7 +168,7 @@ class H5Subset:
 
     @property
     def photontable(self):
-        from mkidpipeline.hdf.photontable import Photontable
+        from photontable import Photontable
         return Photontable(self.timerange.h5)
 
     @property
@@ -742,6 +742,10 @@ class MKIDObservingDataset(object):
     def wavecalable(self):
         return self.all_observations
 
+    @property
+    def flatcalable(self):
+        return self.science_observations
+
     def by_name(self, name):
         d = [d for d in self.meta if d.name == name]
         try:
@@ -959,7 +963,7 @@ def load_observing_metadata(files=tuple(), include_database=True):
     global config
     files = list(files)
     if config is not None and include_database:
-        files+=glob(os.path.join(config.paths.database, 'obslog*.json'))
+        files += glob(os.path.join(config.paths.obslog, 'obslog*.json'))
     elif include_database:
         getLogger(__name__).warning('No pipleline database configured.')
     metadata = []

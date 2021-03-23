@@ -8,7 +8,7 @@ os.environ["TMPDIR"] = '/scratch/tmp/'
 import tables.parameters
 tables.parameters.MAX_BLOSC_THREADS = 4
 import mkidcore.pixelflags as pixelflags
-import mkidpipeline as pipe
+import mkidpipeline.pipeline as pipe
 
 datafile = '/scratch/baileyji/mec/data.yml'
 cfgfile = '/scratch/baileyji/mec/pipe.yml'
@@ -29,7 +29,7 @@ ncpu=7
 def run_stage1(dataset):
     times = []
     times.append(time.time())
-    pipe.bin2hdf.buildtables(dataset.timeranges, ncpu=ncpu, remake=False, chunkshape=250)
+    bin2hdf.buildtables(dataset.timeranges, ncpu=ncpu, remake=False, chunkshape=250)
     times.append(time.time())
     pipe.batch_apply_metadata(dataset)
     times.append(time.time())
@@ -62,9 +62,9 @@ def generate_outputs(outputs):
     for o in outputs:
         pipe.getLogger(__name__).info('Generating {}'.format(o.name))
         if o.wants_image:
-            import mkidpipeline.hdf.photontable
+            import mkidpipeline.photontable as photontable
             for obs in o.data.obs:
-                h5 = mkidpipeline.hdf.photontable.Photontable(obs.h5)
+                h5 = photontable.Photontable(obs.h5)
                 img = h5.getFits(wvlStart=o.startw, wvlStop=o.stopw, applyWeight=o.enable_photom,
                                  applyTPFWeight=o.enable_noise, countRate=True)
                 img.writeto(o.output_file + h5.fileName.split('.')[0] + ".fits")

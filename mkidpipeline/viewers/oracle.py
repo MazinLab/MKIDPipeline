@@ -22,19 +22,20 @@ matplotlib.use('Qt5Agg')
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
-# from matplotlib.widgets import Cursor
+
+
 import sys, os
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import pyqtSignal
-from mkidpipeline.hdf.photontable import Photontable
-import mkidpipeline.hdf.binparse as binparse
+from photontable import Photontable
+import mkidpipeline.utils.binparse as binparse
 from mkidpipeline.steps.badpix import hpm_flux_threshold as hft
 from scipy import optimize
 import os.path
-from mkidpipeline.speckle import binned_rician as binnedRE
-# import mkidpipeline.speckle.optimize_IcIsIr as binfree
-import mkidpipeline.speckle.binFreeRicianEstimate as binfree
+
+import mkidpipeline.speckle.binned_rician as binnedRE
+import mkidpipeline.speckle.binfree_rician as binfree
 from mkidcore.objects import Beammap
 import time
 import datetime

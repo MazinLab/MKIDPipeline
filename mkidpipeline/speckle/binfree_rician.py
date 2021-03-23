@@ -10,15 +10,14 @@ For example usage, see if __name__ == "__main__":
 """
 
 import matplotlib.pyplot as plt
-from matplotlib.patches import Polygon
 import numpy as np
 from functools import partial
 from scipy import integrate
 from scipy.optimize import minimize
 from statsmodels.base.model import GenericLikelihoodModel
 
-from mkidpipeline.hdf.photontable import Photontable
-from mkidpipeline.speckle.genphotonlist_IcIsIr import genphotonlist
+from photontable import Photontable
+from mkidpipeline.speckle.generate_photons import genphotonlist
 
 
 

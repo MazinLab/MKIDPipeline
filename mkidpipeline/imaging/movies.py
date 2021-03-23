@@ -1,11 +1,8 @@
-import numpy as np
-import os
 import matplotlib.pyplot as plt
 import matplotlib.animation as manimation
 from mkidpipeline.config import *
 from mkidcore.corelog import getLogger
-import mkidpipeline.hdf.photontable
-from skimage import data
+import mkidpipeline.photontable as photontable
 from skimage.restoration import inpaint
 
 def make_movie(out, usewcs=False, showaxes=True, inpainting=False, **kwargs):
@@ -99,7 +96,7 @@ def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, sta
             raise ValueError
     except Exception:
         getLogger(__name__).info('Fetching temporal cube from {}'.format(h5file))
-        of = mkidpipeline.hdf.photontable.Photontable(h5file)
+        of = photontable.Photontable(h5file)
         cube = of.getTemporalCube(firstSec=startt, integrationTime=stopt, timeslice=timestep, startw=startw,
                                   stopw=stopw, applyWeight=True, applyTPFWeight=True)
         wcs = of.get_wcs(wcs_timestep=startt) if usewcs else None
@@ -138,7 +135,7 @@ def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, sta
     if usewcs:
         plt.subplot(projection=wcs)
     if maskbadpix:
-        of = mkidpipeline.hdf.photontable.Photontable(h5file)
+        of = photontable.Photontable(h5file)
         for i in range(frames.shape[0]):
             frames[i][of.pixelBadMask.T] = np.nan
     im = plt.imshow(frames[0], interpolation='none', origin='lower', vmin=0,

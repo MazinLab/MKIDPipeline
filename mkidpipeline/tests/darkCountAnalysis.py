@@ -5,7 +5,7 @@ TODO: Convert print statements to logging
 TODO: Make WaveCalComparer part of main and runnable from command line
 """
 from mkidpipeline.steps.wavecal import Solution
-from mkidpipeline.hdf.photontable import Photontable
+from photontable import Photontable
 import numpy as np
 import glob
 import time

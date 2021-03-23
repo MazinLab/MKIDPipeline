@@ -8,8 +8,7 @@ from astropy.convolution import Gaussian2DKernel, convolve
 from mkidcore.headers import ObsHeader
 from mkidcore.headers import ObsFileCols
 import tables
-from mkidpipeline.utils.plottingTools import plot_array as pt
-# from mkidpipeline.utils.irUtils import rotateShiftImage as rotate
+
 
 def MRicdf(Ic, Is, interpmethod='cubic'):
 

@@ -4,11 +4,11 @@ import skimage.transform as tf
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
-from photutils import DAOStarFinder, centroids, centroid_2dg, centroid_1dg, centroid_com
+from photutils import DAOStarFinder, centroids, centroid_2dg
 from scipy.stats import chisquare
 from astropy import stats
 from mkidpipeline.config import MKIDDitheredObservation
-from mkidpipeline.hdf.photontable import Photontable
+from photontable import Photontable
 
 
 def get_transforms(ditherfile, datadir, wvl_start=None, wvl_stop=None, fwhm_guess=3.0, fit_power=1, CONEX_ERROR=0.0001,

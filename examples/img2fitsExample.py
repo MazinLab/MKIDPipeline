@@ -10,7 +10,7 @@ import sys
 import numpy as np
 from astropy.io import fits as pyfits
 
-from mkidpipeline.utils.plottingTools import plot_array
+from mkidpipeline.utils.plotting import plot_array
 
 beammap = '/mnt/data0/Darkness/20160722/filledBeammap20160722.txt'
 verbose = True

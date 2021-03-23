@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 from scipy.optimize import curve_fit
 
-from mkidpipeline.speckle.genphotonlist_IcIsIr import genphotonlist
+from mkidpipeline.speckle.generate_photons import genphotonlist
 from mpmath import mp, hyp1f1
 import mpmath
 from scipy import special
@@ -26,7 +26,7 @@ from scipy import optimize
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy.stats import poisson
 #import mkidpipeline.speckle.optimize_IcIsIr as binfree
-import mkidpipeline.speckle.binFreeRicianEstimate as binfree
+import mkidpipeline.speckle.binfree_rician as binfree
 import multiprocessing
 
 import time

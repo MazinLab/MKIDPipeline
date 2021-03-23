@@ -1,11 +1,9 @@
 import os
 import tables
 import time
-import sys
 import numpy as np
 import psutil
 import multiprocessing as mp
-import pkg_resources as pkg
 from datetime import datetime
 from glob import glob
 import warnings
@@ -17,10 +15,20 @@ from mkidcore.config import yaml, yaml_object
 import mkidcore.utils
 from mkidcore.objects import Beammap
 
-from mkidpipeline.hdf.photontable import Photontable
+from photontable import Photontable
 import mkidpipeline.config
 
 _datadircache = {}
+
+
+class StepConfig(mkidpipeline.config.BaseStepConfig):
+    yaml_tag = u'!hdf_cfg'
+    REQUIRED_KEYS = (('remake', False, 'Remake H5 even if they exist'),
+                     ('include_baseline', False, 'Include the baseline in H5 phase/wavelength column'))
+    OPTIONAL_KEYS = (('chunkshape', None, 'HDF5 Chunkshape to use'),)  #nb propagates to kwargs of build_pytables
+
+
+mkidcore.config.yaml.register_class(StepConfig)
 
 
 def _get_dir_for_start(base, start):
@@ -58,7 +66,7 @@ def estimate_ram_gb(directory, start, inttime):
     return n_max_photons*PHOTON_BIN_SIZE_BYTES/1024**3
 
 
-def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=None, shuffle=True, bitshuffle=False,
+def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250, shuffle=True, bitshuffle=False,
                    wait_for_ram=3600, ndx_shuffle=True, ndx_bitshuffle=False):
     """wait_for_ram speficies the number of seconds to wait for sufficient ram"""
     from mkidcore.hdf.mkidbin import extract
@@ -311,23 +319,18 @@ class Bin2HdfConfig(object):
                  '{outdir}\n'
                  '{include_baseline}')
 
-    def __init__(self, datadir='./', beamfile='./default.bmap', starttime=None, inttime=None,
-                 outdir='./', x=140, y=146, include_baseline=False, writeto=None, beammap=None):
+    def __init__(self, datadir='./', starttime=None, inttime=None, outdir='./', include_baseline=False, writeto=None,
+                 beammap='MEC'):
 
         self.datadir = datadir
         self.starttime = int(starttime)
         self.inttime = int(np.ceil(inttime))
-
-        self.beamfile = beamfile
-        self.x = x
-        self.y = y
-
         self.include_baseline = include_baseline
 
-        if beammap is not None:
-            self.beamfile = beammap.file
-            self.x = beammap.ncols
-            self.y = beammap.nrows
+        beammap = Beammap(beammap) if isinstance(beammap, str) else beammap
+        self.beamfile = beammap.file
+        self.x = beammap.ncols
+        self.y = beammap.nrows
 
         self.outdir = outdir
         if writeto is not None:
@@ -432,10 +435,35 @@ def gen_configs(timeranges, config=None):
     return b2h_configs
 
 
-def buildtables(timeranges, config=None, ncpu=1, asynchronous=False, remake=False, **kwargs):
+def buildtables(timeranges, config=None, ncpu=None, remake=None, **kwargs):
+    """
+    timeranges must be an iterable of (start, stop) or an object that hase a .timeranges attribute providing the same
+    Pipeline must be configured or a loaded config passed
+    ncpu and remake will be pulled from config if not specified
+    kwargs my be used to pass settings on to pytables
+    """
+    try:
+        timeranges = timeranges.timeranges
+    except AttributeError:
+        pass
+
     timeranges = list(set(timeranges))
 
-    b2h_configs = gen_configs(timeranges, config)
+    cfg = mkidpipeline.config.config if config is None else config
+    if cfg is None:
+        raise RuntimeError('Pipeline not configured')
+    b2h_configs = []
+    for start_t, end_t in timeranges:
+        bc = Bin2HdfConfig(datadir=_get_dir_for_start(cfg.paths.data, start_t), beammap=cfg.beammap,
+                           outdir=cfg.paths.out, starttime=start_t, inttime=end_t - start_t,
+                           include_baseline=cfg.hdf.include_baseline)
+        b2h_configs.append(bc)
+
+    remake = mkidpipeline.config.config.hdf.get('remake', False) if remake is None else remake
+    ncpu = mkidpipeline.config.config.hdf.get('ncpu', 1) if ncpu is None else ncpu
+    for k in mkidpipeline.config.config.hdf.keys():
+        if k not in kwargs and k not in ('ncpu', 'remake', 'include_baseline'):
+            kwargs[k] = mkidpipeline.config.config.hdf.get(k)
 
     builders = [HDFBuilder(c, force=remake, **kwargs) for c in b2h_configs]
 
@@ -447,14 +475,7 @@ def buildtables(timeranges, config=None, ncpu=1, asynchronous=False, remake=Fals
                 getLogger(__name__).error('Insufficient memory to process {}'.format(b.h5file))
         return timeranges
 
-    pool = mp.Pool(min(ncpu, mp.cpu_count()))
-
-    if asynchronous:
-        getLogger(__name__).debug('Running async on {} builders'.format(len(builders)))
-        async_res = pool.map_async(runbuilder, builders)
-        pool.close()
-        return timeranges, async_res
-    else:
-        pool.map(runbuilder, builders)
-        pool.close()
-        pool.join()
+    pool = mp.Pool(mkidpipeline.n_cpus_available(ncpu))
+    pool.map(runbuilder, builders)
+    pool.close()
+    pool.join()
