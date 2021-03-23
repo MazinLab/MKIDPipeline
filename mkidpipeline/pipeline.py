@@ -1,14 +1,15 @@
 from importlib import import_module
 import pkgutil
+import multiprocessing as mp
+import time
 
 from mkidcore.config import getLogger
 import mkidpipeline
-import mkidpipeline.hdf.photontable
+import mkidpipeline.photontable as photontable
 import mkidpipeline.config as config
 import mkidpipeline.steps
-from mkidpipeline.steps import *
 from mkidpipeline.steps import wavecal
-from mkidpipeline.hdf import bin2hdf
+import mkidpipeline.bin2hdf
 import mkidcore.config
 
 log = getLogger('mkidpipeline')
@@ -32,8 +33,10 @@ class BaseConfig(mkidpipeline.config.BaseStepConfig):
                      ('paths.dithers', '/darkdata/MEC/logs/','dither log location'),
                      ('paths.data', '/darkdata/ScienceData/Subaru/','bin file parent folder'),
                      ('paths.database', '/work/temp/database/', 'calibrations will be retrieved/stored here'),
+                     ('paths.obslog', '/work/temp/database/obslog', 'obslog.json go here'),
                      ('paths.out', '/work/temp/out/', 'root of output'),
                      ('paths.tmp', '/work/temp/scratch/', 'use for data intensive temp files'))
+
 
 mkidcore.config.yaml.register_class(BaseConfig)
 
@@ -51,12 +54,18 @@ def generate_default_config():
     return cfg
 
 
+def metadata_apply(ob):
+    o = photontable.Photontable(ob.h5, mode='w')
+    mdl = config.select_metadata_for_h5(ob, config.load_observing_metadata())
+    o.attach_observing_metadata(mdl)
+
+
 def wavecal_apply(o):
     if o.wavecal is None:
         getLogger(__name__).info('No wavecal to apply for {}'.format(o.h5))
         return
     try:
-        of = mkidpipeline.hdf.photontable.Photontable(o.h5, mode='a')
+        of = photontable.Photontable(o.h5, mode='a')
         of.applyWaveCal(wavecal.load_solution(o.wavecal.path))
         of.file.close()
     except Exception as e:
@@ -68,7 +77,7 @@ def flatcal_apply(o):
         getLogger(__name__).info('No flatcal to apply for {}'.format(o.h5))
         return
     try:
-        of = mkidpipeline.hdf.photontable.Photontable(o.h5, mode='a')
+        of = photontable.Photontable(o.h5, mode='a')
         cfg = mkidpipeline.config.config
         of.applyFlatCal(o.flatcal.path, use_wavecal=cfg.flatcal.use_wavecal, startw=850, stopw=1375)
         of.file.close()
@@ -78,10 +87,17 @@ def flatcal_apply(o):
 
 def linearitycal_apply(o):
     try:
-        of = mkidpipeline.hdf.photontable.Photontable(o, mode='a')
+        of = photontable.Photontable(o, mode='a')
         cfg = mkidpipeline.config.config
         of.applyLinearitycal(dt=cfg.linearitycal.dt, tau=cfg.instrument.deadtime*1*10**6)
         of.file.close()
+    except Exception as e:
+        getLogger(__name__).critical('Caught exception during run of {}'.format(o), exc_info=True)
+
+
+def badpix_apply(o):
+    try:
+        mkidpipeline.steps.badpix.mask_hot_pixels(o)
     except Exception as e:
         getLogger(__name__).critical('Caught exception during run of {}'.format(o), exc_info=True)
 
@@ -92,34 +108,63 @@ def batch_apply_metadata(dataset):
     metadata = config.load_observing_metadata()
     # Associate metadata
     for ob in dataset.all_observations:
-        o = mkidpipeline.hdf.photontable.Photontable(ob.h5, mode='w')
+        o = photontable.Photontable(ob.h5, mode='w')
         mdl = config.select_metadata_for_h5(ob, metadata)
         o.attach_observing_metadata(mdl)
         del o
 
 
-def batch_apply_wavecals(obs, ncpu=None):
+def batch_apply_wavecals(dset, ncpu=None):
+    """ filter for unique h5 files, not responsible for mixed wavecal specs """
     wavecal.clear_solution_cache()
-    pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
-    obs = {o.h5: o for o in obs if o.wavecal is not None}.values()  # filter so unique h5 files, not responsible for a mixed wavecal specs
+    pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available(config.config.wavecal.ncpu))
+    obs = {o.h5: o for o in dset.wavecalable if o.wavecal is not None}.values()
     pool.map(wavecal_apply, obs)
     pool.close()
 
 
-def batch_apply_flatcals(obs, ncpu=None):
+def batch_apply_flatcals(dset, ncpu=None):
+    """
+    Will filter for unique h5 files, not responsible for mixed flatcal specs
+    """
     pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
-    obs = {o.h5: o for o in obs if o.flatcal is not None}.values()  # filter so unique h5 files, not responsible for a mixed flatcal specs
+    obs = {o.h5: o for o in dset.flatcalable if o.flatcal is not None}.values()
     pool.map(flatcal_apply, obs)
     pool.close()
 
 
-def batch_maskhot(obs, ncpu=None):
+def batch_apply_badpix(dset, ncpu=None):
     pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
-    pool.map(badpix.mask_hot_pixels, set([o.h5 for o in obs]))
+    pool.map(badpix_apply, set([o.h5 for o in dset.science_observations]))
     pool.close()
 
 
-def batch_apply_linearitycal(obs, ncpu=None):
+def batch_apply_linearitycal(dset, ncpu=None):
     pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
-    pool.map(linearitycal_apply, set([o.h5 for o in obs]))
+    pool.map(linearitycal_apply, set([o.h5 for o in dset.science_observations]))
     pool.close()
+
+
+def batch_build_hdf(timeranges):
+    mkidpipeline.bin2hdf.buildtables(timeranges, ncpu=ncpu, remake=False)
+
+
+def run_stage1(dataset):
+    operations = (('Building H5s', mkidpipeline.bin2hdf.buildtables),
+                  ('Attaching metadata', batch_apply_metadata),
+                  ('Fetching wavecals', mkidpipeline.steps.wavecal.fetch),
+                  ('Applying wavelength solutions', batch_apply_wavecals),
+                  ('Applying wavelength solutions', batch_apply_badpix),
+                  ('Applying linearity correction', batch_apply_linearitycal),
+                  ('Fetching flatcals', mkidpipeline.steps.flatcal.fetch),
+                  ('Applying flatcals', batch_apply_flatcals),
+                  ('Fetching speccals', mkidpipeline.steps.spectralcal.fetch))
+
+    toc = time.time()
+    for task_name, task in operations:
+        tic = time.time()
+        getLogger(__name__).info(f'Stage 1: {task_name}')
+        task(dataset)
+        getLogger(__name__).info(f'Completed {task_name} in {time.time()-tic:.0f} s')
+
+    getLogger(__name__).info(f'Stage 1 complete in {(time.time()-toc)/60:.0f} m')

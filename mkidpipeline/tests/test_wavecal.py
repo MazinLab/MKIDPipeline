@@ -14,5 +14,5 @@ config.make_paths()
 config.config.update('ncpu', 10)
 dataset = config.load_data_description(pkg.resource_filename('mkidpipeline', 'tests/test_data.yml'))
 
-pipe.bin2hdf.buildtables(dataset.timeranges, remake=False)
+bin2hdf.buildtables(dataset.timeranges, remake=False)
 pipe.wavecal.fetch(dataset.wavecals, verbose=False)

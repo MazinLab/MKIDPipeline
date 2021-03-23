@@ -1,10 +1,7 @@
 #!/bin/env python3
 from __future__ import print_function
 import os
-import sys
 import queue
-import atexit
-import argparse
 import warnings
 import numpy as np
 import multiprocessing as mp
@@ -23,8 +20,8 @@ import mkidcore.config
 from mkidcore.objects import Beammap
 from mkidcore import pixelflags
 import astropy.constants
-import pkg_resources as pkg
-from mkidpipeline.hdf import photontable
+import mkidpipeline.photontable as photontable
+
 log = pipelinelog.getLogger('mkidpipeline.steps.wavecal', setup=False)
 
 import mkidpipeline.utils.wavecal_models as wm
@@ -131,7 +128,7 @@ class Configuration(object):
                 if self.beammap.frequencies is None:
                     log.warning('Beammap loaded without frequencies and no templar config specified.')
         else:
-            self.beammap = beammap if beammap is not None else Beammap(default='MEC')
+            self.beammap = beammap if beammap is not None else Beammap('MEC')
 
         self.h5_file_names = {wave: h5 for wave, h5 in zip(self.wavelengths, h5s)}
 
@@ -2668,6 +2665,11 @@ def clear_solution_cache():
 
 
 def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
+    try:
+        solution_descriptors=solution_descriptors.wavecals
+    except AttributeError:
+        pass
+
     cfg = mkidpipeline.config.config if config is None else config
 
     solutions = []

@@ -15,7 +15,7 @@ TODO: Finalize best way to incorporate as pipeline step (flag photons, list of C
 
 import numpy as np
 import os
-from mkidpipeline.hdf.photontable import Photontable
+from photontable import Photontable
 from scipy.stats import poisson
 from scipy import signal
 import matplotlib.pyplot as plt

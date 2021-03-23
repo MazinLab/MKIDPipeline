@@ -18,15 +18,14 @@ import matplotlib
 from functools import partial
 
 import os, glob, uuid
-import datetime
 import time
 import multiprocessing, threading
 
-from mkidpipeline.speckle.genphotonlist_IcIsIr import genphotonlist
+from mkidpipeline.speckle.generate_photons import genphotonlist
 
-import mkidpipeline.speckle.genphotonlist_IcIsIr as gpl
+import mkidpipeline.speckle.generate_photons as gpl
 import mkidpipeline.speckle.binned_rician as binMR
-import mkidpipeline.speckle.binFreeRicianEstimate as binfree # alex's code
+import mkidpipeline.speckle.binfree_rician as binfree
 from scipy import optimize, integrate
 import pickle
 

@@ -70,7 +70,7 @@ import scipy.ndimage.filters as spfilters
 from mkidpipeline.speckle.binned_rician import *
 import scipy.stats
 
-from mkidpipeline.hdf.photontable import Photontable
+from photontable import Photontable
 from mkidpipeline.utils import utils
 import mkidpipeline.config
 from mkidcore.corelog import getLogger

@@ -6,23 +6,23 @@ os.environ["TMPDIR"] = '/scratch/tmp/'
 import tables.index
 tables.index.profile = True
 
-import mkidpipeline.hdf.bin2hdf as bin2hdf
+import mkidpipeline.bin2hdf as bin2hdf
 import mkidpipeline.steps.wavecal as wavecal
 import mkidpipeline.steps.flatcal as flatcal
 import mkidpipeline.config
-import mkidpipeline.hdf.photontable
+import mkidpipeline.photontable as photontable
 import multiprocessing as mp
-from mkidpipeline.hdf.photontable import Photontable
+from photontable import Photontable
 
 
 def wavecal_apply(o):
-    of = mkidpipeline.hdf.photontable.Photontable(o.h5, mode='a')
+    of = photontable.Photontable(o.h5, mode='a')
     of.applyWaveCal(wavecal.load_solution(o.wavecal))
     of.file.close()
 
 
 def flatcal_apply(o):
-    of = mkidpipeline.hdf.photontable.Photontable(o.h5, mode='a')
+    of = photontable.Photontable(o.h5, mode='a')
     of.applyFlatCal(wavecal.load_solution(o.flatcal))
     of.file.close()
 
@@ -51,12 +51,12 @@ def pipe_time():
 
     bin2hdf.buildtables(dataset.timeranges, ncpu=7, remake=False, timesort=False)
 
-    of = mkidpipeline.hdf.photontable.Photontable(pcfg.paths.out + '/1545542463.h5')
+    of = photontable.Photontable(pcfg.paths.out + '/1545542463.h5')
     q1=of.query(startt=1, stopt=5)
     tic=time.time()
     of.photonTable.read()
     print(time.time()-tic)
-    ofraid = mkidpipeline.hdf.photontable.Photontable('/mnt/data0/baileyji/mec/out/1545542463.h5')
+    ofraid = photontable.Photontable('/mnt/data0/baileyji/mec/out/1545542463.h5')
     q1=ofraid.query(startt=1, stopt=5)
     tic=time.time()
     ofraid.photonTable.read()

@@ -49,7 +49,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.colors import LogNorm
 import pickle
 from astropy import wcs
-from astropy.coordinates import EarthLocation, Angle, SkyCoord
+from astropy.coordinates import EarthLocation, SkyCoord
 import astropy.units as u
 from astroplan import Observer
 import astropy
@@ -58,8 +58,7 @@ from astropy.io import fits
 import tables
 import shutil
 from drizzle import drizzle as stdrizzle
-from mkidcore import pixelflags
-from mkidpipeline.hdf.photontable import Photontable
+from photontable import Photontable
 from mkidcore.corelog import getLogger
 import mkidcore.corelog as pipelinelog
 import mkidpipeline

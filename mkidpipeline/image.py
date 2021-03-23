@@ -1,4 +1,4 @@
-from mkidpipeline.hdf.photontable import Photontable
+from photontable import Photontable
 import scipy.ndimage as ndi
 import numpy as np
 from multiprocessing import Pool

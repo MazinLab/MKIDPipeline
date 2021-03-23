@@ -1,6 +1,5 @@
 from mkidpipeline.config import *
 import mkidpipeline as pipe
-import mkidpipeline.hdf.photontable as pt
 from io import StringIO
 
 df = '/scratch/baileyji/mec/data.yml'

@@ -6,14 +6,13 @@ import numexpr
 import numpy as np
 import tables
 import time, timeit, copy, pickle, hashlib, re, collections, ast
-from glob import glob
 from pkg_resources import resource_filename
 import matplotlib.pyplot as plt
 import matplotlib
 
 import mkidpipeline as pipe
-from mkidpipeline.hdf.photontable import Photontable
-import mkidpipeline.hdf.bin2hdf as bin2hdf
+from photontable import Photontable
+import mkidpipeline.bin2hdf as bin2hdf
 from mkidcore.corelog import getLogger
 
 

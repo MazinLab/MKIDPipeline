@@ -56,9 +56,9 @@ def generate_outputs(outputs):
     for o in outputs:
         pipe.getLogger(__name__).info('Generating {}'.format(o))
         if o.wants_image:
-            import mkidpipeline.hdf.photontable
+            import mkidpipeline.photontable as photontable
             for obs in o.data.obs:
-                h5 = mkidpipeline.hdf.photontable.Photontable(obs.h5)
+                h5 = photontable.Photontable(obs.h5)
                 img = h5.getFits(wvlStart=o.startw, wvlStop=o.stopw, applyWeight=o.enable_photom,
                                 applyTPFWeight=o.enable_noise, countRate=True)
                 img.writeto(o.output_file + h5.fileName.split('.')[0] + ".fits")

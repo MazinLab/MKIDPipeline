@@ -10,16 +10,14 @@ Assumes h5 files are wavelength calibrated, and they should also first be flatca
 """
 
 import sys,os
-import numpy as np
 from mkidcore import pixelflags
-from mkidpipeline.hdf.photontable import Photontable
+from photontable import Photontable
 from mkidpipeline.utils.speccal_utils import rebin, gaussianConvolution, fitBlackbody
 from mkidcore.corelog import getLogger
 import mkidcore.corelog
 import scipy.constants as c
 from astropy import units as u
 import mkidpipeline
-import matplotlib.pyplot as plt
 import urllib.request as request
 from urllib.error import URLError
 import shutil
