@@ -1090,8 +1090,14 @@ class Solution(object):
         self.beam_map_flags = beam_map_flags
         self.cfg = configuration
         # if we've specified a file load it without overloading previously set arguments
+        self._init_finished=False
         if self._file_path is not None:
-            self.load(self._file_path, overload=False)
+            try:
+                self.load(self._file_path, overload=False)
+            except FileNotFoundError:
+                mkidcore.corelog.getLogger(__name__).warning(f'Unable to find {self._file_path}, '
+                                                             f'initialization of solution incomplete')
+                pass
         # if not finish the init
         else:
             self.name = solution_name  # use the default or specified name for saving
@@ -1115,6 +1121,7 @@ class Solution(object):
         self._reverse_beam_map[:, indices] = lookup_table[1:, :]
         # quick vectorized type operation
         self._type = np.vectorize(type, otypes=[str])
+        self._init_finished = True
 
     @classmethod
     def to_yaml(cls, representer, node):
