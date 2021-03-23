@@ -82,13 +82,13 @@
       start: 1545542345
       stop: 1545542395
 
-#- !fc  #Use a
-#  name: flatcal3
-#  wavecal: !wsoln
-#    file: 2018-12-23 051888891e1e27c48f09da56342a914aed89.npz
-#  header:
-#    foo: .5
-#    bar: 40
+- !fc  #Use a
+  name: flatcal3
+  wavecal: !wsoln
+    file: 2018-12-23_051888891e1e27c48f09da56342a914aed89.npz
+  header:
+    foo: .5
+    bar: 40
 
 - !wcscal
   name: wcscal1
@@ -101,29 +101,38 @@
       ND: 1
       lamp: 40
 
-#- !wcscal
-#  name: wcscal2
-#  platescale: 10  #mas/pix eg x~10
-#  dither_ref: [73, 70]  #pix units ie 0<x<150  - where the center of rotation is relative to corner of image
-#  dither_home: [0.0, 0.0]  #conex units ie -3<x<3  - conex made a grid around this origin
-#  header:
-#    ND: 1
-#    lamp: 40
-#
-#- !sc
-#  name: speccal1
-#  data:
-#    - !dither
-#      name: Hip109427_dither
-#      target: Hip109427
-#      observatory: Subaru
-#      instrument: MEC
-#      approximate_time: 1602047815
-#      wcscal: wcscal1
-#      wavecal: wavecal1
-#      flatcal: flatcal1
-#      ra: 22 10 11.9852752
-#      dec: +06 11 52.307750
+- !sob
+  name: HD22179
+  start: 1545542340
+  stop: 1545542450
+  wcscal: wcscal1
+  wavecal: wavecal100
+  flatcal: flatcal100
+
+
+- !wcscal
+  name: wcscal2
+  platescale: 10  #mas/pix eg x~10
+  dither_ref: [73, 70]  #pix units ie 0<x<150  - where the center of rotation is relative to corner of image
+  dither_home: [0.0, 0.0]  #conex units ie -3<x<3  - conex made a grid around this origin
+  header:
+    ND: 1
+    lamp: 40
+
+- !sc
+  name: speccal1
+  data:
+    - !dither
+      name: Hip109427_dither
+      target: Hip109427
+      observatory: Subaru
+      instrument: MEC
+      approximate_time: 1602047815
+      wcscal: wcscal1
+      wavecal: wavecal1
+      flatcal: flatcal1
+      ra: 22 10 11.9852752
+      dec: +06 11 52.307750
 #
 #  aperture_radius: 3
 #  object_position: (143, 126)

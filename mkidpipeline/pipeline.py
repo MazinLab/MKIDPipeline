@@ -24,7 +24,7 @@ for info in pkgutil.iter_modules(mkidpipeline.steps.__path__):
         pass
 
 
-class BaseConfig(mkidcore.config.ConfigThing):
+class BaseConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!pipe_cfg'
     REQUIRED_KEYS = (('ncpu', 1, 'number of cpus'),
                      ('verbosity', 0, 'level of verbosity'),
@@ -34,12 +34,6 @@ class BaseConfig(mkidcore.config.ConfigThing):
                      ('paths.database', '/work/temp/database/', 'calibrations will be retrieved/stored here'),
                      ('paths.out', '/work/temp/out/', 'root of output'),
                      ('paths.tmp', '/work/temp/scratch/', 'use for data intensive temp files'))
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        for k, v, c in self.REQUIRED_KEYS:
-            self.register(k, v, comment=c, update=False)
-
 
 mkidcore.config.yaml.register_class(BaseConfig)
 

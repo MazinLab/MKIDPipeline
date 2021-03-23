@@ -22,6 +22,8 @@ if __name__ == "__main__":
     parser.add_argument('--init', action='store_true', help='Setup the pipeline, clobbers files freely')
     parser.add_argument('--verbose', action='store_true', help='Verbose')
     parser.add_argument('--run-step', dest='single_step', help='Run a single named step', type=str)
+    parser.add_argument('--make-dir', dest='make_paths', help='Create all needed directories', action='store_true')
+    parser.add_argument('--info', dest='info', help='Report information about the configuration', action='store_true')
 
     getLogger('mkidcore').setLevel('INFO')
     log = getLogger('mkidpipeline')
@@ -31,6 +33,9 @@ if __name__ == "__main__":
     if args.verbose:
         log.setLevel('DEBUG')
         getLogger('mkidcore').setLevel('DEBUG')
+    else:
+        pipe.getLogger('mkidpipeline.steps').setLevel('INFO')
+        pipe.getLogger('mkidpipeline.hdf').setLevel('INFO')
 
     if args.init:
         default_pipe_config = pipe.generate_default_config()
@@ -43,11 +48,17 @@ if __name__ == "__main__":
     output = config.MKIDOutputCollection(args.out_cfg, datafile=args.data_cfg)
     dataset = output.dataset
 
-    if args.init:
+    if args.make_paths:
         config.make_paths(output_dirs=[os.path.dirname(o.output_file) for o in output])
 
     if args.vet:
         sys.exit(0)
+
+    if args.info:
+        from glob import glob
+        for f in glob(config.config.paths.database+'*'):
+            print(f'{f}')
+        #report database info
 
     if args.single_step:
         pipe.PIPELINE_STEPS[args.single_step].run(dataset)
