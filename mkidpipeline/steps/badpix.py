@@ -80,6 +80,7 @@ import mkidcore.pixelflags as pixelflags
 def _calc_stdev(x):
     return np.nanstd(x) * _stddev_bias_corr((~np.isnan(x)).sum())
 
+
 def _stddev_bias_corr(n):
     if n == 1:
         corr = 1.0

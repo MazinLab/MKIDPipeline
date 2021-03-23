@@ -2,7 +2,7 @@
 *** Warning ***
 
     The STScI drizzle module currently appears to have a bug which has been raised under issue #50.
-    In the meantime increment_id() patches the bug
+    In the meantime _increment_id() patches the bug
 
 Examples
 
@@ -25,7 +25,7 @@ Classes
 
 Functions
 
-    increment_id    : Monkey patch for STScI drizzle class of drizzle package
+    _increment_id    : Monkey patch for STScI drizzle class of drizzle package
     mp_worker       : Genereate a reduced, reformated photonlist
     load_data       : Consolidate all dither positions
     form            : Takes in a MKIDDitheredObservation object and drizzles the dithers onto a common sky grid
@@ -48,27 +48,48 @@ import matplotlib.pylab as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.colors import LogNorm
 import pickle
+
+import astropy
+from astropy.utils.data import Conf
+from astropy.io import fits
 from astropy import wcs
 from astropy.coordinates import EarthLocation, SkyCoord
 import astropy.units as u
 from astroplan import Observer
-import astropy
-from astropy.utils.data import Conf
-from astropy.io import fits
+
 import tables
 import shutil
 from drizzle import drizzle as stdrizzle
-from photontable import Photontable
+import argparse
+
+import mkidcore.pixelflags
+from mkidcore.instruments import CONEX2PIXEL
 from mkidcore.corelog import getLogger
 import mkidcore.corelog as pipelinelog
-import mkidpipeline
-from mkidcore.instruments import CONEX2PIXEL
-import argparse
+from mkidpipeline.photontable import Photontable
 from mkidpipeline.utils.utils import get_device_orientation
+import mkidpipeline.config
 
 DRIZ_PROBLEM_FLAGS = ()  # currently no pixel flags make drizzler explode
 
-def increment_id(self):
+
+class StepConfig(mkidpipeline.config.BaseStepConfig):
+    yaml_tag = u'!badpix_cfg'
+    REQUIRED_KEYS = (('plots', 'all', 'Which plots to generate'),
+                     ('pixfrac', 0.5, 'TODO'),
+                     ('exp_timestep', 1, 'duration of time bins in the output cube'),
+                     ('wcs_timestep', 1, 'time between different wcs parameters (eg orientations). 0 will use '
+                                         'the calculated non-blurring min'),
+                     ('n_wave', 1, 'number of equal width wavelength bins in the temporally drizzled cube'),
+                     ('derotate', False, 'TODO'),
+                     ('align_start_pa', False, 'TODO'),
+                     ('whitelight', True, 'TODO'),
+                     ('save_steps', False, 'Save intermediate fits files where possible (only some modes)'),
+                     ('usecache', False, 'Cache the reformatted photontable data from each dither '
+                                         'for subsequent runs'))
+
+
+def _increment_id(self):
     """
     monkey patch for STScI drizzle class of drizzle package
 
@@ -81,7 +102,7 @@ def increment_id(self):
     so after each 32 images, a new plane is added to the context.
     """
 
-    getLogger(__name__).warning('Using increment_id monkey patch')
+    getLogger(__name__).warning('Using _increment_id monkey patch')
 
     # Compute what plane of the context image this input would
     # correspond to:
@@ -97,13 +118,16 @@ def increment_id(self):
     # Increment the id
     self.uniqid += 1
 
-stdrizzle.Drizzle.increment_id = increment_id
+
+stdrizzle.Drizzle.increment_id = _increment_id
+
 
 class DrizzleParams(object):
     """
     Calculates and stores the relevant info for Drizzler
 
     """
+
     def __init__(self, dither, used_inttime, wcs_timestep=None, pixfrac=1.):
         self.dither = dither
         self.used_inttime = used_inttime
@@ -126,10 +150,16 @@ class DrizzleParams(object):
 
         if simbad_lookup:
             self.coords = SkyCoord.from_name(self.dither.target)
-            getLogger(__name__).warning('Using J2000 coordinates at: {} {} for target {} from Simbad for canvas wcs'.format(self.coords.ra, self.coords.dec, self.dither.target))
+            getLogger(__name__).warning(
+                'Using J2000 coordinates at: {} {} for target {} from Simbad for canvas wcs'.format(self.coords.ra,
+                                                                                                    self.coords.dec,
+                                                                                                    self.dither.target))
         else:
             self.coords = SkyCoord(self.dither.ra, self.dither.dec, unit=('hourangle', 'deg'))
-            getLogger(__name__).info('Using coordinates at: {} {} for target {} from h5 header for canvas wcs'.format(self.coords.ra, self.coords.dec, self.dither.target))
+            getLogger(__name__).info(
+                'Using coordinates at: {} {} for target {} from h5 header for canvas wcs'.format(self.coords.ra,
+                                                                                                 self.coords.dec,
+                                                                                                 self.dither.target))
 
     def dither_pixel_vector(self, center=(0, 0)):
         """
@@ -168,21 +198,24 @@ class DrizzleParams(object):
         dith_pix_offset = self.dither_pixel_vector()
         # get the minimum required timestep. One that would produce 1 pixel displacement at the
         # center of furthest dither
-        dith_dists = np.sqrt(dith_pix_offset[0]**2 + dith_pix_offset[1]**2)
-        dith_angle = np.arctan(allowable_pixel_smear/dith_dists)
-        max_timestep = min(dith_angle/abs(dith_start_rot_rates))
+        dith_dists = np.sqrt(dith_pix_offset[0] ** 2 + dith_pix_offset[1] ** 2)
+        dith_angle = np.arctan(allowable_pixel_smear / dith_dists)
+        max_timestep = min(dith_angle / abs(dith_start_rot_rates))
 
         getLogger(__name__).debug("Maximum non-blurring time step calculated to be {}".format(max_timestep))
 
-        return(max_timestep)
+        return (max_timestep)
+
 
 def metadata_config_check(filename, conf_wcs):
     """ Checks a photontable metadata and data.yml agree on the wcs params """
     ob = Photontable(filename)
     md = ob.metadata()
     for attribute in ['dither_home', 'dither_ref', 'platescale', 'device_orientation']:
-        if getattr(md, attribute) != getattr(conf_wcs,attribute):
-            getLogger(__name__).warning(f'{attribute} is different in config and obsfile metadata. metadata should be reapplied')
+        if getattr(md, attribute) != getattr(conf_wcs, attribute):
+            getLogger(__name__).warning(
+                f'{attribute} is different in config and obsfile metadata. metadata should be reapplied')
+
 
 def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, single_pa_time=None, exclude_flags=()):
     """
@@ -232,8 +265,8 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, single_
     x, y = obsfile.xy(photons)
 
     # ob.get_wcs returns all wcs solutions (including those after intt), so just pass then remove post facto()
-    wcs = obsfile.get_wcs(derotate=derotate, wcs_timestep=wcs_timestep, single_pa_time=single_pa_time) #1545626973
-    nwcs = int(np.ceil(intt/wcs_timestep))
+    wcs = obsfile.get_wcs(derotate=derotate, wcs_timestep=wcs_timestep, single_pa_time=single_pa_time)  # 1545626973
+    nwcs = int(np.ceil(intt / wcs_timestep))
     wcs = wcs[:nwcs]
     del obsfile
 
@@ -301,13 +334,14 @@ def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfi
         if ncpu == 1:
             dithers_data = []
             for file, offset, duration in zip(filenames, offsets, durations):
-                data = mp_worker(file, wvlMin, wvlMax, startt+offset, duration, derotate, wcs_timestep,
-                                         single_pa_time, exclude_flags)
+                data = mp_worker(file, wvlMin, wvlMax, startt + offset, duration, derotate, wcs_timestep,
+                                 single_pa_time, exclude_flags)
                 dithers_data.append(data)
         else:
             p = mp.Pool(ncpu)
-            processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt+offsett, dur, derotate, wcs_timestep,
-                                               single_pa_time, exclude_flags)) for file, offsett, dur in zip(filenames, offsets, durations)]
+            processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt + offsett, dur, derotate, wcs_timestep,
+                                                   single_pa_time, exclude_flags)) for file, offsett, dur in
+                         zip(filenames, offsets, durations)]
             dithers_data = [res.get() for res in processes]
 
         dithers_data.sort(key=lambda k: filenames.index(k['file']))
@@ -370,7 +404,7 @@ class Canvas(object):
             # Set size of virtual grid to accommodate the limits of the offsets.
             # max_detector_dist = np.sqrt(self.xpix ** 2 + self.ypix **2)
             buffer = 100  # if any part of the image falls off the canvas it can cause stsci.drizzle to produce nothing
-                          # so add a safety perimeter
+            # so add a safety perimeter
             self.nPixRA = (2 * (pix_ra_span[1] - pix_ra_span[0]) + self.xpix + buffer).astype(int)
             self.nPixDec = (2 * (pix_dec_span[1] - pix_dec_span[0]) + self.ypix + buffer).astype(int)
 
@@ -391,13 +425,13 @@ class Canvas(object):
         :return:
         """
 
-        self.wcs = wcs.WCS(naxis = 2)
+        self.wcs = wcs.WCS(naxis=2)
         self.wcs.wcs.crpix = np.array([self.nPixRA / 2., self.nPixDec / 2.])
         self.wcs.wcs.crval = [self.centerRA, self.centerDec]
         self.wcs.wcs.ctype = ["RA--TAN", "DEC-TAN"]
         self.wcs.pixel_shape = (self.nPixRA, self.nPixDec)
-        self.wcs.wcs.pc = np.array([[1,0],[0,1]])
-        self.wcs.wcs.cdelt = [self.vPlateScale,self.vPlateScale]
+        self.wcs.wcs.pc = np.array([[1, 0], [0, 1]])
+        self.wcs.wcs.cdelt = [self.vPlateScale, self.vPlateScale]
         self.wcs.wcs.cunit = ["deg", "deg"]
         getLogger(__name__).debug(self.wcs)
 
@@ -443,7 +477,7 @@ class ListDrizzler(Canvas):
                 sky_grid = np.dstack((ra, dec))
 
                 sky_list = sky_grid[dither_photons['xPhotonPixels'], dither_photons['yPhotonPixels']]
-                dither_photons['RA'], dither_photons['Dec'] = sky_list[:,0], sky_list[:,1]
+                dither_photons['RA'], dither_photons['Dec'] = sky_list[:, 0], sky_list[:, 1]
 
         getLogger(__name__).debug('Assigning of RA/Decs completed. Time taken (s): %s', time.clock() - tic)
 
@@ -479,7 +513,7 @@ class ListDrizzler(Canvas):
             photons['ResID'] = ob.beamImage[dither_photons['xPhotonPixels'], dither_photons['yPhotonPixels']]
             photons['Time'] = dither_photons["timestamps"]
             photons['Wavelength'] = dither_photons["wavelengths"]
-            photons['SpecWeight'] = dither_photons["weight"]  #todo allow different weights to be stored
+            photons['SpecWeight'] = dither_photons["weight"]  # todo allow different weights to be stored
             photons['NoiseWeight'] = dither_photons["weight"]
             photons['RA'] = dither_photons["RA"]
             photons['Dec'] = dither_photons["Dec"]
@@ -489,6 +523,7 @@ class ListDrizzler(Canvas):
             newtable.move('/Photons', 'PhotonTable', overwrite=True)  # Move table2 to table
 
             ob.file.close()  # Finally, close the file
+
 
 class TemporalDrizzler(Canvas):
     """
@@ -520,11 +555,12 @@ class TemporalDrizzler(Canvas):
     def run(self):
         tic = time.clock()
 
-        nexp_time = len(self.timebins) -1
+        nexp_time = len(self.timebins) - 1
         ndithers = len(self.dithers_data)
         wcs_times_ms = self.wcs_times * 1e6
 
-        self.cps = np.zeros((nexp_time * ndithers, self.nwvlbins, self.nPixDec, self.nPixRA))  # use exp_timestep for final spacing
+        self.cps = np.zeros(
+            (nexp_time * ndithers, self.nwvlbins, self.nPixDec, self.nPixRA))  # use exp_timestep for final spacing
         expmap = np.zeros((nexp_time * ndithers, self.nwvlbins, self.nPixDec, self.nPixRA))
         for ix, dither_photons in enumerate(self.dithers_data):  # iterate over dithers
 
@@ -538,16 +574,17 @@ class TemporalDrizzler(Canvas):
 
                 # the sky grid ref and dither ref should match (crpix varies between dithers)
                 if not np.all(np.round(inwcs.wcs.crval, decimals=4) == np.round(self.wcs.wcs.crval, decimals=4)):
-                    getLogger(__name__).critical('sky grid ref and dither ref do not match (crpix varies between dithers)!')
+                    getLogger(__name__).critical(
+                        'sky grid ref and dither ref do not match (crpix varies between dithers)!')
                     raise RuntimeError('sky grid ref and dither ref do not match (crpix varies between dithers)!')
 
-                counts = self.makeTess(dither_photons, (wcs_times_ms[t], wcs_times_ms[t+1]))
-                cps = counts/(self.wcs_times[t + 1] - self.wcs_times[t])  # scale this frame by its exposure time
+                counts = self.makeTess(dither_photons, (wcs_times_ms[t], wcs_times_ms[t + 1]))
+                cps = counts / (self.wcs_times[t + 1] - self.wcs_times[t])  # scale this frame by its exposure time
 
                 # get expsure bin of current wcs time
                 wcs_time = wcs_times_ms[t]
                 ie = np.where([np.logical_and(wcs_time >= self.timebins[i], wcs_time < self.timebins[i + 1]) for i in
-                      range(len(self.timebins) - 1)])[0][0]
+                               range(len(self.timebins) - 1)])[0][0]
 
                 for ia in range(len(counts)):  # iterate over tess angles
                     for iw in range(self.nwvlbins):  # iterate over tess wavelengths
@@ -557,9 +594,10 @@ class TemporalDrizzler(Canvas):
                         inwht = np.int_(np.logical_not(cps[ia, iw] == 0))
 
                         drizhyper.add_image(cps[ia, iw], inwcs, inwht=inwht)  # in_units='cps' shouldn't have any affect
-                                                                              # for a single drizzle
-                        dithhyper[ie+ia, iw] += drizhyper.outsci  # sum all those tess' in the same exposure bin (ie)
-                        dithexp[ie+ia, iw] += drizhyper.outwht * (self.wcs_times[t + 1] - self.wcs_times[t]) / (len(self.wcs_times) -1)
+                        # for a single drizzle
+                        dithhyper[ie + ia, iw] += drizhyper.outsci  # sum all those tess' in the same exposure bin (ie)
+                        dithexp[ie + ia, iw] += drizhyper.outwht * (self.wcs_times[t + 1] - self.wcs_times[t]) / (
+                                    len(self.wcs_times) - 1)
 
             self.cps[ix * nexp_time: (ix + 1) * nexp_time] = dithhyper
             expmap[ix * nexp_time: (ix + 1) * nexp_time] = dithexp
@@ -596,7 +634,7 @@ class TemporalDrizzler(Canvas):
         else:  # otherwise just sample ever wcs_timestep (and sum later)
             timebins = timespan
 
-        bins = np.array([timebins, self.wvlbins, range(self.ypix+1), range(self.xpix+1)])
+        bins = np.array([timebins, self.wvlbins, range(self.ypix + 1), range(self.xpix + 1)])
         hypercube, _ = np.histogramdd(sample.T, bins, weights=weights, )
 
         if maxCountsCut:
@@ -619,13 +657,13 @@ class TemporalDrizzler(Canvas):
 
         w4d = wcs.WCS(naxis=4)
         w4d.wcs.crpix = [self.wcs.wcs.crpix[0], self.wcs.wcs.crpix[1], 1, 1]
-        w4d.wcs.crval = [self.wcs.wcs.crval[0], self.wcs.wcs.crval[1], self.wvlbins[0]/1e9, self.timebins[0]/1e6]
+        w4d.wcs.crval = [self.wcs.wcs.crval[0], self.wcs.wcs.crval[1], self.wvlbins[0] / 1e9, self.timebins[0] / 1e6]
         w4d.wcs.ctype = [self.wcs.wcs.ctype[0], self.wcs.wcs.ctype[1], "WAVE", "TIME"]
-        w4d.pixel_shape = (self.wcs.pixel_shape[0], self.wcs.pixel_shape[1], self.nwvlbins, len(self.timebins) -1)
+        w4d.pixel_shape = (self.wcs.pixel_shape[0], self.wcs.pixel_shape[1], self.nwvlbins, len(self.timebins) - 1)
         w4d.wcs.pc = np.eye(4)
         w4d.wcs.cdelt = [self.wcs.wcs.cdelt[0], self.wcs.wcs.cdelt[1],
-                         (self.wvlbins[1] - self.wvlbins[0])/1e9,
-                         (self.timebins[1] - self.timebins[0])/1e6]
+                         (self.wvlbins[1] - self.wvlbins[0]) / 1e9,
+                         (self.timebins[1] - self.timebins[0]) / 1e6]
         w4d.wcs.cunit = [self.wcs.wcs.cunit[0], self.wcs.wcs.cunit[1], "m", "s"]
 
         self.wcs = w4d
@@ -653,9 +691,9 @@ class SpatialDrizzler(Canvas):
         # meaning the positions don't have constant integration time
         self.wcs_times = np.append(np.arange(0, inttime, self.wcs_timestep), inttime)
         self.wcs_times_ms = self.wcs_times * 1e6
-        self.stackedim = np.zeros((len(drizzle_params.dither.obs) * (len(self.wcs_times)-1), self.ypix, self.xpix))
+        self.stackedim = np.zeros((len(drizzle_params.dither.obs) * (len(self.wcs_times) - 1), self.ypix, self.xpix))
         self.stacked_wcs = []
-        self.save_file = save_file
+        self.intermediate_file = save_file
 
     def run(self):
         for ix, dither_photons in enumerate(self.dithers_data):
@@ -670,10 +708,10 @@ class SpatialDrizzler(Canvas):
                         'sky grid ref and dither ref do not match (crpix varies between dithers)!')
                     raise RuntimeError('sky grid ref and dither ref do not match (crpix varies between dithers)!')
 
-                counts = self.makeImage(dither_photons, (self.wcs_times_ms[t], self.wcs_times_ms[t+1]))
-                cps = counts/(self.wcs_times[t + 1] - self.wcs_times[t])  # scale this frame by its exposure time
+                counts = self.makeImage(dither_photons, (self.wcs_times_ms[t], self.wcs_times_ms[t + 1]))
+                cps = counts / (self.wcs_times[t + 1] - self.wcs_times[t])  # scale this frame by its exposure time
 
-                self.stackedim[ix*len(dither_photons['obs_wcs_seq']) + t] = counts
+                self.stackedim[ix * len(dither_photons['obs_wcs_seq']) + t] = counts
                 self.stacked_wcs.append(inwcs)
 
                 getLogger(__name__).debug('Image load done. Time taken (s): %s', time.clock() - tic)
@@ -683,8 +721,8 @@ class SpatialDrizzler(Canvas):
 
                 # Input units as cps means Drizzle() will scale the output image by the # of contributions to each pix
                 self.driz.add_image(cps, inwcs, in_units='cps', inwht=inwht)
-            if self.save_file:
-                self.driz.write(self.save_file + 'drizzler_step_' + str(ix).zfill(3) + '.fits')
+            if self.intermediate_file:
+                self.driz.write(self.intermediate_file + 'drizzler_step_' + str(ix).zfill(3) + '.fits')
 
         if self.stack:
             self.counts = self.stackedim
@@ -702,8 +740,8 @@ class SpatialDrizzler(Canvas):
         weights = dither_photons['weight'][timespan_ind] if applyweights else None
 
         thisImage, _, _ = np.histogram2d(dither_photons['xPhotonPixels'][timespan_ind],
-                                         dither_photons['yPhotonPixels'][timespan_ind],  weights=weights,
-                                         bins=[range(self.ypix+1), range(self.xpix+1)], normed=False)
+                                         dither_photons['yPhotonPixels'][timespan_ind], weights=weights,
+                                         bins=[range(self.ypix + 1), range(self.xpix + 1)], normed=False)
 
         if maxCountsCut:
             getLogger(__name__).info("Applying max pixel count cut")
@@ -749,7 +787,7 @@ class DrizzledData(object):
             if dashboard_orient:
                 getLogger(__name__).info('Transposing image stack to match dashboard orientation')
                 getLogger(__name__).warning('Has not been verified')
-                self.data = np.transpose(self.data, (0,2,1))
+                self.data = np.transpose(self.data, (0, 2, 1))
                 for w in self.wcs:
                     w.wcs.pc = w.wcs.pc.T
 
@@ -768,12 +806,13 @@ class DrizzledData(object):
                                  fits.ImageHDU(name='variance', data=self.counts, header=fits_header)])
 
         if compress:
-            filename = filename+'.gz'
+            filename = filename + '.gz'
 
         assert filename[-5:] == '.fits', 'Please enter valid filename'
 
         hdul.writeto(filename, overwrite=overwrite)
         getLogger(__name__).info('FITS file {} saved'.format(filename))
+
 
 def debug_dither_image(dithers_data, drizzle_params):
     """ Plot the location of frames with simple boxes for calibration/debugging purposes. """
@@ -790,7 +829,8 @@ def debug_dither_image(dithers_data, drizzle_params):
     del driz
 
     for ix, dither_photons in enumerate(dithers_data):
-        driz = stdrizzle.Drizzle(outwcs=canvas_wcs, wt_scl='')  # make a new driz object so the color of each frame is uniform
+        driz = stdrizzle.Drizzle(outwcs=canvas_wcs,
+                                 wt_scl='')  # make a new driz object so the color of each frame is uniform
         for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):
             inwcs = wcs.WCS(header=inwcs)
             inwcs.pixel_shape = (xpix, ypix)
@@ -818,9 +858,73 @@ def debug_dither_image(dithers_data, drizzle_params):
     plt.show(block=True)
 
 
+def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0, 0), zoom=2.):
+    """
+    Get the rotation_center offset parameter for a dither
+
+    :param dither:
+    :param wvlMin:
+    :param wvlMax:
+    :param startt:
+    :param intt:
+    :param start_guess:
+    :param zoom: after each loop the figure zooms on the centre of the image. zoom==2 yields the middle quadrant on 1st iteration
+    :return:
+    """
+
+    update = True
+
+    rotation_center = start_guess
+
+    def onclick(event):
+        xlocs.append(event.xdata)
+        ylocs.append(event.ydata)
+        running_mean = [np.mean(xlocs), np.mean(ylocs)]
+        getLogger(__name__).info('xpix=%i, ypix=%i. Running mean=(%i,%i)'
+                                 % (event.xdata, event.ydata, running_mean[0], running_mean[1]))
+
+    iteration = 0
+    while update:
+
+        drizzle = form(dither=dither, mode='spatial', wvlMin=wvlMin,
+                       wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=1, derotate=None, usecache=False)
+
+        image = drizzle.data
+        fig, ax = plt.subplots()
+
+        print("Click on the four satellite speckles and the star")
+        cax = ax.imshow(image, origin='lower', norm=LogNorm())
+        lims = np.array(image.shape) / zoom ** iteration
+        ax.set_xlim((image.shape[0] // 2 - lims[0] // 2, image.shape[0] // 2 + lims[0] // 2 - 1))
+        ax.set_ylim((image.shape[1] // 2 - lims[1] // 2, image.shape[1] // 2 + lims[1] // 2 - 1))
+        cb = plt.colorbar(cax)
+        cb.ax.set_title('Counts')
+
+        xlocs, ylocs = [], []
+
+        fig.canvas.mpl_connect('button_press_event', onclick)
+        plt.show(block=True)
+
+        if not xlocs:  # if the user doesn't click on the figure don't change rotation_center's value
+            xlocs, ylocs = np.array(image.shape) // 2, np.array(image.shape) // 2
+        star_pix = np.array([np.mean(xlocs), np.mean(ylocs)]).astype(int)
+        rotation_center += (star_pix - np.array(image.shape) // 2)[::-1]  # * np.array([1,-1])
+        getLogger(__name__).info('rotation_center: {}'.format(rotation_center))
+
+        user_input = input(' *** INPUT REQUIRED *** \nDo you wish to continue looping [Y/n]: \n')
+        if user_input == 'n':
+            update = False
+
+        iteration += 1
+
+    getLogger(__name__).info('rotation_center: {}'.format(rotation_center))
+
+    return rotation_center
+
+
 def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt=0., intt=60., pixfrac=.5, nwvlbins=1,
          wcs_timestep=1., exp_timestep=1., usecache=True, ncpu=1, exclude_flags=(), whitelight=False,
-         align_start_pa=False, debug_dither_plot=False, save_file=''):
+         align_start_pa=False, debug_dither_plot=False, intermediate_file=''):
     """
     Takes in a MKIDDitheredObservation object and drizzles the dithers onto a common sky grid.
 
@@ -915,15 +1019,12 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
         driz = ListDrizzler(dithers_data, drizzle_params)
         driz.run()
         drizzle_data = driz
-
     else:
-        if mode == 'spatial' or mode == 'stack':
-            stack = mode=='stack'
-            driz = SpatialDrizzler(dithers_data, drizzle_params, stack=stack, save_file=save_file)
-
+        if mode in ('spatial', 'stack'):
+            driz = SpatialDrizzler(dithers_data, drizzle_params, stack=mode == 'stack', intermediate_file=intermediate_file)
         elif mode == 'temporal':
             driz = TemporalDrizzler(dithers_data, drizzle_params, nwvlbins=nwvlbins, exp_timestep=exp_timestep,
-                                     wvlMin=wvlMin, wvlMax=wvlMax)
+                                    wvlMin=wvlMin, wvlMax=wvlMax)
         driz.run()
         drizzle_data = DrizzledData(driz, mode, drizzle_params=drizzle_params)
 
@@ -932,72 +1033,23 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
     return drizzle_data
 
 
-def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0,0), zoom=2.):
-    """
-    Get the rotation_center offset parameter for a dither
+def fetch(outputs, config=None):
+    config = mkidpipeline.config.config if config is None else config
 
-    :param dither:
-    :param wvlMin:
-    :param wvlMax:
-    :param startt:
-    :param intt:
-    :param start_guess:
-    :param zoom: after each loop the figure zooms on the centre of the image. zoom==2 yields the middle quadrant on 1st iteration
-    :return:
-    """
+    for o in (o for o in outputs if o.wants_drizzled):
+        if not isinstance(o.data, mkidpipeline.config.MKIDDitheredObservation):
+            getLogger(__name__).error(f'No dither specified for {o}: o.data is {o.data}')
+            continue
 
-    update = True
+        intermediate_file = os.path.join(os.path.dirname(o.output_file), 'temp_') if config.drizzler.save_steps else ''
 
-    rotation_center = start_guess
-
-    def onclick(event):
-        xlocs.append(event.xdata)
-        ylocs.append(event.ydata)
-        running_mean = [np.mean(xlocs), np.mean(ylocs)]
-        getLogger(__name__).info('xpix=%i, ypix=%i. Running mean=(%i,%i)'
-                 % (event.xdata, event.ydata, running_mean[0], running_mean[1]))
-
-    iteration = 0
-    while update:
-
-        drizzle = form(dither=dither, mode='spatial', wvlMin=wvlMin,
-                        wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=1, derotate=None, usecache=False)
-
-        image = drizzle.data
-        fig, ax = plt.subplots()
-
-        print("Click on the four satellite speckles and the star")
-        cax = ax.imshow(image, origin='lower', norm=LogNorm())
-        lims = np.array(image.shape) / zoom**iteration
-        ax.set_xlim((image.shape[0]//2 - lims[0]//2, image.shape[0]//2 + lims[0]//2 - 1))
-        ax.set_ylim((image.shape[1]//2 - lims[1]//2, image.shape[1]//2 + lims[1]//2 - 1))
-        cb = plt.colorbar(cax)
-        cb.ax.set_title('Counts')
-
-        xlocs, ylocs = [], []
-
-        fig.canvas.mpl_connect('button_press_event', onclick)
-        plt.show(block=True)
-
-        if not xlocs:  # if the user doesn't click on the figure don't change rotation_center's value
-            xlocs, ylocs = np.array(image.shape)//2, np.array(image.shape)//2
-        star_pix = np.array([np.mean(xlocs), np.mean(ylocs)]).astype(int)
-        rotation_center += (star_pix - np.array(image.shape)//2)[::-1] #* np.array([1,-1])
-        getLogger(__name__).info('rotation_center: {}'.format(rotation_center))
-
-        user_input = input(' *** INPUT REQUIRED *** \nDo you wish to continue looping [Y/n]: \n')
-        if user_input == 'n':
-            update = False
-
-        iteration += 1
-
-    getLogger(__name__).info('rotation_center: {}'.format(rotation_center))
-
-    return rotation_center
-
-
-def drizzler_cfg_descr_str(drizzlercfg):
-    return 'TODO_drizzler_cfg_descr'
+        drizzled = form(o.data, mode=o.kind, wvlMin=o.startw, wvlMax=o.stopw, nwvlbins=config.drizzler.n_wave,
+                        pixfrac=config.drizzler.pixfrac, wcs_timestep=config.drizzler.wcs_timestep,
+                        exp_timestep=config.drizzler.exp_timestep, exclude_flags=mkidcore.pixelflags.PROBLEM_FLAGS,
+                        usecache=config.drizzler.usecache, ncpu=config.drizzler.ncpu,
+                        derotate=config.drizzler.derotate, align_start_pa=config.drizzler.align_start_pa,
+                        whitelight=config.drizzler.whitelight, intermediate_file=intermediate_file)
+        drizzled.write(o.output_file)
 
 
 if __name__ == '__main__':
@@ -1036,7 +1088,7 @@ if __name__ == '__main__':
     if args.gso and isinstance(args.gso, list):
         rotation_origin = get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=np.array(args.gso))
 
-    fitsname = '{}_{}.fits'.format(cfg.dither.name, drizzler_cfg_descr_str(cfg.drizzler))
+    fitsname = '{}_{}.fits'.format(cfg.dither.name, 'todo')
 
     # main function of drizzler
     scidata = form(dither, mode='spatial', wvlMin=wvlMin,

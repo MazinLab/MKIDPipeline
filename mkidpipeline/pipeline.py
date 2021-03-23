@@ -10,6 +10,8 @@ import mkidpipeline.config as config
 import mkidpipeline.steps
 from mkidpipeline.steps import wavecal
 import mkidpipeline.bin2hdf
+import mkidpipeline.imaging.movies
+
 import mkidcore.config
 
 log = getLogger('mkidpipeline')
@@ -168,3 +170,22 @@ def run_stage1(dataset):
         getLogger(__name__).info(f'Completed {task_name} in {time.time()-tic:.0f} s')
 
     getLogger(__name__).info(f'Stage 1 complete in {(time.time()-toc)/60:.0f} m')
+
+
+def generate_outputs(outputs):
+    mkidpipeline.steps.drizzler.fetch(outputs)
+
+    for o in outputs:
+        # TODO make into a batch process
+        getLogger(__name__).info('Generating {}'.format(o.name))
+        if o.wants_image:
+
+            for obs in o.data.obs:
+                h5 = mkidpipeline.photontable.Photontable(obs.h5)
+                img = h5.getFits(wvlStart=o.startw, wvlStop=o.stopw, applyWeight=o.enable_photom,
+                                 applyTPFWeight=o.enable_noise, countRate=True)
+                img.writeto(o.output_file + h5.fileName.split('.')[0] + ".fits")
+                getLogger(__name__).info('Generated fits file for {}'.format(obs.h5))
+        if o.wants_movie:
+            getLogger('mkidpipeline.hdf.photontable').setLevel('DEBUG')
+            mkidpipeline.imaging.movies.make_movie(o, inpainting=False)
