@@ -172,37 +172,13 @@ class CosmicCleaner:
         """
         if self.method.lower() == "poisson":
             self.threshold = self._generate_poisson_threshold()
-            cutmask = self.arraycounts >= self.threshold
-            self.cosmictimes = self.timebins[:-1][cutmask]
-
-        elif self.method.lower() == "peak-finding":
-            self.threshold = self._generate_signal_threshold()
-            self.cosmictimes = signal.find_peaks(self.arraycounts, height=self.threshold, threshold=10, distance=30)[
-                                   0] * 10
         else:
-            print("Invalid method!!")
+            self.threshold = self._generate_signal_threshold()
 
-        self._narrow_cosmic_times(500)
-
-    def _narrow_cosmic_times(self, width):
-        """
-        Since the algorithm for determining the cosmic ray events does not distinguish if two 'cosmic rays' are really
-        just two time bins with counts above the calculated CR threshold. So - for reporting - we find the peaks of each
-        of these events and their associated timestamps so we can say how many CR events were removed and not
-        artificially inflate those numbers.
-        """
-        cosmic_peak_times = []
-        for i in self.cosmictimes:
-            mask = abs(self.cosmictimes - i) <= width
-            temp = self.cosmictimes[mask]
-            locations = [np.where(self.timestream[0] == j) for j in temp]
-            counts = [self.timestream[1][j] for j in locations]
-            max_idx = np.argmax(counts)
-            max_time_idx = np.where(self.timestream[0] == temp[max_idx])[0][0]
-            peak_time = self.timestream[0][max_time_idx]
-            cosmic_peak_times.append(peak_time)
-        cosmic_peak_times = list(dict.fromkeys(cosmic_peak_times))
-        self.cosmicpeaktimes = cosmic_peak_times
+        #distance is in bin widths noah sasy thats 10ms
+        #after peak double threshold for the decay time
+        self.cosmictimes = signal.find_peaks(self.arraycounts, height=self.threshold, threshold=10,
+                                             distance=50)[0] * self.bin_width
 
     def find_cutout_times(self):
         """
