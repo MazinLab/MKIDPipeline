@@ -77,7 +77,6 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!badpix_cfg'
     REQUIRED_KEYS = (('plots', 'all', 'Which plots to generate'),
                      ('pixfrac', 0.5, 'TODO'),
-                     ('exp_timestep', 1, 'duration of time bins in the output cube'),
                      ('wcs_timestep', 1, 'time between different wcs parameters (eg orientations). 0 will use '
                                          'the calculated non-blurring min'),
                      ('n_wave', 1, 'number of equal width wavelength bins in the temporally drizzled cube'),
@@ -984,6 +983,9 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
     (doing binned SSD on a target that barely rotates).
     """
 
+    if mode not in ('stack', 'spatial', 'temporal', 'list'):
+        raise ValueError('mode must be: stack|spatial|temporal|list')
+
     # ensure the user input is shorter than the dither or that wcs are just calculated for the requested timespan
     if intt > dither.inttime:
         getLogger(__name__).info('Used integration time is set by dither duration to be {}s'.format(dither.inttime))
@@ -1005,30 +1007,26 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
                              align_start_pa=align_start_pa)
     total_photons = sum([len(dither_data['timestamps']) for dither_data in dithers_data])
 
-    if total_photons == 0:
+    if not total_photons:
         getLogger(__name__).critical('No photons found in any of the dithers. Check your wavelength and time ranges')
-        raise ValueError
+        return None
 
     if debug_dither_plot:
         debug_dither_image(dithers_data, drizzle_params)
 
-    if mode not in ['stack', 'spatial', 'temporal', 'list']:
-        raise ValueError('Not calling one of the available functions')
-
-    if mode == 'list':
+    if mode is 'list':
         driz = ListDrizzler(dithers_data, drizzle_params)
         driz.run()
-        drizzle_data = driz
+    elif mode in ('spatial', 'stack'):
+        driz = SpatialDrizzler(dithers_data, drizzle_params, stack=mode == 'stack', save_file=intermediate_file)
     else:
-        if mode in ('spatial', 'stack'):
-            driz = SpatialDrizzler(dithers_data, drizzle_params, stack=mode == 'stack', intermediate_file=intermediate_file)
-        elif mode == 'temporal':
-            driz = TemporalDrizzler(dithers_data, drizzle_params, nwvlbins=nwvlbins, exp_timestep=exp_timestep,
-                                    wvlMin=wvlMin, wvlMax=wvlMax)
-        driz.run()
-        drizzle_data = DrizzledData(driz, mode, drizzle_params=drizzle_params)
+        driz = TemporalDrizzler(dithers_data, drizzle_params, nwvlbins=nwvlbins, exp_timestep=exp_timestep,
+                                wvlMin=wvlMin, wvlMax=wvlMax)
 
-    getLogger(__name__).info('Finished forming drizzled data')
+    driz.run()
+    drizzle_data = driz if mode is 'list' else DrizzledData(driz, mode, drizzle_params=drizzle_params)
+
+    getLogger(__name__).info('Finished drizzling')
 
     return drizzle_data
 
@@ -1045,7 +1043,7 @@ def fetch(outputs, config=None):
 
         drizzled = form(o.data, mode=o.kind, wvlMin=o.startw, wvlMax=o.stopw, nwvlbins=config.drizzler.n_wave,
                         pixfrac=config.drizzler.pixfrac, wcs_timestep=config.drizzler.wcs_timestep,
-                        exp_timestep=config.drizzler.exp_timestep, exclude_flags=mkidcore.pixelflags.PROBLEM_FLAGS,
+                        exp_timestep=o.exp_timestep, exclude_flags=mkidcore.pixelflags.PROBLEM_FLAGS,
                         usecache=config.drizzler.usecache, ncpu=config.drizzler.ncpu,
                         derotate=config.drizzler.derotate, align_start_pa=config.drizzler.align_start_pa,
                         whitelight=config.drizzler.whitelight, intermediate_file=intermediate_file)
