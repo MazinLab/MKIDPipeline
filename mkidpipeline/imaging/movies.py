@@ -5,6 +5,7 @@ from mkidcore.corelog import getLogger
 import mkidpipeline.photontable as photontable
 from skimage.restoration import inpaint
 
+
 def make_movie(out, usewcs=False, showaxes=True, inpainting=False, **kwargs):
     title = out.name
     outfile = out.output_file

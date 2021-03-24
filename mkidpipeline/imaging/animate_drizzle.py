@@ -19,6 +19,7 @@ from astropy.visualization import ImageNormalize, AsinhStretch, LinearStretch, \
     LogStretch, PowerDistStretch, PowerStretch, SinhStretch, SqrtStretch, SquaredStretch
 import logging
 import mkidpipeline as pipe
+import mkidpipeline.config
 
 VALID_STRETCHES = {'asinh': AsinhStretch(),
                    'linear': LinearStretch(),
@@ -30,6 +31,28 @@ VALID_STRETCHES = {'asinh': AsinhStretch(),
 
 log = logging.getLogger(__name__)
 
+
+
+# animation: !configdict
+#   target: Hip5319  # Target name. If you do not wish for this to be shown in the animation but still want it saved in
+#                    # the mp4 metadata, use show_title: False
+#   stretch: linear  # linear | asinh | log | power[power=] | powerdist | sinh | sqrt | squared
+#   power: 5  # If stretch: power is used, the colorbar stretch will use this value for the power scaling
+#   type: temporal  # temporal | spectral
+#   fps: 10  # frames per second
+#   show_title: True  # Display the title at the top of the animation
+
+#   plot_data: True  # Plot the data from the drizzled FITS file.
+#   plot_stack: True  # Plot the stacked frames from the drizzled FITS file successively on top of one another
+#                     # If plot_data and plot_stack are both true, it will plot them side-by-side which each other.
+
+
+class StepConfig(mkidpipeline.config.BaseStepConfig):
+    yaml_tag = u'!animation_cfg'
+    REQUIRED_KEYS = (('plots', 'all', 'none|data|stack|all'),
+                     ('fps', 24, 'framerate'),
+                     ('stretch', 'linear', 'linear | asinh | log | power[power=5] | powerdist | sinh | sqrt | squared'),
+                     ('title', True, 'Display the title at the top of the animation'))
 
 def read_fits(file, wvl_bin=None):
     """
