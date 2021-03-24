@@ -769,26 +769,46 @@ class MKIDObservingDataset(object):
         return s
 
 
-class MKIDOutput(object):
+class MKIDOutput:
     yaml_tag = '!out'
+    OPTIONS = (('enable_noise', True,''),
+               ('enable_photom', True, ''),
+               ('enable_ssd', True, ''),
+               ('kind','image', ('stack', 'spatial', 'temporal', 'list', 'image', 'movie')),
+               ('min_wave', -np.inf, ''),
+               ('max_wave', np.inf, ''),
+               ('name', 'a name',''),
+               ('filename','',''),
+               ('data','',''))
+
 
     def __init__(self, name, dataname, kind, startw=None, stopw=None, filename='',_extra=None):
         """
         :param name: a name
         :param dataname: a name of a data association
-        :param kind: stack|spatial|spectral|temporal|list|image|movie
+        :param kind: stack|spatial|temporal|list|image|movie
         :param startw: wavelength start
         :param stopw: wavelength stop
-        :param filename: an optional relative or fully qualified path
+        :param filename: an optional relative or fully qualified path, defaults to name+output type,
+            so set if making multiple outputs with different settings
 
         Kind 'movie' requires _extra keys timestep and either frameduration or movieduration with frameduration
         taking precedence. startt and stopt may be included as well and are RELATIVE to the start of the file.
+
+        image - uses photontable.getFits to the a simple image of the data, applies to a single h5
+        stack - uses drizzler.SpatialDrizzler
+        spatial - uses drizzler.SpatialDrizzler
+        temporal - uses drizzler.TemporalDrizzler
+        list - drizzler.ListDrizzler to assign photons an RA and Dec
+        movie -
+
         """
         self.name = name
         self.startw = getnm(startw) if startw is not None else None
         self.stopw = getnm(stopw) if stopw is not None else None
         self.kind = kind.lower()
-        opt = ('stack', 'spatial', 'spectral', 'temporal', 'list', 'image', 'movie')
+        opt = ('stack', 'spatial', 'temporal', 'list', 'image', 'movie')
+        #self.exp_timestep=1  # 'duration of time bins in the output cube, required by temporal only, nbins=frametime/exp_timestep '
         if kind.lower() not in opt:
             raise ValueError('Output {} kind "{}" is not one of "{}" '.format(name, kind, ', '.join(opt)))
         self.enable_noise = True
@@ -807,7 +827,7 @@ class MKIDOutput(object):
 
     @property
     def wants_drizzled(self):
-        return self.kind in ('stack', 'spatial', 'spectral', 'temporal', 'list')
+        return self.kind in ('stack', 'spatial', 'temporal', 'list')
 
     @property
     def wants_movie(self):
@@ -819,10 +839,6 @@ class MKIDOutput(object):
         return cls(d.pop('name'), d.pop('data'), d.pop('kind'),
                    startw=d.pop('startw', None), stopw=d.pop('stopw', None),
                    filename=d.pop('filename', ''), _extra=d)
-        # #TODO I don't know why I used extract_from_node here and dict(loader.construct_pairs(node)) elsewhere
-        # d = mkidcore.config.extract_from_node(loader, ('name', 'data', 'kind', 'stopw', 'startw', 'filename'), node)
-        # return cls(d['name'], d['data'], d['kind'], d.get('startw', None), d.get('stopw', None),
-        #            d.get('filename', ''), )
 
     @property
     def input_timeranges(self):
@@ -831,14 +847,23 @@ class MKIDOutput(object):
     @property
     def output_file(self):
         global config
-        if not self.filename:
-            raise ValueError('No output filename for output, it may be time to add code for a default')
-        if os.pathsep in self.filename:
-            return self.filename
+        if self.filename:
+            file = self.filename
+        else:
+            if self.kind in ('stack', 'spatial', 'temporal', 'image'):
+                ext = 'fits'
+            elif self.kind is 'movie':
+                ext = 'gif'
+            else:
+                ext = 'h5'
+            file = f'{self.name}_{self.kind}.{ext}'
+
+        if os.pathsep in file:
+            return file
         else:
             return os.path.join(config.paths.out,
                                 self.data if isinstance(self.data, str) else self.data.name,
-                                self.filename)
+                                file)
 
 
 class MKIDOutputCollection:
