@@ -187,7 +187,7 @@ After the flatfield calibration .h5 solution files are made, they can be applied
     calSolnPath='/path/to/calSolutionFile.h5'
 
     obsfile=obs(ObsFN, mode='write')
-    obsfilecal=obs.applyFlatCal(obsfile,calSolnPath,verbose=True)
+    obsfilecal=obs.apply_flatcal(obsfile,calSolnPath,verbose=True)
 
 Weights are multiplied in and replaced; if "weights" are the contents of the "SpecWeight" column, weights = weights*weightArr. NOT reversible unless the original contents (or weightArr) is saved.
 Will write plots of flatcal solution (5 second increments over a single flat exposure) with average weights overplotted to a pdf for pixels which have a successful FlatCal.
