@@ -17,7 +17,7 @@ from photontable import Photontable
 
 def wavecal_apply(o):
     of = photontable.Photontable(o.h5, mode='a')
-    of.applyWaveCal(wavecal.load_solution(o.wavecal))
+    of.apply_wavecal(wavecal.load_solution(o.wavecal))
     of.file.close()
 
 

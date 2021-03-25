@@ -414,7 +414,7 @@ class LaserCalibrator(FlatCalibrator):
         startw, stopw = None, None
         for wvl, h5 in self.h5s.items():
             obs = h5.photontable
-            if not obs.info['isBadPixMasked'] and not self.cfg.flatcal.use_wavecal:
+            if not obs.query_header('isBadPixMasked') and not self.cfg.flatcal.use_wavecal:
                 getLogger(__name__).warning('H5 File not hot pixel masked, could skew flat weights')
 
             w_mask = self.wavelengths==wvl

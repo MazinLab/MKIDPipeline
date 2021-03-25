@@ -520,13 +520,13 @@ class main_window(QMainWindow):
                 self.radio_button_beamFlagImage.setChecked(True)
                 self.call_plot_method()
                 # set the max integration time to the h5 exp time in the header
-                self.expTime = self.a.getFromHeader('expTime')
-                self.wvlBinStart = self.a.getFromHeader('wvlBinStart')
-                self.wvlBinEnd = self.a.getFromHeader('wvlBinEnd')
+                self.expTime = self.a.query_header('expTime')
+                self.wvlBinStart = self.a.query_header('wvlBinStart')
+                self.wvlBinEnd = self.a.query_header('wvlBinEnd')
 
                 # set the max and min values for the lambda spinboxes
                 # check if the data is wavecaled and set the limits on the spinboxes accordingly
-                if self.a.getFromHeader('isWvlCalibrated'):
+                if self.a.query_header('isWvlCalibrated'):
                     self.minLambda = self.wvlBinStart
                     self.maxLambda = self.wvlBinEnd
                 else:
