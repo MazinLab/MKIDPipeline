@@ -68,7 +68,7 @@ def wavecal_apply(o):
         return
     try:
         of = photontable.Photontable(o.h5, mode='a')
-        of.applyWaveCal(wavecal.load_solution(o.wavecal.path))
+        of.apply_wavecal(wavecal.load_solution(o.wavecal.path))
         of.file.close()
     except Exception as e:
         getLogger(__name__).critical('Caught exception during run of {}'.format(o.h5), exc_info=True)

@@ -14,7 +14,7 @@ Class Obsfile:
 __init__(self,fileName,mode='read',verbose=False)
 __del__(self)
 _load_file(self, fileName)
-getFromHeader(self, name)
+query_header(self, name)
 pixelIsBad(self, xCoord, yCoord, forceWvl=False, forceWeights=False, forceTPFWeights=False)
 
 ====Single pixel access functions====
@@ -34,14 +34,14 @@ getPixelSpectrum(self, xCoord, yCoord, firstSec=0, integrationTime= -1,applyWeig
 wavelength_bins(energy_width=.1, start=700, stop=1500)
 
 ====Data write functions for calibrating====
-applyWaveCal(self, file_name)
+apply_wavecal(self, file_name)
 updateWavelengths(self, wvlCalArr, xCoord=None, yCoord=None, resid=None)
-_applyColWeight(self, resID, weightArr, colName)
+_apply_column_weight(self, resID, weightArr, colName)
 applySpecWeight(self, resID, weightArr)
 applyTPFWeight(self, resID, weightArr)
 apply_flatcal(self, calSolnPath,verbose=False)
 undoFlag(self, xCoord, yCoord, flag)
-modifyHeaderEntry(self, headerTitle, headerValue)
+update_header(self, headerTitle, headerValue)
 """
 from __future__ import print_function
 import os
@@ -258,8 +258,6 @@ class Photontable(object):
         self.fullFileName = fileName
         self.fileName = os.path.basename(fileName)
         self.header = None
-        self.titles = None
-        self.info = None
         self.defaultWvlBins = None
         self.beamImage = None
         self._flagArray = None  # set in _load_file
@@ -292,12 +290,10 @@ class Photontable(object):
 
         # get the header
         self.header = self.file.root.header.header
-        self.titles = self.header.colnames
-        self.info = self.header[0]  # header is a table with one row
 
         # get important cal params
-        self.defaultWvlBins = Photontable.wavelength_bins(self.info['energyBinWidth'], self.info['wvlBinStart'],
-                                                          self.info['wvlBinEnd'])
+        self.defaultWvlBins = Photontable.wavelength_bins(self.query_header('energyBinWidth'), self.query_header('wvlBinStart'),
+                                                          self.query_header('wvlBinEnd'))
         # get the beam image.
         self.beamImage = self.file.get_node('/BeamMap/Map').read()
         self._flagArray = self.file.get_node('/BeamMap/Flag')  #The absence of .read() here is correct
@@ -337,7 +333,7 @@ class Photontable(object):
             spectrum, wvlBinEdges = np.histogram(wvlList, bins=self.defaultWvlBins, weights=weights)
 
         else:  # use specified bins
-            if applyWeight and self.info['isFlatCalibrated']:
+            if applyWeight and self.query_header('isFlatCalibrated'):
                 raise ValueError('Using flat cal, so flat cal bins must be used')
             elif wvlBinEdges is not None:
                 assert wvlBinWidth is None and energyBinWidth is None, 'Histogram bins are overspecified!'
@@ -360,10 +356,9 @@ class Photontable(object):
         # if getEffInt is True:
         return {'spectrum': spectrum, 'wvlBinEdges': wvlBinEdges, 'rawCounts': rawCounts}
 
-    def _applyColWeight(self, resID, weightArr, colName):
+    def _apply_column_weight(self, resID, weightArr, colName):
         """
         Applies a weight calibration to the column specified by colName.
-        Call using applySpecWeight or applyTPFWeight.
 
         Parameters
         ----------
@@ -376,6 +371,9 @@ class Photontable(object):
         """
         if self.mode != 'write':
             raise Exception("Must open file in write mode to do this!")
+
+        if colName not in ('SpecWeight' or 'NoiseWeight'):
+            raise ValueError(f"{colName} is not 'SpecWeight' or 'NoiseWeight'")
 
         indices = self.photonTable.get_where_list('ResID==resID')
 
@@ -404,14 +402,6 @@ class Photontable(object):
         self.mode = 'read'
         self._load_file(self.fullFileName)
 
-    def getFromHeader(self, name):
-        """
-        Returns a requested entry from the obs file header
-        eg. 'expTime'
-        """
-        entry = self.info[self.titles.index(name)]
-        return entry
-
     def detailed_str(self):
         t=self.photonTable.read()
         tinfo = repr(self.photonTable).replace('\n', '\n\t\t')
@@ -435,10 +425,10 @@ class Photontable(object):
                            self.photonTable.cols._g_col(n).index.dirty])
 
         s = msg.format(file=self.fullFileName, nphot=len(self.photonTable), sort=sort, tbl=tinfo,
-                       start=t['Time'].min(), stop=t['Time'].max(), dur=self.info['expTime'],
+                       start=t['Time'].min(), stop=t['Time'].max(), dur=self.query_header('expTime'),
                        dirty='Column(s) {} have dirty indices.'.format(dirty) if dirty else 'No columns dirty',
-                       wave=self.info['wvlCalFile'], #self.info['isWvlCalibrated'] else 'None'
-                       flat=self.info['fltCalFile'] if 'fltCalFile' in self.info.dtype.names else 'None')
+                       wave=self.query_header('wvlCalFile'), #self.query_header('isWvlCalibrated') else 'None'
+                       flat=self.query_header('fltCalFile') if 'fltCalFile' in self.info.dtype.names else 'None')
         return s
 
     def xy(self, photons):
@@ -450,15 +440,15 @@ class Photontable(object):
 
     @property
     def duration(self):
-        return self.info['expTime']
+        return self.query_header('expTime')
 
     @property
     def startTime(self):
-        return self.info['startTime']
+        return self.query_header('startTime')
 
     @property
     def stopTime(self):
-        return self.info['startTime'] + self.info['expTime']
+        return self.query_header('startTime') + self.query_header('expTime')
 
     @property
     def flag_names(self):
@@ -474,7 +464,7 @@ class Photontable(object):
                                         'You must recreate the H5 file.')
             ret = tuple(pixelflags.FLAG_LIST)
             self.enablewrite()
-            self.modifyHeaderEntry('flags', ret)
+            self.update_header('flags', ret)
             self.disablewrite()
         return ret
 
@@ -509,7 +499,7 @@ class Photontable(object):
     def flag_bitmask(self, flag_names):
         return pixelflags.flag_bitmask(flag_names, flag_list=self.flag_names)
 
-    def flag(self, flag, xCoord=slice(None), yCoord=slice(None)):
+    def flag(self, flag, pixel=(slice(None), slice(None))):
         """
         Applies a flag to the selected pixel on the BeamFlag array. Flag is a bitmask;
         new flag is bitwise OR between current flag and provided flag. Flag definitions
@@ -519,23 +509,22 @@ class Photontable(object):
 
         Parameters
         ----------
-        xCoord: int
-            x-coordinate of pixel or a slice
-        yCoord: int
-            y-coordinate of pixel or a slice
+        pixel: 2-tuple of int/slice denoting x,y pixel location
         flag: int
             Flag to apply to pixel
         """
         if self.mode != 'write':
             raise Exception("Must open file in write mode to do this!")
+
+        x, y = pixel
         flag = np.asarray(flag)
         pixelflags.valid(flag, error=True)
-        if not np.isscalar(flag) and self._flagArray[yCoord, xCoord].shape != flag.shape:
-            raise RuntimeError('flag must be scalar or match the desired region selected by x & y coordinates')
-        self._flagArray[yCoord, xCoord] |= flag
+        if not np.isscalar(flag) and self._flagArray[y, x].shape != flag.shape:
+            raise ValueError('flag must be scalar or match the desired region selected by x & y coordinates')
+        self._flagArray[y, x] |= flag
         self._flagArray.flush()
 
-    def unflag(self, flag, xCoord=slice(None), yCoord=slice(None)):
+    def unflag(self, flag, pixel=(slice(None, slice(None)))):
         """
         Resets the specified flag in the BeamFlag array to 0. Flag is a bitmask;
         only the bit specified by 'flag' is reset. Flag definitions
@@ -545,20 +534,19 @@ class Photontable(object):
 
         Parameters
         ----------
-        xCoord: int
-            x-coordinate of pixel
-        yCoord: int
-            y-coordinate of pixel
+        pixel: 2-tuple of ints/slices
+            xy-coordinate of pixel
         flag: int
             Flag to undo
         """
         if self.mode != 'write':
             raise Exception("Must open file in write mode to do this!")
+        x, y = pixel
         flag = np.asarray(flag)
         pixelflags.valid(flag, error=True)
-        if not np.isscalar(flag) and self._flagArray[yCoord, xCoord].shape != flag.shape:
-            raise RuntimeError('flag must be scalar or match the desired region selected by x & y coordinates')
-        self._flagArray[yCoord, xCoord] &= ~flag
+        if not np.isscalar(flag) and self._flagArray[y, x].shape != flag.shape:
+            raise ValueError('flag must be scalar or match the desired region selected by x & y coordinates')
+        self._flagArray[y, x] &= ~flag
         self._flagArray.flush()
 
     def query(self, startw=None, stopw=None, startt=None, stopt=None, resid=None, intt=None):
@@ -745,10 +733,10 @@ class Photontable(object):
         apo = Observer.at_site(md.observatory)
 
         if wcs_timestep is None:
-            wcs_timestep = self.info['expTime']
+            wcs_timestep = self.query_header('expTime')
 
         # sample_times upper boundary is limited to the user defined end time
-        sample_times = np.arange(self.info['startTime'], self.info['startTime']+self.info['expTime'], wcs_timestep)
+        sample_times = np.arange(self.query_header('startTime'), self.query_header('startTime')+self.query_header('expTime'), wcs_timestep)
         getLogger(__name__).debug("sample_times: %s", sample_times)
 
         device_orientation = np.deg2rad(md.device_orientation)
@@ -827,7 +815,7 @@ class Photontable(object):
             specifies the range of desired phase heights.
         forceRawPhase: bool
             If the Photontable is not wavelength calibrated this flag does nothing.
-            If the Photontable is wavelength calibrated (Photontable.info['isWvlCalibrated'] = True) then:
+            If the Photontable is wavelength calibrated (Photontable.query_header('isWvlCalibrated') = True) then:
              - forceRawPhase=True will return all the photons in the list (might be phase heights instead of wavelengths)
              - forceRawPhase=False is guaranteed to only return properly wavelength calibrated photons in the photon list
 
@@ -849,7 +837,7 @@ class Photontable(object):
                 raise ValueError('Invalid wavelength range')
         except TypeError:
             pass
-        if firstSec is not None and firstSec > self.info['expTime']:
+        if firstSec is not None and firstSec > self.query_header('expTime'):
             raise ValueError('Start time not in file.')
 
         resid = self.beamImage[xCoord, yCoord] if resid is None else resid
@@ -868,7 +856,7 @@ class Photontable(object):
 
 
         if integrationTime is None:
-            integrationTime = self.info['expTime']
+            integrationTime = self.query_header('expTime')
 
         # Retrieval rate is about 2.27Mphot/s for queries in the 100-200M photon range
         masterPhotonList = self.query(startt=firstSec if firstSec else None, intt=integrationTime,
@@ -982,7 +970,7 @@ class Photontable(object):
            :param hdu:
         """
         if integrationTime is None:
-            integrationTime = self.info['expTime']
+            integrationTime = self.query_header('expTime')
 
         image = np.zeros((self.nXPix, self.nYPix))
 
@@ -1184,7 +1172,7 @@ class Photontable(object):
         nWvlBins = wvlBinEdges.size - 1
 
         if integrationTime == -1 or integrationTime is None:
-            integrationTime = self.info['expTime']
+            integrationTime = self.query_header('expTime')
 
         cube = np.zeros((self.nXPix, self.nYPix, nWvlBins))
 
@@ -1336,7 +1324,7 @@ class Photontable(object):
                                        wvlBinWidth=wvlBinWidth, energyBinWidth=energyBinWidth,
                                        wvlBinEdges=wvlBinEdges, timeSpacingCut=timeSpacingCut)
 
-    def applyWaveCal(self, solution):
+    def apply_wavecal(self, solution):
         """
         loads the wavelength cal coefficients from a given file and applies them to the
         wavelengths table for each pixel. Photontable must be loaded in write mode. Dont call updateWavelengths !!!
@@ -1345,8 +1333,8 @@ class Photontable(object):
         something is wrong. -JB 2/19/19
         """
         # check file_name and status of obsFile
-        if self.info['isWvlCalibrated']:
-            getLogger(__name__).info('Data already calibrated using {}'.format(self.info['wvlCalFile']))
+        if self.query_header('isWvlCalibrated'):
+            getLogger(__name__).info('Data already calibrated using {}'.format(self.query_header('wvlCalFile')))
             return
         getLogger(__name__).info('Applying {} to {}'.format(solution, self.fullFileName))
         self.photonTable.autoindex = False  # Don't reindex every time we change column
@@ -1354,9 +1342,9 @@ class Photontable(object):
         tic = time.time()
         for (row, column), resID in np.ndenumerate(self.beamImage):
             self.unflag(self.flag_bitmask([f for f in pixelflags.FLAG_LIST if f.startswith('wavecal')]),
-                                        xCoord=column, yCoord=row)
+                        pixel=(column, row))
             self.flag(self.flag_bitmask(pixelflags.to_flag_names('wavecal', solution.get_flag(res_id=resID))),
-                                        xCoord=column, yCoord=row)
+                      pixel=(column, row))
 
             if not solution.has_good_calibration_solution(res_id=resID):
                 continue
@@ -1380,8 +1368,8 @@ class Photontable(object):
                 tic2 = time.time()
                 getLogger(__name__).debug('Wavelength updated in {:.2f}s'.format(time.time() - tic2))
 
-        self.modifyHeaderEntry(headerTitle='isWvlCalibrated', headerValue=True)
-        self.modifyHeaderEntry(headerTitle='wvlCalFile', headerValue=str.encode(solution.name))
+        self.update_header('isWvlCalibrated', True)
+        self.update_header('wvlCalFile', str.encode(solution.name))
         self.photonTable.reindex_dirty()  # recompute "dirty" wavelength index
         self.photonTable.autoindex = True  # turn on auto-indexing
         self.photonTable.flush()
@@ -1400,12 +1388,12 @@ class Photontable(object):
         self.flag(self.flag_bitmask('pixcal.hot') * hot_mask)
         self.flag(self.flag_bitmask('pixcal.cold') * cold_mask)
         self.flag(self.flag_bitmask('pixcal.unstable') * unstable_mask)
-        self.modifyHeaderEntry(headerTitle='isBadPixMasked', headerValue=True)
+        self.update_header('isBadPixMasked', True)
         getLogger(__name__).info('Mask applied in {:.3f}s'.format(time.time()-tic))
 
     @property
     def wavelength_calibrated(self):
-        return self.info['isWvlCalibrated']
+        return self.query_header('isWvlCalibrated')
 
     @property
     def extensible_header_store(self):
@@ -1421,7 +1409,7 @@ class Photontable(object):
                 self._mdcache = {}
         return self._mdcache
 
-    def update_extensible_header_store(self, extensible_header):
+    def _update_extensible_header_store(self, extensible_header):
         if not isinstance(extensible_header, dict):
             raise TypeError('extensible_header must be of type dict')
         out = StringIO()
@@ -1431,7 +1419,44 @@ class Photontable(object):
             raise ValueError("Too much metadata! {} KB needed, {} allocated".format(len(emdstr)//1024,
                                                                                     METADATA_BLOCK_BYTES//1024))
         self._mdcache = extensible_header
-        self.modifyHeaderEntry('metadata', emdstr)
+        self.update_header('metadata', emdstr)
+
+    def query_header(self, name):
+        """
+        Returns a requested entry from the obs file header
+        """
+        # header = self.file.root.header.header
+        # titles = header.colnames
+        # info = header[0]
+        # return info[titles.index(name)]
+        return self.file.root.header.header[0][self.file.root.header.header.colnames.index(name)]
+
+    def update_header(self, key, value):
+        """
+        Modifies an entry in the header. Useful for indicating whether wavelength cals,
+        flat cals, etc are applied
+
+        Parameters
+        ----------
+        key: string
+            Name of entry to be modified
+        value: depends on title
+            New value of entry
+        """
+        if self.mode != 'write':
+            raise IOError("Must open file in write mode to do this!")
+
+        if key not in self.header.colnames:
+            extensible_header = self.extensible_header_store
+            if key not in extensible_header:
+                msg = 'Creating a header entry for {} during purported modification to {}'
+                getLogger(__name__).warning(msg.format(key, value))
+            extensible_header[key] = value
+            self._update_extensible_header_store(extensible_header)
+        else:
+            self.header.modify_column(column=value, colname=key)
+            self.header.flush()
+            self.info = self.header[0]
 
     def metadata(self, timestamp=None):
         """ Return an object with attributes containing the the available observing metadata,
@@ -1471,10 +1496,13 @@ class Photontable(object):
         # OBS2FITS = dict(target='DASHTARG', dataDir='DATADIR', beammapFile='BEAMMAP', wvlCalFile='WAVECAL',
         #                 fltCalFile='FLATCAL')
 
-        # header['NWEIGHT'] = (applyTPFWeight and self.info['isPhaseNoiseCorrected'], 'Noise weight corrected')
-        # header['LWEIGHT'] = (applyWeight and self.info['isLinearityCorrected'], 'Linearity corrected')
-        # header['FWEIGHT'] = (applyWeight and self.info['isFlatCalibrated'], 'Flatcal corrected')
-        # header['SWEIGHT'] = (applyWeight and self.info['isFluxCalibrated'], 'QE corrected')
+        # for k in self.info:
+        #     omd.register(k, self.inf[k], update=True)
+
+        # header['NWEIGHT'] = (applyTPFWeight and self.query_header('isPhaseNoiseCorrected'), 'Noise weight corrected')
+        # header['LWEIGHT'] = (applyWeight and self.query_header('isLinearityCorrected'), 'Linearity corrected')
+        # header['FWEIGHT'] = (applyWeight and self.query_header('isFlatCalibrated'), 'Flatcal corrected')
+        # header['SWEIGHT'] = (applyWeight and self.query_header('isFluxCalibrated'), 'QE corrected')
 
         if not omd:
             return None
@@ -1495,7 +1523,7 @@ class Photontable(object):
         return ret
 
     def attach_observing_metadata(self, metadata):
-        self.modifyHeaderEntry('obs_metadata', metadata)
+        self.update_header('obs_metadata', metadata)
 
     @staticmethod
     def wavelength_bins(energy_width=.1, start=700, stop=1500):
@@ -1568,7 +1596,7 @@ class Photontable(object):
 
         if self.mode != 'write':
             raise Exception("Must open file in write mode to do this!")
-        if self.info['isWvlCalibrated']:
+        if self.query_header('isWvlCalibrated'):
             getLogger(__name__).warning("Wavelength calibration already exists!")
             warnings.warn("Wavelength calibration already exists!")
 
@@ -1611,7 +1639,7 @@ class Photontable(object):
         weightArr: array of floats
             Array of cal weights. Multiplied into the "SpecWeight" column.
         """
-        self._applyColWeight(resID, weightArr, 'SpecWeight')
+        self._apply_column_weight(resID, weightArr, 'SpecWeight')
 
     def applyTPFWeight(self, resID, weightArr):
         """
@@ -1629,7 +1657,7 @@ class Photontable(object):
         weightArr: array of floats
             Array of cal weights. Multiplied into the "NoiseWeight" column.
         """
-        self._applyColWeight(resID, weightArr, 'NoiseWeight')
+        self._apply_column_weight(resID, weightArr, 'NoiseWeight')
 
     def apply_flatcal(self, calsolFile, use_wavecal=True, save_plots=False, startw=800, stopw=1375):
         """
@@ -1655,7 +1683,7 @@ class Photontable(object):
              :param save_plots:
         """
 
-        if self.info['isFlatCalibrated']:
+        if self.query_header('isFlatCalibrated'):
             getLogger(__name__).info("H5 {} is already flat calibrated".format(self.fullFileName))
             return
 
@@ -1714,7 +1742,7 @@ class Photontable(object):
                     coeffs = soln['coeff'].flatten()
                     weights = soln['weight'].flatten()
                     errors = soln['err'].flatten()
-                    if self.info['isWvlCalibrated'] and not any([self.flagMask(pixelflags.PROBLEM_FLAGS,
+                    if self.query_header('isWvlCalibrated') and not any([self.flagMask(pixelflags.PROBLEM_FLAGS,
                                                                                pixel=(row, column))]):
                         weightArr = np.poly1d(coeffs)(wavelengths)
                         if any(weightArr > 100) or any(weightArr < 0.01):
@@ -1763,13 +1791,13 @@ class Photontable(object):
                         plt.close()
                     iPlot += 1
 
-        self.modifyHeaderEntry(headerTitle='isFlatCalibrated', headerValue=True)
-        self.modifyHeaderEntry(headerTitle='fltCalFile', headerValue=calsolFile.encode())
+        self.update_header('isFlatCalibrated', True)
+        self.update_header('fltCalFile', calsolFile.encode())
         getLogger(__name__).info('Flatcal applied in {:.2f}s'.format(time.time()-tic))
 
     def applyLinearitycal(self, dt=1000, tau=0.000001):
         tic = time.time()
-        if self.info['isLinearityCorrected']:
+        if self.query_header('isLinearityCorrected'):
             getLogger(__name__).info("H5 {} is already linearity calibrated".format(self.fullFileName))
             return
         bar = ProgressBar(maxval=20439).start()
@@ -1785,7 +1813,7 @@ class Photontable(object):
             bar.update(bari)
         bar.finish()
         getLogger(__name__).info('Linearitycal applied to {} in {:.2f}s'.format(self.fileName, time.time() - tic))
-        self.modifyHeaderEntry(headerTitle='isLinearityCorrected', headerValue=True)
+        self.update_header('isLinearityCorrected', True)
 
     def apply_spectralcal(self, spectralcal):
         """
@@ -1794,8 +1822,8 @@ class Photontable(object):
          a 2xN columnss are wavelength in angstroms and the spectral response
         :return:
         """
-        if self.info['isFluxCalibrated']:
-            getLogger(__name__).info(f"{self.fullFileName} previously calibrated with {self.info['spectralcal']}, "
+        if self.query_header('isFluxCalibrated'):
+            getLogger(__name__).info(f"{self.fullFileName} previously calibrated with {self.query_header('spectralcal')}, "
                                      f"skipping")
             return
 
@@ -1813,39 +1841,12 @@ class Photontable(object):
                 continue
             photon_list = self.getPixelPhotonList(xCoord=row, yCoord=column)
             weight_arr = func(photon_list['Wavelength'])
-            self._applyColWeight(resID, weight_arr, 'SpecWeight')
+            self._apply_column_weight(resID, weight_arr, 'SpecWeight')
 
-        self.modifyHeaderEntry(headerTitle='isFluxCalibrated', headerValue=True)
-        self.modifyHeaderEntry(headerTitle='spectralcal', headerValue=spectralcal.id)
+        self.update_header('isFluxCalibrated', True)
+        self.update_header('spectralcal', spectralcal.id)
 
         getLogger(__name__).info('spectralcal applied in {:.2f}s'.format(time.time() - tic))
-
-    def modifyHeaderEntry(self, headerTitle, headerValue):
-        """
-        Modifies an entry in the header. Useful for indicating whether wavelength cals,
-        flat cals, etc are applied
-
-        Parameters
-        ----------
-        headerTitle: string
-            Name of entry to be modified
-        headerValue: depends on title
-            New value of entry
-        """
-        if self.mode != 'write':
-            raise IOError("Must open file in write mode to do this!")
-
-        if headerTitle not in self.header.colnames:
-            extensible_header = self.extensible_header_store
-            if headerTitle not in extensible_header:
-                msg = 'Creating a header entry for {} during purported modification to {}'
-                getLogger(__name__).warning(msg.format(headerTitle, headerValue))
-            extensible_header[headerTitle] = headerValue
-            self.update_extensible_header_store(extensible_header)
-        else:
-            self.header.modify_column(column=headerValue, colname=headerTitle)
-            self.header.flush()
-            self.info = self.header[0]
 
 
 def calculateSlices(inter, timestamps):

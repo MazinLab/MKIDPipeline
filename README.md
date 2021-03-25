@@ -78,8 +78,8 @@ After the wavelength calibration .h5 solution file is made, it can be applied to
 
     # path to your wavecal solution file
     file_name = '/path/to/calsol_timestamp.h5'
-    obs.applyWaveCal(file_name)
-where obs is your obs file object. The method applyWaveCal() will change all of the phase heights to wavelengths in nanometers. For pixels where no calibration is available, the phase heights are not changed and a flag is applied to mark the pixel as uncalibrated. Warning, the wavelength calibration can not be undone after applied and permanently alters the .h5 file. Make a backup .h5 file if you are testing different calibrations.
+    obs.apply_wavecal(file_name)
+where obs is your obs file object. The method apply_wavecal() will change all of the phase heights to wavelengths in nanometers. For pixels where no calibration is available, the phase heights are not changed and a flag is applied to mark the pixel as uncalibrated. Warning, the wavelength calibration can not be undone after applied and permanently alters the .h5 file. Make a backup .h5 file if you are testing different calibrations.
 
 Flat Fielding
 ----------------------------------------------

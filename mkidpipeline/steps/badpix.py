@@ -438,7 +438,7 @@ def hpm_poisson_dist(obsfile):
     """
     raise NotImplementedError
 
-    stop_time = float(obsfile.getFromHeader('expTime'))
+    stop_time = float(obsfile.query_header('expTime'))
     times = obsfile.getPixelPhotonList(xpix, ypix)
     times = times['Time']
     lc = getLightCurve(times, startTime=0, stopTime=stop_time * 10e6, effExpTime=1000000)
@@ -546,12 +546,12 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=30, startt=0, stopt=
     Applies relevant pixelflags - see pixelflags.py
     """
     obs = Photontable(file)
-    if obs.info['isBadPixMasked']:
+    if obs.query_header('isBadPixMasked'):
         getLogger(__name__).info('{} is already bad pixel calibrated'.format(obs.fileName))
         return
 
     if stopt is None:
-        stopt = obs.getFromHeader('expTime')
+        stopt = obs.query_header('expTime')
     assert startt < stopt
     if step > stopt-startt:
         getLogger(__name__).warning(('Hot pixel step time longer than exposure time by {:.0f} s, using full '
