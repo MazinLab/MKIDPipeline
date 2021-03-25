@@ -23,7 +23,7 @@ def wavecal_apply(o):
 
 def flatcal_apply(o):
     of = photontable.Photontable(o.h5, mode='a')
-    of.applyFlatCal(wavecal.load_solution(o.flatcal))
+    of.apply_flatcal(wavecal.load_solution(o.flatcal))
     of.file.close()
 
 

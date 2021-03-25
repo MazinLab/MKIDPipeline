@@ -13,7 +13,7 @@ Class Obsfile:
 ====Helper functions====
 __init__(self,fileName,mode='read',verbose=False)
 __del__(self)
-loadFile(self, fileName)
+_load_file(self, fileName)
 getFromHeader(self, name)
 pixelIsBad(self, xCoord, yCoord, forceWvl=False, forceWeights=False, forceTPFWeights=False)
 
@@ -31,7 +31,7 @@ getCircularAperturePhotonList(self, centerXCoord, centerYCoord, radius, firstSec
 _makePixelSpectrum(self, photonList, **kwargs)
 getSpectralCube(self, firstSec=0, integrationTime=-1, applyWeight=False, applyTPFWeight=False, wvlStart=700, wvlStop=1500,wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None, timeSpacingCut=None, flagToUse=0)
 getPixelSpectrum(self, xCoord, yCoord, firstSec=0, integrationTime= -1,applyWeight=False, applyTPFWeight=False, wvlStart=None, wvlStop=None,wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None,timeSpacingCut=None)
-makeWvlBins(energyBinWidth=.1, wvlStart=700, wvlStop=1500)
+wavelength_bins(energy_width=.1, start=700, stop=1500)
 
 ====Data write functions for calibrating====
 applyWaveCal(self, file_name)
@@ -39,7 +39,7 @@ updateWavelengths(self, wvlCalArr, xCoord=None, yCoord=None, resid=None)
 _applyColWeight(self, resID, weightArr, colName)
 applySpecWeight(self, resID, weightArr)
 applyTPFWeight(self, resID, weightArr)
-applyFlatCal(self, calSolnPath,verbose=False)
+apply_flatcal(self, calSolnPath,verbose=False)
 undoFlag(self, xCoord, yCoord, flag)
 modifyHeaderEntry(self, headerTitle, headerValue)
 """
@@ -262,11 +262,11 @@ class Photontable(object):
         self.info = None
         self.defaultWvlBins = None
         self.beamImage = None
-        self._flagArray = None  # set in loadFile
+        self._flagArray = None  # set in _load_file
         self.nXPix = None
         self.nYPix = None
         self._mdcache = None
-        self.loadFile(fileName)
+        self._load_file(fileName)
 
     def __del__(self):
         """
@@ -280,23 +280,7 @@ class Photontable(object):
     def __str__(self):
         return 'Photontable: '+self.fullFileName
 
-    def enablewrite(self):
-        """USE CARE IN A THREADED ENVIRONMENT"""
-        if self.mode == 'write':
-            return
-        self.file.close()
-        self.mode = 'write'
-        self.loadFile(self.fullFileName)
-
-    def disablewrite(self):
-        """USE CARE IN A THREADED ENVIRONMENT"""
-        if self.mode == 'read':
-            return
-        self.file.close()
-        self.mode = 'read'
-        self.loadFile(self.fullFileName)
-
-    def loadFile(self, fileName):
+    def _load_file(self, fileName):
         """ Opens file and loads obs file attributes and beammap """
         self.fileName = os.path.basename(fileName)
         self.fullFileName = fileName
@@ -312,16 +296,113 @@ class Photontable(object):
         self.info = self.header[0]  # header is a table with one row
 
         # get important cal params
-        self.defaultWvlBins = Photontable.makeWvlBins(self.info['energyBinWidth'], self.info['wvlBinStart'],
-                                                      self.info['wvlBinEnd'])
+        self.defaultWvlBins = Photontable.wavelength_bins(self.info['energyBinWidth'], self.info['wvlBinStart'],
+                                                          self.info['wvlBinEnd'])
         # get the beam image.
         self.beamImage = self.file.get_node('/BeamMap/Map').read()
         self._flagArray = self.file.get_node('/BeamMap/Flag')  #The absence of .read() here is correct
         self.nXPix, self.nYPix = self.beamImage.shape
         self.photonTable = self.file.get_node('/Photons/PhotonTable')
 
-    def resIDs(self):
-        return np.unique(self.beamImage.ravel())
+    def _makePixelSpectrum(self, photonList, **kwargs):
+        """
+        Makes a histogram using the provided photon list
+        """
+        applyWeight = kwargs.pop('applyWeight', False)
+        applyTPFWeight = kwargs.pop('applyTPFWeight', False)
+        wvlStart = kwargs.pop('wvlStart', None)
+        wvlStop = kwargs.pop('stop', None)
+        wvlBinWidth = kwargs.pop('wvlBinWidht', None)
+        energyBinWidth = kwargs.pop('energyBinWidth', None)
+        wvlBinEdges = kwargs.pop('wvlBinEdges', None)
+
+        wvlStart = wvlStart if (wvlStart != None and wvlStart > 0.) else (
+            self.wvlLowerLimit if (self.wvlLowerLimit != None and self.wvlLowerLimit > 0.) else 700)
+        wvlStop = wvlStop if (wvlStop != None and wvlStop > 0.) else (
+            self.wvlUpperLimit if (self.wvlUpperLimit != None and self.wvlUpperLimit > 0.) else 1500)
+
+        wvlList = photonList['Wavelength']
+        rawCounts = len(wvlList)
+
+        weights = np.ones(len(wvlList))
+
+        if applyWeight:
+            weights *= photonList['SpecWeight']
+
+        if applyTPFWeight:
+            weights *= photonList['NoiseWeight']
+
+        if (wvlBinWidth is None) and (energyBinWidth is None) and (
+                wvlBinEdges is None):  # use default/flat cal supplied bins
+            spectrum, wvlBinEdges = np.histogram(wvlList, bins=self.defaultWvlBins, weights=weights)
+
+        else:  # use specified bins
+            if applyWeight and self.info['isFlatCalibrated']:
+                raise ValueError('Using flat cal, so flat cal bins must be used')
+            elif wvlBinEdges is not None:
+                assert wvlBinWidth is None and energyBinWidth is None, 'Histogram bins are overspecified!'
+                spectrum, wvlBinEdges = np.histogram(wvlList, bins=wvlBinEdges, weights=weights)
+            elif energyBinWidth is not None:
+                assert wvlBinWidth is None, 'Cannot specify both wavelength and energy bin widths!'
+                wvlBinEdges = Photontable.wavelength_bins(energy_width=energyBinWidth, start=wvlStart, stop=wvlStop)
+                spectrum, wvlBinEdges = np.histogram(wvlList, bins=wvlBinEdges, weights=weights)
+            elif wvlBinWidth is not None:
+                nWvlBins = int((wvlStop - wvlStart) / wvlBinWidth)
+                spectrum, wvlBinEdges = np.histogram(wvlList, bins=nWvlBins, range=(wvlStart, wvlStop), weights=weights)
+
+            else:
+                raise Exception('Something is wrong with getPixelSpectrum...')
+
+        if self.filterIsApplied == True:
+            if not np.array_equal(self.filterWvlBinEdges, wvlBinEdges):
+                raise ValueError("Synthetic filter wvlBinEdges do not match pixel spectrum wvlBinEdges!")
+            spectrum *= self.filterTrans
+        # if getEffInt is True:
+        return {'spectrum': spectrum, 'wvlBinEdges': wvlBinEdges, 'rawCounts': rawCounts}
+
+    def _applyColWeight(self, resID, weightArr, colName):
+        """
+        Applies a weight calibration to the column specified by colName.
+        Call using applySpecWeight or applyTPFWeight.
+
+        Parameters
+        ----------
+        resID: int
+            resID of desired pixel
+        weightArr: array of floats
+            Array of cal weights. Multiplied into the "SpecWeight" column.
+        colName: string
+            Name of weight column. Should be either 'SpecWeight' or 'NoiseWeight'
+        """
+        if self.mode != 'write':
+            raise Exception("Must open file in write mode to do this!")
+
+        indices = self.photonTable.get_where_list('ResID==resID')
+
+        if not (np.diff(indices) == 1).all():
+            raise NotImplementedError('Table is not sorted by Res ID!')
+        if len(indices) != len(weightArr):
+            raise ValueError('weightArr length does not match length of photon list for resID!')
+
+        newWeights = self.query(resid=resID)['SpecWeight'] * np.asarray(weightArr)
+        self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=newWeights, colname=colName)
+        self.photonTable.flush()
+
+    def enablewrite(self):
+        """USE CARE IN A THREADED ENVIRONMENT"""
+        if self.mode == 'write':
+            return
+        self.file.close()
+        self.mode = 'write'
+        self._load_file(self.fullFileName)
+
+    def disablewrite(self):
+        """USE CARE IN A THREADED ENVIRONMENT"""
+        if self.mode == 'read':
+            return
+        self.file.close()
+        self.mode = 'read'
+        self._load_file(self.fullFileName)
 
     def getFromHeader(self, name):
         """
@@ -398,7 +479,7 @@ class Photontable(object):
         return ret
 
     @property
-    def pixelBadMask(self):
+    def bad_pixel_mask(self):
         """A boolean image with true where pixel data has probllems """
         return self.flagMask(pixelflags.PROBLEM_FLAGS)
 
@@ -737,11 +818,11 @@ class Photontable(object):
             Photon list end time, in seconds relative to firstSec.
             If -1, goes to end of file
         wvlStart: float
-            Desired start wavelength range (inclusive). Must satisfy wvlStart <= wvlStop.
-            If None, includes all wavelengths less than wvlStop. If file is not wavelength calibrated, this parameter
+            Desired start wavelength range (inclusive). Must satisfy wvlStart <= stop.
+            If None, includes all wavelengths less than stop. If file is not wavelength calibrated, this parameter
             specifies the range of desired phase heights.
-        wvlStop: float
-            Desired stop wavelength range (non-inclusive). Must satisfy wvlStart <= wvlStop.
+        stop: float
+            Desired stop wavelength range (non-inclusive). Must satisfy wvlStart <= stop.
             If None, includes all wavelengths greater than wvlStart. If file is not wavelength calibrated, this parameter
             specifies the range of desired phase heights.
         forceRawPhase: bool
@@ -1018,62 +1099,6 @@ class Photontable(object):
         photonList = np.sort(photonList, order='Time')
         return photonList, exactApertureMask
 
-    def _makePixelSpectrum(self, photonList, **kwargs):
-        """
-        Makes a histogram using the provided photon list
-        """
-        applyWeight = kwargs.pop('applyWeight', False)
-        applyTPFWeight = kwargs.pop('applyTPFWeight', False)
-        wvlStart = kwargs.pop('wvlStart', None)
-        wvlStop = kwargs.pop('wvlStop', None)
-        wvlBinWidth = kwargs.pop('wvlBinWidht', None)
-        energyBinWidth = kwargs.pop('energyBinWidth', None)
-        wvlBinEdges = kwargs.pop('wvlBinEdges', None)
-
-        wvlStart = wvlStart if (wvlStart != None and wvlStart > 0.) else (
-            self.wvlLowerLimit if (self.wvlLowerLimit != None and self.wvlLowerLimit > 0.) else 700)
-        wvlStop = wvlStop if (wvlStop != None and wvlStop > 0.) else (
-            self.wvlUpperLimit if (self.wvlUpperLimit != None and self.wvlUpperLimit > 0.) else 1500)
-
-        wvlList = photonList['Wavelength']
-        rawCounts = len(wvlList)
-
-        weights = np.ones(len(wvlList))
-
-        if applyWeight:
-            weights *= photonList['SpecWeight']
-
-        if applyTPFWeight:
-            weights *= photonList['NoiseWeight']
-
-        if (wvlBinWidth is None) and (energyBinWidth is None) and (
-                wvlBinEdges is None):  # use default/flat cal supplied bins
-            spectrum, wvlBinEdges = np.histogram(wvlList, bins=self.defaultWvlBins, weights=weights)
-
-        else:  # use specified bins
-            if applyWeight and self.info['isFlatCalibrated']:
-                raise ValueError('Using flat cal, so flat cal bins must be used')
-            elif wvlBinEdges is not None:
-                assert wvlBinWidth is None and energyBinWidth is None, 'Histogram bins are overspecified!'
-                spectrum, wvlBinEdges = np.histogram(wvlList, bins=wvlBinEdges, weights=weights)
-            elif energyBinWidth is not None:
-                assert wvlBinWidth is None, 'Cannot specify both wavelength and energy bin widths!'
-                wvlBinEdges = Photontable.makeWvlBins(energyBinWidth=energyBinWidth, wvlStart=wvlStart, wvlStop=wvlStop)
-                spectrum, wvlBinEdges = np.histogram(wvlList, bins=wvlBinEdges, weights=weights)
-            elif wvlBinWidth is not None:
-                nWvlBins = int((wvlStop - wvlStart) / wvlBinWidth)
-                spectrum, wvlBinEdges = np.histogram(wvlList, bins=nWvlBins, range=(wvlStart, wvlStop), weights=weights)
-
-            else:
-                raise Exception('Something is wrong with getPixelSpectrum...')
-
-        if self.filterIsApplied == True:
-            if not np.array_equal(self.filterWvlBinEdges, wvlBinEdges):
-                raise ValueError("Synthetic filter wvlBinEdges do not match pixel spectrum wvlBinEdges!")
-            spectrum *= self.filterTrans
-        # if getEffInt is True:
-        return {'spectrum': spectrum, 'wvlBinEdges': wvlBinEdges, 'rawCounts': rawCounts}
-
     def getTemporalCube(self, firstSec=None, integrationTime=None, applyWeight=False, applyTPFWeight=False,
                         startw=None, stopw=None, timeslice=None, timeslices=None,
                         exclude_flags=pixelflags.PROBLEM_FLAGS, hdu=False):
@@ -1135,7 +1160,7 @@ class Photontable(object):
             #TODO finish returning hdu
             return ret
         else:
-            return {'cube': cube, 'timeslices': timeslices, 'bad': self.pixelBadMask}
+            return {'cube': cube, 'timeslices': timeslices, 'bad': self.bad_pixel_mask}
 
     def getSpectralCube(self, firstSec=0, integrationTime=None, applyWeight=False, applyTPFWeight=False,
                         wvlStart=700, wvlStop=1500, wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None,
@@ -1150,7 +1175,7 @@ class Photontable(object):
             assert wvlBinWidth is None and energyBinWidth is None, 'Histogram bins are overspecified!'
         elif energyBinWidth is not None:
             assert wvlBinWidth is None, 'Cannot specify both wavelength and energy bin widths!'
-            wvlBinEdges = self.makeWvlBins(energyBinWidth=energyBinWidth, wvlStart=wvlStart, wvlStop=wvlStop)
+            wvlBinEdges = self.wavelength_bins(energy_width=energyBinWidth, start=wvlStart, stop=wvlStop)
         elif wvlBinWidth is not None:
             wvlBinEdges = np.linspace(wvlStart, wvlStop, num=int((wvlStop - wvlStart) / wvlBinWidth) + 1)
         else:
@@ -1258,7 +1283,7 @@ class Photontable(object):
         and an array giving the cutoff wavelengths used to bin the wavelength values
 
         Wavelength Bin Specification:
-        Depends on parameters: wvlStart, wvlStop, wvlBinWidth, energyBinWidth, wvlBinEdges.
+        Depends on parameters: wvlStart, stop, wvlBinWidth, energyBinWidth, wvlBinEdges.
         Can only specify one of: wvlBinWidth, energyBinWidth, or wvlBinEdges. If none of these are specified,
         default wavelength bins are used. If flat calibration exists and is applied, flat cal wavelength bins
         must be used.
@@ -1473,29 +1498,24 @@ class Photontable(object):
         self.modifyHeaderEntry('obs_metadata', metadata)
 
     @staticmethod
-    def makeWvlBins(energyBinWidth=.1, wvlStart=700, wvlStop=1500):
+    def wavelength_bins(energy_width=.1, start=700, stop=1500):
         """
         returns an array of wavlength bin edges, with a fixed energy bin width
         withing the limits given in wvlStart and wvlStop
         Args:
-            energyBinWidth: bin width in eV
-            wvlStart: Lower wavelength edge in Angstrom
-            wvlStop: Upper wavelength edge in Angstrom
+            energy_width: bin width in eV
+            start: Lower wavelength edge in Angstrom
+            stop: Upper wavelength edge in Angstrom
         Returns:
             an array of wavelength bin edges that can be used with numpy.histogram(bins=wvlBinEdges)
         """
-
-        # Calculate upper and lower energy limits from wavelengths
-        # Note that start and stop switch when going to energy
-        energyStop = Photontable.h * Photontable.c * 1.e9 / wvlStart
-        energyStart = Photontable.h * Photontable.c * 1.e9 / wvlStop
-        nWvlBins = int((energyStop - energyStart) / energyBinWidth)
-        # Construct energy bin edges
-        energyBins = np.linspace(energyStart, energyStop, nWvlBins + 1)
-        # Convert back to wavelength and reverse the order to get increasing wavelengths
-        wvlBinEdges = np.array(Photontable.h * Photontable.c * 1.e9 / energyBins)
-        wvlBinEdges = wvlBinEdges[::-1]
-        return wvlBinEdges
+        const = Photontable.h*Photontable.c*1e9
+        # Calculate upper and lower energy limits from wavelengths, note that start and stop switch when going to energy
+        e_stop = const / start
+        e_start = const / stop
+        n = int((e_stop - e_start) / energy_width)
+        # Construct energy bin edges (reversed) and convert back to wavelength
+        return const/np.linspace(e_stop, e_start, n + 1)
 
     def maskTimestamps(self, timestamps, inter=interval(), otherListsToFilter=[]):
         """
@@ -1525,37 +1545,6 @@ class Photontable(object):
                     otherLists.append(filteredList)
         # return the values filled in above
         return {'timestamps': filteredTimestamps, 'otherLists': otherLists}
-
-    def setWvlCutoffs(self, wvlLowerLimit=700, wvlUpperLimit=1500):
-        """
-        Sets wavelength cutoffs so that if convertToWvl(excludeBad=True) or getPixelWvlList(excludeBad=True) is called
-        wavelengths outside these limits are excluded.  To remove limits
-        set wvlLowerLimit and/or wvlUpperLimit to None.  To use the wavecal limits
-        for each individual pixel, set wvlLowerLimit and/or wvlUpperLimit to -1
-        NB - changed defaults for lower/upper limits to None (from 3000 and 8000). JvE 2/22/13
-        """
-        self.wvlLowerLimit = wvlLowerLimit
-        self.wvlUpperLimit = wvlUpperLimit
-
-    def switchOffHotPixTimeMask(self):
-        """
-        Switch off hot pixel time masking - bad pixel times will no longer be
-        removed (although the mask remains 'loaded' in Photontable instance).
-        """
-        # self.hotPixIsApplied = False
-        raise NotImplementedError
-
-    def switchOnHotPixTimeMask(self, reasons=[]):
-        """
-        Switch on hot pixel time masking. Subsequent calls to getPixelCountImage
-        etc. will have bad pixel times removed.
-        """
-        raise NotImplementedError
-        if self.hotPixTimeMask is None:
-            raise RuntimeError('No hot pixel file loaded')
-        self.hotPixIsApplied = True
-        if len(reasons) > 0:
-            self.hotPixTimeMask.set_mask(reasons)
 
     def updateWavelengths(self, wvlCalArr, xCoord=None, yCoord=None, resID=None, flush=True):
         """
@@ -1606,34 +1595,6 @@ class Photontable(object):
 
         getLogger(__name__).debug('Wavelengths updated in {:.2f}s'.format(time.time()-tic))
 
-    def _applyColWeight(self, resID, weightArr, colName):
-        """
-        Applies a weight calibration to the column specified by colName.
-        Call using applySpecWeight or applyTPFWeight.
-
-        Parameters
-        ----------
-        resID: int
-            resID of desired pixel
-        weightArr: array of floats
-            Array of cal weights. Multiplied into the "SpecWeight" column.
-        colName: string
-            Name of weight column. Should be either 'SpecWeight' or 'NoiseWeight'
-        """
-        if self.mode != 'write':
-            raise Exception("Must open file in write mode to do this!")
-
-        indices = self.photonTable.get_where_list('ResID==resID')
-
-        if not (np.diff(indices) == 1).all():
-            raise NotImplementedError('Table is not sorted by Res ID!')
-        if len(indices) != len(weightArr):
-            raise ValueError('weightArr length does not match length of photon list for resID!')
-
-        newWeights = self.query(resid=resID)['SpecWeight'] * np.asarray(weightArr)
-        self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=newWeights, colname=colName)
-        self.photonTable.flush()
-
     def applySpecWeight(self, resID, weightArr):
         """
         Applies a weight calibration to the "SpecWeight" column of a single pixel.
@@ -1670,7 +1631,7 @@ class Photontable(object):
         """
         self._applyColWeight(resID, weightArr, 'NoiseWeight')
 
-    def applyFlatCal(self, calsolFile, use_wavecal=True, save_plots=False, startw=800, stopw=1375):
+    def apply_flatcal(self, calsolFile, use_wavecal=True, save_plots=False, startw=800, stopw=1375):
         """
         Applies a flat calibration to the "SpecWeight" column of a single pixel.
 
@@ -1826,21 +1787,24 @@ class Photontable(object):
         getLogger(__name__).info('Linearitycal applied to {} in {:.2f}s'.format(self.fileName, time.time() - tic))
         self.modifyHeaderEntry(headerTitle='isLinearityCorrected', headerValue=True)
 
-    def applySpectralCal(self, response_curve):
+    def apply_spectralcal(self, spectralcal):
         """
 
-        :param response_curve: numpy array with the first element being the wavelength in angstroms and the second
-        element as the flux values of the MEC spectrum divided by the flux values of the standard spectrum
-        :param startw: start wavelength (nm)
-        :param stopw: stop wavelength (nm)
+        :param spectralcal: a spectralcal solution. must have id and response_curve attributes, the latter
+         a 2xN columnss are wavelength in angstroms and the spectral response
         :return:
         """
         if self.info['isFluxCalibrated']:
-            getLogger(__name__).info("H5 {} is already Flux calibrated".format(self.fullFileName))
+            getLogger(__name__).info(f"{self.fullFileName} previously calibrated with {self.info['spectralcal']}, "
+                                     f"skipping")
             return
+
+        response_curve = spectralcal.response_curve
         # dont include nan or inf values
-        ind = np.where((response_curve.curve[1] != np.inf) & (~np.isnan(response_curve.curve[1])))
+        ind = np.isfinite(response_curve.curve[1])
+
         getLogger(__name__).info('Applying {} to {}'.format(response_curve, self.fullFileName))
+
         coeffs = np.polyfit(response_curve.curve[0][ind]/10.0, response_curve.curve[1][ind], 3)
         func = np.poly1d(coeffs)
         tic = time.time()
@@ -1849,9 +1813,12 @@ class Photontable(object):
                 continue
             photon_list = self.getPixelPhotonList(xCoord=row, yCoord=column)
             weight_arr = func(photon_list['Wavelength'])
-            self.applySpecWeight(resID, weight_arr)
+            self._applyColWeight(resID, weight_arr, 'SpecWeight')
+
         self.modifyHeaderEntry(headerTitle='isFluxCalibrated', headerValue=True)
-        getLogger(__name__).info('Spectrophotometric Calibration applied in {:.2f}s'.format(time.time() - tic))
+        self.modifyHeaderEntry(headerTitle='spectralcal', headerValue=spectralcal.id)
+
+        getLogger(__name__).info('spectralcal applied in {:.2f}s'.format(time.time() - tic))
 
     def modifyHeaderEntry(self, headerTitle, headerValue):
         """

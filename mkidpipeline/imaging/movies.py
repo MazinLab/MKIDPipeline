@@ -138,7 +138,7 @@ def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, sta
     if maskbadpix:
         of = photontable.Photontable(h5file)
         for i in range(frames.shape[0]):
-            frames[i][of.pixelBadMask.T] = np.nan
+            frames[i][of.bad_pixel_mask.T] = np.nan
     im = plt.imshow(frames[0], interpolation='none', origin='lower', vmin=0,
                     vmax=cps_cutoff*timestep, cmap=plt.get_cmap(colormap))
     im.cmap.set_bad('black')

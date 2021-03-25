@@ -337,7 +337,7 @@ class WhiteCalibrator(FlatCalibrator):
         self.energies = [(c.h * c.c) / (i * 10 ** (-9) * c.e) for i in self.wavelengths]
         middle = int(len(self.wavelengths) / 2.0)
         self.energyBinWidth = self.energies[middle] / (5.0 * self.r_list[middle])
-        self.wvl_bin_edges = Photontable.makeWvlBins(self.energyBinWidth, self.wvl_start, self.wvl_stop)
+        self.wvl_bin_edges = Photontable.wavelength_bins(self.energyBinWidth, self.wvl_start, self.wvl_stop)
         self.wavelengths = (self.wvl_bin_edges[: -1] + np.diff(self.wvl_bin_edges)).flatten()
 
     def load_flat_spectra(self):
