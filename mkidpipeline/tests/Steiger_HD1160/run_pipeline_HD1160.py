@@ -59,9 +59,9 @@ def generate_outputs(outputs):
             import mkidpipeline.photontable as photontable
             for obs in o.data.obs:
                 h5 = photontable.Photontable(obs.h5)
-                img = h5.getFits(wvlStart=o.startw, wvlStop=o.stopw, applyWeight=o.enable_photom,
-                                applyTPFWeight=o.enable_noise, countRate=True)
-                img.writeto(o.output_file + h5.fileName.split('.')[0] + ".fits")
+                img = h5.get_fits(wvlStart=o.startw, wvlStop=o.stopw, applyWeight=o.enable_photom,
+                                  applyTPFWeight=o.enable_noise, countRate=True)
+                img.writeto(o.output_file)
                 pipe.getLogger(__name__).info('Generated fits file for {}'.format(obs.h5))
         if o.wants_drizzled:
             import mkidpipeline.imaging

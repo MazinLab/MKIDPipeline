@@ -47,7 +47,7 @@ def ssd_worker(args):
     # photontable, beamImage, startLambda, stopLambda, startTime, integrationTime, coord_list = args
     obsfile_object, beamImage, startLambda, stopLambda, startTime, integrationTime, coord_list = args
 
-    # photonList = self.a.getPixelPhotonList(xCoord=self.activePixel[0], yCoord=self.activePixel[1],
+    # photonList = self.a.get_pixel_photonlist(xCoord=self.activePixel[0], yCoord=self.activePixel[1],
     #                                        firstSec=self.spinbox_startTime.value(),
     #                                        integrationTime=self.spinbox_integrationTime.value(),
     #                                        wvlStart=self.spinbox_startLambda.value(),
@@ -57,11 +57,8 @@ def ssd_worker(args):
     for pix in coord_list:
         row, col = pix
 
-        ts = obsfile_object.getPixelPhotonList(xCoord=col, yCoord=row,
-                                               firstSec=startTime,
-                                               integrationTime=integrationTime,
-                                               wvlStart=startLambda,
-                                               wvlStop=stopLambda)['Time'] * 1e-6
+        ts = obsfile_object.get_pixel_photonlist(pixel=(col,row), firstSec=startTime, integrationTime=integrationTime,
+                                                 wvlStart=startLambda, wvlStop=stopLambda)['Time'] * 1e-6
 
         # ts = photontable[np.logical_and(photontable['ResID'] == beamImage[col][row], np.logical_and(
         #     np.logical_and(photontable['Wavelength'] > startLambda, photontable['Wavelength'] < stopLambda),
@@ -227,8 +224,7 @@ class subWindow(QMainWindow):
                                                                         firstSec=self.spinbox_startTime.value(),
                                                                         integrationTime=self.spinbox_integrationTime.value(),
                                                                         wvlStart=self.spinbox_startLambda.value(),
-                                                                        wvlStop=self.spinbox_stopLambda.value(),
-                                                                        flagToUse=0)
+                                                                        wvlStop=self.spinbox_stopLambda.value())
 
         else:
             wvlStart = self.spinbox_startLambda.value()
@@ -238,29 +234,29 @@ class subWindow(QMainWindow):
             # it's WAY faster to not specify start/stop wavelengths. If that cut isn't
             # necessary, don't specify those keywords.
             if wvlStart == self.minLambda and wvlStop == self.maxLambda:
-                photonList = self.a.getPixelPhotonList(xCoord=self.activePixel[0], yCoord=self.activePixel[1],
-                                                       firstSec=self.spinbox_startTime.value(),
-                                                       integrationTime=self.spinbox_integrationTime.value())
+                photonList = self.a.get_pixel_photonlist(pixel=self.activePixel,
+                                                         firstSec=self.spinbox_startTime.value(),
+                                                         integrationTime=self.spinbox_integrationTime.value())
             elif wvlStart == self.minLambda:
-                photonList = self.a.getPixelPhotonList(xCoord=self.activePixel[0], yCoord=self.activePixel[1],
-                                                       firstSec=self.spinbox_startTime.value(),
-                                                       integrationTime=self.spinbox_integrationTime.value(),
-                                                       wvlStart=self.spinbox_startLambda.value())
+                photonList = self.a.get_pixel_photonlist(pixel=self.activePixel,
+                                                         firstSec=self.spinbox_startTime.value(),
+                                                         integrationTime=self.spinbox_integrationTime.value(),
+                                                         wvlStart=self.spinbox_startLambda.value())
             elif wvlStop == self.maxLambda:
-                photonList = self.a.getPixelPhotonList(xCoord=self.activePixel[0], yCoord=self.activePixel[1],
-                                                       firstSec=self.spinbox_startTime.value(),
-                                                       integrationTime=self.spinbox_integrationTime.value(),
-                                                       wvlStop=self.spinbox_stopLambda.value())
+                photonList = self.a.get_pixel_photonlist(pixel=self.activePixel,
+                                                         firstSec=self.spinbox_startTime.value(),
+                                                         integrationTime=self.spinbox_integrationTime.value(),
+                                                         wvlStop=self.spinbox_stopLambda.value())
             else:
-                photonList = self.a.getPixelPhotonList(xCoord=self.activePixel[0], yCoord=self.activePixel[1],
-                                                       firstSec=self.spinbox_startTime.value(),
-                                                       integrationTime=self.spinbox_integrationTime.value(),
-                                                       wvlStart=self.spinbox_startLambda.value(),
-                                                       wvlStop=self.spinbox_stopLambda.value())
+                photonList = self.a.get_pixel_photonlist(pixel=self.activePixel,
+                                                         firstSec=self.spinbox_startTime.value(),
+                                                         integrationTime=self.spinbox_integrationTime.value(),
+                                                         wvlStart=self.spinbox_startLambda.value(),
+                                                         wvlStop=self.spinbox_stopLambda.value())
             # t2 = time.time()
 
             # print('\ncmd = ' + cmd)
-            # print('\nTime to getPixelPhotonList(): ', t2 - t1)
+            # print('\nTime to get_pixel_photonlist(): ', t2 - t1)
 
         return photonList
 
@@ -388,9 +384,9 @@ class spectrum(subWindow):
 
     def plotData(self):
         self.ax.clear()
-        temp = self.a.getPixelSpectrum(self.activePixel[0], self.activePixel[1],
-                                       firstSec=self.spinbox_startTime.value(),
-                                       integrationTime=self.spinbox_integrationTime.value())
+        temp = self.a.get_pixel_spectrum(self.activePixel[0], self.activePixel[1],
+                                         firstSec=self.spinbox_startTime.value(),
+                                         integrationTime=self.spinbox_integrationTime.value())
 
         self.spectrum = temp['spectrum']
         self.wvlBinEdges = temp['wvlBinEdges']
@@ -418,7 +414,7 @@ class pulseHeightHistogram(subWindow):
     def plotData(self):
         self.ax.clear()
 
-        pulseHeights = self.a.getPixelPhotonList(xCoord=self.activePixel[0], yCoord=self.activePixel[1])['Wavelength']
+        pulseHeights = self.a.get_pixel_photonlist(pixel=self.activePixel)['Wavelength']
 
         hist, binEdges = np.histogram(pulseHeights, bins=50)
 
@@ -520,7 +516,7 @@ class main_window(QMainWindow):
                 self.radio_button_beamFlagImage.setChecked(True)
                 self.call_plot_method()
                 # set the max integration time to the h5 exp time in the header
-                self.expTime = self.a.query_header('expTime')
+                self.expTime = self.a.duration
                 self.wvlBinStart = self.a.query_header('wvlBinStart')
                 self.wvlBinEnd = self.a.query_header('wvlBinEnd')
 

@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import matplotlib.animation as manimation
+from astropy.wcs import WCS
 from mkidpipeline.config import *
 from mkidcore.corelog import getLogger
 import mkidpipeline.photontable as photontable
@@ -93,33 +94,34 @@ def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, sta
 
     try:
         cube, wcs, nfo = _cache
-        if (h5file, timestep, startt,stopt, usewcs,startw,stopw)!=nfo:
+        if (h5file, timestep, startt, stopt, usewcs, startw, stopw) != nfo:
             raise ValueError
     except Exception:
         getLogger(__name__).info('Fetching temporal cube from {}'.format(h5file))
         of = photontable.Photontable(h5file)
-        cube = of.getTemporalCube(firstSec=startt, integrationTime=stopt, timeslice=timestep, startw=startw,
-                                  stopw=stopw, applyWeight=True, applyTPFWeight=True)
-        wcs = of.get_wcs(wcs_timestep=startt) if usewcs else None
+        hdul = of.get_fits(firstSec=startt, integrationTime=stopt, bin_width=timestep, wvlStart=startw,
+                           wvlStop=stopw, applyWeight=True, applyTPFWeight=True, cube_type='time', countRate=False)
+        wcs = WCS(hdul[0].header) if usewcs else None
+        cube = hdul['SCIENCE'].data
         del of
         _cache = cube, wcs, (h5file, timestep, startt, stopt, usewcs, startw, stopw)
         getLogger(__name__).info('Retrieved a temporal cube of shape {}'.format(str(cube['cube'].shape)))
-    if inpainting:
-        getLogger(__name__).info('Inpainting requested - note this will significantly slow down movie creation')
-        full_frames, times = cube['cube'].T, cube['timeslices']
-        input_frames = full_frames[:, 10:140, 80:122]
-        masked_array = np.ma.masked_where(input_frames < cps_cutoff*timestep, input_frames)
-        count_masks = np.ma.getmaskarray(masked_array)
-        masks = count_masks
-        frames = np.zeros(full_frames.shape)
-        for i, mask in enumerate(masks):
-            frames[i, 10:140, 80:122] = inpaint.inpaint_biharmonic(input_frames[i], mask, multichannel=False)
-        getLogger(__name__).info('Completed inpainting process!')
-    else:
-        frames, times = cube['cube'].T, cube['timeslices']
-    if len(frames) == 0:
+
+    frames, times = cube.T, hdul['BIN_EDGES'] / 1e6
+
+    if not len(frames):
         getLogger(__name__).info('No frames in the specified timerange - check your stop and start times')
         raise ValueError
+
+    if inpainting:
+        getLogger(__name__).info('Inpainting requested - note this will significantly slow down movie creation')
+        masked_array = np.ma.masked_where(frames[:, 10:140, 80:122] < cps_cutoff*timestep, frames[:, 10:140, 80:122])
+        inpainted = np.zeros(frames.shape)
+        for i, mask in enumerate(np.ma.getmaskarray(masked_array)):
+            inpainted[i, 10:140, 80:122] = inpaint.inpaint_biharmonic(frames[i, 10:140, 80:122], mask,
+                                                                      multichannel=False)
+        getLogger(__name__).info('Completed inpainting process!')
+        frames = inpainted
 
     if not fps:
         fps = frames.shape[2]/duration

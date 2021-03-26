@@ -438,8 +438,8 @@ def hpm_poisson_dist(obsfile):
     """
     raise NotImplementedError
 
-    stop_time = float(obsfile.query_header('expTime'))
-    times = obsfile.getPixelPhotonList(xpix, ypix)
+    stop_time = float(obsfile.duration)
+    times = obsfile.get_pixel_photonlist((xpix,ypix))
     times = times['Time']
     lc = getLightCurve(times, startTime=0, stopTime=stop_time * 10e6, effExpTime=1000000)
     lc0 = lc[0]
@@ -547,11 +547,11 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=30, startt=0, stopt=
     """
     obs = Photontable(file)
     if obs.query_header('isBadPixMasked'):
-        getLogger(__name__).info('{} is already bad pixel calibrated'.format(obs.fileName))
+        getLogger(__name__).info('{} is already bad pixel calibrated'.format(obs.filename))
         return
 
     if stopt is None:
-        stopt = obs.query_header('expTime')
+        stopt = obs.duration
     assert startt < stopt
     if step > stopt-startt:
         getLogger(__name__).warning(('Hot pixel step time longer than exposure time by {:.0f} s, using full '
@@ -570,10 +570,9 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=30, startt=0, stopt=
     # Generate a stack of bad pixel mask, one for each time step
     for i, each_time in enumerate(step_starts):
         getLogger(__name__).info('Processing time slice: {} - {} s'.format(each_time, each_time + step))
-        raw_image_dict = obs.getPixelCountImage(firstSec=each_time, integrationTime=step,
-                                                applyWeight=True, applyTPFWeight=True,
-                                                scaleByEffInt=method == 'hpm_cps_cut')
-        bad_pixel_solution = func(raw_image_dict['image'], **methodkw)
+        img = obs.get_fits(firstSec=each_time, integrationTime=step, applyWeight=True, applyTPFWeight=True,
+                           countRate=False)
+        bad_pixel_solution = func(img['SCIENCE'].data, **methodkw)
         hot_masks[:, :, i] = bad_pixel_solution['hot_mask']
         cold_masks[:, :, i] = bad_pixel_solution['cold_mask']
     unstable_mask = np.zeros((obs.nXPix, obs.nYPix), dtype=bool)

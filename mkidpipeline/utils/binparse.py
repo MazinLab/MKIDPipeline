@@ -240,7 +240,7 @@ class ParsedBin(object):
         tstamps -= np.amin(tstamps) # remove offset so that smallest timestamp is at zero
         phase = self.phase[np.logical_and(self.x == xCoord, self.y == yCoord)]
 
-        # the datatype of the structured numpy array returned by getPixelPhotonList in Photontable is:
+        # the datatype of the structured numpy array returned by get_pixel_photonlist in Photontable is:
         # dtype = [('ResID', '<u4'), ('Time', '<u4'), ('Wavelength', '<f4'), ('SpecWeight', '<f4'),('NoiseWeight', '<f4')])
 
         # bin files only have timestamps and wavelengths, the xy coords are already specified for this method

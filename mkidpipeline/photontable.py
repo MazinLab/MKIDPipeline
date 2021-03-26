@@ -11,14 +11,14 @@ and apply wavelength and flat calibration.
 
 Class Obsfile:
 ====Helper functions====
-__init__(self,fileName,mode='read',verbose=False)
+__init__(self,filename,mode='read',verbose=False)
 __del__(self)
-_load_file(self, fileName)
+_load_file(self, filename)
 query_header(self, name)
 pixelIsBad(self, xCoord, yCoord, forceWvl=False, forceWeights=False, forceTPFWeights=False)
 
 ====Single pixel access functions====
-getPixelPhotonList(self, xCoord, yCoord, firstSec=0, integrationTime= -1, wvlStart=None,wvlStop=None, forceRawPhase=False)
+get_pixel_photonlist(self, xCoord, yCoord, firstSec=0, integrationTime= -1, wvlStart=None,wvlStop=None, forceRawPhase=False)
 getListOfPixelsPhotonList(self, posList, **kwargs)
 getPixelCount(self, *args, applyWeight=True, applyTPFWeight=True, applyTimeMask=False, **kwargs)
 getPixelLightCurve(self,*args,lastSec=-1, cadence=1, scaleByEffInt=True, **kwargs)
@@ -30,7 +30,7 @@ getPixelCountImage(self, firstSec=0, integrationTime= -1, wvlStart=None,wvlStop=
 getCircularAperturePhotonList(self, centerXCoord, centerYCoord, radius, firstSec=0, integrationTime=-1, wvlStart=None,wvlStop=None, flagToUse=0)
 _makePixelSpectrum(self, photonList, **kwargs)
 getSpectralCube(self, firstSec=0, integrationTime=-1, applyWeight=False, applyTPFWeight=False, wvlStart=700, wvlStop=1500,wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None, timeSpacingCut=None, flagToUse=0)
-getPixelSpectrum(self, xCoord, yCoord, firstSec=0, integrationTime= -1,applyWeight=False, applyTPFWeight=False, wvlStart=None, wvlStop=None,wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None,timeSpacingCut=None)
+get_pixel_spectrum(self, xCoord, yCoord, firstSec=0, integrationTime= -1,applyWeight=False, applyTPFWeight=False, wvlStart=None, wvlStop=None,wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None,timeSpacingCut=None)
 wavelength_bins(energy_width=.1, start=700, stop=1500)
 
 ====Data write functions for calibrating====
@@ -245,20 +245,15 @@ class Photontable(object):
         """
         self.mode = 'write' if mode.lower() in ('write', 'w', 'a', 'append') else 'read'
         self.verbose = verbose
-        self.tickDuration = Photontable.tickDuration
-        self.noResIDFlag = 2 ** 32 - 1  # All pixels should have a unique resID. But if for some reason it doesn't, it'll have this resID
         self.wvlLowerLimit = None
         self.wvlUpperLimit = None
         self.filterIsApplied = False
-        # self.timeMaskExists = False
-        # self.makeMaskVersion = None
         self.ticksPerSec = int(1.0 / self.tickDuration)
         self.intervalAll = interval[0.0, (1.0 / self.tickDuration) - 1]
         self.photonTable = None
-        self.fullFileName = fileName
-        self.fileName = os.path.basename(fileName)
+        self.filename = fileName
         self.header = None
-        self.defaultWvlBins = None
+        self.nominal_wavelength_bins = None
         self.beamImage = None
         self._flagArray = None  # set in _load_file
         self.nXPix = None
@@ -276,15 +271,14 @@ class Photontable(object):
             pass
 
     def __str__(self):
-        return 'Photontable: '+self.fullFileName
+        return 'Photontable: '+self.filename
 
-    def _load_file(self, fileName):
+    def _load_file(self, file):
         """ Opens file and loads obs file attributes and beammap """
-        self.fileName = os.path.basename(fileName)
-        self.fullFileName = fileName
-        getLogger(__name__).debug("Loading {} in {} mode.".format(self.fullFileName, self.mode))
+        self.filename = file
+        getLogger(__name__).debug("Loading {} in {} mode.".format(self.filename, self.mode))
         try:
-            self.file = tables.open_file(self.fullFileName, mode='a' if self.mode == 'write' else 'r')
+            self.file = tables.open_file(self.filename, mode='a' if self.mode == 'write' else 'r')
         except (IOError, OSError):
             raise
 
@@ -292,69 +286,14 @@ class Photontable(object):
         self.header = self.file.root.header.header
 
         # get important cal params
-        self.defaultWvlBins = Photontable.wavelength_bins(self.query_header('energyBinWidth'), self.query_header('wvlBinStart'),
-                                                          self.query_header('wvlBinEnd'))
+        self.nominal_wavelength_bins = self.wavelength_bins(width=self.query_header('energyBinWidth'),
+                                                            start=self.query_header('wvlBinStart'),
+                                                            stop=self.query_header('wvlBinEnd'))
         # get the beam image.
         self.beamImage = self.file.get_node('/BeamMap/Map').read()
-        self._flagArray = self.file.get_node('/BeamMap/Flag')  #The absence of .read() here is correct
+        self._flagArray = self.file.get_node('/BeamMap/Flag')  # The absence of .read() here is correct
         self.nXPix, self.nYPix = self.beamImage.shape
         self.photonTable = self.file.get_node('/Photons/PhotonTable')
-
-    def _makePixelSpectrum(self, photonList, **kwargs):
-        """
-        Makes a histogram using the provided photon list
-        """
-        applyWeight = kwargs.pop('applyWeight', False)
-        applyTPFWeight = kwargs.pop('applyTPFWeight', False)
-        wvlStart = kwargs.pop('wvlStart', None)
-        wvlStop = kwargs.pop('stop', None)
-        wvlBinWidth = kwargs.pop('wvlBinWidht', None)
-        energyBinWidth = kwargs.pop('energyBinWidth', None)
-        wvlBinEdges = kwargs.pop('wvlBinEdges', None)
-
-        wvlStart = wvlStart if (wvlStart != None and wvlStart > 0.) else (
-            self.wvlLowerLimit if (self.wvlLowerLimit != None and self.wvlLowerLimit > 0.) else 700)
-        wvlStop = wvlStop if (wvlStop != None and wvlStop > 0.) else (
-            self.wvlUpperLimit if (self.wvlUpperLimit != None and self.wvlUpperLimit > 0.) else 1500)
-
-        wvlList = photonList['Wavelength']
-        rawCounts = len(wvlList)
-
-        weights = np.ones(len(wvlList))
-
-        if applyWeight:
-            weights *= photonList['SpecWeight']
-
-        if applyTPFWeight:
-            weights *= photonList['NoiseWeight']
-
-        if (wvlBinWidth is None) and (energyBinWidth is None) and (
-                wvlBinEdges is None):  # use default/flat cal supplied bins
-            spectrum, wvlBinEdges = np.histogram(wvlList, bins=self.defaultWvlBins, weights=weights)
-
-        else:  # use specified bins
-            if applyWeight and self.query_header('isFlatCalibrated'):
-                raise ValueError('Using flat cal, so flat cal bins must be used')
-            elif wvlBinEdges is not None:
-                assert wvlBinWidth is None and energyBinWidth is None, 'Histogram bins are overspecified!'
-                spectrum, wvlBinEdges = np.histogram(wvlList, bins=wvlBinEdges, weights=weights)
-            elif energyBinWidth is not None:
-                assert wvlBinWidth is None, 'Cannot specify both wavelength and energy bin widths!'
-                wvlBinEdges = Photontable.wavelength_bins(energy_width=energyBinWidth, start=wvlStart, stop=wvlStop)
-                spectrum, wvlBinEdges = np.histogram(wvlList, bins=wvlBinEdges, weights=weights)
-            elif wvlBinWidth is not None:
-                nWvlBins = int((wvlStop - wvlStart) / wvlBinWidth)
-                spectrum, wvlBinEdges = np.histogram(wvlList, bins=nWvlBins, range=(wvlStart, wvlStop), weights=weights)
-
-            else:
-                raise Exception('Something is wrong with getPixelSpectrum...')
-
-        if self.filterIsApplied == True:
-            if not np.array_equal(self.filterWvlBinEdges, wvlBinEdges):
-                raise ValueError("Synthetic filter wvlBinEdges do not match pixel spectrum wvlBinEdges!")
-            spectrum *= self.filterTrans
-        # if getEffInt is True:
-        return {'spectrum': spectrum, 'wvlBinEdges': wvlBinEdges, 'rawCounts': rawCounts}
 
     def _apply_column_weight(self, resID, weightArr, colName):
         """
@@ -392,7 +331,7 @@ class Photontable(object):
             return
         self.file.close()
         self.mode = 'write'
-        self._load_file(self.fullFileName)
+        self._load_file(self.filename)
 
     def disablewrite(self):
         """USE CARE IN A THREADED ENVIRONMENT"""
@@ -400,10 +339,10 @@ class Photontable(object):
             return
         self.file.close()
         self.mode = 'read'
-        self._load_file(self.fullFileName)
+        self._load_file(self.filename)
 
     def detailed_str(self):
-        t=self.photonTable.read()
+        t = self.photonTable.read()
         tinfo = repr(self.photonTable).replace('\n', '\n\t\t')
         if np.all(t['Time'][:-1] <= t['Time'][1:]):
             sort = 'Time '
@@ -420,14 +359,13 @@ class Photontable(object):
                '\twave: {wave}\n'
                '\tflat: {flat}\n')
 
-        dirty = ', '.join([n for n in self.photonTable.colnames
-                           if self.photonTable.cols._g_col(n).index is not None and
-                           self.photonTable.cols._g_col(n).index.dirty])
+        dirty = ', '.join([n for n in self.photonTable.colnames if self.photonTable.cols._g_col(n).index is not None
+                           and self.photonTable.cols._g_col(n).index.dirty])
 
-        s = msg.format(file=self.fullFileName, nphot=len(self.photonTable), sort=sort, tbl=tinfo,
-                       start=t['Time'].min(), stop=t['Time'].max(), dur=self.query_header('expTime'),
+        s = msg.format(file=self.filename, nphot=len(self.photonTable), sort=sort, tbl=tinfo,
+                       start=t['Time'].min(), stop=t['Time'].max(), dur=self.duration,
                        dirty='Column(s) {} have dirty indices.'.format(dirty) if dirty else 'No columns dirty',
-                       wave=self.query_header('wvlCalFile'), #self.query_header('isWvlCalibrated') else 'None'
+                       wave=self.query_header('wvlCalFile'),
                        flat=self.query_header('fltCalFile') if 'fltCalFile' in self.info.dtype.names else 'None')
         return s
 
@@ -443,12 +381,12 @@ class Photontable(object):
         return self.query_header('expTime')
 
     @property
-    def startTime(self):
+    def start_time(self):
         return self.query_header('startTime')
 
     @property
-    def stopTime(self):
-        return self.query_header('startTime') + self.query_header('expTime')
+    def stop_time(self):
+        return self.start_time + self.duration
 
     @property
     def flag_names(self):
@@ -471,26 +409,25 @@ class Photontable(object):
     @property
     def bad_pixel_mask(self):
         """A boolean image with true where pixel data has probllems """
-        return self.flagMask(pixelflags.PROBLEM_FLAGS)
+        return self.flagged(pixelflags.PROBLEM_FLAGS)
 
-    def flagMask(self, flag_set, pixel=(slice(None), slice(None)), allow_unknown_flags=True, all_flags=False):
+    def flagged(self, flag_set, pixel=(slice(None), slice(None)), allow_unknown_flags=True, all_flags=False):
         """
         Test to see if a flag is set on a given pixel or set of pixels
 
         :param pixel: (x,y) of pixel, 2d slice, list of (x,y), if not specified all pixels are used
-        :param flag_set:
+        :param flag_set: if an empty set/None it the pixel(s) are considered unflagged
         :param allow_unknown_flags:
         :param all_flags: Require all specified flags to be set for the mask to be True
         :return:
         """
 
         x, y = zip(*pixel) if isinstance(pixel[0], tuple) else pixel
+        if not flag_set:
+            return False if isinstance(x, int) else np.zeros_like(self._flagArray[x, y], dtype=bool)
 
         if len(set(pixelflags.FLAG_LIST).difference(flag_set)) and not allow_unknown_flags:
             return False if isinstance(x, int) else np.zeros_like(self._flagArray[x,y], dtype=bool)
-
-        if not flag_set:
-            return True if isinstance(x, int) else np.ones_like(self._flagArray[x, y], dtype=bool)
 
         bitmask = self.flag_bitmask(flag_set)
         bits = self._flagArray[x,y] & bitmask
@@ -551,7 +488,7 @@ class Photontable(object):
 
     def query(self, startw=None, stopw=None, startt=None, stopt=None, resid=None, intt=None):
         """
-        intt takes precedence, All none is a null result
+        intt takes precedence, all none is the full file
 
         :param stopt:
         :param intt:
@@ -566,6 +503,8 @@ class Photontable(object):
 
         try:
             startt = int(startt * self.ticksPerSec)  # convert to us
+            if startt <= 0:
+                startt = None
         except TypeError:
             pass
 
@@ -575,7 +514,10 @@ class Photontable(object):
             pass
 
         if intt is not None:
-            stopt = (startt if startt is not None else 0) + int(intt * self.ticksPerSec)
+            stopt = (0 if startt is None else startt) + int(intt * self.ticksPerSec)
+
+        if stopt >= self.duration:
+            stopt = None
 
         if resid is None:
             resid = tuple()
@@ -583,7 +525,10 @@ class Photontable(object):
         try:
             iter(resid)
         except TypeError:
-            resid = [resid]
+            resid = (resid,)
+
+        if startw is None and stopw is None and startt is None and stopt is None and not resid:
+            return self.photonTable.read()  #we need it all!
 
         res = '|'.join(['(ResID=={})'.format(r) for r in map(int, resid)])
         res = '(' + res + ')' if '|' in res and res else res
@@ -670,7 +615,7 @@ class Photontable(object):
         if len(allowed) > 0:
             raise NotImplementedError
 
-        filtered = self.flagMask(disallowed, self.xy(photons))
+        filtered = self.flagged(disallowed, self.xy(photons))
         return photons[np.invert(filtered)]
 
     def get_wcs(self, derotate=True, wcs_timestep=None, target_coordinates=None, wave_axis=False, single_pa_time=None):
@@ -733,10 +678,10 @@ class Photontable(object):
         apo = Observer.at_site(md.observatory)
 
         if wcs_timestep is None:
-            wcs_timestep = self.query_header('expTime')
+            wcs_timestep = self.duration
 
         # sample_times upper boundary is limited to the user defined end time
-        sample_times = np.arange(self.query_header('startTime'), self.query_header('startTime')+self.query_header('expTime'), wcs_timestep)
+        sample_times = np.arange(self.start_time, self.stop_time, wcs_timestep)
         getLogger(__name__).debug("sample_times: %s", sample_times)
 
         device_orientation = np.deg2rad(md.device_orientation)
@@ -788,8 +733,8 @@ class Photontable(object):
 
         return obs_wcs_seq
 
-    def getPixelPhotonList(self, xCoord=None, yCoord=None, resid=None, firstSec=0, integrationTime=-1, wvlStart=None,
-                           wvlStop=None, forceRawPhase=False):
+    def get_pixel_photonlist(self, pixel=(None, None), resid=None, firstSec=None, integrationTime=None, wvlStart=None,
+                             wvlStop=None):
         """
         Retrieves a photon list at xCoord,yCoord using the attached beammap.
 
@@ -837,435 +782,16 @@ class Photontable(object):
                 raise ValueError('Invalid wavelength range')
         except TypeError:
             pass
-        if firstSec is not None and firstSec > self.query_header('expTime'):
+        if firstSec is not None and firstSec > self.duration:
             raise ValueError('Start time not in file.')
 
-        resid = self.beamImage[xCoord, yCoord] if resid is None else resid
+        resid = self.beamImage[pixel] if resid is None else resid
 
-        return self.query(startw=wvlStart, stopw=wvlStop, startt=firstSec if firstSec else None,
-                          resid=resid, intt=None if integrationTime == -1 else integrationTime)
+        return self.query(startw=wvlStart, stopw=wvlStop, startt=firstSec, resid=resid, intt=None)
 
-    def getFits(self, firstSec=0, integrationTime=None, applyWeight=False, applyTPFWeight=False,
-                wvlStart=None, wvlStop=None, cube=False, countRate=True):
-        """
-        Return a time-flattened spectral cube of the counts integrated from firstSec to firstSec+integrationTime.
-        If integration time is -1, all time after firstSec is used.
-        If weighted is True, flat cal weights are applied.
-        If fluxWeighted is True, spectral shape weights are applied.
-        """
-
-
-        if integrationTime is None:
-            integrationTime = self.query_header('expTime')
-
-        # Retrieval rate is about 2.27Mphot/s for queries in the 100-200M photon range
-        masterPhotonList = self.query(startt=firstSec if firstSec else None, intt=integrationTime,
-                                      startw=wvlStart, stopw=wvlStop)
-        weights = None
-        if applyWeight:
-            weights = masterPhotonList['SpecWeight']
-        if applyTPFWeight:
-            if weights is not None:
-                weights *= masterPhotonList['NoiseWeight']
-            else:
-                weights = masterPhotonList['NoiseWeight']
-
-        tic = time.time()
-        if cube:
-
-            wvlBinEdges = self.defaultWvlBins.size
-            nWvlBins = wvlBinEdges.size - 1
-            data = np.zeros((self.nXPix, self.nYPix, nWvlBins))
-
-            ridbins = sorted(self.beamImage.ravel())
-            ridbins = np.append(ridbins, max(ridbins) + 1)
-            hist, xedg, yedg = np.histogram2d(masterPhotonList['ResID'], masterPhotonList['Wavelength'],
-                                              bins=(ridbins, wvlBinEdges), weights=weights)
-
-            toc = time.time()
-            xe = xedg[:-1]
-            for (x, y), resID in np.ndenumerate(self.beamImage):  # 3% % of the time
-                if self.flagMask(pixelflags.PROBLEM_FLAGS, (x, y)):
-                    continue
-                data[x, y, :] = hist[xe == resID]
-        else:
-            data = np.zeros((self.nXPix, self.nYPix))
-            ridbins = sorted(self.beamImage.ravel())
-            ridbins = np.append(ridbins, max(ridbins) + 1)
-            hist, xedg = np.histogram(masterPhotonList['ResID'], bins=ridbins, weights=weights)
-
-            toc = time.time()
-            xe = xedg[:-1]
-            for (x, y), resID in np.ndenumerate(self.beamImage):
-                if self.flagMask(pixelflags.PROBLEM_FLAGS, (x, y)):
-                    continue
-                data[x, y] = hist[xe == resID]
-
-        toc2 = time.time()
-        getLogger(__name__).debug('Histogrammed data in {:.2f} s, reformatting in {:.2f}'.format(toc2 - tic,
-                                                                                                toc2 - toc))
-        hdu = fits.PrimaryHDU()
-        header = hdu.header
-
-        md = self.metadata(timestamp=firstSec)
-        if md is not None:
-            for k, v in md.items():
-                if k.lower() == 'comments':
-                    for c in v:
-                        header['comment'] = c
-                else:
-                    try:
-                        header[k] = v
-                    except ValueError:
-                        header[k] = str(v).replace('\n','_')
-        else:
-            getLogger(__name__).warning('No metadata found to add to fits header')
-
-        wcs = self.get_wcs(wave_axis=cube)[0]
-        header.update(wcs)
-
-        #TODO set the header units for the extensions
-        hdul = fits.HDUList([fits.PrimaryHDU(header=header),
-                             fits.ImageHDU(data=data/integrationTime if countRate else data,
-                                           header=header, name='SCIENCE'),
-                             fits.ImageHDU(data=np.sqrt(data), header=header, name='VARIANCE'),
-                             fits.ImageHDU(data=self._flagArray, header=header, name='FLAGS')])
-        return hdul
-
-    def getPixelCountImage(self, firstSec=0, integrationTime=None, wvlStart=None, wvlStop=None, applyWeight=False,
-                            applyTPFWeight=False, scaleByEffInt=False, exclude_flags=pixelflags.PROBLEM_FLAGS, hdu=False):
-        """
-        Returns an image of pixel counts over the entire array between firstSec and firstSec + integrationTime. Can specify calibration weights to apply as
-        well as wavelength range.
-
-        Parameters
-        ----------
-        firstSec: float
-            Photon list start time, in seconds relative to beginning of file
-        integrationTime: float
-            Photon list end time, in seconds relative to firstSec.
-            If -1, goes to end of file
-        wvlRange: (float, float)
-            Desired wavelength range of photon list. Must satisfy wvlRange[0] < wvlRange[1].
-            If None, includes all wavelengths. If file is not wavelength calibrated, this parameter
-            specifies the range of desired phase heights.
-        applyWeight: bool
-            If True, applies the spectral/flat/linearity weight
-        applyTPFWeight: bool
-            If True, applies the true positive fraction (noise) weight
-        scaleByEffInt: bool
-            If True, scales each pixel by (total integration time)/(effective integration time)
-        flagToUse: int
-            Specifies (bitwise) pixel flags that are suitable to include in image. For
-            flag definitions see 'h5FileFlags' in Headers/pipelineFlags.py
-
-        Returns
-        -------
-        Dictionary with keys:
-            'image': 2D numpy array, image of pixel counts
-            'effIntTimes':2D numpy array, image effective integration times after time-masking is
-           `          accounted for.
-           :param wvlStart:
-           :param wvlStop:
-           :param hdu:
-        """
-        if integrationTime is None:
-            integrationTime = self.query_header('expTime')
-
-        image = np.zeros((self.nXPix, self.nYPix))
-
-        # TODO Actually compute the effective integration time
-        effIntTime = np.full((self.nXPix, self.nYPix), integrationTime)
-
-        masterPhotonList = self.query(startt=firstSec if firstSec else None, startw=wvlStart,
-                                      stopw=wvlStop, intt=integrationTime)
-
-        weights = None
-        if applyWeight:
-            weights = masterPhotonList['SpecWeight']
-
-        if applyTPFWeight:
-            if weights is not None:
-                weights *= masterPhotonList['NoiseWeight']
-            else:
-                weights = masterPhotonList['NoiseWeight']
-
-        # 11.4s on MEC data with 173Mphot
-        tic = time.time()
-        ridbins = sorted(self.beamImage.ravel())
-        ridbins = np.append(ridbins, max(ridbins) + 1)
-        hist, ridbins = np.histogram(masterPhotonList['ResID'], bins=ridbins, weights=weights)
-
-        toc = time.time()
-        resIDs = ridbins[:-1]
-        for (x, y), resID in np.ndenumerate(self.beamImage): # 4 % of the time
-            if self.flagMask(exclude_flags, (x, y)) and any(exclude_flags):
-                continue
-            image[x, y] = hist[resIDs == resID]
-        toc2 = time.time()
-        getLogger(__name__).debug('Histogrammed data in {:.2f} s, reformatting in {:.2f}'.format(toc2 - tic,
-                                                                                                 toc2 - toc))
-        if hdu:
-            ret = fits.ImageHDU(data=image)
-            return ret
-        else:
-            return {'image': image, 'effIntTime': effIntTime, 'spec_weights': masterPhotonList['SpecWeight'],
-                    'noise_weights': masterPhotonList['NoiseWeight']}
-
-    def getCircularAperturePhotonList(self, centerXCoord, centerYCoord, radius,
-                                      firstSec=0, integrationTime=-1, wvlStart=None,
-                                      wvlStop=None, flagToUse=0):
-        """
-        Retrieves a photon list for the specified circular aperture.
-        For pixels that partially overlap with the region, all photons
-        are included, and the overlap fraction is multiplied into the
-        'NoiseWeight' column.
-
-        Parameters
-        ----------
-        centerXCoord: float
-            x-coordinate of aperture center (pixel units)
-        centerYCoord: float
-            y-coordinate of aperture center (pixel units)
-        radius: float
-            radius of aperture
-        firstSec: float
-            Photon list start time, in seconds relative to beginning of file
-        integrationTime: float
-            Photon list end time, in seconds relative to firstSec.
-            If -1, goes to end of file
-        wvlRange: (float, float)
-            Desired wavelength range of photon list. Must satisfy wvlRange[0] <= wvlRange[1].
-            If None, includes all wavelengths.
-        flagToUse: int
-            Specifies (bitwise) pixel flags that are suitable to include in photon list. For
-            flag definitions see 'h5FileFlags' in Headers/pipelineFlags.py
-
-        Returns
-        -------
-        Dictionary with keys:
-            photonList: numpy structured array
-                Time ordered photon list. Adds resID column to keep track
-                of individual pixels
-            effQE: float
-                Fraction of usable pixel area inside aperture
-            apertureMask: numpy array
-                Image of effective pixel weight inside aperture. "Pixel weight"
-                for now is just the area of overlap w/ aperture, with dead
-                pixels set to 0.
-                :param wvlStart:
-                :param wvlStop:
-
-        """
-        raise RuntimeError('Update this to query all at the same time and fix flags')
-        center = PixCoord(centerXCoord, centerYCoord)
-        apertureRegion = CirclePixelRegion(center, radius)
-        exactApertureMask = apertureRegion.to_mask('exact').data
-        boolApertureMask = exactApertureMask > 0
-        apertureMaskCoords = np.transpose(
-            np.array(np.where(boolApertureMask)))  # valid coordinates within aperture mask
-        photonListCoords = apertureMaskCoords + np.array(
-            [apertureRegion.bounding_box.ixmin, apertureRegion.bounding_box.iymin])  # pixel coordinates in image
-
-        # loop through valid coordinates, grab photon lists and store in photonList
-        photonList = None
-        for i, coords in enumerate(photonListCoords):
-            if coords[0] < 0 or coords[0] >= self.nXPix or coords[1] < 0 or coords[1] >= self.nYPix:
-                exactApertureMask[apertureMaskCoords[i, 0], apertureMaskCoords[i, 1]] = 0
-                continue
-            if not self.flagMask(flagToUse, (x, y)):
-                exactApertureMask[apertureMaskCoords[i, 0], apertureMaskCoords[i, 1]] = 0
-                continue
-
-            pixPhotonList = self.getPixelPhotonList(coords[0], coords[1], firstSec, integrationTime, wvlStart, wvlStop)
-            pixPhotonList['NoiseWeight'] *= exactApertureMask[apertureMaskCoords[i, 0], apertureMaskCoords[i, 1]]
-            if photonList is None:
-                photonList = pixPhotonList
-            else:
-                photonList = np.append(photonList, pixPhotonList)
-
-        photonList = np.sort(photonList, order='Time')
-        return photonList, exactApertureMask
-
-    def getTemporalCube(self, firstSec=None, integrationTime=None, applyWeight=False, applyTPFWeight=False,
-                        startw=None, stopw=None, timeslice=None, timeslices=None,
-                        exclude_flags=pixelflags.PROBLEM_FLAGS, hdu=False):
-        """
-        Return a wavelength-flattened spectral cube of the counts integrated from firstSec to firstSec+integrationTime.
-        If stopt is None, all time after startt is used.
-        If weighted is True, flat cal weights are applied.
-        If fluxWeighted is True, spectral shape weights are applied.
-
-        Timeslices is an optional array of cube time bin edges in seconds. If provided, timeslices takes precedence over startt,
-        stopt, and timeslice.
-
-        the timeslices returned will be in seconds
-
-        [nx,ny,time]
-        """
-        if timeslices is not None:
-            firstSec = timeslices.min()
-            integrationTime = timeslices.max() - timeslices.min()
-        else:
-            # May not include data at tail end if timeslice does not evenly divide time window
-            timeslices = np.arange(0 if firstSec is None else firstSec,
-                                   (self.duration if integrationTime is None else integrationTime) + 1e-9, timeslice)
-            firstSec = timeslices.min()
-            integrationTime = timeslices.max() - timeslices.min()
-
-        cube = np.zeros((self.nXPix, self.nYPix, timeslices.size-1))
-
-        ## Retrieval rate is ~ ? Mphot/s for queries in the ~M photon range
-        if not firstSec and not integrationTime and not startw and not stopw:
-            masterPhotonList = self.photonTable.read()
-        else:
-            masterPhotonList = self.query(startt=firstSec, stopt=integrationTime, startw=startw, stopw=stopw)
-
-        weights = None
-        if applyWeight:
-            weights = masterPhotonList['SpecWeight']
-        if applyTPFWeight:
-            weights = masterPhotonList['NoiseWeight'] if weights is None else weights*masterPhotonList['NoiseWeight']
-
-        tic = time.time()
-        ridbins = sorted(self.beamImage.ravel())
-        ridbins = np.append(ridbins, max(ridbins) + 1)
-        hist, xedg, yedg = np.histogram2d(masterPhotonList['ResID'], masterPhotonList['Time'],
-                                          bins=(ridbins, timeslices*1e6), weights=weights)
-
-        toc = time.time()
-        xe = xedg[:-1]
-        for (x, y), resID in np.ndenumerate(self.beamImage):  # 3% of the time
-            if self.flagMask(exclude_flags, (x, y)):
-                continue
-            cube[x, y, :] = hist[xe == resID]
-        toc2 = time.time()
-        getLogger(__name__).debug('Histogramed data in {:.2f} s, reformatting in {:.2f}'.format(toc2 - tic, toc2 - toc))
-
-        if hdu:
-            ret = fits.ImageHDU(data=np.moveaxis(cube, 2, 0))
-            getLogger(__name__).warning('Must integrate wavelength info into ImageHDU ctype kw and finish building hdu')
-            #TODO finish returning hdu
-            return ret
-        else:
-            return {'cube': cube, 'timeslices': timeslices, 'bad': self.bad_pixel_mask}
-
-    def getSpectralCube(self, firstSec=0, integrationTime=None, applyWeight=False, applyTPFWeight=False,
-                        wvlStart=700, wvlStop=1500, wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None,
-                        exclude_flags=pixelflags.PROBLEM_FLAGS, hdu=False):
-        """
-        Return a time-flattened spectral cube of the counts integrated from firstSec to firstSec+integrationTime.
-        If integration time is -1, all time after firstSec is used.
-        If weighted is True, flat cal weights are applied.
-        If fluxWeighted is True, spectral shape weights are applied.
-        """
-        if wvlBinEdges is not None:
-            assert wvlBinWidth is None and energyBinWidth is None, 'Histogram bins are overspecified!'
-        elif energyBinWidth is not None:
-            assert wvlBinWidth is None, 'Cannot specify both wavelength and energy bin widths!'
-            wvlBinEdges = self.wavelength_bins(energy_width=energyBinWidth, start=wvlStart, stop=wvlStop)
-        elif wvlBinWidth is not None:
-            wvlBinEdges = np.linspace(wvlStart, wvlStop, num=int((wvlStop - wvlStart) / wvlBinWidth) + 1)
-        else:
-            wvlBinEdges = self.defaultWvlBins
-
-        nWvlBins = wvlBinEdges.size - 1
-
-        if integrationTime == -1 or integrationTime is None:
-            integrationTime = self.query_header('expTime')
-
-        cube = np.zeros((self.nXPix, self.nYPix, nWvlBins))
-
-        # TODO Actually compute the effective integration time
-        effIntTime = np.full((self.nXPix, self.nYPix), integrationTime)
-
-        ## Retrieval rate is about 2.27Mphot/s for queries in the 100-200M photon range
-        masterPhotonList = self.query(startt=firstSec if firstSec else None, intt=integrationTime, startw=wvlStart,
-                                      stopw=wvlStop)
-
-        # tic=time.time()  #14.39
-        # r=self.photonTable.read(field='ResID')
-        # t=self.photonTable.read(field='Time')
-        # tic2=time.time()
-        # u=t<5000000
-        # r[u]
-        # t[u]
-        # print(tic2-tic, time.time()-tic2)
-        #
-        # tic=time.time()
-        # d=self.photonTable.read()
-        # tic2=time.time()
-        # r=np.array(d['ResID'])
-        # t=np.array(d['Time'])
-        # u=t<5000000
-        # r[u]
-        # t[u]
-        # print(tic2-tic, time.time()-tic2)
-        # 4.766175985336304 0.4749867916107178
-        # 3.8692047595977783 2.829094648361206
-
-        weights = None
-        if applyWeight:
-            weights = masterPhotonList['SpecWeight']
-        if applyTPFWeight:
-            if weights is not None:
-                weights *= masterPhotonList['NoiseWeight']
-            else:
-                weights = masterPhotonList['NoiseWeight']
-
-        # option one
-        # self.photonTable.itersorted('ResID', checkCSI=True)
-
-        # option 2 pytables
-        # grouped = df.groupby('A')
-        # for name, group in grouped:
-
-        # option 3 numpy_iter package
-        # GroupBy(masterPhotonList['ResID']).split_sequence_as_iterable(masterPhotonList)
-
-        # Option 4 np.histogram 2d ~5.25s on MEC data with 30Mphot
-        tic = time.time()
-        ridbins = sorted(self.beamImage.ravel())
-        ridbins = np.append(ridbins, max(ridbins) + 1)
-        hist, xedg, yedg = np.histogram2d(masterPhotonList['ResID'], masterPhotonList['Wavelength'],
-                                          bins=(ridbins, wvlBinEdges), weights=weights)
-
-        toc = time.time()
-        xe = xedg[:-1]
-        for (x, y), resID in np.ndenumerate(self.beamImage):  # 3% % of the time
-            if self.flagMask(exclude_flags, (x, y)):
-                continue
-            cube[x, y, :] = hist[xe == resID]
-        toc2 = time.time()
-        getLogger(__name__).debug('Histogramed data in {:.2f} s, reformatting in {:.2f}'.format(toc2 - tic, toc2 - toc))
-
-        # Option 5: legacy 1183 s on MEC data with 30Mphot
-        # cube2 = np.zeros((self.nXPix, self.nYPix, nWvlBins))
-        # rawCounts = np.zeros((self.nXPix,self.nYPix))
-        # tic = time.time()
-        # resIDs = masterPhotonList['ResID']
-        # for (xCoord, yCoord), resID in np.ndenumerate(self.beamImage): #162 ms/loop
-        #     #all the time
-        #     photonList = masterPhotonList[resIDs == resID] if self.flagMask(exclude_flags, (xCoord,yCoord)) else emptyPhotonList
-        #     x = self._makePixelSpectrum(photonList, applyWeight=applyWeight, applyTPFWeight=applyTPFWeight,
-        #                                 wvlBinEdges=wvlBinEdges)
-        #     cube2[xCoord, yCoord, :] = x['spectrum']
-        #     rawCounts[xCoord, yCoord] = x['rawCounts']
-        # toc = time.time()
-        # getLogger(__name__).debug(('Cubed data in {:.2f} s using old'
-        #                           ' approach. Cubes same {}').format(toc - tic, (cube==cube2).all()))
-
-        if hdu:
-            ret = fits.ImageHDU(data=cube)
-            getLogger(__name__).warning('Must integrate wavelength info into ImageHDU ctype kw and finish building hdu')
-            #TODO finish returning hdu
-            return ret
-        else:
-            return {'cube': cube, 'wvlBinEdges': wvlBinEdges, 'effIntTime': effIntTime}
-
-    def getPixelSpectrum(self, xCoord, yCoord, firstSec=0, integrationTime=-1,
-                         applyWeight=False, applyTPFWeight=False, wvlStart=None, wvlStop=None,
-                         wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None, timeSpacingCut=None):
+    def get_pixel_spectrum(self, xCoord, yCoord, firstSec=0, integrationTime=-1,
+                           applyWeight=False, applyTPFWeight=False, wvlStart=None, wvlStop=None,
+                           wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None):
         """
         returns a spectral histogram of a given pixel integrated from firstSec to firstSec+integrationTime,
         and an array giving the cutoff wavelengths used to bin the wavelength values
@@ -1317,12 +843,274 @@ class Photontable(object):
                             the noise tail) during the effective exposure.
                             :param wvlStop:
         """
+        #TODO
 
-        photonList = self.getPixelPhotonList(xCoord, yCoord, firstSec=firstSec, integrationTime=integrationTime)
-        return self._makePixelSpectrum(photonList, applyWeight=applyWeight,
-                                       applyTPFWeight=applyTPFWeight, wvlStart=wvlStart, wvlStop=wvlStop,
-                                       wvlBinWidth=wvlBinWidth, energyBinWidth=energyBinWidth,
-                                       wvlBinEdges=wvlBinEdges, timeSpacingCut=timeSpacingCut)
+        photonList = self.get_pixel_photonlist((xCoord, yCoord), firstSec=firstSec, integrationTime=integrationTime)
+
+        wvlStart = wvlStart if wvlStart is not None and wvlStart > 0. else (
+            self.wvlLowerLimit if (self.wvlLowerLimit is not None and self.wvlLowerLimit > 0.) else 700)
+        wvlStop = wvlStop if wvlStop is not None and wvlStop > 0. else (
+            self.wvlUpperLimit if self.wvlUpperLimit is not None and self.wvlUpperLimit > 0. else 1500)
+
+        wvlList = photonList['Wavelength']
+        rawCounts = len(wvlList)
+
+        weights = np.ones(len(wvlList))
+
+        if applyWeight:
+            weights *= photonList['SpecWeight']
+
+        if applyTPFWeight:
+            weights *= photonList['NoiseWeight']
+
+        if wvlBinWidth is None and energyBinWidth is None and wvlBinEdges is None:  # use default/flat cal supplied bins
+            spectrum, wvlBinEdges = np.histogram(wvlList, bins=self.nominal_wavelength_bins, weights=weights)
+
+        else:  # use specified bins
+            if applyWeight and self.query_header('isFlatCalibrated'):
+                raise ValueError('Using flat cal, so flat cal bins must be used')
+            elif wvlBinEdges is not None:
+                assert wvlBinWidth is None and energyBinWidth is None, 'Histogram bins are overspecified!'
+                spectrum, wvlBinEdges = np.histogram(wvlList, bins=wvlBinEdges, weights=weights)
+            elif energyBinWidth is not None:
+                assert wvlBinWidth is None, 'Cannot specify both wavelength and energy bin widths!'
+                wvlBinEdges = self.wavelength_bins(width=energyBinWidth, start=wvlStart, stop=wvlStop)
+                spectrum, wvlBinEdges = np.histogram(wvlList, bins=wvlBinEdges, weights=weights)
+            elif wvlBinWidth is not None:
+                nWvlBins = int((wvlStop - wvlStart) / wvlBinWidth)
+                spectrum, wvlBinEdges = np.histogram(wvlList, bins=nWvlBins, range=(wvlStart, wvlStop), weights=weights)
+
+            else:
+                raise Exception('Something is wrong with get_pixel_spectrum...')
+
+        if self.filterIsApplied:
+            if not np.array_equal(self.filterWvlBinEdges, wvlBinEdges):
+                raise ValueError("Synthetic filter wvlBinEdges do not match pixel spectrum wvlBinEdges!")
+            spectrum *= self.filterTrans
+        # if getEffInt is True:
+        return {'spectrum': spectrum, 'wvlBinEdges': wvlBinEdges, 'rawCounts': rawCounts}
+
+    def get_fits(self, firstSec=None, integrationTime=None, applyWeight=False, applyTPFWeight=False,
+                 wvlStart=None, wvlStop=None, countRate=True, cube_type=None,
+                 bin_width=None, bin_edges=None, bin_type='energy', exclude_flags=pixelflags.PROBLEM_FLAGS):
+        """
+        Return a time-flattened spectral cube of the counts integrated from firstSec to firstSec+integrationTime.
+        firstSec starts at 0 the time of firstSec is Photontable.start_time
+
+        If integration time is -1, all time after firstSec is used.
+        If weighted is True, flat cal weights are applied.
+        If fluxWeighted is True, spectral shape weights are applied.
+
+        if cube_type is time or wave a spectral or temporal cube will be returned
+
+        bin_type is for computing bins off bin_width: is width in energy or wavelength anything other than
+        'energy' will be treated as wavelength requested. if cube_type is 'time' bin_width/edges are in seconds and
+        one of the two is required. bin_type is ignored.
+
+        Temporal bin_edges will take precedence over firstSec and integrationTime
+
+        Returns an image or cube of pixel counts over the entire array between firstSec and firstSec + integrationTime.
+        Can specify calibration weights to apply as well as wavelength range.
+
+        Parameters
+        ----------
+        firstSec: float
+            Photon list start time, in seconds relative to beginning of file
+        integrationTime: float
+            Photon list end time, in seconds relative to firstSec.
+            If -1, goes to end of file
+        wvlRange: (float, float)
+            Desired wavelength range of photon list. Must satisfy wvlRange[0] < wvlRange[1].
+            If None, includes all wavelengths. If file is not wavelength calibrated, this parameter
+            specifies the range of desired phase heights.
+        applyWeight: bool
+            If True, applies the spectral/flat/linearity weight
+        applyTPFWeight: bool
+            If True, applies the true positive fraction (noise) weight
+        scaleByEffInt: bool
+            If True, scales each pixel by (total integration time)/(effective integration time)
+        exclude_flags: int
+            Specifies flags to exclude from the tallies
+            flag definitions see 'h5FileFlags' in Headers/pipelineFlags.py
+
+        Returns
+        -------
+        Dictionary with keys:
+            'image': 2D numpy array, image of pixel counts
+            'effIntTimes':2D numpy array, image effective integration times after time-masking is
+           `          accounted for.
+           :param wvlStart:
+           :param wvlStop:
+           :param hdu:
+
+        """
+        cube_type = cube_type.lower()
+        bin_type = bin_type.lower()
+
+        tic = time.time()
+        ridbins = sorted(self.beamImage.ravel())
+        ridbins = np.append(ridbins, ridbins[-1] + 1)
+
+        if cube_type is 'time':
+            ycol = 'Time'
+            if not bin_edges:
+                t0 = 0 if firstSec is None else firstSec
+                itime = self.duration if integrationTime is None else integrationTime
+                bin_edges = np.linspace(t0, t0 + itime, int(itime / bin_width) + 1)
+
+            firstSec = bin_edges[0]
+            integrationTime = bin_edges[-1] - bin_edges[0]
+            bin_edges = (bin_edges * 1e6)  # .astype(int)
+
+        elif cube_type is 'wave':
+            ycol = 'Wavelength'
+            if bin_edges and bin_width:
+                getLogger(__name__).warning('Both bin_width and bin_edges provided. Using edges')
+            elif not bin_edges and bin_width:
+                bin_edges = self.wavelength_bins(width=bin_width, start=wvlStart, stop=wvlStop,
+                                                 energy=bin_type == 'energy')
+            elif not bin_edges and not bin_width:
+                bin_edges = self.nominal_wavelength_bins
+        else:
+            bin_edges = self.nominal_wavelength_bins[[0, -1]]
+
+        # Retrieval rate is about 2.27Mphot/s for queries in the 100-200M photon range
+        photons = self.query(startt=firstSec, intt=integrationTime, startw=wvlStart, stopw=wvlStop)
+
+        if applyWeight and applyTPFWeight:
+            weights = photons['SpecWeight'] * photons['NoiseWeight']
+        elif applyTPFWeight:
+            weights = photons['NoiseWeight']
+        elif applyWeight:
+            weights = photons['SpecWeight']
+        else:
+            weights = None
+
+        if cube_type in ('time', 'wave'):
+            data = np.zeros((self.nXPix, self.nYPix, bin_edges.size - 1))
+            hist, xedg, yedg = np.histogram2d(photons['ResID'], photons[ycol], bins=(ridbins, bin_edges),
+                                              weights=weights)
+        else:
+            data = np.zeros((self.nXPix, self.nYPix))
+            hist, xedg = np.histogram(photons['ResID'], bins=ridbins, weights=weights)
+
+        toc = time.time()
+        xe = xedg[:-1]
+        for (x, y), resID in np.ndenumerate(self.beamImage):
+            if self.flagged(exclude_flags, (x, y)):
+                continue
+            data[x, y] = hist[xe == resID]
+
+        toc2 = time.time()
+        getLogger(__name__).debug(f'Histogram completed in {toc2 - tic:.2f} s, reformatting in {toc2 - toc:.2f}')
+        hdu = fits.PrimaryHDU()
+        header = hdu.header
+
+        #TODO flesh this out and integrate the non metadata keys
+        md = self.metadata(timestamp=firstSec)
+        if md is not None:
+            for k, v in md.items():
+                if k.lower() == 'comments':
+                    for c in v:
+                        header['comment'] = c
+                else:
+                    try:
+                        header[k] = v
+                    except ValueError:
+                        header[k] = str(v).replace('\n','_')
+        else:
+            getLogger(__name__).warning('No metadata found to add to fits header')
+
+        wcs = self.get_wcs(wave_axis=cube_type)[0]
+        header.update(wcs)
+
+        #TODO ensure the following are present
+        header['integrationTime'] = integrationTime
+        header['effIntTime'] = integrationTime
+        hdul = fits.HDUList([fits.PrimaryHDU(header=header),
+                             fits.ImageHDU(data=data/integrationTime if countRate else data,
+                                           header=header, name='SCIENCE'),
+                             fits.ImageHDU(data=np.sqrt(data), header=header, name='VARIANCE'),
+                             fits.ImageHDU(data=self._flagArray, header=header, name='FLAGS'),
+                             fits.TableHDU(data=bin_edges, name='CUBE_BINS')])
+        hdul['CUBE_BINS'].header['UNIT'] = 'us' if cube_type is 'time' else 'nm'
+        return hdul
+
+    def getCircularAperturePhotonList(self, centerXCoord, centerYCoord, radius,
+                                      firstSec=0, integrationTime=-1, wvlStart=None,
+                                      wvlStop=None, flags=None):
+        """
+        Retrieves a photon list for the specified circular aperture.
+        For pixels that partially overlap with the region, all photons
+        are included, and the overlap fraction is multiplied into the
+        'NoiseWeight' column.
+
+        Parameters
+        ----------
+        centerXCoord: float
+            x-coordinate of aperture center (pixel units)
+        centerYCoord: float
+            y-coordinate of aperture center (pixel units)
+        radius: float
+            radius of aperture
+        firstSec: float
+            Photon list start time, in seconds relative to beginning of file
+        integrationTime: float
+            Photon list end time, in seconds relative to firstSec.
+            If -1, goes to end of file
+        wvlRange: (float, float)
+            Desired wavelength range of photon list. Must satisfy wvlRange[0] <= wvlRange[1].
+            If None, includes all wavelengths.
+        flags: int
+            Specifies (bitwise) pixel flags that to include in photon list. None is all. For
+            flag definitions see 'h5FileFlags' in Headers/pipelineFlags.py
+
+        Returns
+        -------
+        Dictionary with keys:
+            photonList: numpy structured array
+                Time ordered photon list. Adds resID column to keep track
+                of individual pixels
+            effQE: float
+                Fraction of usable pixel area inside aperture
+            apertureMask: numpy array
+                Image of effective pixel weight inside aperture. "Pixel weight"
+                for now is just the area of overlap w/ aperture, with dead
+                pixels set to 0.
+                :param wvlStart:
+                :param wvlStop:
+
+        """
+        raise RuntimeError('Update this to query all at the same time and fix flags')
+        center = PixCoord(centerXCoord, centerYCoord)
+        apertureRegion = CirclePixelRegion(center, radius)
+        exactApertureMask = apertureRegion.to_mask('exact').data
+        boolApertureMask = exactApertureMask > 0
+        apertureMaskCoords = np.transpose(
+            np.array(np.where(boolApertureMask)))  # valid coordinates within aperture mask
+        photonListCoords = apertureMaskCoords + np.array(
+            [apertureRegion.bounding_box.ixmin, apertureRegion.bounding_box.iymin])  # pixel coordinates in image
+
+        # loop through valid coordinates, grab photon lists and store in photonList
+        photonList = None
+        for i, coords in enumerate(photonListCoords):
+            if coords[0] < 0 or coords[0] >= self.nXPix or coords[1] < 0 or coords[1] >= self.nYPix:
+                exactApertureMask[apertureMaskCoords[i, 0], apertureMaskCoords[i, 1]] = 0
+                continue
+            if flags is not None and not self.flagged(flags, (x, y)):
+                exactApertureMask[apertureMaskCoords[i, 0], apertureMaskCoords[i, 1]] = 0
+                continue
+
+            pixPhotonList = self.get_pixel_photonlist(pixel=coords, firstSec=firstSec, integrationTime=integrationTime,
+                                                      wvlStart=wvlStart, wvlStop=wvlStop)
+            pixPhotonList['NoiseWeight'] *= exactApertureMask[apertureMaskCoords[i, 0], apertureMaskCoords[i, 1]]
+            if photonList is None:
+                photonList = pixPhotonList
+            else:
+                photonList = np.append(photonList, pixPhotonList)
+
+        photonList = np.sort(photonList, order='Time')
+        return photonList, exactApertureMask
 
     def apply_wavecal(self, solution):
         """
@@ -1336,7 +1124,7 @@ class Photontable(object):
         if self.query_header('isWvlCalibrated'):
             getLogger(__name__).info('Data already calibrated using {}'.format(self.query_header('wvlCalFile')))
             return
-        getLogger(__name__).info('Applying {} to {}'.format(solution, self.fullFileName))
+        getLogger(__name__).info('Applying {} to {}'.format(solution, self.filename))
         self.photonTable.autoindex = False  # Don't reindex every time we change column
         # apply waveCal
         tic = time.time()
@@ -1384,7 +1172,7 @@ class Photontable(object):
         something is wrong. -JB 2/19/19
         """
         tic = time.time()
-        getLogger(__name__).info('Applying a bad pixel mask to {}'.format(self.fullFileName))
+        getLogger(__name__).info('Applying a bad pixel mask to {}'.format(self.filename))
         self.flag(self.flag_bitmask('pixcal.hot') * hot_mask)
         self.flag(self.flag_bitmask('pixcal.cold') * cold_mask)
         self.flag(self.flag_bitmask('pixcal.unstable') * unstable_mask)
@@ -1405,7 +1193,7 @@ class Photontable(object):
                 msg = ('Could not restore a dict of extensible metadata, '
                        'purging and repairing (file will not be changed until write).'
                        'Metadata must be reattached to {}.')
-                getLogger(__name__).warning(msg.format(type(self._mdcache), self.fileName))
+                getLogger(__name__).warning(msg.format(type(self._mdcache), self.filename))
                 self._mdcache = {}
         return self._mdcache
 
@@ -1526,26 +1314,29 @@ class Photontable(object):
         self.update_header('obs_metadata', metadata)
 
     @staticmethod
-    def wavelength_bins(energy_width=.1, start=700, stop=1500):
+    def wavelength_bins(width=.1, start=700, stop=1500, energy=True):
         """
         returns an array of wavlength bin edges, with a fixed energy bin width
         withing the limits given in wvlStart and wvlStop
         Args:
-            energy_width: bin width in eV
+            width: bin width in eV or wavelength
             start: Lower wavelength edge in Angstrom
             stop: Upper wavelength edge in Angstrom
+            energy: (True) set to false
         Returns:
             an array of wavelength bin edges that can be used with numpy.histogram(bins=wvlBinEdges)
         """
+        if not energy:
+            return np.linspace(start, stop, int((stop-start)/width)+1)
         const = Photontable.h*Photontable.c*1e9
         # Calculate upper and lower energy limits from wavelengths, note that start and stop switch when going to energy
         e_stop = const / start
         e_start = const / stop
-        n = int((e_stop - e_start) / energy_width)
+        n = int((e_stop - e_start) / width)
         # Construct energy bin edges (reversed) and convert back to wavelength
         return const/np.linspace(e_stop, e_start, n + 1)
 
-    def maskTimestamps(self, timestamps, inter=interval(), otherListsToFilter=[]):
+    def mask_timestamps(self, timestamps, inter=interval(), otherListsToFilter=[]):
         """
         Masks out timestamps that fall in an given interval
         inter is an interval of time values to mask out
@@ -1554,6 +1345,7 @@ class Photontable(object):
         """
         # first special case:  inter masks out everything so return zero-length
         # numpy arrays
+        raise NotImplementedError('Out of date, update for cosmics')
         if inter == self.intervalAll:
             filteredTimestamps = np.arange(0)
             otherLists = [np.arange(0) for list in otherListsToFilter]
@@ -1565,11 +1357,11 @@ class Photontable(object):
                 otherLists = otherListsToFilter
             else:
                 # there is a non-trivial set of times to mask.
-                slices = calculateSlices(inter, timestamps)
-                filteredTimestamps = repackArray(timestamps, slices)
+                slices = calculate_slices(inter, timestamps)
+                filteredTimestamps = repack_array(timestamps, slices)
                 otherLists = []
                 for eachList in otherListsToFilter:
-                    filteredList = repackArray(eachList, slices)
+                    filteredList = repack_array(eachList, slices)
                     otherLists.append(filteredList)
         # return the values filled in above
         return {'timestamps': filteredTimestamps, 'otherLists': otherLists}
@@ -1684,10 +1476,10 @@ class Photontable(object):
         """
 
         if self.query_header('isFlatCalibrated'):
-            getLogger(__name__).info("H5 {} is already flat calibrated".format(self.fullFileName))
+            getLogger(__name__).info("H5 {} is already flat calibrated".format(self.filename))
             return
 
-        getLogger(__name__).info('Applying {} to {}'.format(calsolFile, self.fullFileName))
+        getLogger(__name__).info('Applying {} to {}'.format(calsolFile, self.filename))
         timestamp = datetime.utcnow().timestamp()
 
         tic = time.time()
@@ -1720,7 +1512,7 @@ class Photontable(object):
                 #     getLogger(__name__).critical(msg)
                 #     raise RuntimeError(msg)
 
-                if not len(soln) and not self.flagMask(pixelflags.PROBLEM_FLAGS, (x, y)):
+                if not len(soln) and not self.flagged(pixelflags.PROBLEM_FLAGS, (x, y)):
                     getLogger(__name__).warning('No flat calibration for good pixel {}'.format(resID))
                     continue
 
@@ -1742,8 +1534,8 @@ class Photontable(object):
                     coeffs = soln['coeff'].flatten()
                     weights = soln['weight'].flatten()
                     errors = soln['err'].flatten()
-                    if self.query_header('isWvlCalibrated') and not any([self.flagMask(pixelflags.PROBLEM_FLAGS,
-                                                                               pixel=(row, column))]):
+                    if self.query_header('isWvlCalibrated') and not any([self.flagged(pixelflags.PROBLEM_FLAGS,
+                                                                                      pixel=(row, column))]):
                         weightArr = np.poly1d(coeffs)(wavelengths)
                         if any(weightArr > 100) or any(weightArr < 0.01):
                             getLogger(__name__).debug('Unreasonable fitted weight of for resID {}'.format(resID))
@@ -1798,21 +1590,21 @@ class Photontable(object):
     def applyLinearitycal(self, dt=1000, tau=0.000001):
         tic = time.time()
         if self.query_header('isLinearityCorrected'):
-            getLogger(__name__).info("H5 {} is already linearity calibrated".format(self.fullFileName))
+            getLogger(__name__).info("H5 {} is already linearity calibrated".format(self.filename))
             return
         bar = ProgressBar(maxval=20439).start()
         bari = 0
-        for (row, column), resID in np.ndenumerate(self.beamImage):
-            if self.flagMask(pixelflags.PROBLEM_FLAGS, (row, column)) and any(pixelflags.PROBLEM_FLAGS):
+        for pixel, resID in np.ndenumerate(self.beamImage):
+            if self.flagged(pixelflags.PROBLEM_FLAGS, pixel):
                 continue
-            photon_list = self.getPixelPhotonList(xCoord=row, yCoord=column)
+            photon_list = self.get_pixel_photonlist(pixel=pixel)
             time_stamps = photon_list['Time']
-            weights = lincal.calculate_weights(time_stamps, dt, tau, pixel=(row, column))
+            weights = lincal.calculate_weights(time_stamps, dt, tau, pixel=pixel)
             self.applySpecWeight(resID, weights)
             bari += 1
             bar.update(bari)
         bar.finish()
-        getLogger(__name__).info('Linearitycal applied to {} in {:.2f}s'.format(self.fileName, time.time() - tic))
+        getLogger(__name__).info('Linearitycal applied to {} in {:.2f}s'.format(self.filename, time.time() - tic))
         self.update_header('isLinearityCorrected', True)
 
     def apply_spectralcal(self, spectralcal):
@@ -1823,7 +1615,7 @@ class Photontable(object):
         :return:
         """
         if self.query_header('isFluxCalibrated'):
-            getLogger(__name__).info(f"{self.fullFileName} previously calibrated with {self.query_header('spectralcal')}, "
+            getLogger(__name__).info(f"{self.filename} previously calibrated with {self.query_header('spectralcal')}, "
                                      f"skipping")
             return
 
@@ -1831,15 +1623,15 @@ class Photontable(object):
         # dont include nan or inf values
         ind = np.isfinite(response_curve.curve[1])
 
-        getLogger(__name__).info('Applying {} to {}'.format(response_curve, self.fullFileName))
+        getLogger(__name__).info('Applying {} to {}'.format(response_curve, self.filename))
 
         coeffs = np.polyfit(response_curve.curve[0][ind]/10.0, response_curve.curve[1][ind], 3)
         func = np.poly1d(coeffs)
         tic = time.time()
-        for (row, column), resID in np.ndenumerate(self.beamImage):
-            if self.flagMask(pixelflags.PROBLEM_FLAGS, (row, column)) and any(pixelflags.PROBLEM_FLAGS):
+        for pixel, resID in np.ndenumerate(self.beamImage):
+            if self.flagged(pixelflags.PROBLEM_FLAGS, pixel):
                 continue
-            photon_list = self.getPixelPhotonList(xCoord=row, yCoord=column)
+            photon_list = self.get_pixel_photonlist(pixel=pixel)
             weight_arr = func(photon_list['Wavelength'])
             self._apply_column_weight(resID, weight_arr, 'SpecWeight')
 
@@ -1849,9 +1641,9 @@ class Photontable(object):
         getLogger(__name__).info('spectralcal applied in {:.2f}s'.format(time.time() - tic))
 
 
-def calculateSlices(inter, timestamps):
+def calculate_slices(inter, timestamps):
     """
-    Hopefully a quicker version of  the original calculateSlices. JvE 3/8/2013
+    Hopefully a quicker version of  the original calculate_slices. JvE 3/8/2013
 
     Returns a list of strings, with format i0:i1 for a python array slice
     inter is the interval of values in timestamps to mask out.
@@ -1893,7 +1685,7 @@ def calculateSlices(inter, timestamps):
     return slices
 
 
-def repackArray(array, slices):
+def repack_array(array, slices):
     """
     returns a copy of array that includes only the element defined by slices
     """

@@ -24,8 +24,7 @@ def get_transforms(ditherfile, datadir, wvl_start=None, wvl_stop=None, fwhm_gues
 
     for file in obs_files:
         obs = Photontable(file)
-        data = obs.getPixelCountImage(applyWeight=False, exclude_flags=pixelflags.PROBLEM_FLAGS, wvlStart=wvl_start,
-                                      wvlStop=wvl_stop)['image']
+        data = obs.get_fits(applyWeight=False,  wvlStart=wvl_start, wvlStop=wvl_stop, countRate=False)['SCIENCE'].data
         data = np.transpose(data)
         debug_images.append(data)
         mean, median, std = stats.sigma_clipped_stats(data, sigma=3.0, mask_value=0)
