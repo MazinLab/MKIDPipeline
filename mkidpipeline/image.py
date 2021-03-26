@@ -10,11 +10,8 @@ from mkidpipeline.config import n_cpus_available
 
 def fetchimg(ob, kwargs):
     of = Photontable(ob.h5)
-    if kwargs['nwvl'] > 1:
-        im = of.getSpectralCube(hdu=True, **kwargs)
-    else:
-        kwargs.pop('wvlN', None)
-        im = of.getPixelCountImage(hdu=True, **kwargs)
+
+    im = of.get_fits(cube_type='wave' if kwargs['nwvl'] > 1 else None)['SCIENCE']
     del of
 
     #TODO move to photontable and fetch it from an import

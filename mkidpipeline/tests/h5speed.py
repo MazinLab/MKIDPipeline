@@ -195,8 +195,8 @@ class SpeedResults:
                 fast_file = res[i].file
                 print('This might take a while: {:.0f} s'.format(res[i].queryt))
                 of = Photontable(fast_file)
-                cnt_img = of.getPixelCountImage(firstSec=30, integrationTime=5)['image']
-                cnt_img *= of.query_header('expTime')/5
+                cnt_img = of.get_fits(firstSec=30, integrationTime=5)['SCIENCE'].data
+                cnt_img *= of.duration/5
                 del of
                 self.count_images[d] = cnt_img
             ret[d] = cnt_img.sum() / (cnt_img > 0).sum()

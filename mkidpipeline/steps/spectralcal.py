@@ -8,16 +8,10 @@ divides the flux values for the standard by the MKID flux values for each bin to
 Assumes h5 files are wavelength calibrated, and they should also first be flatcalibrated and linearity corrected
 (deadtime corrected)
 """
-
 import sys,os
-from mkidcore import pixelflags
-from photontable import Photontable
-from mkidpipeline.utils.speccal_utils import rebin, gaussianConvolution, fitBlackbody
-from mkidcore.corelog import getLogger
-import mkidcore.corelog
+
 import scipy.constants as c
 from astropy import units as u
-import mkidpipeline
 import urllib.request as request
 from urllib.error import URLError
 import shutil
@@ -25,10 +19,19 @@ from contextlib import closing
 from astroquery.sdss import SDSS
 import astropy.coordinates as coord
 from specutils import Spectrum1D
-from mkidpipeline.utils.photometry import *
-from scipy.interpolate import griddata
 import pkg_resources as pkg
 import matplotlib.gridspec as gridspec
+
+import mkidcore.corelog
+from mkidcore.corelog import getLogger
+from mkidcore import pixelflags
+import mkidpipeline
+import mkidpipeline.config
+from mkidpipeline.photontable import Photontable
+from mkidpipeline.utils.speccal_utils import rebin, gaussianConvolution, fitBlackbody
+from mkidpipeline.utils.photometry import *
+from mkidpipeline.steps.drizzler import form as form_drizzle
+
 _loaded_solutions = {}
 
 
@@ -283,38 +286,26 @@ class SpectralCalibrator:
          """
         getLogger(__name__).info('performing {} photometry on MEC spectrum'.format(self.cfg.photometry))
         if len(self.obs) == 1:
-            cube_dict = self.obs[0].getSpectralCube(integrationTime=self.cfg.intTimes[0],
-                                                    applyWeight=True, wvlStart=self.cfg.wvlStart/10,
-                                                    wvlStop=self.cfg.wvlStop/10, energyBinWidth=self.cfg.energyBinWidth,
-                                                    exclude_flags=pixelflags.PROBLEM_FLAGS)
-            cube = np.array(cube_dict['cube'], dtype=np.double)
-            effIntTime = cube_dict['effIntTime']
-            self.wvl_bin_edges = cube_dict['wvlBinEdges'] * 10  # get this into units of Angstroms
-            # add third dimension to effIntTime for broadcasting
-            effIntTime = np.reshape(effIntTime, np.shape(effIntTime) + (1,))
-            # put cube into counts/s in each pixel
-            cube /= effIntTime
+            hdul = self.obs[0].get_fits(integrationTime=self.cfg.intTimes[0], applyWeight=True, countRate=True,
+                                        wvlStart=self.cfg.wvlStart/10, wvlStop=self.cfg.wvlStop/10,
+                                        cube_type='wave', bin_width=self.cfg.energyBinWidth, bin_type='energy')
+            cube = np.array(hdul['SCIENCE'].data, dtype=np.double)
+            self.wvl_bin_edges = hdul['CUBE_BINS'].data * 10  # get this into units of Angstroms
         else:
             cube = []
             if self.wvl_bin_edges is None:
-                ref_obs = self.obs[0].getSpectralCube(integrationTime=self.cfg.intTimes[0],
-                                                      applyWeight=True, wvlStart=self.cfg.wvlStart/10,
-                                                      wvlStop=self.cfg.wvlStop/10, energyBinWidth=self.cfg.energyBinWidth,
-                                                      exclude_flags=pixelflags.PROBLEM_FLAGS)
-                self.wvl_bin_edges = ref_obs['wvlBinEdges'] * 10
+                ref_obs = self.obs[0].get_fits(cube_type='wave', integrationTime=self.cfg.intTimes[0], applyWeight=True,
+                                               wvlStart=self.cfg.wvlStart/10, wvlStop=self.cfg.wvlStop/10,
+                                               countRate=False, bin_width=self.cfg.energyBinWidth, bin_type='energy')
+                self.wvl_bin_edges = ref_obs['CUBE_BINS'].data * 10
             for wvl in range(len(self.wvl_bin_edges) - 1):
-                if self.use_satellite_spots:
-                    derotate=False
-                else:
-                    derotate=True
                 getLogger(__name__).info('using wavelength range {} - {}'.format(self.wvl_bin_edges[wvl] / 10,
                                                             self.wvl_bin_edges[wvl + 1] / 10))
-                drizzled = mkidpipeline.steps.drizzler.form(self.data, mode='spatial', wvlMin=self.wvl_bin_edges[wvl] / 10,
-                                                      wvlMax=self.wvl_bin_edges[wvl + 1] / 10, pixfrac=0.5,
-                                                      wcs_timestep=1, exp_timestep=1,
-                                                      exclude_flags=pixelflags.PROBLEM_FLAGS, usecache=False, ncpu=1,
-                                                      derotate=derotate, align_start_pa=False, whitelight=False,
-                                                      debug_dither_plot=False)
+                drizzled = form_drizzle(self.data, mode='spatial', wvlMin=self.wvl_bin_edges[wvl] / 10,
+                                        wvlMax=self.wvl_bin_edges[wvl + 1] / 10, pixfrac=0.5, wcs_timestep=1,
+                                        exp_timestep=1, exclude_flags=pixelflags.PROBLEM_FLAGS, usecache=False, ncpu=1,
+                                        derotate=not self.use_satellite_spots, align_start_pa=False, whitelight=False,
+                                        debug_dither_plot=False)
                 getLogger(__name__).info(('finished image {}/ {}'.format(wvl + 1.0, len(self.wvl_bin_edges) - 1)))
                 cube.append(drizzled.cps)
             self.cube = np.array(cube)

@@ -795,7 +795,7 @@ class MKIDOutput:
         Kind 'movie' requires _extra keys timestep and either frameduration or movieduration with frameduration
         taking precedence. startt and stopt may be included as well and are RELATIVE to the start of the file.
 
-        image - uses photontable.getFits to the a simple image of the data, applies to a single h5
+        image - uses photontable.get_fits to the a simple image of the data, applies to a single h5
         stack - uses drizzler.SpatialDrizzler
         spatial - uses drizzler.SpatialDrizzler
         temporal - uses drizzler.TemporalDrizzler

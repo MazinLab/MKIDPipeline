@@ -320,12 +320,11 @@ class Calibrator(object):
                     # load the data
                     bkgd_phase_list = None
                     if self._shared_tables is None:
-                        photon_list = self.fetch_obsfile(wavelength).getPixelPhotonList(xCoord=pixel[0],
-                                                                                        yCoord=pixel[1])
+                        photon_list = self.fetch_obsfile(wavelength).get_pixel_photonlist(pixel=pixel)
                         # create background phase list if specified
                         bg = self.fetch_obsfile(wavelength, background=True)
                         if bg is not None:
-                            bkgd_phase_list = bg.getPixelPhotonList(xCoord=pixel[0], yCoord=pixel[1])['Wavelength']
+                            bkgd_phase_list = bg.get_pixel_photonlist(pixel=pixel)['Wavelength']
                             bkgd_phase_list = bkgd_phase_list[bkgd_phase_list < 0]
                     else:
                         table_data, bg = self._shared_tables[wavelength].data

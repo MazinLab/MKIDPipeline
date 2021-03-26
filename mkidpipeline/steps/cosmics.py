@@ -75,7 +75,7 @@ class CosmicCleaner:
 
     def run(self):
         start = datetime.utcnow().timestamp()
-        getLogger(__name__).debug(f"Cosmic ray cleaning of {self.obs.fileName} began at {start}")
+        getLogger(__name__).debug(f"Starting cosmic ray detection on {self.obs.filename}")
         self.photons = self.obs.query(startw=self.wave_range[0], stopw=self.wave_range[1])
         self.make_timestream()
         self.make_count_histogram()
@@ -84,8 +84,7 @@ class CosmicCleaner:
         self.find_cutout_times()
         self.trim_timestream()
         end = datetime.utcnow().timestamp()
-        getLogger(__name__).debug(f"Cosmic ray cleaning of {self.obs.fileName} finished at {end}")
-        getLogger(__name__).info(f"Cosmic ray cleaning of {self.obs.fileName}took {end - start} s")
+        getLogger(__name__).info(f"Cosmic ray cleaning of {self.obs.filename} took {end - start} s")
 
     def make_timestream(self):
         """
@@ -211,8 +210,15 @@ class CosmicCleaner:
         writer = Writer(fps=fps, bitrate=-1)
 
         ctimes = np.arange(timestamp - timeBefore, timestamp + timeAfter, frameSpacing)
-        frames = np.array([self.obs.getPixelCountImage(firstSec=i / 1e6, integrationTime=frameIntTime / 1e6,
-                                                       wvlStart=wvlStart, wvlStop=wvlStop)['image'] for i in ctimes])
+        #This should be much faster but it gets rid of the interpolation that is achieved by overlapping the query
+        # intervals, the way around this would be to tread the frames as keyframes and then use a seperate
+        # post-processing step to insert interpolated frames.
+        # frames = self.obs.get_fits(bin_edges=ctimes, countRate=False, wvlStart=wvlStart, wvlStop=wvlStop,
+        #                            cube_type='time')['SCIENCE'].data
+        # Interpolate and insert frames here
+
+        frames = np.array([self.obs.get_fits(firstSec=i / 1e6, integrationTime=frameIntTime / 1e6, countRate=False,
+                                             wvlStart=wvlStart, wvlStop=wvlStop)['SCIENCE'].data for i in ctimes])
 
         fig = plt.figure()
         im = plt.imshow(frames[0])

@@ -337,7 +337,8 @@ class WhiteCalibrator(FlatCalibrator):
         self.energies = [(c.h * c.c) / (i * 10 ** (-9) * c.e) for i in self.wavelengths]
         middle = int(len(self.wavelengths) / 2.0)
         self.energyBinWidth = self.energies[middle] / (5.0 * self.r_list[middle])
-        self.wvl_bin_edges = Photontable.wavelength_bins(self.energyBinWidth, self.wvl_start, self.wvl_stop)
+        self.wvl_bin_edges = Photontable.wavelength_bins(self.energyBinWidth, self.wvl_start, self.wvl_stop,
+                                                         energy=True)
         self.wavelengths = (self.wvl_bin_edges[: -1] + np.diff(self.wvl_bin_edges)).flatten()
 
     def load_flat_spectra(self):
@@ -351,15 +352,15 @@ class WhiteCalibrator(FlatCalibrator):
         self.spectral_cube = []
         self.eff_int_times = []
         for firstSec in range(0, self.exposure_time, self.chunk_time):  # for each time chunk
-            cubeDict = self.obs.getSpectralCube(firstSec=firstSec, integrationTime=self.chunk_time, applyWeight=False,
-                                                applyTPFWeight=False, wvlBinEdges=self.wvl_bin_edges)
-            cube = cubeDict['cube'] / cubeDict['effIntTime'][:, :, None]
-            bad = np.isnan(cube)  # TODO need to update masks to note why these 0s appeared
-            cube[bad] = 0
+            cubeDict = self.obs.get_fits(firstSec=firstSec, integrationTime=self.chunk_time, applyWeight=False,
+                                         applyTPFWeight=False, bin_edges=self.wvl_bin_edges,
+                                         cube_type='wave', bin_type='energy', countRate=True)
+            cube = cubeDict['SCIENCE'].data
+            cube[np.isnan(cube)] = 0   # TODO need to update masks to note why these 0s appeared
 
             self.spectral_cube.append(cube)
-            self.eff_int_times.append(cubeDict['effIntTime'])
-            msg = 'Loaded Flat Spectra for seconds {} to {}'.format(int(firstSec), int(firstSec) + int(self.chunk_time))
+            self.eff_int_times.append(cubeDict['SCIENCE'].header['effIntTime'])
+            msg = f'Loaded {self.chunk_time:.1f} s of spectral data at time {firstSec:.1f}'
             getLogger(__name__).info(msg)
 
         self.spectral_cube = np.array(self.spectral_cube[0])
@@ -419,16 +420,17 @@ class LaserCalibrator(FlatCalibrator):
 
             w_mask = self.wavelengths==wvl
 
-            mask[:, :, w_mask] = obs.flagMask(pixelflags.PROBLEM_FLAGS)
+            mask[:, :, w_mask] = obs.flagged(pixelflags.PROBLEM_FLAGS)
             if self.cfg.flatcal.use_wavecal:
                 startw = wvl - delta_list[w_mask]
                 stopw = wvl + delta_list[w_mask]
 
-            counts = obs.getTemporalCube(integrationTime=self.chunk_time * self.cfg.flatcal.nchunks,
-                                         timeslice=self.chunk_time, startw=startw, stopw=stopw)['cube']
-            getLogger(__name__).info('Loaded {}nm spectral cube'.format(wvl))
+            hdul = obs.get_fits(integrationTime=self.chunk_time * self.cfg.flatcal.nchunks, countRate=True,
+                                bin_width=self.chunk_time, wvlStart=startw, wvlStop=stopw, cube_type='time')
+
+            getLogger(__name__).info(f'Loaded {wvl} nm spectral cube')
             int_times[:, :, w_mask] = self.chunk_time
-            cps_cube_list[:, :, :, w_mask] = np.moveaxis(counts/self.chunk_time, 2, 0)
+            cps_cube_list[:, :, :, w_mask] = np.moveaxis(hdul['SCIENCE'].data, 2, 0)
         return cps_cube_list, int_times, mask
 
     def get_dark_frame(self):
@@ -447,8 +449,9 @@ class LaserCalibrator(FlatCalibrator):
         frames = []
         itime = 0
         for dark in self.darks:
-            frames.append(dark.photontable.getPixelCountImage(startTime=dark.start,
-                                                              integrationTime=dark.duration)['image'])
+            im = dark.photontable.get_fits(startTime=dark.start, integrationTime=dark.duration,
+                                           countRate=False)['SCIENCE'].data
+            frames.append(im)
             itime += dark.duration
         return np.sum(frames, axis=2)/itime
 

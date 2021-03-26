@@ -658,6 +658,7 @@ def maxMRlogL(ts, Ic_guess=1., Is_guess=1., method='Powell'):
     res = minimize(nLogL, [Ic_guess, Is_guess], method=method)
     return res
 
+
 def getPixelPhotonList(filename, xCoord, yCoord,**kwargs):
     """
     Gets the list of photon arrival times from a H5 file
@@ -671,10 +672,9 @@ def getPixelPhotonList(filename, xCoord, yCoord,**kwargs):
         ts - timestamps in us of photon arrival times
     """
     obs = Photontable(filename)
-    photonList = obs.getPixelPhotonList(xCoord, yCoord,**kwargs)
-    times=photonList['Time']
+    times = obs.get_pixel_photonlist((xCoord, yCoord), **kwargs)['Time']
     print("#photons: "+str(len(times)))
-    del obs #make sure to close files nicely
+    del obs  # make sure to close files nicely
     return times
 
 
@@ -698,7 +698,7 @@ if __name__ == "__main__":
     #fn = '/home/abwalter/peg32/1507175503.h5'
     #print("From: ",fn)
     #print("\t...",end="", flush=True)
-    #ts=getPixelPhotonList(filename=fn, xCoord=30, yCoord=81,wvlStart=100, wvlStop=900)
+    #ts=get_pixel_photonlist(filename=fn, xCoord=30, yCoord=81,wvlStart=100, wvlStop=900)
     #Ttot=3.
     #print("Done.\n")
 

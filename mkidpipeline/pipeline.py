@@ -2,6 +2,7 @@ from importlib import import_module
 import pkgutil
 import multiprocessing as mp
 import time
+import os
 
 from mkidcore.config import getLogger
 import mkidpipeline
@@ -182,9 +183,9 @@ def generate_outputs(outputs):
 
             for obs in o.data.obs:
                 h5 = mkidpipeline.photontable.Photontable(obs.h5)
-                img = h5.getFits(wvlStart=o.startw, wvlStop=o.stopw, applyWeight=o.enable_photom,
-                                 applyTPFWeight=o.enable_noise, countRate=True)
-                img.writeto(o.output_file + h5.fileName.split('.')[0] + ".fits")
+                img = h5.get_fits(wvlStart=o.startw, wvlStop=o.stopw, applyWeight=o.enable_photom,
+                                  applyTPFWeight=o.enable_noise, countRate=True)
+                img.writeto(o.output_file)
                 getLogger(__name__).info('Generated fits file for {}'.format(obs.h5))
         if o.wants_movie:
             getLogger('mkidpipeline.hdf.photontable').setLevel('DEBUG')
