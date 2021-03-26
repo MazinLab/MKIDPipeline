@@ -177,8 +177,8 @@ class DataHandler(object):
             timeRemoved = len(cosmicCutout) / 1e6
 
             for count2, _ in enumerate(BF_LASER_WAVELENGTHS):
-                photonList = obs.get_pixel_photonlist(resid=j, integrationTime=60, wvlStart=self.wlLimits[0][count2],
-                                                      wvlStop=self.wlLimits[1][count2])
+                photonList = obs.query(resid=j, intt=60, startw=self.wlLimits[0][count2],
+                                       stopw=self.wlLimits[1][count2])
 
                 cosmicCount = [np.any(np.in1d(cosmicCutout, k)) for k in photonList['Time']]
                 photonsToRemove = np.sum(cosmicCount)

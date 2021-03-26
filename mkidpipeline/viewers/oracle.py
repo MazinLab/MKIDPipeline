@@ -53,30 +53,29 @@ def ssd_worker(args):
     #                                        wvlStart=self.spinbox_startLambda.value(),
     #                                        wvlStop=self.spinbox_stopLambda.value())
 
+    deadtime = 1e-5  # TODO: get rid of this hard-coding
     ssd_param_list = []
     for pix in coord_list:
         row, col = pix
+        if row == -1 and col == -1:
+            ssd_param_list.append([0, 0, 0])
+            continue
 
-        ts = obsfile_object.get_pixel_photonlist(pixel=(col,row), firstSec=startTime, integrationTime=integrationTime,
-                                                 wvlStart=startLambda, wvlStop=stopLambda)['Time'] * 1e-6
+        ts = obsfile_object.query(pixel=(col, row), startt=startTime, intt=integrationTime,
+                                  startw=startLambda, stopw=stopLambda)['Time'] * 1e-6
 
         # ts = photontable[np.logical_and(photontable['ResID'] == beamImage[col][row], np.logical_and(
         #     np.logical_and(photontable['Wavelength'] > startLambda, photontable['Wavelength'] < stopLambda),
         #     np.logical_and(photontable['Time'] > startTime * 1e6,
         #                    photontable['Time'] < integrationTime * 1e6)))]['Time'] * 1e-6
 
-        if row == -1 and col == -1:
-            ssd_param_list.append([0, 0, 0])
-            continue
-        else:
-            dt = (ts[1:] - ts[:-1])
-            deadtime = 1e-5  # TODO: get rid of this hard-coding
-            # get the bin-free fit of Ic, Is Ip
-            I = 1 / np.mean(dt)
-            p0 = I * np.ones(3) / 3.
-            Ic, Is, Ip = optimize.minimize(binfree.MRlogL, p0, (dt, deadtime),
-                                           method='Newton-CG', jac=binfree.MRlogL_Jacobian, hess=binfree.MRlogL_Hessian).x
-            ssd_param_list.append([Ic, Is, Ip])
+        dt = np.diff(ts)
+
+        # get the bin-free fit of Ic, Is Ip
+        p0 = np.ones(3) / dt.mean() / 3.
+        Ic, Is, Ip = optimize.minimize(binfree.MRlogL, p0, (dt, deadtime), method='Newton-CG',
+                                       jac=binfree.MRlogL_Jacobian, hess=binfree.MRlogL_Hessian).x
+        ssd_param_list.append([Ic, Is, Ip])
 
     print('ssd_worker finished', multiprocessing.current_process())
     return ssd_param_list
@@ -218,47 +217,25 @@ class subWindow(QMainWindow):
 
     def get_photon_list(self):
         # use this function to make the call to the correct obsfile method
-        if self.apertureOn == True:
-            photonList, aperture = self.a.getCircularAperturePhotonList(self.activePixel[0], self.activePixel[1],
-                                                                        radius=self.apertureRadius,
-                                                                        firstSec=self.spinbox_startTime.value(),
-                                                                        integrationTime=self.spinbox_integrationTime.value(),
-                                                                        wvlStart=self.spinbox_startLambda.value(),
-                                                                        wvlStop=self.spinbox_stopLambda.value())
+        # it's WAY faster to not specify start/stop wavelengths. If that cut isn't
+        # necessary, don't specify those keywords.
+        wvlStart = self.spinbox_startLambda.value()
+        wvlStop = self.spinbox_stopLambda.value()
+
+        wvlStart = None if wvlStart == self.minLambda else wvlStart
+        wvlStop = None if wvlStop == self.maxLambda else wvlStop
+
+        if self.apertureOn:
+            d, aperture = self.a.getCircularAperturePhotonList(self.activePixel, radius=self.apertureRadius,
+                                                               firstSec=self.spinbox_startTime.value(),
+                                                               integrationTime=self.spinbox_integrationTime.value(),
+                                                               wvlStart=wvlStart, wvlStop=wvlStop)
 
         else:
-            wvlStart = self.spinbox_startLambda.value()
-            wvlStop = self.spinbox_stopLambda.value()
-            # t1 = time.time()
+            d = self.a.query(pixel=self.activePixel, startt=self.spinbox_startTime.value(),
+                             intt=self.spinbox_integrationTime.value(), startw=wvlStart, stopw=wvlStop)
 
-            # it's WAY faster to not specify start/stop wavelengths. If that cut isn't
-            # necessary, don't specify those keywords.
-            if wvlStart == self.minLambda and wvlStop == self.maxLambda:
-                photonList = self.a.get_pixel_photonlist(pixel=self.activePixel,
-                                                         firstSec=self.spinbox_startTime.value(),
-                                                         integrationTime=self.spinbox_integrationTime.value())
-            elif wvlStart == self.minLambda:
-                photonList = self.a.get_pixel_photonlist(pixel=self.activePixel,
-                                                         firstSec=self.spinbox_startTime.value(),
-                                                         integrationTime=self.spinbox_integrationTime.value(),
-                                                         wvlStart=self.spinbox_startLambda.value())
-            elif wvlStop == self.maxLambda:
-                photonList = self.a.get_pixel_photonlist(pixel=self.activePixel,
-                                                         firstSec=self.spinbox_startTime.value(),
-                                                         integrationTime=self.spinbox_integrationTime.value(),
-                                                         wvlStop=self.spinbox_stopLambda.value())
-            else:
-                photonList = self.a.get_pixel_photonlist(pixel=self.activePixel,
-                                                         firstSec=self.spinbox_startTime.value(),
-                                                         integrationTime=self.spinbox_integrationTime.value(),
-                                                         wvlStart=self.spinbox_startLambda.value(),
-                                                         wvlStop=self.spinbox_stopLambda.value())
-            # t2 = time.time()
-
-            # print('\ncmd = ' + cmd)
-            # print('\nTime to get_pixel_photonlist(): ', t2 - t1)
-
-        return photonList
+        return d
 
 
 class timeStream(subWindow):
@@ -414,7 +391,7 @@ class pulseHeightHistogram(subWindow):
     def plotData(self):
         self.ax.clear()
 
-        pulseHeights = self.a.get_pixel_photonlist(pixel=self.activePixel)['Wavelength']
+        pulseHeights = self.a.query(pixel=self.activePixel)['Wavelength']
 
         hist, binEdges = np.histogram(pulseHeights, bins=50)
 
