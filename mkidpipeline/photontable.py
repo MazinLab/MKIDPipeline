@@ -245,9 +245,6 @@ class Photontable(object):
         """
         self.mode = 'write' if mode.lower() in ('write', 'w', 'a', 'append') else 'read'
         self.verbose = verbose
-        self.wvlLowerLimit = None
-        self.wvlUpperLimit = None
-        self.filterIsApplied = False
         self.ticksPerSec = int(1.0 / self.tickDuration)
         self.intervalAll = interval[0.0, (1.0 / self.tickDuration) - 1]
         self.photonTable = None
@@ -735,9 +732,8 @@ class Photontable(object):
 
         return obs_wcs_seq
 
-    def get_pixel_spectrum(self, xCoord, yCoord, firstSec=0, integrationTime=-1,
-                           applyWeight=False, applyTPFWeight=False, wvlStart=None, wvlStop=None,
-                           wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None):
+    def get_pixel_spectrum(self, pixel, firstSec=None, integrationTime=None, applyWeight=False, applyTPFWeight=False,
+                           wvlStart=None, wvlStop=None, bin_width=None, bin_edges=None, bin_type='energy'):
         """
         returns a spectral histogram of a given pixel integrated from firstSec to firstSec+integrationTime,
         and an array giving the cutoff wavelengths used to bin the wavelength values
@@ -789,52 +785,31 @@ class Photontable(object):
                             the noise tail) during the effective exposure.
                             :param wvlStop:
         """
-        #TODO
+        if (bin_edges or bin_width) and applyWeight and self.query_header('isFlatCalibrated'):
+            raise ValueError('Using flat cal, so flat cal bins must be used')
 
-        photonList = self.query(pixel=(xCoord, yCoord), startt=firstSec, intt=integrationTime)
-
-        wvlStart = wvlStart if wvlStart is not None and wvlStart > 0. else (
-            self.wvlLowerLimit if (self.wvlLowerLimit is not None and self.wvlLowerLimit > 0.) else 700)
-        wvlStop = wvlStop if wvlStop is not None and wvlStop > 0. else (
-            self.wvlUpperLimit if self.wvlUpperLimit is not None and self.wvlUpperLimit > 0. else 1500)
+        photonList = self.query(pixel=pixel, startt=firstSec, intt=integrationTime, startw=wvlStart, stopw=wvlStop)
 
         wvlList = photonList['Wavelength']
         rawCounts = len(wvlList)
 
         weights = np.ones(len(wvlList))
-
         if applyWeight:
             weights *= photonList['SpecWeight']
-
         if applyTPFWeight:
             weights *= photonList['NoiseWeight']
 
-        if wvlBinWidth is None and energyBinWidth is None and wvlBinEdges is None:  # use default/flat cal supplied bins
-            spectrum, wvlBinEdges = np.histogram(wvlList, bins=self.nominal_wavelength_bins, weights=weights)
+        if bin_edges and bin_width:
+            getLogger(__name__).warning('Both bin_width and bin_edges provided. Using edges')
+        elif not bin_edges and bin_width:
+            bin_edges = self.wavelength_bins(width=bin_width, start=wvlStart, stop=wvlStop,
+                                             energy=bin_type == 'energy')
+        elif not bin_edges and not bin_width:
+            bin_edges = self.nominal_wavelength_bins
 
-        else:  # use specified bins
-            if applyWeight and self.query_header('isFlatCalibrated'):
-                raise ValueError('Using flat cal, so flat cal bins must be used')
-            elif wvlBinEdges is not None:
-                assert wvlBinWidth is None and energyBinWidth is None, 'Histogram bins are overspecified!'
-                spectrum, wvlBinEdges = np.histogram(wvlList, bins=wvlBinEdges, weights=weights)
-            elif energyBinWidth is not None:
-                assert wvlBinWidth is None, 'Cannot specify both wavelength and energy bin widths!'
-                wvlBinEdges = self.wavelength_bins(width=energyBinWidth, start=wvlStart, stop=wvlStop)
-                spectrum, wvlBinEdges = np.histogram(wvlList, bins=wvlBinEdges, weights=weights)
-            elif wvlBinWidth is not None:
-                nWvlBins = int((wvlStop - wvlStart) / wvlBinWidth)
-                spectrum, wvlBinEdges = np.histogram(wvlList, bins=nWvlBins, range=(wvlStart, wvlStop), weights=weights)
+        spectrum, _ = np.histogram(wvlList, bins=bin_edges, weights=weights)
 
-            else:
-                raise Exception('Something is wrong with get_pixel_spectrum...')
-
-        if self.filterIsApplied:
-            if not np.array_equal(self.filterWvlBinEdges, wvlBinEdges):
-                raise ValueError("Synthetic filter wvlBinEdges do not match pixel spectrum wvlBinEdges!")
-            spectrum *= self.filterTrans
-        # if getEffInt is True:
-        return {'spectrum': spectrum, 'wvlBinEdges': wvlBinEdges, 'rawCounts': rawCounts}
+        return {'spectrum': spectrum, 'wvlBinEdges': bin_edges, 'rawCounts': rawCounts}
 
     def get_fits(self, firstSec=None, integrationTime=None, applyWeight=False, applyTPFWeight=False,
                  wvlStart=None, wvlStop=None, countRate=True, cube_type=None,
@@ -981,79 +956,6 @@ class Photontable(object):
                              fits.TableHDU(data=bin_edges, name='CUBE_BINS')])
         hdul['CUBE_BINS'].header['UNIT'] = 'us' if cube_type is 'time' else 'nm'
         return hdul
-
-    def getCircularAperturePhotonList(self, pixel, radius,
-                                      firstSec=0, integrationTime=-1, wvlStart=None,
-                                      wvlStop=None, flags=None):
-        """
-        Retrieves a photon list for the specified circular aperture.
-        For pixels that partially overlap with the region, all photons
-        are included, and the overlap fraction is multiplied into the
-        'NoiseWeight' column.
-
-        Parameters
-        ----------
-        centerXCoord: float
-            x-coordinate of aperture center (pixel units)
-        centerYCoord: float
-            y-coordinate of aperture center (pixel units)
-        radius: float
-            radius of aperture
-        firstSec: float
-            Photon list start time, in seconds relative to beginning of file
-        integrationTime: float
-            Photon list end time, in seconds relative to firstSec.
-            If -1, goes to end of file
-        wvlRange: (float, float)
-            Desired wavelength range of photon list. Must satisfy wvlRange[0] <= wvlRange[1].
-            If None, includes all wavelengths.
-        flags: int
-            Specifies (bitwise) pixel flags that to include in photon list. None is all. For
-            flag definitions see 'h5FileFlags' in Headers/pipelineFlags.py
-
-        Returns
-        -------
-        Dictionary with keys:
-            photonList: numpy structured array
-                Time ordered photon list. Adds resID column to keep track
-                of individual pixels
-            effQE: float
-                Fraction of usable pixel area inside aperture
-            apertureMask: numpy array
-                Image of effective pixel weight inside aperture. "Pixel weight"
-                for now is just the area of overlap w/ aperture, with dead
-                pixels set to 0.
-                :param wvlStart:
-                :param wvlStop:
-
-        """
-        raise RuntimeError('Update this to query all at the same time and fix flags')
-        center = PixCoord(*pixel)
-        apertureRegion = CirclePixelRegion(center, radius)
-        exactApertureMask = apertureRegion.to_mask('exact').data
-        boolApertureMask = exactApertureMask > 0
-        apertureMaskCoords = np.transpose(
-            np.array(np.where(boolApertureMask)))  # valid coordinates within aperture mask
-        photonListCoords = apertureMaskCoords + np.array(
-            [apertureRegion.bounding_box.ixmin, apertureRegion.bounding_box.iymin])  # pixel coordinates in image
-
-        # loop through valid coordinates, grab photon lists and store in photonList
-        photonList = None
-        for i, coords in enumerate(photonListCoords):
-            if coords[0] < 0 or coords[0] >= self.nXPix or coords[1] < 0 or coords[1] >= self.nYPix:
-                exactApertureMask[apertureMaskCoords[i, 0], apertureMaskCoords[i, 1]] = 0
-                continue
-            if flags is not None and not self.flagged(flags, (x, y)):
-                exactApertureMask[apertureMaskCoords[i, 0], apertureMaskCoords[i, 1]] = 0
-                continue
-
-            pixPhotonList = self.query(pixel=coords, startt=firstSec, intt=integrationTime, startw=wvlStart,
-                                       stopw=wvlStop)
-            pixPhotonList['NoiseWeight'] *= exactApertureMask[apertureMaskCoords[i, 0], apertureMaskCoords[i, 1]]
-            photonList = pixPhotonList if photonList is None else np.append(photonList, pixPhotonList)
-
-        photonList = np.sort(photonList, order='Time')
-        return photonList, exactApertureMask
 
     def apply_wavecal(self, solution):
         """
