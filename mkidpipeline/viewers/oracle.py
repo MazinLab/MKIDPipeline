@@ -226,14 +226,13 @@ class subWindow(QMainWindow):
         wvlStop = None if wvlStop == self.maxLambda else wvlStop
 
         if self.apertureOn:
-            d, aperture = self.a.getCircularAperturePhotonList(self.activePixel, radius=self.apertureRadius,
-                                                               firstSec=self.spinbox_startTime.value(),
-                                                               integrationTime=self.spinbox_integrationTime.value(),
-                                                               wvlStart=wvlStart, wvlStop=wvlStop)
-
+            aper = (slice(self.activePixel[0]-self.apertureRadius, self.activePixel[0] + self.apertureRadius+1),
+                    slice(self.activePixel[1] - self.apertureRadius, self.activePixel[1] + self.apertureRadius + 1))
         else:
-            d = self.a.query(pixel=self.activePixel, startt=self.spinbox_startTime.value(),
-                             intt=self.spinbox_integrationTime.value(), startw=wvlStart, stopw=wvlStop)
+            aper = self.activePixel
+
+        d = self.a.query(pixel=aper, startt=self.spinbox_startTime.value(),
+                         intt=self.spinbox_integrationTime.value(), startw=wvlStart, stopw=wvlStop)
 
         return d
 
@@ -361,13 +360,13 @@ class spectrum(subWindow):
 
     def plotData(self):
         self.ax.clear()
-        temp = self.a.get_pixel_spectrum(self.activePixel[0], self.activePixel[1],
+        temp = self.a.get_pixel_spectrum(self.activePixel,
                                          firstSec=self.spinbox_startTime.value(),
                                          integrationTime=self.spinbox_integrationTime.value())
 
         self.spectrum = temp['spectrum']
         self.wvlBinEdges = temp['wvlBinEdges']
-        # self.effIntTime = temp['effIntTime']
+
         self.rawCounts = temp['rawCounts']
 
         self.wvlBinCenters = np.diff(self.wvlBinEdges) / 2 + self.wvlBinEdges[:-1]
