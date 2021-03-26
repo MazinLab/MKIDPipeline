@@ -659,7 +659,7 @@ def maxMRlogL(ts, Ic_guess=1., Is_guess=1., method='Powell'):
     return res
 
 
-def getPixelPhotonList(filename, xCoord, yCoord,**kwargs):
+def getPixelPhotonList(filename, xCoord, yCoord, **kwargs):
     """
     Gets the list of photon arrival times from a H5 file
     
@@ -672,7 +672,7 @@ def getPixelPhotonList(filename, xCoord, yCoord,**kwargs):
         ts - timestamps in us of photon arrival times
     """
     obs = Photontable(filename)
-    times = obs.get_pixel_photonlist((xCoord, yCoord), **kwargs)['Time']
+    times = obs.query(pixel=(xCoord, yCoord), **kwargs)['Time']
     print("#photons: "+str(len(times)))
     del obs  # make sure to close files nicely
     return times

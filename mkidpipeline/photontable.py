@@ -486,7 +486,7 @@ class Photontable(object):
         self._flagArray[y, x] &= ~flag
         self._flagArray.flush()
 
-    def query(self, startw=None, stopw=None, startt=None, stopt=None, resid=None, intt=None):
+    def query(self, startw=None, stopw=None, startt=None, stopt=None, resid=None, intt=None, pixel=None):
         """
         intt takes precedence, all none is the full file
 
@@ -496,15 +496,20 @@ class Photontable(object):
         :param stopw: number or none
         :param startt: number or none
         :param resid: number, list/array or None
+
+        pixel may be used and will be converted to the appropriate resid via the beamamp, resid takes precedence
+        use caution with slices and large numbers of pixels!
+
         :return:
         """
 
-        startt = startt if startt else None  # don't query on 0 its slower
+        if pixel and not resid:
+            resid = tuple(self.beamImage[pixel].ravel())
 
         try:
             startt = int(startt * self.ticksPerSec)  # convert to us
             if startt <= 0:
-                startt = None
+                startt = None  # don't query on 0 its slower
         except TypeError:
             pass
 
@@ -656,10 +661,7 @@ class Photontable(object):
                                   f'ditherPos: {md.dither_home} (conex units -3<x<3), '
                                   f'platescale: {md.platescale} (mas/pix ~10)')
 
-        if isinstance(platescale, u.Quantity):
-            platescale = platescale.to(u.mas)
-        else:
-            platescale = platescale * u.mas
+        platescale = platescale.to(u.mas) if isinstance(platescale, u.Quantity) else platescale * u.mas
 
         # TODO remove this check once the relevant h5 files have been corrected
         # try:
@@ -733,62 +735,6 @@ class Photontable(object):
 
         return obs_wcs_seq
 
-    def get_pixel_photonlist(self, pixel=(None, None), resid=None, firstSec=None, integrationTime=None, wvlStart=None,
-                             wvlStop=None):
-        """
-        Retrieves a photon list at xCoord,yCoord using the attached beammap.
-
-        Parameters
-        ----------
-        xCoord: int or iterable valid to index arrays
-            x-coordinate of pixel in beammap
-        yCoord: int or iterable valid to index arrays
-            y-coordinate index of pixel in beammap
-        resID: int or iterable valid to index arrays, takes precidence over x, y
-        firstSec: float
-            Photon list start time, in seconds relative to beginning of file
-        integrationTime: float
-            Photon list end time, in seconds relative to firstSec.
-            If -1, goes to end of file
-        wvlStart: float
-            Desired start wavelength range (inclusive). Must satisfy wvlStart <= stop.
-            If None, includes all wavelengths less than stop. If file is not wavelength calibrated, this parameter
-            specifies the range of desired phase heights.
-        stop: float
-            Desired stop wavelength range (non-inclusive). Must satisfy wvlStart <= stop.
-            If None, includes all wavelengths greater than wvlStart. If file is not wavelength calibrated, this parameter
-            specifies the range of desired phase heights.
-        forceRawPhase: bool
-            If the Photontable is not wavelength calibrated this flag does nothing.
-            If the Photontable is wavelength calibrated (Photontable.query_header('isWvlCalibrated') = True) then:
-             - forceRawPhase=True will return all the photons in the list (might be phase heights instead of wavelengths)
-             - forceRawPhase=False is guaranteed to only return properly wavelength calibrated photons in the photon list
-
-        Returns
-        -------
-        Structured Numpy Array
-            Each row is a photon.
-            Columns have the following keys: 'Time', 'Wavelength', 'SpecWeight', 'NoiseWeight'
-
-        Time is in microseconds
-        Wavelength is in degrees of phase height or nanometers
-        SpecWeight is a float in [0,1]
-        NoiseWeight is a float in [0,1]
-        :param resid:
-
-        """
-        try:
-            if wvlStop < wvlStart:
-                raise ValueError('Invalid wavelength range')
-        except TypeError:
-            pass
-        if firstSec is not None and firstSec > self.duration:
-            raise ValueError('Start time not in file.')
-
-        resid = self.beamImage[pixel] if resid is None else resid
-
-        return self.query(startw=wvlStart, stopw=wvlStop, startt=firstSec, resid=resid, intt=None)
-
     def get_pixel_spectrum(self, xCoord, yCoord, firstSec=0, integrationTime=-1,
                            applyWeight=False, applyTPFWeight=False, wvlStart=None, wvlStop=None,
                            wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None):
@@ -845,7 +791,7 @@ class Photontable(object):
         """
         #TODO
 
-        photonList = self.get_pixel_photonlist((xCoord, yCoord), firstSec=firstSec, integrationTime=integrationTime)
+        photonList = self.query(pixel=(xCoord, yCoord), startt=firstSec, intt=integrationTime)
 
         wvlStart = wvlStart if wvlStart is not None and wvlStart > 0. else (
             self.wvlLowerLimit if (self.wvlLowerLimit is not None and self.wvlLowerLimit > 0.) else 700)
@@ -1036,7 +982,7 @@ class Photontable(object):
         hdul['CUBE_BINS'].header['UNIT'] = 'us' if cube_type is 'time' else 'nm'
         return hdul
 
-    def getCircularAperturePhotonList(self, centerXCoord, centerYCoord, radius,
+    def getCircularAperturePhotonList(self, pixel, radius,
                                       firstSec=0, integrationTime=-1, wvlStart=None,
                                       wvlStop=None, flags=None):
         """
@@ -1082,7 +1028,7 @@ class Photontable(object):
 
         """
         raise RuntimeError('Update this to query all at the same time and fix flags')
-        center = PixCoord(centerXCoord, centerYCoord)
+        center = PixCoord(*pixel)
         apertureRegion = CirclePixelRegion(center, radius)
         exactApertureMask = apertureRegion.to_mask('exact').data
         boolApertureMask = exactApertureMask > 0
@@ -1101,13 +1047,10 @@ class Photontable(object):
                 exactApertureMask[apertureMaskCoords[i, 0], apertureMaskCoords[i, 1]] = 0
                 continue
 
-            pixPhotonList = self.get_pixel_photonlist(pixel=coords, firstSec=firstSec, integrationTime=integrationTime,
-                                                      wvlStart=wvlStart, wvlStop=wvlStop)
+            pixPhotonList = self.query(pixel=coords, startt=firstSec, intt=integrationTime, startw=wvlStart,
+                                       stopw=wvlStop)
             pixPhotonList['NoiseWeight'] *= exactApertureMask[apertureMaskCoords[i, 0], apertureMaskCoords[i, 1]]
-            if photonList is None:
-                photonList = pixPhotonList
-            else:
-                photonList = np.append(photonList, pixPhotonList)
+            photonList = pixPhotonList if photonList is None else np.append(photonList, pixPhotonList)
 
         photonList = np.sort(photonList, order='Time')
         return photonList, exactApertureMask
@@ -1597,7 +1540,7 @@ class Photontable(object):
         for pixel, resID in np.ndenumerate(self.beamImage):
             if self.flagged(pixelflags.PROBLEM_FLAGS, pixel):
                 continue
-            photon_list = self.get_pixel_photonlist(pixel=pixel)
+            photon_list = self.query(pixel=pixel)
             time_stamps = photon_list['Time']
             weights = lincal.calculate_weights(time_stamps, dt, tau, pixel=pixel)
             self.applySpecWeight(resID, weights)
@@ -1631,7 +1574,7 @@ class Photontable(object):
         for pixel, resID in np.ndenumerate(self.beamImage):
             if self.flagged(pixelflags.PROBLEM_FLAGS, pixel):
                 continue
-            photon_list = self.get_pixel_photonlist(pixel=pixel)
+            photon_list = self.query(pixel=pixel)
             weight_arr = func(photon_list['Wavelength'])
             self._apply_column_weight(resID, weight_arr, 'SpecWeight')
 

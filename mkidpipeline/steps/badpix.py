@@ -439,7 +439,7 @@ def hpm_poisson_dist(obsfile):
     raise NotImplementedError
 
     stop_time = float(obsfile.duration)
-    times = obsfile.get_pixel_photonlist((xpix,ypix))
+    times = obsfile.query(pixel=(xpix, ypix))
     times = times['Time']
     lc = getLightCurve(times, startTime=0, stopTime=stop_time * 10e6, effExpTime=1000000)
     lc0 = lc[0]
