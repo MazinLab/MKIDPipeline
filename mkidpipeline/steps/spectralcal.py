@@ -294,10 +294,8 @@ class SpectralCalibrator:
         else:
             cube = []
             if self.wvl_bin_edges is None:
-                ref_obs = self.obs[0].get_fits(cube_type='wave', integrationTime=self.cfg.intTimes[0], applyWeight=True,
-                                               wvlStart=self.cfg.wvlStart/10, wvlStop=self.cfg.wvlStop/10,
-                                               countRate=False, bin_width=self.cfg.energyBinWidth, bin_type='energy')
-                self.wvl_bin_edges = ref_obs['CUBE_BINS'].data * 10
+                self.wvl_bin_edges = self.obs[0].wavelength_bins(width=self.cfg.energyBinWidth, start=self.cfg.wvlStart,
+                                                                 stop=self.cfg.wvlStop)
             for wvl in range(len(self.wvl_bin_edges) - 1):
                 getLogger(__name__).info('using wavelength range {} - {}'.format(self.wvl_bin_edges[wvl] / 10,
                                                             self.wvl_bin_edges[wvl + 1] / 10))
