@@ -15,17 +15,19 @@ from mkidcore.config import yaml, yaml_object
 import mkidcore.utils
 from mkidcore.objects import Beammap
 
-from photontable import Photontable
+from mkidpipeline.photontable import Photontable
 import mkidpipeline.config
 
 _datadircache = {}
+
+PHOTON_BIN_SIZE_BYTES = 8
 
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!hdf_cfg'
     REQUIRED_KEYS = (('remake', False, 'Remake H5 even if they exist'),
                      ('include_baseline', False, 'Include the baseline in H5 phase/wavelength column'))
-    OPTIONAL_KEYS = (('chunkshape', None, 'HDF5 Chunkshape to use'),)  #nb propagates to kwargs of build_pytables
+    OPTIONAL_KEYS = (('chunkshape', None, 'HDF5 Chunkshape to use'),)  # nb propagates to kwargs of build_pytables
 
 
 mkidcore.config.yaml.register_class(StepConfig)
@@ -35,7 +37,7 @@ def _get_dir_for_start(base, start):
     global _datadircache
 
     if not base.endswith(os.path.sep):
-        base = base+os.path.sep
+        base = base + os.path.sep
 
     try:
         nmin = _datadircache[base]
@@ -59,11 +61,11 @@ def _get_dir_for_start(base, start):
 
 
 def estimate_ram_gb(directory, start, inttime):
-    PHOTON_BIN_SIZE_BYTES = 8
-    files = [os.path.join(directory, '{}.bin'.format(t)) for t in range(int(start-1), int(np.ceil(start)+inttime+1))]
+    files = [os.path.join(directory, '{}.bin'.format(t)) for t in
+             range(int(start - 1), int(np.ceil(start) + inttime + 1))]
     files = filter(os.path.exists, files)
-    n_max_photons = int(np.ceil(sum([os.stat(f).st_size for f in files])/PHOTON_BIN_SIZE_BYTES))
-    return n_max_photons*PHOTON_BIN_SIZE_BYTES/1024**3
+    n_max_photons = int(np.ceil(sum([os.stat(f).st_size for f in files]) / PHOTON_BIN_SIZE_BYTES))
+    return n_max_photons * PHOTON_BIN_SIZE_BYTES / 1024 ** 3
 
 
 def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250, shuffle=True, bitshuffle=False,
@@ -76,21 +78,21 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
 
     def free_ram_gb():
         mem = psutil.virtual_memory()
-        return (mem.free+mem.cached)/1024**3
+        return (mem.free + mem.cached) / 1024 ** 3
 
     ram_est_gb = estimate_ram_gb(cfg.datadir, cfg.starttime, cfg.inttime) + 2  # add some headroom
-    if free_ram_gb()<ram_est_gb:
+    if free_ram_gb() < ram_est_gb:
         msg = 'Insufficint free RAM to build {}, {:.1f} vs. {:.1f} GB.'
         getLogger(__name__).warning(msg.format(cfg.h5file, free_ram_gb(), ram_est_gb))
         if wait_for_ram:
             getLogger(__name__).info('Waiting up to {} s for enough RAM'.format(wait_for_ram))
-            while wait_for_ram and free_ram_gb()<ram_est_gb:
-                sleeptime = np.random.uniform(1,2)
+            while wait_for_ram and free_ram_gb() < ram_est_gb:
+                sleeptime = np.random.uniform(1, 2)
                 time.sleep(sleeptime)
-                wait_for_ram-=sleeptime
+                wait_for_ram -= sleeptime
                 if wait_for_ram % 30:
                     getLogger(__name__).info('Still waiting (up to {} s) for enough RAM'.format(wait_for_ram))
-    if free_ram_gb()<ram_est_gb:
+    if free_ram_gb() < ram_est_gb:
         getLogger(__name__).error('Aborting build due to insufficient RAM.')
         return
 
@@ -174,7 +176,6 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
 
     headerContents.append()
     getLogger(__name__).debug('Header Attached to {}'.format(cfg.h5file))
-
 
     h5file.close()
     getLogger(__name__).debug('Done with {}'.format(cfg.h5file))
@@ -408,7 +409,7 @@ class HDFBuilder(object):
         tic = time.time()
         build_pytables(self.cfg, **self.kwargs)
         self.done = True
-        getLogger(__name__).info('Created {} in {:.0f}s'.format(self.cfg.h5file, time.time()-tic))
+        getLogger(__name__).info('Created {} in {:.0f}s'.format(self.cfg.h5file, time.time() - tic))
 
 
 def runbuilder(b):

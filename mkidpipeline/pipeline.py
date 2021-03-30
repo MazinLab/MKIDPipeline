@@ -2,7 +2,6 @@ from importlib import import_module
 import pkgutil
 import multiprocessing as mp
 import time
-import os
 
 from mkidcore.config import getLogger
 import mkidpipeline
@@ -10,7 +9,7 @@ import mkidpipeline.photontable as photontable
 import mkidpipeline.config as config
 import mkidpipeline.steps
 from mkidpipeline.steps import wavecal
-import mkidpipeline.bin2hdf
+import mkidpipeline.steps.buildhdf
 import mkidpipeline.imaging.movies
 
 import mkidcore.config
@@ -148,12 +147,14 @@ def batch_apply_linearitycal(dset, ncpu=None):
     pool.close()
 
 
-def batch_build_hdf(timeranges):
-    mkidpipeline.bin2hdf.buildtables(timeranges, ncpu=ncpu, remake=False)
+def batch_build_hdf(timeranges, ncpu=None):
+    """will also accept an opject with a .timeranges (e.g. a dataset)"""
+    ncpu = ncpu if ncpu is not None else config.n_cpus_available()
+    steps.buildhdf.buildtables(timeranges, ncpu=ncpu, remake=False)
 
 
 def run_stage1(dataset):
-    operations = (('Building H5s', mkidpipeline.bin2hdf.buildtables),
+    operations = (('Building H5s', steps.buildhdf.buildtables),
                   ('Attaching metadata', batch_apply_metadata),
                   ('Fetching wavecals', mkidpipeline.steps.wavecal.fetch),
                   ('Applying wavelength solutions', batch_apply_wavecals),

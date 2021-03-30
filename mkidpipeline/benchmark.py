@@ -6,7 +6,7 @@ os.environ["TMPDIR"] = '/scratch/tmp/'
 import tables.index
 tables.index.profile = True
 
-import mkidpipeline.bin2hdf as bin2hdf
+import mkidpipeline.steps.buildhdf as bin2hdf
 import mkidpipeline.steps.wavecal as wavecal
 import mkidpipeline.steps.flatcal as flatcal
 import mkidpipeline.config
