@@ -108,6 +108,7 @@ def spectralcal_id(spectralreference_id, spectralcal_cfg=None):
     config_hash = hashlib.md5(str(spectralcal_cfg).encode()).hexdigest()
     return 'spectralcal_{}_{}'.format(spectralreference_id, config_hash[-8:])
 
+
 def flatcal_id(flat_id, flat_cfg=None):
     """
     Compute a spectralcal id string from a spectraldata id string and either the active or a specified spectralcal config
@@ -160,9 +161,12 @@ def make_paths(config=None, output_dirs=tuple()):
 
 
 class H5Subset:
-    def __init__(self, timerange, duration=None, start=None):
+    def __init__(self, timerange, duration=None, start=None, relative=False):
+        """if relative the start is taken as an offset relative to the timerange"""
         self.timerange = timerange
         self.h5start = int(timerange.start)
+        if relative and start is not None:
+            start = float(start)+float(self.h5start)
         self.start = float(self.h5start) if start is None else float(start)
         self.duration = timerange.duration if duration is None else float(duration)
 
@@ -182,8 +186,10 @@ class H5Subset:
 class MKIDTimerange(object):
     yaml_tag = u'!ob'
 
-    def __init__(self, name, start, duration=None, stop=None, _common=None, background=None):
+    def __init__(self, name, start, duration=None, stop=None, _common=None, dark=None):
+        """if spcified dark should be an MKIDTimerange """
 
+        self._common = _common
         if _common is not None:
             self.__dict__.update(_common)
 
@@ -205,7 +211,7 @@ class MKIDTimerange(object):
             raise ValueError('Stop ({}) must come after start ({})'.format(self.stop,self.start))
 
         self.name = str(name)
-        self.background = str(background)
+        self.dark = dark
 
     def __str__(self):
         return '{} t={}:{}s'.format(self.name, self.start, self.duration)
@@ -228,13 +234,13 @@ class MKIDTimerange(object):
 
     @classmethod
     def from_yaml(cls, loader, node):
-        d = dict(loader.construct_pairs(node))  #WTH this one line took half a day to get right
+        d = dict(loader.construct_pairs(node, deep=True))  #WTH this one line took half a day to get right
         name = d.pop('name')
         start = d.pop('start', None)
         stop = d.pop('stop', None)
         duration = d.pop('duration', None)
-        background = d.pop('background', None)
-        return cls(name, start, duration=duration, stop=stop, background=background, _common=d)
+        dark = d.pop('dark', None)
+        return cls(name, start, duration=duration, stop=stop, dark=dark, _common=d)
 
     @property
     def timerange(self):
@@ -248,14 +254,20 @@ class MKIDTimerange(object):
     def h5(self):
         return h5_for_MKIDodd(self)
 
+    @property
+    def photontable(self):
+        """Convenience method for a photontable, file must exist, creates a new photon table on every call"""
+        from photontable import Photontable
+        return Photontable(self.h5)
+
 
 class MKIDObservation(MKIDTimerange):
     """requires keys name, wavecal, flatcal, wcscal, and all the things from ob"""
     yaml_tag = u'!sob'
 
     def __init__(self, name, start, duration=None, stop=None, wavecal=None, flatcal=None, speccal=None, wcscal=None,
-                 background=None, _common=None):
-        super().__init__(name, start, duration=duration, stop=stop, _common=_common, background=background)
+                 dark=None, _common=None):
+        super().__init__(name, start, duration=duration, stop=stop, _common=_common, dark=dark)
         self.wavecal = wavecal
         self.flatcal = flatcal
         self.wcscal = wcscal
@@ -288,6 +300,7 @@ class MKIDObservation(MKIDTimerange):
             sc = spectralcal_id(self.speccal.id)
         except AttributeError:
             sc = 'None'
+        #TODO make this play nice with fits headers and the like
         d2 = dict(wavecal=wc, flatcal=fc, speccal=sc, platescale=self.wcscal.platescale,
                   dither_ref=self.wcscal.dither_ref, dither_home=self.wcscal.dither_home,
                   device_orientation=self.wcscal.device_orientation)
@@ -299,39 +312,31 @@ class MKIDWavedataDescription(object):
     """requires keys name and data"""
     yaml_tag = u'!wc'
 
-    def __init__(self, name, data, backgrounds=tuple(), _common=None):
-        """
-        backgrounds is an optional iterable of background !ob
-        """
+    def __init__(self, name, data, _common=None):
         if _common is not None:
             self.__dict__.update(_common)
-
         self.name = name
         self.data = data
-        self._background_ob = backgrounds
-        self.backgrounds = {}
-        for wave, ob in zip(self.wavelengths, self.data):
-            for bg in backgrounds:
-                if bg.name == ob.background:
-                    self.backgrounds[wave] = bg.h5
+
+    @property
+    def darks(self):
+        return {w: ob.dark for w, ob in zip(self.wavelengths, self.data)}
 
     @classmethod
     def from_yaml(cls, loader, node):
         d = dict(loader.construct_pairs(node, deep=True))  #WTH this one line took half a day to get right
         name = d.pop('name')
         data = list(d.pop('data'))
-        try:
-            backgrounds = tuple(d.pop('backgrounds', tuple()))
-        except TypeError:
-            backgrounds = tuple()
-        return cls(name, data, backgrounds=backgrounds, _common=d)
+        return cls(name, data, _common=d)
 
     @property
     def timeranges(self):
         for o in self.data:
             yield o.timerange
-        for o in self._background_ob:
-            yield o.timerange
+            try:
+                yield o.dark.timerange
+            except TypeError:
+                pass
 
     @property
     def wavelengths(self):
@@ -355,14 +360,24 @@ class MKIDFlatdataDescription(object):
     """attributes name and either ob or wavecal"""
     yaml_tag = u'!fc'
 
-    def __init__(self, name, ob=None, wavecal=None, dark=None, _common=None):
+    def __init__(self, name, ob=None, wavecal=None, wavecal_offset=1, wavecal_duration=None, _common=None):
         if _common is not None:
             self.__dict__.update(_common)
+
+        if ob is None and wavecal is None:
+            raise ValueError('Must specify at least an ob or a wavecal')
+
+        if wavecal_offset < 1:
+            raise ValueError('Wavecal offset mut be at least 1s')
+        if ob is not None:
+            wavecal_offset = None
+            wavecal_duration = None
 
         self.name = name
         self.ob = ob
         self.wavecal = wavecal
-        self.darks = (dark,) if isinstance(dark, MKIDTimerange) else dark
+        self.wavecal_offset = wavecal_offset
+        self.wavecal_duration = wavecal_duration
 
     @property
     def method(self):
@@ -377,34 +392,46 @@ class MKIDFlatdataDescription(object):
 
     @property
     def h5s(self):
-        h5s = {w: H5Subset(x)
-               for w, x in zip(self.wavecal.wavelengths, self.wavecal.data)}
+        h5s = {w: ob for w, ob in zip(self.wavecal.wavelengths, self.obs)}
         return h5s
 
     @property
-    def path(self):
-        # TODO flat data doesn't really have a path, its the flatcal that has a phath
-        return os.path.join(config.paths.database, self.id)
+    def obs(self):
+        if self.ob is not None:
+            yield self.ob
+        else:
+            for ob in self.wavecal.data:
+                o = MKIDTimerange(f'{self.name}_{ob.name}', ob.start + self.wavecal_offset,
+                                  duration=min(self.wavecal_duration, ob.duration - self.wavecal_offset),
+                                  _common=ob._common, dark=ob.dark)
+                yield o
 
     @property
-    def timerange(self):
-        return self.ob.timerange if self.ob is not None else None
+    def path(self):
+        return os.path.join(config.paths.database, flatcal_id(self.id)+'.npz')
 
     @property
     def timeranges(self):
-        return (self.timerange, ) if self.timerange else tuple()
+        """Returns the timerages of the data and any darks the obs might specify"""
+        for o in self.obs:
+            yield o.timerange
+            try:
+                yield o.dark.timerange
+            except TypeError:
+                pass
 
     def __str__(self):
         return '{}: {}'.format(self.name, self.ob if self.ob is not None else self.wavecal)
 
     @classmethod
     def from_yaml(cls, loader, node):
-        d = dict(loader.construct_pairs(node))  #WTH this one line took half a day to get right
+        d = dict(loader.construct_pairs(node))
         name = d.pop('name')
         ob = d.pop('ob', None)
         wavecal = d.pop('wavecal', None)
-        dark = d.pop('dark', None)
-        return cls(name, ob=ob, wavecal=wavecal, dark=dark, _common=d)
+        duration = d.pop('duration', None)
+        offset = d.pop('offset', 1)
+        return cls(name, ob=ob, wavecal=wavecal, wavecal_duration=duration, wavecal_offset=offset, _common=d)
 
 
 class MKIDSpectralReference(object):

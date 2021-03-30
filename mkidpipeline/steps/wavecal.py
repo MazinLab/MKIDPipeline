@@ -76,12 +76,12 @@ class Configuration(object):
     yaml_tag = u'!wavecalconfig'
 
     def __init__(self, configfile=None, h5s=tuple(), wavelengths=tuple(),
-                 backgrounds=None, beammap=None, outdir='',
+                 darks=None, beammap=None, outdir='',
                  histogram_model_names=('GaussianAndExponential',), bin_width=2, histogram_fit_attempts=3,
                  calibration_model_names=('Quadratic', 'Linear'), dt=500, parallel=True, parallel_prefetch=False,
                  summary_plot=True, templarfile='', max_count_rate=2000):
-        """ backgrounds should be a dict with fully qualified h5 paths to background files. wavelengths are keys.
-        missing backgrounds are fine """
+        """ darks should be a dict with fully qualified h5 paths to background files. wavelengths are keys.
+        missing darks are fine """
 
         self.max_count_rate = max_count_rate
 
@@ -90,7 +90,7 @@ class Configuration(object):
         self.out_directory = outdir
         self.wavelengths = list(map(float, wavelengths))
 
-        self.backgrounds = {} if backgrounds is None else backgrounds
+        self.darks = {} if darks is None else darks
 
         # Things with defaults
         self.histogram_model_names = list(histogram_model_names)
@@ -253,9 +253,9 @@ class Calibrator(object):
             self._shared_tables = {w: photontable.load_shareable_photonlist(f)
                                    for w, f in self.cfg.h5_file_names.items()}
             for w in self._shared_tables:
-                if w in self.cfg.backgrounds:
+                if self.cfg.darks.get(w, None) is not None:
                     self._shared_tables[w] = (self._shared_tables[w],
-                                              photontable.load_shareable_photonlist(self.cfg.backgrounds[w]))
+                                              photontable.load_shareable_photonlist(self.cfg.darks[w].h5))
                 else:
                     self._shared_tables[w] = (self._shared_tables[w], None)
 
@@ -288,7 +288,10 @@ class Calibrator(object):
         try:
             return self._obsfiles[key]
         except KeyError:
-            file = self.cfg.backgrounds.get(wavelength, None) if background else self.cfg.h5_file_names[wavelength]
+            try:
+                file = self.cfg.darks[wavelength].h5 if background else self.cfg.h5_file_names[wavelength]
+            except (KeyError, TypeError):
+                file = None
             self._obsfiles[key] = photontable.Photontable(file) if file else None
         return self._obsfiles[key]
 
@@ -2686,7 +2689,7 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
                 wcfg.update('ncpu', ncpu)
 
             cfg = Configuration(wcfg, h5s=[x.h5 for x in sd.data], wavelengths=[w for w in sd.wavelengths],
-                                backgrounds=sd.backgrounds)
+                                darks=sd.darks)
             cal = Calibrator(cfg, solution_name=sf)
             cal.run(**kwargs)
             solutions.append(cal.solution)
