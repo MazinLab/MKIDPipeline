@@ -99,8 +99,8 @@ def _make_movie(h5file, outfile, timestep, duration, title='', usewcs=False, sta
     except Exception:
         getLogger(__name__).info('Fetching temporal cube from {}'.format(h5file))
         of = photontable.Photontable(h5file)
-        hdul = of.get_fits(firstSec=startt, integrationTime=stopt, bin_width=timestep, wvlStart=startw,
-                           wvlStop=stopw, applyWeight=True, applyTPFWeight=True, cube_type='time', countRate=False)
+        hdul = of.get_fits(start=startt, duration=stopt, bin_width=timestep, wave_start=startw,
+                           wave_stop=stopw, spec_weight=True, noise_weight=True, cube_type='time', rate=False)
         wcs = WCS(hdul[0].header) if usewcs else None
         cube = hdul['SCIENCE'].data
         del of
@@ -203,7 +203,7 @@ def test_writers(out='garbage.gif',showaxes=False, fps=5):
 # of = Photontable('/scratch/steiger/MEC/DeltaAnd/output/1567930101.h5')
 # # 1567930101, 1567931601
 # cube = of.getTemporalCube(None, 10, timeslice=.1, startw=None, stopw=None,
-#                           applyWeight=True, applyTPFWeight=True)
+#                           spec_weight=True, noise_weight=True)
 # # cube,times=cube['cube'],cube['timeslices'][:-1]
 # import mkidpipeline.imaging.movies import _make_movie
 if __name__ == '__main__':

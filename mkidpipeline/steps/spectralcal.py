@@ -286,8 +286,8 @@ class SpectralCalibrator:
          """
         getLogger(__name__).info('performing {} photometry on MEC spectrum'.format(self.cfg.photometry))
         if len(self.obs) == 1:
-            hdul = self.obs[0].get_fits(integrationTime=self.cfg.intTimes[0], applyWeight=True, countRate=True,
-                                        wvlStart=self.cfg.wvlStart/10, wvlStop=self.cfg.wvlStop/10,
+            hdul = self.obs[0].get_fits(duration=self.cfg.intTimes[0], spec_weight=True, rate=True,
+                                        wave_start=self.cfg.wvlStart / 10, wave_stop=self.cfg.wvlStop / 10,
                                         cube_type='wave', bin_width=self.cfg.energyBinWidth, bin_type='energy')
             cube = np.array(hdul['SCIENCE'].data, dtype=np.double)
             self.wvl_bin_edges = hdul['CUBE_BINS'].data * 10  # get this into units of Angstroms
@@ -296,9 +296,10 @@ class SpectralCalibrator:
             if self.wvl_bin_edges is None:
                 self.wvl_bin_edges = self.obs[0].wavelength_bins(width=self.cfg.energyBinWidth, start=self.cfg.wvlStart,
                                                                  stop=self.cfg.wvlStop)
+
             for wvl in range(len(self.wvl_bin_edges) - 1):
                 getLogger(__name__).info('using wavelength range {} - {}'.format(self.wvl_bin_edges[wvl] / 10,
-                                                            self.wvl_bin_edges[wvl + 1] / 10))
+                                                                                 self.wvl_bin_edges[wvl + 1] / 10))
                 drizzled = form_drizzle(self.data, mode='spatial', wvlMin=self.wvl_bin_edges[wvl] / 10,
                                         wvlMax=self.wvl_bin_edges[wvl + 1] / 10, pixfrac=0.5, wcs_timestep=1,
                                         exp_timestep=1, exclude_flags=pixelflags.PROBLEM_FLAGS, usecache=False, ncpu=1,

@@ -52,12 +52,12 @@ def pipe_time():
     bin2hdf.buildtables(dataset.timeranges, ncpu=7, remake=False, timesort=False)
 
     of = photontable.Photontable(pcfg.paths.out + '/1545542463.h5')
-    q1=of.query(startt=1, stopt=5)
+    q1=of.query(start=1, stopt=5)
     tic=time.time()
     of.photonTable.read()
     print(time.time()-tic)
     ofraid = photontable.Photontable('/mnt/data0/baileyji/mec/out/1545542463.h5')
-    q1=ofraid.query(startt=1, stopt=5)
+    q1=ofraid.query(start=1, stopt=5)
     tic=time.time()
     ofraid.photonTable.read()
     print(time.time()-tic)
@@ -73,7 +73,7 @@ def tsectest(f):
     of = Photontable(f)
     # p=LineProfiler(of.photonTable._where)
     # p.enable()
-    of.query(startt=0, intt=30)
+    of.query(start=0, intt=30)
 
     #All the time is in the tables.tableextension.Row iterator returned by table._where,
     # p.disable()
@@ -92,13 +92,13 @@ tsectest('/scratch/baileyji/mec/out/1545544477_slowtest.h5')
 # mkidpipeline.config.logtoconsole()
 # f='/mnt/data0/isabel/highcontrastimaging/Jan2019Run/20190112/Trapezium/trap_ditherwavecalib/1547374834.h5'
 # obsfile = Photontable(f)
-# obsfile.getPixelCountImage(firstSec=0, integrationTime=30, applyWeight=True, applyTPFWeight=True, scaleByEffInt=False)
+# obsfile.get_fits(start=0, duration=30, spec_weight=True, noise_weight=True, scaleByEffInt=False)
 # #2019-02-15 16:54:41,351 DEBUG Feteched 27438555/27438555 rows in 111.714s using indices ('Time',) for query (Time < stopt)
 #
 #
 # f='/scratch/baileyji/mec/out/1545545212_slowtest.h5'
 # obsfile = Photontable(f,mode='w')
-# obsfile.getPixelCountImage(firstSec=0, integrationTime=30, applyWeight=True, applyTPFWeight=True, scaleByEffInt=False)
+# obsfile.get_fits(start=0, duration=30, spec_weight=True, noise_weight=True, scaleByEffInt=False)
 # #2019-02-15 17:13:18,137 DEBUG Feteched 34003232/72271775 rows in 863.709s using indices ('Time',) for query (Time < stopt)
 #
 # obsfile.photonTable.autoindex=0
@@ -110,7 +110,7 @@ tsectest('/scratch/baileyji/mec/out/1545544477_slowtest.h5')
 #
 # f='/scratch/baileyji/mec/out/1545544477_slowtest.h5'
 # obsfile = Photontable(f,mode='w')
-# obsfile.getPixelCountImage(firstSec=0, integrationTime=30, applyWeight=True, applyTPFWeight=True, scaleByEffInt=False)
+# obsfile.get_fits(start=0, duration=30, spec_weight=True, noise_weight=True, scaleByEffInt=False)
 # #2019-02-15 16:58:02,389 DEBUG Feteched 33126732/70860428 rows in 15.331s using indices () for query (Time < stopt)
 # #obsfile.photonTable.cols._g_col('Time').index shows dirty
 # obsfile.photonTable.reindex_dirty()

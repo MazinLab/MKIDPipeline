@@ -7,41 +7,6 @@ Authors: Seth Meeker, Neelay Fruitwala, Alex Walter
 The class Photontable is an interface to observation files.  It provides methods
 for typical ways of accessing photon list observation data.  It can also load 
 and apply wavelength and flat calibration.  
-
-
-Class Obsfile:
-====Helper functions====
-__init__(self,filename,mode='read',verbose=False)
-__del__(self)
-_load_file(self, filename)
-query_header(self, name)
-pixelIsBad(self, xCoord, yCoord, forceWvl=False, forceWeights=False, forceTPFWeights=False)
-
-====Single pixel access functions====
-get_pixel_photonlist(self, xCoord, yCoord, firstSec=0, integrationTime= -1, wvlStart=None,wvlStop=None, forceRawPhase=False)
-getListOfPixelsPhotonList(self, posList, **kwargs)
-getPixelCount(self, *args, applyWeight=True, applyTPFWeight=True, applyTimeMask=False, **kwargs)
-getPixelLightCurve(self,*args,lastSec=-1, cadence=1, scaleByEffInt=True, **kwargs)
-
-====Array access functions====
-!!!!These functions need some work!!!!
-!!!!They aren't robust to edge cases yet!!!!
-getPixelCountImage(self, firstSec=0, integrationTime= -1, wvlStart=None,wvlStop=None,applyWeight=True, applyTPFWeight=True, applyTimeMask=False, scaleByEffInt=False, flagToUse=0)
-getCircularAperturePhotonList(self, centerXCoord, centerYCoord, radius, firstSec=0, integrationTime=-1, wvlStart=None,wvlStop=None, flagToUse=0)
-_makePixelSpectrum(self, photonList, **kwargs)
-getSpectralCube(self, firstSec=0, integrationTime=-1, applyWeight=False, applyTPFWeight=False, wvlStart=700, wvlStop=1500,wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None, timeSpacingCut=None, flagToUse=0)
-get_pixel_spectrum(self, xCoord, yCoord, firstSec=0, integrationTime= -1,applyWeight=False, applyTPFWeight=False, wvlStart=None, wvlStop=None,wvlBinWidth=None, energyBinWidth=None, wvlBinEdges=None,timeSpacingCut=None)
-wavelength_bins(energy_width=.1, start=700, stop=1500)
-
-====Data write functions for calibrating====
-apply_wavecal(self, file_name)
-updateWavelengths(self, wvlCalArr, xCoord=None, yCoord=None, resid=None)
-_apply_column_weight(self, resID, weightArr, colName)
-applySpecWeight(self, resID, weightArr)
-applyTPFWeight(self, resID, weightArr)
-apply_flatcal(self, calSolnPath,verbose=False)
-undoFlag(self, xCoord, yCoord, flag)
-update_header(self, headerTitle, headerValue)
 """
 from __future__ import print_function
 import os
@@ -79,7 +44,7 @@ from astroplan import Observer
 import astropy.units as u
 
 
-#These are little better than blind guesses and don't seem to impact performaace, but still need benchmarking
+# These are little better than blind guesses and don't seem to impact performaace, but still need benchmarking
 # tables.parameters.CHUNK_CACHE_SIZE = 2 * 1024 * 1024 * 1024
 # tables.parameters.TABLE_MAX_SIZE = 2 * 1024 * 1024 * 1024  # default 1MB
 # This governs the chunk cache that will store table data, if a row is
@@ -152,6 +117,7 @@ tables.file._open_files = ThreadsafeFileRegistry()
 
 class SharedTable(object):
     """multiprocessingsafe shared photon table, readonly!!!!"""
+
     def __init__(self, shape):
         self._shape = shape
         self._X = mp.RawArray(PhotonCType, int(np.prod(shape)))
@@ -168,19 +134,20 @@ class SharedTable(object):
 
 
 def load_shareable_photonlist(file):
-    #TODO Add arguments to pass through a query
+    # TODO Add arguments to pass through a query
     tic = time.time()
     f = Photontable(file)
     table = SharedTable(f.photonTable.shape)
     f.photonTable.read(out=table.data)
-    ram = table.data.size*table.data.itemsize/1024/1024/1024.0
+    ram = table.data.size * table.data.itemsize / 1024 / 1024 / 1024.0
     msg = 'Created a shared table with {size} rows from {file} in {time:.2f} s, using {ram:.2f} GB'
-    getLogger(__name__).info(msg.format(file=file, size=f.photonTable.shape[0], time=time.time()-tic, ram=ram))
+    getLogger(__name__).info(msg.format(file=file, size=f.photonTable.shape[0], time=time.time() - tic, ram=ram))
     return table
 
 
 class SharedPhotonList(object):
     """multiprocessingsafe shared photon table, readonly!!!!"""
+
     def __init__(self, file):
 
         file = os.path.abspath(file)
@@ -215,7 +182,7 @@ class SharedPhotonList(object):
 
     def __del__(self):
         if self._primary:
-            getLogger(__name__).debug('Deleting '+self._name)
+            getLogger(__name__).debug('Deleting ' + self._name)
             SharedArray.delete("shm://{}".format(self._name))
 
 
@@ -268,7 +235,7 @@ class Photontable(object):
             pass
 
     def __str__(self):
-        return 'Photontable: '+self.filename
+        return 'Photontable: ' + self.filename
 
     def _load_file(self, file):
         """ Opens file and loads obs file attributes and beammap """
@@ -292,35 +259,101 @@ class Photontable(object):
         self.nXPix, self.nYPix = self.beamImage.shape
         self.photonTable = self.file.get_node('/Photons/PhotonTable')
 
-    def _apply_column_weight(self, resID, weightArr, colName):
+    def _apply_column_weight(self, resid, weights, column):
         """
         Applies a weight calibration to the column specified by colName.
 
         Parameters
         ----------
-        resID: int
+        resid: int
             resID of desired pixel
-        weightArr: array of floats
-            Array of cal weights. Multiplied into the "SpecWeight" column.
-        colName: string
+        weights: array of floats
+            Array of cal weights. Multiplied into the specified column column.
+        column: string
             Name of weight column. Should be either 'SpecWeight' or 'NoiseWeight'
         """
         if self.mode != 'write':
             raise Exception("Must open file in write mode to do this!")
 
-        if colName not in ('SpecWeight' or 'NoiseWeight'):
-            raise ValueError(f"{colName} is not 'SpecWeight' or 'NoiseWeight'")
+        if column not in ('SpecWeight' or 'NoiseWeight'):
+            raise ValueError(f"{column} is not 'SpecWeight' or 'NoiseWeight'")
 
-        indices = self.photonTable.get_where_list('ResID==resID')
+        indices = self.photonTable.get_where_list('ResID==resid')
 
         if not (np.diff(indices) == 1).all():
             raise NotImplementedError('Table is not sorted by Res ID!')
-        if len(indices) != len(weightArr):
-            raise ValueError('weightArr length does not match length of photon list for resID!')
 
-        newWeights = self.query(resid=resID)['SpecWeight'] * np.asarray(weightArr)
-        self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=newWeights, colname=colName)
+        if len(indices) != len(weights):
+            raise ValueError('weights length does not match length of photon list for resID!')
+
+        new = self.query(resid=resid)[column] * np.asarray(weights)
+        self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=new, colname=column)
         self.photonTable.flush()
+
+    def _update_extensible_header_store(self, extensible_header):
+        if not isinstance(extensible_header, dict):
+            raise TypeError('extensible_header must be of type dict')
+        out = StringIO()
+        yaml.dump(extensible_header, out)
+        emdstr = out.getvalue().encode()
+        if len(emdstr) > METADATA_BLOCK_BYTES:  # this should match mkidcore.headers.ObsHeader.metadata
+            raise ValueError("Too much metadata! {} KB needed, {} allocated".format(len(emdstr) // 1024,
+                                                                                    METADATA_BLOCK_BYTES // 1024))
+        self._mdcache = extensible_header
+        self.update_header('metadata', emdstr)
+
+    def _parse_query_range_info(self, startw=None, stopw=None, start=None, stop=None, intt=None):
+        """ return a dict with info about the data returned by query with a particular set of args
+
+        None says don't place this limit.
+
+        intt takes precedence over stop
+
+        start times beyond the duration of the file are interpreted as absolute start times. Start times that would
+        still be beyond the end of the file are treated as None
+
+        stop times beyond the end of the file are treated as absolute times.
+
+        startw and stopw are ignored at present
+
+        """
+        try:
+            if start > self.duration:
+                start = start
+                relstart = start - self.start_time
+            else:
+                relstart = start
+                start = self.start_time + start
+
+            qstart = int(relstart * self.ticksPerSec)
+
+            if start <= 0 or start > self.duration:
+                raise TypeError
+
+        except TypeError:
+            start = self.start_time
+            relstart = 0
+            qstart = None
+
+        if intt is not None:
+            stop = relstart + intt
+
+        try:
+            if stop >= self.duration:
+                stop -= self.start_time
+                if stop < 0 or stop > self.duration:
+                    raise TypeError
+            relstop = stop
+            stop += self.start_time
+            qstop = int(relstop * self.ticksPerSec)
+
+        except TypeError:
+            stop = self.duration + self.start_time
+            relstop = self.duration
+            qstop = None
+
+        return dict(start=start, stop=stop, relstart=relstart, relstop=relstop, duration=relstop - relstart,
+                    qstart=qstart, qstop=qstop, minw=startw, maxw=stopw)
 
     def enablewrite(self):
         """USE CARE IN A THREADED ENVIRONMENT"""
@@ -362,8 +395,7 @@ class Photontable(object):
         s = msg.format(file=self.filename, nphot=len(self.photonTable), sort=sort, tbl=tinfo,
                        start=t['Time'].min(), stop=t['Time'].max(), dur=self.duration,
                        dirty='Column(s) {} have dirty indices.'.format(dirty) if dirty else 'No columns dirty',
-                       wave=self.query_header('wvlCalFile'),
-                       flat=self.query_header('fltCalFile') if 'fltCalFile' in self.info.dtype.names else 'None')
+                       wave=self.query_header('wvlCalFile'), flat=self.query_header('fltCalFile'))
         return s
 
     def xy(self, photons):
@@ -408,10 +440,30 @@ class Photontable(object):
         """A boolean image with true where pixel data has probllems """
         return self.flagged(pixelflags.PROBLEM_FLAGS)
 
-    def flagged(self, flag_set, pixel=(slice(None), slice(None)), allow_unknown_flags=True, all_flags=False):
+    @property
+    def wavelength_calibrated(self):
+        return self.query_header('isWvlCalibrated')
+
+    @property
+    def extensible_header_store(self):
+        if self._mdcache is None:
+            try:
+                d = yaml.load(self.header[0]['metadata'].decode())
+                self._mdcache = {} if d is None else dict(d)
+            except TypeError:
+                msg = ('Could not restore a dict of extensible metadata, '
+                       'purging and repairing (file will not be changed until write).'
+                       'Metadata must be reattached to {}.')
+                getLogger(__name__).warning(msg.format(type(self._mdcache), self.filename))
+                self._mdcache = {}
+        return self._mdcache
+
+    def flagged(self, flag_set, pixel=(slice(None), slice(None)), allow_unknown_flags=True, all_flags=False,
+                resid=None):
         """
         Test to see if a flag is set on a given pixel or set of pixels
 
+        if resid is set it takes precedence over pixel
         :param pixel: (x,y) of pixel, 2d slice, list of (x,y), if not specified all pixels are used
         :param flag_set: if an empty set/None it the pixel(s) are considered unflagged
         :param allow_unknown_flags:
@@ -419,15 +471,18 @@ class Photontable(object):
         :return:
         """
 
+        if resid is not None:
+            pixel = tuple(map(tuple, np.argwhere(resid == self.beamImage)))
+
         x, y = zip(*pixel) if isinstance(pixel[0], tuple) else pixel
         if not flag_set:
             return False if isinstance(x, int) else np.zeros_like(self._flagArray[x, y], dtype=bool)
 
         if len(set(pixelflags.FLAG_LIST).difference(flag_set)) and not allow_unknown_flags:
-            return False if isinstance(x, int) else np.zeros_like(self._flagArray[x,y], dtype=bool)
+            return False if isinstance(x, int) else np.zeros_like(self._flagArray[x, y], dtype=bool)
 
         bitmask = self.flag_bitmask(flag_set)
-        bits = self._flagArray[x,y] & bitmask
+        bits = self._flagArray[x, y] & bitmask
         return bits == bitmask if all_flags else bits.astype(bool)
 
     def flag_bitmask(self, flag_names):
@@ -483,15 +538,16 @@ class Photontable(object):
         self._flagArray[y, x] &= ~flag
         self._flagArray.flush()
 
-    def query(self, startw=None, stopw=None, startt=None, stopt=None, resid=None, intt=None, pixel=None):
+    def query(self, startw=None, stopw=None, start=None, stopt=None, resid=None, intt=None, pixel=None):
         """
         intt takes precedence, all none is the full file
 
+        :param start:
+        :param pixel:
         :param stopt:
         :param intt:
         :param startw: number or none
         :param stopw: number or none
-        :param startt: number or none
         :param resid: number, list/array or None
 
         pixel may be used and will be converted to the appropriate resid via the beamamp, resid takes precedence
@@ -499,27 +555,12 @@ class Photontable(object):
 
         :return:
         """
-
         if pixel and not resid:
             resid = tuple(self.beamImage[pixel].ravel())
 
-        try:
-            startt = int(startt * self.ticksPerSec)  # convert to us
-            if startt <= 0:
-                startt = None  # don't query on 0 its slower
-        except TypeError:
-            pass
-
-        try:
-            stopt = int(stopt * self.ticksPerSec)
-        except TypeError:
-            pass
-
-        if intt is not None:
-            stopt = (0 if startt is None else startt) + int(intt * self.ticksPerSec)
-
-        if stopt >= self.duration:
-            stopt = None
+        time_nfo = self._parse_query_range_info(startw=startw, stopw=stopw, start=start, stop=stopt, intt=intt)
+        start = time_nfo['qstart']
+        stopt = time_nfo['qstop']
 
         if resid is None:
             resid = tuple()
@@ -529,13 +570,13 @@ class Photontable(object):
         except TypeError:
             resid = (resid,)
 
-        if startw is None and stopw is None and startt is None and stopt is None and not resid:
-            return self.photonTable.read()  #we need it all!
+        if startw is None and stopw is None and start is None and stopt is None and not resid:
+            return self.photonTable.read()  # we need it all!
 
         res = '|'.join(['(ResID=={})'.format(r) for r in map(int, resid)])
         res = '(' + res + ')' if '|' in res and res else res
         tp = '(Time < stopt)'
-        tm = '(Time >= startt)'
+        tm = '(Time >= start)'
         wm = '(Wavelength >= startw)'
         wp = '(Wavelength < stopw)'
         # should follow '{res} & ( ({time}) & ({wave}))'
@@ -550,7 +591,7 @@ class Photontable(object):
         else:
             wave = ''
 
-        if startt is not None:
+        if start is not None:
             if stopt is not None:
                 timestr = '({} & {})'.format(tm, tp)
             else:
@@ -592,13 +633,12 @@ class Photontable(object):
             getLogger(__name__).debug(msg.format(len(q), len(self.photonTable), toc - tic,
                                                  tuple(self.photonTable.will_query_use_indexing(query)), query,
                                                  *map(lambda x: '{:.2f}'.format(x) if x is not None else 'None',
-                                                      (startt, stopt, startw, stopw))))
+                                                      (start, stopt, startw, stopw))))
 
             return q
 
     def filter_photons_by_flags(self, photons, allowed=(), disallowed=()):
         """
-
         Parameters
         ----------
         photons: structured array
@@ -611,7 +651,6 @@ class Photontable(object):
         Return
         ------
         photons filtered by flags
-
         """
 
         if len(allowed) > 0:
@@ -620,9 +659,9 @@ class Photontable(object):
         filtered = self.flagged(disallowed, self.xy(photons))
         return photons[np.invert(filtered)]
 
-    def get_wcs(self, derotate=True, wcs_timestep=None, target_coordinates=None, wave_axis=False, single_pa_time=None):
+    def get_wcs(self, derotate=True, wcs_timestep=None, target_coordinates=None, cube_type=None, single_pa_time=None,
+                bins=None):
         """
-
         Parameters
         ----------
         derotate : bool
@@ -632,20 +671,24 @@ class Photontable(object):
             Determines the time between each wcs solution (each new position angle)
         target_coordinates : SkyCoord, str
             Used to get parallatic angles. string is used to query simbad.
-        wave_axis : bool
-            False: wcs solution is calculated for ra/dec
-            True:  wcs solution is calculated for ra/dec/wavelength
+        cube_type : str
+            None: wcs solution is calculated for ra/dec
+            'wave':  wcs solution is calculated for ra/dec/wavelength
+            'time':  wcs solution is calculated for ra/dec/time
+        bins: array
+            must be passed with the evenly spaced bins of the cube if cube_type is wave or time
         single_pa_time : float
-            Time at which to orientation all non-derotated frames
+            Time at which to orient all non-derotated frames
 
         See instruments.compute_wcs_ref_pixel() for information on wcscal parameters
 
         Returns
         -------
         List of wcs headers at each position angle
+        :param bins:
         """
 
-        #TODO add target_coordinates=None
+        # TODO add target_coordinates=None
         # 0) to header info during HDF creation, also add all fits header info from dashboard log
 
         md = self.metadata()
@@ -660,17 +703,8 @@ class Photontable(object):
 
         platescale = platescale.to(u.mas) if isinstance(platescale, u.Quantity) else platescale * u.mas
 
-        # TODO remove this check once the relevant h5 files have been corrected
-        # try:
-        #     rough_mec_platescale_mas = 10*u.mas
-        #     np.testing.assert_array_almost_equal(platescale.value, rough_mec_platescale_mas.value)
-        # except AssertionError:
-        #     getLogger(__name__).warning(f"Setting the platescale to MEC's {rough_mec_platescale_mas.value} mas/pix")
-        #     platescale = rough_mec_platescale_mas
-
-        if target_coordinates is not None:
-            if not isinstance(target_coordinates, SkyCoord):
-                target_coordinates = SkyCoord.from_name(target_coordinates)
+        if target_coordinates is not None and not isinstance(target_coordinates, SkyCoord):
+            target_coordinates = SkyCoord.from_name(target_coordinates)
         else:
             target_coordinates = SkyCoord(md.ra, md.dec, unit=('hourangle', 'deg'))
 
@@ -707,21 +741,31 @@ class Photontable(object):
 
             ref_pixel = compute_wcs_ref_pixel(ditherPos, ditherHome, ditherReference)
 
-            if wave_axis:
+            if cube_type in ('wave',):
                 obs_wcs = wcs.WCS(naxis=3)
                 obs_wcs.wcs.crpix = [ref_pixel[0], ref_pixel[1], 1]
-                obs_wcs.wcs.crval = [target_coordinates.ra.deg, target_coordinates.dec.deg, self.wvlbins[0] / 1e9]
+                obs_wcs.wcs.crval = [target_coordinates.ra.deg, target_coordinates.dec.deg, bins[0]]
                 obs_wcs.wcs.ctype = ["RA--TAN", "DEC-TAN", "WAVE"]
-                obs_wcs.naxis3 = obs_wcs._naxis3 = self.nwvlbins
+                obs_wcs.naxis3 = obs_wcs._naxis3 = bins.size
                 obs_wcs.wcs.pc = np.eye(3)
-                obs_wcs.wcs.cdelt = [platescale.to(u.deg).value, platescale.to(u.deg).value, (self.wvlbins[1] - self.wvlbins[0]) / 1e9]
-                obs_wcs.wcs.cunit = ["deg", "deg", "m"]
+                obs_wcs.wcs.pc[:2, :2] = rotation_matrix
+                obs_wcs.wcs.cdelt = [platescale.to(u.deg).value, platescale.to(u.deg).value, (bins[1] - bins[0])]
+                obs_wcs.wcs.cunit = ["deg", "deg", "nm"]
+            elif cube_type in ('time',):
+                obs_wcs = wcs.WCS(naxis=3)
+                obs_wcs.wcs.crpix = [ref_pixel[0], ref_pixel[1], 1]
+                obs_wcs.wcs.crval = [target_coordinates.ra.deg, target_coordinates.dec.deg, bins[0]]
+                obs_wcs.wcs.ctype = ["RA--TAN", "DEC-TAN", "TIME"]
+                obs_wcs.naxis3 = obs_wcs._naxis3 = bins.size
+                obs_wcs.wcs.pc = np.eye(3)
+                obs_wcs.wcs.pc[:2, :2] = rotation_matrix
+                obs_wcs.wcs.cdelt = [platescale.to(u.deg).value, platescale.to(u.deg).value, (bins[1] - bins[0])]
+                obs_wcs.wcs.cunit = ["deg", "deg", "s"]
             else:
                 obs_wcs = wcs.WCS(naxis=2)
-                obs_wcs.wcs.ctype = ["RA--TAN", "DEC-TAN"]
-
-                obs_wcs.wcs.crval = np.array([target_coordinates.ra.deg, target_coordinates.dec.deg])
                 obs_wcs.wcs.crpix = ref_pixel
+                obs_wcs.wcs.crval = [target_coordinates.ra.deg, target_coordinates.dec.deg]
+                obs_wcs.wcs.ctype = ["RA--TAN", "DEC-TAN"]
 
                 obs_wcs.wcs.pc = rotation_matrix
                 obs_wcs.wcs.cdelt = [platescale.to(u.deg).value, platescale.to(u.deg).value]
@@ -732,14 +776,14 @@ class Photontable(object):
 
         return obs_wcs_seq
 
-    def get_pixel_spectrum(self, pixel, firstSec=None, integrationTime=None, applyWeight=False, applyTPFWeight=False,
-                           wvlStart=None, wvlStop=None, bin_width=None, bin_edges=None, bin_type='energy'):
+    def get_pixel_spectrum(self, pixel, start=None, duration=None, spec_weight=False, noise_weight=False,
+                           wave_start=None, wave_stop=None, bin_width=None, bin_edges=None, bin_type='energy'):
         """
-        returns a spectral histogram of a given pixel integrated from firstSec to firstSec+integrationTime,
+        returns a spectral histogram of a given pixel integrated from start to start+duration,
         and an array giving the cutoff wavelengths used to bin the wavelength values
 
         Wavelength Bin Specification:
-        Depends on parameters: wvlStart, stop, wvlBinWidth, energyBinWidth, wvlBinEdges.
+        Depends on parameters: wave_start, stop, wvlBinWidth, energyBinWidth, wvlBinEdges.
         Can only specify one of: wvlBinWidth, energyBinWidth, or wvlBinEdges. If none of these are specified,
         default wavelength bins are used. If flat calibration exists and is applied, flat cal wavelength bins
         must be used.
@@ -750,15 +794,15 @@ class Photontable(object):
             x-coordinate of desired pixel.
         yCoord: int
             y-coordinate index of desired pixel.
-        firstSec: float
+        start: float
             Start time of integration, in seconds relative to beginning of file
-        integrationTime: float
-            Total integration time in seconds. If -1, everything after firstSec is used
-        applyWeight: bool
+        duration: float
+            Total integration time in seconds. If -1, everything after start is used
+        spec_weight: bool
             If True, weights counts by spectral/flat/linearity weight
-        applyTPFWeight: bool
+        noise_weight: bool
             If True, weights counts by true positive fraction (noise weight)
-        wvlStart: float
+        wave_start: float
             Start wavelength of histogram. Only used if wvlBinWidth or energyBinWidth is
             specified (otherwise it's redundant). Defaults to self.wvlLowerLimit or 7000.
         wvlEnd: float
@@ -769,7 +813,7 @@ class Photontable(object):
         energyBinWidth: float
             Width of histogram energy bin. Used for fixed energy bin widths.
         wvlBinEdges: numpy array of floats
-            Specifies histogram wavelength bins. wvlStart and wvlEnd are ignored.
+            Specifies histogram wavelength bins. wave_start and wvlEnd are ignored.
         timeSpacingCut: ????
             Legacy; unused
 
@@ -783,44 +827,45 @@ class Photontable(object):
                            after accounting for hot-pixel time-masking.
             'rawCounts' - The total number of photon triggers (including from
                             the noise tail) during the effective exposure.
-                            :param wvlStop:
+                            :param spec_weight:
+                            :param noise_weight:
+                            :param wave_start:
+                            :param wave_stop:
+                            :param pixel:
+                            :param start:
+                            :param duration:
+                            :param bin_width:
+                            :param bin_edges:
+                            :param bin_type:
         """
         if (bin_edges or bin_width) and applyWeight and self.query_header('isFlatCalibrated'):
             raise ValueError('Using flat cal, so flat cal bins must be used')
 
-        photonList = self.query(pixel=pixel, startt=firstSec, intt=integrationTime, startw=wvlStart, stopw=wvlStop)
+        photons = self.query(pixel=pixel, start=start, intt=duration, startw=wave_start, stopw=wave_stop)
 
-        wvlList = photonList['Wavelength']
-        rawCounts = len(wvlList)
-
-        weights = np.ones(len(wvlList))
-        if applyWeight:
-            weights *= photonList['SpecWeight']
-        if applyTPFWeight:
-            weights *= photonList['NoiseWeight']
+        weights = np.ones(len(photons))
+        if spec_weight:
+            weights *= photons['SpecWeight']
+        if noise_weight:
+            weights *= photons['NoiseWeight']
 
         if bin_edges and bin_width:
             getLogger(__name__).warning('Both bin_width and bin_edges provided. Using edges')
         elif not bin_edges and bin_width:
-            bin_edges = self.wavelength_bins(width=bin_width, start=wvlStart, stop=wvlStop,
+            bin_edges = self.wavelength_bins(width=bin_width, start=wave_start, stop=wave_stop,
                                              energy=bin_type == 'energy')
         elif not bin_edges and not bin_width:
             bin_edges = self.nominal_wavelength_bins
 
-        spectrum, _ = np.histogram(wvlList, bins=bin_edges, weights=weights)
+        spectrum, _ = np.histogram(photons['Wavelength'], bins=bin_edges, weights=weights)
 
-        return {'spectrum': spectrum, 'wvlBinEdges': bin_edges, 'rawCounts': rawCounts}
+        return {'spectrum': spectrum, 'wavelengths': bin_edges, 'nphotons': len(photons)}
 
-    def get_fits(self, firstSec=None, integrationTime=None, applyWeight=False, applyTPFWeight=False,
-                 wvlStart=None, wvlStop=None, countRate=True, cube_type=None,
-                 bin_width=None, bin_edges=None, bin_type='energy', exclude_flags=pixelflags.PROBLEM_FLAGS):
+    def get_fits(self, start=None, duration=None, spec_weight=False, noise_weight=False, wave_start=None,
+                 wave_stop=None, rate=True, cube_type=None, bin_width=None, bin_edges=None, bin_type='energy',
+                 exclude_flags=pixelflags.PROBLEM_FLAGS):
         """
-        Return a time-flattened spectral cube of the counts integrated from firstSec to firstSec+integrationTime.
-        firstSec starts at 0 the time of firstSec is Photontable.start_time
-
-        If integration time is -1, all time after firstSec is used.
-        If weighted is True, flat cal weights are applied.
-        If fluxWeighted is True, spectral shape weights are applied.
+        Return a fits hdul of the data.
 
         if cube_type is time or wave a spectral or temporal cube will be returned
 
@@ -828,42 +873,27 @@ class Photontable(object):
         'energy' will be treated as wavelength requested. if cube_type is 'time' bin_width/edges are in seconds and
         one of the two is required. bin_type is ignored.
 
-        Temporal bin_edges will take precedence over firstSec and integrationTime
+        Temporal bin_edges will take precedence over start and duration
 
-        Returns an image or cube of pixel counts over the entire array between firstSec and firstSec + integrationTime.
-        Can specify calibration weights to apply as well as wavelength range.
-
-        Parameters
-        ----------
-        firstSec: float
+        :param wave_stop:
+        :param rate:
+        :param cube_type:
+        :param bin_width:
+        :param bin_edges:
+        :param bin_type:
+        :param start: float
             Photon list start time, in seconds relative to beginning of file
-        integrationTime: float
-            Photon list end time, in seconds relative to firstSec.
-            If -1, goes to end of file
-        wvlRange: (float, float)
-            Desired wavelength range of photon list. Must satisfy wvlRange[0] < wvlRange[1].
-            If None, includes all wavelengths. If file is not wavelength calibrated, this parameter
-            specifies the range of desired phase heights.
-        applyWeight: bool
+        :param duration: float
+            Photon list end time, in seconds relative to start.
+            If None, goes to end of file
+        :param spec_weight: bool
             If True, applies the spectral/flat/linearity weight
-        applyTPFWeight: bool
+        :param noise_weight: bool
             If True, applies the true positive fraction (noise) weight
-        scaleByEffInt: bool
-            If True, scales each pixel by (total integration time)/(effective integration time)
-        exclude_flags: int
+        :param exclude_flags: int
             Specifies flags to exclude from the tallies
             flag definitions see 'h5FileFlags' in Headers/pipelineFlags.py
-
-        Returns
-        -------
-        Dictionary with keys:
-            'image': 2D numpy array, image of pixel counts
-            'effIntTimes':2D numpy array, image effective integration times after time-masking is
-           `          accounted for.
-           :param wvlStart:
-           :param wvlStop:
-           :param hdu:
-
+        :param wave_start:
         """
         cube_type = cube_type.lower()
         bin_type = bin_type.lower()
@@ -875,12 +905,12 @@ class Photontable(object):
         if cube_type is 'time':
             ycol = 'Time'
             if not bin_edges:
-                t0 = 0 if firstSec is None else firstSec
-                itime = self.duration if integrationTime is None else integrationTime
+                t0 = 0 if start is None else start
+                itime = self.duration if duration is None else duration
                 bin_edges = np.linspace(t0, t0 + itime, int(itime / bin_width) + 1)
 
-            firstSec = bin_edges[0]
-            integrationTime = bin_edges[-1] - bin_edges[0]
+            start = bin_edges[0]
+            duration = bin_edges[-1] - bin_edges[0]
             bin_edges = (bin_edges * 1e6)  # .astype(int)
 
         elif cube_type is 'wave':
@@ -888,21 +918,22 @@ class Photontable(object):
             if bin_edges and bin_width:
                 getLogger(__name__).warning('Both bin_width and bin_edges provided. Using edges')
             elif not bin_edges and bin_width:
-                bin_edges = self.wavelength_bins(width=bin_width, start=wvlStart, stop=wvlStop,
+                bin_edges = self.wavelength_bins(width=bin_width, start=wave_start, stop=wave_stop,
                                                  energy=bin_type == 'energy')
             elif not bin_edges and not bin_width:
                 bin_edges = self.nominal_wavelength_bins
         else:
+            ycol = None
             bin_edges = self.nominal_wavelength_bins[[0, -1]]
 
         # Retrieval rate is about 2.27Mphot/s for queries in the 100-200M photon range
-        photons = self.query(startt=firstSec, intt=integrationTime, startw=wvlStart, stopw=wvlStop)
+        photons = self.query(start=start, intt=duration, startw=wave_start, stopw=wave_stop)
 
-        if applyWeight and applyTPFWeight:
+        if spec_weight and noise_weight:
             weights = photons['SpecWeight'] * photons['NoiseWeight']
-        elif applyTPFWeight:
+        elif noise_weight:
             weights = photons['NoiseWeight']
-        elif applyWeight:
+        elif spec_weight:
             weights = photons['SpecWeight']
         else:
             weights = None
@@ -927,8 +958,26 @@ class Photontable(object):
         hdu = fits.PrimaryHDU()
         header = hdu.header
 
-        #TODO flesh this out and integrate the non metadata keys
-        md = self.metadata(timestamp=firstSec)
+        # TODO flesh this out and integrate the non metadata keys
+        time_nfo = self._parse_query_range_info(start=start, intt=duration)
+        header['START'] = time_nfo['start']
+        header['RELSTART'] = time_nfo['relstart']
+        header['STOP'] = time_nfo['stop']
+        header['EXPTIME'] = time_nfo['duration']
+        header['RELSTOP'] = time_nfo['relstop']
+        # header['SPECCAL']
+        # header['WAVECAL']
+        # header['FLATCAL']
+        # header['BADPIX']
+        # header['COSMIC']
+        # header['LINCAL']
+        header['MINWAVE'] = wave_start
+        header['MAXWAVE'] = wave_stop
+        # header['EXFLAG'] = exclude_flags
+        header['UNIT'] = 'photons/s' if rate else 'photons'
+        header['H5.FILENAME'] = self.filename
+
+        md = self.metadata(timestamp=start)
         if md is not None:
             for k, v in md.items():
                 if k.lower() == 'comments':
@@ -938,121 +987,22 @@ class Photontable(object):
                     try:
                         header[k] = v
                     except ValueError:
-                        header[k] = str(v).replace('\n','_')
+                        header[k] = str(v).replace('\n', '_')
         else:
             getLogger(__name__).warning('No metadata found to add to fits header')
 
-        wcs = self.get_wcs(wave_axis=cube_type)[0]
-        header.update(wcs)
+        header.update(self.get_wcs(cube_type=cube_type, bins=bin_edges)[0])
 
-        #TODO ensure the following are present
-        header['integrationTime'] = integrationTime
-        header['effIntTime'] = integrationTime
+        # TODO ensure the following are present
+        header['integrationTime'] = duration
         hdul = fits.HDUList([fits.PrimaryHDU(header=header),
-                             fits.ImageHDU(data=data/integrationTime if countRate else data,
+                             fits.ImageHDU(data=data / duration if rate else data,
                                            header=header, name='SCIENCE'),
                              fits.ImageHDU(data=np.sqrt(data), header=header, name='VARIANCE'),
                              fits.ImageHDU(data=self._flagArray, header=header, name='FLAGS'),
                              fits.TableHDU(data=bin_edges, name='CUBE_BINS')])
         hdul['CUBE_BINS'].header['UNIT'] = 'us' if cube_type is 'time' else 'nm'
         return hdul
-
-    def apply_wavecal(self, solution):
-        """
-        loads the wavelength cal coefficients from a given file and applies them to the
-        wavelengths table for each pixel. Photontable must be loaded in write mode. Dont call updateWavelengths !!!
-
-        Note that run-times longer than ~330s for a full MEC dither (~70M photons, 8kpix) is a regression and
-        something is wrong. -JB 2/19/19
-        """
-        # check file_name and status of obsFile
-        if self.query_header('isWvlCalibrated'):
-            getLogger(__name__).info('Data already calibrated using {}'.format(self.query_header('wvlCalFile')))
-            return
-        getLogger(__name__).info('Applying {} to {}'.format(solution, self.filename))
-        self.photonTable.autoindex = False  # Don't reindex every time we change column
-        # apply waveCal
-        tic = time.time()
-        for (row, column), resID in np.ndenumerate(self.beamImage):
-            self.unflag(self.flag_bitmask([f for f in pixelflags.FLAG_LIST if f.startswith('wavecal')]),
-                        pixel=(column, row))
-            self.flag(self.flag_bitmask(pixelflags.to_flag_names('wavecal', solution.get_flag(res_id=resID))),
-                      pixel=(column, row))
-
-            if not solution.has_good_calibration_solution(res_id=resID):
-                continue
-
-            calibration = solution.calibration_function(res_id=resID, wavelength_units=True)
-
-            indices = self.photonTable.get_where_list('ResID==resID')
-            if not indices.size:
-                continue
-            if (np.diff(indices) == 1).all():  # This takes ~475s for ALL photons combined on a 70Mphot file.
-                # getLogger(__name__).debug('Using modify_column')
-                phase = self.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
-                self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=calibration(phase),
-                                               colname='Wavelength')
-            else:  # This takes 3.5s on a 70Mphot file!!!
-                # raise NotImplementedError('This code path is impractically slow at present.')
-                getLogger(__name__).debug('Using modify_coordinates')
-                rows = self.photonTable.read_coordinates(indices)
-                rows['Wavelength'] = calibration(rows['Wavelength'])
-                self.photonTable.modify_coordinates(indices, rows)
-                tic2 = time.time()
-                getLogger(__name__).debug('Wavelength updated in {:.2f}s'.format(time.time() - tic2))
-
-        self.update_header('isWvlCalibrated', True)
-        self.update_header('wvlCalFile', str.encode(solution.name))
-        self.photonTable.reindex_dirty()  # recompute "dirty" wavelength index
-        self.photonTable.autoindex = True  # turn on auto-indexing
-        self.photonTable.flush()
-        getLogger(__name__).info('Wavecal applied in {:.2f}s'.format(time.time()-tic))
-
-    def applyBadPixelMask(self, hot_mask, cold_mask, unstable_mask):
-        """
-        loads the wavelength cal coefficients from a given file and applies them to the
-        wavelengths table for each pixel. Photontable must be loaded in write mode. Dont call updateWavelengths !!!
-
-        Note that run-times longer than ~330s for a full MEC dither (~70M photons, 8kpix) is a regression and
-        something is wrong. -JB 2/19/19
-        """
-        tic = time.time()
-        getLogger(__name__).info('Applying a bad pixel mask to {}'.format(self.filename))
-        self.flag(self.flag_bitmask('pixcal.hot') * hot_mask)
-        self.flag(self.flag_bitmask('pixcal.cold') * cold_mask)
-        self.flag(self.flag_bitmask('pixcal.unstable') * unstable_mask)
-        self.update_header('isBadPixMasked', True)
-        getLogger(__name__).info('Mask applied in {:.3f}s'.format(time.time()-tic))
-
-    @property
-    def wavelength_calibrated(self):
-        return self.query_header('isWvlCalibrated')
-
-    @property
-    def extensible_header_store(self):
-        if self._mdcache is None:
-            try:
-                d = yaml.load(self.header[0]['metadata'].decode())
-                self._mdcache = {} if d is None else dict(d)
-            except TypeError:
-                msg = ('Could not restore a dict of extensible metadata, '
-                       'purging and repairing (file will not be changed until write).'
-                       'Metadata must be reattached to {}.')
-                getLogger(__name__).warning(msg.format(type(self._mdcache), self.filename))
-                self._mdcache = {}
-        return self._mdcache
-
-    def _update_extensible_header_store(self, extensible_header):
-        if not isinstance(extensible_header, dict):
-            raise TypeError('extensible_header must be of type dict')
-        out = StringIO()
-        yaml.dump(extensible_header, out)
-        emdstr = out.getvalue().encode()
-        if len(emdstr) > METADATA_BLOCK_BYTES:  # this should match mkidcore.headers.ObsHeader.metadata
-            raise ValueError("Too much metadata! {} KB needed, {} allocated".format(len(emdstr)//1024,
-                                                                                    METADATA_BLOCK_BYTES//1024))
-        self._mdcache = extensible_header
-        self.update_header('metadata', emdstr)
 
     def query_header(self, name):
         """
@@ -1089,9 +1039,8 @@ class Photontable(object):
         else:
             self.header.modify_column(column=value, colname=key)
             self.header.flush()
-            self.info = self.header[0]
 
-    def metadata(self, timestamp=None):
+    def metadata(self, timestamp=None, include_h5_header=True):
         """ Return an object with attributes containing the the available observing metadata,
         also supports dict access (Presently returns a mkidcore.config.ConfigThing)
 
@@ -1104,38 +1053,23 @@ class Photontable(object):
 
         omd = self.extensible_header_store.get('obs_metadata', [])
 
-        # TODO integrate appropriate things in .info with the metadata returned so this is a one-stop-shop
-        # infomd_keys = {'wavefile': 'wvlCalFile', 'flatfile':'fltCalFile',
-        #                'beammap': 'beammapFile'}
-        # #Other INFO keys that might should be included
-        # target = StringCol(255)
-        # dataDir = StringCol(255)
-        # beammapFile = StringCol(255)
-        # isWvlCalibrated = BoolCol()
-        # isFlatCalibrated = BoolCol()
-        # isFluxalibrated = BoolCol()
-        # isLinearityCorrected = BoolCol()
-        # isPhaseNoiseCorrected = BoolCol()
-        # isPhotonTailCorrected = BoolCol()
-        # timeMaskExists = BoolCol()
-        # startTime = Int32Col()
-        # expTime = Int32Col()
-        # wvlBinStart = Float32Col()
-        # wvlBinEnd = Float32Col()
-        # energyBinWidth = Float32Col()
-        #
-        # for mdk, k in infomd_keys.items():
-        #     md[mdk] = self.info[k]
-        # OBS2FITS = dict(target='DASHTARG', dataDir='DATADIR', beammapFile='BEAMMAP', wvlCalFile='WAVECAL',
-        #                 fltCalFile='FLATCAL')
-
-        # for k in self.info:
-        #     omd.register(k, self.inf[k], update=True)
-
-        # header['NWEIGHT'] = (applyTPFWeight and self.query_header('isPhaseNoiseCorrected'), 'Noise weight corrected')
-        # header['LWEIGHT'] = (applyWeight and self.query_header('isLinearityCorrected'), 'Linearity corrected')
-        # header['FWEIGHT'] = (applyWeight and self.query_header('isFlatCalibrated'), 'Flatcal corrected')
-        # header['SWEIGHT'] = (applyWeight and self.query_header('isFluxCalibrated'), 'QE corrected')
+        H5_FITS_KEYMAP = {'target': 'H5TARGET',
+                          'beammapFile': 'H5BEAMMAP',
+                          'isWvlCalibrated': 'H5WAVECAL',
+                          'isFlatCalibrated': 'H5FLATCAL',
+                          'isFluxCalibrated': 'H5SPECCAL',
+                          'isLinearityCorrected': 'H5LINCAL',
+                          # 'isPhaseNoiseCorrected': 'H5PHASECALED',
+                          # 'isPhotonTailCorrected': 'H5TAILCOR',
+                          # 'timeMaskExists': 'H5TIMEMASK',
+                          'startTime': 'H5START',
+                          'expTime': 'H5LENGTH',
+                          # 'wvlBinStart': 'H5WAVESTART',
+                          # 'wvlBinEnd': 'H5WAVEEND',
+                          # 'energyBinWidth': 'H5EBIN'
+                          }
+        #     wvlCalFile = StringCol(255)
+        #     fltCalFile = StringCol(255)
 
         if not omd:
             return None
@@ -1144,7 +1078,7 @@ class Photontable(object):
             ret = omd[0]
         else:
             utc = datetime.fromtimestamp(timestamp)
-            time_after = np.array([(m.utc-utc).total_seconds() for m in omd])
+            time_after = np.array([(m.utc - utc).total_seconds() for m in omd])
             if not (time_after <= 0).any():
                 times = [m.utc.timestamp() for m in omd]
                 msg = 'No metadata available for {:.0f}, {} metadata records from {:.0f} to {:.0f}'
@@ -1152,6 +1086,13 @@ class Photontable(object):
 
             to_use, = np.where(time_after[time_after <= 0].max() == time_after)
             ret = omd[to_use[0]]
+
+        if include_h5_header:
+            titles = self.file.root.header.header.colnames
+            info = self.file.root.header.header[0]
+            for x in titles:
+                if x in H5_FITS_KEYMAP:
+                    ret.register(H5_FITS_KEYMAP[x], info[titles.index(x)], update=True)
 
         return ret
 
@@ -1162,7 +1103,7 @@ class Photontable(object):
     def wavelength_bins(width=.1, start=700, stop=1500, energy=True):
         """
         returns an array of wavlength bin edges, with a fixed energy bin width
-        withing the limits given in wvlStart and wvlStop
+        withing the limits given in wave_start and wave_stop
         Args:
             width: bin width in eV or wavelength
             start: Lower wavelength edge in Angstrom
@@ -1172,14 +1113,14 @@ class Photontable(object):
             an array of wavelength bin edges that can be used with numpy.histogram(bins=wvlBinEdges)
         """
         if not energy:
-            return np.linspace(start, stop, int((stop-start)/width)+1)
-        const = Photontable.h*Photontable.c*1e9
+            return np.linspace(start, stop, int((stop - start) / width) + 1)
+        const = Photontable.h * Photontable.c * 1e9
         # Calculate upper and lower energy limits from wavelengths, note that start and stop switch when going to energy
         e_stop = const / start
         e_start = const / stop
         n = int((e_stop - e_start) / width)
         # Construct energy bin edges (reversed) and convert back to wavelength
-        return const/np.linspace(e_stop, e_start, n + 1)
+        return const / np.linspace(e_stop, e_start, n + 1)
 
     def mask_timestamps(self, timestamps, inter=interval(), otherListsToFilter=[]):
         """
@@ -1224,6 +1165,8 @@ class Photontable(object):
         wvlCalArr: array of floats
             Array of calibrated wavelengths. Replaces "Wavelength" column of this pixel's
             photon list.
+            :param wvlCalArr:
+            :param resID:
             :param xCoord:
             :param yCoord:
             :param flush:
@@ -1245,7 +1188,7 @@ class Photontable(object):
         if not indices:
             return
 
-        if (np.diff(indices)==1).all():
+        if (np.diff(indices) == 1).all():
             getLogger(__name__).debug('Using modify_column')
             self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=wvlCalArr,
                                            colname='Wavelength')
@@ -1258,45 +1201,62 @@ class Photontable(object):
         if flush:
             self.photonTable.flush()
 
-        getLogger(__name__).debug('Wavelengths updated in {:.2f}s'.format(time.time()-tic))
+        getLogger(__name__).debug('Wavelengths updated in {:.2f}s'.format(time.time() - tic))
 
-    def applySpecWeight(self, resID, weightArr):
+    def apply_wavecal(self, solution):
         """
-        Applies a weight calibration to the "SpecWeight" column of a single pixel.
+        loads the wavelength cal coefficients from a given file and applies them to the
+        wavelengths table for each pixel. Photontable must be loaded in write mode. Dont call updateWavelengths !!!
 
-        This is where the flat cal, linearity cal, and spectral cal go.
-        Weights are multiplied in and replaced; if "weights" are the contents
-        of the "SpecWeight" column, weights = weights*weightArr. NOT reversible
-        unless the original contents (or weightArr) is saved.
-
-        Parameters
-        ----------
-        resID: int
-            resID of desired pixel
-        weightArr: array of floats
-            Array of cal weights. Multiplied into the "SpecWeight" column.
+        Note that run-times longer than ~330s for a full MEC dither (~70M photons, 8kpix) is a regression and
+        something is wrong. -JB 2/19/19
         """
-        self._apply_column_weight(resID, weightArr, 'SpecWeight')
+        # check file_name and status of obsFile
+        if self.query_header('isWvlCalibrated'):
+            getLogger(__name__).info('Data already calibrated using {}'.format(self.query_header('wvlCalFile')))
+            return
+        getLogger(__name__).info('Applying {} to {}'.format(solution, self.filename))
+        self.photonTable.autoindex = False  # Don't reindex every time we change column
+        # apply waveCal
+        tic = time.time()
+        for (row, column), resID in np.ndenumerate(self.beamImage):
 
-    def applyTPFWeight(self, resID, weightArr):
-        """
-        Applies a weight calibration to the "SpecWeight" column.
+            if not solution.has_good_calibration_solution(res_id=resID):
+                continue
 
-        This is where the TPF (noise weight) goes.
-        Weights are multiplied in and replaced; if "weights" are the contents
-        of the "NoiseWeight" column, weights = weights*weightArr. NOT reversible
-        unless the original contents (or weightArr) is saved.
+            indices = self.photonTable.get_where_list('ResID==resID')
+            if not indices.size:
+                continue
 
-        Parameters
-        ----------
-        resID: int
-            resID of desired pixel
-        weightArr: array of floats
-            Array of cal weights. Multiplied into the "NoiseWeight" column.
-        """
-        self._apply_column_weight(resID, weightArr, 'NoiseWeight')
+            self.unflag(self.flag_bitmask([f for f in pixelflags.FLAG_LIST if f.startswith('wavecal')]),
+                        pixel=(column, row))
+            self.flag(self.flag_bitmask(pixelflags.to_flag_names('wavecal', solution.get_flag(res_id=resID))),
+                      pixel=(column, row))
 
-    def apply_flatcal(self, calsolFile, use_wavecal=True, save_plots=False, startw=800, stopw=1375):
+            calibration = solution.calibration_function(res_id=resID, wavelength_units=True)
+
+            if (np.diff(indices) == 1).all():  # This takes ~475s for ALL photons combined on a 70Mphot file.
+                # getLogger(__name__).debug('Using modify_column')
+                phase = self.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
+                self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=calibration(phase),
+                                               colname='Wavelength')
+            else:  # This takes 3.5s on a 70Mphot file!!!
+                # raise NotImplementedError('This code path is impractically slow at present.')
+                getLogger(__name__).debug('Using modify_coordinates')
+                rows = self.photonTable.read_coordinates(indices)
+                rows['Wavelength'] = calibration(rows['Wavelength'])
+                self.photonTable.modify_coordinates(indices, rows)
+            tic2 = time.time()
+            getLogger(__name__).debug('Wavelength updated in {:.2f}s'.format(time.time() - tic2))
+
+        self.update_header('isWvlCalibrated', True)
+        self.update_header('wvlCalFile', str.encode(solution.name))
+        self.photonTable.reindex_dirty()  # recompute "dirty" wavelength index
+        self.photonTable.autoindex = True  # turn on auto-indexing
+        self.photonTable.flush()
+        getLogger(__name__).info('Wavecal applied in {:.2f}s'.format(time.time() - tic))
+
+    def apply_flatcal(self, calsolFile, use_wavecal=True, startw=800, stopw=1375):
         """
         Applies a flat calibration to the "SpecWeight" column of a single pixel.
 
@@ -1316,6 +1276,9 @@ class Photontable(object):
         Will write plots of flatcal solution (5 second increments over a single flat exposure) 
              with average weights overplotted to a pdf for pixels which have a successful FlatCal.
              Written to the calSolnPath+'FlatCalSolnPlotsPerPixel.pdf'
+             :param use_wavecal:
+             :param startw:
+             :param stopw:
              :param calsolFile:
              :param save_plots:
         """
@@ -1325,164 +1288,139 @@ class Photontable(object):
             return
 
         getLogger(__name__).info('Applying {} to {}'.format(calsolFile, self.filename))
-        timestamp = datetime.utcnow().timestamp()
 
         tic = time.time()
 
-        pdfFullPath = calsolFile + '_flatplot_{}.pdf'.format(timestamp)
-        nPlotsPerRow = 2
-        nPlotsPerCol = 4
-        iPlot = 0
-        nPlotsPerPage = nPlotsPerRow * nPlotsPerCol
-        if save_plots:
-            matplotlib.rcParams['font.size'] = 4
-
         flat_cal = tables.open_file(calsolFile, mode='r')
         calsoln = flat_cal.root.flatcal.calsoln.read()
-        bins = flat_cal.root.flatcal.wavelengthBins.read()
-        minwavelength, maxwavelength = bins[0], bins[-1]
 
-        import contextlib
-        @contextlib.contextmanager
-        def dummy_context_mgr():
-            yield None
+        for (row, column), resID in np.ndenumerate(self.beamImage):
 
-        with PdfPages(pdfFullPath) if save_plots else dummy_context_mgr() as pdf:
-            for (row, column), resID in np.ndenumerate(self.beamImage):
+            soln = calsoln[resID == calsoln['resid']]
 
-                soln = calsoln[resID == calsoln['resid']]
+            # if len(soln) > 1:
+            #     msg = 'Flatcal {} has non-unique resIDs'.format(calsolFile)
+            #     getLogger(__name__).critical(msg)
+            #     raise RuntimeError(msg)
 
-                # if len(soln) > 1:
-                #     msg = 'Flatcal {} has non-unique resIDs'.format(calsolFile)
-                #     getLogger(__name__).critical(msg)
-                #     raise RuntimeError(msg)
+            if not len(soln) and not self.flagged(pixelflags.PROBLEM_FLAGS, (x, y)):
+                getLogger(__name__).warning('No flat calibration for good pixel {}'.format(resID))
+                continue
 
-                if not len(soln) and not self.flagged(pixelflags.PROBLEM_FLAGS, (x, y)):
-                    getLogger(__name__).warning('No flat calibration for good pixel {}'.format(resID))
-                    continue
+            if np.any([sol['bad'] for sol in soln]):
+                getLogger(__name__).debug('No flat calibration bad for pixel {}'.format(resID))
+                continue
 
-                if np.any([sol['bad'] for sol in soln]):
-                    getLogger(__name__).debug('No flat calibration bad for pixel {}'.format(resID))
-                    continue
+            # TODO set pixel flags to include flatcal flags and handle all the various pixel edge cases
 
-                #TODO set pixel flags to include flatcal flags and handle all the various pixel edge cases
+            indices = self.photonTable.get_where_list('ResID==resID')
+            if not indices.size:
+                continue
 
-                indices = self.photonTable.get_where_list('ResID==resID')
-                if not indices.size:
-                    continue
+            if (np.diff(indices) == 1).all():  # This takes ~300s for ALL photons combined on a 70Mphot file.
+                # getLogger(__name__).debug('Using modify_column')
+                wavelengths = self.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
+                wavelengths[wavelengths < startw] = 0
+                wavelengths[wavelengths > stopw] = 0
+                coeffs = soln['coeff'].flatten()
+                weights = soln['weight'].flatten()
+                errors = soln['err'].flatten()
+                if self.wavelength_calibrated and not any(
+                        [self.flagged(pixelflags.PROBLEM_FLAGS, pixel=(row, column))]):
+                    weightArr = np.poly1d(coeffs)(wavelengths)
+                    if any(weightArr > 100) or any(weightArr < 0.01):
+                        getLogger(__name__).debug('Unreasonable fitted weight of for resID {}'.format(resID))
 
-                if (np.diff(indices) == 1).all():  # This takes ~300s for ALL photons combined on a 70Mphot file.
-                    # getLogger(__name__).debug('Using modify_column')
-                    wavelengths = self.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
-                    wavelengths[wavelengths < startw] = 0
-                    wavelengths[wavelengths > stopw] = 0
-                    coeffs = soln['coeff'].flatten()
-                    weights = soln['weight'].flatten()
-                    errors = soln['err'].flatten()
-                    if self.query_header('isWvlCalibrated') and not any([self.flagged(pixelflags.PROBLEM_FLAGS,
-                                                                                      pixel=(row, column))]):
-                        weightArr = np.poly1d(coeffs)(wavelengths)
-                        if any(weightArr > 100) or any(weightArr < 0.01):
-                            getLogger(__name__).debug('Unreasonable fitted weight of for resID {}'.format(resID))
+                elif not use_wavecal:
+                    weighted_avg, sum_weight_arr = np.ma.average(weights, axis=0, weights=errors ** -2.,
+                                                                 returned=True)  # should be a weighted average
+                    weightArr = np.ones_like(wavelengths) * weighted_avg
+                    if any(weightArr > 100) or any(weightArr < 0.01):
+                        getLogger(__name__).debug('Unreasonable averaged weight for resID {}'.format(resID))
 
-                    elif not use_wavecal:
-                        weighted_avg, sum_weight_arr = np.ma.average(weights, axis=0,
-                                                                     weights=errors ** -2.,
-                                                                     returned=True)  # should be a weighted average
-                        weightArr = np.ones_like(wavelengths) * weighted_avg
-                        if any(weightArr > 100) or any(weightArr < 0.01):
-                            getLogger(__name__).debug('Unreasonable averaged weight for resID {}'.format(resID))
+                else:
+                    assert use_wavecal
+                    getLogger(__name__).debug(
+                        'No wavecal for pixel with resID {} so no flatweight applied'.format(resID))
+                    weightArr = np.zeros(len(wavelengths))
 
-                    else:
-                        assert use_wavecal
-                        getLogger(__name__).debug('No wavecal for pixel with resID {} so no flatweight applied'.format(resID))
-                        weightArr = np.zeros(len(wavelengths))
-
-                    # enforce positive weights only
-                    weightArr[weightArr < 0] = 0
-                    self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=weightArr,
-                                                   colname='SpecWeight')
-                else:  # This takes 3.5s on a 70Mphot file!!!
-                    raise NotImplementedError('This code path is impractically slow at present.')
-                    getLogger(__name__).debug('Using modify_coordinates')
-                    rows = self.photonTable.read_coordinates(indices)
-                    rows['SpecWeight'] = np.poly1d(coeffs)(rows['Wavelength'])
-                    self.photonTable.modify_coordinates(indices, rows)
-                    getLogger(__name__).debug('Flat weights updated in {:.2f}s'.format(time.time() - tic2))
-
-                if save_plots:  # TODO:plotting is inefficient, speed up, turn into single pixel plotting fxn maybe
-                    if iPlot % nPlotsPerPage == 0:
-                        fig = plt.figure(figsize=(10, 10), dpi=100)
-                    ax = fig.add_subplot(nPlotsPerCol, nPlotsPerRow, iPlot % nPlotsPerPage + 1)
-                    ax.set_ylim(0, 5)
-                    ax.set_xlim(minwavelength, maxwavelength)
-                    ax.plot(bins, weights, '-', label='weights')
-                    ax.errorbar(bins, weights, yerr=errors, label='weights', fmt='o', color='green')
-                    ax.plot(wavelengths, weightArr, '.', markersize=5)
-                    ax.set_title('p rID:{} ({}, {})'.format(resID, row, column))
-                    ax.set_ylabel('weight')
-
-                    if iPlot % nPlotsPerPage == nPlotsPerPage - 1 or (
-                            row == self.nXPix - 1 and column == self.nYPix - 1):
-                        pdf.savefig()
-                        plt.close()
-                    iPlot += 1
+                # enforce positive weights only
+                weightArr[weightArr < 0] = 0
+                self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=weightArr,
+                                               colname='SpecWeight')
+            else:  # This takes 3.5s on a 70Mphot file!!!
+                raise NotImplementedError('This code path is impractically slow at present.')
+                getLogger(__name__).debug('Using modify_coordinates')
+                rows = self.photonTable.read_coordinates(indices)
+                rows['SpecWeight'] = np.poly1d(coeffs)(rows['Wavelength'])
+                self.photonTable.modify_coordinates(indices, rows)
+                getLogger(__name__).debug('Flat weights updated in {:.2f}s'.format(time.time() - tic2))
 
         self.update_header('isFlatCalibrated', True)
         self.update_header('fltCalFile', calsolFile.encode())
-        getLogger(__name__).info('Flatcal applied in {:.2f}s'.format(time.time()-tic))
+        getLogger(__name__).info('Flatcal applied in {:.2f}s'.format(time.time() - tic))
 
-    def applyLinearitycal(self, dt=1000, tau=0.000001):
+    def apply_badpix(self, hot_mask, cold_mask, unstable_mask, id=''):
+        """
+        loads the wavelength cal coefficients from a given file and applies them to the
+        wavelengths table for each pixel. Photontable must be loaded in write mode. Dont call updateWavelengths !!!
+
+        Note that run-times longer than ~330s for a full MEC dither (~70M photons, 8kpix) is a regression and
+        something is wrong. -JB 2/19/19
+        """
+        tic = time.time()
+        getLogger(__name__).info('Applying a bad pixel mask to {}'.format(self.filename))
+        self.flag(self.flag_bitmask('pixcal.hot') * hot_mask)
+        self.flag(self.flag_bitmask('pixcal.cold') * cold_mask)
+        self.flag(self.flag_bitmask('pixcal.unstable') * unstable_mask)
+        self.update_header('isBadPixMasked', True)
+        self.update_header('BADPIX.ID', id)
+        getLogger(__name__).info('Mask applied in {:.3f}s'.format(time.time() - tic))
+
+    def apply_lincal(self, dt=1000, tau=0.000001):
         tic = time.time()
         if self.query_header('isLinearityCorrected'):
             getLogger(__name__).info("H5 {} is already linearity calibrated".format(self.filename))
             return
         bar = ProgressBar(maxval=20439).start()
-        bari = 0
-        for pixel, resID in np.ndenumerate(self.beamImage):
-            if self.flagged(pixelflags.PROBLEM_FLAGS, pixel):
+        for i, resid in enumerate(self.beamImage):
+            if self.flagged(pixelflags.PROBLEM_FLAGS, resid=resid):
                 continue
-            photon_list = self.query(pixel=pixel)
-            time_stamps = photon_list['Time']
-            weights = lincal.calculate_weights(time_stamps, dt, tau, pixel=pixel)
-            self.applySpecWeight(resID, weights)
-            bari += 1
-            bar.update(bari)
+            photons = self.query(resid=resid)
+            self._apply_column_weight(resid, lincal.calculate_weights(photons['TIME'], dt, tau), 'SpecWeight')
+            bar.update(i)
         bar.finish()
-        getLogger(__name__).info('Linearitycal applied to {} in {:.2f}s'.format(self.filename, time.time() - tic))
+        getLogger(__name__).info('Lincal applied to {} in {:.2f}s'.format(self.filename, time.time() - tic))
         self.update_header('isLinearityCorrected', True)
+        self.update_header('LINCAL.DT', dt)
+        self.update_header('LINCAL.TAU', tau)
 
-    def apply_spectralcal(self, spectralcal):
+    def apply_speccal(self, spectralcal, power=3):
         """
-
         :param spectralcal: a spectralcal solution. must have id and response_curve attributes, the latter
          a 2xN columnss are wavelength in angstroms and the spectral response
         :return:
         """
         if self.query_header('isFluxCalibrated'):
-            getLogger(__name__).info(f"{self.filename} previously calibrated with {self.query_header('spectralcal')}, "
+            getLogger(__name__).info(f"{self.filename} previously calibrated with {self.query_header('SPECCAL.ID')}, "
                                      f"skipping")
             return
 
         response_curve = spectralcal.response_curve
-        # dont include nan or inf values
-        ind = np.isfinite(response_curve.curve[1])
 
         getLogger(__name__).info('Applying {} to {}'.format(response_curve, self.filename))
-
-        coeffs = np.polyfit(response_curve.curve[0][ind]/10.0, response_curve.curve[1][ind], 3)
+        ind = np.isfinite(response_curve.curve[1])  # dont include nan or inf values
+        coeffs = np.polyfit(response_curve.curve[0][ind] / 10.0, response_curve.curve[1][ind], power)
         func = np.poly1d(coeffs)
         tic = time.time()
-        for pixel, resID in np.ndenumerate(self.beamImage):
-            if self.flagged(pixelflags.PROBLEM_FLAGS, pixel):
+        for resid in self.beamImage:
+            if self.flagged(pixelflags.PROBLEM_FLAGS, resid=resid):
                 continue
-            photon_list = self.query(pixel=pixel)
-            weight_arr = func(photon_list['Wavelength'])
-            self._apply_column_weight(resID, weight_arr, 'SpecWeight')
+            self._apply_column_weight(resid, func(self.query(resid=resid)['Wavelength']), 'SpecWeight')
 
         self.update_header('isFluxCalibrated', True)
-        self.update_header('spectralcal', spectralcal.id)
-
+        self.update_header('SPECCAL.ID', spectralcal.id)
+        self.update_header('SPECCAL.POW', power)
         getLogger(__name__).info('spectralcal applied in {:.2f}s'.format(time.time() - tic))
 
 

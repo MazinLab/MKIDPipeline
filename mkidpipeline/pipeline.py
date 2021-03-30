@@ -92,7 +92,7 @@ def linearitycal_apply(o):
     try:
         of = photontable.Photontable(o, mode='a')
         cfg = mkidpipeline.config.config
-        of.applyLinearitycal(dt=cfg.linearitycal.dt, tau=cfg.instrument.deadtime*1*10**6)
+        of.apply_lincal(dt=cfg.linearitycal.dt, tau=cfg.instrument.deadtime*1*10**6, id=np.)
         of.file.close()
     except Exception as e:
         getLogger(__name__).critical('Caught exception during run of {}'.format(o), exc_info=True)
@@ -183,8 +183,8 @@ def generate_outputs(outputs):
 
             for obs in o.data.obs:
                 h5 = mkidpipeline.photontable.Photontable(obs.h5)
-                img = h5.get_fits(wvlStart=o.startw, wvlStop=o.stopw, applyWeight=o.enable_photom,
-                                  applyTPFWeight=o.enable_noise, countRate=True)
+                img = h5.get_fits(wave_start=o.startw, wave_stop=o.stopw, spec_weight=o.enable_photom,
+                                  noise_weight=o.enable_noise, rate=True)
                 img.writeto(o.output_file)
                 getLogger(__name__).info('Generated fits file for {}'.format(obs.h5))
         if o.wants_movie:

@@ -484,10 +484,7 @@ def hpm_cps_cut(image, sigma=5, max_cut=2450, cold_mask=False):
                                                   (nx, ny) just to standardize things
     """
     image_count = np.array(np.shape(image))
-    if len(image_count) >= 3:
-        raw_image = numpy.nanmedian(image, axis=0)
-    else:
-        raw_image = np.array(image)
+    raw_image = np.nanmedian(image, axis=0) if len(image_count) >= 3 else np.array(image)
 
     # Check if input is (ny, nx) instead of (nx, ny), if so, rearrange it (for purposes of standardization)
     if raw_image.shape[0] > raw_image.shape[1]:
@@ -570,12 +567,14 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=30, startt=0, stopt=
     # Generate a stack of bad pixel mask, one for each time step
     for i, each_time in enumerate(step_starts):
         getLogger(__name__).info('Processing time slice: {} - {} s'.format(each_time, each_time + step))
-        img = obs.get_fits(firstSec=each_time, integrationTime=step, applyWeight=True, applyTPFWeight=True,
-                           countRate=False)
+        img = obs.get_fits(start=each_time, duration=step, spec_weight=True, noise_weight=True,
+                           rate=False)
         bad_pixel_solution = func(img['SCIENCE'].data, **methodkw)
         hot_masks[:, :, i] = bad_pixel_solution['hot_mask']
         cold_masks[:, :, i] = bad_pixel_solution['cold_mask']
+
     unstable_mask = np.zeros((obs.nXPix, obs.nYPix), dtype=bool)
+
     for x in range(obs.nXPix):
         for y in range(obs.nYPix):
             vals = np.zeros(len(hot_masks[x, y, :]), dtype=bool)
@@ -586,8 +585,7 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=30, startt=0, stopt=
             else:
                 unstable_mask[x, y] = True
 
-
     # Combine the bad pixel masks into a master mask
     obs.enablewrite()
-    obs.applyBadPixelMask(np.all(hot_masks, axis=-1), np.all(cold_masks, axis=-1), unstable_mask)
+    obs.apply_badpix(np.all(hot_masks, axis=-1), np.all(cold_masks, axis=-1), unstable_mask, id=method)
     obs.disablewrite()
