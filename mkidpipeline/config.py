@@ -87,27 +87,6 @@ def h5_for_MKIDodd(observing_data_desc):
     return os.path.join(config.paths.out, '{}.h5'.format(int(observing_data_desc.start)))
 
 
-#TODO could below function  replace the current three separate id functions?
-
-def generate_hash_id(id, cfg=None, id_type=''):
-    """
-    Compute a wavecal id string from a wavedata id string and either the active or a specified wavecal config
-    """
-    if cfg is None:
-        global config
-        if id_type == 'wavecal':
-            cfg = config.wavecal
-        if id_type == 'spectralcal':
-            cfg = config.spectralcal
-        if  id_type == 'flatcal':
-            cfg = config.flatcal
-        else:
-            getLogger(__name__).warning('invalid id_type {}'.format(id_type))
-            raise ValueError
-    config_hash = hashlib.md5(str(cfg).encode()).hexdigest()
-    return id_type + '_{}_{}'.format(id, config_hash[-8:])
-
-
 def wavecal_id(wavedata_id, wavecal_cfg=None):
     """
     Compute a wavecal id string from a wavedata id string and either the active or a specified wavecal config
