@@ -64,3 +64,4 @@ if __name__ == "__main__":
         pipe.PIPELINE_STEPS[args.single_step].run(dataset)
 
 
+    pipe.run_stage1(dataset)

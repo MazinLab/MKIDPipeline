@@ -91,7 +91,7 @@ def linearitycal_apply(o):
     try:
         of = photontable.Photontable(o, mode='a')
         cfg = mkidpipeline.config.config
-        of.apply_lincal(dt=cfg.linearitycal.dt, tau=cfg.instrument.deadtime*1*10**6, id=np.)
+        of.apply_lincal(dt=cfg.linearitycal.dt, tau=cfg.instrument.deadtime*1*10**6)
         of.file.close()
     except Exception as e:
         getLogger(__name__).critical('Caught exception during run of {}'.format(o), exc_info=True)
