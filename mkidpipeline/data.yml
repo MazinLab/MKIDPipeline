@@ -1,18 +1,16 @@
 - !wc
   name: wavecal1
-  backgrounds:
-    - !ob
-      name: background1
-      start: 1545542300
-      duration: 100
-      header:
-        ND: 2.5
   data:
     - !ob
       name: 850 nm
       start: 1545542036
       stop: 1545542178 #if stop is < start it is interpreted as the final digits
-      background: background1
+      dark: !ob
+        name: background1
+        start: 1545542300
+        duration: 100
+        header:
+          ND: 2.5
       comments:
         - dither at (0,0)
         - Charis_pickoff = 2 (gold mirror)
@@ -54,38 +52,31 @@
     name: 1100 nm dummy
     start: 1545542345
     stop: 1545542395
-    wavecal: wavecal1 #or wsoln or filename
+    wavecal: wavecal1 #or wsoln
     header:
       ND: .5
       lamp: 40
-  dark: !ob
-    name: dark dummy
-    start: 1545542345
-    stop: 1545542395
+    dark: !ob
+      name: dark dummy
+      start: 1545542345
+      stop: 1545542395
   header:
     foo: .5
     bar: 40
 
 - !fc  #Use a wavecal as the basis of a flat e.g. when WL flats aren't available
   name: flatcal2
-  wavecal: wavecal1 # or wsoln or filename
+  wavecal: wavecal1 # or wsoln
   header:
     foo: .5
     bar: 40
-  dark:
-    - !ob
-      name: dark dummy
-      start: 1545542345
-      stop: 1545542395
-    - !ob
-      name: dark dummy2
-      start: 1545542345
-      stop: 1545542395
 
 - !fc  #Use a
   name: flatcal3
-  wavecal: !wsoln
+  wavecal: !wsoln  #TODO verify that this isn't viable at present and implement it if needed
     file: 2018-12-23_051888891e1e27c48f09da56342a914aed89.npz
+  offset: 1  #must be at least 1s, defaults to 1s, ignored if ob is set
+  duration: 10  #how much of the wavecal file to use after the offset, defaults to the full file, ignored if ob is set
   header:
     foo: .5
     bar: 40

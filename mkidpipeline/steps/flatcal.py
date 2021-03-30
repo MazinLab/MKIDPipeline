@@ -449,10 +449,9 @@ class LaserCalibrator(FlatCalibrator):
         frames = []
         itime = 0
         for dark in self.darks:
-            im = dark.photontable.get_fits(startTime=dark.start, duration=dark.duration,
-                                           rate=False)['SCIENCE'].data
-            frames.append(im)
-            itime += dark.duration
+            im = dark.photontable.get_fits(start=dark.start, duration=dark.duration, rate=False)['SCIENCE']
+            frames.append(im.data)
+            itime += im.header['EXPTIME']
         return np.sum(frames, axis=2)/itime
 
 
@@ -668,11 +667,8 @@ def fetch(dataset, config=None, ncpu=np.inf, remake=False):
             fcfg = mkidpipeline.config.load_task_config(StepConfig()) if 'flatcal' not in cfg else cfg.copy()
             #fcfg.register('flatcal.wavsol', sd.wavecal, update=True) #TODO whats the point of this line
             if sd.method == 'laser':
-                if sd.darks:
-                    flattner = LaserCalibrator(h5s=sd.h5s, config=fcfg, solution_name=sf,
-                                               darks=[H5Subset(d) for d in sd.darks])
-                else:
-                    flattner = LaserCalibrator(h5s=sd.h5s, config=fcfg, solution_name=sf)
+                flattner = LaserCalibrator(h5s=sd.h5s, config=fcfg, solution_name=sf,
+                                           darks=[o.dark for o in sd.obs if o.dark is not None])
             else:
                 flattner = WhiteCalibrator(H5Subset(sd.ob), config=fcfg, solution_name=sf)
 
