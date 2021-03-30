@@ -34,7 +34,7 @@ STANDARD_KEYS = ('ra','dec', 'airmass','az','el','ha','equinox','parallactic','t
                  'dither_pos','platescale')
 
 REQUIRED_KEYS = ('ra','dec','target','observatory','instrument','dither_ref','dither_home','platescale',
-                 'device_orientation', 'dither_ref')
+                 'device_orientation')
 
 
 def load_task_config(file, use_global_config=True):
