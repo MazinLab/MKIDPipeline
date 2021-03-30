@@ -698,7 +698,7 @@ if __name__ == "__main__":
     #fn = '/home/abwalter/peg32/1507175503.h5'
     #print("From: ",fn)
     #print("\t...",end="", flush=True)
-    #ts=get_pixel_photonlist(filename=fn, xCoord=30, yCoord=81,wvlStart=100, wvlStop=900)
+    #ts=get_pixel_photonlist(filename=fn, xCoord=30, yCoord=81,wave_start=100, wave_stop=900)
     #Ttot=3.
     #print("Done.\n")
 

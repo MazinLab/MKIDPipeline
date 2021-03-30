@@ -247,7 +247,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, single_
     obsfile = Photontable(file)
     duration = obsfile.duration
 
-    photons = obsfile.query(startw=startw, stopw=stopw, startt=startt, intt=intt)
+    photons = obsfile.query(startw=startw, stopw=stopw, start=startt, intt=intt)
     num_unfiltered = len(photons)
     getLogger(__name__).info("Fetched {} photons from dither {}".format(len(photons), file))
     if len(photons) == 0:

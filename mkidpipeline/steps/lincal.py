@@ -13,7 +13,7 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
     REQUIRED_KEYS = (('dt', 1000, 'time range over which to calculate the weights (us)'),)
 
 
-def calculate_weights(time_stamps, dt, tau, pixel:tuple=None):
+def calculate_weights(time_stamps, dt, tau):
     """
     Function for calculating the linearity weighting for all of the photons in an h5 file
     :param time_stamps: array of timestamps

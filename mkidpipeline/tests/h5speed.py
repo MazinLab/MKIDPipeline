@@ -35,7 +35,7 @@ from mkidcore.corelog import getLogger
 # small CS
 
 
-firstSec = 2
+start = 2
 shortT = 2
 longT = 30
 obsT = 900
@@ -50,11 +50,11 @@ DURATIONS = {1567922621: 900, 1547280150: 900, 1545552775: 1545553007 - 15455527
 
 TEST_QUERIES = [dict(resid=resid),
                 dict(resid=resids),
-                dict(startt=firstSec, intt=shortT),
-                dict(startt=firstSec, intt=longT),
-                dict(startt=firstSec, intt=obsT),
+                dict(start=start, intt=shortT),
+                dict(start=start, intt=longT),
+                dict(start=start, intt=obsT),
                 dict(startw=wvlStart, stopw=wvlStop),
-                dict(resid=resids, startt=firstSec, intt=shortT, startw=wvlStart, stopw=wvlStop)
+                dict(resid=resids, start=start, intt=shortT, startw=wvlStart, stopw=wvlStop)
                 ]
 RID_QUERY = TEST_QUERIES[0]
 SHORTT_QUERY = TEST_QUERIES[2]
@@ -195,7 +195,7 @@ class SpeedResults:
                 fast_file = res[i].file
                 print('This might take a while: {:.0f} s'.format(res[i].queryt))
                 of = Photontable(fast_file)
-                cnt_img = of.get_fits(firstSec=30, integrationTime=5)['SCIENCE'].data
+                cnt_img = of.get_fits(start=30, duration=5)['SCIENCE'].data
                 cnt_img *= of.duration/5
                 del of
                 self.count_images[d] = cnt_img
@@ -435,11 +435,11 @@ def query_times(results, k, q=''):
         return np.array([v['time'] for n,v in results[k].items() if n.startswith('{')])
 
 
-def test_query_format(fn, xCoord, yCoord, firstSec, intTime, wvlStart, wvlStop, nIters=1):
+def test_query_format(fn, xCoord, yCoord, start, intTime, wvlStart, wvlStop, nIters=1):
     beamim = tables.open_file(fn, mode='r').get_node('/BeamMap/Map').read()
     resID = beamim[xCoord][yCoord]
     tickspsec = int(1.0 / 1e-6)
-    startTime = int(firstSec * tickspsec)  # convert to us
+    startTime = int(start * tickspsec)  # convert to us
     endTime = startTime + int(intTime * tickspsec)
     rq='&'.join(['(ResID=={})'.format(r) for r in resID])
     rq = '('+rq+')' if '&' in rq else rq
@@ -480,11 +480,11 @@ def test_query_format(fn, xCoord, yCoord, firstSec, intTime, wvlStart, wvlStop, 
     return zip(querienames, qtimes)
 
 
-def test_query_format_multirID(fn, xCoord, yCoord, firstSec, intTime, wvlStart, wvlStop, nIters=1):
+def test_query_format_multirID(fn, xCoord, yCoord, start, intTime, wvlStart, wvlStop, nIters=1):
     beamim = tables.open_file(fn, mode='r').get_node('/BeamMap/Map').read()
     resID = beamim[xCoord, yCoord]
     tickspsec = int(1.0 / 1e-6)
-    startTime = int(firstSec * tickspsec)  # convert to us
+    startTime = int(start * tickspsec)  # convert to us
     endTime = startTime + int(intTime * tickspsec)
     rq='|'.join(['(ResID=={})'.format(r) for r in resID])
     rq = '('+rq+')' if '&' in rq else rq
@@ -553,17 +553,17 @@ def cachetest():
 #
 #
 # for f in [Photontable(uli9timefile)]:
-#     f.query(resid=resid, startt=firstSec, intt=intTime, startw=wvlStart, stopw=wvlStop)
+#     f.query(resid=resid, start=start, intt=intTime, startw=wave_start, stopw=wave_stop)
 #     f.query(resid=resid)
 #     f.query(resid=resids)
-#     f.query(startt=0, intt=10)
+#     f.query(start=0, intt=10)
 #
 #
 # files = [binfile, csifile, ulitimefile, ulitimenoindexfile, ulinoindexfile, ulifile, csitimefile]
 # of = [Photontable(f) for f in files]
 # for f in of:
 #     # f=Photontable(fi)
-#     f.query(resid=resid, startt=firstSec, intt=intTime, startw=wvlStart, stopw=wvlStop)
+#     f.query(resid=resid, start=start, intt=intTime, startw=wave_start, stopw=wave_stop)
 #     # f.file.close()
 # # 2019-01-23 09:33:44,465 DEBUG Retrieved 148 rows in 1.731s using indices ('Wavelength', 'Time', 'ResID') for query (ResID==91416)&(((Time >= startt) & (Time < stopt))&((Wavelength >= startw) & (Wavelength < stopw))) (pid=29222)
 # # 2019-01-23 09:33:45,770 DEBUG Retrieved 148 rows in 1.287s using indices ('Wavelength', 'Time', 'ResID') for query (ResID==91416)&(((Time >= startt) & (Time < stopt))&((Wavelength >= startw) & (Wavelength < stopw))) (pid=29222)
@@ -599,7 +599,7 @@ def cachetest():
 #
 # for fi in files:
 #     f = Photontable(fi)
-#     f.query(startt=0, intt=10)
+#     f.query(start=0, intt=10)
 #     f.file.close()
 # # 2019-01-23 09:36:05,951 DEBUG Retrieved 20543781 rows in 50.942s using indices ('Time',) for query ((Time >= startt) & (Time < stopt)) (pid=29222)
 # # 2019-01-23 09:38:50,549 DEBUG Retrieved 20543781 rows in 162.294s using indices ('Time',) for query ((Time >= startt) & (Time < stopt)) (pid=29222)
@@ -615,11 +615,11 @@ def cachetest():
 # qtime = timeit.timeit('cachetest()', setup='from __main__ import cachetest', number=1,  globals=locals())
 #
 #
-# binres = list(testqueries(binfile, xCoord, yCoord, firstSec, intTime, wvlStart, wvlStop))
-# csires = list(testqueries(csifile, xCoord, yCoord, firstSec, intTime, wvlStart, wvlStop))
-# ulires = list(testqueries(ulifile, xCoord, yCoord, firstSec, intTime, wvlStart, wvlStop))
+# binres = list(testqueries(binfile, xCoord, yCoord, start, intTime, wave_start, wave_stop))
+# csires = list(testqueries(csifile, xCoord, yCoord, start, intTime, wave_start, wave_stop))
+# ulires = list(testqueries(ulifile, xCoord, yCoord, start, intTime, wave_start, wave_stop))
 #
-# ulires2 = testqueriesmultires(ulifile, xCoord, yCoord, firstSec, intTime, wvlStart, wvlStop)
+# ulires2 = testqueriesmultires(ulifile, xCoord, yCoord, start, intTime, wave_start, wave_stop)
 #
 # msg='Query form {}: {:.2f} {:.2f} {:.2f}'
 # for b,c,u in zip(binres,csires,ulires):

@@ -213,12 +213,12 @@ class CosmicCleaner:
         #This should be much faster but it gets rid of the interpolation that is achieved by overlapping the query
         # intervals, the way around this would be to tread the frames as keyframes and then use a seperate
         # post-processing step to insert interpolated frames.
-        # frames = self.obs.get_fits(bin_edges=ctimes, countRate=False, wvlStart=wvlStart, wvlStop=wvlStop,
+        # frames = self.obs.get_fits(bin_edges=ctimes, rate=False, wave_start=wave_start, wave_stop=wave_stop,
         #                            cube_type='time')['SCIENCE'].data
         # Interpolate and insert frames here
 
-        frames = np.array([self.obs.get_fits(firstSec=i / 1e6, integrationTime=frameIntTime / 1e6, countRate=False,
-                                             wvlStart=wvlStart, wvlStop=wvlStop)['SCIENCE'].data for i in ctimes])
+        frames = np.array([self.obs.get_fits(start=i / 1e6, duration=frameIntTime / 1e6, rate=False,
+                                             wave_start=wvlStart, wave_stop=wvlStop)['SCIENCE'].data for i in ctimes])
 
         fig = plt.figure()
         im = plt.imshow(frames[0])

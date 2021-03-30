@@ -44,14 +44,9 @@ import multiprocessing
 
 def ssd_worker(args):
     print('ssd_worker started: ', multiprocessing.current_process())
-    # photontable, beamImage, startLambda, stopLambda, startTime, integrationTime, coord_list = args
-    obsfile_object, beamImage, startLambda, stopLambda, startTime, integrationTime, coord_list = args
+    # photontable, beamImage, startLambda, stopLambda, startTime, duration, coord_list = args
+    obsfile_object, beamImage, startLambda, stopLambda, startTime, duration, coord_list = args
 
-    # photonList = self.a.get_pixel_photonlist(xCoord=self.activePixel[0], yCoord=self.activePixel[1],
-    #                                        firstSec=self.spinbox_startTime.value(),
-    #                                        integrationTime=self.spinbox_integrationTime.value(),
-    #                                        wvlStart=self.spinbox_startLambda.value(),
-    #                                        wvlStop=self.spinbox_stopLambda.value())
 
     deadtime = 1e-5  # TODO: get rid of this hard-coding
     ssd_param_list = []
@@ -61,14 +56,8 @@ def ssd_worker(args):
             ssd_param_list.append([0, 0, 0])
             continue
 
-        ts = obsfile_object.query(pixel=(col, row), startt=startTime, intt=integrationTime,
+        ts = obsfile_object.query(pixel=(col, row), start=startTime, intt=duration,
                                   startw=startLambda, stopw=stopLambda)['Time'] * 1e-6
-
-        # ts = photontable[np.logical_and(photontable['ResID'] == beamImage[col][row], np.logical_and(
-        #     np.logical_and(photontable['Wavelength'] > startLambda, photontable['Wavelength'] < stopLambda),
-        #     np.logical_and(photontable['Time'] > startTime * 1e6,
-        #                    photontable['Time'] < integrationTime * 1e6)))]['Time'] * 1e-6
-
         dt = np.diff(ts)
 
         # get the bin-free fit of Ic, Is Ip
@@ -231,7 +220,7 @@ class subWindow(QMainWindow):
         else:
             aper = self.activePixel
 
-        d = self.a.query(pixel=aper, startt=self.spinbox_startTime.value(),
+        d = self.a.query(pixel=aper, start=self.spinbox_startTime.value(),
                          intt=self.spinbox_integrationTime.value(), startw=wvlStart, stopw=wvlStop)
 
         return d
@@ -361,13 +350,12 @@ class spectrum(subWindow):
     def plotData(self):
         self.ax.clear()
         temp = self.a.get_pixel_spectrum(self.activePixel,
-                                         firstSec=self.spinbox_startTime.value(),
-                                         integrationTime=self.spinbox_integrationTime.value())
+                                         start=self.spinbox_startTime.value(),
+                                         duration=self.spinbox_integrationTime.value())
 
         self.spectrum = temp['spectrum']
-        self.wvlBinEdges = temp['wvlBinEdges']
-
-        self.rawCounts = temp['rawCounts']
+        self.wvlBinEdges = temp['wavelengths']
+        self.rawCounts = temp['nphotons']
 
         self.wvlBinCenters = np.diff(self.wvlBinEdges) / 2 + self.wvlBinEdges[:-1]
 
@@ -498,7 +486,7 @@ class main_window(QMainWindow):
 
                 # set the max and min values for the lambda spinboxes
                 # check if the data is wavecaled and set the limits on the spinboxes accordingly
-                if self.a.query_header('isWvlCalibrated'):
+                if self.a.wavelength_calibrated:
                     self.minLambda = self.wvlBinStart
                     self.maxLambda = self.wvlBinEnd
                 else:
@@ -659,23 +647,21 @@ class main_window(QMainWindow):
 
             if type(self.a).__name__ == 'Photontable':
                 t1 = time.time()
-                temp = self.a.getPixelCountImage(firstSec=self.spinbox_startTime.value(),
-                                                 integrationTime=self.spinbox_integrationTime.value(),
-                                                 applyWeight=False, flagToUse=0,
-                                                 wvlStart=self.spinbox_startLambda.value(),
-                                                 wvlStop=self.spinbox_stopLambda.value())
+                hdul = self.a.get_fits(start=self.spinbox_startTime.value(),
+                                       duration=self.spinbox_integrationTime.value(),
+                                       applyWeight=False, countRate=False, wvlStart=self.spinbox_startLambda.value(),
+                                       wvlStop=self.spinbox_stopLambda.value())
                 print('\nTime for getPixelCountImage = ', time.time() - t1)
-                self.unmasked_image = np.transpose(temp['image'])
-                self.counts_image = np.copy(self.unmasked_image)
+                self.unmasked_image = hdul['SCIENCE'].data.T
+                self.counts_image = self.unmasked_image.copy()
                 self.counts_per_second_image = self.counts_image / self.spinbox_integrationTime.value()
                 if self.checkbox_apply_mask.isChecked():
-                    # self.image = self.unmasked_image*self.image_mask
                     self.image = self.counts_per_second_image * self.image_mask
                 else:
                     # self.image = np.copy(self.unmasked_image)
-                    self.image = np.copy(self.counts_per_second_image)
+                    self.image = self.counts_per_second_image.copy()
                 # self.image[np.where(np.logical_not(np.isfinite(self.image)))] = 0
-                self.image = np.copy(1.0 * self.image / self.spinbox_integrationTime.value())
+                self.image /= self.spinbox_integrationTime.value()
             elif type(self.a).__name__ == 'ParsedBin':
                 self.unmasked_image = self.a.getPixelCountImage()
                 if self.checkbox_apply_mask.isChecked():
@@ -934,9 +920,7 @@ class main_window(QMainWindow):
         dead_mask = data['image'] == 0  # dead_mask = True for dead pixels
         hpcal = hft(data['image'], fwhm=4, dead_mask=dead_mask)
         self.hotPixMask = hpcal['hot_mask']
-
-        # self.image_mask = 1 for good pixels, 0 for bad
-        self.image_mask = np.logical_and(np.logical_not(np.nan_to_num(self.hotPixMask.T)), np.logical_not(dead_mask.T))
+        self.image_mask = np.logical_not(np.nan_to_num(self.hotPixMask.T)) & np.logical_not(dead_mask.T)
 
     def image_mask_add_pixel(self):
         # add a pixel to the user mask to hide it

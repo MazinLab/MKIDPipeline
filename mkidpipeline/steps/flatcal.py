@@ -351,16 +351,16 @@ class WhiteCalibrator(FlatCalibrator):
         """
         self.spectral_cube = []
         self.eff_int_times = []
-        for firstSec in range(0, self.exposure_time, self.chunk_time):  # for each time chunk
-            cubeDict = self.obs.get_fits(firstSec=firstSec, integrationTime=self.chunk_time, applyWeight=False,
-                                         applyTPFWeight=False, bin_edges=self.wvl_bin_edges,
-                                         cube_type='wave', bin_type='energy', countRate=True)
+        for start in range(0, self.exposure_time, self.chunk_time):  # for each time chunk
+            cubeDict = self.obs.get_fits(start=start, duration=self.chunk_time, spec_weight=False,
+                                         noise_weight=False, bin_edges=self.wvl_bin_edges,
+                                         cube_type='wave', bin_type='energy', rate=True)
             cube = cubeDict['SCIENCE'].data
             cube[np.isnan(cube)] = 0   # TODO need to update masks to note why these 0s appeared
 
             self.spectral_cube.append(cube)
-            self.eff_int_times.append(cubeDict['SCIENCE'].header['effIntTime'])
-            msg = f'Loaded {self.chunk_time:.1f} s of spectral data at time {firstSec:.1f}'
+            self.eff_int_times.append(cubeDict['SCIENCE'].header['integrationTime'])
+            msg = f'Loaded {self.chunk_time:.1f} s of spectral data at time {start:.1f}'
             getLogger(__name__).info(msg)
 
         self.spectral_cube = np.array(self.spectral_cube[0])
@@ -425,8 +425,8 @@ class LaserCalibrator(FlatCalibrator):
                 startw = wvl - delta_list[w_mask]
                 stopw = wvl + delta_list[w_mask]
 
-            hdul = obs.get_fits(integrationTime=self.chunk_time * self.cfg.flatcal.nchunks, countRate=True,
-                                bin_width=self.chunk_time, wvlStart=startw, wvlStop=stopw, cube_type='time')
+            hdul = obs.get_fits(duration=self.chunk_time * self.cfg.flatcal.nchunks, rate=True,
+                                bin_width=self.chunk_time, wave_start=startw, wave_stop=stopw, cube_type='time')
 
             getLogger(__name__).info(f'Loaded {wvl} nm spectral cube')
             int_times[:, :, w_mask] = self.chunk_time
@@ -449,8 +449,8 @@ class LaserCalibrator(FlatCalibrator):
         frames = []
         itime = 0
         for dark in self.darks:
-            im = dark.photontable.get_fits(startTime=dark.start, integrationTime=dark.duration,
-                                           countRate=False)['SCIENCE'].data
+            im = dark.photontable.get_fits(startTime=dark.start, duration=dark.duration,
+                                           rate=False)['SCIENCE'].data
             frames.append(im)
             itime += dark.duration
         return np.sum(frames, axis=2)/itime
