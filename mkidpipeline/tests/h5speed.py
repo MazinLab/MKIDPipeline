@@ -12,7 +12,7 @@ import matplotlib
 
 import mkidpipeline as pipe
 from photontable import Photontable
-import mkidpipeline.bin2hdf as bin2hdf
+import mkidpipeline.steps.buildhdf as bin2hdf
 from mkidcore.corelog import getLogger
 
 
@@ -371,7 +371,7 @@ if __name__ == '__main__':
     # Basic checks
     print(numexpr.get_vml_version())
 
-    b2h_configs = pipe.bin2hdf.gen_configs(d.timeranges)
+    b2h_configs = steps.bin2hdf.gen_configs(d.timeranges)
 
     # Summary as of 9/27/19
     # Plain shuffling of the indices seemed the clear winner for a CSI on a large 25MB/s 900s dataset
