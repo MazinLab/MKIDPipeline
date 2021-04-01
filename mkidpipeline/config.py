@@ -401,9 +401,9 @@ class MKIDFlatdataDescription(object):
             yield self.ob
         else:
             for ob in self.wavecal.data:
-                o = MKIDTimerange(f'{self.name}_{ob.name}', ob.start + self.wavecal_offset,
-                                  duration=min(self.wavecal_duration, ob.duration - self.wavecal_offset),
-                                  _common=ob._common, dark=ob.dark)
+                o = MKIDObservation(f'{self.name}_{ob.name}', ob.start + self.wavecal_offset,
+                                    duration=min(self.wavecal_duration, ob.duration - self.wavecal_offset),
+                                    _common=ob._common, dark=ob.dark, wavecal=self.wavecal)
                 yield o
 
     @property
@@ -756,7 +756,7 @@ class MKIDObservingDataset(object):
         speccal_obs = [o for d in self.meta if isinstance(d, MKIDSpectralReference) for o in d.obs]
         return ([o for o in self.meta if isinstance(o, MKIDObservation)] +
                 [o for d in self.meta if isinstance(d, MKIDDitheredObservation) for o in d.obs] +
-                [d.ob for d in self.meta if isinstance(d, MKIDFlatdataDescription) and d.ob is not None] +
+                [o for d in self.meta if isinstance(d, MKIDFlatdataDescription) for o in d.obs] +
                 [d.ob for d in self.meta if isinstance(d, MKIDWCSCalDescription) and d.ob is not None] +
                 speccal_obs)
 
