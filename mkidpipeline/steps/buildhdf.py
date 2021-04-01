@@ -181,134 +181,6 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
     getLogger(__name__).debug('Done with {}'.format(cfg.h5file))
 
 
-def _correct_timestamps(timestamps):
-    """
-    Corrects errors in timestamps due to firmware bug present through PAL2017b.
-
-    Parameters
-    ----------
-    timestamps: numpy array of integers
-        List of timestamps from photon list. Must be in original, unsorted order.
-
-    Returns
-    -------
-    Array of corrected timestamps, dtype is uint32
-    """
-    timestamps = np.array(timestamps, dtype=np.int64)  # convert timestamps to signed values
-    photonTimestamps = timestamps % 500
-    hdrTimestamps = timestamps - photonTimestamps
-
-    unsortedInds = np.where(np.diff(timestamps) < 0)[0] + 1  # mark locations n where T(n)<T(n-1)
-
-    for ind in unsortedInds:
-        indsToIncrement = np.where(hdrTimestamps == hdrTimestamps[ind])[0]
-        indsToIncrement = indsToIncrement[indsToIncrement >= ind]
-        hdrTimestamps[indsToIncrement] += 500
-
-    correctedTimestamps = hdrTimestamps + photonTimestamps
-
-    if np.any(np.diff(correctedTimestamps) < 0):
-        correctedTimestamps = _correct_timestamps(correctedTimestamps)
-
-    return np.array(correctedTimestamps, dtype=np.uint32)
-
-
-def _index_hdf(cfg):
-    hfile = tables.open_file(cfg.h5file, 'a')
-    hfile.set_node_attr('/', 'PYTABLES_FORMAT_VERSION', '2.0')
-    hfile.format_version = '2.0'
-    filterObj = tables.Filters(complevel=0, complib='lzo')
-    photonTable = hfile.root.Photons.PhotonTable
-    photonTable.cols.Time.create_csindex(filters=filterObj)
-    photonTable.cols.ResID.create_csindex(filters=filterObj)
-    photonTable.cols.Wavelength.create_csindex(filters=filterObj)
-    photonTable.flush()
-    hfile.close()
-
-
-def fix_timestamp_bug(file):
-    # which writes the same photonlist twice to certain resIDs
-    noResIDFlag = 2 ** 32 - 1
-    hfile = tables.open_file(file, mode='a')
-    beamMap = hfile.root.BeamMap.Map.read()
-    imShape = np.shape(beamMap)
-    photonTable = hfile.get_node('/Photons/PhotonTable/')
-    photonList = photonTable.read()
-
-    resIDDiffs = np.diff(photonList['ResID'])
-    if np.any(resIDDiffs < 0):
-        warnings.warn('Photon list not sorted by ResID! This could take a while...')
-        photonList = np.sort(photonList, order='ResID',
-                             kind='mergsort')  # mergesort is stable, so time order will be preserved
-        resIDDiffs = np.diff(photonList['ResID'])
-
-    resIDBoundaryInds = np.where(resIDDiffs > 0)[
-                            0] + 1  # indices in masterPhotonList where ResID changes; ie marks boundaries between pixel tables
-    resIDBoundaryInds = np.insert(resIDBoundaryInds, 0, 0)
-    resIDList = photonList['ResID'][resIDBoundaryInds]
-    resIDBoundaryInds = np.append(resIDBoundaryInds, len(photonList['ResID']))
-    correctedTimeListMaster = np.zeros(len(photonList))
-    for x in range(imShape[0]):
-        for y in range(imShape[1]):
-            resID = beamMap[x, y]
-            resIDInd0 = np.where(resIDList == resID)[0]
-            if resID == noResIDFlag or len(resIDInd0) == 0:
-                # getLogger(__name__).info('Table not found for pixel', x, ',', y)
-                continue
-            resIDInd = resIDInd0[0]
-            photonList_resID = photonList[resIDBoundaryInds[resIDInd]:resIDBoundaryInds[resIDInd + 1]]
-            timeList = photonList_resID['Time']
-            timestamps = np.array(timeList, dtype=np.int64)  # convert timestamps to signed values
-            repeatTest = np.array(np.where(timestamps == timestamps[0]))
-            if len(repeatTest[0]) > 1:
-                print(x, y, resID)
-                timestamps1 = timestamps[0:repeatTest[0][1]]
-                timestamps2 = timestamps[repeatTest[0][1]:len(timestamps)]
-                correctedTimeList1 = _correct_timestamps(timestamps1).tolist()
-                correctedTimeList2 = _correct_timestamps(timestamps2).tolist()
-                correctedTimeList = correctedTimeList1 + correctedTimeList2
-                correctedTimeList = np.array(correctedTimeList)
-            else:
-                correctedTimeList = _correct_timestamps(timeList)
-            assert len(photonList_resID) == len(timeList), 'Timestamp list does not match length of photon list!'
-            correctedTimeListMaster[resIDBoundaryInds[resIDInd]:resIDBoundaryInds[resIDInd + 1]] = correctedTimeList
-    assert len(photonList) == len(correctedTimeListMaster), 'Timestamp list does not match length of photon list!'
-    correctedTimeListMaster = np.array(correctedTimeListMaster).flatten()
-    photonTable.modify_column(column=correctedTimeListMaster, colname='Time')
-    photonTable.flush()
-    hfile.close()
-
-
-def _add_header(cfg, wvlBinStart=700, wvlBinEnd=1500, energyBinWidth=0.1):
-    dataDir = cfg.datadir
-    firstSec = cfg.starttime
-    expTime = cfg.inttime
-    beammapFile = cfg.beamfile
-    hfile = tables.open_file(cfg.h5file, mode='a')
-    hfile.create_group('/', 'header', 'Header')
-    headerTable = hfile.create_table('/header', 'header', ObsHeader, 'Header')
-    headerContents = headerTable.row
-    headerContents['isWvlCalibrated'] = False
-    headerContents['isFlatCalibrated'] = False
-    headerContents['isFluxCalibrated'] = False
-    headerContents['isLinearityCorrected'] = False
-    headerContents['isPhaseNoiseCorrected'] = False
-    headerContents['isPhotonTailCorrected'] = False
-    headerContents['timeMaskExists'] = False
-    headerContents['startTime'] = firstSec
-    headerContents['expTime'] = expTime
-    headerContents['wvlBinStart'] = wvlBinStart
-    headerContents['wvlBinEnd'] = wvlBinEnd
-    headerContents['energyBinWidth'] = energyBinWidth
-    headerContents['target'] = ''
-    headerContents['dataDir'] = dataDir
-    headerContents['beammapFile'] = beammapFile
-    headerContents['wvlCalFile'] = ''
-    headerContents.append()
-    headerTable.flush()
-    hfile.close()
-
-
 @yaml_object(yaml)
 class Bin2HdfConfig(object):
     _template = ('{x} {y}\n'
@@ -412,15 +284,6 @@ class HDFBuilder(object):
         getLogger(__name__).info('Created {} in {:.0f}s'.format(self.cfg.h5file, time.time() - tic))
 
 
-def runbuilder(b):
-    getLogger(__name__).debug('Calling run on {}'.format(b.cfg.h5file))
-    try:
-        b.run()
-    except Exception as e:
-        getLogger(__name__).critical('Caught exception during run of {}'.format(b.cfg.h5file),
-                                     exc_info=True)
-
-
 def gen_configs(timeranges, config=None):
     cfg = mkidpipeline.config.config if config is None else config
 
@@ -476,7 +339,14 @@ def buildtables(timeranges, config=None, ncpu=None, remake=None, **kwargs):
                 getLogger(__name__).error('Insufficient memory to process {}'.format(b.h5file))
         return timeranges
 
-    pool = mp.Pool(mkidpipeline.n_cpus_available(ncpu))
+    def runbuilder(b):
+        getLogger(__name__).debug('Calling run on {}'.format(b.cfg.h5file))
+        try:
+            b.run()
+        except Exception as e:
+            getLogger(__name__).critical('Caught exception during run of {}'.format(b.cfg.h5file), exc_info=True)
+
+    pool = mp.Pool(mkidpipeline.config.n_cpus_available(ncpu))
     pool.map(runbuilder, builders)
     pool.close()
     pool.join()

@@ -136,31 +136,31 @@ def muVar_to_IcIs(mu, var, effExpTime):
 
 
 def modifiedRician(I, Ic, Is):
-    '''
+    """
     MR pdf(I) = 1/Is * exp(-(I+Ic)/Is) * I0(2*sqrt(I*Ic)/Is)
     mean = Ic + Is
     variance = Is^2 + 2*Ic*Is
-    '''
+    """
     mr = 1.0/Is * np.exp(-1.0*(I+Ic)/Is)* special.iv(0,2.0*np.sqrt(I*Ic)/Is)
     return mr
 
 
 
 def binMRlogL(n, Ic, Is):
-    '''
+    """
     Given a light curve, calculate the Log likelihood that
     its intensity distribution follows a blurred modified Rician with Ic, Is.
 
     "Blurred" means that it's not a pure MR, rather a Poisson sampling of an MR.
-    
+
     INPUTS:
-        n: 1d array containing the (binned) intensity as a function of time, i.e. a lightcurve [counts/bin]. Bin size must be fixed. 
+        n: 1d array containing the (binned) intensity as a function of time, i.e. a lightcurve [counts/bin]. Bin size must be fixed.
         Ic: Constant portion of MR [cts/bin]
         Is: Speckle portion of MR [cts/bin]
     OUTPUTS:
         lnL: [float] the Log likelihood of the entire light curve.
         lnL_array: an array where each index corresponds to the log likelihood of each element of the light curve array.
-    '''
+    """
 
     type_n = type(n)
     if type_n==float or type_n==int:  # len(n) will break if n is not a numpy array and only an int or float
@@ -212,18 +212,18 @@ def negLogLike(p, n):
 
 
 def binMR_like(n, Ic, Is):
-    '''
+    """
     Given a light curve, calculate the likelihood that
-    its intensity distribution follows a blurred modified Rician with Ic, Is. 
-    
+    its intensity distribution follows a blurred modified Rician with Ic, Is.
+
     INPUTS:
-        n: 1d array containing the (binned) intensity as a function of time, i.e. a lightcurve [counts/bin]. Bin size must be fixed. 
+        n: 1d array containing the (binned) intensity as a function of time, i.e. a lightcurve [counts/bin]. Bin size must be fixed.
         Ic: Coherent portion of MR [cts/bin]
         Is: Speckle portion of MR [cts/bin]
     OUTPUTS:
          - the likelihood of the entire light curve
          - an array with one likelihoood value for each element of the light curve array
-    '''
+    """
 #    k = -Ic/(Is**2 + Is)
 #    like = (1+1/Is)**-n/(1+Is)*np.exp(-Ic/Is-k)*eval_laguerre(n,k)
 #    like[np.argwhere(np.isnan(like))]=0

@@ -42,7 +42,7 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('interpolation', 'linear', ' linear | cubic | nearest'))
 
 
-class Configuration(object):
+class Configuration:
     """Configuration class for the spectrophotometric calibration analysis."""
     yaml_tag = u'!spectralcalconfig'
 
@@ -438,7 +438,7 @@ class SpectralCalibrator:
         return axes_list
 
 
-class ResponseCurve(object):
+class ResponseCurve:
     def __init__(self, file_path=None, curve=None, configuration=None, wvl_bin_widths=None, wvl_bin_centers=None,
                  cube=None, solution_name='spectral_solution'):
         # default parameters

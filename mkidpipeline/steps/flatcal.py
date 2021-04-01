@@ -455,6 +455,68 @@ class LaserCalibrator(FlatCalibrator):
         return np.sum(frames, axis=2)/itime
 
 
+
+class FlatSolution(object):
+    yaml_tag = '!fsoln'
+    def __init__(self, file_path=None, configuration=None, beam_map=None, flat_weights=None, coeff_array=None,
+                 wavelengths=None, flat_weight_err=None, flat_flags=None, solution_name='flat_solution'):
+        self.cfg = configuration
+        self.file_path = file_path
+        self.beam_map = beam_map
+        self.flat_weights = flat_weights
+        self.wavelengths = wavelengths
+        self.save_name = solution_name
+        self.flat_flags = flat_flags
+        self.flat_weight_err = flat_weight_err
+        self.coeff_array=coeff_array
+        self._file_path = os.path.abspath(file_path) if file_path is not None else file_path
+        # if we've specified a file load it without overloading previously set arguments
+        if self._file_path is not None:
+            self.load(self._file_path, overload=False)
+        # if not finish the init
+        else:
+            self.name = solution_name  # use the default or specified name for saving
+            self.npz = None  # no npz file so all the properties should be set
+
+    def save(self, save_name=None):
+        """Save the solution to a file. The directory is given by the configuration."""
+        if save_name is None:
+            save_path = os.path.join(self.cfg.out_directory, self.name)
+        else:
+            save_path = os.path.join(self.cfg.out_directory, save_name)
+        if not save_path.endswith('.npz'):
+            save_path += '.npz'
+
+        getLogger(__name__).info("Saving solution to {}".format(save_path))
+        np.savez(save_path, coeff_array=self.coeff_array, flat_weights=self.flat_weights, wavelengths=self.wavelengths,
+                 flat_weight_err=self.flat_weight_err, configuration=self.cfg, beam_map=self.beam_map)
+        self._file_path = save_path  # new file_path for the solution
+
+    def load(self, file_path, overload=True, file_mode='c'):
+        """
+        Load a solution from a file, optionally overloading previously defined attributes.
+        The data will not be pulled from the npz file until first access of the data which
+        can take a while.
+
+        """
+        getLogger(__name__).info("Loading solution from {}".format(file_path))
+        keys = ('coeff_array', 'configuration', 'beam_map', 'flat_weights', 'flat_weight_err', 'wavelengths')
+        npz_file = np.load(file_path, allow_pickle=True, encoding='bytes', mmap_mode=file_mode)
+        for key in keys:
+            if key not in list(npz_file.keys()):
+                raise AttributeError('{} missing from {}, solution malformed'.format(key, file_path))
+        self.npz = npz_file
+        if overload:  # properties grab from self.npz if set to none
+            for attr in keys:
+                setattr(self, attr, None)
+        self._file_path = file_path  # new file_path for the solution
+        self.name = os.path.splitext(os.path.basename(file_path))[0]  # new name for saving
+        getLogger(__name__).info("Complete")
+
+    def summary_plot(self):
+        return None
+
+
 def generate_summary_plot(flatsol, save_plot=False):
     """ Writes a summary plot of the Flat Fielding """
     flat_cal = tables.open_file(flatsol, mode='r')
@@ -527,7 +589,7 @@ def generate_summary_plot(flatsol, save_plot=False):
         plt.show()
 
 
-def plotCalibrations(flatsol, wvlCalFile, pixel):
+def plot_calibrations(flatsol, wvlCalFile, pixel):
     """
     Plot weights of each wavelength bin for every single pixel
     Makes a plot of wavelength vs weights, twilight spectrum, and wavecal solution for each pixel
@@ -572,65 +634,6 @@ def plotCalibrations(flatsol, wvlCalFile, pixel):
     else:
         print('Pixel Failed Wavecal')
 
-class FlatSolution(object):
-    yaml_tag = '!fsoln'
-    def __init__(self, file_path=None, configuration=None, beam_map=None, flat_weights=None, coeff_array=None,
-                 wavelengths=None, flat_weight_err=None, flat_flags=None, solution_name='flat_solution'):
-        self.cfg = configuration
-        self.file_path = file_path
-        self.beam_map = beam_map
-        self.flat_weights = flat_weights
-        self.wavelengths = wavelengths
-        self.save_name = solution_name
-        self.flat_flags = flat_flags
-        self.flat_weight_err = flat_weight_err
-        self.coeff_array=coeff_array
-        self._file_path = os.path.abspath(file_path) if file_path is not None else file_path
-        # if we've specified a file load it without overloading previously set arguments
-        if self._file_path is not None:
-            self.load(self._file_path, overload=False)
-        # if not finish the init
-        else:
-            self.name = solution_name  # use the default or specified name for saving
-            self.npz = None  # no npz file so all the properties should be set
-
-    def save(self, save_name=None):
-        """Save the solution to a file. The directory is given by the configuration."""
-        if save_name is None:
-            save_path = os.path.join(self.cfg.out_directory, self.name)
-        else:
-            save_path = os.path.join(self.cfg.out_directory, save_name)
-        if not save_path.endswith('.npz'):
-            save_path += '.npz'
-
-        getLogger(__name__).info("Saving solution to {}".format(save_path))
-        np.savez(save_path, coeff_array=self.coeff_array, flat_weights=self.flat_weights, wavelengths=self.wavelengths,
-                 flat_weight_err=self.flat_weight_err, configuration=self.cfg, beam_map=self.beam_map)
-        self._file_path = save_path  # new file_path for the solution
-
-    def load(self, file_path, overload=True, file_mode='c'):
-        """
-        Load a solution from a file, optionally overloading previously defined attributes.
-        The data will not be pulled from the npz file until first access of the data which
-        can take a while.
-
-        """
-        getLogger(__name__).info("Loading solution from {}".format(file_path))
-        keys = ('coeff_array', 'configuration', 'beam_map', 'flat_weights', 'flat_weight_err', 'wavelengths')
-        npz_file = np.load(file_path, allow_pickle=True, encoding='bytes', mmap_mode=file_mode)
-        for key in keys:
-            if key not in list(npz_file.keys()):
-                raise AttributeError('{} missing from {}, solution malformed'.format(key, file_path))
-        self.npz = npz_file
-        if overload:  # properties grab from self.npz if set to none
-            for attr in keys:
-                setattr(self, attr, None)
-        self._file_path = file_path  # new file_path for the solution
-        self.name = os.path.splitext(os.path.basename(file_path))[0]  # new name for saving
-        getLogger(__name__).info("Complete")
-
-    def summary_plot(self):
-        return None
 
 def _run(flattner):
     getLogger(__name__).debug('Calling run on {}'.format(flattner))

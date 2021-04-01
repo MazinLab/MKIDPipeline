@@ -190,7 +190,7 @@ class SpeedResults:
             if d in self.count_images:
                 cnt_img = self.count_images[d]
             else:
-                res = list(self.query_iter((SHORTT_QUERY), dataset=d))
+                res = list(self.query_iter(SHORTT_QUERY, dataset=d))
                 i = np.array([r.queryt for r in res]).argmin()
                 fast_file = res[i].file
                 print('This might take a while: {:.0f} s'.format(res[i].queryt))

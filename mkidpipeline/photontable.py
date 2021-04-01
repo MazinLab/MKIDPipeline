@@ -1294,7 +1294,7 @@ class Photontable(object):
         flat_cal = tables.open_file(calsolFile, mode='r')
         calsoln = flat_cal.root.flatcal.calsoln.read()
 
-        for (row, column), resID in np.ndenumerate(self.beamImage):
+        for pixel, resID in np.ndenumerate(self.beamImage):
 
             soln = calsoln[resID == calsoln['resid']]
 
@@ -1303,7 +1303,7 @@ class Photontable(object):
             #     getLogger(__name__).critical(msg)
             #     raise RuntimeError(msg)
 
-            if not len(soln) and not self.flagged(pixelflags.PROBLEM_FLAGS, (x, y)):
+            if not len(soln) and not self.flagged(pixelflags.PROBLEM_FLAGS, pixel=pixel):
                 getLogger(__name__).warning('No flat calibration for good pixel {}'.format(resID))
                 continue
 
@@ -1326,7 +1326,7 @@ class Photontable(object):
                 weights = soln['weight'].flatten()
                 errors = soln['err'].flatten()
                 if self.wavelength_calibrated and not any(
-                        [self.flagged(pixelflags.PROBLEM_FLAGS, pixel=(row, column))]):
+                        [self.flagged(pixelflags.PROBLEM_FLAGS, pixel=pixel)]):
                     weightArr = np.poly1d(coeffs)(wavelengths)
                     if any(weightArr > 100) or any(weightArr < 0.01):
                         getLogger(__name__).debug('Unreasonable fitted weight of for resID {}'.format(resID))

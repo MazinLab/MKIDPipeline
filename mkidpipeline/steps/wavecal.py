@@ -1,8 +1,7 @@
-#!/bin/env python3
-from __future__ import print_function
 import os
 import queue
 import warnings
+from logging import getLogger
 import numpy as np
 import multiprocessing as mp
 from datetime import datetime
@@ -20,6 +19,7 @@ import mkidcore.config
 from mkidcore.objects import Beammap
 from mkidcore import pixelflags
 import astropy.constants
+import progressbar as pb
 import mkidpipeline.photontable as photontable
 
 log = pipelinelog.getLogger('mkidpipeline.steps.wavecal', setup=False)
@@ -2650,6 +2650,11 @@ def load_solution(wc, singleton_ok=True):
     if not singleton_ok:
         raise NotImplementedError('Must implement solution copying')
     if isinstance(wc, Solution):
+        if _loaded_solutions.get(wc._file_path, wc) != wc:
+            getLogger(__name__).warning('Told to load from a loaded wavecal solution backed by the same file as an '
+                                        'existing wavecal in the solution cache. This may indicate significant '
+                                        'inefficiency or merit an alternate means of updating the solution cache (e.g. '
+                                        'inn the vicinity of this comment')
         return wc  # TODO: _loaded_solutions[wc._file_path] = wc
     if isinstance(wc, mkidpipeline.config.MKIDWavedataDescription):
         wc = mkidpipeline.config.wavecal_id(wc.id)+'.npz'

@@ -87,11 +87,11 @@ def flatcal_apply(o):
         getLogger(__name__).critical('Caught exception during run of {}'.format(o.h5), exc_info=True)
 
 
-def linearitycal_apply(o):
+def lincal_apply(o):
     try:
         of = photontable.Photontable(o, mode='a')
         cfg = mkidpipeline.config.config
-        of.apply_lincal(dt=cfg.linearitycal.dt, tau=cfg.instrument.deadtime*1*10**6)
+        of.apply_lincal(dt=cfg.lincal.dt, tau=cfg.instrument.deadtime*1*10**6)
         of.file.close()
     except Exception as e:
         getLogger(__name__).critical('Caught exception during run of {}'.format(o), exc_info=True)
@@ -141,9 +141,9 @@ def batch_apply_badpix(dset, ncpu=None):
     pool.close()
 
 
-def batch_apply_linearitycal(dset, ncpu=None):
+def batch_apply_lincal(dset, ncpu=None):
     pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
-    pool.map(linearitycal_apply, set([o.h5 for o in dset.science_observations]))
+    pool.map(lincal_apply, set([o.h5 for o in dset.science_observations]))
     pool.close()
 
 
@@ -159,7 +159,7 @@ def run_stage1(dataset):
                   ('Fetching wavecals', mkidpipeline.steps.wavecal.fetch),
                   ('Applying wavelength solutions', batch_apply_wavecals),
                   ('Applying wavelength solutions', batch_apply_badpix),
-                  ('Applying linearity correction', batch_apply_linearitycal),
+                  ('Applying linearity correction', batch_apply_lincal),
                   ('Fetching flatcals', mkidpipeline.steps.flatcal.fetch),
                   ('Applying flatcals', batch_apply_flatcals),
                   ('Fetching speccals', mkidpipeline.steps.spectralcal.fetch))

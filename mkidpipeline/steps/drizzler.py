@@ -203,7 +203,7 @@ class DrizzleParams(object):
 
         getLogger(__name__).debug("Maximum non-blurring time step calculated to be {}".format(max_timestep))
 
-        return (max_timestep)
+        return max_timestep
 
 
 def metadata_config_check(filename, conf_wcs):

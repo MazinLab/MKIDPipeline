@@ -12,16 +12,18 @@ Adapted from tutorials from python4astronomers.
 Credit to authors: Tom Aldcroft, Tom Robitaille, Brian Refsdal, Gus Muench 
 and Smithsonian Astrophysical Observatory.
 """
+
+
 class elastic_colorbar(object):
     def __init__(self, cbar, mappable):
         self.cbar = cbar
         self.mappable = mappable
         self.press = None
-        self.cycle = sorted([i for i in dir(plt.cm) if hasattr(getattr(plt.cm,i),'N')])
+        self.cycle = sorted([i for i in dir(plt.cm) if hasattr(getattr(plt.cm, i), 'N')])
         self.index = self.cycle.index(cbar.get_cmap().name)
 
     def connect(self):
-        "Set up a connection between mouse and colorbar"
+        """Set up a connection between mouse and colorbar"""
         self.cidpress = self.cbar.patch.figure.canvas.mpl_connect(
             'button_press_event', self.on_press)
         self.cidrelease = self.cbar.patch.figure.canvas.mpl_connect(
@@ -32,18 +34,18 @@ class elastic_colorbar(object):
             'key_press_event', self.key_press)
 
     def on_press(self, event):
-        "Get ready to respond to a mouse click if mouse is over the colorbar"
+        """Get ready to respond to a mouse click if mouse is over the colorbar"""
         if event.inaxes != self.cbar.ax: return
         self.press = event.x, event.y
 
     def key_press(self, event):
-        if event.key=='down':
+        if event.key == 'down':
             self.index += 1
-        elif event.key=='up':
+        elif event.key == 'up':
             self.index -= 1
-        if self.index<0:
+        if self.index < 0:
             self.index = len(self.cycle)
-        elif self.index>=len(self.cycle):
+        elif self.index >= len(self.cycle):
             self.index = 0
         cmap = self.cycle[self.index]
         self.cbar.set_cmap(cmap)
@@ -53,38 +55,39 @@ class elastic_colorbar(object):
         self.cbar.patch.figure.canvas.draw()
 
     def on_motion(self, event):
-        "Rescale the colorbar if the mouse is dragged over the colorbar"
+        """Rescale the colorbar if the mouse is dragged over the colorbar"""
         if self.press is None: return
         if event.inaxes != self.cbar.ax: return
         xprev, yprev = self.press
         dx = event.x - xprev
         dy = event.y - yprev
-        self.press = event.x,event.y
+        self.press = event.x, event.y
         scale = self.cbar.norm.vmax - self.cbar.norm.vmin
         perc = 0.03
-        if event.button==1:
-            self.cbar.norm.vmin -= (perc*scale)*np.sign(dy)
-            self.cbar.norm.vmax -= (perc*scale)*np.sign(dy)
-        elif event.button==3:
-            self.cbar.norm.vmin -= (perc*scale)*np.sign(dy)
-            self.cbar.norm.vmax += (perc*scale)*np.sign(dy)
+        if event.button == 1:
+            self.cbar.norm.vmin -= (perc * scale) * np.sign(dy)
+            self.cbar.norm.vmax -= (perc * scale) * np.sign(dy)
+        elif event.button == 3:
+            self.cbar.norm.vmin -= (perc * scale) * np.sign(dy)
+            self.cbar.norm.vmax += (perc * scale) * np.sign(dy)
         self.cbar.draw_all()
         self.mappable.set_norm(self.cbar.norm)
         self.cbar.patch.figure.canvas.draw()
 
     def on_release(self, event):
-        "When mouse is released, reset the colorbar to the new scale"
+        """When mouse is released, reset the colorbar to the new scale"""
         self.press = None
         self.mappable.set_norm(self.cbar.norm)
         self.cbar.patch.figure.canvas.draw()
 
     def disconnect(self):
-        "Disconnect the mouse from the colorbar"
+        """Disconnect the mouse from the colorbar"""
         self.cbar.patch.figure.canvas.mpl_disconnect(self.cidpress)
         self.cbar.patch.figure.canvas.mpl_disconnect(self.cidrelease)
         self.cbar.patch.figure.canvas.mpl_disconnect(self.cidmotion)
 
-class ast_normalize(Normalize):
+
+class AstNormalize(Normalize):
     """
     A Normalize class for imshow that allows different stretching functions
     for astronomical images.
@@ -159,7 +162,7 @@ class ast_normalize(Normalize):
             if clip:
                 mask = ma.getmask(val)
                 val = ma.array(np.clip(val.filled(vmax), vmin, vmax),
-                                mask=mask)
+                               mask=mask)
             result = (val - vmin) * (1.0 / (vmax - vmin))
 
             negative = result < 0.
@@ -167,12 +170,12 @@ class ast_normalize(Normalize):
                 pass
             elif self.stretch == 'log':
                 result = ma.log10(result * (self.midpoint - 1.) + 1.) \
-                       / ma.log10(self.midpoint)
+                         / ma.log10(self.midpoint)
             elif self.stretch == 'sqrt':
                 result = ma.sqrt(result)
             elif self.stretch == 'arcsinh':
                 result = ma.arcsinh(result / self.midpoint) \
-                       / ma.arcsinh(1. / self.midpoint)
+                         / ma.arcsinh(1. / self.midpoint)
             elif self.stretch == 'power':
                 result = ma.power(result, exponent)
             else:
@@ -213,8 +216,9 @@ class ast_normalize(Normalize):
         return vmin + val * (vmax - vmin)
 
 
-def plot_array(image, title='', xlabel='', ylabel='', cbar_stretch='linear', vmid=None, norm_nsigma=3, show_colorbar=True, **kwargs):
-    "The main plotting function"
+def plot_array(image, title='', xlabel='', ylabel='', cbar_stretch='linear', vmid=None, norm_nsigma=3,
+               show_colorbar=True, **kwargs):
+    """The main plotting function"""
     if not 'vmax' in kwargs:
         good_image = image[np.isfinite(image)]
         kwargs['vmax'] = np.mean(good_image) + norm_nsigma * np.std(good_image)
@@ -231,13 +235,14 @@ def plot_array(image, title='', xlabel='', ylabel='', cbar_stretch='linear', vmi
     img = plt.imshow(image, **kwargs)
     if show_colorbar:
         cbar = plt.colorbar(format='%05.2f')
-        cbar.set_norm(ast_normalize(vmin=kwargs['vmin'], vmax=kwargs['vmax'], vmid=vmid, stretch=cbar_stretch))
+        cbar.set_norm(AstNormalize(vmin=kwargs['vmin'], vmax=kwargs['vmax'], vmid=vmid, stretch=cbar_stretch))
         cbar = elastic_colorbar(cbar, img)
         cbar.connect()
     plt.title(title)
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     plt.show()
+
 
 def main():
     """
@@ -273,7 +278,8 @@ def main():
     image = gaussian_filter(image, 1)
     # Add noise
     image += np.random.normal(3., 0.01, image.shape)
-    plot_array(image, cbar_stretch ='linear', vmid=-20, title='Random Gaussian Noise')
+    plot_array(image, cbar_stretch='linear', vmid=-20, title='Random Gaussian Noise')
+
 
 if __name__ == '__main__':
     main()

@@ -4,6 +4,7 @@ import scipy
 from scipy.optimize.minpack import curve_fit
 import scipy.constants as con
 from scipy.interpolate import griddata
+import scipy.integrate
 
 
 def fitBlackbody(wvls, flux, fraction=1.0, newWvls=None, tempGuess=8600):
@@ -39,8 +40,8 @@ def fitBlackbody(wvls, flux, fraction=1.0, newWvls=None, tempGuess=8600):
     guess_a, guess_b = 1 / (2 * h * c ** 2 / 1e-9), tempGuess  # Constant, Temp
     guess = [guess_a, guess_b]
 
-    blackbody = lambda fx, N, T: N * 2 * h * c ** 2 / (fx) ** 5 * (
-            np.exp(h * c / (k * T * (fx))) - 1) ** -1  # Planck Law
+    blackbody = lambda fx, N, T: N * 2 * h * c ** 2 / fx ** 5 * (
+            np.exp(h * c / (k * T * fx)) - 1) ** -1  # Planck Law
     # blackbody = lambda fx, N, T: N*2*c*k*T/(fx)**4 #Rayleigh Jeans tail
     # blackbody = lambda fx, N, T: N*2*h*c**2/(fx**5) * exp(-h*c/(k*T*fx)) #Wein Approx
 
@@ -49,8 +50,8 @@ def fitBlackbody(wvls, flux, fraction=1.0, newWvls=None, tempGuess=8600):
     print("BBFit:\nN = %s\nT = %s\n" % (N, T))
 
     if newWvls is not None:
-        best_fit = lambda fx: N * 2 * h * c ** 2 / (fx) ** 5 * (
-                np.exp(h * c / (k * T * (fx))) - 1) ** -1  # Planck Law
+        best_fit = lambda fx: N * 2 * h * c ** 2 / fx ** 5 * (
+                np.exp(h * c / (k * T * fx)) - 1) ** -1  # Planck Law
         # best_fit = lambda fx: N*2*c*k*T/(fx)**4 # Rayleigh Jeans Tail
         # best_fit = lambda fx: N*2*h*c**2/(fx**5) * exp(-h*c/(k*T*fx)) #Wein Approx
 
@@ -86,7 +87,7 @@ def rebin(x, y, binedges):
     while start + (binsize / 2.0) < stop:
         rebinned[n, 0] = (start + (binsize / 2.0))
         ind = np.where((x > start) & (x < start + binsize))
-        rebinned[n, 1] = (scipy.integrate.trapz(y[ind], x=x[ind]))/binsize
+        rebinned[n, 1] = (scipy.integrate.trapz(y[ind], x=x[ind])) / binsize
         start += binsize
         n += 1
         try:
@@ -114,12 +115,13 @@ def gaussianConvolution(x, y, xEnMin=0.005, xEnMax=6.0, xdE=0.001, fluxUnits="la
         xOut - new x-values that convolution is calculated at (defined by xEnMin, xEnMax, xdE), returned in same units as original x
         yOut - fluxes calculated at new x-values are returned in same units as original y provided
     """
-    ##=======================  Define some Constants     ============================
+    # =======================  Define some Constants     ============================
     c = con.c * 100  # cm/s
     h = con.h  # erg*s
     k = 1.3806488E-16  # erg/K
     heV = h / con.e
-    ##================  Convert to F_nu and put x-axis in frequency  ===================
+
+    # ================  Convert to F_nu and put x-axis in frequency  ===================
     if fluxUnits == 'lambda':
         xEn = heV * (c * 1.0E8) / x
         xNu = xEn / heV
@@ -130,14 +132,16 @@ def gaussianConvolution(x, y, xEnMin=0.005, xEnMax=6.0, xdE=0.001, fluxUnits="la
         yNu = y
     else:
         raise ValueError("fluxUnits must be either 'nu' or 'lambda'")
-    ##============  regrid to a constant energy spacing for convolution  ===============
+
+    # ============  regrid to a constant energy spacing for convolution  ===============
     xNuGrid = np.arange(xEnMin, xEnMax, xdE) / heV  # make new x-axis gridding in constant freq bins
     yNuGrid = griddata(xNu, yNu, xNuGrid, 'linear', fill_value=0)
     xNuGrid = xNuGrid[1:-1]  # remove weird effects with first and last values #TODO figure out why this is happening
     yNuGrid = yNuGrid[1:-1]
     if plots == True:
         plt.plot(xNuGrid, yNuGrid, label="Spectrum in energy space")
-    ##======  define gaussian for convolution, on same gridding as spectral data  ======
+
+    # ======  define gaussian for convolution, on same gridding as spectral data  ======
     # WARNING: right now flux is NOT conserved
     offset = 0
     E0 = heV * c / (900 * 1E-7)  # 450rnm light is ~3eV
@@ -150,22 +154,26 @@ def gaussianConvolution(x, y, xEnMin=0.005, xEnMax=6.0, xdE=0.001, fluxUnits="la
     gaussX = gaussX[1:-1]
     gaussY = gaussY[1:-1]
     window_size = int(len(gaussX) / 2)
-    if plots == True:
+    if plots:
         plt.plot(gaussX, gaussY * yNuGrid.max(), label="Gaussian to be convolved")
         plt.legend()
         plt.show()
-    ##====== Integrate curve to get total flux, required to ensure flux conservation later =======
+
+    # ====== Integrate curve to get total flux, required to ensure flux conservation later =======
     originalTotalFlux = scipy.integrate.simps(yNuGrid[window_size:-window_size], x=xNuGrid[window_size:-window_size])
-    ##================================    convolve    ==================================
+
+    # ================================    convolve    ==================================
     convY = np.convolve(yNuGrid, gaussY, 'valid')
     if plots:
         plt.plot(xNuGrid, convY, label="Convolved spectrum")
         plt.legend()
         plt.show()
-    ##============ Conserve Flux ==============
+
+    # ============ Conserve Flux ==============
     newTotalFlux = scipy.integrate.simps(convY, x=xNuGrid[window_size:-window_size])
     convY *= (originalTotalFlux / newTotalFlux)
-    ##==================   Convert back to wavelength space   ==========================
+
+    # ==================   Convert back to wavelength space   ==========================
     if fluxUnits == 'lambda':
         xOut = c / xNuGrid[window_size:-window_size] * 1E8
         yOut = convY / (xOut ** 2) * 3E-5  # convert Fnu(Jy) to Flambda
@@ -180,4 +188,3 @@ def gaussianConvolution(x, y, xEnMin=0.005, xEnMax=6.0, xdE=0.001, fluxUnits="la
         plt.show()
 
     return [xOut, yOut]
-

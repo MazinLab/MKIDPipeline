@@ -22,13 +22,13 @@ class MKIDStandards:
     citation, and a brief description of the object. 
     """
 
-    def __init__(self, configuration_path='', referenceWavelength=5500):
+    def __init__(self, configuration_path='', reference_wave=5500):
         """
         Loads up the list of objects we know about, filters, and
         Balmer wavelengths.
         referenceWavelength is used in plot() to normalize spectra
         """
-        self.referenceWavelength = referenceWavelength
+        self.referenceWavelength = reference_wave
         self.cfg = config.load(configuration_path)
         self.data_dir = self.cfg.paths.standards
         self.objects = {}
@@ -71,9 +71,9 @@ class MKIDStandards:
         iFilter = -1
         iRead = 0
         for line in f:
-            if (nFilter == -1) :
+            if nFilter == -1:
                 nFilter = int(line)
-            elif (nToRead <= 0):
+            elif nToRead <= 0:
                 nToRead = int(line)
                 iFilter += 1
                 filter = self.filterList[iFilter]
@@ -114,7 +114,7 @@ class MKIDStandards:
         """
         fname = self.objects[name]['dataFile']
         fullFileName = os.path.join(self.this_dir,"data",fname[0])
-        if (fullFileName.count("fit")):
+        if fullFileName.count("fit"):
             a = self.loadSdssSpecFits(fullFileName)
         else:
             a = numpy.loadtxt(fullFileName)
@@ -234,11 +234,11 @@ class MKIDStandards:
         
         The filename of the plot in the current working director is returned.
         """
-        if (name == "all"):
+        if name == "all":
             listofobjects = list(self.objects.keys())
             listofobjects.sort()
             plotName = "all"
-        elif (isinstance(name, list)):
+        elif isinstance(name, list):
             listofobjects = name
             plotName = name[0]+"_group"
         else:
@@ -249,27 +249,27 @@ class MKIDStandards:
         plotYMax = -1
         for tname in listofobjects:
             a = self.load(tname)
-            if (countsToErgs):
+            if countsToErgs:
                 a = self.countsToErgs(a)
-            if (normalizeFlux):
+            if normalizeFlux:
                 a = self.normalizeFlux(a)
             a.shape
             x = a[:,0]
             y = a[:,1]
-            if (not xlog and ylog):
+            if not xlog and ylog:
                 plt.semilogy(x,y, label=tname)
-            if (not ylog and xlog):
+            if not ylog and xlog:
                 plt.semilogx(x,y, label=tname)
-            if (not xlog and not ylog):
+            if not xlog and not ylog:
                 plt.plot(x,y, label=tname)
-            if (xlog and ylog):
+            if xlog and ylog:
                 plt.loglog(x,y, label=tname)
             imin = numpy.searchsorted(x,xlim[0])
             imax = numpy.searchsorted(x,xlim[1])
             ytemp = y[imin:imax]
             ymin = abs(ytemp).min()
             ymax = ytemp.max()
-            if (plotYMin == -1):
+            if plotYMin == -1:
                 plotYMin = ymin
                 plotYMax = ymax
             else:
@@ -278,11 +278,8 @@ class MKIDStandards:
         for x in self.balmerwavelengths:
             plt.plot([x,x],[plotYMin,plotYMax], 'r--')
         plt.xlabel('wavelength(Angstroms)')
-        if (countsToErgs):
-            ylabel = 'flux(ergs/sec/cm2/A)'
-        else:
-            ylabel = 'flux(counts/sec/cm2/A)'
-        if (normalizeFlux):
+        ylabel = 'flux(ergs/sec/cm2/A)' if countsToErgs else 'flux(counts/sec/cm2/A)'
+        if normalizeFlux:
             ylabel += '['+str(self.referenceWavelength)+']'
         plt.ylabel(ylabel)
         ax = plt.subplot(111)
@@ -365,6 +362,7 @@ class MKIDStandards:
             print("name=",name)
             vMag = self.getVegaMag(name,'V')
             print("name=%15s   vMag=%+f" % (name, vMag))
+
     def report(self):
         """
         Creates a text document called Report.log that reports the units,
@@ -401,6 +399,7 @@ class MKIDStandards:
                 %(points, xmin, xmax))
         sys.stdout = old_stdout
         log_file.close()
+
 
 if __name__ == '__main__':
     objectName = "hiltner600"

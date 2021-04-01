@@ -23,9 +23,9 @@ find_bad_pixels:  The main routine. Takes an obs. file  as input and writes a ba
                   Algorithms differ in how they flag hot pixels but they all are able to flag dead pixels
 
                   Bad Pixel Masking Via Image Arrays --> Best for wavelength calibrated + flat-fielded arrays
-                    a.  hpm_flux_threshold:  Established PSF-comparison method to find hot pixels
-                    b.  hpm_laplacian:  New method to find hot pixels using a Laplacian filter
-                    c.  hpm_median_movingbox:  New method to find hot pixels using a median moving-box
+                    a.  flux_threshold:  Established PSF-comparison method to find hot pixels
+                    b.  laplacian:  New method to find hot pixels using a Laplacian filter
+                    c.  median_movingbox:  New method to find hot pixels using a median moving-box
                     d.  cps_cut_image:  Basic hot pixel search using a count-per-second threshold (not robust)
 
                   Bad Pixel Masking via Time Streams --> Best for uncalibrated obs data or calibration data
@@ -35,7 +35,7 @@ find_bad_pixels:  The main routine. Takes an obs. file  as input and writes a ba
 -------------
 Functions for first-order HP masking, plotting, viewing (takes an image or numpy array as input):
 
-hpm_cps_cut:    Creates a 2D bad pixel mask for a given time interval within a given
+cps_cut:    Creates a 2D bad pixel mask for a given time interval within a given
                 exposure using a count-per-second threshold routine.  USE THIS FOR DATA VIEWING/QUICK CHECKS
 
 save_mask_array:  Write bad pixel mask to desired output directory
@@ -47,13 +47,13 @@ plot_mask_array:  Plot a mask or masked image for viewing
 -------------
 Functions for rigorous HP masking of obs data (takes an image or numpy array as input):
 
-hpm_flux_threshold: Creates a 2D bad pixel mask for a given time interval within a given
+flux_threshold: Creates a 2D bad pixel mask for a given time interval within a given
                     exposure using a robust PSF-comparison method.  USE THIS FOR DATA REDUCTION
 
-hpm_median_movingbox:  Creates a 2D bad pixel mask for a given time interval within a given exposure using a
+median_movingbox:  Creates a 2D bad pixel mask for a given time interval within a given exposure using a
                        median-moving-box.  Is extremely variable to input parameters, requires a lot of find-tuning
 
-hpm_laplacian:  Creates a 2D bad pixel mask for a given time interval within a given exposure using a Laplacian filter
+laplacian:  Creates a 2D bad pixel mask for a given time interval within a given exposure using a Laplacian filter
                 based on approximate second derivatives.
                 Works all right on 51Eri Dither, got around 80% of HPs
 
@@ -65,9 +65,9 @@ hpm_poisson_dist:  Checks if photons arriving at pixels are obeying Poisson stat
 """
 import warnings
 
-
+import numpy as np
 import scipy.ndimage.filters as spfilters
-from mkidpipeline.speckle.binned_rician import *
+import mkidpipeline.speckle.binned_rician as binned_rician
 import scipy.stats
 
 from photontable import Photontable
@@ -97,8 +97,8 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
     REQUIRED_KEYS = (('method', 'median', 'method to use'),)
 
 
-def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.0, max_iter=10, dead_threshold=0, #TODO make nsigma_hot and nsigma_cold user specified parameters in the config file
-                       use_local_stdev=False, bkgd_percentile=50.0, dead_mask=None, min_background_sigma=.01):
+def flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.0, max_iter=10, dead_threshold=0,  #TODO make nsigma_hot and nsigma_cold user specified parameters in the config file
+                   use_local_stdev=False, bkgd_percentile=50.0, dead_mask=None, min_background_sigma=.01):
     """
     Robust!  NOTE:  This is a routine that was ported over from the ARCONS pipeline.
     Finds the hot and dead pixels in a for a 2D input array.
@@ -192,7 +192,7 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.
             getLogger(__name__).info('Doing iteration: {}'.format(iteration))
             # Remove all the NaNs in an image and calculate a median filtered image
             # each pixel takes the median of itself and the surrounding box_size x box_size box.
-            nan_fixed_image = utils.replaceNaN(raw_image, mode='mean', boxsize=box_size)
+            nan_fixed_image = utils.replace_nan(raw_image, mode='mean', boxsize=box_size)
             assert np.all(np.isfinite(nan_fixed_image))
             median_filter_image = spfilters.median_filter(nan_fixed_image, box_size, mode='mirror')
 
@@ -253,7 +253,7 @@ def hpm_flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.
             'difference_image_error': difference_image_error, 'num_iter': iteration + 1}
 
 
-def hpm_median_movingbox(image, box_size=5, nsigma_hot=4.0, max_iter=5):
+def median_movingbox(image, box_size=5, nsigma_hot=4.0, max_iter=5):
     """
     New routine, developed to serve as a generic hot pixel masking method
     Finds the hot and dead pixels in a for a 2D input array.
@@ -323,7 +323,7 @@ def hpm_median_movingbox(image, box_size=5, nsigma_hot=4.0, max_iter=5):
             getLogger(__name__).info('Iteration: '.format(iteration))
             # Remove all the NaNs in an image and calculate a median filtered image
             # each pixel takes the median of itself and the surrounding box_size x box_size box.
-            nan_fixed_image = utils.replaceNaN(raw_image, mode='mean', boxsize=box_size)
+            nan_fixed_image = utils.replace_nan(raw_image, mode='mean', boxsize=box_size)
             assert np.all(np.isfinite(nan_fixed_image))
             median_filter_image = spfilters.median_filter(nan_fixed_image, box_size, mode='mirror')
             func = lambda x: np.nanstd(x) * _stddev_bias_corr((~np.isnan(x)).sum())
@@ -355,7 +355,7 @@ def hpm_median_movingbox(image, box_size=5, nsigma_hot=4.0, max_iter=5):
             'num_iter': iteration + 1}
 
 
-def hpm_laplacian(image, box_size=5, nsigma_hot=4.0):
+def laplacian(image, box_size=5, nsigma_hot=4.0):
     """
     Required Input:
     :param image:           A 2D image array of photon counts.
@@ -391,7 +391,7 @@ def hpm_laplacian(image, box_size=5, nsigma_hot=4.0):
     # Initialise a mask for hot pixels (all False)
     hot_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
 
-    nan_fixed_image = utils.replaceNaN(raw_image, mode='mean', boxsize=box_size)
+    nan_fixed_image = utils.replace_nan(raw_image, mode='mean', boxsize=box_size)
     assert np.all(np.isfinite(nan_fixed_image))
 
     # In the case that *all* the pixels are dead, return a bad_mask where all the pixels are flagged as DEAD
@@ -452,7 +452,7 @@ def hpm_poisson_dist(obsfile):
     return {'poisson_dist': poisson_dist, 'chisq': chisq}
 
 
-def hpm_cps_cut(image, sigma=5, max_cut=2450, cold_mask=False):
+def cps_cut(image, sigma=5, max_cut=2450, cold_mask=False):
     """
     NOTE:  This is a routine for masking hot pixels in .img files and the like, NOT robust
             OK to use for bad pixel masking for pretty-picture-generation or quicklook
@@ -514,7 +514,7 @@ def hpm_cps_cut(image, sigma=5, max_cut=2450, cold_mask=False):
     return {'bad_mask': bad_mask, 'dead_mask': dead_mask, 'hot_mask': hot_mask, 'image': raw_image}
 
 
-def mask_hot_pixels(file, method='hpm_flux_threshold', step=30, startt=0, stopt=None, ncpu=1, **methodkw):
+def mask_hot_pixels(file, method='flux_threshold', step=30, startt=0, stopt=None, **methodkw):
     """
     This routine is the main code entry point of the bad pixel masking code.
     Takes an obs. file as input and writes a 'bad pixel table' to that h5 file where each entry is an indicator of
@@ -531,10 +531,10 @@ def mask_hot_pixels(file, method='hpm_flux_threshold', step=30, startt=0, stopt=
     :param step          Scalar Integer.  Number of seconds to do the bad pixel masking over (should be an integer
                                                number of steps through the obsfile), default = 30
     :param hpcutmethod        String.          Method to use to detect hot pixels.  Options are:
-                                               hpm_median_movingbox
-                                               hpm_flux_threshold
-                                               hpm_laplacian
-                                               hpm_cps_cut
+                                               median_movingbox
+                                               flux_threshold
+                                               laplacian
+                                               cps_cut
 
     Other Input:
     Appropriate args and kwargs that go into the chosen hpcut function

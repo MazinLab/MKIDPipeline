@@ -22,17 +22,18 @@ def signal_to_noise(image, num_apertures, center, dist, pa, radius, save_path=No
     aperture_values = np.zeros(num_apertures)
     fig, ax = plt.subplots()
     ax.imshow(image)
-    angular_size = 2*np.arctan(radius/dist)
+    angular_size = 2 * np.arctan(radius / dist)
     for i in range(num_apertures):
-        aperture_center = get_aperture_center(pa, i*angular_size, center, dist)
+        aperture_center = get_aperture_center(pa, i * angular_size, center, dist)
         im = image.copy()
         aperture_values[i] = aper_photometry(im, aperture_center, radius)
         circle1 = plt.Circle((aperture_center[0], aperture_center[1]), radius=radius, fill=False, color='r')
-        circle2= plt.Circle((aperture_center[0], aperture_center[1]), radius=radius+0.5*radius, fill=False, color='g')
+        circle2 = plt.Circle((aperture_center[0], aperture_center[1]), radius=radius + 0.5 * radius, fill=False,
+                             color='g')
         ax.add_artist(circle1)
         ax.add_artist(circle2)
     max = np.max(aperture_values)
-    max_idx = np.where(aperture_values==max)
+    max_idx = np.where(aperture_values == max)
     signal = max
     aperture_values[max_idx] = np.nan
     aperture_values[max_idx] = np.nan
@@ -40,6 +41,7 @@ def signal_to_noise(image, num_apertures, center, dist, pa, radius, save_path=No
     if save_path:
         plt.savefig(save_path + 'sn_debug_image.pdf')
     return signal, noise
+
 
 def get_aperture_center(pa, angular_size, obj_center, dist):
     """
@@ -52,10 +54,11 @@ def get_aperture_center(pa, angular_size, obj_center, dist):
     :return: center (tuple in pixels)
     """
     theta = np.deg2rad(pa) + angular_size
-    delta_x = dist*np.cos(theta)
-    delta_y = dist*np.sin(theta)
+    delta_x = dist * np.cos(theta)
+    delta_y = dist * np.sin(theta)
     center = (obj_center[0] + delta_x, obj_center[1] + delta_y)
     return center
+
 
 def get_num_apertures(aperture_radius, dist):
     """
@@ -65,9 +68,10 @@ def get_num_apertures(aperture_radius, dist):
     :param dist: radial distance from center of image (in pixels)
     :return:
     """
-    angular_size = np.arctan((aperture_radius*2)/dist)
+    angular_size = np.arctan((aperture_radius * 2) / dist)
     angular_size = np.rad2deg(angular_size)
-    return int(360/angular_size), angular_size
+    return int(360 / angular_size), angular_size
+
 
 def pixel_lambda_over_d(lam, n):
     """
@@ -77,9 +81,10 @@ def pixel_lambda_over_d(lam, n):
     :return: radius (in pixels)
     """
     b = 206265
-    lam_over_d = (lam/8.2e10) * b * 1000
-    pix = (n*lam_over_d)/10.4
+    lam_over_d = (lam / 8.2e10) * b * 1000
+    pix = (n * lam_over_d) / 10.4
     return pix
+
 
 def get_aperture_radius(lam):
     """
@@ -87,9 +92,9 @@ def get_aperture_radius(lam):
     :param lam: wavelength (in angstroms!)
     :return: radius of the aperture in pixels equal to 2x diffraction limit
     """
-    D = 8.2 *(10**10)
-    theta_rad = 1.22 * (lam/D)
+    D = 8.2 * (10 ** 10)
+    theta_rad = 1.22 * (lam / D)
     a = 4.8481368e-9
-    theta_mas = theta_rad * (1/a)
-    r = 0.5*theta_mas * (1/10.4)
+    theta_mas = theta_rad * (1 / a)
+    r = 0.5 * theta_mas * (1 / 10.4)
     return r
