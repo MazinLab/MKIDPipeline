@@ -2668,7 +2668,7 @@ def clear_solution_cache():
 
 def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
     try:
-        solution_descriptors=solution_descriptors.wavecals
+        solution_descriptors = solution_descriptors.wavecals
     except AttributeError:
         pass
 

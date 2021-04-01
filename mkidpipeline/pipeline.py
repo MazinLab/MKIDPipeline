@@ -150,11 +150,11 @@ def batch_apply_linearitycal(dset, ncpu=None):
 def batch_build_hdf(timeranges, ncpu=None):
     """will also accept an opject with a .timeranges (e.g. a dataset)"""
     ncpu = ncpu if ncpu is not None else config.n_cpus_available()
-    steps.buildhdf.buildtables(timeranges, ncpu=ncpu, remake=False)
+    mkidpipeline.steps.buildhdf.buildtables(timeranges, ncpu=ncpu, remake=False)
 
 
 def run_stage1(dataset):
-    operations = (('Building H5s', steps.buildhdf.buildtables),
+    operations = (('Building H5s', mkidpipeline.steps.buildhdf.buildtables),
                   ('Attaching metadata', batch_apply_metadata),
                   ('Fetching wavecals', mkidpipeline.steps.wavecal.fetch),
                   ('Applying wavelength solutions', batch_apply_wavecals),
