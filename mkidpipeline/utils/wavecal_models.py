@@ -1,20 +1,13 @@
 import os
-import sys
 import copy
-import pickle
-import inspect
 import astropy
 import warnings
 import numpy as np
 import lmfit as lm
 from cycler import cycler
 import scipy.optimize as opt
-from scipy.stats import chi2
 from scipy.signal import find_peaks
-if sys.version_info.major == 3:
-    from inspect import signature
-else:
-    from funcsigs import signature
+from inspect import signature
 from matplotlib import pyplot as plt
 from scipy.special import erfc, erfcx
 

@@ -196,6 +196,79 @@ def test_writers(out='garbage.gif',showaxes=False, fps=5):
             writer.grab_frame()
 
 
+def makeMovie(listOfFrameObj, frameTitles=None, outName='Test_movie',
+              delay=0.1, listOfPixelsToMark=None, pixelMarkColor='red',
+              **plotArrayKeys):
+    """
+    Neelay ca 2017
+
+    Makes a movie out of a list of frame objects (2-D arrays). If you
+    specify other list inputs, these all need to be the same length as
+    the list of frame objects.
+
+    listOfFrameObj is a list of 2d arrays of numbers
+
+    frameTitles is a list of titles to put on the frames
+
+    outName is the file name to write, .gif will be appended
+
+    delay in seconds between frames
+
+    listOfPixelsToMark is a list.  Each entry is itself a list of
+    pixels to mark pixelMarkColor is the color to fill in the marked
+    pixels
+
+    """
+    # Looks like theres some sort of bug when normMax != None.
+    # Causes frame to pop up in a window as gif is made.
+    if len(listOfFrameObj) == 1:
+        raise ValueError("I cannot make movie out of a list of one object!")
+
+    if frameTitles != None:
+        assert len(frameTitles) == len(listOfFrameObj), "Number of Frame titles\
+        must equal number of frames"
+
+    if os.path.exists("./.tmp_movie"):
+        os.system("rm -rf .tmp_movie")
+
+    os.mkdir(".tmp_movie")
+    iFrame = 0
+    print('Making individual frames ...')
+
+    for frame in listOfFrameObj:
+
+        if frameTitles != None:
+            plotTitle = frameTitles[iFrame]
+        else:
+            plotTitle = ''
+
+        if listOfPixelsToMark != None:
+            pixelsToMark = listOfPixelsToMark[iFrame]
+        else:
+            pixelsToMark = []
+        pfn = '.tmp_movie/mov_' + repr(iFrame + 10000) + '.png'
+        fp = plotArray(frame, showMe=False, plotFileName=pfn,
+                       plotTitle=plotTitle, pixelsToMark=pixelsToMark,
+                       pixelMarkColor=pixelMarkColor, **plotArrayKeys)
+        iFrame += 1
+        del fp
+
+    os.chdir('.tmp_movie')
+
+    if outName[-4:-1] + outName[-1] != '.gif':
+        outName += '.gif'
+
+    delay *= 100
+    delay = int(delay)
+    print('Making Movie ...')
+
+    if '/' in outName:
+        os.system('convert -delay %s -loop 0 mov_* %s' % (repr(delay), outName))
+    else:
+        os.system('convert -delay %s -loop 0 mov_* ../%s' % (repr(delay), outName))
+    os.chdir("../")
+    os.system("rm -rf .tmp_movie")
+    print('done.')
 
 
 # from mkidpipeline.hdf.photontable import Photontable

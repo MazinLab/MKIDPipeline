@@ -39,7 +39,7 @@ def run_stage1(dataset):
     times.append(time.time())
     pipe.batch_maskhot(dataset.science_observations, ncpu=ncpu)
     times.append(time.time())
-    pipe.batch_apply_linearitycal(dataset.science_observations, ncpu=ncpu)
+    pipe.batch_apply_lincal(dataset.science_observations, ncpu=ncpu)
     times.append(time.time())
     pipe.flatcal.fetch(dataset, ncpu=ncpu)
     times.append(time.time())

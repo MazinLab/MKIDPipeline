@@ -30,7 +30,7 @@ from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import pyqtSignal
 from photontable import Photontable
 import mkidpipeline.utils.binparse as binparse
-from mkidpipeline.steps.badpix import hpm_flux_threshold as hft
+from mkidpipeline.steps.badpix import flux_threshold as hft
 from scipy import optimize
 import os.path
 
@@ -70,7 +70,7 @@ def ssd_worker(args):
     return ssd_param_list
 
 
-class img_object():
+class img_object:
     def __init__(self, filename, verbose=False):
         self.verbose = verbose
         self.filename = filename

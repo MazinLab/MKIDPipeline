@@ -29,128 +29,32 @@ from mkidcore.corelog import getLogger
 from matplotlib.colors import LogNorm
 
 
-def confirm(prompt, defaultResponse=True):
+def confirm(prompt, default=True):
     """
     Displays a prompt, accepts a yes or no answer, and returns a boolean
-    defaultResponse is the response returned if no response is given
+    default is the response returned if no response is given
     if an ill-formed response is given, the prompt is given again
     """
-    if defaultResponse == True:
-        optionsString = '[y]|n'
-    else:
-        optionsString = 'y|[n]'
-    goodResponse = False
-    while goodResponse == False:
+    opt = '[y]|n' if default else 'y|[n]'
+    rdict = {'y': True, 'n': False, '': default}
+    good = False
+    while not good:
         try:
-            responseString = input('%s %s: ' % (prompt, optionsString))
-            if responseString in ['y', 'Y', 'yes', 'Yes', 'YES']:
-                response = True
-                goodResponse = True
-            elif responseString in ['n', 'N', 'no', 'No', 'NO']:
-                response = False
-                goodResponse = True
-            elif responseString == '':
-                response = defaultResponse
-                goodResponse = True
-            else:
-                goodResponse = False
+            response = input(f'{prompt} {opt}:').lower()
+            try:
+                response = rdict[response[0] if response else '']
+                good = True
+            except KeyError:
+                pass
         except:
-            goodResponse = False
-        if goodResponse == False:
+            pass
+        if not good:
             print('Unrecognized response. Try again.')
     return response
 
 
-def convertDegToHex(ra, dec):
+def ds9Array(xyarray, colormap='B', normMin=None, normMax=None, sigma=None, scale=None, frame=None):
     """
-   Convert RA, Dec in decimal degrees to (hh:mm:ss, dd:mm:ss)
-   """
-
-    if (ra < 0):
-        sign = -1
-        ra = -ra
-    else:
-        sign = 1
-        ra = ra
-
-    h = int(ra / 15.)
-    ra -= h * 15.
-    m = int(ra * 4.)
-    ra -= m / 4.
-    s = ra * 240.
-
-    if (sign == -1):
-        outra = '-%02d:%02d:%06.3f' % (h, m, s)
-    else:
-        outra = '+%02d:%02d:%06.3f' % (h, m, s)
-
-    if (dec < 0):
-        sign = -1
-        dec = -dec
-    else:
-        sign = 1
-        dec = dec
-
-    d = int(dec)
-    dec -= d
-    dec *= 100.
-    m = int(dec * 3. / 5.)
-    dec -= m * 5. / 3.
-    s = dec * 180. / 5.
-
-    if (sign == -1):
-        outdec = '-%02d:%02d:%06.3f' % (d, m, s)
-    else:
-        outdec = '+%02d:%02d:%06.3f' % (d, m, s)
-
-    return outra, outdec
-
-
-def convertHexToDeg(ra, dec):
-    """
-   Convert RA, Dec in ('hh:mm:ss', 'dd:mm:ss') into floating point degrees.
-   """
-
-    try:
-        pieces = ra.split(':')
-        hh = int(pieces[0])
-        mm = int(pieces[1])
-        ss = float(pieces[2])
-    except:
-        raise
-    else:
-        pass
-
-    Csign = dec[0]
-    if Csign == '-':
-        sign = -1.
-        off = 1
-    elif Csign == '+':
-        sign = 1.
-        off = 1
-    else:
-        sign = 1.
-        off = 0
-
-    try:
-        parts = dec.split(':')
-        deg = int(parts[0][off:len(parts[0])])
-        arcmin = int(parts[1])
-        arcsec = float(parts[2])
-    except:
-        raise
-    else:
-        pass
-
-    return (hh * 15. + mm / 4. + ss / 240., sign * (deg + (arcmin * 5. / 3. + arcsec * 5. / 180.) / 100.))
-
-
-def ds9Array(xyarray, colormap='B', normMin=None, normMax=None,
-             sigma=None, scale=None,
-             # pixelsToMark=[], pixelMarkColor='red',
-             frame=None):
-    """
-    
     Display a 2D array as an image in DS9 if available. Similar to 'plotArray()'
     
     xyarray is the array to plot
@@ -248,56 +152,12 @@ def gaussian_psf(fwhm, boxsize, oversample=50):
     fineSampledGaussian = numpy.exp(-(zx + zy))
 
     # Bin down to the required output boxsize:
-    binnedGaussian = rebin2D(fineSampledGaussian, boxsize, boxsize)
+    binnedGaussian = rebin_2d(fineSampledGaussian, boxsize, boxsize)
 
     return binnedGaussian
 
 
-def intervalSize(inter):
-    """
-    INPUTS:
-        inter - a pyinterval 'interval' instance.
-    OUTPUTS:
-        Returns the total size of an pyinterval '(multi)interval' instance. 
-        So if an interval instance represents a set of time ranges, this returns
-        the total amount of time covered by the ranges.
-        E.g.:
-            >>> from interval import interval
-            >>> from util import utils
-            >>> 
-            >>> x=interval([10,15],[9],[2,3],[2.5,3.5]) #Sub-intervals are automatically unioned
-            >>> x
-            interval([2.0, 3.5], [9.0], [10.0, 15.0])
-            >>> utils.intervalSize(x)
-            6.5
-    """
-    size = 0.0
-    for eachComponent in inter.components:
-        size += (eachComponent[0][-1] - eachComponent[0][0])
-    return size
-
-
-def linearFit(x, y, err=None):
-    """
-    Fit a linear function y as a function of x.  Optional parameter err is the
-    vector of standard errors (in the y direction).
-
-    Returns:  solution - where y = solution[0] + solution[1]*x
-    """
-    x = numpy.copy(x)
-    y = numpy.copy(y)
-    N = len(x)
-    A = numpy.ones((2, N), x.dtype)
-    A[1] = x
-    if err != None: A /= err
-    A = numpy.transpose(A)
-    if err != None: y /= err
-
-    solution, residuals, rank, s = scipy.linalg.lstsq(A, y)
-    return solution
-
-
-def fitRigidRotation(x, y, ra, dec, x0=0, y0=0, chatter=False):
+def fitRigidRotation(x, y, ra, dec, x0=0, y0=0):
     """
     calculate the rigid rotation from row,col positions to ra,dec positions
 
@@ -354,91 +214,18 @@ def fitRigidRotation(x, y, ra, dec, x0=0, y0=0, chatter=False):
     return w
 
 
-def makeMovie(listOfFrameObj, frameTitles=None, outName='Test_movie',
-              delay=0.1, listOfPixelsToMark=None, pixelMarkColor='red',
-              **plotArrayKeys):
+def mean_filter_nan(inputarray, size=3, *nkwarg, **kwarg):
     """
-    Makes a movie out of a list of frame objects (2-D arrays). If you
-    specify other list inputs, these all need to be the same length as
-    the list of frame objects.
-
-    listOfFrameObj is a list of 2d arrays of numbers
-
-    frameTitles is a list of titles to put on the frames
-
-    outName is the file name to write, .gif will be appended
-
-    delay in seconds between frames
-
-    listOfPixelsToMark is a list.  Each entry is itself a list of
-    pixels to mark pixelMarkColor is the color to fill in the marked
-    pixels
-    
-    """
-    # Looks like theres some sort of bug when normMax != None.
-    # Causes frame to pop up in a window as gif is made.
-    if len(listOfFrameObj) == 1:
-        raise ValueError("I cannot make movie out of a list of one object!")
-
-    if frameTitles != None:
-        assert len(frameTitles) == len(listOfFrameObj), "Number of Frame titles\
-        must equal number of frames"
-
-    if os.path.exists("./.tmp_movie"):
-        os.system("rm -rf .tmp_movie")
-
-    os.mkdir(".tmp_movie")
-    iFrame = 0
-    print('Making individual frames ...')
-
-    for frame in listOfFrameObj:
-
-        if frameTitles != None:
-            plotTitle = frameTitles[iFrame]
-        else:
-            plotTitle = ''
-
-        if listOfPixelsToMark != None:
-            pixelsToMark = listOfPixelsToMark[iFrame]
-        else:
-            pixelsToMark = []
-        pfn = '.tmp_movie/mov_' + repr(iFrame + 10000) + '.png'
-        fp = plotArray(frame, showMe=False, plotFileName=pfn,
-                       plotTitle=plotTitle, pixelsToMark=pixelsToMark,
-                       pixelMarkColor=pixelMarkColor, **plotArrayKeys)
-        iFrame += 1
-        del fp
-
-    os.chdir('.tmp_movie')
-
-    if outName[-4:-1] + outName[-1] != '.gif':
-        outName += '.gif'
-
-    delay *= 100
-    delay = int(delay)
-    print('Making Movie ...')
-
-    if '/' in outName:
-        os.system('convert -delay %s -loop 0 mov_* %s' % (repr(delay), outName))
-    else:
-        os.system('convert -delay %s -loop 0 mov_* ../%s' % (repr(delay), outName))
-    os.chdir("../")
-    os.system("rm -rf .tmp_movie")
-    print('done.')
-
-
-def mean_filterNaN(inputarray, size=3, *nkwarg, **kwarg):
-    """
-    Basically a box-car smoothing filter. Same as median_filterNaN, but calculates a mean instead. 
+    Basically a box-car smoothing filter. Same as median_filter_nan, but calculates a mean instead.
     Any NaN values in the input array are ignored in calculating means.
-    See median_filterNaN for details.
+    See median_filter_nan for details.
     JvE 1/4/13
     """
     return scipy.ndimage.filters.generic_filter(inputarray, lambda x: numpy.mean(x[~numpy.isnan(x)]), size,
                                                 *nkwarg, **kwarg)
 
 
-def median_filterNaN(inputarray, size=5, *nkwarg, **kwarg):
+def median_filter_nan(inputarray, size=5, *nkwarg, **kwarg):
     """
     NaN-handling version of the scipy median filter function
     (scipy.ndimage.filters.median_filter). Any NaN values in the input array are
@@ -464,7 +251,7 @@ def median_filterNaN(inputarray, size=5, *nkwarg, **kwarg):
 
     e.g.:
         
-        filteredImage = median_filterNaN(imageArray,size=3)
+        filteredImage = median_filter_nan(imageArray,size=3)
     
     -- returns median boxcar filtered image with a moving box size 3x3 pixels.
     
@@ -474,11 +261,11 @@ def median_filterNaN(inputarray, size=5, *nkwarg, **kwarg):
                                                 *nkwarg, **kwarg)
 
 
-def nanStdDev(x):
+def nan_stddev(x):
     """
     NaN resistant standard deviation - basically scipy.stats.tstd, but
     with NaN rejection, and returning NaN if there aren't enough non-NaN
-    input values, instead of just crashing. Used by stdDev_filterNaN.
+    input values, instead of just crashing. Used by stddev_filter_nan.
     INPUTS:
         x - array of input values
     OUTPUTS:
@@ -600,42 +387,9 @@ def plotArray(xyarray, colormap=mpl.cm.gnuplot2,
         plt.show()
 
 
-def printCalFileDescriptions(dir_path):
-    """
-    Prints the 'description' and 'target' header values for all calibration
-    files in the specified directory
-    """
-    for obs in glob.glob(os.path.join(dir_path, 'cal*.h5')):
-        f = tables.openFile(obs, 'r')
-        hdr = f.root.header.header.read()
-        print(obs, hdr['description'][0])
-        target = f.root.header.header.col('target')[0]
-        print(target)
-        f.close()
 
 
-def printObsFileDescriptions(dir_path):
-    """
-    Prints the 'description' and 'target' header values for all observation
-    files in the specified directory
-    Added sorting to returned list - JvE Nov 7 2014
-    """
-    for obs in sorted(glob.glob(os.path.join(dir_path, 'obs*.h5'))):
-        f = tables.openFile(obs, 'r')
-    try:
-        hdr = f.root.header.header.read()
-        print(obs, hdr['description'][0])
-    except:
-        pass
-        try:
-            target = f.root.header.header.col('target')[0]
-            print(target)
-        except:
-            pass
-        f.close()
-
-
-def rebin2D(a, ysize, xsize):
+def rebin_2d(a, ysize, xsize):
     """
     Rebin an array to a SMALLER array. Rescales the values such that each element
     in the output array is the mean of the elememts which it encloses in the input
@@ -657,7 +411,7 @@ def rebin2D(a, ysize, xsize):
     return a.reshape(ysize, int(yfactor), xsize, int(xfactor), ).mean(1).mean(2)
 
 
-def replaceNaN(inputarray, mode='mean', boxsize=3, iterate=True):
+def replace_nan(inputarray, mode='mean', boxsize=3, iterate=True):
     """
     Replace all NaN values in an array with the mean (or median)
     of the surrounding pixels. Should work for any number of dimensions, 
@@ -693,9 +447,9 @@ def replaceNaN(inputarray, mode='mean', boxsize=3, iterate=True):
 
         # Calculate interpolates at *all* locations (because it's easier...)
         if mode == 'mean':
-            interpolates = mean_filterNaN(outputarray, size=boxsize, mode='mirror')
+            interpolates = mean_filter_nan(outputarray, size=boxsize, mode='mirror')
         elif mode == 'median':
-            interpolates = median_filterNaN(outputarray, size=boxsize, mode='mirror')
+            interpolates = median_filter_nan(outputarray, size=boxsize, mode='mirror')
         elif mode == 'nearestNmedian':
             interpolates = nearestNmedFilter(outputarray, n=boxsize)
         else:
@@ -709,7 +463,7 @@ def replaceNaN(inputarray, mode='mean', boxsize=3, iterate=True):
     return outputarray
 
 
-def stdDev_filterNaN(inputarray, size=5, *nkwarg, **kwarg):
+def stddev_filter_nan(inputarray, size=5, *nkwarg, **kwarg):
     """
     Calculated a moving standard deviation across a 2D (image) array. The standard
     deviation is calculated for a box of side 'size', centered at each pixel (element)
@@ -735,48 +489,7 @@ def stdDev_filterNaN(inputarray, size=5, *nkwarg, **kwarg):
     # footprint = numpy.ones((size,size))
     # footprint[size/2,size/2] = 0
 
-    return scipy.ndimage.filters.generic_filter(inputarray, nanStdDev,
-                                                size=size, *nkwarg, **kwarg)
-
-
-def getGit():
-    """
-    return a Gittle, which controls the state of the git repository
-    """
-    utilInitFile = inspect.getsourcefile(sys.modules['Utils'])
-    if (not os.path.isabs(utilInitFile)):
-        utilInitFile = os.path.join(os.getcwd(), utilInitFile)
-    darkRoot = os.path.split(os.path.split(utilInitFile)[0])[0]
-    print("darkRoot=", darkRoot)
-    git = Gittle(darkRoot)
-    return git
-
-
-def getGitStatus():
-    """
-    returns a dictionary with the following keys;
-
-    repo : the repository (local directory)
-    log0 : the most recent log entry
-    remotes: the remote repository/repositories
-    remote_branches:  name and tag for the remote branches
-    head:  the current check out commit
-    has_commits:  boolean -- True if there is code here that has not been committed
-    modified_files:  a list of files that have been modified (including ones that are not tracked by git
-    modified_unstaged_files:  a list of "important" files that are modified but not committed
-
-    """
-    git = getGit()
-    return {"repo": git.repo,
-            "log0": git.log()[0],
-            "last_commit": git.last_commit,
-            "remotes": git.remotes,
-            "remote_branches": git.remote_branches,
-            "head": git.head,
-            "has_commits": git.has_commits,
-            "modified_files": git.modified_files,
-            "modified_unstaged_files": git.modified_unstaged_files
-            }
+    return scipy.ndimage.filters.generic_filter(inputarray, nan_stddev, size=size, *nkwarg, **kwarg)
 
 
 def findNearestFinite(im, i, j, n=10):
@@ -822,17 +535,12 @@ def findNearestFinite(im, i, j, n=10):
     ngood = numpy.sum(good)
     distsq[~good] = numpy.nan  # Get rid of non-finite valued elements
     # Find indices of the nearest finite values, and unravel the flattened results back into 2D arrays
-    nearest = (numpy.unravel_index(
-        (numpy.argsort(distsq, axis=None))[0:min(n, ngood)], imShape
-    ))  # Should ignore NaN values automatically
+    # Should ignore NaN values automatically
+    nearest = numpy.unravel_index( (numpy.argsort(distsq, axis=None))[0:min(n, ngood)], imShape )
 
     # Below version is maybe slightly quicker, but at this stage doesn't give quite the same results -- not worth the trouble
-    # to figure out right now.
-    # nearest = (numpy.unravel_index(
-    #                               (numpy.argpartition(distsq,min(n,ngood)-1,axis=None))[0:min(n,ngood)],
-    #                               imShape
-    #                              )) #Should ignore NaN values automatically
-
+    # to figure out right now. Should ignore NaN values automatically
+    # nearest = numpy.unravel_index((numpy.argpartition(distsq,min(n,ngood)-1,axis=None))[0:min(n,ngood)], imShape)
     return nearest
 
 
@@ -935,66 +643,6 @@ def nearestNRobustMeanFilter(inputArray, n=24, nSigmaClip=3., iters=None):
     return outputArray
 
 
-def interpolateImage(inputArray, method='linear'):
-    """
-    Seth 11/13/14
-    2D interpolation to smooth over missing pixels using built-in scipy methods
-
-    INPUTS:
-        inputArray - 2D input array of values
-        method - method of interpolation. Options are scipy.interpolate.griddata methods:
-                 'linear' (default), 'cubic', or 'nearest'
-
-    OUTPUTS:
-        the interpolated image with same shape as input array
-    """
-
-    finalshape = numpy.shape(inputArray)
-
-    dataPoints = numpy.where(numpy.logical_or(numpy.isnan(inputArray),
-                                              inputArray == 0) == False)  # data points for interp are only pixels with counts
-    data = inputArray[dataPoints]
-    dataPoints = numpy.array((dataPoints[0], dataPoints[1]),
-                             dtype=numpy.int).transpose()  # griddata expects them in this order
-
-    interpPoints = numpy.where(inputArray != numpy.nan)  # should include all points as interpolation points
-    interpPoints = numpy.array((interpPoints[0], interpPoints[1]), dtype=numpy.int).transpose()
-
-    interpolatedFrame = griddata(dataPoints, data, interpPoints, method)
-    interpolatedFrame = numpy.reshape(interpolatedFrame, finalshape)  # reshape interpolated frame into original shape
-
-    return interpolatedFrame
-
-
-def showzcoord():
-    """
-    For arrays displayed using 'matshow', hack to set the cursor location
-    display to include the value under the cursor, for the currently
-    selected axes.
-    
-    NB - watch out if you have several windows open - sometimes it
-    will show values in one window from another window. Avoid this by
-    making sure you've clicked *within* the plot itself to make it
-    the current active axis set (or hold down mouse button while scanning
-    values). That should reset the values to the current window.
-    
-    JvE 5/28/2014
-    
-    """
-
-    def format_coord(x, y):
-        try:
-            im = plt.gca().get_images()[0].get_array().data
-            nrow, ncol = numpy.shape(im)
-            row, col = int(y + 0.5), int(x + 0.5)
-            z = im[row, col]
-            return 'x=%1.4f, y=%1.4f, z=%1.4f' % (x, y, z)
-        except:
-            return 'x=%1.4f, y=%1.4f, --' % (x, y)
-
-    ax = plt.gca()
-    ax.format_coord = format_coord
-
 def countsToApparentMag(cps, filterName='V', telescope=None):
     """
     routine to convert counts measured in a given filter to an apparent magnitude
@@ -1084,3 +732,4 @@ def get_device_orientation(coords, fits_filename='Theta1 Orionis B_mean.fits', s
     getLogger(__name__).info('Using position angle {} deg for device'.format(device_orientation))
 
     return np.deg2rad(device_orientation)
+

@@ -4,57 +4,33 @@ Author: Kristina Davis
 Oct 2018
 
 This code is somewhat based on darkBinViewer.py from Seth+group.
-It is meant to be a module to parse individual or a series of .bin files and
+It is meant to be a sightweight module to parse individual or a series of .bin files and
 construct imaging or spectral datacubes, where image cubes are sequenced in
 time (pix value is total # counts per time, all wavelengths) and spectral
 data cubes are sequenced by phase (pix value is total # counts per phase bin).
-
-
-
-
 """
-
-import numpy as np
-import os
-from mkidcore.hdf.mkidbin import parse
-import matplotlib.pyplot as plt
-from mkidcore.corelog import getLogger
-import mkidcore.corelog
 import argparse
 import time
+import numpy as np
+import os
+import matplotlib.pyplot as plt
 
-#####################################################################################################
-#####################################################################################################
-
-##################
-# Module Functions
-##################
-
-
-def obs_list(basepath, tstampStart, tstampEnd):
-    """
-    Make a list of files to parse given a start and end time
-
-    Inputs:
-     basepath: path to the obs files eg: /mnt/data0/ScienceData/PAL218a/052918/
-     tstampStart: second (UTC) that you want to start the file
-     tstampEnd: second (UTC) that you want to end the file
-
-    :return: a list of file names
-    """
-    return [os.path.join(basepath, str(int(msec)) + '.bin') for msec in range(tstampStart, tstampEnd + 1)]
+from mkidcore.hdf.mkidbin import parse
+from mkidcore.corelog import getLogger
+import mkidcore.corelog
 
 
 def _makephasecube(xs, ys, phs, img_shape, range, d_phase, verbose=False):
     """See documentation in ParseBin.phasecube() for best info"""
     # Declaring Data Cube
-    phs_bins = np.linspace(range[0], range[1], int((range[1]-range[0])/d_phase))  # use linspace to avoid floating errors, as with eg. arange
+    # use linspace to avoid floating errors, as with eg. arange
+    phs_bins = np.linspace(range[0], range[1], int((range[1] - range[0]) / d_phase))
     phs_cube = np.zeros((img_shape[0], img_shape[1], phs_bins.shape[0]))
 
     # Looping to Create Data Cube
     tic = time.time()
     for i, value in enumerate(phs_bins):
-        mask = (value < phs) & (phs < value+d_phase)
+        mask = (value < phs) & (phs < value + d_phase)
         np.add.at(phs_cube[:, :, i], (ys[mask], xs[mask]), 1)
 
     toc = time.time()
@@ -71,18 +47,11 @@ def _makeimage(xs, ys, img_shape, verbose=False):
     np.add.at(ret, (ys, xs), 1)
     toc = time.time()
     if verbose:
-        getLogger('binparse').debug("Time to make image is {:4.2f} seconds".format( toc - tic))
+        getLogger('binparse').debug("Time to make image is {:4.2f} seconds".format(toc - tic))
     return ret
 
-#####################################################################################################
-#####################################################################################################
 
-################
-# Classes
-################
-
-
-class ParsedBin(object):
+class ParsedBin:
     """
     Parse a .bin File and return photon list
 
@@ -109,6 +78,7 @@ class ParsedBin(object):
         .tot_photons = total number of photons in the list
 
     """
+
     def __init__(self, files, pix_shape=None, verbose=False):
         # NB it isn't possible to automatically figure out the dimensions of the image as all pixels in an extremal row
         # or column might be dark.
@@ -151,7 +121,7 @@ class ParsedBin(object):
                 self.phase = np.append(self.phase, parsef.phase)
                 self.roach = np.append(self.roach, parsef.roach)
 
-                self.obs_nphotons = np.append(self.obs_nphotons,parsef.x.shape)
+                self.obs_nphotons = np.append(self.obs_nphotons, parsef.x.shape)
 
             except (IOError, ValueError) as e:
                 getLogger('binparse').error('Could not open file', exc_info=True)
@@ -164,12 +134,9 @@ class ParsedBin(object):
         toc = time.time()
         if verbose:
             msg = ("Parsing {} photons in {} "
-                   "files took {:4.2f} seconds").format(self.tot_photons,len(files), toc - tic)
+                   "files took {:4.2f} seconds").format(self.tot_photons, len(files), toc - tic)
             getLogger('binparse').debug(msg)
 
-    ###################################
-    # Make Image
-    ###################################
     def image(self):
         """
         makes a single image from the data in the photon list of the given range of .bin files
@@ -189,16 +156,12 @@ class ParsedBin(object):
             self._icube = _makeimage(self.x, self.y, self.pix_shape, self.vb)
         return self._icube
 
-
     def getPixelCountImage(self, **kwargs):
         """
         This is a dummy function to emulate a similar method in photontable.py
         """
         return self.image()
 
-    ###################################
-    # Make Phase Cube
-    ###################################
     def phasecube(self, range, dp):
         """
         makes a data cube of a single .bin file with phase as 3rd axis
@@ -228,8 +191,7 @@ class ParsedBin(object):
 
         return self._pcube
 
-
-    def getPixelPhotonList(self,xCoord = None, yCoord = None, **kwargs):
+    def getPixelPhotonList(self, xCoord=None, yCoord=None, **kwargs):
         """
         Emulates the method of the same name in photontable.py
         """
@@ -237,8 +199,8 @@ class ParsedBin(object):
             print('x and/or y coordinate not specified')
             return
         tstamps = self.tstamp[np.logical_and(self.x == xCoord, self.y == yCoord)]
-        tstamps -= np.amin(tstamps) # remove offset so that smallest timestamp is at zero
-        phase = self.phase[np.logical_and(self.x == xCoord, self.y == yCoord)]
+        tstamps -= np.amin(tstamps)  # remove offset so that smallest timestamp is at zero
+        phase = self.phase[(self.x == xCoord) & (self.y == yCoord)]
 
         # the datatype of the structured numpy array returned by get_pixel_photonlist in Photontable is:
         # dtype = [('ResID', '<u4'), ('Time', '<u4'), ('Wavelength', '<f4'), ('SpecWeight', '<f4'),('NoiseWeight', '<f4')])
@@ -249,15 +211,11 @@ class ParsedBin(object):
         # dtype can be <u4 (uint32). If we don't remove it, then it needs to be <u8 (uint64).
 
         wtype = np.dtype([('Time', '<u4'), ('Wavelength', '<f4')])
-        w = np.empty(len(tstamps),wtype)
+        w = np.empty(len(tstamps), wtype)
         w['Time'] = tstamps
         w['Wavelength'] = phase
         return w
 
-
-    ###################################
-    # Reshape
-    ###################################
     def reshape(self, newshape):
         """
         Allows us to reshape the array to new pix_shape without re-parsing the data.
@@ -271,17 +229,11 @@ class ParsedBin(object):
         self._icube = None
         self.pix_shape = newshape
 
-#####################################################################################################
-#####################################################################################################
-# Main
-#####################################################################################################
-#####################################################################################################
 
 if __name__ == "__main__":
-
     # Setting format of the logger
     mkidcore.corelog.create_log('binparse', console=True, propagate=False,
-                       fmt='%(levelname)s %(message)s', level=mkidcore.corelog.DEBUG)
+                                fmt='%(levelname)s %(message)s', level=mkidcore.corelog.DEBUG)
 
     # Assigning Keyword Arguments
     parser = argparse.ArgumentParser(description='MKID Python Binfile Parser')
@@ -291,10 +243,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Make Obs list
-    fnames = obs_list(args.basepath, args.starttime, args.endtime)
+    fnames = [os.path.join(args.basepath, str(int(msec)) + '.bin') for msec in range(args.starttime, args.endtime + 1)]
 
     # Test Settings
-    img_shape = (125, 80) # mec (146,140)
+    img_shape = (125, 80)  # mec (146,140)
     phase_binsize = 2
     phs_range = (-250, -200)
 
@@ -311,8 +263,8 @@ if __name__ == "__main__":
 
     # Plotting Test Phase Cube
     fig, ax = plt.subplots()
-    phsbin_midpts = np.linspace(phs_range[0], phs_range[1], int((phs_range[1]-phs_range[0]) / phase_binsize)) + (phase_binsize) / 2
+    phsbin_midpts = np.linspace(phs_range[0], phs_range[1], int((phs_range[1] - phs_range[0]) / phase_binsize)) + (
+        phase_binsize) / 2
     spec = test_cube[30, 62, :]
     plt.bar(phsbin_midpts, spec, width=phase_binsize)
     plt.show()
-
