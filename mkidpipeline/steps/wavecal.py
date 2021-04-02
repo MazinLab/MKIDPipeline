@@ -70,6 +70,33 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
     def _vet_errors(self):
         return []
 
+wavecal = {'bad': 1,  # The calibration failed. See other flags for details
+           'failed_validation': 2,  # The calibration failed the model-defined criteria for a good fit
+           'failed_convergence': 4,  # The calibration fit did not converge
+           'not_monotonic': 8,  # The wavelength histogram centers were not monotonic enough with respect to energy
+           'not_enough_histogram_fits': 16,  # Too few wavelength histograms had good fits to fit a calibration function
+           'not_attempted': 32,  # The calibration code was not run on this pixel
+           'no_histograms': 64,  # All of the wavelength histogram fits failed
+           'histogram_fit_problems': 128,  # Some of the wavelength histograms were not able to be fit
+           'linear': 256,  # The calibration is using a linear function
+           'quadratic': 512  # The calibration is using a quadratic function
+           }
+PIXEL_FLAGS = FlagSet.define(
+         ("good histogram", 0, "histogram fit - converged and validated",),
+         ("photon data", 1, "histogram not fit - not enough data points",),
+         ("hot pixel", 2, "histogram not fit - too much data (hot pixel)",),
+         ("time cut", 3, "histogram not fit - not enough data left after arrival time cut",),
+         ("positive cut", 4, "histogram not fit - not enough data left after negative phase only cut",),
+         ("few bins", 5, "histogram not fit - not enough histogram bins to fit the model",),
+         ("histogram convergence", 6, "histogram not fit - best fit did not converge",),
+         ("histogram validation", 7, "histogram not fit - best fit converged but failed validation",),
+         ("good calibration", 10, "energy fit - converged and validated",),
+         ("few histograms", 11, "energy not fit - not enough data points",),
+         ("not monotonic", 12, "energy not fit - data not monotonic enough",),
+         ("calibration convergence", 13, "energy not fit - best fit did not converge",),
+         ("calibration validation", 14, "energy not fit - best fit converged but failed validation")
+    )
+
 
 class Configuration(object):
     """Configuration class for the wavelength calibration analysis."""
@@ -1548,45 +1575,45 @@ class Solution(object):
         return model.has_good_solution()
 
     def get_flag(self, pixel=None, res_id=None):
-        """Returns the bit mask flag corresponding to mkidcore.pixelflags for a
+        """Returns the wavecal flag names FLAGS for a
          particular resonator."""
         # Was the fit even attempted?
-        flag = 0
+        flag = []
         pixels, _ = self._parse_resonators(pixel, res_id)
         if self._is_empty(pixels):
-            flag += pixelflags.wavecal['bad']
-            flag += pixelflags.wavecal['not_attempted']
-            return int(flag)
+            flag += ['bad']
+            flag += ['not_attempted']
+            return flag
 
         # Is the calibration bad?
         model = self.calibration_model(pixel=pixel, res_id=res_id)
         if model.flag != wm.pixel_flags['good calibration']:
-            flag += pixelflags.wavecal['bad']
+            flag += ['bad']
             if model.flag == wm.pixel_flags['few histograms']:
-                flag += pixelflags.wavecal['not_enough_histogram_fits']
+                flag += ['not_enough_histogram_fits']
             elif model.flag == wm.pixel_flags['not monotonic']:
-                flag += pixelflags.wavecal['not_monotonic']
+                flag += ['not_monotonic']
             elif model.flag == wm.pixel_flags['calibration convergence']:
-                flag += pixelflags.wavecal['failed_convergence']
+                flag += ['failed_convergence']
             elif model.flag == wm.pixel_flags['calibration validation']:
-                flag += pixelflags.wavecal['failed_validation']
+                flag += ['failed_validation']
 
         # Any histogram fitting issues?
         histogram_models = self.histogram_models(pixel=pixel, res_id=res_id)
         for histogram_model in histogram_models:
             if histogram_model.flag != wm.pixel_flags['good histogram']:
-                flag += pixelflags.wavecal['histogram_fit_problems']
+                flag += ['histogram_fit_problems']
                 break
         if all([m.flag != wm.pixel_flags['good histogram'] for m in histogram_models]):
-            flag += pixelflags.wavecal['no_histograms']
+            flag += ['no_histograms']
 
         # Which calibration model?
         if isinstance(model, wm.Linear):
-            flag += pixelflags.wavecal['linear']
+            flag += ['linear']
         elif isinstance(model, wm.Quadratic):
-            flag += pixelflags.wavecal['quadratic']
+            flag += ['quadratic']
 
-        return int(flag)
+        return flag
 
     def calibration_flag(self, pixel=None, res_id=None):
         """Returns the numeric flag corresponding to the wavecal fit condition for a

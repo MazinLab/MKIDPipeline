@@ -18,6 +18,25 @@ SPEED_OF_LIGHT_NMS = astropy.constants.c.to('nm/s').value
 
 log = pipelinelog.getLogger('mkidpipeline.utils.wavecal_models', setup=False)
 
+from mkidcore.pixelflags import FlagSet
+
+PIXEL_FLAGS = FlagSet.define(
+         ("good histogram", 0, "histogram fit - converged and validated",),
+         ("photon data", 1, "histogram not fit - not enough data points",),
+         ("hot pixel", 2, "histogram not fit - too much data (hot pixel)",),
+         ("time cut", 3, "histogram not fit - not enough data left after arrival time cut",),
+         ("positive cut", 4, "histogram not fit - not enough data left after negative phase only cut",),
+         ("few bins", 5, "histogram not fit - not enough histogram bins to fit the model",),
+         ("histogram convergence", 6, "histogram not fit - best fit did not converge",),
+         ("histogram validation", 7, "histogram not fit - best fit converged but failed validation",),
+         ("good calibration", 10, "energy fit - converged and validated",),
+         ("few histograms", 11, "energy not fit - not enough data points",),
+         ("not monotonic", 12, "energy not fit - data not monotonic enough",),
+         ("calibration convergence", 13, "energy not fit - best fit did not converge",),
+         ("calibration validation", 14, "energy not fit - best fit converged but failed validation")
+    )
+
+
 pixel_flags = {
     "good histogram": 0,
     "photon data": 1,
