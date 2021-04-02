@@ -72,6 +72,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
                    wait_for_ram=3600, ndx_shuffle=True, ndx_bitshuffle=False):
     """wait_for_ram speficies the number of seconds to wait for sufficient ram"""
     from mkidcore.hdf.mkidbin import extract
+    from mkidpipeline.pipeline import PIPELINE_FLAGS, BEAMMAP_FLAGS    #here to prevent circular imports!
 
     if cfg.starttime < 1518222559:
         raise ValueError('Data prior to 1518222559 not supported without added fixtimestamps')
@@ -142,7 +143,16 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
     bmap = Beammap(cfg.beamfile, xydim=(cfg.x, cfg.y))
     group = h5file.create_group("/", 'BeamMap', 'Beammap Information', filters=filter)
     h5file.create_array(group, 'Map', bmap.residmap.astype(int), 'resID map')
-    h5file.create_array(group, 'Flag', pixelflags.beammap_flagmap_to_h5_flagmap(bmap.flagmap), 'flag map')
+
+    def beammap_flagmap_to_h5_flagmap(flagmap):
+        h5map = np.zeros_like(flagmap, dtype=int)
+        # TODO vectorize
+        for i, v in enumerate(flagmap.flat):  # convert each bit to the new bit
+            bset = [f'beammap.{f.name}' for f in BEAMMAP_FLAGS.flags.values() if f.bit == int(v)]
+            h5map.flat[i] = PIPELINE_FLAGS.bitmask(bset)
+        return h5map
+
+    h5file.create_array(group, 'Flag', beammap_flagmap_to_h5_flagmap(bmap.flagmap), 'flag map')
     getLogger(__name__).debug('Beammap Attached to {}'.format(cfg.h5file))
 
     h5file.create_group('/', 'header', 'Header')
@@ -167,7 +177,8 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
     headerContents['fltCalFile'] = ''
     headerContents['metadata'] = ''
     out = StringIO()
-    yaml.dump({'flags': mkidcore.pixelflags.FLAG_LIST}, out)
+
+    yaml.dump({'flags': PIPELINE_FLAGS.names}, out)
     out = out.getvalue().encode()
     if len(out) > mkidcore.headers.METADATA_BLOCK_BYTES:  # this should match mkidcore.headers.ObsHeader.metadata
         raise ValueError("Too much metadata! {} KB needed, {} allocated".format(len(out) // 1024,

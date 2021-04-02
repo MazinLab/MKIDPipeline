@@ -3,6 +3,8 @@ import pkgutil
 import multiprocessing as mp
 import time
 
+
+from mkidcore.pixelflags import FlagSet, BEAMMAP_FLAGS
 from mkidcore.config import getLogger
 import mkidpipeline
 import mkidpipeline.photontable as photontable
@@ -25,6 +27,24 @@ for info in pkgutil.iter_modules(mkidpipeline.steps.__path__):
         mkidcore.config.yaml.register_class(mod.StepConfig)
     except AttributeError:
         pass
+
+
+_flags = {'beammap': BEAMMAP_FLAGS}
+for name, step in PIPELINE_STEPS:
+    try:
+        _flags[name] = step.FLAGS
+    except AttributeError:
+        getLogger(__name__).debug(f"Step {name} does not export any pipeline flags.")
+        pass
+
+PIPELINE_FLAGS = FlagSet.define(*sorted([(f"{k}.{f.name.replace(' ','_')}", i, f.description) for i, (k, f) in
+                                         enumerate((k, f) for k, flagset in _flags.items() for f in flagset)]))
+del _flags
+
+PROBLEM_FLAGS = ('pixcal.hot', 'pixcal.cold', 'pixcal.unstable', 'beammap.noDacTone', 'wavecal.bad',
+                 'wavecal.failed_validation', 'wavecal.failed_convergence', 'wavecal.not_monotonic',
+                 'wavecal.not_enough_histogram_fits', 'wavecal.no_histograms',
+                 'wavecal.not_attempted')
 
 
 class BaseConfig(mkidpipeline.config.BaseStepConfig):

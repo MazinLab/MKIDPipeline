@@ -25,6 +25,7 @@ from regions import CirclePixelRegion, PixCoord
 from progressbar import *
 from mkidcore.headers import PhotonCType, PhotonNumpyType, METADATA_BLOCK_BYTES
 from mkidcore.corelog import getLogger
+from mkidcore.pixelflags import FlagSet
 import mkidcore.pixelflags as pixelflags
 from mkidcore.config import yaml, StringIO
 
@@ -418,27 +419,10 @@ class Photontable(object):
         return self.start_time + self.duration
 
     @property
-    def flag_names(self):
-        """
-        The ordered list of flag names associated with the file.
-
-        Changing this once it is initialized is at your own peril!
-        """
-        ret = self.extensible_header_store.get('flags', [])
-        if not ret:
-            getLogger(__name__).warning('Flag names were not attached at time of H5 creation. '
-                                        'If beammap flags have changed since then things WILL break. '
-                                        'You must recreate the H5 file.')
-            ret = tuple(pixelflags.FLAG_LIST)
-            self.enablewrite()
-            self.update_header('flags', ret)
-            self.disablewrite()
-        return ret
-
-    @property
     def bad_pixel_mask(self):
-        """A boolean image with true where pixel data has probllems """
-        return self.flagged(pixelflags.PROBLEM_FLAGS)
+        """A boolean image with true where pixel data has problems """
+        from mkidpipeline.pipeline import PROBLEM_FLAGS  # This must be here to prevent a circular import!
+        return self.flagged(PROBLEM_FLAGS)
 
     @property
     def wavelength_calibrated(self):
@@ -458,14 +442,14 @@ class Photontable(object):
                 self._mdcache = {}
         return self._mdcache
 
-    def flagged(self, flag_set, pixel=(slice(None), slice(None)), allow_unknown_flags=True, all_flags=False,
+    def flagged(self, flags, pixel=(slice(None), slice(None)), allow_unknown_flags=True, all_flags=False,
                 resid=None):
         """
         Test to see if a flag is set on a given pixel or set of pixels
 
         if resid is set it takes precedence over pixel
         :param pixel: (x,y) of pixel, 2d slice, list of (x,y), if not specified all pixels are used
-        :param flag_set: if an empty set/None it the pixel(s) are considered unflagged
+        :param flags: if an empty set/None it the pixel(s) are considered unflagged
         :param allow_unknown_flags:
         :param all_flags: Require all specified flags to be set for the mask to be True
         :return:
@@ -475,18 +459,39 @@ class Photontable(object):
             pixel = tuple(map(tuple, np.argwhere(resid == self.beamImage)))
 
         x, y = zip(*pixel) if isinstance(pixel[0], tuple) else pixel
-        if not flag_set:
+        if not flags:
             return False if isinstance(x, int) else np.zeros_like(self._flagArray[x, y], dtype=bool)
 
-        if len(set(pixelflags.FLAG_LIST).difference(flag_set)) and not allow_unknown_flags:
+        f = self.flags
+        if len(set(f.names).difference(flags)) and not allow_unknown_flags:
             return False if isinstance(x, int) else np.zeros_like(self._flagArray[x, y], dtype=bool)
 
-        bitmask = self.flag_bitmask(flag_set)
+        bitmask = f.bitmask(flags, unknown='ignore')
         bits = self._flagArray[x, y] & bitmask
         return bits == bitmask if all_flags else bits.astype(bool)
 
-    def flag_bitmask(self, flag_names):
-        return pixelflags.flag_bitmask(flag_names, flag_list=self.flag_names)
+    @property
+    def flags(self):
+        """
+        The flags associated with the with the file.
+
+        Changing this once it is initialized is at your own peril!
+        """
+        from mkidpipeline.pipeline import PIPELINE_FLAGS  # This must be here to prevent a circular import!
+
+        names = self.extensible_header_store.get('flags', [])
+        if not names:
+            getLogger(__name__).warning('Flag names were not attached at time of H5 creation. '
+                                        'If beammap flags have changed since then things WILL break. '
+                                        'You must recreate the H5 file.')
+            names = PIPELINE_FLAGS.names
+            self.enablewrite()
+            self.update_header('flags', names)
+            self.disablewrite()
+
+        f = FlagSet(*[(n, i, PIPELINE_FLAGS.flags[n].description if n in PIPELINE_FLAGS.flags else '')
+                      for i, n in enumerate(names)])
+        return f
 
     def flag(self, flag, pixel=(slice(None), slice(None))):
         """
@@ -507,7 +512,7 @@ class Photontable(object):
 
         x, y = pixel
         flag = np.asarray(flag)
-        pixelflags.valid(flag, error=True)
+        self.flags.valid(flag, error=True)
         if not np.isscalar(flag) and self._flagArray[y, x].shape != flag.shape:
             raise ValueError('flag must be scalar or match the desired region selected by x & y coordinates')
         self._flagArray[y, x] |= flag
@@ -530,9 +535,10 @@ class Photontable(object):
         """
         if self.mode != 'write':
             raise Exception("Must open file in write mode to do this!")
+
         x, y = pixel
         flag = np.asarray(flag)
-        pixelflags.valid(flag, error=True)
+        self.flags.valid(flag, error=True)
         if not np.isscalar(flag) and self._flagArray[y, x].shape != flag.shape:
             raise ValueError('flag must be scalar or match the desired region selected by x & y coordinates')
         self._flagArray[y, x] &= ~flag
@@ -1228,10 +1234,9 @@ class Photontable(object):
             if not indices.size:
                 continue
 
-            self.unflag(self.flag_bitmask([f for f in pixelflags.FLAG_LIST if f.startswith('wavecal')]),
-                        pixel=(column, row))
-            self.flag(self.flag_bitmask(pixelflags.to_flag_names('wavecal', solution.get_flag(res_id=resID))),
-                      pixel=(column, row))
+            flags = self.flags
+            self.unflag(flags.bitmask([f for f in flags.names if f.startswith('wavecal')]), pixel=(column, row))
+            self.flag(flags.bitmask([f'wavecal.{f.name}' for f in solution.get_flag(res_id=resID)]), pixel=(column, row))
 
             calibration = solution.calibration_function(res_id=resID, wavelength_units=True)
 
@@ -1370,9 +1375,10 @@ class Photontable(object):
         """
         tic = time.time()
         getLogger(__name__).info('Applying a bad pixel mask to {}'.format(self.filename))
-        self.flag(self.flag_bitmask('pixcal.hot') * hot_mask)
-        self.flag(self.flag_bitmask('pixcal.cold') * cold_mask)
-        self.flag(self.flag_bitmask('pixcal.unstable') * unstable_mask)
+        f = self.flags
+        self.flag(f.bitmask('pixcal.hot') * hot_mask)
+        self.flag(f.bitmask('pixcal.cold') * cold_mask)
+        self.flag(f.bitmask('pixcal.unstable') * unstable_mask)
         self.update_header('isBadPixMasked', True)
         self.update_header('BADPIX.ID', id)
         getLogger(__name__).info('Mask applied in {:.3f}s'.format(time.time() - tic))
