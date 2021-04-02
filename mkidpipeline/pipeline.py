@@ -99,7 +99,7 @@ def lincal_apply(o):
 
 def badpix_apply(o):
     try:
-        mkidpipeline.steps.badpix.mask_hot_pixels(o)
+        mkidpipeline.steps.pixcal.mask_hot_pixels(o)
     except Exception as e:
         getLogger(__name__).critical('Caught exception during run of {}'.format(o), exc_info=True)
 
@@ -162,7 +162,7 @@ def run_stage1(dataset):
                   ('Applying linearity correction', batch_apply_lincal),
                   ('Fetching flatcals', mkidpipeline.steps.flatcal.fetch),
                   ('Applying flatcals', batch_apply_flatcals),
-                  ('Fetching speccals', mkidpipeline.steps.spectralcal.fetch))
+                  ('Fetching speccals', mkidpipeline.steps.speccal.fetch))
 
     toc = time.time()
     for task_name, task in operations:

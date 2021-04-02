@@ -30,7 +30,7 @@ from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import pyqtSignal
 from photontable import Photontable
 import mkidpipeline.utils.binparse as binparse
-from mkidpipeline.steps.badpix import flux_threshold as hft
+from mkidpipeline.steps.pixcal import flux_threshold as hft
 from scipy import optimize
 import os.path
 
