@@ -42,6 +42,15 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('interpolation', 'linear', ' linear | cubic | nearest'))
 
 
+FLAGS = pixelflags.FlagSet.define(
+        ('inf_weight', 1, 'Spurious infinite weight was calculated - weight set to 1.0'),
+        ('lz_weight', 2, 'Spurious less-than-or-equal-to-zero weight was calculated - weight set to 1.0'),
+        ('nan_weight', 4, 'NaN weight was calculated.'),
+        ('below_range', 8, 'Derived wavelength is below formal validity range of calibration'),
+        ('above_range', 16, 'Derived wavelength is above formal validity range of calibration'),
+    )
+
+
 class Configuration:
     """Configuration class for the spectrophotometric calibration analysis."""
     yaml_tag = u'!spectralcalconfig'
