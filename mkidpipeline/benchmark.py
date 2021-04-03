@@ -1,4 +1,4 @@
-import os, time
+import os
 os.environ['NUMEXPR_MAX_THREADS'] = '32'
 os.environ['NUMEXPR_NUM_THREADS'] = '16'
 os.environ["TMPDIR"] = '/scratch/tmp/'
@@ -6,66 +6,8 @@ os.environ["TMPDIR"] = '/scratch/tmp/'
 import tables.index
 tables.index.profile = True
 
-import mkidpipeline.steps.buildhdf as bin2hdf
-import mkidpipeline.steps.wavecal as wavecal
-import mkidpipeline.steps.flatcal as flatcal
-import mkidpipeline.config
-import mkidpipeline.photontable as photontable
-import multiprocessing as mp
 from photontable import Photontable
 
-
-def wavecal_apply(o):
-    of = photontable.Photontable(o.h5, mode='a')
-    of.apply_wavecal(wavecal.load_solution(o.wavecal))
-    of.file.close()
-
-
-def flatcal_apply(o):
-    of = photontable.Photontable(o.h5, mode='a')
-    of.apply_flatcal(wavecal.load_solution(o.flatcal))
-    of.file.close()
-
-
-def batch_apply_wavecals(wavecal_pairs, ncpu=None):
-    pool = mp.Pool(ncpu if ncpu is not None else mkidpipeline.config.n_cpus_available())
-    pool.map(wavecal_apply, wavecal_pairs)
-    pool.close()
-
-
-def batch_apply_flatcals(flatcal_pairs, ncpu=None):
-    pool = mp.Pool(ncpu if ncpu is not None else mkidpipeline.config.n_cpus_available())
-    pool.map(wavecal_apply, flatcal_pairs)
-    pool.close()
-
-
-def pipe_time():
-    datafile = '/scratch/baileyji/mec/data.yml'
-    cfgfile = '/scratch/baileyji/mec/pipe.yml'
-
-    mkidpipeline.config.logtoconsole()
-
-    pcfg = mkidpipeline.config.configure_pipeline(cfgfile)
-    dataset = mkidpipeline.config.load_data_description(datafile)
-    print(dataset.description)
-
-    bin2hdf.buildtables(dataset.timeranges, ncpu=7, remake=False, timesort=False)
-
-    of = photontable.Photontable(pcfg.paths.out + '/1545542463.h5')
-    q1=of.query(start=1, stopt=5)
-    tic=time.time()
-    of.photonTable.read()
-    print(time.time()-tic)
-    ofraid = photontable.Photontable('/mnt/data0/baileyji/mec/out/1545542463.h5')
-    q1=ofraid.query(start=1, stopt=5)
-    tic=time.time()
-    ofraid.photonTable.read()
-    print(time.time()-tic)
-    wavecal.fetch(dataset.wavecals, verbose=False)
-    batch_apply_wavecals(dataset.wavecalable, 10)
-
-    flatcal.fetch(dataset.flatcals)
-    batch_apply_flatcals(dataset.science_observations, 10)
 
 
 #@profile
@@ -81,9 +23,6 @@ def tsectest(f):
     # p.print_stats()
 
 
-import mkidpipeline.config
-mkidpipeline.config.logtoconsole()
-# tsectest('/scratch/baileyji/mec/out/1545545212_slowtest.h5')
 tsectest('/scratch/baileyji/mec/out/1545544477_slowtest.h5')
 
 
