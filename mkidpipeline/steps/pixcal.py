@@ -67,14 +67,13 @@ import warnings
 
 import numpy as np
 import scipy.ndimage.filters as spfilters
-import mkidpipeline.speckle.binned_rician as binned_rician
 import scipy.stats
 
 from photontable import Photontable
 from mkidpipeline.utils import utils
 import mkidpipeline.config
 from mkidcore.corelog import getLogger
-import mkidcore.pixelflags as pixelflags
+from mkidcore.pixelflags import FlagSet
 
 
 def _calc_stdev(x):
@@ -95,6 +94,11 @@ def _stddev_bias_corr(n):
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!badpix_cfg'
     REQUIRED_KEYS = (('method', 'median', 'method to use'),)
+
+
+FLAGS = FlagSet.define(('hot', 1, 'Hot pixel'),
+                       ('cold', 2, 'Cold pixel'),
+                       ('unstable', 3, 'Pixel is both hot at and at different times'))
 
 
 def flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.0, max_iter=10, dead_threshold=0,  #TODO make nsigma_hot and nsigma_cold user specified parameters in the config file
@@ -184,7 +188,7 @@ def flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.0, m
     # are dead, return a bad_mask where all the pixels are flagged as DEAD
     if raw_image[np.isfinite(raw_image)].sum() <= 0:
         getLogger(__name__).warning('Entire image consists of pixels with 0 counts')
-        bad_mask = cold_mask * pixelflags.pixcal['cold']
+        bad_mask = cold_mask * FLAGS.flags['cold'].bit
         hot_mask = np.zeros_like(bad_mask, dtype=bool)
         iteration = -1
     else:
@@ -243,12 +247,9 @@ def flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.0, m
             raw_image[cold_mask] = np.nan
 
         # Finished with loop, make sure a pixel is not simultaneously hot and cold
-        assert (~(hot_mask & cold_mask)).all()
-        bad_mask = np.zeros_like(raw_image) \
-            + cold_mask * pixelflags.pixcal['cold'] \
-            + hot_mask * pixelflags.pixcal['hot']
+        assert ~(hot_mask & cold_mask).any()
 
-    return {'hot_mask': hot_mask, 'cold_mask': cold_mask, 'masked_image': raw_image, 'image': image, 'bad_mask': bad_mask,
+    return {'hot_mask': hot_mask, 'cold_mask': cold_mask, 'masked_image': raw_image, 'image': image,
             'median_filter_image': median_filter_image, 'max_ratio': max_ratio, 'difference_image': difference_image,
             'difference_image_error': difference_image_error, 'num_iter': iteration + 1}
 
@@ -343,14 +344,9 @@ def median_movingbox(image, box_size=5, nsigma_hot=4.0, max_iter=5):
             raw_image[hot_mask] = np.nan
 
         # Finished with loop, make sure a pixel is not simultaneously hot and dead
-        assert np.all(hot_mask & dead_mask == False)
+        assert ~(hot_mask & dead_mask).any()
 
-        # Convert bools into 0s and 1s, use correct bad pix flags
-        dead_mask_return = dead_mask * 3
-        hot_mask_return = hot_mask * 1
-        bad_mask = dead_mask_return + hot_mask_return
-
-    return {'bad_mask': bad_mask, 'dead_mask': dead_mask, 'hot_mask': hot_mask, 'image': raw_image,
+    return {'cold_mask': dead_mask, 'hot_mask': hot_mask, 'image': raw_image,
             'standard_filter_image': standard_filter_image, 'median_filter_image': median_filter_image,
             'num_iter': iteration + 1}
 
@@ -408,7 +404,6 @@ def laplacian(image, box_size=5, nsigma_hot=4.0):
         hot_pix_y = hot_pix[1]
 
         for i in np.arange(len(hot_pix_x)):
-            pix_center = laplacian_filter_image[hot_pix_x[i], hot_pix_y[i]]
             pix_up = laplacian_filter_image[hot_pix_x[i], hot_pix_y[i] + 1]
             pix_down = laplacian_filter_image[hot_pix_x[i], hot_pix_y[i] - 1]
             pix_left = laplacian_filter_image[hot_pix_x[i] - 1, hot_pix_y[i]]
@@ -416,40 +411,8 @@ def laplacian(image, box_size=5, nsigma_hot=4.0):
             if pix_up > 0 and pix_down > 0 and pix_left > 0 and pix_right > 0:
                 hot_mask[hot_pix_x[i], hot_pix_y[i]] = True
 
-        dead_mask_return = dead_mask * 3
-        hot_mask_return = hot_mask * 1
-        bad_mask = dead_mask_return + hot_mask_return
-
-    return {'bad_mask': bad_mask, 'dead_mask': dead_mask, 'hot_mask': hot_mask, 'image': raw_image,
+    return { 'cold_mask': dead_mask, 'hot_mask': hot_mask, 'image': raw_image,
             'laplacian_filter_image': laplacian_filter_image}
-
-
-def hpm_poisson_dist(obsfile):
-    """
-    Required Input:
-    :param obsfile:  The input obsfile
-           xpix:     X-coordinate of the pixel whose lightcurve histogram we want to analyze
-           ypix:     Y-coordinate of pixel
-
-    :return:
-    A dictionary containing the results of the poisson fit.  Keys are:
-           poisson_dist:  The poisson distribution fit to the pixel histogram lightcurve
-           chisq:          The chisquare of that fit
-    """
-    raise NotImplementedError
-
-    stop_time = float(obsfile.duration)
-    times = obsfile.query(pixel=(xpix, ypix))
-    times = times['Time']
-    lc = getLightCurve(times, startTime=0, stopTime=stop_time * 10e6, effExpTime=1000000)
-    lc0 = lc[0]
-
-    hist = histogramLC(lc0)
-    lam = np.sum(hist[0] * hist[1]) / np.sum(hist[0])
-
-    poisson_dist = scipy.stats.poisson.pmf(hist[1], lam) * np.sum(hist[0])
-    chisq = np.sum(((hist[0] - poisson_dist) ** 2.0) / poisson_dist)
-    return {'poisson_dist': poisson_dist, 'chisq': chisq}
 
 
 def cps_cut(image, sigma=5, max_cut=2450, cold_mask=False):
@@ -493,21 +456,21 @@ def cps_cut(image, sigma=5, max_cut=2450, cold_mask=False):
     # initial masking, flag dead pixels (counts < 0.01) and flag anything with cps > maxCut as hot
     hot_mask = np.zeros_like(raw_image)
     dead_mask = np.zeros_like(raw_image)
-    hot_mask[raw_image >= max_cut] = pixelflags.pixcal['hot']
-    dead_mask[raw_image <= 0.01] = pixelflags.pixcal['dead']
+    hot_mask[raw_image >= max_cut] = FLAGS.flags['hot'].bit
+    dead_mask[raw_image <= 0.01] = FLAGS.flags['cod'].bit
 
     # second round of masking, flag where cps > mean+sigma*std as hot
     with warnings.catch_warnings():
         # nan values will give an unnecessary RuntimeWarning
         warnings.simplefilter("ignore", category=RuntimeWarning)
-        hot_mask[raw_image >= np.nanmedian(raw_image) + sigma * np.nanstd(raw_image)] = pixelflags.pixcal['hot']
+        hot_mask[raw_image >= np.nanmedian(raw_image) + sigma * np.nanstd(raw_image)] = FLAGS.flags['hot'].bit
 
     # if coldCut is true, also mask cps < mean-sigma*std
     if cold_mask:
         with warnings.catch_warnings():
             # nan values will give an unnecessary RuntimeWarning
             warnings.simplefilter("ignore", category=RuntimeWarning)
-            hot_mask[raw_image <= np.nanmedian(raw_image) - sigma * np.nanstd(raw_image)] = pixelflags.pixcal['hot']
+            hot_mask[raw_image <= np.nanmedian(raw_image) - sigma * np.nanstd(raw_image)] = FLAGS.flags['hot'].bit
 
     bad_mask = dead_mask + hot_mask
 
@@ -540,7 +503,6 @@ def mask_hot_pixels(file, method='flux_threshold', step=30, startt=0, stopt=None
     Appropriate args and kwargs that go into the chosen hpcut function
 
     :return:
-    Applies relevant pixelflags - see pixelflags.py
     """
     obs = Photontable(file)
     if obs.query_header('isBadPixMasked'):

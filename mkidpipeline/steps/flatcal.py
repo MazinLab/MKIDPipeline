@@ -27,7 +27,6 @@ import numpy as np
 import tables
 from PyPDF2 import PdfFileMerger, PdfFileReader
 
-
 from matplotlib.backends.backend_pdf import PdfPages
 from mkidpipeline.steps import wavecal
 from photontable import Photontable
@@ -36,16 +35,17 @@ import mkidpipeline.config
 from mkidpipeline.config import H5Subset
 from mkidcore.utils import query
 import mkidcore.pixelflags as pixelflags
+from mkidcore.pixelflags import FlagSet, PROBLEM_FLAGS
 
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!flatcal_cfg'
-    REQUIRED_KEYS = (('rate_cutoff',  0, 'Count Rate Cutoff in inverse seconds (number)'),
-                     ('trim_chunks',  1, 'number of Chunks to trim (integer)'),
+    REQUIRED_KEYS = (('rate_cutoff', 0, 'Count Rate Cutoff in inverse seconds (number)'),
+                     ('trim_chunks', 1, 'number of Chunks to trim (integer)'),
                      ('chunk_time', 10, 'duration of chunks used for weights (s)'),
                      ('nchunks', 6, 'number of chunks to median combine'),
                      ('power', 1, 'power of polynomial to fit, <3 advised'),
-                     ('power',  0, 'TODO'),
+                     ('power', 0, 'TODO'),
                      ('plots', 'summary', 'none|summary|all'))
     OPTIONAL_KEYS = tuple()
 
@@ -63,6 +63,15 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
 
         return ret
 
+
+FLAGS = FlagSet.define(
+    ('inf_weight', 1, 'Spurious infinite weight was calculated - weight set to 1.0'),
+    ('zero_weight', 2, 'Spurious zero weight was calculated - weight set to 1.0'),
+    ('below_range', 4, 'Derived wavelength is below formal validity range of calibration'),
+    ('above_range', 8, 'Derived wavelength is above formal validity range of calibration'),
+)
+
+
 # TODO need to create a calibrator factory that works with three options: wavecal, white light, and filtered or laser
 #  light. In essence each needs a load_data functionand maybe a load_flat_spectra in the parlance of the current
 #  structure. The individual cases can be determined by seeing if the input data has a starttime or a wavesol
@@ -71,7 +80,7 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
 
 class FlatCalibrator:
     def __init__(self, config=None, solution_name='flat_solution.npz'):
-        self.cfg = mkidpipeline.config.load_task_config(StepConfig() if config is None else config)  #TODO
+        self.cfg = mkidpipeline.config.load_task_config(StepConfig() if config is None else config)  # TODO
         self.data_dir = self.cfg.paths.data
         self.out_directory = self.cfg.paths.out
 
@@ -99,7 +108,7 @@ class FlatCalibrator:
             sol = wavecal.Solution(self.cfg.flatcal.wavsol)
             r, _ = sol.find_resolving_powers(cache=True)
             self.r_list = np.nanmedian(r, axis=0)
-            #TODO shouldn't this pull the wavelengths from the wavesol
+            # TODO shouldn't this pull the wavelengths from the wavesol
 
         self.save_plots = self.cfg.flatcal.plots.lower() == 'all'
         self.summary_plot = self.cfg.flatcal.plots.lower() in ('all', 'summary')
@@ -161,8 +170,8 @@ class FlatCalibrator:
             wvl_weights = np.ones_like(cube)
             for iWvl in range(self.wavelengths.size):
                 wvl_averages[iWvl] = np.nanmean(cube[:, :, iWvl])
-                wvl_averages_array = np.full(np.shape(cube[:,:,iWvl]), wvl_averages[iWvl])
-                wvl_weights[:,:,iWvl] = wvl_averages_array/cube[:,:,iWvl]
+                wvl_averages_array = np.full(np.shape(cube[:, :, iWvl]), wvl_averages[iWvl])
+                wvl_weights[:, :, iWvl] = wvl_averages_array / cube[:, :, iWvl]
             wvl_weights[(wvl_weights == np.inf) | (wvl_weights == 0)] = np.nan
             flat_weights[iCube, :, :, :] = wvl_weights
 
@@ -175,7 +184,6 @@ class FlatCalibrator:
             # but 'cube' is in units cps, not raw counts so multiply by effIntTime before sqrt
 
             delta_weights[iCube, :, :, :] = flat_weights / np.sqrt(self.eff_int_times * cube)
-
 
         weights_mask = np.isnan(flat_weights)
         self.flat_weights = np.ma.array(flat_weights, mask=weights_mask, fill_value=1.).data
@@ -198,14 +206,14 @@ class FlatCalibrator:
             weight_err_to_use = weight_err[sl:-sl, :, :, :]
             self.combined_image = np.ma.sum(cubes_to_use, axis=0)
             self.flat_weights, averaging_weights = np.ma.average(weights_to_use, axis=0,
-                                                                     weights=weight_err_to_use ** -2.,
-                                                                     returned=True)
+                                                                 weights=weight_err_to_use ** -2.,
+                                                                 returned=True)
             self.spectral_cube_in_counts = np.ma.sum(cubes_to_use, axis=0)
         else:
             self.combined_image = np.ma.sum(self.spectral_cube_in_counts, axis=0)
             self.flat_weights, averaging_weights = np.ma.average(self.flat_weights, axis=0,
-                                                                     weights=self.delta_weights ** -2.,
-                                                                     returned=True)
+                                                                 weights=self.delta_weights ** -2.,
+                                                                 returned=True)
             self.spectral_cube_in_counts = np.ma.sum(self.spectral_cube_in_counts, axis=0)
 
         # Uncertainty in weighted average is sqrt(1/sum(averagingWeights)), normalize weights at each wavelength bin
@@ -217,9 +225,10 @@ class FlatCalibrator:
     def calculate_coefficients(self):
         for x in range(self.xpix):
             for y in range(self.ypix):
-                fittable = (self.flat_weights[x,y] != 0) & np.isfinite(self.flat_weights[x,y] + self.flat_weight_err[x,y])
-                self.coeff_array[x, y]= np.polyfit(self.wavelengths[fittable], self.flat_weights[fittable],
-                                                   self.cfg.flatcal.power, w=1 / self.flat_weight_err[fittable] ** 2)
+                fittable = (self.flat_weights[x, y] != 0) & np.isfinite(
+                    self.flat_weights[x, y] + self.flat_weight_err[x, y])
+                self.coeff_array[x, y] = np.polyfit(self.wavelengths[fittable], self.flat_weights[fittable],
+                                                    self.cfg.flatcal.power, w=1 / self.flat_weight_err[fittable] ** 2)
         getLogger(__name__).info('Calculated Flat coefficients')
 
     def make_summary(self):
@@ -229,7 +238,7 @@ class FlatCalibrator:
         """
         Plot weights in images of a single wavelength bin (wavelength-sliced images)
         """
-        self.plotName = 'WeightsWvlSlices_{0}'.format('TODO')  #TODO
+        self.plotName = 'WeightsWvlSlices_{0}'.format('TODO')  # TODO
         self._setup_plots()
         matplotlib.rcParams['font.size'] = 4
         for iWvl, wvl in enumerate(self.wavelengths):
@@ -356,7 +365,7 @@ class WhiteCalibrator(FlatCalibrator):
                                          noise_weight=False, bin_edges=self.wvl_bin_edges,
                                          cube_type='wave', bin_type='energy', rate=True)
             cube = cubeDict['SCIENCE'].data
-            cube[np.isnan(cube)] = 0   # TODO need to update masks to note why these 0s appeared
+            cube[np.isnan(cube)] = 0  # TODO need to update masks to note why these 0s appeared
 
             self.spectral_cube.append(cube)
             self.eff_int_times.append(cubeDict['SCIENCE'].header['integrationTime'])
@@ -401,8 +410,8 @@ class LaserCalibrator(FlatCalibrator):
         n_wvls = len(self.wavelengths)
         n_times = self.cfg.flatcal.nchunks
         exposure_times = np.array([x.duration for x in self.h5s])
-        if np.any(self.chunk_time*self.cfg.flatcal.nchunks > exposure_times):
-            n_times = int((exposure_times/self.chunk_time).max())
+        if np.any(self.chunk_time * self.cfg.flatcal.nchunks > exposure_times):
+            n_times = int((exposure_times / self.chunk_time).max())
             getLogger(__name__).info('Number of chunks * chunk time is longer than the laser exposure. Using full'
                                      'length of exposure ({} chunks)'.format(n_times))
         cps_cube_list = np.zeros([n_times, self.xpix, self.ypix, n_wvls])
@@ -418,9 +427,9 @@ class LaserCalibrator(FlatCalibrator):
             if not obs.query_header('isBadPixMasked') and not self.cfg.flatcal.use_wavecal:
                 getLogger(__name__).warning('H5 File not hot pixel masked, could skew flat weights')
 
-            w_mask = self.wavelengths==wvl
+            w_mask = self.wavelengths == wvl
 
-            mask[:, :, w_mask] = obs.flagged(pixelflags.PROBLEM_FLAGS)
+            mask[:, :, w_mask] = obs.flagged(PROBLEM_FLAGS)
             if self.cfg.flatcal.use_wavecal:
                 startw = wvl - delta_list[w_mask]
                 stopw = wvl + delta_list[w_mask]
@@ -452,12 +461,12 @@ class LaserCalibrator(FlatCalibrator):
             im = dark.photontable.get_fits(start=dark.start, duration=dark.duration, rate=False)['SCIENCE']
             frames.append(im.data)
             itime += im.header['EXPTIME']
-        return np.sum(frames, axis=2)/itime
-
+        return np.sum(frames, axis=2) / itime
 
 
 class FlatSolution(object):
     yaml_tag = '!fsoln'
+
     def __init__(self, file_path=None, configuration=None, beam_map=None, flat_weights=None, coeff_array=None,
                  wavelengths=None, flat_weight_err=None, flat_flags=None, solution_name='flat_solution'):
         self.cfg = configuration
@@ -468,7 +477,7 @@ class FlatSolution(object):
         self.save_name = solution_name
         self.flat_flags = flat_flags
         self.flat_weight_err = flat_weight_err
-        self.coeff_array=coeff_array
+        self.coeff_array = coeff_array
         self._file_path = os.path.abspath(file_path) if file_path is not None else file_path
         # if we've specified a file load it without overloading previously set arguments
         if self._file_path is not None:
@@ -648,7 +657,7 @@ def load_solution(sc, singleton_ok=True):
     if isinstance(sc, FlatSolution):
         return sc
     if isinstance(sc, mkidpipeline.config.MKIDFlatdataDescription):
-        sc = mkidpipeline.config.spectralcal_id(sc.id)+'.npz'
+        sc = mkidpipeline.config.spectralcal_id(sc.id) + '.npz'
     sc = sc if os.path.isfile(sc) else os.path.join(mkidpipeline.config.config.paths.database, sc)
     try:
         return _loaded_solutions[sc]
@@ -668,7 +677,7 @@ def fetch(dataset, config=None, ncpu=np.inf, remake=False):
             solutions.append(load_solution(sf))
         else:
             fcfg = mkidpipeline.config.load_task_config(StepConfig()) if 'flatcal' not in cfg else cfg.copy()
-            #fcfg.register('flatcal.wavsol', sd.wavecal, update=True) #TODO whats the point of this line
+            # fcfg.register('flatcal.wavsol', sd.wavecal, update=True) #TODO whats the point of this line
             if sd.method == 'laser':
                 flattner = LaserCalibrator(h5s=sd.h5s, config=fcfg, solution_name=sf,
                                            darks=[o.dark for o in sd.obs if o.dark is not None])

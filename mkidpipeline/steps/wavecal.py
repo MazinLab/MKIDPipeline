@@ -17,7 +17,8 @@ import mkidcore.corelog as pipelinelog
 import mkidpipeline.config
 import mkidcore.config
 from mkidcore.objects import Beammap
-from mkidcore import pixelflags
+from mkidcore.pixelflags import FlagSet
+
 import astropy.constants
 import progressbar as pb
 import mkidpipeline.photontable as photontable
@@ -70,32 +71,19 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
     def _vet_errors(self):
         return []
 
-wavecal = {'bad': 1,  # The calibration failed. See other flags for details
-           'failed_validation': 2,  # The calibration failed the model-defined criteria for a good fit
-           'failed_convergence': 4,  # The calibration fit did not converge
-           'not_monotonic': 8,  # The wavelength histogram centers were not monotonic enough with respect to energy
-           'not_enough_histogram_fits': 16,  # Too few wavelength histograms had good fits to fit a calibration function
-           'not_attempted': 32,  # The calibration code was not run on this pixel
-           'no_histograms': 64,  # All of the wavelength histogram fits failed
-           'histogram_fit_problems': 128,  # Some of the wavelength histograms were not able to be fit
-           'linear': 256,  # The calibration is using a linear function
-           'quadratic': 512  # The calibration is using a quadratic function
-           }
-PIXEL_FLAGS = FlagSet.define(
-         ("good histogram", 0, "histogram fit - converged and validated",),
-         ("photon data", 1, "histogram not fit - not enough data points",),
-         ("hot pixel", 2, "histogram not fit - too much data (hot pixel)",),
-         ("time cut", 3, "histogram not fit - not enough data left after arrival time cut",),
-         ("positive cut", 4, "histogram not fit - not enough data left after negative phase only cut",),
-         ("few bins", 5, "histogram not fit - not enough histogram bins to fit the model",),
-         ("histogram convergence", 6, "histogram not fit - best fit did not converge",),
-         ("histogram validation", 7, "histogram not fit - best fit converged but failed validation",),
-         ("good calibration", 10, "energy fit - converged and validated",),
-         ("few histograms", 11, "energy not fit - not enough data points",),
-         ("not monotonic", 12, "energy not fit - data not monotonic enough",),
-         ("calibration convergence", 13, "energy not fit - best fit did not converge",),
-         ("calibration validation", 14, "energy not fit - best fit converged but failed validation")
-    )
+
+FLAGS = FlagSet.define(
+          ('bad', 0, 'The calibration failed. See other flags for details'),
+          ('failed_validation', 1, 'The calibration failed the model-defined criteria for a good fit'),
+          ('failed_convergence', 2, 'The calibration fit did not converge'),
+          ('not_monotonic', 3, 'The wavelength histogram centers were not monotonic enough with respect to energy'),
+          ('not_enough_histogram_fits', 4, 'Too few wavelength histograms had good fits to fit a calibration function'),
+          ('not_attempted', 5, 'The calibration code was not run on this pixel'),
+          ('no_histograms', 6, 'All of the wavelength histogram fits failed'),
+          ('histogram_fit_problems', 7, 'Some of the wavelength histograms were not able to be fit'),
+          ('linear', 8, 'The calibration is using a linear function'),
+          ('quadratic', 9,  'The calibration is using a quadratic function')
+)
 
 
 class Configuration(object):
@@ -1237,13 +1225,12 @@ class Solution(object):
     def fit_array(self):
         """Array of fit models of the same size as the MKID array."""
         if self._fit_array is not None:
-            return self._fit_array
+            pass
         elif self.npz is not None:
             self._fit_array = self.npz['fit_array']
-            return self._fit_array
         else:
             self._fit_array = np.empty((self.cfg.beammap.ncols, self.cfg.beammap.nrows), dtype=object)
-            return self._fit_array
+        return self._fit_array
 
     @fit_array.setter
     def fit_array(self, value):
@@ -1253,22 +1240,19 @@ class Solution(object):
     def cached_resolving_powers(self):
         """An array of resolving powers cached after fitting (rows, columns, wavelengths)."""
         if self._cache is not None:
-            return self._cache
+            pass
         elif self.npz is not None:
             self._cache = self.npz['cache']
-            return self._cache
         else:
             self._cache = np.full((self.cfg.beammap.ncols, self.cfg.beammap.nrows, len(self.cfg.wavelengths)), np.nan)
-            return self._cache
+        return self._cache
 
     @property
     def cfg(self):
         """Configuration object for the wavecal."""
-        if self._cfg is not None:
-            return self._cfg
-        else:
+        if self._cfg is None:
             self._cfg = self.npz['configuration'].item()
-            return self._cfg
+        return self._cfg
 
     @cfg.setter
     def cfg(self, value):
@@ -1277,11 +1261,9 @@ class Solution(object):
     @property
     def beam_map(self):
         """ResIDs for the x and y positions on the array (beam_map[x_ind, y_ind])."""
-        if self._beam_map is not None:
-            return self._beam_map
-        else:
+        if self._beam_map is None:
             self._beam_map = self.npz['beam_map']
-            return self._beam_map
+        return self._beam_map
 
     @beam_map.setter
     def beam_map(self, value):
@@ -1290,11 +1272,9 @@ class Solution(object):
     @property
     def beam_map_flags(self):
         """Beam map flags for the x and y positions on the array (beam_map_flags[x_ind, y_ind])."""
-        if self._beam_map_flags is not None:
-            return self._beam_map_flags
-        else:
+        if self._beam_map_flags is None:
             self._beam_map_flags = self.npz['beam_map_flags']
-            return self._beam_map_flags
+        return self._beam_map_flags
 
     @beam_map_flags.setter
     def beam_map_flags(self, value):
