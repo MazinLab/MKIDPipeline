@@ -83,10 +83,6 @@ def update_paths(d):
         config.update(f'paths.{k}', v)
 
 
-def h5_for_MKIDodd(observing_data_desc):
-    return os.path.join(config.paths.out, '{}.h5'.format(int(observing_data_desc.start)))
-
-
 def wavecal_id(wavedata_id, wavecal_cfg=None):
     """
     Compute a wavecal id string from a wavedata id string and either the active or a specified wavecal config
@@ -252,7 +248,7 @@ class MKIDTimerange(object):
 
     @property
     def h5(self):
-        return h5_for_MKIDodd(self)
+        return os.path.join(config.paths.out, '{}.h5'.format(int(self.start)))
 
     @property
     def photontable(self):
