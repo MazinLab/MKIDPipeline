@@ -8,6 +8,8 @@ import pkg_resources as pkg
 import json
 from collections import namedtuple
 import ast
+import astropy.units as u
+from collections import defaultdict
 
 import mkidcore.config
 from mkidcore.corelog import getLogger, create_log, MakeFileHandler
@@ -178,36 +180,118 @@ class H5Subset:
     def __str__(self):
         return f'{os.path.basename(self.timerange.h5)} @ {self.start} for {self.duration}s'
 
+class Key:
+    def __init__(self, name='', default=None, comment='', dtype=None):
+        self.name=str(name)
+        self.default=default
+        self.comment=str(comment)
+        self.dtype=dtype
 
-class MKIDTimerange(object):
+
+class DataBase:
+    KEYS = tuple()
+    REQUIRED = tuple()  # May set individual elements to tuples of keys if they are alternates e.g. stop/duration
+    EXPLICIT_ALLOW = tuple()  # Set to names that are allowed keys and are also used as properties
+
+    def __init__(self, *args, **kwargs):
+        from collections import defaultdict
+        self._key_errors = defaultdict(list)
+        self._keys = {k.name: k for k in self.KEYS}
+
+        self.name = kwargs.get('name', f'Unnamed !{self.yaml_tag}')  #yaml_tag defined by subclass
+        self.extra_keys = [k for k in kwargs if k not in self.key_names]
+
+        # Check disallowed
+        # if 'KEYS' in kwargs or 'REQUIRED' in kwargs or 'extra' in kwargs:
+        #     raise ValueError(f'Keys may not be named KEYS, REQUIRED, or extra. Check "{definition_name}"')
+
+        for k in kwargs:
+            if getattr(self, k, None) is not None and k not in self.EXPLICIT_ALLOW:
+                self._key_errors[k] += ['Not an allowed key']
+
+        # Check for the existence of all required keys (or key sets)
+        for key_set in self.REQUIRED:
+            if isinstance(key_set, str):
+                key_set = (key_set,)
+            found = 0
+            for k in key_set:
+                found += int(k in kwargs)
+            if not found:
+                self._key_errors[key_set] += ['missing']
+            elif found > 1:
+                if not found:
+                    self._key_errors[key_set] += ['multiple specified']
+
+        # Process keys
+        for k, v in kwargs:
+            if isinstance(v, str):
+                try:
+                    v = u.Quantity(v)
+                except (TypeError, ValueError):
+                    if v.startswith('_'):
+                        raise ValueError(f'Keys may not start with an underscore: "{v}". Check {self.name}')
+            setattr(self, k, v)
+
+        # Set defaults
+        for key in (key for key in self.KEYS if key.name not in kwargs):
+            if not hasattr(self, key.name):
+                setattr(self, key.name, key.default)
+
+        # Check types
+        for key in self.KEYS:
+            if key.dtype is not None:
+                try:
+                    if not isinstance(getattr(self, key.name), key.dtype):
+                        self._key_errors[key.name] += [f'not an instance of {key.dtype}']
+                except AttributeError:
+                    pass
+
+    @property
+    def key_names(self):
+        return tuple([k.name for k in self.KEYS])
+
+    def _vet(self):
+        def joiner(x):
+            return ', '.join(x)
+        return [f'{k}:{joiner(v)}' for k, v in self._key_errors.items()]
+
+    def extra(self):
+        return {k: getattr(self, k) for k in self.extra_keys}
+
+    @classmethod
+    def from_yaml(cls, loader, node):
+        ret = cls(**dict(loader.construct_pairs(node, deep=True)))
+        errors = ret._vet()
+
+        if errors:
+            raise ValueError(f'{ret.name} collected errors: \n' + '\n\t'.join(errors))
+        return ret
+
+
+class MKIDTimerange(DataBase):
     yaml_tag = u'!ob'
+    STANDARD_KEYS = (
+        Key(name='name', default=None, comment='A name', dtype=str),
+        Key('start', None, 'The start unix time, float ok, rounded down for H5 creation.', float),
+        Key('duration', None, 'A duration in seconds, float ok. If not specified stop must be', float),
+        Key('stop', None, 'A stop unit time, float ok. If not specified duration must be', float),
+        Key('dark', None, 'An MKIDTimerange to use for a dark reference.', None)
+    )
+    REQUIRED = ('name', 'start', ('duration', 'stop'))
+    EXPLICIT_ALLOW = ('duration',)  # if a key is allows AND is a property or method name it must be listed here
 
-    def __init__(self, name, start, duration=None, stop=None, _common=None, dark=None):
-        """if spcified dark should be an MKIDTimerange """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        duration = self.__dict__.pop('duration', None)
+        if duration:
+            self.stop = self.start + duration
 
-        self._common = _common
-        if _common is not None:
-            self.__dict__.update(_common)
-
-        if duration is None and stop is None:
-            raise ValueError('Must specify stop or duration')
-        if duration is not None and stop is not None:
-            raise ValueError('Must only specify stop or duration')
-        if duration is not None and duration > 43200:
-            raise ValueError('Specified duration is longer than 12 hours!')
-        self.start = start #int(start)
-
-        if duration is not None:
-            self.stop = self.start + duration #int(np.ceil(duration))
-
-        if stop is not None:
-            self.stop = stop #int(np.ceil(stop))
-
+    def _vet(self):
+        if self.duration > 43200:
+            getLogger(__name__).warning(f'Duration of {self.name} longer than 12h!')
         if self.stop < self.start:
-            raise ValueError('Stop ({}) must come after start ({})'.format(self.stop,self.start))
-
-        self.name = str(name)
-        self.dark = dark
+            self._key_errors['stop'] += [f'Stop ({self.stop}) must come after start ({self.start})']
+        super()._vet()
 
     def __str__(self):
         return '{} t={}:{}s'.format(self.name, self.start, self.duration)
@@ -227,16 +311,6 @@ class MKIDTimerange(object):
     @property
     def duration(self):
         return self.stop-self.start
-
-    @classmethod
-    def from_yaml(cls, loader, node):
-        d = dict(loader.construct_pairs(node, deep=True))  #WTH this one line took half a day to get right
-        name = d.pop('name')
-        start = d.pop('start', None)
-        stop = d.pop('stop', None)
-        duration = d.pop('duration', None)
-        dark = d.pop('dark', None)
-        return cls(name, start, duration=duration, stop=stop, dark=dark, _common=d)
 
     @property
     def timerange(self):
@@ -260,25 +334,23 @@ class MKIDTimerange(object):
 class MKIDObservation(MKIDTimerange):
     """requires keys name, wavecal, flatcal, wcscal, and all the things from ob"""
     yaml_tag = u'!sob'
+    STANDARD_KEYS = (
+        Key(name='name', default=None, comment='A name', dtype=str),
+        Key('start', None, 'The start unix time, float ok, rounded down for H5 creation.', float),
+        Key('duration', None, 'A duration in seconds, float ok. If not specified stop must be', float),
+        Key('stop', None, 'A stop unit time, float ok. If not specified duration must be', float),
+        Key('dark', None, 'An MKIDTimerange to use for a dark reference.', None),
+        Key('wavecal', None, 'A MKIDWavedata or name of the same', None),
+        Key('flatcal', None, 'A MKIDFlatdata or name of the same', None),
+        Key('wcscal', None, 'A MKIDWCSCal or name of the same', None),
+        Key('speccal', None, 'A MKIDSpecdata or name of the same', None),
 
-    def __init__(self, name, start, duration=None, stop=None, wavecal=None, flatcal=None, speccal=None, wcscal=None,
-                 dark=None, _common=None):
-        super().__init__(name, start, duration=duration, stop=stop, _common=_common, dark=dark)
-        self.wavecal = wavecal
-        self.flatcal = flatcal
-        self.wcscal = wcscal
-        self.speccal = speccal
+    )
+    REQUIRED = ('name', 'start', ('duration', 'stop'), 'wavecal', 'flatcal', 'wcscal', 'speccal')
+    EXPLICIT_ALLOW = ('duration',)
 
-    @classmethod
-    def from_yaml(cls, loader, node):
-        d = dict(loader.construct_pairs(node))  #WTH this one line took half a day to get right
-        name = d.pop('name')
-        start = d.pop('start', None)
-        stop = d.pop('stop', None)
-        duration = d.pop('duration', None)
-        return cls(name, start, duration=duration, stop=stop, wavecal=d.pop('wavecal', None),
-                   flatcal=d.pop('flatcal', None), wcscal=d.pop('wcscal', None), speccal=d.pop('speccal', None),
-                   _common=d)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     @property
     def metadata(self):
@@ -304,26 +376,26 @@ class MKIDObservation(MKIDTimerange):
         return d
 
 
-class MKIDWavedataDescription(object):
+class MKIDWavedataDescription(DataBase):
     """requires keys name and data"""
     yaml_tag = u'!wc'
+    STANDARD_KEYS = (
+        Key(name='name', default=None, comment='A name', dtype=str),
+        Key('data', None, 'The start unix time, float ok, rounded down for H5 creation.', list),
+    )
+    REQUIRED = ('name', 'data')
 
-    def __init__(self, name, data, _common=None):
-        if _common is not None:
-            self.__dict__.update(_common)
-        self.name = name
-        self.data = data
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for d in self.data:
+            if not isinstance(d, MKIDTimerange):
+                self._key_errors['data'] += [f'Element {d} of data is not an MKIDTimerange']
+        if not self.data:
+            self._key_errors['data'] += ['data must be a list of MKIDTimerange']
 
     @property
     def darks(self):
         return {w: ob.dark for w, ob in zip(self.wavelengths, self.data)}
-
-    @classmethod
-    def from_yaml(cls, loader, node):
-        d = dict(loader.construct_pairs(node, deep=True))  #WTH this one line took half a day to get right
-        name = d.pop('name')
-        data = list(d.pop('data'))
-        return cls(name, data, _common=d)
 
     @property
     def timeranges(self):
@@ -336,10 +408,10 @@ class MKIDWavedataDescription(object):
 
     @property
     def wavelengths(self):
-        return [getnm(x.name) for x in self.data]
+        return tuple([getnm(x.name) for x in self.data])
 
     def __str__(self):
-        return '\n '.join("{} ({}-{})".format(x.name, x.start, x.stop) for x in self.data)
+        return 'MKIDWavedata:\n'+'\n '.join("{} ({}-{})".format(x.name, x.start, x.stop) for x in self.data)
 
     @property
     def id(self):
@@ -352,28 +424,47 @@ class MKIDWavedataDescription(object):
         return os.path.join(config.paths.database, wavecal_id(self.id)+'.npz')
 
 
-class MKIDFlatdataDescription(object):
+class MKIDFlatdataDescription(DataBase):
     """attributes name and either ob or wavecal"""
     yaml_tag = u'!fc'
+    STANDARD_KEYS = (
+        Key(name='name', default=None, comment='A name', dtype=str),
+        Key('ob', None, 'An MKIDTimerange to use for a whitelight flat. If not '
+                        'specified wavecal will be used for a laser flat', None),
+        Key('wavecal_duration', None, 'Number of seconds of the wavecal to use, float ok. Required if not ob', float),
+        Key('wavecal_offset', 1, 'An offset in seconds (>=1) from the start of the wavecal '
+                                 'timerange. Required if not ob', int),
+        Key('wavecal', None, 'A MKIDWavedata or name of the same', None),
+    )
+    REQUIRED = ('name', 'wavecal', )
 
-    def __init__(self, name, ob=None, wavecal=None, wavecal_offset=1, wavecal_duration=None, _common=None):
-        if _common is not None:
-            self.__dict__.update(_common)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.ob is None:
+            try:
+                if self.wavecal_offset < 1:
+                    self._key_errors['wavecal_offset'] += ['must be >= 1s']
+            except AttributeError:
+                self._key_errors['wavecal_offset'] += ['required for a wavecal flat (i.e. no ob specified)']
+            except TypeError:
+                pass  # covered by super init
+            try:
+                if self.wavecal_duration < 1:
+                    self._key_errors['wavecal_duration'] += ['must be >= 1s']
+            except AttributeError:
+                self._key_errors['wavecal_duration'] += ['required for a wavecal flat (i.e. no ob specified)']
+            except TypeError:
+                pass  # covered by super init
+        else:
+            if not isinstance(self.ob, MKIDTimerange):
+                self._key_errors['ob'] += ['must be an MKIDTimerange']
+            if hasattr(self, 'wavecal_offset'):
+                self._key_errors['wavecal_offset'] += ['not allowed for a whitelight flat (i.e. no specified)']
+            if hasattr(self, 'wavecal_duration'):
+                self._key_errors['wavecal_duration'] += ['not allowed for a whitelight flat (i.e. no specified)']
 
-        if ob is None and wavecal is None:
-            raise ValueError('Must specify at least an ob or a wavecal')
-
-        if wavecal_offset < 1:
-            raise ValueError('Wavecal offset mut be at least 1s')
-        if ob is not None:
-            wavecal_offset = None
-            wavecal_duration = None
-
-        self.name = name
-        self.ob = ob
-        self.wavecal = wavecal
-        self.wavecal_offset = wavecal_offset
-        self.wavecal_duration = wavecal_duration
+        if not isinstance(self.wavecal, (MKIDWavedataDescription, str)):
+            self._key_errors['wavecal'] += ['must be an MKIDWavedataDescription or name of the same']
 
     @property
     def method(self):
@@ -388,8 +479,8 @@ class MKIDFlatdataDescription(object):
 
     @property
     def h5s(self):
-        h5s = {w: ob for w, ob in zip(self.wavecal.wavelengths, self.obs)}
-        return h5s
+        """Returns MKIDObservations for the wavelengths of the wavecal, will raise errors for whitlight flats"""
+        return {w: ob for w, ob in zip(self.wavecal.wavelengths, self.obs)}
 
     @property
     def obs(self):
@@ -399,7 +490,7 @@ class MKIDFlatdataDescription(object):
             for ob in self.wavecal.data:
                 o = MKIDObservation(f'{self.name}_{ob.name}', ob.start + self.wavecal_offset,
                                     duration=min(self.wavecal_duration, ob.duration - self.wavecal_offset),
-                                    _common=ob._common, dark=ob.dark, wavecal=self.wavecal)
+                                    dark=ob.dark, wavecal=self.wavecal, **ob.extra())
                 yield o
 
     @property
@@ -418,17 +509,7 @@ class MKIDFlatdataDescription(object):
 
     def __str__(self):
         return '{}: {}'.format(self.name, self.ob if self.ob is not None else self.wavecal)
-
-    @classmethod
-    def from_yaml(cls, loader, node):
-        d = dict(loader.construct_pairs(node))
-        name = d.pop('name')
-        ob = d.pop('ob', None)
-        wavecal = d.pop('wavecal', None)
-        duration = d.pop('duration', None)
-        offset = d.pop('offset', 1)
-        return cls(name, ob=ob, wavecal=wavecal, wavecal_duration=duration, wavecal_offset=offset, _common=d)
-
+    
 
 class MKIDSpectralReference(object):
     """
@@ -803,7 +884,6 @@ class MKIDOutput:
                ('name', 'a name',''),
                ('filename','',''),
                ('data','',''))
-
 
     def __init__(self, name, dataname, kind, startw=None, stopw=None, filename='',_extra=None):
         """
