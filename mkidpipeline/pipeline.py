@@ -49,24 +49,8 @@ PROBLEM_FLAGS = ('pixcal.hot', 'pixcal.cold', 'pixcal.unstable', 'beammap.noDacT
                  'wavecal.not_attempted')
 
 
-class BaseConfig(mkidpipeline.config.BaseStepConfig):
-    yaml_tag = u'!pipe_cfg'
-    REQUIRED_KEYS = (('ncpu', 1, 'number of cpus'),
-                     ('verbosity', 0, 'level of verbosity'),
-                     ('flow', ('wavecal','metadata','flatcal','cosmiccal','photcal','lincal'), 'Calibration steps to apply'),
-                     ('paths.dithers', '/darkdata/MEC/logs/','dither log location'),
-                     ('paths.data', '/darkdata/ScienceData/Subaru/','bin file parent folder'),
-                     ('paths.database', '/work/temp/database/', 'calibrations will be retrieved/stored here'),
-                     ('paths.obslog', '/work/temp/database/obslog', 'obslog.json go here'),
-                     ('paths.out', '/work/temp/out/', 'root of output'),
-                     ('paths.tmp', '/work/temp/scratch/', 'use for data intensive temp files'))
-
-
-mkidcore.config.yaml.register_class(BaseConfig)
-
-
 def generate_default_config():
-    cfg = BaseConfig()
+    cfg = config.PipeConfig()
     for name, step in PIPELINE_STEPS.items():
         try:
             cfg.register(name, step.StepConfig(), update=True)
@@ -76,6 +60,14 @@ def generate_default_config():
     cfg.register('beammap', mkidcore.objects.Beammap(default='MEC'))
     cfg.register('instrument', mkidcore.instruments.InstrumentInfo('MEC'))
     return cfg
+
+
+def generate_sample_data():
+    data = [config.MKIDTimerange(), config.MKIDObservation(), config.MKIDWavecalDescription(),
+           config.MKIDFlatcalDescription(), config.MKIDSpeccalDescription(), config.MKIDWCSCalDescription(),
+           config.MKIDDitherDescription()]
+
+    return data
 
 
 def metadata_apply(ob):
