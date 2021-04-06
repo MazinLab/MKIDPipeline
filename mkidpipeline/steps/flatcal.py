@@ -657,7 +657,7 @@ def load_solution(sc, singleton_ok=True):
     if isinstance(sc, FlatSolution):
         return sc
     if isinstance(sc, mkidpipeline.config.MKIDFlatcalDescription):
-        sc = mkidpipeline.config.spectralcal_id(sc.id) + '.npz'
+        sc = sc.path
     sc = sc if os.path.isfile(sc) else os.path.join(mkidpipeline.config.config.paths.database, sc)
     try:
         return _loaded_solutions[sc]
@@ -672,7 +672,7 @@ def fetch(dataset, config=None, ncpu=np.inf, remake=False):
     solutions = []
     flattners = []
     for sd in solution_descriptors:
-        sf = os.path.join(cfg.paths.database, mkidpipeline.config.flatcal_id(sd.id) + '.npz')
+        sf = sd.path
         if os.path.exists(sf) and not remake:
             solutions.append(load_solution(sf))
         else:
