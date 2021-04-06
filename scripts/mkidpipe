@@ -41,7 +41,9 @@ if __name__ == "__main__":
         default_pipe_config = pipe.generate_default_config()
         with open('pipe.yml', 'w') as f:
             config.yaml.dump(default_pipe_config, f)
-        shutil.copy2(pkg.resource_filename('mkidpipeline', 'data.yml'), args.data_cfg)
+        sample_data = pipe.generate_sample_data()
+        with open('data.yml', 'w') as f:
+            config.yaml.dump(sample_data, f)
         shutil.copy2(pkg.resource_filename('mkidpipeline', 'out.yml'), args.out_cfg)
 
     config.configure_pipeline(args.pipe_cfg)

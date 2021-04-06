@@ -9,7 +9,7 @@ import json
 from collections import namedtuple
 import ast
 import astropy.units as u
-from collections import defaultdict
+import ruamel.yaml.comments
 
 from mkidcore.legacy import parse_dither_log
 import mkidcore.config
@@ -17,8 +17,6 @@ from mkidcore.corelog import getLogger, create_log, MakeFileHandler
 from mkidcore.utils import getnm, derangify
 from mkidcore.objects import Beammap
 
-# TODO this is a placeholder to help integrating metadata
-InstrumentInfo = namedtuple('InstrumentInfo', ('beammap', 'platescale'))
 
 # Ensure that the beammap gets registered with yaml, the import does this
 # but without this note an IDE or human might remove the import
@@ -26,11 +24,10 @@ Beammap()
 
 config = None
 _dataset = None
-_parsedDitherLogs = {}
+_parsed_dither_logs = {}
 
 yaml = mkidcore.config.yaml
 
-pipeline_settings = ('beammap', 'paths', 'instrument', 'ncpu')
 
 STANDARD_KEYS = (
 'ra', 'dec', 'airmass', 'az', 'el', 'ha', 'equinox', 'parallactic', 'target', 'utctcs', 'laser', 'flipper',
@@ -59,7 +56,7 @@ def load_task_config(file, use_global_config=True):
 
     # Allow pass-through of a config
     cfg = mkidcore.config.load(file) if isinstance(file, str) else file
-
+    pipeline_settings = ('beammap', 'paths', 'instrument', 'ncpu')
     if config is None:
         configure_pipeline(pkg.resource_filename('mkidpipeline', 'pipe.yml'))
         for k in pipeline_settings:
@@ -108,6 +105,22 @@ class BaseStepConfig(mkidcore.config.ConfigThing):
 
     def _vet_errors(self):
         return []
+
+
+class PipeConfig(BaseStepConfig):
+    yaml_tag = u'!pipe_cfg'
+    REQUIRED_KEYS = (('ncpu', 1, 'number of cpus'),
+                     ('verbosity', 0, 'level of verbosity'),
+                     ('flow', ('wavecal','metadata','flatcal','cosmiccal','photcal','lincal'), 'Calibration steps to apply'),
+                     ('paths.dithers', '/darkdata/MEC/logs/','dither log location'),
+                     ('paths.data', '/darkdata/ScienceData/Subaru/','bin file parent folder'),
+                     ('paths.database', '/work/temp/database/', 'calibrations will be retrieved/stored here'),
+                     ('paths.obslog', '/work/temp/database/obslog', 'obslog.json go here'),
+                     ('paths.out', '/work/temp/out/', 'root of output'),
+                     ('paths.tmp', '/work/temp/scratch/', 'use for data intensive temp files'))
+
+
+mkidcore.config.yaml.register_class(PipeConfig)
 
 
 def make_paths(config=None, output_dirs=tuple()):
@@ -166,17 +179,15 @@ class DataBase:
         from collections import defaultdict
         self._key_errors = defaultdict(list)
         self._keys = {k.name: k for k in self.KEYS}
+        self.extra_keys = []
+
+        # Check disallowed
+        for k in kwargs:
+            if getattr(self, k, None) is not None and k not in self.EXPLICIT_ALLOW or k.startswith('_'):
+                self._key_errors[k] += ['Not an allowed key']
 
         self.name = kwargs.get('name', f'Unnamed !{self.yaml_tag}')  # yaml_tag defined by subclass
         self.extra_keys = [k for k in kwargs if k not in self.key_names]
-
-        # Check disallowed
-        # if 'KEYS' in kwargs or 'REQUIRED' in kwargs or 'extra' in kwargs:
-        #     raise ValueError(f'Keys may not be named KEYS, REQUIRED, or extra. Check "{definition_name}"')
-
-        for k in kwargs:
-            if getattr(self, k, None) is not None and k not in self.EXPLICIT_ALLOW:
-                self._key_errors[k] += ['Not an allowed key']
 
         # Check for the existence of all required keys (or key sets)
         for key_set in self.REQUIRED:
@@ -185,6 +196,8 @@ class DataBase:
             found = 0
             for k in key_set:
                 found += int(k in kwargs)
+            if len(key_set) == 1:
+                key_set=key_set[0]
             if not found:
                 self._key_errors[key_set] += ['missing']
             elif found > 1:
@@ -192,28 +205,52 @@ class DataBase:
                     self._key_errors[key_set] += ['multiple specified']
 
         # Process keys
-        for k, v in kwargs:
+        for k, v in kwargs.items():
+            if k in self._keys:
+                required_type = self._keys[k].dtype
+                if required_type is not None and not isinstance(v, required_type):
+                    self._key_errors[k] += [f'not an instance of {required_type}']
+
             if isinstance(v, str):
                 try:
                     v = u.Quantity(v)
                 except (TypeError, ValueError):
                     if v.startswith('_'):
                         raise ValueError(f'Keys may not start with an underscore: "{v}". Check {self.name}')
-            setattr(self, k, v)
+            try:
+                setattr(self, k, v)
+            except AttributeError:
+                try:
+                    setattr(self, '_'+k, v)
+                    getLogger(__name__).debug(f'Storing {k} as _{k} for use by subclass')
+                except AttributeError:
+                    pass
 
         # Set defaults
         for key in (key for key in self.KEYS if key.name not in kwargs):
-            if not hasattr(self, key.name):
-                setattr(self, key.name, key.default)
+            try:
+                if key.default is None and key.dtype is not None:
+                    default = key.dtype[0]() if isinstance(key.dtype, tuple) else key.dtype()
+                else:
+                    default = key.default
+            except Exception:
+                default = None
+                getLogger(__name__).debug(f'Unable to create default instance of {key.dtype} for '
+                                          f'{key.name}, using None')
+            try:
+                setattr(self, key.name, default)
+            except Exception:
+                getLogger(__name__).debug(f'Key {key.name} is shadowed by property, prepending _')
+                setattr(self, '_'+key.name, default)
 
-        # Check types
-        for key in self.KEYS:
-            if key.dtype is not None:
-                try:
-                    if not isinstance(getattr(self, key.name), key.dtype):
-                        self._key_errors[key.name] += [f'not an instance of {key.dtype}']
-                except AttributeError:
-                    pass
+        # # Check types
+        # for k:
+        #     if key.dtype is not None:
+        #         try:
+        #             if not isinstance(getattr(self, key.name), key.dtype):
+        #                 self._key_errors[key.name] += [f'not an instance of {key.dtype}']
+        #         except AttributeError:
+        #             pass
 
     @property
     def key_names(self):
@@ -222,28 +259,41 @@ class DataBase:
     def _vet(self):
         def joiner(x):
             return ', '.join(x)
-        return [f'{k}:{joiner(v)}' for k, v in self._key_errors.items()]
+        errors = [f'{k}:{joiner(v)}' for k, v in self._key_errors.items()]
+        return f"{type(self).__name__}: {errors}" if errors else ''
 
     def extra(self):
         return {k: getattr(self, k) for k in self.extra_keys}
 
     @classmethod
     def from_yaml(cls, loader, node):
-        ret = cls(**dict(loader.construct_pairs(node, deep=True)))
-        errors = ret._vet()
+        return cls(**dict(loader.construct_pairs(node, deep=True)))
 
-        if errors:
-            raise ValueError(f'{ret.name} collected errors: \n' + '\n\t'.join(errors))
-        return ret
+    @classmethod
+    def to_yaml(cls, representer, node):
+        d = node.__dict__.copy()
+        d.pop('extra_keys')
+        for k in list(d.keys()):
+            if k.startswith('_'):
+                d.pop(k)
+            elif type(d[k]) not in representer.yaml_representers:
+                getLogger(__name__).debug(f'{node.name} ({cls.__name__}.{k}) is a {type(d[k])} and '
+                                          f'will be cast to string ({str(d[k])}) for yaml representation ')
+                d[k] = str(d[k])
+
+        cm = ruamel.yaml.comments.CommentedMap(d)
+        for k in d:
+            cm.yaml_add_eol_comment(node._keys[k].comment if k in node._keys else 'User added key', key=k)
+        return representer.represent_mapping(cls.yaml_tag, cm)
 
 
 class MKIDTimerange(DataBase):
-    yaml_tag = u'!ob'
-    STANDARD_KEYS = (
+    yaml_tag = u'!MKIDTimerange'
+    KEYS = (
         Key(name='name', default=None, comment='A name', dtype=str),
-        Key('start', None, 'The start unix time, float ok, rounded down for H5 creation.', float),
-        Key('duration', None, 'A duration in seconds, float ok. If not specified stop must be', float),
-        Key('stop', None, 'A stop unit time, float ok. If not specified duration must be', float),
+        Key('start', None, 'The start unix time, float ok, rounded down for H5 creation.', (float, int)),
+        Key('duration', None, 'A duration in seconds, float ok. If not specified stop must be', (float,int)),
+        Key('stop', None, 'A stop unit time, float ok. If not specified duration must be', (float,int)),
         Key('dark', None, 'An MKIDTimerange to use for a dark reference.', None)
     )
     REQUIRED = ('name', 'start', ('duration', 'stop'))
@@ -251,7 +301,7 @@ class MKIDTimerange(DataBase):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        duration = self.__dict__.pop('duration', None)
+        duration = self._duration
         if duration:
             self.stop = self.start + duration
 
@@ -264,7 +314,7 @@ class MKIDTimerange(DataBase):
             getLogger(__name__).warning(f'Duration of {self.name} longer than 12h!')
         if self.stop < self.start:
             self._key_errors['stop'] += [f'Stop ({self.stop}) must come after start ({self.start})']
-        super()._vet()
+        return super()._vet()
 
     @property
     def date(self):
@@ -305,33 +355,22 @@ class MKIDTimerange(DataBase):
 
 class MKIDObservation(MKIDTimerange):
     """requires keys name, wavecal, flatcal, wcscal, and all the things from ob"""
-    yaml_tag = u'!sob'
-    STANDARD_KEYS = (
-        Key(name='name', default=None, comment='A name', dtype=str),
-        Key('start', None, 'The start unix time, float ok, rounded down for H5 creation.', float),
-        Key('duration', None, 'A duration in seconds, float ok. If not specified stop must be', float),
-        Key('stop', None, 'A stop unit time, float ok. If not specified duration must be', float),
-        Key('dark', None, 'An MKIDTimerange to use for a dark reference.', None),
+    yaml_tag = u'!MKIDObservation'
+    KEYS = MKIDTimerange.KEYS + (
         Key('wavecal', None, 'A MKIDWavedata or name of the same', None),
         Key('flatcal', None, 'A MKIDFlatdata or name of the same', None),
         Key('wcscal', None, 'A MKIDWCSCal or name of the same', None),
         Key('speccal', None, 'A MKIDSpecdata or name of the same', None),
     )
-    REQUIRED = ('name', 'start', ('duration', 'stop'), 'wavecal', 'flatcal', 'wcscal', 'speccal')
-    EXPLICIT_ALLOW = ('duration',)
-
-    # def __init__(self, *args, **kwargs):
-    #     super().__init__(*args, **kwargs)
-    #
-    # def __str__(self):
-    #     return f'{self.name} ({type(self)}): {self.duration}s @ {self.start}'
+    REQUIRED = MKIDTimerange.REQUIRED+('wavecal', 'flatcal', 'wcscal', 'speccal')
+    EXPLICIT_ALLOW = MKIDTimerange.EXPLICIT_ALLOW
 
     @property
     def metadata(self):
         exclude = ('wavecal', 'flatcal', 'wcscal', 'speccal', 'start', 'stop')
         d = {k: v for k, v in self.__dict__.items() if k not in exclude}
         try:
-            wc = wavecal_id(self.wavecal.id)
+            wc = self.wavecal.id
         except AttributeError:
             wc = 'None'
         try:
@@ -339,7 +378,7 @@ class MKIDObservation(MKIDTimerange):
         except AttributeError:
             fc = 'None'
         try:
-            sc = spectralcal_id(self.speccal.id)
+            sc = self.speccal.id
         except AttributeError:
             sc = 'None'
         # TODO make this play nice with fits headers and the like
@@ -379,9 +418,9 @@ class CalDefinitionMixin:
 
 class MKIDWavecalDescription(DataBase, CalDefinitionMixin):
     """requires keys name and data"""
-    yaml_tag = u'!wc'
-    STANDARD_KEYS = (
-        Key(name='name', default=None, comment='A name', dtype=str),
+    yaml_tag = u'!MKIDWavecalDescription'
+    KEYS = (
+        Key(name='name', default='', comment='A name', dtype=str),
         Key('obs', None, 'List of MKIDTimerange named like 950 nm', tuple),
     )
     REQUIRED = ('name', 'obs')
@@ -411,8 +450,8 @@ class MKIDWavecalDescription(DataBase, CalDefinitionMixin):
 
 
 class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
-    yaml_tag = u'!fc'
-    STANDARD_KEYS = (
+    yaml_tag = u'!MKIDFlatcalDescription'
+    KEYS = (
         Key(name='name', default=None, comment='A name', dtype=str),
         Key('ob', None, 'An MKIDTimerange to use for a whitelight flat. If not '
                         'specified wavecal will be used for a laser flat', None),
@@ -445,11 +484,11 @@ class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
             if not isinstance(self.ob, MKIDTimerange):
                 self._key_errors['ob'] += ['must be an MKIDTimerange']
             if hasattr(self, 'wavecal_offset'):
-                self._key_errors['wavecal_offset'] += ['not allowed for a whitelight flat (i.e. no specified)']
+                self._key_errors['wavecal_offset'] += ['not allowed for a whitelight flat (i.e. no specified ob)']
             if hasattr(self, 'wavecal_duration'):
-                self._key_errors['wavecal_duration'] += ['not allowed for a whitelight flat (i.e. no specified)']
+                self._key_errors['wavecal_duration'] += ['not allowed for a whitelight flat (i.e. no specified ob)']
 
-        if not isinstance(self.wavecal, (MKIDWavecalDescription, str)):
+        if not isinstance(getattr(self,'wavecal', None), (MKIDWavecalDescription, str)):
             self._key_errors['wavecal'] += ['must be an MKIDWavecalDescription or name of the same']
 
     def __str__(self):
@@ -479,22 +518,17 @@ class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
 
 
 class MKIDSpeccalDescription(DataBase, CalDefinitionMixin):
-    """
-    requires name, data, wavecal, and flatcal keys
-    """
-    yaml_tag = u'!sc'
-    STANDARD_KEYS = (
+    yaml_tag = u'!MKIDSpeccalDescription'
+    KEYS = (
         Key(name='name', default=None, comment='A name', dtype=str),
         Key('obs', None, 'MKIDObservation or MKIDDither', None),
         Key('position', (0, 0), '?', float),
         Key('radius', 1, 'An aperture radius', float),
-        Key('use_satellite', None, 'Use the satellite spots ', None),
+        Key('use_satellite', False, 'Use the satellite spots ', bool),
+        Key('spectrum', '', 'A reference spectrum or name to pull from SIMBAD for the same ', str),
     )
-    REQUIRED = ('name', 'wavecal', 'object_position', 'aperture', 'use_satellite', 'data')
+    REQUIRED = ('name', 'obs', 'position', 'radius', 'use_satellite')
     STEPNAME = 'speccal'
-
-    def __init__(self, *args, **kwargs):
-        super(MKIDSpeccalDescription, self).__init__(*args, **kwargs)
 
 
 class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
@@ -511,40 +545,40 @@ class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
     dither_ref - 2 tuple (dither controller position for dither_hope)
     dither_home - 2 tuple (pixel position of optical axis at dither_ref)
     """
-    yaml_tag = '!wcscal'
-    STANDARD_KEYS = (
+    yaml_tag = '!MKIDWCSCalDescription'
+    KEYS = (
         Key(name='name', default=None, comment='A name', dtype=str),
         Key('ob', None, 'MKIDObservation or MKIDDither', None),
         Key('platescale', None, 'How may mas/pixel ', str),
-        Key('dither_ref', None, 'The pixel position of the target centroid when on '
+        Key('dither_home', None, 'The pixel position of the target centroid when on '
                                 'axis and the conex is at dither_home', tuple),
-        Key('dither_home', None, 'The conex (x,y) position, [0, 1.0], when the target is at dither_ref ', tuple),
+        Key('dither_ref', None, 'The conex (x,y) position, [0, 1.0], when the target is at dither_ref ', tuple),
     )
     REQUIRED = ('name', ('ob', 'platescale'),)
     STEPNAME = 'wcscal'
 
     def __init__(self, *args, **kwargs):
         super(MKIDWCSCalDescription, self).__init__(*args, **kwargs)
-        if self.ob is None and self.dither_ref is None:
-            self._key_errors['dither_ref'] += ['must be an (x,y) position for the central source at dither_home']
         if self.ob is None and self.dither_home is None:
+            self._key_errors['dither_ref'] += ['must be an (x,y) position for the central source at dither_home']
+        if self.ob is None and self.dither_ref is None:
             self._key_errors['dither_home'] += ['must be a conex (x,y) position when the target is at dither_ref']
-
-        if self.dither_home is not None:
-            try:
-                assert (len(self.dither_home) == 2 and
-                        0 <= self.dither_home[0] < 1.0 and
-                        0 <= self.dither_home[1] < 1.0)
-            except Exception:
-                self._key_errors['dither_home'] += ['must be a valid conex position (x,y), x & y in [0,1.0]']
 
         if self.dither_ref is not None:
             try:
                 assert (len(self.dither_ref) == 2 and
-                        0 <= self.dither_ref[0] < config.beammap.ncols and
-                        0 <= self.dither_ref[1] < config.beammap.nrows)
+                        0 <= self.dither_ref[0] < 1.0 and
+                        0 <= self.dither_ref[1] < 1.0)
             except Exception:
-                self._key_errors['dither_ref'] += ['must be a valid pixel (x,y) position']
+                self._key_errors['dither_ref'] += ['must be a valid conex position (x,y), x & y in [0,1.0]']
+
+        if self.dither_home is not None:
+            try:
+                assert (len(self.dither_home) == 2 and
+                        0 <= self.dither_home[0] < config.beammap.ncols and
+                        0 <= self.dither_home[1] < config.beammap.nrows)
+            except Exception:
+                self._key_errors['dither_home'] += ['must be a valid pixel (x,y) position']
 
         if self.platescale is not None:
             try:
@@ -558,10 +592,10 @@ class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
 
 
 class MKIDDitherDescription(DataBase):
-    yaml_tag = '!dither'
-    STANDARD_KEYS = (
+    yaml_tag = '!MKIDDitherDescription'
+    KEYS = (
         Key(name='name', default=None, comment='A name', dtype=str),
-        Key('data', None, 'A list of !sob composing the dither, a unix time that falls within the range of a '
+        Key('data', tuple(), 'A list of !sob composing the dither, a unix time that falls within the range of a '
                           'dither in a dither log in paths.dithers, or a legacy (starttimes, endtimes, xpos,ypos) '
                           'dither file name (relative to paths.dithers or fully qualified)', None),
         Key('wavecal', None, 'A MKIDWavedata or name of the same', str),
@@ -582,9 +616,6 @@ class MKIDDitherDescription(DataBase):
         byTimestamp mut be a timestamp or a datetime that falls in the range of a dither in a ditherlog on the path
         obs>byTimestamp>byLegacyFile
         """
-        self.use = None
-        self.pos = None
-        self.inttime = None
         super().__init__(*args, **kwargs)
 
         def check_use(maxn):
@@ -600,47 +631,50 @@ class MKIDDitherDescription(DataBase):
             if min(self.use)<0 or max(self.use)>=maxn:
                 self._key_error['use'] += [f'Values must be be between 0 and {maxn}']
 
-        if isinstance(self.data, str):  # by old file
-            file = self.data
-            if not os.path.isfile(file):
-                getLogger(__name__).info(f'Treating {file} as relative dither path.')
-                file = os.path.join(config.paths.dithers, file)
+        try:
+            if isinstance(self.data, str):  # by old file
+                file = self.data
+                if not os.path.isfile(file):
+                    getLogger(__name__).info(f'Treating {file} as relative dither path.')
+                    file = os.path.join(config.paths.dithers, file)
 
-            try:
-                startt, endt, pos, inttime = parse_dither_log(file)
-            except Exception as e:
-                self._key_error['data'] += [f'Unable to load legacy dither {file}: {e}']
-
-        elif isinstance(self.data, (int, float)):  # by timestamp
-            getLogger(__name__).info(f'Searching for dither containing time {self.data}')
-            try:
-                startt, endt, pos = get_ditherinfo(self.data)
-            except ValueError:
-                self._key_error['data'] += [f'Unable to find a dither at time {self.data}']
-                getLogger(__name__).warning(f'No dither found for {self.name} @ {self.data} in {config.paths.dithers}')
-                endt, startt, pos = [], [], []
-        else:
-            if self.use is not None:
-                check_use(len(self.data))
-            self.obs = [self.data[i] for i in self.use]
-
-            for o in self.obs:
                 try:
-                    assert len(o.dither_pos)==2 and 0<=o.dither_pos[0]<=1 and 0<=o.dither_pos[0]<=1
-                except Exception:
-                    self._key_error['data'] += [f'{o} does not specify a dither_pos for the conex (x,y) [0,1]']
-            return
+                    startt, endt, pos, inttime = parse_dither_log(file)
+                except Exception as e:
+                    self._key_error['data'] += [f'Unable to load legacy dither {file}: {e}']
 
-        check_use(len(startt))
+            elif isinstance(self.data, (int, float)):  # by timestamp
+                getLogger(__name__).info(f'Searching for dither containing time {self.data}')
+                try:
+                    startt, endt, pos = get_ditherinfo(self.data)
+                except ValueError:
+                    self._key_error['data'] += [f'Unable to find a dither at time {self.data}']
+                    getLogger(__name__).warning(f'No dither found for {self.name} @ {self.data} in {config.paths.dithers}')
+                    endt, startt, pos = [], [], []
+            else:
+                if self.use is not None:
+                    check_use(len(self.data))
+                self.obs = [self.data[i] for i in self.use]
 
-        startt = [startt[i] for i in self.use]
-        endt = [endt[i] for i in self.use]
-        pos = [pos[i] for i in self.use]
+                for o in self.obs:
+                    try:
+                        assert len(o.dither_pos)==2 and 0<=o.dither_pos[0]<=1 and 0<=o.dither_pos[0]<=1
+                    except Exception:
+                        self._key_error['data'] += [f'{o} does not specify a dither_pos for the conex (x,y) [0,1]']
+                return
 
-        self.obs = [MKIDObservation(f'{self.name}_{i}/{len(self.obs)}', b, stop=e, dither_pos=p,
-                                    wavecal=self.wavecal, flatcal=self.flatcal, wcscal=self.wcscal,
-                                    speccal=self.speccal, **self.extra())
-                    for i, b, e, p in zip(self.use, startt, endt, pos)]
+            check_use(len(startt))
+
+            startt = [startt[i] for i in self.use]
+            endt = [endt[i] for i in self.use]
+            pos = [pos[i] for i in self.use]
+
+            self.obs = [MKIDObservation(f'{self.name}_{i}/{len(self.obs)}', b, stop=e, dither_pos=p,
+                                        wavecal=self.wavecal, flatcal=self.flatcal, wcscal=self.wcscal,
+                                        speccal=self.speccal, **self.extra())
+                        for i, b, e, p in zip(self.use, startt, endt, pos)]
+        except:
+            pass
 
     @property
     def inttime(self):
@@ -657,7 +691,7 @@ class MKIDDitherDescription(DataBase):
                 yield tr
 
 
-class MKIDObservingDataset(object):
+class MKIDObservingDataset:
     def __init__(self, yml):
         self.yml = yml
         self.meta = mkidcore.config.load(yml)
@@ -670,7 +704,7 @@ class MKIDObservingDataset(object):
         wcdict = {w.name: w for w in self.wavecals}
         fcdict = {f.name: f for f in self.flatcals}
         wcsdict = {w.name: w for w in self.wcscals}
-        scdict = {s.name: s for s in self.spectralcals}
+        scdict = {s.name: s for s in self.speccals}
 
         for o in self.all_observations:
             o.wavecal = wcdict.get(o.wavecal, o.wavecal)
@@ -689,7 +723,7 @@ class MKIDObservingDataset(object):
             except AttributeError:
                 pass
 
-        for sc in self.spectralcals:
+        for sc in self.speccals:
             for d in sc.data:
                 try:
                     d.wavecal = wcdict.get(d.wavecal, d.wavecal)
@@ -721,16 +755,8 @@ class MKIDObservingDataset(object):
     @property
     def timeranges(self):
         for x in self.meta:
-            try:
-                for tr in x.timeranges:
-                    yield tr
-            except AttributeError:
-                try:
-                    yield x.timerange
-                except AttributeError:
-                    pass
-            except StopIteration:
-                pass
+            for tr in x.timeranges:
+                yield tr
 
     @property
     def wavecals(self):
@@ -749,7 +775,7 @@ class MKIDObservingDataset(object):
         return [r for r in self.meta if isinstance(r, MKIDDitherDescription)]
 
     @property
-    def spectralcals(self):
+    def speccals(self):
         return [r for r in self.meta if isinstance(r, MKIDSpeccalDescription)]
 
     @property
@@ -781,9 +807,11 @@ class MKIDObservingDataset(object):
     def by_name(self, name):
         d = [d for d in self.meta if d.name == name]
         try:
+            if len(d) > 1:
+                getLogger(__name__).warning(f'There are {len(d)} things named {name}, returning the first')
             return d[0]
         except IndexError:
-            raise ValueError('Item "{}" not found in data {}'.format(name, self.yml))
+            raise ValueError(f'Item "{name}" not found in {self.yml}')
 
     @property
     def description(self):
@@ -792,8 +820,7 @@ class MKIDObservingDataset(object):
              "Flatcals:\n{fc}\n"
              "Dithers:\n{dithers}\n"
              "Single Obs:\n{obs}".format(wc=('\t-' + '\n\t-'.join([str(w).replace('\n', '\n\t')
-                                                                   for w in self.wavecals])) if self.wavecals else
-        '\tNone',
+                                                                   for w in self.wavecals])) if self.wavecals else '\tNone',
                                          fc=('\t-' + '\n\t-'.join(
                                              [str(f) for f in self.flatcals])) if self.flatcals else
                                          '\tNone',
@@ -981,7 +1008,7 @@ def parse_obslog(file):
 
 
 def parse_ditherlog(file):
-    global _parsedDitherLogs
+    global _parsed_dither_logs
     with open(file, 'r') as f:
         lines = f.readlines()
     for i, l in enumerate(lines):
@@ -996,19 +1023,19 @@ def parse_ditherlog(file):
             # Bad dither
             getLogger(__name__).error('Dither l{}:{} corrupt'.format(i - 1, lines[i - 1]))
             continue
-        _parsedDitherLogs[(min(starts), max(ends))] = (starts, ends, pos)
+        _parsed_dither_logs[(min(starts), max(ends))] = (starts, ends, pos)
 
 
 def get_ditherinfo(time):
-    global _parsedDitherLogs
-    if not _parsedDitherLogs:
+    global _parsed_dither_logs
+    if not _parsed_dither_logs:
         for f in glob(os.path.join(config.paths.dithers, 'dither_*.log')):
             parse_ditherlog(f)
 
     if isinstance(time, datetime):
         time = time.timestamp()
 
-    for (t0, t1), v in _parsedDitherLogs.items():
+    for (t0, t1), v in _parsed_dither_logs.items():
         if t0 - (t1 - t0) <= time <= t1:
             return v
 
@@ -1046,7 +1073,7 @@ def load_data_description(file, no_global=False):
             fc.wavecal = wcdict.get(fc.wavecal, fc.wavecal)
         except AttributeError:
             pass
-    for s in dataset.spectralcals:
+    for s in dataset.speccals:
         try:
             s.wavecal = wcdict.get(s.wavecal, s.wavecal)
         except AttributeError:
@@ -1060,13 +1087,13 @@ def load_data_description(file, no_global=False):
             d.flatcal = fcdict.get(d.flatcal, d.flatcal)
         except AttributeError:
             pass
-    for s in dataset.spectralcals:
+    for s in dataset.speccals:
         try:
             s.flatcal = fcdict.get(s.flatcal, s.flatcal)
         except AttributeError:
             pass
 
-    scdict = {s.name: s for s in dataset.spectralcals}
+    scdict = {s.name: s for s in dataset.speccals}
     for o in dataset.science_observations:
         o.speccal = scdict.get(o.speccal, o.speccal)
     for d in dataset.dithers:
