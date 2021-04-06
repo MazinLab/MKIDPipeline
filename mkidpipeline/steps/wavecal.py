@@ -2664,7 +2664,7 @@ def load_solution(wc, singleton_ok=True):
                                         'inn the vicinity of this comment')
         return wc  # TODO: _loaded_solutions[wc._file_path] = wc
     if isinstance(wc, mkidpipeline.config.MKIDWavecalDescription):
-        wc = mkidpipeline.config.wavecal_id(wc.id)+'.npz'
+        wc = wc.path
     wc = wc if os.path.isfile(wc) else os.path.join(mkidpipeline.config.config.paths.database, wc)
     try:
         return _loaded_solutions[wc]
@@ -2688,7 +2688,7 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
 
     solutions = []
     for sd in solution_descriptors:
-        sf = os.path.join(cfg.paths.database, mkidpipeline.config.wavecal_id(sd.id)+'.npz')
+        sf = sd.path
         if os.path.exists(sf) and not remake:
             solutions.append(load_solution(sf))
         else:

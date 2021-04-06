@@ -645,7 +645,7 @@ def load_solution(sc, singleton_ok=True):
     if isinstance(sc, ResponseCurve):
         return sc
     if isinstance(sc, mkidpipeline.config.MKIDSpeccalDescription):
-        sc = mkidpipeline.config.spectralcal_id(sc.id)+'.npz'
+        sc = sc.path
     sc = sc if os.path.isfile(sc) else os.path.join(mkidpipeline.config.config.paths.database, sc)
     try:
         return _loaded_solutions[sc]
@@ -667,13 +667,13 @@ def satellite_spot_contrast(lam):
 
 
 def fetch(dataset, config=None, ncpu=None, remake=False, **kwargs):
-    solution_descriptors = dataset.spectralcals
+    solution_descriptors = dataset.speccals
     cfg = mkidpipeline.config.config if config is None else config
     for sd in dataset.wavecals:
-        wavcal = os.path.join(cfg.paths.database, mkidpipeline.config.wavecal_id(sd.id)+'.npz')
+        wavcal = sd.path
     solutions = []
     for sd in solution_descriptors:
-        sf = os.path.join(cfg.paths.database, mkidpipeline.config.spectralcal_id(sd.id)+'.npz')
+        sf = sc.path
         if os.path.exists(sf) and not remake:
             solutions.append(load_solution(sf))
         else:

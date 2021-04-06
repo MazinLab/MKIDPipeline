@@ -87,39 +87,6 @@ def update_paths(d):
         config.update(f'paths.{k}', v)
 
 
-def wavecal_id(wavedata_id, wavecal_cfg=None):
-    """
-    Compute a wavecal id string from a wavedata id string and either the active or a specified wavecal config
-    """
-    if wavecal_cfg is None:
-        global config
-        wavecal_cfg = config.wavecal
-    config_hash = hashlib.md5(str(wavecal_cfg).encode()).hexdigest()
-    return 'wavcal_{}_{}'.format(wavedata_id, config_hash[-8:])
-
-
-def spectralcal_id(spectralreference_id, spectralcal_cfg=None):
-    """
-    Compute a spectralcal id string from a spectraldata id string and either the active or a specified spectralcal config
-    """
-    if spectralcal_cfg is None:
-        global config
-        spectralcal_cfg = config.spectralcal
-    config_hash = hashlib.md5(str(spectralcal_cfg).encode()).hexdigest()
-    return 'spectralcal_{}_{}'.format(spectralreference_id, config_hash[-8:])
-
-
-def flatcal_id(flat_id, flat_cfg=None):
-    """
-    Compute a spectralcal id string from a spectraldata id string and either the active or a specified spectralcal config
-    """
-    if flat_cfg is None:
-        global config
-        flat_cfg = config.flatcal
-    config_hash = hashlib.md5(str(flat_cfg).encode()).hexdigest()
-    return '{}_{}'.format(flat_id, config_hash[-8:])
-
-
 class BaseStepConfig(mkidcore.config.ConfigThing):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
