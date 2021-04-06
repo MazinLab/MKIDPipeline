@@ -650,13 +650,13 @@ def _run(flattner):
 
 
 def load_solution(sc, singleton_ok=True):
-    """sc is a solution filename string, a FlatSolution object, or a mkidpipeline.config.MKIDFlatdataDescription"""
+    """sc is a solution filename string, a FlatSolution object, or a mkidpipeline.config.MKIDFlatcalDescription"""
     global _loaded_solutions
     if not singleton_ok:
         raise NotImplementedError('Must implement solution copying')
     if isinstance(sc, FlatSolution):
         return sc
-    if isinstance(sc, mkidpipeline.config.MKIDFlatdataDescription):
+    if isinstance(sc, mkidpipeline.config.MKIDFlatcalDescription):
         sc = mkidpipeline.config.spectralcal_id(sc.id) + '.npz'
     sc = sc if os.path.isfile(sc) else os.path.join(mkidpipeline.config.config.paths.database, sc)
     try:

@@ -10,7 +10,7 @@ Examples
 
     or
 
-    >>> dither = MKIDDitheredObservation(**kwargs)
+    >>> dither = MKIDDitherDescription(**kwargs)
     >>> drizzled = drizzler.form(dither, mode='spatial')
     >>> drizzled.write('output.fits')
 
@@ -28,7 +28,7 @@ Functions
     _increment_id    : Monkey patch for STScI drizzle class of drizzle package
     mp_worker       : Genereate a reduced, reformated photonlist
     load_data       : Consolidate all dither positions
-    form            : Takes in a MKIDDitheredObservation object and drizzles the dithers onto a common sky grid
+    form            : Takes in a MKIDDitherDescription object and drizzles the dithers onto a common sky grid
     get_star_offset : Get the rotation_center offset parameter for a dither
 
 TODO:
@@ -925,11 +925,11 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
          wcs_timestep=1., exp_timestep=1., usecache=True, ncpu=1, exclude_flags=(), whitelight=False,
          align_start_pa=False, debug_dither_plot=False, intermediate_file=''):
     """
-    Takes in a MKIDDitheredObservation object and drizzles the dithers onto a common sky grid.
+    Takes in a MKIDDitherDescription object and drizzles the dithers onto a common sky grid.
 
     Parameters
     ----------
-    dither : MKIDDitheredObservation
+    dither : MKIDDitherDescription
         Contains the lists of observations and metadata for a set of dithers
     mode : str
         Format for the output (spatial | stack | temporal | list (not implemented yet))
@@ -1035,7 +1035,7 @@ def fetch(outputs, config=None):
     config = mkidpipeline.config.config if config is None else config
 
     for o in (o for o in outputs if o.wants_drizzled):
-        if not isinstance(o.data, mkidpipeline.config.MKIDDitheredObservation):
+        if not isinstance(o.data, mkidpipeline.config.MKIDDitherDescription):
             getLogger(__name__).error(f'No dither specified for {o}: o.data is {o.data}')
             continue
 

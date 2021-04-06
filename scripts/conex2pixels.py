@@ -8,13 +8,13 @@ from matplotlib.patches import Rectangle
 from photutils import DAOStarFinder, centroids, centroid_2dg
 from scipy.stats import chisquare
 from astropy import stats
-from mkidpipeline.config import MKIDDitheredObservation
+from mkidpipeline.config import MKIDDitherDescription
 from photontable import Photontable
 
 
 def get_transforms(ditherfile, datadir, wvl_start=None, wvl_stop=None, fwhm_guess=3.0, fit_power=1, CONEX_ERROR=0.0001,
                    plot=False):
-    dither = MKIDDitheredObservation(os.path.basename(ditherfile), ditherfile, None, None)
+    dither = MKIDDitherDescription(os.path.basename(ditherfile), ditherfile, None, None)
     obs_files = [os.path.join(datadir, '{}.h5'.format(o.start)) for o in dither.obs]
 
     box_size = fwhm_guess * 10

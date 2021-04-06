@@ -638,13 +638,13 @@ def get_coords(object_name, ra, dec):
 
 
 def load_solution(sc, singleton_ok=True):
-    """sc is a solution filename string, a ResponseCurve object, or a mkidpipeline.config.MKIDSpectralReference"""
+    """sc is a solution filename string, a ResponseCurve object, or a mkidpipeline.config.MKIDSpeccalDescription"""
     global _loaded_solutions
     if not singleton_ok:
         raise NotImplementedError('Must implement solution copying')
     if isinstance(sc, ResponseCurve):
         return sc
-    if isinstance(sc, mkidpipeline.config.MKIDSpectralReference):
+    if isinstance(sc, mkidpipeline.config.MKIDSpeccalDescription):
         sc = mkidpipeline.config.spectralcal_id(sc.id)+'.npz'
     sc = sc if os.path.isfile(sc) else os.path.join(mkidpipeline.config.config.paths.database, sc)
     try:

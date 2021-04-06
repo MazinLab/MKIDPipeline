@@ -35,7 +35,7 @@ def make_movie(out, usewcs=False, showaxes=True, inpainting=False, **kwargs):
         startw = out.startw
     except AttributeError:
         startw = None
-    if isinstance(out.data, MKIDDitheredObservation):
+    if isinstance(out.data, MKIDDitherDescription):
         try:
             startt = out.startt % out.data.inttime
         except AttributeError:

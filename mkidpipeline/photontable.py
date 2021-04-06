@@ -190,16 +190,15 @@ class SharedPhotonList(object):
 class Photontable(object):
     h = astropy.constants.h.to('eV s').value
     c = astropy.constants.c.to('m/s').value
-    nCalCoeffs = 3
-    tickDuration = 1e-6  # each integer value is 1 microsecond
+    ticks_per_sec = int(1.0 / 1e-6)  # each integer value is 1 microsecond
 
-    def __init__(self, fileName, mode='read', verbose=False):
+    def __init__(self, file_name, mode='read', verbose=False):
         """
         Create Photontable object and load in specified HDF5 file.
 
         Parameters
         ----------
-            fileName: String
+            file_name: String
                 Path to HDF5 File
             mode: String
                 'read' or 'write'. File should be opened in 'read' mode 
@@ -213,18 +212,16 @@ class Photontable(object):
         """
         self.mode = 'write' if mode.lower() in ('write', 'w', 'a', 'append') else 'read'
         self.verbose = verbose
-        self.ticksPerSec = int(1.0 / self.tickDuration)
-        self.intervalAll = interval[0.0, (1.0 / self.tickDuration) - 1]
         self.photonTable = None
-        self.filename = fileName
+        self.filename = None
         self.header = None
         self.nominal_wavelength_bins = None
         self.beamImage = None
-        self._flagArray = None  # set in _load_file
+        self._flagArray = None
         self.nXPix = None
         self.nYPix = None
         self._mdcache = None
-        self._load_file(fileName)
+        self._load_file(file_name)
 
     def __del__(self):
         """
@@ -254,7 +251,8 @@ class Photontable(object):
         self.nominal_wavelength_bins = self.wavelength_bins(width=self.query_header('energyBinWidth'),
                                                             start=self.query_header('wvlBinStart'),
                                                             stop=self.query_header('wvlBinEnd'))
-        # get the beam image.
+
+        # get the beam image
         self.beamImage = self.file.get_node('/BeamMap/Map').read()
         self._flagArray = self.file.get_node('/BeamMap/Flag')  # The absence of .read() here is correct
         self.nXPix, self.nYPix = self.beamImage.shape
@@ -326,7 +324,7 @@ class Photontable(object):
                 relstart = start
                 start = self.start_time + start
 
-            qstart = int(relstart * self.ticksPerSec)
+            qstart = int(relstart * self.ticks_per_sec)
 
             if start <= 0 or start > self.duration:
                 raise TypeError
@@ -346,7 +344,7 @@ class Photontable(object):
                     raise TypeError
             relstop = stop
             stop += self.start_time
-            qstop = int(relstop * self.ticksPerSec)
+            qstop = int(relstop * self.ticks_per_sec)
 
         except TypeError:
             stop = self.duration + self.start_time

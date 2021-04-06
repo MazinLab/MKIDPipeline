@@ -2652,7 +2652,7 @@ class Solution(object):
 
 
 def load_solution(wc, singleton_ok=True):
-    """wc is a solution filename string, a Solution object, or a mkidpipeline.config.MKIDWavedataDescription"""
+    """wc is a solution filename string, a Solution object, or a mkidpipeline.config.MKIDWavecalDescription"""
     global _loaded_solutions
     if not singleton_ok:
         raise NotImplementedError('Must implement solution copying')
@@ -2663,7 +2663,7 @@ def load_solution(wc, singleton_ok=True):
                                         'inefficiency or merit an alternate means of updating the solution cache (e.g. '
                                         'inn the vicinity of this comment')
         return wc  # TODO: _loaded_solutions[wc._file_path] = wc
-    if isinstance(wc, mkidpipeline.config.MKIDWavedataDescription):
+    if isinstance(wc, mkidpipeline.config.MKIDWavecalDescription):
         wc = mkidpipeline.config.wavecal_id(wc.id)+'.npz'
     wc = wc if os.path.isfile(wc) else os.path.join(mkidpipeline.config.config.paths.database, wc)
     try:
