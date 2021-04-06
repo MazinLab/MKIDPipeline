@@ -14,6 +14,8 @@ from mkidpipeline.steps import wavecal
 import mkidpipeline.steps.buildhdf
 import mkidpipeline.imaging.movies
 
+import mkidcore.instruments
+import mkidcore.objects
 import mkidcore.config
 
 log = getLogger('mkidpipeline')
@@ -30,7 +32,7 @@ for info in pkgutil.iter_modules(mkidpipeline.steps.__path__):
 
 
 _flags = {'beammap': BEAMMAP_FLAGS}
-for name, step in PIPELINE_STEPS:
+for name, step in PIPELINE_STEPS.items():
     try:
         _flags[name] = step.FLAGS
     except AttributeError:
