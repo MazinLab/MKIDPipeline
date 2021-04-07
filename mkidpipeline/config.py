@@ -1,3 +1,4 @@
+import astropy.units.core
 import numpy as np
 import os
 from glob import glob
@@ -6,11 +7,11 @@ from datetime import datetime
 import multiprocessing as mp
 import pkg_resources as pkg
 import json
-from collections import namedtuple
-import ast
 import astropy.units as u
+from astropy.coordinates import SkyCoord
 import ruamel.yaml.comments
 
+from mkidcore.utils import parse_ditherlog
 from mkidcore.legacy import parse_dither_log
 import mkidcore.config
 from mkidcore.corelog import getLogger, create_log, MakeFileHandler
@@ -82,6 +83,22 @@ def update_paths(d):
     global config
     for k, v in d.items():
         config.update(f'paths.{k}', v)
+
+
+def get_ditherinfo(time):
+    global _parsed_dither_logs
+    if not _parsed_dither_logs:
+        for f in glob(os.path.join(config.paths.dithers, 'dither_*.log')):
+            parsed_log = parse_ditherlog(f)
+            _parsed_dither_logs.update(parsed_log)
+
+    if isinstance(time, datetime):
+        time = time.timestamp()
+
+    for (t0, t1), v in _parsed_dither_logs.items():
+        if t0 - (t1 - t0) <= time <= t1:
+            return v
+    raise ValueError('No dither found for time {}'.format(time))
 
 
 class BaseStepConfig(mkidcore.config.ConfigThing):
@@ -208,6 +225,13 @@ class DataBase:
         for k, v in kwargs.items():
             if k in self._keys:
                 required_type = self._keys[k].dtype
+                if required_type == tuple and isinstance(v, list):
+                    v = tuple(v)
+                if required_type == float and isinstance(v, str) and v.endswith('inf'):
+                    try:
+                        v = float(v)
+                    except ValueError:
+                        pass
                 if required_type is not None and not isinstance(v, required_type):
                     self._key_errors[k] += [f'not an instance of {required_type}']
 
@@ -227,7 +251,7 @@ class DataBase:
                     pass
 
         # Set defaults
-        for key in (key for key in self.KEYS if key.name not in kwargs):
+        for key in (key for key in self.KEYS if key.name not in kwargs and key.name not in self.EXPLICIT_ALLOW):
             try:
                 if key.default is None and key.dtype is not None:
                     default = key.dtype[0]() if isinstance(key.dtype, tuple) else key.dtype()
@@ -301,9 +325,8 @@ class MKIDTimerange(DataBase):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        duration = self._duration
-        if duration:
-            self.stop = self.start + duration
+        if hasattr(self,'_duration'):
+            self.stop = self.start + self._duration
 
     def __str__(self):
         tn = type(self).split('.')[-1]
@@ -364,6 +387,7 @@ class MKIDObservation(MKIDTimerange):
     )
     REQUIRED = MKIDTimerange.REQUIRED+('wavecal', 'flatcal', 'wcscal', 'speccal')
     EXPLICIT_ALLOW = MKIDTimerange.EXPLICIT_ALLOW
+    OPTIONAL = ('standard', 'conex_pos')
 
     @property
     def metadata(self):
@@ -438,7 +462,7 @@ class MKIDWavecalDescription(DataBase, CalDefinitionMixin):
         start = min(x.start for x in self.data)
         stop = min(x.stop for x in self.data)
         date = datetime.utcfromtimestamp(start).strftime('%Y-%m-%d-%H%M_')
-        return f'{self.name} (MKIDWavedata): {start}-{stop}\n' + '\n '.join(str(x) for x in self.data)
+        return f'{self.name} (MKIDWavedata): {start}-{stop}\n' + '\n '.join(str(x) for x in self.obs)
 
     @property
     def wavelengths(self):
@@ -456,8 +480,8 @@ class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
         Key('ob', None, 'An MKIDTimerange to use for a whitelight flat. If not '
                         'specified wavecal will be used for a laser flat', None),
         Key('wavecal_duration', None, 'Number of seconds of the wavecal to use, float ok. Required if not ob', float),
-        Key('wavecal_offset', 1, 'An offset in seconds (>=1) from the start of the wavecal '
-                                 'timerange. Required if not ob', int),
+        Key('wavecal_offset', None, 'An offset in seconds (>=1) from the start of the wavecal '
+                                    'timerange. Required if not ob', int),
         Key('wavecal', None, 'A MKIDWavedata or name of the same', None),
     )
     REQUIRED = ('name', 'wavecal',)
@@ -483,10 +507,10 @@ class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
         else:
             if not isinstance(self.ob, MKIDTimerange):
                 self._key_errors['ob'] += ['must be an MKIDTimerange']
-            if hasattr(self, 'wavecal_offset'):
-                self._key_errors['wavecal_offset'] += ['not allowed for a whitelight flat (i.e. no specified ob)']
-            if hasattr(self, 'wavecal_duration'):
-                self._key_errors['wavecal_duration'] += ['not allowed for a whitelight flat (i.e. no specified ob)']
+            # if hasattr(self, 'wavecal_offset'):
+            #     self._key_errors['wavecal_offset'] += ['not allowed for a whitelight flat (i.e. no specified ob)']
+            # if hasattr(self, 'wavecal_duration'):
+            #     self._key_errors['wavecal_duration'] += ['not allowed for a whitelight flat (i.e. no specified ob)']
 
         if not isinstance(getattr(self,'wavecal', None), (MKIDWavecalDescription, str)):
             self._key_errors['wavecal'] += ['must be an MKIDWavecalDescription or name of the same']
@@ -522,13 +546,29 @@ class MKIDSpeccalDescription(DataBase, CalDefinitionMixin):
     KEYS = (
         Key(name='name', default=None, comment='A name', dtype=str),
         Key('obs', None, 'MKIDObservation or MKIDDither', None),
-        Key('position', (0, 0), '?', float),
-        Key('radius', 1, 'An aperture radius', float),
-        Key('use_satellite', False, 'Use the satellite spots ', bool),
-        Key('spectrum', '', 'A reference spectrum or name to pull from SIMBAD for the same ', str),
+        Key('aperture', 'satellite', 'A 3-tuple (x/RA, y/Dec, r) or "satellite"', None),
     )
-    REQUIRED = ('name', 'obs', 'position', 'radius', 'use_satellite')
+    REQUIRED = ('name', 'obs', 'aperture')
     STEPNAME = 'speccal'
+
+    def __init__(self, *args, **kwargs):
+        self.aperture_info=None
+        super().__init__(*args, **kwargs)
+        if isinstance(self.aperture, str):
+            if self.aperture != 'satellite':
+                self._key_errors['aperture'] += ['satellite is the only acceptable string']
+        else:
+            try:
+                if len(self.aperture) != 3:
+                    raise IndexError
+                try:
+                    self._aperture_info = tuple(map(float, self.aperture))
+                except ValueError:
+                    self._aperture_info = (SkyCoord(self.aperture[0], self.aperture[1]), u.Quantity(self.aperture[2]))
+            except (TypeError, ValueError, IndexError) as e:
+                getLogger(__name__).debug(f'Conversion of {self.aperture} failed: {e}')
+                self._key_errors['aperture'] += ['3-tuple must in the form of (x/RA, y/Dec, radius) and '
+                                                 'be parsable by float or SkyCoord+Quantity']
 
 
 class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
@@ -574,10 +614,15 @@ class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
 
         if self.dither_home is not None:
             try:
-                assert (len(self.dither_home) == 2 and
-                        0 <= self.dither_home[0] < config.beammap.ncols and
-                        0 <= self.dither_home[1] < config.beammap.nrows)
-            except Exception:
+                assert len(self.dither_home) == 2
+                if config is None or config.beammap is None:
+                    getLogger(__name__).debug(f'Beammap not configured not checking dither_home validity')
+                else:
+                     assert (0 <= self.dither_home[0] < config.beammap.ncols and
+                             0 <= self.dither_home[1] < config.beammap.nrows)
+            except (TypeError, AssertionError):
+                getLogger(__name__).debug(f'Dither home {self.dither_home} not in beammap '
+                                          f'domain {config.beammap.ncols},{config.beammap.nrows}')
                 self._key_errors['dither_home'] += ['must be a valid pixel (x,y) position']
 
         if self.platescale is not None:
@@ -829,19 +874,24 @@ class MKIDObservingDataset:
         return s
 
 
-class MKIDOutput:
-    yaml_tag = '!out'
-    OPTIONS = (('enable_noise', True, ''),
-               ('enable_photom', True, ''),
-               ('enable_ssd', True, ''),
-               ('kind', 'image', ('stack', 'spatial', 'temporal', 'list', 'image', 'movie')),
-               ('min_wave', -np.inf, ''),
-               ('max_wave', np.inf, ''),
-               ('name', 'a name', ''),
-               ('filename', '', ''),
-               ('data', '', ''))
+class MKIDOutput(DataBase):
+    yaml_tag = '!MKIDOutput'
+    KEYS = (
+        Key(name='name', default='', comment='A name', dtype=str),
+        Key('data', '', 'An data name', str),
+        Key('kind', 'image', "('stack', 'spatial', 'temporal', 'list', 'image', 'movie')", str),
+        Key('min_wave', float('-inf'), 'Wavelength start for wavelength sensitive outputs', float),
+        Key('max_wave', float('inf'), 'Wavelength stop for wavelength sensitive outputs, ', float),
+        Key('filename', '', 'relative or fully qualified path, defaults to name+output type,'
+                            'so set if making multiple outputs with different settings', str),
+        Key('ssd', True, '', bool),
+        Key('noise', True, '', bool),
+        Key('photom', True, '', bool)
+    )
+    REQUIRED = ('name', 'data', 'kind')
+    EXPLICIT_ALLOW = ('filename',)
 
-    def __init__(self, name, dataname, kind, startw=None, stopw=None, filename='', _extra=None):
+    def __init__(self, *args, **kwargs):
         """
         :param name: a name
         :param dataname: a name of a data association
@@ -862,6 +912,7 @@ class MKIDOutput:
         movie -
 
         """
+        super().__init__(*args, **kwargs)
         self.name = name
         self.startw = getnm(startw) if startw is not None else None
         self.stopw = getnm(stopw) if stopw is not None else None
@@ -927,7 +978,7 @@ class MKIDOutput:
 
 class MKIDOutputCollection:
     def __init__(self, file, datafile=''):
-        self.yml = file
+        self.file = file
         self.meta = mkidcore.config.load(file)
 
         if datafile:
@@ -948,16 +999,12 @@ class MKIDOutputCollection:
         for o in self.meta:
             yield o
 
-    @property
-    def outputs(self):
-        return self.meta
+    def __str__(self):
+        return f'MKIDOutputCollection: {self.file}'
 
     @property
     def input_timeranges(self):
-        return set([r for o in self.outputs for r in o.input_timeranges])
-
-    def __str__(self):
-        return 'Output "{}"'.format(self.name)
+        return set([r for o in self for r in o.input_timeranges])
 
 
 def validate_metadata(md, warn=True, error=False):
@@ -1005,41 +1052,6 @@ def parse_obslog(file):
         ct.register('utc', datetime.strptime(ct.utc, "%Y%m%d%H%M%S"), update=True)
         ret.append(ct)
     return ret
-
-
-def parse_ditherlog(file):
-    global _parsed_dither_logs
-    with open(file, 'r') as f:
-        lines = f.readlines()
-    for i, l in enumerate(lines):
-        if not l.strip().startswith('starts'):
-            continue
-        try:
-            assert lines[i + 1].strip().startswith('ends') and lines[i + 2].strip().startswith('path')
-            starts = ast.literal_eval(l.partition('=')[2])
-            ends = ast.literal_eval(lines[i + 1].partition('=')[2])
-            pos = ast.literal_eval(lines[i + 2].partition('=')[2])
-        except (AssertionError, IndexError, ValueError, SyntaxError):
-            # Bad dither
-            getLogger(__name__).error('Dither l{}:{} corrupt'.format(i - 1, lines[i - 1]))
-            continue
-        _parsed_dither_logs[(min(starts), max(ends))] = (starts, ends, pos)
-
-
-def get_ditherinfo(time):
-    global _parsed_dither_logs
-    if not _parsed_dither_logs:
-        for f in glob(os.path.join(config.paths.dithers, 'dither_*.log')):
-            parse_ditherlog(f)
-
-    if isinstance(time, datetime):
-        time = time.timestamp()
-
-    for (t0, t1), v in _parsed_dither_logs.items():
-        if t0 - (t1 - t0) <= time <= t1:
-            return v
-
-    raise ValueError('No dither found for time {}'.format(time))
 
 
 def load_observing_metadata(files=tuple(), include_database=True):
@@ -1107,9 +1119,6 @@ def load_data_description(file, no_global=False):
         _dataset = dataset
 
     return dataset
-
-
-load_output_description = MKIDOutputCollection
 
 
 def n_cpus_available(max=np.inf):
