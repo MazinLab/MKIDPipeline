@@ -73,12 +73,11 @@ def generate_outputs(outputs):
 
 dataset = pipe.load_data_description(datafile) #NB using this may result in processing more than is strictly required
 out_collection = pipe.load_output_description('out_HD1160.yml', datafile='data_HD1160.yml') #make sure you give this a datafile
-outputs = out_collection.outputs
 
 # dataset = out_collection.dataset
 
 # First we need to process data
 run_stage1(dataset)
 # Generate desired outputs
-generate_outputs(outputs)
+generate_outputs(out_collection)
 

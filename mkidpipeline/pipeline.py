@@ -63,10 +63,74 @@ def generate_default_config():
 
 
 def generate_sample_data():
-    data = [config.MKIDTimerange(), config.MKIDObservation(), config.MKIDWavecalDescription(),
-           config.MKIDFlatcalDescription(), config.MKIDSpeccalDescription(), config.MKIDWCSCalDescription(),
-           config.MKIDDitherDescription()]
+    from collections import defaultdict
+    i = defaultdict(lambda: 0)
 
+    def namer(name='Thing'):
+        ret = f"{name}{i[name]}"
+        i[name] = i[name]+1
+        return ret
+
+    data = [config.MKIDTimerange(name=namer(), start=0, duration=30,
+                                 dark=config.MKIDTimerange(name=namer(), start=40, stop=50)),
+            config.MKIDObservation(name=namer('star'), start=100, duration=10, wavecal='wavecal0',
+                                   dark=config.MKIDTimerange(name=namer(), start=150, duration=50),
+                                   flatcal='flactcal0', wcscal='wcscal0', speccal='speccal0'),
+            # a wavecal
+            config.MKIDWavecalDescription(name=namer('wavecal'), obs=(
+                config.MKIDTimerange(name='800 nm', start=200, duration=10,
+                                     dark=config.MKIDTimerange(name=namer(), start=220, duration=10),
+                                     header=dict(laser='on', other='fits_key')),
+                config.MKIDTimerange(name='900 nm', start=240, duration=10,
+                                     dark=config.MKIDTimerange(name=namer(), start=220, duration=10)),
+                config.MKIDTimerange(name='1.0 um', start=260, duration=10,
+                                     dark=config.MKIDTimerange(name=namer(), start=220, duration=10)),
+                config.MKIDTimerange(name='1.2 um', start=280, duration=10,
+                                     dark=config.MKIDTimerange(name=namer(), start=220, duration=10)),
+                config.MKIDTimerange(name='13000 A', start=300, duration=10)
+            )),
+            # Flatcals
+            config.MKIDFlatcalDescription(name=namer('flatcal'), wavecal='wavecal0',
+                                          ob=config.MKIDTimerange(name='900 nm', start=320, duration=10,
+                                                                  dark=config.MKIDTimerange(name=namer(), start=340,
+                                                                                            duration=10))),
+            config.MKIDFlatcalDescription(name=namer('flatcal'), wavecal_duration=20.0, wavecal_offset=1,
+                                          wavecal='wavecal0'),
+            # Speccal
+            config.MKIDSpeccalDescription(name=namer('speccal'),
+                                          obs=config.MKIDObservation(name=namer('star'), start=340, duration=10,
+                                                                     wavecal='wavecal0',
+                                                                     spectrum='qualified/path/or/relative/todatabase/refspec.file'),
+                                          aperture=('15h22m32.3', '30.32 deg', '200 mas')),
+
+            # WCS cal
+            config.MKIDWCSCalDescription(name=namer('wcscal'), comment='ob wcscals may be used to manually determine '
+                                                                       'WCS parameters. They are not yet supported for '
+                                                                       'automatic WCS parameter computation',
+                                         ob=config.MKIDObservation(name=namer('star'), start=360, duration=10,
+                                                                   wavecal='wavecal0',
+                                                                   dark=config.MKIDTimerange(name=namer(), start=350,
+                                                                                             duration=10)),
+                                         dither_home=(50,50), dither_ref=(.5, .5), platescale='10.20 mas'),
+            # Dithers
+            config.MKIDDitherDescription(name=namer('dither'), data=128493212032.4, wavecal='wavecal0',
+                                         flatcal='flatcal0', speccal='speccal0', use='0,2,4-9', wcscal='wcscal0'),
+            config.MKIDDitherDescription(name=namer('dither'), data='dither.logfile', wavecal='wavecal0',
+                                         flatcal='flatcal0', speccal='speccal0', use=(1,), wcscal='wcscal0'),
+            config.MKIDDitherDescription(name=namer('dither'), flatcal='', speccal='', wcscal='',wavecal='',
+                                         data=(config.MKIDObservation(name=namer('star'), start=380, duration=10,
+                                                                      wavecal='wavecal0', dither_pos=(0.,0.),
+                                                                      dark=config.MKIDTimerange(name=namer(), start=350,
+                                                                                                duration=10)),
+                                               config.MKIDObservation(name=namer('star'), start=400, duration=10,
+                                                                      wavecal='wavecal0', dither_pos=(1., 0.),
+                                                                      wcscal='wcscal0'),
+                                               config.MKIDObservation(name=namer('star'), start=420, duration=10,
+                                                                      wavecal='wavecal0', dither_pos=(0., 1.),
+                                                                      wcscal='wcscal0')
+                                               )
+                                         )
+            ]
     return data
 
 
