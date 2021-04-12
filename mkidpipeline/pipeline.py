@@ -90,17 +90,19 @@ def generate_sample_data():
                 config.MKIDTimerange(name='13000 A', start=300, duration=10)
             )),
             # Flatcals
-            config.MKIDFlatcalDescription(name=namer('flatcal'), wavecal='wavecal0',
-                                          ob=config.MKIDTimerange(name='900 nm', start=320, duration=10,
-                                                                  dark=config.MKIDTimerange(name=namer(), start=340,
-                                                                                            duration=10))),
+            config.MKIDFlatcalDescription(name=namer('flatcal'),
+                                          data=config.MKIDObservation(name='900 nm', start=320, duration=10,
+                                                                      dark=config.MKIDTimerange(name=namer(), start=340,
+                                                                                                duration=10),
+                                                                      wavecal='wavecal0')),
             config.MKIDFlatcalDescription(name=namer('flatcal'), wavecal_duration=20.0, wavecal_offset=1,
-                                          wavecal='wavecal0'),
+                                          data='wavecal0'),
             # Speccal
             config.MKIDSpeccalDescription(name=namer('speccal'),
-                                          obs=config.MKIDObservation(name=namer('star'), start=340, duration=10,
-                                                                     wavecal='wavecal0',
-                                                                     spectrum='qualified/path/or/relative/todatabase/refspec.file'),
+                                          data=config.MKIDObservation(name=namer('star'), start=340, duration=10,
+                                                                      wavecal='wavecal0',
+                                                                      spectrum='qualified/path/or/relative/'
+                                                                              'todatabase/refspec.file'),
                                           aperture=('15h22m32.3', '30.32 deg', '200 mas')),
 
             # WCS cal
@@ -215,13 +217,13 @@ def batch_apply_flatcals(dset, ncpu=None):
 
 def batch_apply_badpix(dset, ncpu=None):
     pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
-    pool.map(badpix_apply, set([o.h5 for o in dset.science_observations]))
+    pool.map(badpix_apply, set([o.h5 for o in dset.pixcalable]))
     pool.close()
 
 
 def batch_apply_lincal(dset, ncpu=None):
     pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
-    pool.map(lincal_apply, set([o.h5 for o in dset.science_observations]))
+    pool.map(lincal_apply, set([o.h5 for o in dset.all_observations]))
     pool.close()
 
 

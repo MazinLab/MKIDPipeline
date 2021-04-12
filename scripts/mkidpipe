@@ -44,6 +44,15 @@ if __name__ == "__main__":
         sample_data = pipe.generate_sample_data()
         with open('data.yml', 'w') as f:
             config.yaml.dump(sample_data, f)
+        with open('data.yml', 'r') as f:
+            lines = f.readlines()
+        #patch bug in yaml export
+        for l in (l for l in lines if ' - !' in l and ':' in l):
+            x=list(l.partition(l.partition(':')[0].split()[-1]+':'))
+            x.insert(1, '\n'+ ' '*l.index('!'))
+            lines[lines.index(l)] = ''.join(x)
+        with open('data.yml', 'w') as f:
+            f.writelines(lines)
         shutil.copy2(pkg.resource_filename('mkidpipeline', 'out.yml'), args.out_cfg)
 
     config.configure_pipeline(args.pipe_cfg)
