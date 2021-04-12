@@ -23,6 +23,7 @@ pipe.getLogger('mkidpipeline.hdf.photontable').setLevel('INFO')
 
 ncpu = 7
 
+
 def run_stage1(dataset):
     times = []
     times.append(time.time())
@@ -42,7 +43,7 @@ def run_stage1(dataset):
     times.append(time.time())
     pipe.getLogger('mkidpipeline.hdf.photontable').setLevel('DEBUG')
     times.append(time.time())
-    pipe.batch_maskhot(dataset.science_observations, ncpu=ncpu)
+    pipe.batch_maskhot(dataset.pixcalable, ncpu=ncpu)
     times.append(time.time())
 
     print(np.diff(times).astype(int))
