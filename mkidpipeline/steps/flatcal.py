@@ -29,7 +29,7 @@ from PyPDF2 import PdfFileMerger, PdfFileReader
 
 from matplotlib.backends.backend_pdf import PdfPages
 from mkidpipeline.steps import wavecal
-from photontable import Photontable
+from mkidpipeline.photontable import Photontable
 from mkidcore.corelog import getLogger
 import mkidpipeline.config
 from mkidpipeline.config import H5Subset

@@ -69,7 +69,7 @@ import numpy as np
 import scipy.ndimage.filters as spfilters
 import scipy.stats
 
-from photontable import Photontable
+from mkidpipeline.photontable import Photontable
 from mkidpipeline.utils import utils
 import mkidpipeline.config
 from mkidcore.corelog import getLogger
