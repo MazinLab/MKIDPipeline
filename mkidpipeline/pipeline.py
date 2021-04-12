@@ -57,7 +57,7 @@ def generate_default_config():
         except AttributeError:
             getLogger(__name__).warning(f'Pipeline step mkidpipeline.steps.{name} does not '
                                         f'support automatic configuration discovery.')
-    cfg.register('beammap', mkidcore.objects.Beammap(default='MEC'))
+    cfg.register('beammap', mkidcore.objects.Beammap(specifier='MEC'))
     cfg.register('instrument', mkidcore.instruments.InstrumentInfo('MEC'))
     return cfg
 
