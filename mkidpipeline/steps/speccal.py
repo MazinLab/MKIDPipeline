@@ -49,7 +49,6 @@ FLAGS = pixelflags.FlagSet.define(
         ('above_range', 16, 'Derived wavelength is above formal validity range of calibration'),
     )
 
-
 class StandardSpectrum:
     """
     replaces the MKIDStandards class from the ARCONS pipeline for MEC.
@@ -130,6 +129,7 @@ class SpectralCalibrator:
         self.interpolation = interpolation
         self.use_satellite_spots = use_satellite_spots
         self.obj_pos = obj_pos
+        self.solution_name = solution_name
 
         self.flux_spectra = None
         self.flux_effTime = None
@@ -155,16 +155,14 @@ class SpectralCalibrator:
             # load in the configuration file
             cfg = mkidcore.config.load(configuration_path)
             self.obj_pos = cfg.obj_pos
-            self.solution_name = solution_name
+
             self.use_satellite_spots = cfg.use_satellite_spots
-            self.interpolation = cfg.interpolation
             self.wvl_bin_edges = cfg.wvl_bin_edges
             self.data = cfg.data
             self.platescale = self.data.wcscal.platescale
             self.solution = ResponseCurve(configuration=cfg, curve=self.curve, wvl_bin_widths=self.wvl_bin_widths,
                                           wvl_bin_centers= self.wvl_bin_centers, cube=self.cube,
                                           solution_name=self.solution_name)
-            self.wvl_bin_edges = cfg.wvl_bin_edges
             self.energyStart = (c.h * c.c) / ((cfg.instrument.minimum_wavelength * 10.0) * 10 ** (-10) * c.e)
             self.energyStop = (c.h * c.c) / ((cfg.instrument.maximum_wavelength * 10.0) * 10 ** (-10) * c.e)
             sol = mkidpipeline.steps.wavecal.Solution(cfg.wavcal)
@@ -179,13 +177,14 @@ class SpectralCalibrator:
             self.wvl_bin_centers = np.zeros(nwvlbins)
             self.contrast = np.zeros_like(self.wvl_bin_centers)
             self.aperture_radii = np.zeros_like(self.wvl_bin_centers)
+            if cfg.aperture_radius:
+                self.aperture_radii = np.full(len(self.wvl_bin_centers), cfg.aperture_radius)
             self.std_path = cfg.standard_path
             self.object_name = cfg.object_name
             self.ra = cfg.ra if cfg.ra else None
             self.dec = cfg.dec if cfg.dec else None
             self.photometry = cfg.spectralcal.photometry_type
             self.summary_plot = cfg.spectralcal.summary_plot
-            self.aperture_radius = cfg.aperture_radius
             self.obj_pos = tuple(float(s) for s in cfg.obj_pos.strip("()").split(",")) \
                 if cfg.obj_pos else None
             self.interpolation = cfg.spectralcal.interpolation
@@ -193,12 +192,6 @@ class SpectralCalibrator:
             pass
 
     def run(self, save=True, plot=None):
-        """
-
-        :param save:
-        :param plot:
-        :return:
-        """
         try:
             getLogger(__name__).info("Loading Spectrum from MEC")
             self.load_absolute_spectrum()
@@ -223,18 +216,17 @@ class SpectralCalibrator:
          and performing photometry (aperture or psf) on each spectral frame
          """
         getLogger(__name__).info('performing {} photometry on MEC spectrum'.format(self.cfg.photometry))
+        if self.wvl_bin_edges is None:
+            # TODO make sure in angstroms
+            self.wvl_bin_edges = self.data.data[0].wavelength_bins(width=self.cfg.energy_bin_width,
+                                                                   start=self.cfg.wvlStart,
+                                                                   stop=self.cfg.wvlStop)
         if len(self.data.data) == 1:
             hdul = self.data.data[0].get_fits(duration=self.cfg.intTimes[0], spec_weight=True, rate=True,
-                                        wave_start=self.cfg.wvlStart / 10, wave_stop=self.cfg.wvlStop / 10,
-                                        cube_type='wave', bin_width=self.cfg.energy_bin_width, bin_type='energy')
+                                        cube_type='wave', bin_edges=self.wvl_bin_edges, bin_type='energy')
             cube = np.array(hdul['SCIENCE'].data, dtype=np.double)
-            self.wvl_bin_edges = hdul['CUBE_BINS'].data * 10  # get this into units of Angstroms
         else:
             cube = []
-            if self.wvl_bin_edges is None:
-                self.wvl_bin_edges = self.data.data[0].wavelength_bins(width=self.cfg.energy_bin_width, start=self.cfg.wvlStart,
-                                                                 stop=self.cfg.wvlStop)
-
             for wvl in range(len(self.wvl_bin_edges) - 1):
                 getLogger(__name__).info('using wavelength range {} - {}'.format(self.wvl_bin_edges[wvl] / 10,
                                                                                  self.wvl_bin_edges[wvl + 1] / 10))
@@ -614,7 +606,6 @@ def fetch(dataset, config=None, ncpu=None, remake=False, **kwargs):
             except AttributeError:
                 scfg.register('start_times', [x.start for x in sd.data[0].obs], update=True)
             try:
-                scfg.register('exposure_times', [x.duration for x in sd.data], update=True)
                 scfg.register('ra', [x.ra for x in sd.data], update=True)
                 scfg.register('dec', [x.dec for x in sd.data], update=True)
                 scfg.register('object_name', [x.target for x in sd.data], update=True)
@@ -626,7 +617,6 @@ def fetch(dataset, config=None, ncpu=None, remake=False, **kwargs):
                 scfg.register('standard_path', sd.standard_path, update=True)
                 scfg.register('wavcal', wavcal, update=True)
             except AttributeError:
-                scfg.register('exposure_times', [x.duration for x in sd.data[0].obs], update=True)
                 scfg.register('ra', [x.ra for x in sd.data[0].obs], update=True)
                 scfg.register('dec', [x.dec for x in sd.data[0].obs], update=True)
                 scfg.register('object_name', [x.target for x in sd.data[0].obs], update=True)
