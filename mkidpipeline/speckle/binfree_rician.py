@@ -16,7 +16,7 @@ from scipy import integrate
 from scipy.optimize import minimize
 from statsmodels.base.model import GenericLikelihoodModel
 
-from photontable import Photontable
+from mkidpipeline.photontable import Photontable
 from mkidpipeline.speckle.generate_photons import genphotonlist
 
 
