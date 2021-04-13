@@ -82,20 +82,9 @@ class FlatCalibrator:
     def __init__(self, config=None, solution_name='flat_solution.npz'):
         self.cfg = mkidpipeline.config.load_task_config(StepConfig() if config is None else config)  # TODO
 
-        self.dark_start = []
-        self.dark_int = []
-
-        self.xpix = self.cfg.beammap.ncols
-        self.ypix = self.cfg.beammap.nrows
-
         self.wvl_start = self.cfg.instrument.minimum_wavelength
         self.wvl_stop = self.cfg.instrument.maximum_wavelength
 
-        self.chunks_to_trim = self.cfg.flatcal.trim_chunks
-
-        self.obs = None
-        self.beamImage = None
-        self.wvl_bin_edges = None
         self.wavelengths = None
         self.r_list = None
         self.solution_name = solution_name
@@ -121,7 +110,7 @@ class FlatCalibrator:
         self.flat_flags = None
         self.plotName = None
         self.fig = None
-        self.coeff_array = np.zeros(self.xpix, self.ypix)
+        self.coeff_array = np.zeros(self.cfg.beammap.ncols, self.cfg.beammap.nrows)
 
     def load_data(self):
         pass
@@ -187,7 +176,7 @@ class FlatCalibrator:
         self.delta_weights = np.ma.array(delta_weights, mask=weights_mask).data
 
         # sort weights and rearrange spectral cubes the same way
-        if self.chunks_to_trim and n_cubes > 1:
+        if self.cfg.flatcal.trim_chunks and n_cubes > 1:
             sorted_idxs = np.ma.argsort(self.flat_weights, axis=0)
             identity_idxs = np.ma.indices(np.shape(self.flat_weights))
             sorted_weights = self.flat_weights[
@@ -196,7 +185,7 @@ class FlatCalibrator:
                 sorted_idxs, identity_idxs[1], identity_idxs[2], identity_idxs[3]]
             weight_err = self.delta_weights[
                 sorted_idxs, identity_idxs[1], identity_idxs[2], identity_idxs[3]]
-            sl = self.chunks_to_trim
+            sl = self.cfg.flatcal.trim_chunks
             weights_to_use = sorted_weights[sl:-sl, :, :, :]
             cubes_to_use = spectral_cube_in_counts[sl:-sl, :, :, :]
             weight_err_to_use = weight_err[sl:-sl, :, :, :]
@@ -219,8 +208,8 @@ class FlatCalibrator:
         self.flat_weights = np.divide(self.flat_weights.data, wvl_weight_avg)
 
     def calculate_coefficients(self):
-        for x in range(self.xpix):
-            for y in range(self.ypix):
+        for x in range(self.cfg.beammap.ncols):
+            for y in range(self.cfg.beammap.nrows):
                 fittable = (self.flat_weights[x, y] != 0) & np.isfinite(
                     self.flat_weights[x, y] + self.flat_weight_err[x, y])
                 self.coeff_array[x, y] = np.polyfit(self.wavelengths[fittable], self.flat_weights[fittable],
@@ -335,7 +324,6 @@ class WhiteCalibrator(FlatCalibrator):
         self.obs = self.h5.photontable
         if not self.obs.wavelength_calibrated:
             raise RuntimeError('Photon data is not wavelength calibrated.')
-        self.beamImage = self.obs.beamImage
         self.xpix = self.obs.nXPix
         self.ypix = self.obs.nYPix
 
@@ -377,9 +365,6 @@ class WhiteCalibrator(FlatCalibrator):
 class LaserCalibrator(FlatCalibrator):
     def __init__(self, h5s, solution_name='flat_solution.npz', config=None, darks=None):
         super().__init__(config)
-        self.beamImage = self.cfg.beammap
-        self.xpix = self.cfg.beammap.ncols
-        self.ypix = self.cfg.beammap.nrows
         self.h5s = h5s
         self.wavelengths = np.array(h5s.keys(), dtype=float)
         self.darks = darks
@@ -405,14 +390,15 @@ class LaserCalibrator(FlatCalibrator):
     def make_spectralcube(self):
         n_wvls = len(self.wavelengths)
         n_times = self.cfg.flatcal.nchunks
+        x, y = self.cfg.beammap.ncols, self.cfg.beammap.nrows
         exposure_times = np.array([x.duration for x in self.h5s])
         if np.any(self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks > exposure_times):
             n_times = int((exposure_times / self.cfg.flatcal.chunk_time).max())
             getLogger(__name__).info('Number of chunks * chunk time is longer than the laser exposure. Using full'
                                      'length of exposure ({} chunks)'.format(n_times))
-        cps_cube_list = np.zeros([n_times, self.xpix, self.ypix, n_wvls])
-        mask = np.zeros([self.xpix, self.ypix, n_wvls])
-        int_times = np.zeros([self.xpix, self.ypix, n_wvls])
+        cps_cube_list = np.zeros([n_times, x, y, n_wvls])
+        mask = np.zeros([x, y, n_wvls])
+        int_times = np.zeros([x, y, n_wvls])
 
         if self.cfg.flatcal.use_wavecal:
             delta_list = self.wavelengths / self.r_list / 2

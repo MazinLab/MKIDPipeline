@@ -26,8 +26,7 @@ import mkidcore.corelog
 from mkidcore.corelog import getLogger
 from mkidcore import pixelflags
 import mkidpipeline
-import mkidpipeline.config
-from mkidpipeline.photontable import Photontable
+import mkidcore.config as config
 from mkidpipeline.utils.speccal_utils import rebin, gaussianConvolution, fitBlackbody
 from mkidpipeline.utils.photometry import *
 from mkidpipeline.steps.drizzler import form as form_drizzle
@@ -49,94 +48,6 @@ FLAGS = pixelflags.FlagSet.define(
         ('below_range', 8, 'Derived wavelength is below formal validity range of calibration'),
         ('above_range', 16, 'Derived wavelength is above formal validity range of calibration'),
     )
-
-
-class Configuration:
-    """Configuration class for the spectrophotometric calibration analysis."""
-    yaml_tag = u'!spectralcalconfig'
-
-    def __init__(self, configfile=None, start_times=tuple(), h5dir='', savedir='', h5_file_names='', object_name='',
-                 ra=None, dec=None, photometry='', energy_bin_width=0.01, wvl_start=850, wvl_stop=1375,
-                 wvl_bin_edges=None, summary_plot=True, std_path='', aperture_radius=3, obj_pos=None,
-                 use_satellite_spots=True, interpolation='linear'):
-        # parse arguments
-        self.configuration_path = configfile
-        self.h5_directory = h5dir
-        self.save_directory = savedir
-        self.url_path = std_path
-        self.object_name = object_name
-        self.ra = ra
-        self.dec = dec
-        self.start_times = list(map(int, start_times))
-        self.h5_file_names = list(map(str, h5_file_names))
-        self.h5_directory = h5dir
-        self.energyBinWidth = float(energy_bin_width)
-        self.wvlStart = float(wvl_start)
-        self.wvlStop = float(wvl_stop)
-        self.wvl_bin_edges = wvl_bin_edges
-        self.photometry = str(photometry)
-        self.summary_plot = bool(summary_plot)
-        self.aperture_radius = aperture_radius
-        self.obj_pos = obj_pos
-        self.interpolation = interpolation
-        self.data = None
-        self.use_satellite_spots = use_satellite_spots
-        if self.configuration_path is not None:
-            # load in the configuration file
-            cfg = mkidcore.config.load(self.configuration_path)
-            self.use_satellite_spots = cfg.use_satellite_spots
-            self.ncpu = cfg.ncpu
-            self.wvlStart = cfg.instrument.minimum_wavelength * 10.0 # in angstroms
-            self.wvlStop = cfg.instrument.maximum_wavelength * 10.0 # in angstroms
-            self.wvl_bin_edges = cfg.wvl_bin_edges
-            self.energyStart = (c.h * c.c) / (self.wvlStart * 10**(-10) * c.e)
-            self.energyStop = (c.h * c.c) / (self.wvlStop * 10**(-10) * c.e)
-            sol = mkidpipeline.steps.wavecal.Solution(cfg.wavcal)
-            r, resid = sol.find_resolving_powers(cache=True)
-            self.r_list = np.nanmedian(r, axis=0)
-            self.energyBinWidth = ((self.energyStart + self.energyStop)/2)/(np.median(self.r_list) * 5.0)
-            if self.wvl_bin_edges is None:
-                nwvlbins = int((self.energyStart - self.energyStop) / self.energyBinWidth)
-            else:
-                nwvlbins= len(self.wvl_bin_edges) - 1
-            self.wvl_bin_widths = np.zeros(nwvlbins)
-            self.wvl_bin_centers = np.zeros(nwvlbins)
-            self.h5_directory = cfg.paths.out
-            self.save_directory = cfg.paths.database
-            self.std_path = cfg.standard_path
-            self.start_times = list(map(int, cfg.start_times))
-            self.object_name = cfg.object_name
-            self.ra = cfg.ra if cfg.ra else None
-            self.dec = cfg.dec if cfg.dec else None
-            self.photometry = cfg.spectralcal.photometry_type
-            self.summary_plot = cfg.spectralcal.summary_plot
-            self.aperture_radius = cfg.aperture_radius
-            self.data = cfg.data
-            self.obj_pos = tuple(float(s) for s in cfg.obj_pos.strip("()").split(",")) \
-                if cfg.obj_pos else None
-            self.interpolation = cfg.spectralcal.interpolation
-            try:
-                self.h5_file_names = [os.path.join(self.h5_directory, f) for f in self.start_times]
-            except TypeError:
-                self.h5_file_names = [os.path.join(self.h5_directory, str(t) + '.h5') for t in self.start_times]
-        else: #TODO figure out what needs to go in the else
-            pass
-
-    @classmethod
-    def to_yaml(cls, representer, node):
-        d = node.__dict__.copy()
-        d.pop('config')
-        return representer.represent_mapping(cls.yaml_tag, d)
-
-    @classmethod
-    def from_yaml(cls, constructor, node):
-        d = mkidcore.config.extract_from_node(constructor, 'configuration_path', node)
-        return cls(d['configuration_path'])
-
-    def write(self, file_):
-        """Save the configuration to a file"""
-        with open(file_, 'w') as f:
-            mkidcore.config.yaml.dump(self, f)
 
 
 class StandardSpectrum:
@@ -213,7 +124,7 @@ class StandardSpectrum:
 
 
 class SpectralCalibrator:
-    def __init__(self, configuration=None, h5_file_names=None, solution_name='solution.npz', interpolation=None,
+    def __init__(self, configuration_path=None, solution_name='solution.npz', interpolation=None,
                  use_satellite_spots=True, obj_pos=None):
 
         self.interpolation = interpolation
@@ -223,15 +134,12 @@ class SpectralCalibrator:
         self.flux_spectra = None
         self.flux_effTime = None
         self.wvl_bin_edges = None
-        self.std_spectrum = None
         self.std_wvls = None
         self.std_flux = None
         self.rebin_std_wvls = None
         self.rebin_std_flux = None
-        self.obs = None
         self.wvl_bin_widths = None
         self.curve = None
-        self.image = None
         self.bb_flux = None
         self.bb_wvls = None
         self.conv_wvls = None
@@ -243,25 +151,46 @@ class SpectralCalibrator:
         self.aperture_radii = None
         self.contrast = None
 
-        if h5_file_names:
-            self.obs = [Photontable(f) for f in h5_file_names]
-        if configuration:
-            self.cfg = Configuration(configuration) if not isinstance(configuration, Configuration) else configuration
-            self.obj_pos = self.cfg.obj_pos
+        if configuration_path is not None:
+            # load in the configuration file
+            cfg = mkidcore.config.load(configuration_path)
+            self.obj_pos = cfg.obj_pos
             self.solution_name = solution_name
-            self.use_satellite_spots = self.cfg.use_satellite_spots
-            self.interpolation = self.cfg.interpolation
-            self.obs = [Photontable(f) for f in self.cfg.h5_file_names]
-            self.wvl_bin_widths = self.cfg.wvl_bin_widths
-            self.wvl_bin_edges = self.cfg.wvl_bin_edges
-            self.data = self.cfg.data
-            self.wvl_bin_centers = self.cfg.wvl_bin_centers
-            self.contrast = np.zeros_like(self.wvl_bin_centers)
-            self.aperture_radii = np.zeros_like(self.wvl_bin_centers)
+            self.use_satellite_spots = cfg.use_satellite_spots
+            self.interpolation = cfg.interpolation
+            self.wvl_bin_edges = cfg.wvl_bin_edges
+            self.data = cfg.data
             self.platescale = self.data.wcscal.platescale
-            self.solution = ResponseCurve(configuration=self.cfg, curve=self.curve, wvl_bin_widths=self.wvl_bin_widths,
+            self.solution = ResponseCurve(configuration=cfg, curve=self.curve, wvl_bin_widths=self.wvl_bin_widths,
                                           wvl_bin_centers= self.wvl_bin_centers, cube=self.cube,
                                           solution_name=self.solution_name)
+            self.wvl_bin_edges = cfg.wvl_bin_edges
+            self.energyStart = (c.h * c.c) / ((cfg.instrument.minimum_wavelength * 10.0) * 10 ** (-10) * c.e)
+            self.energyStop = (c.h * c.c) / ((cfg.instrument.maximum_wavelength * 10.0) * 10 ** (-10) * c.e)
+            sol = mkidpipeline.steps.wavecal.Solution(cfg.wavcal)
+            r, resid = sol.find_resolving_powers(cache=True)
+            self.r_list = np.nanmedian(r, axis=0)
+            energy_bin_width = ((self.energyStart + self.energyStop) / 2) / (np.median(self.r_list) * 5.0)
+            if self.wvl_bin_edges is None:
+                nwvlbins = int((self.energyStart - self.energyStop) / energy_bin_width)
+            else:
+                nwvlbins = len(self.wvl_bin_edges) - 1
+            self.wvl_bin_widths = np.zeros(nwvlbins)
+            self.wvl_bin_centers = np.zeros(nwvlbins)
+            self.contrast = np.zeros_like(self.wvl_bin_centers)
+            self.aperture_radii = np.zeros_like(self.wvl_bin_centers)
+            self.std_path = cfg.standard_path
+            self.object_name = cfg.object_name
+            self.ra = cfg.ra if cfg.ra else None
+            self.dec = cfg.dec if cfg.dec else None
+            self.photometry = cfg.spectralcal.photometry_type
+            self.summary_plot = cfg.spectralcal.summary_plot
+            self.aperture_radius = cfg.aperture_radius
+            self.obj_pos = tuple(float(s) for s in cfg.obj_pos.strip("()").split(",")) \
+                if cfg.obj_pos else None
+            self.interpolation = cfg.spectralcal.interpolation
+        else:  # TODO figure out what needs to go in the else
+            pass
 
     def run(self, save=True, plot=None):
         """
@@ -294,16 +223,16 @@ class SpectralCalibrator:
          and performing photometry (aperture or psf) on each spectral frame
          """
         getLogger(__name__).info('performing {} photometry on MEC spectrum'.format(self.cfg.photometry))
-        if len(self.obs) == 1:
-            hdul = self.obs[0].get_fits(duration=self.cfg.intTimes[0], spec_weight=True, rate=True,
+        if len(self.data.data) == 1:
+            hdul = self.data.data[0].get_fits(duration=self.cfg.intTimes[0], spec_weight=True, rate=True,
                                         wave_start=self.cfg.wvlStart / 10, wave_stop=self.cfg.wvlStop / 10,
-                                        cube_type='wave', bin_width=self.cfg.energyBinWidth, bin_type='energy')
+                                        cube_type='wave', bin_width=self.cfg.energy_bin_width, bin_type='energy')
             cube = np.array(hdul['SCIENCE'].data, dtype=np.double)
             self.wvl_bin_edges = hdul['CUBE_BINS'].data * 10  # get this into units of Angstroms
         else:
             cube = []
             if self.wvl_bin_edges is None:
-                self.wvl_bin_edges = self.obs[0].wavelength_bins(width=self.cfg.energyBinWidth, start=self.cfg.wvlStart,
+                self.wvl_bin_edges = self.data.data[0].wavelength_bins(width=self.cfg.energy_bin_width, start=self.cfg.wvlStart,
                                                                  stop=self.cfg.wvlStop)
 
             for wvl in range(len(self.wvl_bin_edges) - 1):
@@ -317,7 +246,6 @@ class SpectralCalibrator:
                 getLogger(__name__).info(('finished image {}/ {}'.format(wvl + 1.0, len(self.wvl_bin_edges) - 1)))
                 cube.append(drizzled.cps)
             self.cube = np.array(cube)
-        self.image = np.sum(self.cube, axis=0)
         n_wvl_bins = len(self.wvl_bin_edges) - 1
 
         # define useful quantities
@@ -418,7 +346,7 @@ class SpectralCalibrator:
         gs = gridspec.GridSpec(2, 2)
         axes_list = np.array([figure.add_subplot(gs[0, 0]), figure.add_subplot(gs[0, 1]),
                               figure.add_subplot(gs[1, 0]), figure.add_subplot(gs[1, 1])])
-        axes_list[0].imshow(self.image)
+        axes_list[0].imshow(np.sum(self.cube, axis=0))
         axes_list[0].set_title('MKID Instrument Image of Standard', size=8)
 
         std_idx = np.where(np.logical_and(self.cfg.wvlStart < self.std_wvls, self.std_wvls < self.cfg.wvlStop))
