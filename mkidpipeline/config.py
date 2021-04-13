@@ -937,19 +937,21 @@ class MKIDObservingDataset:
                     yield o
 
     @property
-    def science_observations(self):
-        return ([o for o in self.meta if isinstance(o, MKIDObservation)] +
-                [o for d in self.meta if isinstance(d, MKIDDitherDescription) for o in d.obs])
-
-    @property
     def wavecalable(self):
         """ must return EVERY item in the dataset that might have .wavecal"""
         return self.all_observations
 
     @property
     def pixcalable(self):
-        return ([o for o in self.meta if isinstance(o, MKIDObservation)] +
-                [o for d in self.meta if isinstance(d, MKIDDitherDescription) for o in d.obs])
+        return self.all_observations
+
+    @property
+    def cosmiccalable(self):
+        return self.all_observations
+
+    @property
+    def lincalable(self):
+        return self.all_observations
 
     @property
     def flatcalable(self):
@@ -979,7 +981,7 @@ class MKIDObservingDataset:
                 getLogger(__name__).warning(f'There are {len(d)} things named {name}, returning the first')
             return d[0]
         except IndexError:
-            raise ValueError(f'Item "{name}" not found in {self.yml}')
+            return None
 
     @property
     def description(self):
@@ -1099,9 +1101,10 @@ class MKIDOutputCollection:
         self.dataset = MKIDObservingDataset(datafile) if datafile else None
 
         for o in self.meta:
-            try:
-                o.data = self.dataset.by_name(o.data)
-            except ValueError:
+            d = self.dataset.by_name(o.data)
+            if d is not None:
+                o.data = d
+            else:
                 getLogger(__name__).critical(f'Unable to find data description for "{o.data}"')
 
     def __iter__(self):

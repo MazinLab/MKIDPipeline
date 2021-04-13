@@ -37,7 +37,7 @@ def run_stage1(dataset):
     times.append(time.time())
     pipe.flatcal.fetch(dataset.flatcals, ncpu=ncpu)
     times.append(time.time())
-    for o in dataset.science_observations:
+    for o in dataset.flatcalable:
         pipe.flatcal_apply(o)
     #pipe.batch_apply_flatcals(dataset.science_observations, ncpu=ncpu)
     times.append(time.time())
