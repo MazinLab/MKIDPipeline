@@ -1,33 +1,21 @@
-from mkidpipeline.config import *
-import mkidpipeline as pipe
 
-df = '/scratch/baileyji/mec/data.yml'
-pf = '/scratch/baileyji/mec/pipe.yml'
-of = '/scratch/baileyji/mec/out.yml'
+import mkidpipeline.config as config
+import mkidpipeline.pipeline as pipe
 
-pipe.logtoconsole()
+config.log_to_console()
 
-pcfg = pipe.configure_pipeline(pf)
-dataset = pipe.load_data_description(df)
-out = MKIDOutputCollection(of, df)
+data = pipe.generate_sample_data()
+config.dump_dataconfig(data)
+d = config.MKIDObservingDataset('data.yml')
 
-
-
-import mkidcore.config
-from datetime import datetime
-import json
-from mkidcore.config import ConfigThing
+pcfg = config.configure_pipeline('pipe.yml')
+data = pipe.generate_sample_data()
+config.dump_dataconfig(data)
+d = config.MKIDObservingDataset('data.yml')
 
 
-def parse_obslog(file):
-    with open(file, 'r') as f:
-        lines = f.readlines()
 
-    ret = []
-    for l in lines:
-        ct = ConfigThing(json.loads(l).items())
-        ct.register('utc', datetime.strptime(ct.utc, "%Y%m%d%H%M%S"), update=True)
-        ret.append(ct)
-    return ret
-
-md=parse_obslog('/scratch/baileyji/mec/obslog_201905171955.json')
+list(d.all_observations)
+list(d.wavecalable)
+list(d.flatcalable)
+list(d.speccalable)
