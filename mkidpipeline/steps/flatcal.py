@@ -81,10 +81,6 @@ FLAGS = FlagSet.define(
 class FlatCalibrator:
     def __init__(self, config=None, solution_name='flat_solution.npz'):
         self.cfg = mkidpipeline.config.load_task_config(StepConfig() if config is None else config)  # TODO
-        self.data_dir = self.cfg.paths.data
-        self.out_directory = self.cfg.paths.out
-
-        self.chunk_time = self.cfg.flatcal.chunk_time
 
         self.dark_start = []
         self.dark_int = []
@@ -251,7 +247,7 @@ class FlatCalibrator:
             plt.imshow(image.T, cmap=plt.get_cmap('viridis'), origin='lower', vmax=vmax, vmin=0)
             plt.colorbar()
             if self.iPlot % self.nPlotsPerPage == self.nPlotsPerPage - 1:
-                pdf = PdfPages(os.path.join(self.out_directory, 'temp.pdf'))
+                pdf = PdfPages(os.path.join(self.cfg.paths.out, 'temp.pdf'))
                 pdf.savefig(self.fig)
             self.iPlot += 1
             ax = self.fig.add_subplot(self.nPlotsPerCol, self.nPlotsPerRow, self.iPlot % self.nPlotsPerPage + 1)
@@ -261,7 +257,7 @@ class FlatCalibrator:
             plt.imshow(image.T, cmap=plt.get_cmap('viridis'), origin='lower', vmin=0, vmax=vmax)
             plt.colorbar()
             if self.iPlot % self.nPlotsPerPage == self.nPlotsPerPage - 1:
-                pdf = PdfPages(os.path.join(self.out_directory, 'temp.pdf'))
+                pdf = PdfPages(os.path.join(self.cfg.paths.out, 'temp.pdf'))
                 pdf.savefig(self.fig)
                 pdf.close()
                 self._mergePlots()
@@ -278,14 +274,14 @@ class FlatCalibrator:
         self.nPlotsPerCol = 3
         self.nPlotsPerPage = self.nPlotsPerRow * self.nPlotsPerCol
         self.iPlot = 0
-        self.pdfFullPath = self.out_directory + self.plotName + '.pdf'
+        self.pdfFullPath = self.cfg.paths.out + self.plotName + '.pdf'
         if os.path.isfile(self.pdfFullPath):
             answer = query("{0} already exists. Overwrite?".format(self.pdfFullPath), yes_or_no=True)
             if answer is False:
                 answer = query("Provide a new file name (type exit to quit):")
                 if answer == 'exit':
                     raise RuntimeError("User doesn't want to overwrite the plot file " + "... exiting")
-                self.pdfFullPath = self.out_directory + str(answer) + '.pdf'
+                self.pdfFullPath = self.cfg.paths.out + str(answer) + '.pdf'
             else:
                 os.remove(self.pdfFullPath)
 
@@ -293,7 +289,7 @@ class FlatCalibrator:
         """
         Merge recently created temp.pdf with the main file
         """
-        temp_file = os.path.join(self.out_directory, 'temp.pdf')
+        temp_file = os.path.join(self.cfg.paths.out, 'temp.pdf')
         if os.path.isfile(self.pdfFullPath):
             merger = PdfFileMerger()
             merger.append(PdfFileReader(open(self.pdfFullPath, 'rb')))
@@ -309,7 +305,7 @@ class FlatCalibrator:
         Safely close plotting variables after plotting since the last page is only saved if it is full.
         """
         if not self.saved:
-            pdf = PdfPages(os.path.join(self.out_directory, 'temp.pdf'))
+            pdf = PdfPages(os.path.join(self.cfg.paths.out, 'temp.pdf'))
             pdf.savefig(self.fig)
             pdf.close()
             self._mergePlots()
@@ -360,8 +356,8 @@ class WhiteCalibrator(FlatCalibrator):
         """
         self.spectral_cube = []
         self.eff_int_times = []
-        for start in range(0, self.exposure_time, self.chunk_time):  # for each time chunk
-            cubeDict = self.obs.get_fits(start=start, duration=self.chunk_time, spec_weight=False,
+        for start in range(0, self.exposure_time, self.cfg.flatcal.chunk_time):  # for each time chunk
+            cubeDict = self.obs.get_fits(start=start, duration=self.cfg.flatcal.chunk_time, spec_weight=False,
                                          noise_weight=False, bin_edges=self.wvl_bin_edges,
                                          cube_type='wave', bin_type='energy', rate=True)
             cube = cubeDict['SCIENCE'].data
@@ -369,7 +365,7 @@ class WhiteCalibrator(FlatCalibrator):
 
             self.spectral_cube.append(cube)
             self.eff_int_times.append(cubeDict['SCIENCE'].header['integrationTime'])
-            msg = f'Loaded {self.chunk_time:.1f} s of spectral data at time {start:.1f}'
+            msg = f'Loaded {self.cfg.flatcal.chunk_time:.1f} s of spectral data at time {start:.1f}'
             getLogger(__name__).info(msg)
 
         self.spectral_cube = np.array(self.spectral_cube[0])
@@ -410,8 +406,8 @@ class LaserCalibrator(FlatCalibrator):
         n_wvls = len(self.wavelengths)
         n_times = self.cfg.flatcal.nchunks
         exposure_times = np.array([x.duration for x in self.h5s])
-        if np.any(self.chunk_time * self.cfg.flatcal.nchunks > exposure_times):
-            n_times = int((exposure_times / self.chunk_time).max())
+        if np.any(self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks > exposure_times):
+            n_times = int((exposure_times / self.cfg.flatcal.chunk_time).max())
             getLogger(__name__).info('Number of chunks * chunk time is longer than the laser exposure. Using full'
                                      'length of exposure ({} chunks)'.format(n_times))
         cps_cube_list = np.zeros([n_times, self.xpix, self.ypix, n_wvls])
@@ -434,11 +430,11 @@ class LaserCalibrator(FlatCalibrator):
                 startw = wvl - delta_list[w_mask]
                 stopw = wvl + delta_list[w_mask]
 
-            hdul = obs.get_fits(duration=self.chunk_time * self.cfg.flatcal.nchunks, rate=True,
-                                bin_width=self.chunk_time, wave_start=startw, wave_stop=stopw, cube_type='time')
+            hdul = obs.get_fits(duration=self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks, rate=True,
+                                bin_width=self.cfg.flatcal.chunk_time, wave_start=startw, wave_stop=stopw, cube_type='time')
 
             getLogger(__name__).info(f'Loaded {wvl} nm spectral cube')
-            int_times[:, :, w_mask] = self.chunk_time
+            int_times[:, :, w_mask] = self.cfg.flatcal.chunk_time
             cps_cube_list[:, :, :, w_mask] = np.moveaxis(hdul['SCIENCE'].data, 2, 0)
         return cps_cube_list, int_times, mask
 
