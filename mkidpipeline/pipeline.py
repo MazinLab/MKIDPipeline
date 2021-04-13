@@ -2,6 +2,7 @@ from importlib import import_module
 import pkgutil
 import multiprocessing as mp
 import time
+from collections import defaultdict
 
 from mkidcore.pixelflags import FlagSet, BEAMMAP_FLAGS
 from mkidcore.config import getLogger
@@ -61,9 +62,7 @@ def generate_default_config():
 
 
 def generate_sample_data():
-    from collections import defaultdict
     i = defaultdict(lambda: 0)
-
     def namer(name='Thing'):
         ret = f"{name}{i[name]}"
         i[name] = i[name] + 1
@@ -136,6 +135,16 @@ def generate_sample_data():
             ]
     return data
 
+
+def generate_sample_output():
+    i = defaultdict(lambda: 0)
+    def namer(name='Thing'):
+        ret = f"{name}{i[name]}"
+        i[name] = i[name] + 1
+        return ret
+    data = [config.MKIDOutput(name=namer('out'), data='dither0', min_wave='850 nm', max_wave='1375 nm',
+                              kind='spatial', noise=True, photom=True, ssd=True)]
+    return data
 
 def metadata_apply(ob):
     o = photontable.Photontable(ob.h5, mode='w')

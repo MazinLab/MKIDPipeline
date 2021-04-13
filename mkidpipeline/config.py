@@ -102,17 +102,17 @@ def get_ditherinfo(time, path=None):
     raise ValueError('No dither found for time {}'.format(time))
 
 
-def dump_dataconfig(data):
-    with open('data.yml', 'w') as f:
+def dump_dataconfig(data, file):
+    with open(file, 'w') as f:
         mkidcore.config.yaml.dump(data, f)
-    with open('data.yml', 'r') as f:
-        lines = f.readlines()
     # patch bug in yaml export
+    with open(file, 'r') as f:
+        lines = f.readlines()
     for l in (l for l in lines if ' - !' in l and ':' in l):
         x = list(l.partition(l.partition(':')[0].split()[-1] + ':'))
         x.insert(1, '\n' + ' ' * l.index('!'))
         lines[lines.index(l)] = ''.join(x)
-    with open('data.yml', 'w') as f:
+    with open(file, 'w') as f:
         f.writelines(lines)
 
 
@@ -1006,13 +1006,13 @@ class MKIDOutput(DataBase):
         Key(name='name', default='', comment='A name', dtype=str),
         Key('data', '', 'An data name', str),
         Key('kind', 'image', "('stack', 'spatial', 'temporal', 'list', 'image', 'movie')", str),
-        Key('min_wave', float('-inf'), 'Wavelength start for wavelength sensitive outputs', float),
-        Key('max_wave', float('inf'), 'Wavelength stop for wavelength sensitive outputs, ', float),
+        Key('min_wave', float('-inf'), 'Wavelength start for wavelength sensitive outputs', str),
+        Key('max_wave', float('inf'), 'Wavelength stop for wavelength sensitive outputs, ', str),
         Key('filename', '', 'relative or fully qualified path, defaults to name+output type,'
                             'so set if making multiple outputs with different settings', str),
-        Key('ssd', True, '', bool),
-        Key('noise', True, '', bool),
-        Key('photom', True, '', bool),
+        Key('ssd', True, 'Use ssd TODO', bool),
+        Key('noise', True, 'Use noise TODO', bool),
+        Key('photom', True, 'Use photom TODO', bool),
     )
     REQUIRED = ('name', 'data', 'kind')
     EXPLICIT_ALLOW = ('filename',)
@@ -1100,12 +1100,13 @@ class MKIDOutputCollection:
         self.meta = mkidcore.config.load(file)
         self.dataset = MKIDObservingDataset(datafile) if datafile else None
 
-        for o in self.meta:
-            d = self.dataset.by_name(o.data)
-            if d is not None:
-                o.data = d
-            else:
-                getLogger(__name__).critical(f'Unable to find data description for "{o.data}"')
+        if self.dataset is not None:
+            for o in self.meta:
+                d = self.dataset.by_name(o.data)
+                if d is not None:
+                    o.data = d
+                else:
+                    getLogger(__name__).critical(f'Unable to find data description for "{o.data}"')
 
     def __iter__(self):
         for o in self.meta:
