@@ -3,7 +3,6 @@ import pkgutil
 import multiprocessing as mp
 import time
 
-
 from mkidcore.pixelflags import FlagSet, BEAMMAP_FLAGS
 from mkidcore.config import getLogger
 import mkidpipeline
@@ -30,7 +29,6 @@ for info in pkgutil.iter_modules(mkidpipeline.steps.__path__):
     except AttributeError:
         pass
 
-
 _flags = {'beammap': BEAMMAP_FLAGS}
 for name, step in PIPELINE_STEPS.items():
     try:
@@ -39,7 +37,7 @@ for name, step in PIPELINE_STEPS.items():
         getLogger(__name__).debug(f"Step {name} does not export any pipeline flags.")
         pass
 
-PIPELINE_FLAGS = FlagSet.define(*sorted([(f"{k}.{f.name.replace(' ','_')}", i, f.description) for i, (k, f) in
+PIPELINE_FLAGS = FlagSet.define(*sorted([(f"{k}.{f.name.replace(' ', '_')}", i, f.description) for i, (k, f) in
                                          enumerate((k, f) for k, flagset in _flags.items() for f in flagset)]))
 del _flags
 
@@ -68,7 +66,7 @@ def generate_sample_data():
 
     def namer(name='Thing'):
         ret = f"{name}{i[name]}"
-        i[name] = i[name]+1
+        i[name] = i[name] + 1
         return ret
 
     data = [config.MKIDTimerange(name=namer(), start=1602048870, duration=30,
@@ -103,18 +101,20 @@ def generate_sample_data():
                                           data=config.MKIDObservation(name=namer('star'), start=340, duration=10,
                                                                       wavecal='wavecal0',
                                                                       spectrum='qualified/path/or/relative/'
-                                                                              'todatabase/refspec.file'),
+                                                                               'todatabase/refspec.file'),
                                           aperture=('15h22m32.3', '30.32 deg', '200 mas')),
 
             # WCS cal
+            config.MKIDWCSCalDescription(name=namer('wcscal'), dither_home=(107, 46), dither_ref=(-0.16, -0.4),
+                                         data='10.40 mas'),
             config.MKIDWCSCalDescription(name=namer('wcscal'), comment='ob wcscals may be used to manually determine '
                                                                        'WCS parameters. They are not yet supported for '
                                                                        'automatic WCS parameter computation',
-                                         ob=config.MKIDObservation(name=namer('star'), start=360, duration=10,
-                                                                   wavecal='wavecal0',
-                                                                   dark=config.MKIDTimerange(name=namer(), start=350,
-                                                                                             duration=10)),
-                                         dither_home=(107,46), dither_ref=(-0.16, -0.4), platescale='10.40 mas'),
+                                         data=config.MKIDObservation(name=namer('star'), start=360, duration=10,
+                                                                     wavecal='wavecal0',
+                                                                     dark=config.MKIDTimerange(name=namer(), start=350,
+                                                                                               duration=10)),
+                                         dither_home=(107, 46), dither_ref=(-0.16, -0.4)),
             # Dithers
             config.MKIDDitherDescription(name=namer('dither'), data=1602047815, wavecal='wavecal0',
                                          flatcal='flatcal0', speccal='speccal0', use='0,2,4-9', wcscal='wcscal0'),
@@ -172,7 +172,7 @@ def lincal_apply(o):
     try:
         of = photontable.Photontable(o, mode='a')
         cfg = mkidpipeline.config.config
-        of.apply_lincal(dt=cfg.lincal.dt, tau=cfg.instrument.deadtime*1*10**6)
+        of.apply_lincal(dt=cfg.lincal.dt, tau=cfg.instrument.deadtime * 1 * 10 ** 6)
         of.file.close()
     except Exception as e:
         getLogger(__name__).critical('Caught exception during run of {}'.format(o), exc_info=True)
@@ -250,9 +250,9 @@ def run_stage1(dataset):
         tic = time.time()
         getLogger(__name__).info(f'Stage 1: {task_name}')
         task(dataset)
-        getLogger(__name__).info(f'Completed {task_name} in {time.time()-tic:.0f} s')
+        getLogger(__name__).info(f'Completed {task_name} in {time.time() - tic:.0f} s')
 
-    getLogger(__name__).info(f'Stage 1 complete in {(time.time()-toc)/60:.0f} m')
+    getLogger(__name__).info(f'Stage 1 complete in {(time.time() - toc) / 60:.0f} m')
 
 
 def generate_outputs(outputs):
