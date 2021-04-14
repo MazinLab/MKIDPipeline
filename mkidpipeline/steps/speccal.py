@@ -130,23 +130,14 @@ class SpectralCalibrator:
         self.use_satellite_spots = use_satellite_spots
         self.obj_pos = obj_pos
         self.solution_name = solution_name
-
-        self.flux_spectra = None
-        self.flux_effTime = None
         self.wvl_bin_edges = None
-        self.std_wvls = None
-        self.std_flux = None
-        self.rebin_std_wvls = None
-        self.rebin_std_flux = None
-        self.wvl_bin_widths = None
+        self.std = None
+        self.rebin_std = None
         self.curve = None
-        self.bb_flux = None
-        self.bb_wvls = None
-        self.conv_wvls = None
-        self.conv_flux = None
+        self.bb = None
+        self.conv = None
         self.data = None
-        self.wvl_bin_centers = None
-        self.flux_spectrum = None
+        self.mkid = None
         self.cube = None
         self.aperture_radii = None
         self.contrast = None
@@ -160,9 +151,8 @@ class SpectralCalibrator:
             self.wvl_bin_edges = cfg.wvl_bin_edges
             self.data = cfg.data
             self.platescale = self.data.wcscal.platescale
-            self.solution = ResponseCurve(configuration=cfg, curve=self.curve, wvl_bin_widths=self.wvl_bin_widths,
-                                          wvl_bin_centers= self.wvl_bin_centers, cube=self.cube,
-                                          solution_name=self.solution_name)
+            self.solution = ResponseCurve(configuration=cfg, curve=self.curve, wvl_bin_edges=self.wvl_bin_edges,
+                                          cube=self.cube, solution_name=self.solution_name)
             self.energyStart = (c.h * c.c) / ((cfg.instrument.minimum_wavelength * 10.0) * 10 ** (-10) * c.e)
             self.energyStop = (c.h * c.c) / ((cfg.instrument.maximum_wavelength * 10.0) * 10 ** (-10) * c.e)
             sol = mkidpipeline.steps.wavecal.Solution(cfg.wavcal)
@@ -173,12 +163,10 @@ class SpectralCalibrator:
                 nwvlbins = int((self.energyStart - self.energyStop) / energy_bin_width)
             else:
                 nwvlbins = len(self.wvl_bin_edges) - 1
-            self.wvl_bin_widths = np.zeros(nwvlbins)
-            self.wvl_bin_centers = np.zeros(nwvlbins)
-            self.contrast = np.zeros_like(self.wvl_bin_centers)
-            self.aperture_radii = np.zeros_like(self.wvl_bin_centers)
+            self.contrast = np.zeros(len(self.wvl_bin_edges) -1)
+            self.aperture_radii = np.zeros(len(self.wvl_bin_edges) -1)
             if cfg.aperture_radius:
-                self.aperture_radii = np.full(len(self.wvl_bin_centers), cfg.aperture_radius)
+                self.aperture_radii = np.full(len(self.wvl_bin_edges) - 1, cfg.aperture_radius)
             self.std_path = cfg.standard_path
             self.object_name = cfg.object_name
             self.ra = cfg.ra if cfg.ra else None
@@ -199,9 +187,8 @@ class SpectralCalibrator:
             self.load_standard_spectrum()
             getLogger(__name__).info("Calculating Spectrophotometric Response Curve")
             self.calculate_response_curve()
-            self.solution = ResponseCurve(configuration=self.cfg, curve=self.curve, wvl_bin_widths=self.wvl_bin_widths,
-                                          wvl_bin_centers=self.wvl_bin_centers, cube=self.cube,
-                                          solution_name=self.solution_name)
+            self.solution = ResponseCurve(configuration=self.cfg, curve=self.curve, wvl_bin_edges=self.wvl_bin_edges,
+                                          cube=self.cube, solution_name=self.solution_name)
             if save:
                 self.solution.save(save_name=self.solution_name if isinstance(self.solution_name, str) else None)
             if plot or (plot is None and self.cfg.summary_plot):
@@ -240,24 +227,14 @@ class SpectralCalibrator:
             self.cube = np.array(cube)
         n_wvl_bins = len(self.wvl_bin_edges) - 1
 
-        # define useful quantities
-        for i, edge in enumerate(self.wvl_bin_edges):
-            try:
-                self.wvl_bin_widths[i] = self.wvl_bin_edges[i + 1] - self.wvl_bin_edges[i]
-            except IndexError:
-                pass
-        for i, edge in enumerate(self.wvl_bin_edges):
-            try:
-                self.wvl_bin_centers[i] = (self.wvl_bin_edges[i + 1] + self.wvl_bin_edges[i])/2.0
-            except IndexError:
-                pass
+        wvl_bin_centers = [(a+b)/2 for a,b in zip(self.wvl_bin_edges, self.wvl_bin_edges[1::])]
 
-        self.flux_spectrum = np.zeros(n_wvl_bins)
-
+        self.mkid = np.zeros((n_wvl_bins, n_wvl_bins))
+        self.mkid[0] = wvl_bin_centers
         if self.use_satellite_spots:
             fluxes = mec_measure_satellite_spot_flux(self.cube, wvl_start=self.wvl_bin_edges[:-1],
                                                      wvl_stop=self.wvl_bin_edges[1:])
-            self.flux_spectrum = np.nanmean(fluxes, axis=1)
+            self.mkid[1] = np.nanmean(fluxes, axis=1)
         else:
             if self.obj_pos is None:
                 getLogger(__name__).info('No coordinate specified for the object. Performing a PSF fit '
@@ -271,30 +248,31 @@ class SpectralCalibrator:
                 frame = cube[:, :, i]
                 if self.interpolation is not None:
                     frame = interpolate_image(frame, method=self.interpolation)
-                rad = get_aperture_radius(self.wvl_bin_centers[i], self.platescale)
+                rad = get_aperture_radius(wvl_bin_centers[i], self.platescale)
                 self.aperture_radii[i] = rad
                 obj_flux = aper_photometry(frame, self.obj_pos, rad)
-                self.flux_spectrum[i] = obj_flux
-        return self.flux_spectrum
+                self.mkid[1][i] = obj_flux
+        return self.mkid
 
     def load_standard_spectrum(self):
         standard = StandardSpectrum(save_path=self.cfg.save_directory, std_path=self.cfg.std_path,
                                     object_name=self.cfg.object_name[0], object_ra=self.cfg.ra[0],
                                     object_dec=self.cfg.dec[0])
-        self.std_wvls, self.std_flux = standard.get()  # standard star object spectrum in ergs/s/Angs/cm^2
-        conv_wvls_rev, conv_flux_rev = self.extend_spectrum(self.std_wvls, self.std_flux)
+        std_wvls, std_flux = standard.get() # standard star object spectrum in ergs/s/Angs/cm^2
+        self.std = np.hstack(std_wvls, std_flux)
+        conv_wvls_rev, conv_flux_rev = self.extend_spectrum(self.std[0], self.std[1])
         # convolved spectrum comes back sorted backwards, from long wvls to low which screws up rebinning
-        self.conv_wvls = conv_wvls_rev[::-1]
-        self.conv_flux = conv_flux_rev[::-1]
+        self.conv = np.hstack((conv_wvls_rev[::-1], conv_flux_rev[::-1]))
 
         # rebin cleaned spectrum to flat cal's wvlBinEdges
-        rebin_std_data = rebin(self.conv_wvls, self.conv_flux, self.wvl_bin_edges)
+        rebin_std_data = rebin(self.conv[0], self.conv[1], self.wvl_bin_edges)
+        wvl_bin_centers = [(a+b)/2 for a,b in zip(self.wvl_bin_edges, self.wvl_bin_edges[1::])]
+
         if self.use_satellite_spots:
-            for i, wvl in enumerate(self.wvl_bin_centers):
+            for i, wvl in enumerate(wvl_bin_centers):
                 self.contrast[i] = satellite_spot_contrast(wvl)
                 rebin_std_data[i,1] = rebin_std_data[i,1] * self.contrast[i]
-        self.rebin_std_flux = np.array(rebin_std_data[:, 1])
-        self.rebin_std_wvls = np.array(rebin_std_data[:, 0])
+        self.rebin_std =  np.hstack(np.array(rebin_std_data[:, 0]), np.array(rebin_std_data[:, 1]))
 
     def extend_spectrum(self, x, y):
         """
@@ -307,19 +285,19 @@ class SpectralCalibrator:
             nirX = np.arange(int(x[int((1.0 - fraction) * len(x))]), self.cfg.wvlStop)
             T, nirY = fitBlackbody(x, y, fraction=fraction, newWvls=nirX)
             if np.any(x >= self.cfg.wvlStop):
-                self.bb_wvls = x
-                self.bb_flux = y
+                self.bb = np.hstack((x, y))
             else:
-                self.bb_wvls = np.concatenate((x, nirX[nirX > max(x)]))
-                self.bb_flux = np.concatenate((y, nirY[nirX > max(x)]))
+                wvls = np.concatenate((x, nirX[nirX > max(x)]))
+                flux = np.concatenate((y, nirY[nirX > max(x)]))
+                self.bb = np.hstack((wvls, flux))
             # Gaussian convolution to smooth std spectrum to MKIDs median resolution
-            newX, newY = gaussianConvolution(self.bb_wvls, self.bb_flux, xEnMin=self.cfg.energyStop,
+            newX, newY = gaussianConvolution(self.bb[0], self.bb[1], xEnMin=self.cfg.energyStop,
                                              xEnMax=self.cfg.energyStart, fluxUnits="lambda", r=r, plots=False)
         else:
             getLogger(__name__).info('Standard Spectrum spans whole energy range - no need to perform blackbody fit')
             # Gaussian convolution to smooth std spectrum to MKIDs median resolution
-            std_stop = (c.h * c.c) / (self.std_wvls[0] * 10**(-10) * c.e)
-            std_start = (c.h * c.c) / (self.std_wvls[-1] * 10 ** (-10) * c.e)
+            std_stop = (c.h * c.c) / (self.std[0][0] * 10**(-10) * c.e)
+            std_start = (c.h * c.c) / (self.std[0][-1] * 10 ** (-10) * c.e)
             newX, newY = gaussianConvolution(x, y, xEnMin=std_start, xEnMax=std_stop, fluxUnits="lambda", r=r,
                                              plots=False)
         return newX, newY
@@ -328,8 +306,8 @@ class SpectralCalibrator:
         """
         Divide the MEC Spectrum by the rebinned and gaussian convolved standard spectrum
         """
-        curve_x = self.rebin_std_wvls
-        curve_y = self.rebin_std_flux/self.flux_spectrum
+        curve_x = self.rebin_std[0]
+        curve_y = self.rebin_std[1]/self.mkid
         self.curve = np.vstack((curve_x, curve_y))
         return self.curve
 
@@ -341,19 +319,19 @@ class SpectralCalibrator:
         axes_list[0].imshow(np.sum(self.cube, axis=0))
         axes_list[0].set_title('MKID Instrument Image of Standard', size=8)
 
-        std_idx = np.where(np.logical_and(self.cfg.wvlStart < self.std_wvls, self.std_wvls < self.cfg.wvlStop))
-        conv_idx = np.where(np.logical_and(self.cfg.wvlStart < self.conv_wvls, self.conv_wvls < self.cfg.wvlStop))
+        std_idx = np.where(np.logical_and(self.cfg.wvlStart < self.std[0], self.std[0] < self.cfg.wvlStop))
+        conv_idx = np.where(np.logical_and(self.cfg.wvlStart < self.conv[0], self.conv[0] < self.cfg.wvlStop))
 
-        axes_list[1].step(self.std_wvls[std_idx], self.std_flux[std_idx], where='mid', label='{} Spectrum'.format(self.cfg.object_name[0]))
-        if self.bb_flux:
-            axes_list[1].step(self.bb_wvls, self.bb_flux, where='mid', label='BB fit')
-        axes_list[1].step(self.conv_wvls[conv_idx], self.conv_flux[conv_idx], where='mid', label='Convolved Spectrum')
+        axes_list[1].step(self.std[0][std_idx], self.std[1][std_idx], where='mid', label='{} Spectrum'.format(self.cfg.object_name[0]))
+        if self.bb:
+            axes_list[1].step(self.bb[0], self.bb[1], where='mid', label='BB fit')
+        axes_list[1].step(self.conv[0][conv_idx], self.conv[1][conv_idx], where='mid', label='Convolved Spectrum')
         axes_list[1].set_xlabel('Wavelength (A)')
         axes_list[1].set_ylabel('Flux (erg/s/cm^2)')
         axes_list[1].legend(loc='upper right', prop={'size': 6})
 
 
-        axes_list[2].step(self.rebin_std_wvls, self.flux_spectrum, where='mid',
+        axes_list[2].step(self.rebin_std[0], self.mkid, where='mid',
                           label='MKID Histogram of Object')
         axes_list[2].set_title('Object Histograms', size=8)
         axes_list[2].legend(loc='upper right', prop={'size': 6})
@@ -368,16 +346,15 @@ class SpectralCalibrator:
 
 
 class ResponseCurve:
-    def __init__(self, file_path=None, curve=None, configuration=None, wvl_bin_widths=None, wvl_bin_centers=None,
-                 cube=None, solution_name='spectral_solution'):
+    def __init__(self, file_path=None, curve=None, configuration=None, wvl_bin_edges=None, cube=None,
+                 solution_name='spectral_solution'):
         # default parameters
         self._parse = True
         # load in arguments
         self._file_path = os.path.abspath(file_path) if file_path is not None else file_path
         self.curve = curve
         self.cfg = configuration
-        self.wvl_bin_widths = wvl_bin_widths
-        self.wvl_bin_centers = wvl_bin_centers
+        self.wvl_bin_edges = wvl_bin_edges
         self.cube = cube
         # if we've specified a file load it without overloading previously set arguments
         if self._file_path is not None:
@@ -396,8 +373,7 @@ class ResponseCurve:
         if not save_path.endswith('.npz'):
             save_path += '.npz'
         getLogger(__name__).info("Saving spectrophotometric response curve to {}".format(save_path))
-        np.savez(save_path, curve=self.curve, wvl_bin_widths=self.wvl_bin_widths, wvl_bin_centers=self.wvl_bin_centers,
-                 cube=self.cube, configuration=self.cfg)
+        np.savez(save_path, curve=self.curve, wvl_bin_edges=self.wvl_bin_edges, cube=self.cube, configuration=self.cfg)
         self._file_path = save_path  # new file_path for the solution
 
     def load(self, file_path, file_mode='c'):
@@ -413,8 +389,7 @@ class ResponseCurve:
         self.npz = npz_file
         self.curve = self.npz['curve']
         self.cfg = self.npz['configuration']
-        self.wvl_bin_widths = self.npz['wvl_bin_widths']
-        self.wvl_bin_centers = self.npz['wvl_bin_centers']
+        self.wvl_bin_edges = self.npz['wvl_bin_edges']
         self.cube = self.npz['cube']
         self._file_path = file_path  # new file_path for the solution
         self.name = os.path.splitext(os.path.basename(file_path))[0]  # new name for saving
