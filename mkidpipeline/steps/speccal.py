@@ -9,7 +9,6 @@ Assumes h5 files are wavelength calibrated, and they should also first be flatca
 (deadtime corrected)
 """
 import sys,os
-
 import scipy.constants as c
 from astropy import units as u
 import urllib.request as request
@@ -19,16 +18,17 @@ from contextlib import closing
 from astroquery.sdss import SDSS
 import astropy.coordinates as coord
 from specutils import Spectrum1D
-import pkg_resources as pkg
 import matplotlib.gridspec as gridspec
-
+import numpy as np
 import mkidcore.corelog
 from mkidcore.corelog import getLogger
 from mkidcore import pixelflags
 import mkidpipeline
+import matplotlib.pyplot as plt
 import mkidcore.config as config
-from mkidpipeline.utils.speccal_utils import rebin, gaussianConvolution, fitBlackbody
-from mkidpipeline.utils.photometry import *
+from mkidpipeline.utils.speccal_utils import rebin, gaussianConvolution, fitBlackbody, interpolate_image
+from mkidpipeline.utils.photometry import get_aperture_radius, aper_photometry, astropy_psf_photometry,\
+    mec_measure_satellite_spot_flux
 from mkidpipeline.steps.drizzler import form as form_drizzle
 
 _loaded_solutions = {}
@@ -273,7 +273,7 @@ class SpectralCalibrator:
                                     object_dec=self.dec[0])
         std_wvls, std_flux = standard.get() # standard star object spectrum in ergs/s/Angs/cm^2
         self.std = np.hstack(std_wvls, std_flux)
-        conv_wvls_rev, conv_flux_rev = self.extend_spectrum(self.std[0], self.std[1])
+        conv_wvls_rev, conv_flux_rev = self.extend_and_convolve(self.std[0], self.std[1])
         # convolved spectrum comes back sorted backwards, from long wvls to low which screws up rebinning
         self.conv = np.hstack((conv_wvls_rev[::-1], conv_flux_rev[::-1]))
 
@@ -287,7 +287,7 @@ class SpectralCalibrator:
                 rebin_std_data[i,1] = rebin_std_data[i,1] * self.contrast[i]
         self.rebin_std =  np.hstack(np.array(rebin_std_data[:, 0]), np.array(rebin_std_data[:, 1]))
 
-    def extend_spectrum(self, x, y):
+    def extend_and_convolve(self, x, y):
         """
         BB Fit to extend standard spectrum to 1500 nm and to convolve it with a gaussian kernel corresponding to the
         energy resolution of the detector. If spectrum spans whole MKID range will just convolve with the gaussian
@@ -304,16 +304,16 @@ class SpectralCalibrator:
                 flux = np.concatenate((y, nirY[nirX > max(x)]))
                 self.bb = np.hstack((wvls, flux))
             # Gaussian convolution to smooth std spectrum to MKIDs median resolution
-            newX, newY = gaussianConvolution(self.bb[0], self.bb[1], xEnMin=self.energy_stop,
+            new_x, new_y = gaussianConvolution(self.bb[0], self.bb[1], xEnMin=self.energy_stop,
                                              xEnMax=self.energy_start, fluxUnits="lambda", r=r, plots=False)
         else:
             getLogger(__name__).info('Standard Spectrum spans whole energy range - no need to perform blackbody fit')
             # Gaussian convolution to smooth std spectrum to MKIDs median resolution
             std_stop = (c.h * c.c) / (self.std[0][0] * 10**(-10) * c.e)
             std_start = (c.h * c.c) / (self.std[0][-1] * 10 ** (-10) * c.e)
-            newX, newY = gaussianConvolution(x, y, xEnMin=std_start, xEnMax=std_stop, fluxUnits="lambda", r=r,
-                                             plots=False)
-        return newX, newY
+            new_x, new_y = gaussianConvolution(x, y, xEnMin=std_start, xEnMax=std_stop, fluxUnits="lambda", r=r,
+                                               plots=False)
+        return new_x, new_y
 
     def calculate_response_curve(self):
         """
@@ -539,6 +539,18 @@ def get_coords(object_name, ra, dec):
         getLogger(__name__).error('No coordinates found for spectrophotometric calibration object')
     return coords
 
+def satellite_spot_contrast(lam, ref_contrast=2.72e-3,
+                            ref_wvl=1.55 * 10 ** 4):  # 2.72e-3 number from Currie et. al. 2018b
+    """
+
+    :param lam:
+    :param ref_contrast:
+    :param ref_wvl:
+    :return:
+    """
+    contrast = ref_contrast * (ref_wvl / lam) ** 2
+    return contrast
+
 def load_solution(sc, singleton_ok=True):
     """sc is a solution filename string, a ResponseCurve object, or a mkidpipeline.config.MKIDSpeccalDescription"""
     global _loaded_solutions
@@ -554,17 +566,6 @@ def load_solution(sc, singleton_ok=True):
     except KeyError:
         _loaded_solutions[sc] = ResponseCurve(file_path=sc)
     return _loaded_solutions[sc]
-
-def satellite_spot_contrast(lam):
-    """
-
-    :param lam: wavelength in angstroms
-    :return: contrast
-    """
-    getLogger(__name__).info('Using satellite spot contrast for a 25 nm astrogrid')
-    ref = 1.55*10**4
-    contrast = 2.72e-3*(ref / lam)**2 # 2.72e-3 number from Currie et. al. 2018b
-    return contrast
 
 def fetch(dataset, config=None, ncpu=None, remake=False, **kwargs):
     solution_descriptors = dataset.speccals
@@ -593,5 +594,4 @@ def fetch(dataset, config=None, ncpu=None, remake=False, **kwargs):
             cal.run(**kwargs)
             # solutions.append(load_solution(sf))  # don't need to reload from file
             solutions.append(cal.solution)  # TODO: solutions.append(load_solution(cal.solution))
-
     return solutions
