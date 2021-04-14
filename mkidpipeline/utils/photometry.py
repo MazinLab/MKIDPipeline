@@ -22,7 +22,7 @@ from astropy.modeling.models import *
 import matplotlib.pyplot as plt
 from scipy.interpolate import griddata
 
-def get_aperture_radius(lam):
+def get_aperture_radius(lam, platescale):
     """
     function to get the diffraction limited aperture radius for MEC
     :param lam: wavelength in angstroms
@@ -32,7 +32,7 @@ def get_aperture_radius(lam):
     theta_rad = 1.22 * (lam/D)
     a = 4.8481368e-9
     theta_mas = theta_rad * (1/a)
-    r = 0.5 * theta_mas * (1/10.4)
+    r = 0.5 * theta_mas * (1/platescale)
     return r
 
 def aper_photometry(image, obj_position, radius, box_size=10, bkgd_subtraction_type='plane'):
