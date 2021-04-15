@@ -145,7 +145,6 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
 
     def beammap_flagmap_to_h5_flagmap(flagmap):
         h5map = np.zeros_like(flagmap, dtype=int)
-        # TODO vectorize
         for i, v in enumerate(flagmap.flat):  # convert each bit to the new bit
             bset = [f'beammap.{f.name}' for f in BEAMMAP_FLAGS.flags.values() if f.bit == int(v)]
             h5map.flat[i] = PIPELINE_FLAGS.bitmask(bset)
