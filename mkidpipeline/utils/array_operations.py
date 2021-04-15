@@ -1,34 +1,19 @@
-import glob
-import inspect
 import math
-import os
-import sys
-
-import matplotlib as mpl
 import matplotlib.pylab as plt
-import numpy
-import scipy
-import scipy.ndimage
-import scipy.stats
-from scipy.interpolate import griddata
-
-import tables
 import numpy as np
 from numpy import linalg
-
 try:
     from skimage.transform import rotate as imrotate
 except ImportError:
     from scipy.misc import imrotate
-
-import astropy.stats
 from astropy import wcs
 from astropy.io import fits
 from astropy.coordinates import Angle
 from mkidcore.corelog import getLogger
 from matplotlib.colors import LogNorm
+import astropy.units as u
 
-def fitRigidRotation(x, y, ra, dec, x0=0, y0=0):
+def fit_rigid_rotation(x, y, ra, dec, x0=0, y0=0):
     """
     calculate the rigid rotation from row,col positions to ra,dec positions
 
@@ -56,8 +41,8 @@ def fitRigidRotation(x, y, ra, dec, x0=0, y0=0):
 
     dx = x - x0
     dy = y - y0
-    a = numpy.zeros((2 * len(x), 4))
-    b = numpy.zeros(2 * len(x))
+    a = np.zeros((2 * len(x), 4))
+    b = np.zeros(2 * len(x))
     for i in range(len(x)):
         a[2 * i, 0] = -dy[i]
         a[2 * i, 1] = dx[i]
