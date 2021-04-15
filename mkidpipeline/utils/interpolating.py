@@ -1,4 +1,5 @@
-
+import numpy as np
+from scipy.interpolate import griddata
 
 def interpolate_image(input_array, method='linear'):
     """
