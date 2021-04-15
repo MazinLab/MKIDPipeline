@@ -276,3 +276,35 @@ def racetrack_aper(img, imgspare, x_guess, y_guess, rotang, aper_radii, halfleng
     imgspare[source] = 10000
     return flux, imgspare
 
+def countsToApparentMag(cps, filterName='V', telescope=None):
+    """
+    routine to convert counts measured in a given filter to an apparent magnitude
+    input: cps = counts/s to be converted to magnitude. Can accept np array of numbers.
+           filterName = filter to have magnitude calculated for
+           telescope = name of telescope used. This is necessary to determine the collecting
+                       area since the counts need to be in units of counts/s/m^2 for conversion to mags
+                       If telescope = None: assumes data was already given in correct units
+    output: apparent magnitude. Returns same format as input (either single value or np array)
+    """
+    Jansky2Counts = 1.51E7
+    dLambdaOverLambda = {'U': 0.15, 'B': 0.22, 'V': 0.16, 'R': 0.23, 'I': 0.19, 'g': 0.14, 'r': 0.14, 'i': 0.16,
+                         'z': 0.13}
+    f0 = {'U': 1810., 'B': 4260., 'V': 3640., 'R': 3080., 'I': 2550., 'g': 3730., 'r': 4490., 'i': 4760., 'z': 4810.}
+
+    if filterName not in list(f0.keys()):
+        raise ValueError("Not a valid filter. Please select from 'U','B','V','R','I','g','r','i','z'")
+
+    if telescope in ['Palomar', 'PAL', 'palomar', 'pal', 'Hale', 'hale']:
+        telArea = 17.8421  # m^2 for Hale 200" primary
+    elif telescope in ['Lick', 'LICK', 'Shane']:
+        raise ValueError("LICK NOT IMPLEMENTED")
+    elif telescope == None:
+        print(
+            "WARNING: no telescope provided for conversion to apparent mag. Assuming data is in units of counts/s/m^2")
+        telArea = 1.0
+    else:
+        raise ValueError("No suitable argument provided for telescope name. Use None if data in counts/s/m^2 already.")
+
+    cpsPerArea = cps / telArea
+    mag = -2.5 * numpy.log10(cpsPerArea / (f0[filterName] * Jansky2Counts * dLambdaOverLambda[filterName]))
+    return mag

@@ -70,7 +70,7 @@ import scipy.ndimage.filters as spfilters
 import scipy.stats
 
 from mkidpipeline.photontable import Photontable
-from mkidpipeline.utils import utils
+from mkidpipeline.utils import array_operations
 import mkidpipeline.config
 from mkidcore.corelog import getLogger
 from mkidcore.pixelflags import FlagSet
@@ -165,7 +165,7 @@ def flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.0, m
 
     # Approximate peak/median ratio for an ideal (Gaussian) PSF sampled at
     # pixel locations corresponding to the median kernel used with the real data.
-    gauss_array = utils.gaussian_psf(fwhm, box_size)
+    gauss_array = mkidpipeline.utils.fitting.gaussian_psf(fwhm, box_size)
     max_ratio = np.max(gauss_array) / np.median(gauss_array)
 
     # Assume everything with 0 counts is a dead pixel, turn dead pixel values into NaNs
@@ -196,7 +196,7 @@ def flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.0, m
             getLogger(__name__).info('Doing iteration: {}'.format(iteration))
             # Remove all the NaNs in an image and calculate a median filtered image
             # each pixel takes the median of itself and the surrounding box_size x box_size box.
-            nan_fixed_image = utils.replace_nan(raw_image, mode='mean', boxsize=box_size)
+            nan_fixed_image = mkidpipeline.utils.smoothing.replace_nan(raw_image, mode='mean', boxsize=box_size)
             assert np.all(np.isfinite(nan_fixed_image))
             median_filter_image = spfilters.median_filter(nan_fixed_image, box_size, mode='mirror')
 
@@ -204,7 +204,7 @@ def flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.0, m
             overall_bkgd = np.percentile(raw_image[~np.isnan(raw_image)], bkgd_percentile)
 
             # Estimate the background std. dev.
-            standard_filter_image = utils.nearestNrobustSigmaFilter(raw_image, n=box_size ** 2 - 1)
+            standard_filter_image = mkidpipeline.utils.smoothing.nearestNrobustSigmaFilter(raw_image, n=box_size ** 2 - 1)
             overall_bkgd_sigma = max(min_background_sigma, np.nanmedian(standard_filter_image))
             standard_filter_image.clip(1, None, standard_filter_image)
 
@@ -324,7 +324,7 @@ def median_movingbox(image, box_size=5, nsigma_hot=4.0, max_iter=5):
             getLogger(__name__).info('Iteration: '.format(iteration))
             # Remove all the NaNs in an image and calculate a median filtered image
             # each pixel takes the median of itself and the surrounding box_size x box_size box.
-            nan_fixed_image = utils.replace_nan(raw_image, mode='mean', boxsize=box_size)
+            nan_fixed_image = mkidpipeline.utils.smoothing.replace_nan(raw_image, mode='mean', boxsize=box_size)
             assert np.all(np.isfinite(nan_fixed_image))
             median_filter_image = spfilters.median_filter(nan_fixed_image, box_size, mode='mirror')
             func = lambda x: np.nanstd(x) * _stddev_bias_corr((~np.isnan(x)).sum())
@@ -387,7 +387,7 @@ def laplacian(image, box_size=5, nsigma_hot=4.0):
     # Initialise a mask for hot pixels (all False)
     hot_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
 
-    nan_fixed_image = utils.replace_nan(raw_image, mode='mean', boxsize=box_size)
+    nan_fixed_image = mkidpipeline.utils.smoothing.replace_nan(raw_image, mode='mean', boxsize=box_size)
     assert np.all(np.isfinite(nan_fixed_image))
 
     # In the case that *all* the pixels are dead, return a bad_mask where all the pixels are flagged as DEAD
