@@ -204,7 +204,7 @@ def flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.0, m
             overall_bkgd = np.percentile(raw_image[~np.isnan(raw_image)], bkgd_percentile)
 
             # Estimate the background std. dev.
-            standard_filter_image = mkidpipeline.utils.smoothing.nearestNrobustSigmaFilter(raw_image, n=box_size ** 2 - 1)
+            standard_filter_image = mkidpipeline.utils.smoothing.nearest_n_robust_sigma_filter(raw_image, n=box_size ** 2 - 1)
             overall_bkgd_sigma = max(min_background_sigma, np.nanmedian(standard_filter_image))
             standard_filter_image.clip(1, None, standard_filter_image)
 
