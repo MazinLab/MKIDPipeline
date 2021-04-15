@@ -1013,10 +1013,11 @@ class MKIDOutput(DataBase):
         Key('ssd', True, 'Use ssd TODO', bool),
         Key('noise', True, 'Use noise TODO', bool),
         Key('photom', True, 'Use photom TODO', bool),
+        Key('exp_timestep', None, 'Duration of time bins in output cubes with a temporal axis (req. by temporal)', float)
     )
     REQUIRED = ('name', 'data', 'kind')
     EXPLICIT_ALLOW = ('filename',)
-    #OPTIONAL = (startw,stopw)
+    #OPTIONAL = tuple
 
     def __init__(self, *args, **kwargs):
         """

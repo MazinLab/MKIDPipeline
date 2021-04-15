@@ -165,9 +165,9 @@ class Configuration(object):
         return representer.represent_mapping(cls.yaml_tag, d)
 
     @classmethod
-    def from_yaml(cls, constructor, node):
+    def from_yaml(cls, loader, node):
         #TODO I don't know why I used extract_from_node here and dict(loader.construct_pairs(node)) elsewhere
-        d = mkidcore.config.extract_from_node(constructor, 'configuration_path', node)
+        d = mkidcore.config.extract_from_node(loader, 'configuration_path', node)
         return cls(d['configuration_path'])
 
     def hdf_exist(self):
@@ -2661,8 +2661,9 @@ def load_solution(wc, singleton_ok=True):
             getLogger(__name__).warning('Told to load from a loaded wavecal solution backed by the same file as an '
                                         'existing wavecal in the solution cache. This may indicate significant '
                                         'inefficiency or merit an alternate means of updating the solution cache (e.g. '
-                                        'inn the vicinity of this comment')
-        return wc  # TODO: _loaded_solutions[wc._file_path] = wc
+                                        'in the vicinity of this comment')
+            #_loaded_solutions[wc._file_path] = wc
+        return wc
     if isinstance(wc, mkidpipeline.config.MKIDWavecalDescription):
         wc = wc.path
     wc = wc if os.path.isfile(wc) else os.path.join(mkidpipeline.config.config.paths.database, wc)
