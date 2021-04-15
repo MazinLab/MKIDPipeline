@@ -26,7 +26,7 @@ import mkidpipeline
 import matplotlib.pyplot as plt
 from mkidpipeline.utils.resampling import rebin
 from mkidpipeline.utils.fitting import fitBlackbody
-from mkidpipeline.utils.smoothing import gaussianConvolution
+from mkidpipeline.utils.smoothing import gaussian_convolution
 from mkidpipeline.utils.interpolating import interpolate_image
 from mkidpipeline.utils.photometry import get_aperture_radius, aper_photometry, astropy_psf_photometry,\
     mec_measure_satellite_spot_flux
@@ -305,14 +305,14 @@ class SpectralCalibrator:
                 flux = np.concatenate((y, nirY[nirX > max(x)]))
                 self.bb = np.hstack((wvls, flux))
             # Gaussian convolution to smooth std spectrum to MKIDs median resolution
-            new_x, new_y = gaussianConvolution(self.bb[0], self.bb[1], xEnMin=self.energy_stop,
-                                             xEnMax=self.energy_start, fluxUnits="lambda", r=r, plots=False)
+            new_x, new_y = gaussian_convolution(self.bb[0], self.bb[1], x_en_min=self.energy_stop,
+                                             x_en_max=self.energy_start, flux_units="lambda", r=r, plots=False)
         else:
             getLogger(__name__).info('Standard Spectrum spans whole energy range - no need to perform blackbody fit')
             # Gaussian convolution to smooth std spectrum to MKIDs median resolution
             std_stop = (c.h * c.c) / (self.std[0][0] * 10**(-10) * c.e)
             std_start = (c.h * c.c) / (self.std[0][-1] * 10 ** (-10) * c.e)
-            new_x, new_y = gaussianConvolution(x, y, xEnMin=std_start, xEnMax=std_stop, fluxUnits="lambda", r=r,
+            new_x, new_y = gaussian_convolution(x, y, x_en_min=std_start, x_en_max=std_stop, flux_units="lambda", r=r,
                                                plots=False)
         return new_x, new_y
 
