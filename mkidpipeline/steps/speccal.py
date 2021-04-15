@@ -25,7 +25,7 @@ from mkidcore import pixelflags
 import mkidpipeline
 import matplotlib.pyplot as plt
 from mkidpipeline.utils.resampling import rebin
-from mkidpipeline.utils.fitting import fitBlackbody
+from mkidpipeline.utils.fitting import fit_blackbody
 from mkidpipeline.utils.smoothing import gaussian_convolution
 from mkidpipeline.utils.interpolating import interpolate_image
 from mkidpipeline.utils.photometry import get_aperture_radius, aper_photometry, astropy_psf_photometry,\
@@ -297,7 +297,7 @@ class SpectralCalibrator:
         if np.round(x[-1]) < self.wvl_stop:
             fraction = 1.0 / 3.0
             nirX = np.arange(int(x[int((1.0 - fraction) * len(x))]), self.wvl_stop)
-            T, nirY = fitBlackbody(x, y, fraction=fraction, newWvls=nirX)
+            T, nirY = fit_blackbody(x, y, fraction=fraction, new_wvls=nirX)
             if np.any(x >= self.wvl_stop):
                 self.bb = np.hstack((x, y))
             else:
