@@ -20,13 +20,14 @@ import astropy.coordinates as coord
 from specutils import Spectrum1D
 import matplotlib.gridspec as gridspec
 import numpy as np
-import mkidcore.corelog
 from mkidcore.corelog import getLogger
 from mkidcore import pixelflags
 import mkidpipeline
 import matplotlib.pyplot as plt
-import mkidcore.config as config
-from mkidpipeline.utils.speccal_utils import rebin, gaussianConvolution, fitBlackbody, interpolate_image
+from mkidpipeline.utils.resampling import rebin
+from mkidpipeline.utils.fitting import fitBlackbody
+from mkidpipeline.utils.smoothing import gaussianConvolution
+from mkidpipeline.utils.interpolating import interpolate_image
 from mkidpipeline.utils.photometry import get_aperture_radius, aper_photometry, astropy_psf_photometry,\
     mec_measure_satellite_spot_flux
 from mkidpipeline.steps.drizzler import form as form_drizzle
@@ -498,30 +499,6 @@ def fetch_spectra_URL(object_name, url_path, save_dir):
                 shutil.copyfileobj(r, f)
         spectrum_file = save_dir + object_name + 'spectrum.dat'
         return spectrum_file
-
-def interpolate_image(input_array, method='linear'):
-    """
-    Seth 11/13/14
-    2D interpolation to smooth over missing pixels using built-in scipy methods
-    :param input_array: N x M array
-    :param method:
-    :return: N x M interpolated image array
-    """
-    final_shape = np.shape(input_array)
-    # data points for interp are only pixels with counts
-    data_points = np.where(np.logical_or(np.isnan(input_array), input_array == 0) == False)
-    data = input_array[data_points]
-    # griddata expects them in this order
-    data_points = np.array((data_points[0], data_points[1]), dtype=np.int).transpose()
-    # should include all points as interpolation points
-    interp_points = np.where(input_array != np.nan)
-    interp_points = np.array((interp_points[0], interp_points[1]), dtype=np.int).transpose()
-
-    interpolated_frame = griddata(data_points, data, interp_points, method)
-    # reshape interpolated frame into original shape
-    interpolated_frame = np.reshape(interpolated_frame, final_shape)
-
-    return interpolated_frame
 
 def get_coords(object_name, ra, dec):
     """

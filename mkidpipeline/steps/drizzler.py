@@ -67,7 +67,7 @@ from mkidcore.instruments import CONEX2PIXEL
 from mkidcore.corelog import getLogger
 import mkidcore.corelog as pipelinelog
 from mkidpipeline.photontable import Photontable
-from mkidpipeline.utils.utils import get_device_orientation
+from mkidpipeline.utils.array_operations import get_device_orientation
 import mkidpipeline.config
 
 DRIZ_PROBLEM_FLAGS = ()  # currently no pixel flags make drizzler explode

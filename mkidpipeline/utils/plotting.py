@@ -5,7 +5,7 @@ import matplotlib.cbook as cbook
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 from scipy.ndimage import gaussian_filter
-
+import matplotlib as mpl
 """
 Plotting tools for quick array viewing
 Adapted from tutorials from python4astronomers.
@@ -242,3 +242,183 @@ def plot_array(image, title='', xlabel='', ylabel='', cbar_stretch='linear', vmi
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     plt.show()
+
+
+def plotArray(xyarray, colormap=mpl.cm.gnuplot2,
+              normMin=None, normMax=None, showMe=True,
+              cbar=False, cbarticks=None, cbarlabels=None,
+              plotFileName='arrayPlot.png',
+              plotTitle='', sigma=None,
+              pixelsToMark=[], pixelMarkColor='red',
+              fignum=1, pclip=None):
+    """
+    Plots the 2D array to screen or if showMe is set to False, to
+    file.  If normMin and normMax are None, the norm is just set to
+    the full range of the array.
+
+    xyarray is the array to plot
+
+    colormap translates from a number in the range [0,1] to an rgb color,
+    an existing matplotlib.cm value, or create your own
+
+    normMin minimum used for normalizing color values
+
+    normMax maximum used for normalizing color values
+
+    showMe=True to show interactively; false makes a plot
+
+    cbar to specify whether to add a colorbar
+
+    cbarticks to specify whether to add ticks to the colorbar
+
+    cbarlabels lables to put on the colorbar
+
+    plotFileName where to write the file
+
+    plotTitle put on the top of the plot
+
+    sigma calculate normMin and normMax as this number of sigmas away
+    from the mean of positive values
+
+    pixelsToMark a list of pixels to mark in this image
+
+    pixelMarkColor is the color to fill in marked pixels
+
+    fignum - to specify which window the figure should be plotted in.
+             Default is 1. If None, automatically selects a new figure number.
+            Added 2013/7/19 2013, JvE
+
+    pclip - set to percentile level (in percent) for setting the upper and
+            lower colour stretch limits (overrides sigma).
+
+    """
+    if sigma != None:
+        # Chris S. does not know what accumulatePositive is supposed to do
+        # so he changed the next two lines.
+        # meanVal = np.mean(accumulatePositive(xyarray))
+        # stdVal = np.std(accumulatePositive(xyarray))
+        meanVal = np.nanmean(xyarray)
+        stdVal = np.nanstd(xyarray)
+        normMin = meanVal - sigma * stdVal
+        normMax = meanVal + sigma * stdVal
+    if pclip != None:
+        normMin = np.percentile(xyarray[np.isfinite(xyarray)], pclip)
+        normMax = np.percentile(xyarray[np.isfinite(xyarray)], 100. - pclip)
+    if normMin == None:
+        normMin = xyarray.min()
+    if normMax == None:
+        normMax = xyarray.max()
+    norm = mpl.colors.Normalize(vmin=normMin, vmax=normMax)
+
+    figWidthPt = 550.0
+    inchesPerPt = 1.0 / 72.27  # Convert pt to inch
+    figWidth = figWidthPt * inchesPerPt  # width in inches
+    figHeight = figWidth * 1.0  # height in inches
+    figSize = [figWidth, figHeight]
+    params = {'backend': 'ps',
+              'axes.labelsize': 10,
+              'axes.titlesize': 12,
+              'text.fontsize': 10,
+              'legend.fontsize': 10,
+              'xtick.labelsize': 10,
+              'ytick.labelsize': 10,
+              'figure.figsize': figSize}
+
+    fig = plt.figure(fignum)  ##JvE - Changed fignum=1 to allow caller parameter
+    plt.clf()
+    plt.rcParams.update(params)
+    plt.matshow(xyarray, cmap=colormap, origin='lower', norm=norm, fignum=False)
+
+    for ptm in pixelsToMark:
+        box = mpl.patches.Rectangle((ptm[0] - 0.5, ptm[1] - 0.5), \
+                                    1, 1, color=pixelMarkColor)
+        # box = mpl.patches.Rectangle((1.5,2.5),1,1,color=pixelMarkColor)
+        fig.axes[0].add_patch(box)
+
+    if cbar:
+        if cbarticks == None:
+            cbar = plt.colorbar(shrink=0.8)
+        else:
+            cbar = plt.colorbar(ticks=cbarticks, shrink=0.8)
+        if cbarlabels != None:
+            cbar.ax.set_yticklabels(cbarlabels)
+
+    plt.ylabel('Row Number')
+    plt.xlabel('Column Number')
+    plt.title(plotTitle)
+
+    if showMe == False:
+        plt.savefig(plotFileName)
+    else:
+        plt.show()
+
+
+def ds9Array(xyarray, colormap='B', normMin=None, normMax=None, sigma=None, scale=None, frame=None):
+    """
+    Display a 2D array as an image in DS9 if available. Similar to 'plotArray()'
+
+    xyarray is the array to plot
+
+    colormap - string, takes any value in the DS9 'color' menu.
+
+    normMin minimum used for normalizing color values
+
+    normMax maximum used for normalizing color values
+
+    sigma calculate normMin and normMax as this number of sigmas away
+    from the mean of positive values
+
+    scale - string, can take any value allowed by ds9 xpa interface.
+    Allowed values include:
+        linear|log|pow|sqrt|squared|asinh|sinh|histequ
+        mode minmax|<value>|zscale|zmax
+        limits <minvalue> <maxvalue>
+    e.g.: scale linear
+        scale log 100
+        scale datasec yes
+        scale histequ
+        scale limits 1 100
+        scale mode zscale
+        scale mode 99.5
+        ...etc.
+    For more info see:
+        http://hea-www.harvard.edu/saord/ds9/ref/xpa.html#scale
+
+    ## Not yet implemented: pixelsToMark a list of pixels to mark in this image
+
+    ## Not yet implemented: pixelMarkColor is the color to fill in marked pixels
+
+    frame - to specify which DS9 frame number the array should be displayed in.
+             Default is None.
+
+    """
+    if sigma != None:
+        # Chris S. does not know what accumulatePositive is supposed to do
+        # so he changed the next two lines.
+        # meanVal = numpy.mean(accumulatePositive(xyarray))
+        # stdVal = numpy.std(accumulatePositive(xyarray))
+        meanVal = numpy.mean(xyarray)
+        stdVal = numpy.std(xyarray)
+        normMin = meanVal - sigma * stdVal
+        normMax = meanVal + sigma * stdVal
+
+    d = ds9.ds9()  # Open a ds9 instance
+    if type(frame) is int:
+        d.set('frame ' + str(frame))
+
+    d.set_np2arr(xyarray)
+    # d.view(xyarray, frame=frame)
+    d.set('zoom to fit')
+    d.set('cmap ' + colormap)
+    if normMin is not None and normMax is not None:
+        d.set('scale ' + str(normMin) + ' ' + str(normMax))
+    if scale is not None:
+        d.set('scale ' + scale)
+
+    # plt.matshow(xyarray, cmap=colormap, origin='lower',norm=norm, fignum=False)
+
+    # for ptm in pixelsToMark:
+    #    box = mpl.patches.Rectangle((ptm[0]-0.5,ptm[1]-0.5),\
+    #                                    1,1,color=pixelMarkColor)
+    #    #box = mpl.patches.Rectangle((1.5,2.5),1,1,color=pixelMarkColor)
+    #    fig.axes[0].add_patch(box)
