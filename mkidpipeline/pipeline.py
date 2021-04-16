@@ -138,6 +138,7 @@ def generate_sample_data():
 
 def generate_sample_output():
     i = defaultdict(lambda: 0)
+
     def namer(name='Thing'):
         ret = f"{name}{i[name]}"
         i[name] = i[name] + 1
@@ -146,10 +147,11 @@ def generate_sample_output():
                               kind='spatial', noise=True, photom=True, ssd=True)]
     return data
 
+
 def metadata_apply(ob):
     o = photontable.Photontable(ob.h5, mode='w')
-    mdl = config.select_metadata_for_h5(ob, config.load_observing_metadata())
-    o.attach_observing_metadata(mdl)
+    o.attach_observing_metadata(ob.metadata)
+    del o
 
 
 def wavecal_apply(o):
@@ -189,20 +191,17 @@ def lincal_apply(o):
 
 def badpix_apply(o):
     try:
-        mkidpipeline.steps.pixcal.mask_hot_pixels(o)
+        mkidpipeline.steps.pixcal.apply(o.h5)
     except Exception as e:
         getLogger(__name__).critical('Caught exception during run of {}'.format(o), exc_info=True)
 
 
 def batch_apply_metadata(dataset):
     """Function associates things not known at hdf build time (e.g. that aren't in the bin files)"""
-    # Retrieve metadata database
-    metadata = config.load_observing_metadata()
     # Associate metadata
     for ob in dataset.all_observations:
         o = photontable.Photontable(ob.h5, mode='w')
-        mdl = config.select_metadata_for_h5(ob, metadata)
-        o.attach_observing_metadata(mdl)
+        o.attach_observing_metadata(ob.metadata)
         del o
 
 
@@ -227,29 +226,43 @@ def batch_apply_flatcals(dset, ncpu=None):
 
 def batch_apply_badpix(dset, ncpu=None):
     pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
-    pool.map(badpix_apply, set([o.h5 for o in dset.pixcalable]))
+
+    def apply(h5):
+        try:
+            mkidpipeline.steps.pixcal.apply(h5)
+        except Exception:
+            getLogger(__name__).critical(f'Exception during mkidpipeline.steps.pixcal.apply({h5})', exc_info=True)
+    pool.map(apply, set([o.h5 for o in dset.pixcalable]))
     pool.close()
 
 
 def batch_apply_lincal(dset, ncpu=None):
     pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
-    pool.map(lincal_apply, set([o.h5 for o in dset.all_observations]))
+    pool.map(lincal_apply, set([o.h5 for o in dset.lincalable]))
     pool.close()
 
 
-def batch_build_hdf(timeranges, ncpu=None):
+def batch_apply_cosmiccal(dset, ncpu=None):
+    pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
+    pool.map(mkidpipeline.steps.cosmiccal.apply, set([o.h5 for o in dset.cosmiccalable]))
+    pool.close()
+
+
+def batch_build_hdf(dset, ncpu=None):
     """will also accept an opject with a .timeranges (e.g. a dataset)"""
     ncpu = ncpu if ncpu is not None else config.n_cpus_available()
-    mkidpipeline.steps.buildhdf.buildtables(timeranges, ncpu=ncpu, remake=False)
+    mkidpipeline.steps.buildhdf.buildtables(dset.timeranges, ncpu=ncpu, remake=False)
+
 
 
 def run_stage1(dataset):
     operations = (('Building H5s', mkidpipeline.steps.buildhdf.buildtables),
                   ('Attaching metadata', batch_apply_metadata),
+                  ('Finding Cosmic-rays', batch_apply_cosmiccal),
                   ('Fetching wavecals', mkidpipeline.steps.wavecal.fetch),
+                  ('Applying linearity correction', batch_apply_lincal),
                   ('Applying wavelength solutions', batch_apply_wavecals),
                   ('Applying wavelength solutions', batch_apply_badpix),
-                  ('Applying linearity correction', batch_apply_lincal),
                   ('Fetching flatcals', mkidpipeline.steps.flatcal.fetch),
                   ('Applying flatcals', batch_apply_flatcals),
                   ('Fetching speccals', mkidpipeline.steps.speccal.fetch))
@@ -264,7 +277,7 @@ def run_stage1(dataset):
     getLogger(__name__).info(f'Stage 1 complete in {(time.time() - toc) / 60:.0f} m')
 
 
-def generate_outputs(outputs):
+def generate_outputs(outputs: config.MKIDOutputCollection):
     mkidpipeline.steps.drizzler.fetch(outputs)
 
     for o in outputs:
@@ -274,8 +287,8 @@ def generate_outputs(outputs):
 
             for obs in o.data.obs:
                 h5 = mkidpipeline.photontable.Photontable(obs.h5)
-                img = h5.get_fits(wave_start=o.startw, wave_stop=o.stopw, spec_weight=o.enable_photom,
-                                  noise_weight=o.enable_noise, rate=True)
+                img = h5.get_fits(wave_start=o.min_wave, wave_stop=o.max_wave, spec_weight=o.photom,
+                                  noise_weight=o.noise, rate=True)
                 img.writeto(o.output_file)
                 getLogger(__name__).info('Generated fits file for {}'.format(obs.h5))
         if o.wants_movie:

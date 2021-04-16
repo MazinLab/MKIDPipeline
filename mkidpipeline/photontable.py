@@ -23,6 +23,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from regions import CirclePixelRegion, PixCoord
 from progressbar import *
+import mkidcore.metadata
 from mkidcore.headers import PhotonCType, PhotonNumpyType, METADATA_BLOCK_BYTES
 from mkidcore.corelog import getLogger
 from mkidcore.pixelflags import FlagSet
@@ -313,8 +314,8 @@ class Photontable(object):
 
         stop times beyond the end of the file are treated as absolute times.
 
-        startw and stopw are ignored at present
-
+        startw and stopw are overridden with None if they are more than an order of magnitude beyond the edges of
+        nominal_wavelength_bins. if not astropy.units.Qunatity, nm is assumed
         """
         try:
             if start > self.duration:
@@ -351,8 +352,20 @@ class Photontable(object):
             relstop = self.duration
             qstop = None
 
+        if startw is None:
+            qminw = None
+        else:
+            v = u.Quantity(startw, u.nm).value
+            qminw = None if v <= self.nominal_wavelength_bins[0] / 10 else v
+
+        if stopw is None:
+            qmaxw = None
+        else:
+            v = u.Quantity(stopw, u.nm).value
+            qmaxw = None if v >= self.nominal_wavelength_bins[-1] * 10 else v
+
         return dict(start=start, stop=stop, relstart=relstart, relstop=relstop, duration=relstop - relstart,
-                    qstart=qstart, qstop=qstop, minw=startw, maxw=stopw)
+                    qstart=qstart, qstop=qstop, minw=startw, maxw=stopw, qminw=qminw, qmaxw=qmaxw)
 
     def enablewrite(self):
         """USE CARE IN A THREADED ENVIRONMENT"""
@@ -369,6 +382,14 @@ class Photontable(object):
         self.file.close()
         self.mode = 'read'
         self._load_file(self.filename)
+
+    def attach_new_table(self, group, group_descr, table, table_descr, header, data):
+        group = self.photonTable.create_group("/", group, group_descr)
+        filt = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=True, bitshuffle=False, fletcher32=False)
+        table = self.photonTable.create_table(group, name=table, description=header, title=table_descr,
+                                              expectedrows=len(data), filters=filt, chunkshape=None)
+        table.append(data)
+        table.flush()
 
     def detailed_str(self):
         t = self.photonTable.read()
@@ -562,9 +583,11 @@ class Photontable(object):
         if pixel and not resid:
             resid = tuple(self.beamImage[pixel].ravel())
 
-        time_nfo = self._parse_query_range_info(startw=startw, stopw=stopw, start=start, stop=stopt, intt=intt)
-        start = time_nfo['qstart']
-        stopt = time_nfo['qstop']
+        query_nfo = self._parse_query_range_info(startw=startw, stopw=stopw, start=start, stop=stopt, intt=intt)
+        start = query_nfo['qstart']
+        stopt = query_nfo['qstop']
+        startw = query_nfo['qminw']
+        stopw = query_nfo['qmaxw']
 
         if resid is None:
             resid = tuple()
@@ -842,7 +865,8 @@ class Photontable(object):
                             :param bin_edges:
                             :param bin_type:
         """
-        if (bin_edges or bin_width) and applyWeight and self.query_header('isFlatCalibrated'):
+        if (bin_edges or bin_width) and spec_weight and self.query_header('isFlatCalibrated'):
+            # TODO is this even accurate anymore
             raise ValueError('Using flat cal, so flat cal bins must be used')
 
         photons = self.query(pixel=pixel, start=start, intt=duration, startw=wave_start, stopw=wave_stop)
@@ -963,42 +987,30 @@ class Photontable(object):
         header = hdu.header
 
         # TODO flesh this out and integrate the non metadata keys
-        time_nfo = self._parse_query_range_info(start=start, intt=duration)
-        header['START'] = time_nfo['start']
-        header['RELSTART'] = time_nfo['relstart']
-        header['STOP'] = time_nfo['stop']
-        header['EXPTIME'] = time_nfo['duration']
-        header['RELSTOP'] = time_nfo['relstop']
-        # header['SPECCAL']
-        # header['WAVECAL']
-        # header['FLATCAL']
-        # header['BADPIX']
-        # header['COSMIC']
-        # header['LINCAL']
-        header['MINWAVE'] = wave_start
-        header['MAXWAVE'] = wave_stop
-        # header['EXFLAG'] = exclude_flags
-        header['UNIT'] = 'photons/s' if rate else 'photons'
+        time_nfo = self._parse_query_range_info(start=start, intt=duration, startw=wave_start, stopw=wave_stop)
+
         header['H5.FILENAME'] = self.filename
 
         md = self.metadata(timestamp=start)
-        if md is not None:
-            for k, v in md.items():
-                if k.lower() == 'comments':
-                    for c in v:
-                        header['comment'] = c
-                else:
-                    try:
-                        header[k] = v
-                    except ValueError:
-                        header[k] = str(v).replace('\n', '_')
-        else:
-            getLogger(__name__).warning('No metadata found to add to fits header')
 
+        if md is None:
+            getLogger(__name__).warning('No metadata found to add to fits header')
+            md = {}
+        else:
+            md = dict(md)
+        md['START'] = time_nfo['start']
+        md['RELSTART'] = time_nfo['relstart']
+        md['STOP'] = time_nfo['stop']
+        md['EXPTIME'] = time_nfo['duration']
+        md['integrationTime'] = duration  # TODO refactor code that uses this to use EXPTIME
+        md['RELSTOP'] = time_nfo['relstop']
+        md['MINWAVE'] = time_nfo['startw']
+        md['MAXWAVE'] = time_nfo['stopw']
+        md['EXFLAG'] = self.flags.bitmask(exclude_flags, unknown='ignore')
+        md['UNIT'] = 'photons/s' if rate else 'photons'
+        mkidcore.metadata.build_header(md)
         header.update(self.get_wcs(cube_type=cube_type, bins=bin_edges)[0])
 
-        # TODO ensure the following are present
-        header['integrationTime'] = duration
         hdul = fits.HDUList([fits.PrimaryHDU(header=header),
                              fits.ImageHDU(data=data / duration if rate else data,
                                            header=header, name='SCIENCE'),
@@ -1050,7 +1062,7 @@ class Photontable(object):
 
         if no timestamp is specified the first record is returned.
         if a timestamp is specified then the first record
-        before or equal the time is returned unless there is only one record, and then that is returned
+        before or equal to the time is returned unless there is only one record then that is returned
 
         None if there are no records, ValueError if there is not matching timestamp
         """
@@ -1234,7 +1246,8 @@ class Photontable(object):
 
             flags = self.flags
             self.unflag(flags.bitmask([f for f in flags.names if f.startswith('wavecal')]), pixel=(column, row))
-            self.flag(flags.bitmask([f'wavecal.{f.name}' for f in solution.get_flag(res_id=resID)]), pixel=(column, row))
+            self.flag(flags.bitmask([f'wavecal.{f.name}' for f in solution.get_flag(res_id=resID)]),
+                      pixel=(column, row))
 
             calibration = solution.calibration_function(res_id=resID, wavelength_units=True)
 
@@ -1363,22 +1376,28 @@ class Photontable(object):
         self.update_header('fltCalFile', calsolFile.encode())
         getLogger(__name__).info('Flatcal applied in {:.2f}s'.format(time.time() - tic))
 
-    def apply_badpix(self, hot_mask, cold_mask, unstable_mask, id=''):
+    def apply_badpix(self, mask, metadata: dict = None):
         """
         loads the wavelength cal coefficients from a given file and applies them to the
         wavelengths table for each pixel. Photontable must be loaded in write mode. Dont call updateWavelengths !!!
+
+        metadata should be a dict of key: value pairs describing the masking
+        maks shoe be a boolean array of shape self.beamImage.shape+(3,) where the third axis is: host, cold, unstable
 
         Note that run-times longer than ~330s for a full MEC dither (~70M photons, 8kpix) is a regression and
         something is wrong. -JB 2/19/19
         """
         tic = time.time()
         getLogger(__name__).info('Applying a bad pixel mask to {}'.format(self.filename))
+
         f = self.flags
-        self.flag(f.bitmask('pixcal.hot') * hot_mask)
-        self.flag(f.bitmask('pixcal.cold') * cold_mask)
-        self.flag(f.bitmask('pixcal.unstable') * unstable_mask)
+        self.flag(f.bitmask('pixcal.hot') * mask[:,:,0])
+        self.flag(f.bitmask('pixcal.cold') * mask[:,:,1])
+        self.flag(f.bitmask('pixcal.unstable') * mask[:,:,2])
         self.update_header('isBadPixMasked', True)
-        self.update_header('BADPIX.ID', id)
+        if metadata is not None:
+            for k, v in metadata.items():
+                self.update_header(f'BADPIX.{k}', v)
         getLogger(__name__).info('Mask applied in {:.3f}s'.format(time.time() - tic))
 
     def apply_lincal(self, dt=1000, tau=0.000001):

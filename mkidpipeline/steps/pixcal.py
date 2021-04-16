@@ -58,21 +58,16 @@ laplacian:  Creates a 2D bad pixel mask for a given time interval within a given
                 Works all right on 51Eri Dither, got around 80% of HPs
 
 hpm_poisson_dist:  Checks if photons arriving at pixels are obeying Poisson stats
-
--------------
-
-
 """
 import warnings
-
 import numpy as np
 import scipy.ndimage.filters as spfilters
-import scipy.stats
 
-from mkidpipeline.photontable import Photontable
-from mkidpipeline.utils import array_operations
-import mkidpipeline.config
 from mkidcore.corelog import getLogger
+from mkidpipeline.photontable import Photontable
+from mkidpipeline.utils import fitting
+from mkidpipeline.utils import smoothing
+import mkidpipeline.config
 from mkidcore.pixelflags import FlagSet
 
 
@@ -92,8 +87,11 @@ def _stddev_bias_corr(n):
 
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
-    yaml_tag = u'!badpix_cfg'
-    REQUIRED_KEYS = (('method', 'median', 'method to use'),)
+    yaml_tag = u'!pixcal_cfg'
+    REQUIRED_KEYS = (('method', 'median', 'method to use cpscut|laplacian|median|threshold'),
+                     ('step', 30, 'Time interval for methods that need one'),
+                     ('spec_weight', True, 'Use the spec weights'),
+                     ('noise_weight', True, 'Use the noise weights'))
 
 
 FLAGS = FlagSet.define(('hot', 1, 'Hot pixel'),
@@ -101,8 +99,9 @@ FLAGS = FlagSet.define(('hot', 1, 'Hot pixel'),
                        ('unstable', 3, 'Pixel is both hot at and at different times'))
 
 
-def flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.0, max_iter=10, dead_threshold=0,  #TODO make nsigma_hot and nsigma_cold user specified parameters in the config file
-                   use_local_stdev=False, bkgd_percentile=50.0, dead_mask=None, min_background_sigma=.01):
+# TODO make nsigma_hot and nsigma_cold user specified parameters in the config file
+def threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.0, max_iter=10,
+              use_local_stdev=False, bkgd_percentile=50.0, dead_mask=None, min_background_sigma=.01):
     """
     Robust!  NOTE:  This is a routine that was ported over from the ARCONS pipeline.
     Finds the hot and dead pixels in a for a 2D input array.
@@ -165,7 +164,7 @@ def flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.0, m
 
     # Approximate peak/median ratio for an ideal (Gaussian) PSF sampled at
     # pixel locations corresponding to the median kernel used with the real data.
-    gauss_array = mkidpipeline.utils.fitting.gaussian_psf(fwhm, box_size)
+    gauss_array = fitting.gaussian_psf(fwhm, box_size)
     max_ratio = np.max(gauss_array) / np.median(gauss_array)
 
     # Assume everything with 0 counts is a dead pixel, turn dead pixel values into NaNs
@@ -186,17 +185,18 @@ def flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.0, m
 
     # In the case that *all* the pixels
     # are dead, return a bad_mask where all the pixels are flagged as DEAD
+    iteration = -1
     if raw_image[np.isfinite(raw_image)].sum() <= 0:
         getLogger(__name__).warning('Entire image consists of pixels with 0 counts')
         bad_mask = cold_mask * FLAGS.flags['cold'].bit
         hot_mask = np.zeros_like(bad_mask, dtype=bool)
-        iteration = -1
+
     else:
         for iteration in range(max_iter):
             getLogger(__name__).info('Doing iteration: {}'.format(iteration))
             # Remove all the NaNs in an image and calculate a median filtered image
             # each pixel takes the median of itself and the surrounding box_size x box_size box.
-            nan_fixed_image = mkidpipeline.utils.smoothing.replace_nan(raw_image, mode='mean', boxsize=box_size)
+            nan_fixed_image = smoothing.replace_nan(raw_image, mode='mean', boxsize=box_size)
             assert np.all(np.isfinite(nan_fixed_image))
             median_filter_image = spfilters.median_filter(nan_fixed_image, box_size, mode='mirror')
 
@@ -204,7 +204,7 @@ def flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.0, m
             overall_bkgd = np.percentile(raw_image[~np.isnan(raw_image)], bkgd_percentile)
 
             # Estimate the background std. dev.
-            standard_filter_image = mkidpipeline.utils.smoothing.nearest_n_robust_sigma_filter(raw_image, n=box_size ** 2 - 1)
+            standard_filter_image = smoothing.nearest_n_robust_sigma_filter(raw_image, n=box_size ** 2 - 1)
             overall_bkgd_sigma = max(min_background_sigma, np.nanmedian(standard_filter_image))
             standard_filter_image.clip(1, None, standard_filter_image)
 
@@ -249,12 +249,12 @@ def flux_threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.0, m
         # Finished with loop, make sure a pixel is not simultaneously hot and cold
         assert ~(hot_mask & cold_mask).any()
 
-    return {'hot_mask': hot_mask, 'cold_mask': cold_mask, 'masked_image': raw_image, 'image': image,
+    return {'hot': hot_mask, 'cold': cold_mask, 'masked_image': raw_image, 'image': image,
             'median_filter_image': median_filter_image, 'max_ratio': max_ratio, 'difference_image': difference_image,
             'difference_image_error': difference_image_error, 'num_iter': iteration + 1}
 
 
-def median_movingbox(image, box_size=5, nsigma_hot=4.0, max_iter=5):
+def median(image, box_size=5, nsigma_hot=4.0, max_iter=5):
     """
     New routine, developed to serve as a generic hot pixel masking method
     Finds the hot and dead pixels in a for a 2D input array.
@@ -313,6 +313,7 @@ def median_movingbox(image, box_size=5, nsigma_hot=4.0, max_iter=5):
     median_filter_image.fill(np.nan)
     iteration = -1
 
+    standard_filter_image = None
     # In the case that *all* the pixels are dead, return a bad_mask where all the pixels are flagged as DEAD
     if raw_image[np.isfinite(raw_image)].sum() <= 0:
         getLogger(__name__).info('Entire image consists of dead pixels')
@@ -324,7 +325,7 @@ def median_movingbox(image, box_size=5, nsigma_hot=4.0, max_iter=5):
             getLogger(__name__).info('Iteration: '.format(iteration))
             # Remove all the NaNs in an image and calculate a median filtered image
             # each pixel takes the median of itself and the surrounding box_size x box_size box.
-            nan_fixed_image = mkidpipeline.utils.smoothing.replace_nan(raw_image, mode='mean', boxsize=box_size)
+            nan_fixed_image = smoothing.replace_nan(raw_image, mode='mean', boxsize=box_size)
             assert np.all(np.isfinite(nan_fixed_image))
             median_filter_image = spfilters.median_filter(nan_fixed_image, box_size, mode='mirror')
             func = lambda x: np.nanstd(x) * _stddev_bias_corr((~np.isnan(x)).sum())
@@ -346,7 +347,7 @@ def median_movingbox(image, box_size=5, nsigma_hot=4.0, max_iter=5):
         # Finished with loop, make sure a pixel is not simultaneously hot and dead
         assert ~(hot_mask & dead_mask).any()
 
-    return {'cold_mask': dead_mask, 'hot_mask': hot_mask, 'image': raw_image,
+    return {'cold': dead_mask, 'hot': hot_mask, 'image': raw_image,
             'standard_filter_image': standard_filter_image, 'median_filter_image': median_filter_image,
             'num_iter': iteration + 1}
 
@@ -387,9 +388,10 @@ def laplacian(image, box_size=5, nsigma_hot=4.0):
     # Initialise a mask for hot pixels (all False)
     hot_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
 
-    nan_fixed_image = mkidpipeline.utils.smoothing.replace_nan(raw_image, mode='mean', boxsize=box_size)
+    nan_fixed_image = smoothing.replace_nan(raw_image, mode='mean', boxsize=box_size)
     assert np.all(np.isfinite(nan_fixed_image))
 
+    laplacian_filter_image=None
     # In the case that *all* the pixels are dead, return a bad_mask where all the pixels are flagged as DEAD
     if np.sum(raw_image[np.where(np.isfinite(raw_image))]) <= 0:
         getLogger(__name__).info('Entire image consists of dead pixels')
@@ -411,11 +413,10 @@ def laplacian(image, box_size=5, nsigma_hot=4.0):
             if pix_up > 0 and pix_down > 0 and pix_left > 0 and pix_right > 0:
                 hot_mask[hot_pix_x[i], hot_pix_y[i]] = True
 
-    return { 'cold_mask': dead_mask, 'hot_mask': hot_mask, 'image': raw_image,
-            'laplacian_filter_image': laplacian_filter_image}
+    return {'cold': dead_mask, 'hot': hot_mask, 'image': raw_image, 'laplacian_filter_image': laplacian_filter_image}
 
 
-def cps_cut(image, sigma=5, max_cut=2450, cold_mask=False):
+def cpscut(image, sigma=5, max_cut=2450, cold_mask=False):
     """
     NOTE:  This is a routine for masking hot pixels in .img files and the like, NOT robust
             OK to use for bad pixel masking for pretty-picture-generation or quicklook
@@ -472,12 +473,10 @@ def cps_cut(image, sigma=5, max_cut=2450, cold_mask=False):
             warnings.simplefilter("ignore", category=RuntimeWarning)
             hot_mask[raw_image <= np.nanmedian(raw_image) - sigma * np.nanstd(raw_image)] = FLAGS.flags['hot'].bit
 
-    bad_mask = dead_mask + hot_mask
-
-    return {'bad_mask': bad_mask, 'dead_mask': dead_mask, 'hot_mask': hot_mask, 'image': raw_image}
+    return {'cold': dead_mask, 'hot': hot_mask, 'image': raw_image}
 
 
-def mask_hot_pixels(file, method='flux_threshold', step=30, startt=0, stopt=None, **methodkw):
+def apply(o, config=None, method='threshold', step=30):
     """
     This routine is the main code entry point of the bad pixel masking code.
     Takes an obs. file as input and writes a 'bad pixel table' to that h5 file where each entry is an indicator of
@@ -488,66 +487,62 @@ def mask_hot_pixels(file, method='flux_threshold', step=30, startt=0, stopt=None
 
     Required Input:
     :param obsfile:           user passes an obsfile instance here
-    :param startt         Scalar Integer.  Timestamp at which to begin bad pixel masking, default = 0
-    :param stopt           Scalar Integer.  Timestamp at which to finish bad pixel masking, default = -1
-                                               (run to the end of the file)
+
     :param step          Scalar Integer.  Number of seconds to do the bad pixel masking over (should be an integer
                                                number of steps through the obsfile), default = 30
-    :param hpcutmethod        String.          Method to use to detect hot pixels.  Options are:
-                                               median_movingbox
-                                               flux_threshold
-                                               laplacian
-                                               cps_cut
-
-    Other Input:
-    Appropriate args and kwargs that go into the chosen hpcut function
+    config is a StepConfig or a pipeline config with .pixcal:StepConfig
 
     :return:
     """
-    obs = Photontable(file)
+
+    obs = Photontable(o.h5)
     if obs.query_header('isBadPixMasked'):
-        getLogger(__name__).info('{} is already bad pixel calibrated'.format(obs.filename))
+        getLogger(__name__).info('{} is already pixel calibrated'.format(o.h5))
         return
 
-    if stopt is None:
-        stopt = obs.duration
-    assert startt < stopt
-    if step > stopt-startt:
-        getLogger(__name__).warning(('Hot pixel step time longer than exposure time by {:.0f} s, using full '
-                                     'exposure').format(abs(stopt-startt-step)))
-        step = stopt-startt
+    cfg = mkidpipeline.config.config if config is None else config
 
-    step_starts = np.arange(startt, stopt, step, dtype=int)  # Start time for each step (in seconds).
-    step_ends = step_starts + int(step)  # End time for each step
+    if cfg is None:
+        cfg = StepConfig()
+
+    startt, stopt = o.start, o.stop
+    step = min(stopt-startt, cfg.step)
+    if cfg.step > stopt-startt:
+        getLogger(__name__).warning(f'Step time longer than data time by {step-(stopt-startt):.0f} s, '
+                                    f'using full exposure.')
+
+    # This is how method keywords are fetched is propagated
+    exclude = [k[0] for k in StepConfig.REQUIRED_KEYS]
+    methodkw = {k: mkidpipeline.config.config.pixcal.get(k) for k in mkidpipeline.config.config.pixcal.keys() if
+                k not in exclude}
+
+    starts = np.arange(startt, stopt, step, dtype=int)  # Start time for each step (in seconds).
+    step_ends = starts + int(step)  # End time for each step
     step_ends[step_ends > stopt] = int(stopt)  # Clip any time steps that run over the end of the requested time range.
 
     # Initialise stack of masks, one for each time step
-    hot_masks = np.zeros([obs.nXPix, obs.nYPix, step_starts.size], dtype=bool)
-    cold_masks = np.zeros([obs.nXPix, obs.nYPix, step_starts.size], dtype=bool)
-    func = globals()[method]
+    masks = np.zeros_like(obs.beamImage.shape+(starts.size, 2), dtype=bool)
+    try:
+        func = globals()[method]
+    except KeyError:
+        raise ValueError(f'"{method} is an unsupported pixel masking method')
 
     # Generate a stack of bad pixel mask, one for each time step
-    for i, each_time in enumerate(step_starts):
-        getLogger(__name__).info('Processing time slice: {} - {} s'.format(each_time, each_time + step))
-        img = obs.get_fits(start=each_time, duration=step, spec_weight=True, noise_weight=True,
-                           rate=False)
-        bad_pixel_solution = func(img['SCIENCE'].data, **methodkw)
-        hot_masks[:, :, i] = bad_pixel_solution['hot_mask']
-        cold_masks[:, :, i] = bad_pixel_solution['cold_mask']
+    for i, each_time in enumerate(starts):
+        getLogger(__name__).info(f'Processing time slice: {each_time} - {each_time + step} s')
+        img = obs.get_fits(start=each_time, duration=step, spec_weight=cfg.pixcal.spec_weight,
+                           noise_weight=cfg.pixcal.noise_weight, rate=False)
+        result = func(img['SCIENCE'].data, **methodkw)
+        masks[:, :, i, 0] = result['hot']
+        masks[:, :, i, 1] = result['cold']
 
-    unstable_mask = np.zeros((obs.nXPix, obs.nYPix), dtype=bool)
+    # check for any pixels that switched from one to the other
+    mask = np.zeros_like(obs.beamImage.shape + (3,), dtype=bool)
+    mask[:, :, :2] = masks.all(axis=2)
+    mask[:, :, 2] = masks.any(axis=2) & ~mask.any(axis=2)
 
-    for x in range(obs.nXPix):
-        for y in range(obs.nYPix):
-            vals = np.zeros(len(hot_masks[x, y, :]), dtype=bool)
-            for i, mask in enumerate(hot_masks[x, y, :]):
-                vals[i] = mask
-            if not all(vals) or all(vals):
-                unstable_mask[x, y] = False
-            else:
-                unstable_mask[x, y] = True
-
-    # Combine the bad pixel masks into a master mask
+    meta = dict(method=method, step=step)  #TODO flesh this out with flatcal fits keys
+    meta.update(methodkw)
     obs.enablewrite()
-    obs.apply_badpix(np.all(hot_masks, axis=-1), np.all(cold_masks, axis=-1), unstable_mask, id=method)
+    obs.apply_badpix(mask, metadata=meta)
     obs.disablewrite()

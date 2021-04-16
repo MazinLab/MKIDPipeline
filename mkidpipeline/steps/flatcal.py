@@ -47,7 +47,6 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('power', 1, 'power of polynomial to fit, <3 advised'),
                      ('power', 0, 'TODO'),
                      ('plots', 'summary', 'none|summary|all'))
-    OPTIONAL_KEYS = tuple()
 
     def _vet_errors(self):
         ret = []

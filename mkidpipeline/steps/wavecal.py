@@ -66,7 +66,6 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('dt', 500,'ignore photons which arrive this many microseconds from another photon (number)'),
                      ('parallel', True, 'Fitting using more than one core'),
                      ('parallel_prefetch', False, 'use shared memory to load ALL the photon data into ram'))
-    OPTIONAL_KEYS = tuple()
 
     def _vet_errors(self):
         return []
