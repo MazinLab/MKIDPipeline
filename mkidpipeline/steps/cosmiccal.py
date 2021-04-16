@@ -21,18 +21,28 @@ from datetime import datetime
 
 import mkidpipeline.config
 from mkidpipeline.photontable import Photontable
+import tables
+
+NP_IMPACT_TYPE = np.dtype([('count', np.uint8), ('start', np.uint64), ('stop', np.uint64), ('energy', np.float32)])
+
+
+class CRImpact(tables.IsDescription):
+    count = tables.UInt8Col()  # unsigned byte
+    start = tables.Int64Col()  # 32-bit integer
+    stop = tables.Int64Col()  # 32-bit integer
+    energy = tables.Float32Col()  # double (double-precision)
 
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!badpix_cfg'
     REQUIRED_KEYS = (('plots', 'all', 'Which plots to generate'),
-                     ('wave_range', (-np.inf, np.inf), 'TODO'),
+                     ('wave_range', None, 'TODO'),
                      ('method', 'poisson', 'TODO'),
-                     ('removal_range', 1, 'TODO'))
+                     ('removal_range', (50, 100), 'TODO'))
 
 
 class CosmicCleaner:
-    def __init__(self, file,  wave_range=(-np.inf, np.inf), method="poisson", removal_range=(50, 100)):
+    def __init__(self, file, wave_range=(-np.inf, np.inf), method="poisson", removal_range=(50, 100)):
         self.obs = Photontable(file)
         self.wave_range = wave_range
         self.method = method
@@ -174,8 +184,8 @@ class CosmicCleaner:
         else:
             self.threshold = self._generate_signal_threshold()
 
-        #distance is in bin widths noah sasy thats 10ms
-        #after peak double threshold for the decay time
+        # distance is in bin widths noah sasy thats 10ms
+        # after peak double threshold for the decay time
         self.cosmictimes = signal.find_peaks(self.arraycounts, height=self.threshold, threshold=10,
                                              distance=50)[0] * self.bin_width
 
@@ -210,7 +220,7 @@ class CosmicCleaner:
         writer = Writer(fps=fps, bitrate=-1)
 
         ctimes = np.arange(timestamp - timeBefore, timestamp + timeAfter, frameSpacing)
-        #This should be much faster but it gets rid of the interpolation that is achieved by overlapping the query
+        # This should be much faster but it gets rid of the interpolation that is achieved by overlapping the query
         # intervals, the way around this would be to tread the frames as keyframes and then use a seperate
         # post-processing step to insert interpolated frames.
         # frames = self.obs.get_fits(bin_edges=ctimes, rate=False, wave_start=wave_start, wave_stop=wave_stop,
@@ -233,3 +243,26 @@ class CosmicCleaner:
                     writer.grab_frame()
         del fig, im
         return frames
+
+
+def apply(o: mkidpipeline.config.MKIDTimerange, config=None):
+
+    cfg = mkidpipeline.config.config.cosmiccal if config is None else config
+    if cfg in None:
+        cfg = StepConfig()
+
+    #todo
+    exclude = [k[0] for k in StepConfig.REQUIRED_KEYS]
+    methodkw = {k: cfg.get(k) for k in cfg.keys() if k not in exclude}
+    cc = CosmicCleaner(o.h5, **methodkw)
+    cc.run()
+    md = {}
+    impacts = np.zeros(len(cc.n_cosmics), dtype=NP_IMPACT_TYPE)
+    impacts[:]['start']=cc.starts
+    impacts[:]['stop']=cc.stopts
+
+    cc.obs.enablewrite()
+    for k, v in md.items:
+        cc.obs.update_header(f'cosmiccal.{k}',v)
+    cc.obs.attach_new_table('cosmics', 'Cosmic Ray Info', 'impacts', CRImpact, "Cosmic-Ray Hits", impacts)
+    cc.obs.disablewrite()
