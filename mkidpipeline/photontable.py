@@ -1400,25 +1400,6 @@ class Photontable(object):
                 self.update_header(f'BADPIX.{k}', v)
         getLogger(__name__).info('Mask applied in {:.3f}s'.format(time.time() - tic))
 
-    def apply_lincal(self, lincal_weights, metadata: dict = None):
-        tic = time.time()
-        if self.query_header('isLinearityCorrected'):
-            getLogger(__name__).info("H5 {} is already linearity calibrated".format(self.filename))
-            return
-        bar = ProgressBar(maxval=20439).start()
-        for i, resid in enumerate(self.beamImage):
-            if self.flagged(pixelflags.PROBLEM_FLAGS, resid=resid):
-                continue
-            photons = self.query(resid=resid)
-            self.multiply_column_weight(resid, lincal_weights, 'SpecWeight')
-            bar.update(i)
-        bar.finish()
-        getLogger(__name__).info('Lincal applied to {} in {:.2f}s'.format(self.filename, time.time() - tic))
-        self.update_header('isLinearityCorrected', True)
-        if metadata is not None:
-            for k, v in metadata.items():
-                self.update_header(f'LINCAL.{k}', v)
-
     def resonators(self, exclude=None, select=None, pixel=False):
         """A resonator iterator excluding resonators flagged with any flags in exclude and selecting only pixels with
         all the flags in select (select=None|empty implies no restriction. set pixel=True to yield resID,(x,y) instead

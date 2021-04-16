@@ -181,10 +181,7 @@ def flatcal_apply(o):
 
 def lincal_apply(o):
     try:
-        of = photontable.Photontable(o, mode='a')
-        cfg = mkidpipeline.config.config
-        of.apply_lincal(dt=cfg.lincal.dt, tau=cfg.instrument.deadtime * 1 * 10 ** 6)
-        of.file.close()
+        mkidpipeline.steps.lincal.apply(o)
     except Exception as e:
         getLogger(__name__).critical('Caught exception during run of {}'.format(o), exc_info=True)
 
@@ -237,8 +234,10 @@ def batch_apply_badpix(dset, ncpu=None):
 
 
 def batch_apply_lincal(dset, ncpu=None):
+    obs = dset.lincalable
+    #TODO filter obs by unique h5s
     pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
-    pool.map(lincal_apply, set([o.h5 for o in dset.lincalable]))
+    pool.map(lincal_apply, obs)
     pool.close()
 
 
