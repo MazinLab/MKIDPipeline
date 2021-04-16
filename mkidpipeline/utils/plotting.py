@@ -4,7 +4,6 @@ import matplotlib
 import matplotlib.cbook as cbook
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
-from scipy.ndimage import gaussian_filter
 import matplotlib as mpl
 """
 Plotting tools for quick array viewing
@@ -13,8 +12,7 @@ Credit to authors: Tom Aldcroft, Tom Robitaille, Brian Refsdal, Gus Muench
 and Smithsonian Astrophysical Observatory.
 """
 
-
-class elastic_colorbar(object):
+class ElasticColorbar(object):
     def __init__(self, cbar, mappable):
         self.cbar = cbar
         self.mappable = mappable
@@ -236,7 +234,7 @@ def plot_array(image, title='', xlabel='', ylabel='', cbar_stretch='linear', vmi
     if show_colorbar:
         cbar = plt.colorbar(format='%05.2f')
         cbar.set_norm(AstNormalize(vmin=kwargs['vmin'], vmax=kwargs['vmax'], vmid=vmid, stretch=cbar_stretch))
-        cbar = elastic_colorbar(cbar, img)
+        cbar = ElasticColorbar(cbar, img)
         cbar.connect()
     plt.title(title)
     plt.xlabel(xlabel)
@@ -244,8 +242,8 @@ def plot_array(image, title='', xlabel='', ylabel='', cbar_stretch='linear', vmi
     plt.show()
 
 
-def plotArray(xyarray, colormap=mpl.cm.gnuplot2,
-              normMin=None, normMax=None, showMe=True,
+def plotArray(array, colormap=mpl.cm.gnuplot2,
+              norm_min=None, norm_max=None, showMe=True,
               cbar=False, cbarticks=None, cbarlabels=None,
               plotFileName='arrayPlot.png',
               plotTitle='', sigma=None,
@@ -253,17 +251,17 @@ def plotArray(xyarray, colormap=mpl.cm.gnuplot2,
               fignum=1, pclip=None):
     """
     Plots the 2D array to screen or if showMe is set to False, to
-    file.  If normMin and normMax are None, the norm is just set to
+    file.  If norm_min and norm_max are None, the norm is just set to
     the full range of the array.
 
-    xyarray is the array to plot
+    array is the array to plot
 
     colormap translates from a number in the range [0,1] to an rgb color,
     an existing matplotlib.cm value, or create your own
 
-    normMin minimum used for normalizing color values
+    norm_min minimum used for normalizing color values
 
-    normMax maximum used for normalizing color values
+    norm_max maximum used for normalizing color values
 
     showMe=True to show interactively; false makes a plot
 
@@ -277,7 +275,7 @@ def plotArray(xyarray, colormap=mpl.cm.gnuplot2,
 
     plotTitle put on the top of the plot
 
-    sigma calculate normMin and normMax as this number of sigmas away
+    sigma calculate norm_min and norm_max as this number of sigmas away
     from the mean of positive values
 
     pixelsToMark a list of pixels to mark in this image
@@ -295,20 +293,20 @@ def plotArray(xyarray, colormap=mpl.cm.gnuplot2,
     if sigma != None:
         # Chris S. does not know what accumulatePositive is supposed to do
         # so he changed the next two lines.
-        # meanVal = np.mean(accumulatePositive(xyarray))
-        # stdVal = np.std(accumulatePositive(xyarray))
-        meanVal = np.nanmean(xyarray)
-        stdVal = np.nanstd(xyarray)
-        normMin = meanVal - sigma * stdVal
-        normMax = meanVal + sigma * stdVal
+        # mean_val = np.mean(accumulatePositive(array))
+        # std_val = np.std(accumulatePositive(array))
+        mean_val = np.nanmean(array)
+        std_val = np.nanstd(array)
+        norm_min = mean_val - sigma * std_val
+        norm_max = mean_val + sigma * std_val
     if pclip != None:
-        normMin = np.percentile(xyarray[np.isfinite(xyarray)], pclip)
-        normMax = np.percentile(xyarray[np.isfinite(xyarray)], 100. - pclip)
-    if normMin == None:
-        normMin = xyarray.min()
-    if normMax == None:
-        normMax = xyarray.max()
-    norm = mpl.colors.Normalize(vmin=normMin, vmax=normMax)
+        norm_min = np.percentile(array[np.isfinite(array)], pclip)
+        norm_max = np.percentile(array[np.isfinite(array)], 100. - pclip)
+    if norm_min == None:
+        norm_min = array.min()
+    if norm_max == None:
+        norm_max = array.max()
+    norm = mpl.colors.Normalize(vmin=norm_min, vmax=norm_max)
 
     figWidthPt = 550.0
     inchesPerPt = 1.0 / 72.27  # Convert pt to inch
@@ -327,7 +325,7 @@ def plotArray(xyarray, colormap=mpl.cm.gnuplot2,
     fig = plt.figure(fignum)  ##JvE - Changed fignum=1 to allow caller parameter
     plt.clf()
     plt.rcParams.update(params)
-    plt.matshow(xyarray, cmap=colormap, origin='lower', norm=norm, fignum=False)
+    plt.matshow(array, cmap=colormap, origin='lower', norm=norm, fignum=False)
 
     for ptm in pixelsToMark:
         box = mpl.patches.Rectangle((ptm[0] - 0.5, ptm[1] - 0.5), \
@@ -353,19 +351,19 @@ def plotArray(xyarray, colormap=mpl.cm.gnuplot2,
         plt.show()
 
 
-def ds9Array(xyarray, colormap='B', normMin=None, normMax=None, sigma=None, scale=None, frame=None):
+def ds9Array(array, colormap='B', norm_min=None, norm_max=None, sigma=None, scale=None, frame=None):
     """
     Display a 2D array as an image in DS9 if available. Similar to 'plotArray()'
 
-    xyarray is the array to plot
+    array is the array to plot
 
     colormap - string, takes any value in the DS9 'color' menu.
 
-    normMin minimum used for normalizing color values
+    norm_min minimum used for normalizing color values
 
-    normMax maximum used for normalizing color values
+    norm_max maximum used for normalizing color values
 
-    sigma calculate normMin and normMax as this number of sigmas away
+    sigma calculate norm_min and norm_max as this number of sigmas away
     from the mean of positive values
 
     scale - string, can take any value allowed by ds9 xpa interface.
@@ -395,27 +393,27 @@ def ds9Array(xyarray, colormap='B', normMin=None, normMax=None, sigma=None, scal
     if sigma != None:
         # Chris S. does not know what accumulatePositive is supposed to do
         # so he changed the next two lines.
-        # meanVal = numpy.mean(accumulatePositive(xyarray))
-        # stdVal = numpy.std(accumulatePositive(xyarray))
-        meanVal = numpy.mean(xyarray)
-        stdVal = numpy.std(xyarray)
-        normMin = meanVal - sigma * stdVal
-        normMax = meanVal + sigma * stdVal
+        # mean_val = np.mean(accumulatePositive(array))
+        # std_val = np.std(accumulatePositive(array))
+        mean_val = np.mean(array)
+        std_val = np.std(array)
+        norm_min = mean_val - sigma * std_val
+        norm_max = mean_val + sigma * std_val
 
     d = ds9.ds9()  # Open a ds9 instance
     if type(frame) is int:
         d.set('frame ' + str(frame))
 
-    d.set_np2arr(xyarray)
-    # d.view(xyarray, frame=frame)
+    d.set_np2arr(array)
+    # d.view(array, frame=frame)
     d.set('zoom to fit')
     d.set('cmap ' + colormap)
-    if normMin is not None and normMax is not None:
-        d.set('scale ' + str(normMin) + ' ' + str(normMax))
+    if norm_min is not None and norm_max is not None:
+        d.set('scale ' + str(norm_min) + ' ' + str(norm_max))
     if scale is not None:
         d.set('scale ' + scale)
 
-    # plt.matshow(xyarray, cmap=colormap, origin='lower',norm=norm, fignum=False)
+    # plt.matshow(array, cmap=colormap, origin='lower',norm=norm, fignum=False)
 
     # for ptm in pixelsToMark:
     #    box = mpl.patches.Rectangle((ptm[0]-0.5,ptm[1]-0.5),\
