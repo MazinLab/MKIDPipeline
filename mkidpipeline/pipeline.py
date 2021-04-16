@@ -138,6 +138,7 @@ def generate_sample_data():
 
 def generate_sample_output():
     i = defaultdict(lambda: 0)
+
     def namer(name='Thing'):
         ret = f"{name}{i[name]}"
         i[name] = i[name] + 1
@@ -146,10 +147,11 @@ def generate_sample_output():
                               kind='spatial', noise=True, photom=True, ssd=True)]
     return data
 
+
 def metadata_apply(ob):
     o = photontable.Photontable(ob.h5, mode='w')
-    mdl = config.select_metadata_for_h5(ob, config.load_observing_metadata())
-    o.attach_observing_metadata(mdl)
+    o.attach_observing_metadata(ob.metadata)
+    del o
 
 
 def wavecal_apply(o):
@@ -196,13 +198,10 @@ def badpix_apply(o):
 
 def batch_apply_metadata(dataset):
     """Function associates things not known at hdf build time (e.g. that aren't in the bin files)"""
-    # Retrieve metadata database
-    metadata = config.load_observing_metadata()
     # Associate metadata
     for ob in dataset.all_observations:
         o = photontable.Photontable(ob.h5, mode='w')
-        mdl = config.select_metadata_for_h5(ob, metadata)
-        o.attach_observing_metadata(mdl)
+        o.attach_observing_metadata(ob.metadata)
         del o
 
 
