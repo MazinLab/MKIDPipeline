@@ -313,8 +313,8 @@ class Photontable(object):
 
         stop times beyond the end of the file are treated as absolute times.
 
-        startw and stopw are ignored at present
-
+        startw and stopw are overridden with None if they are more than an order of magnitude beyond the edges of
+        nominal_wavelength_bins. if not astropy.units.Qunatity, nm is assumed
         """
         try:
             if start > self.duration:
@@ -351,8 +351,20 @@ class Photontable(object):
             relstop = self.duration
             qstop = None
 
+        if startw is None:
+            qminw = None
+        else:
+            v = u.Quantity(startw, u.nm).value
+            qminw = None if v <= self.nominal_wavelength_bins[0] / 10 else v
+
+        if stopw is None:
+            qmaxw = None
+        else:
+            v = u.Quantity(stopw, u.nm).value
+            qmaxw = None if v >= self.nominal_wavelength_bins[-1] * 10 else v
+
         return dict(start=start, stop=stop, relstart=relstart, relstop=relstop, duration=relstop - relstart,
-                    qstart=qstart, qstop=qstop, minw=startw, maxw=stopw)
+                    qstart=qstart, qstop=qstop, minw=startw, maxw=stopw, qminw=qminw, qmaxw=qmaxw)
 
     def enablewrite(self):
         """USE CARE IN A THREADED ENVIRONMENT"""
@@ -562,9 +574,11 @@ class Photontable(object):
         if pixel and not resid:
             resid = tuple(self.beamImage[pixel].ravel())
 
-        time_nfo = self._parse_query_range_info(startw=startw, stopw=stopw, start=start, stop=stopt, intt=intt)
-        start = time_nfo['qstart']
-        stopt = time_nfo['qstop']
+        query_nfo = self._parse_query_range_info(startw=startw, stopw=stopw, start=start, stop=stopt, intt=intt)
+        start = query_nfo['qstart']
+        stopt = query_nfo['qstop']
+        startw = query_nfo['qminw']
+        stopw = query_nfo['qmaxw']
 
         if resid is None:
             resid = tuple()
