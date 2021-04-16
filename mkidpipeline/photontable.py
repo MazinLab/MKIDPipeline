@@ -1379,22 +1379,28 @@ class Photontable(object):
         self.update_header('fltCalFile', calsolFile.encode())
         getLogger(__name__).info('Flatcal applied in {:.2f}s'.format(time.time() - tic))
 
-    def apply_badpix(self, hot_mask, cold_mask, unstable_mask, id=''):
+    def apply_badpix(self, mask, metadata: dict = None):
         """
         loads the wavelength cal coefficients from a given file and applies them to the
         wavelengths table for each pixel. Photontable must be loaded in write mode. Dont call updateWavelengths !!!
+
+        metadata should be a dict of key: value pairs describing the masking
+        maks shoe be a boolean array of shape self.beamImage.shape+(3,) where the third axis is: host, cold, unstable
 
         Note that run-times longer than ~330s for a full MEC dither (~70M photons, 8kpix) is a regression and
         something is wrong. -JB 2/19/19
         """
         tic = time.time()
         getLogger(__name__).info('Applying a bad pixel mask to {}'.format(self.filename))
+
         f = self.flags
-        self.flag(f.bitmask('pixcal.hot') * hot_mask)
-        self.flag(f.bitmask('pixcal.cold') * cold_mask)
-        self.flag(f.bitmask('pixcal.unstable') * unstable_mask)
+        self.flag(f.bitmask('pixcal.hot') * mask[:,:,0])
+        self.flag(f.bitmask('pixcal.cold') * mask[:,:,1])
+        self.flag(f.bitmask('pixcal.unstable') * mask[:,:,2])
         self.update_header('isBadPixMasked', True)
-        self.update_header('BADPIX.ID', id)
+        if metadata is not None:
+            for k, v in metadata.items():
+                self.update_header(f'BADPIX.{k}', v)
         getLogger(__name__).info('Mask applied in {:.3f}s'.format(time.time() - tic))
 
     def apply_lincal(self, dt=1000, tau=0.000001):
