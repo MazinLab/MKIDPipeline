@@ -8,59 +8,74 @@ divides the flux values for the standard by the MKID flux values for each bin to
 Assumes h5 files are wavelength calibrated, and they should also first be flatcalibrated and linearity corrected
 (deadtime corrected)
 """
-import sys,os
-import scipy.constants as c
-from astropy import units as u
+import sys
+import os
+import time
 import urllib.request as request
 from urllib.error import URLError
 import shutil
+import numpy as np
 from contextlib import closing
+import scipy.constants as c
+from astropy import units as u
 from astroquery.sdss import SDSS
 import astropy.coordinates as coord
 from specutils import Spectrum1D
+import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-import numpy as np
+
 from mkidcore.corelog import getLogger
 from mkidcore import pixelflags
-import mkidpipeline
-import matplotlib.pyplot as plt
+import mkidcore.config
+import mkidpipeline.config
 from mkidpipeline.utils.resampling import rebin
 from mkidpipeline.utils.fitting import fit_blackbody
 from mkidpipeline.utils.smoothing import gaussian_convolution
 from mkidpipeline.utils.interpolating import interpolate_image
-from mkidpipeline.utils.photometry import get_aperture_radius, aper_photometry, astropy_psf_photometry,\
+from mkidpipeline.utils.photometry import get_aperture_radius, aper_photometry, astropy_psf_photometry, \
     mec_measure_satellite_spot_flux
 from mkidpipeline.steps.drizzler import form as form_drizzle
 
 _loaded_solutions = {}
 
 
+PROBLEM_FLAGS = ('pixcal.hot', 'pixcal.cold', 'pixcal.unstable', 'beammap.noDacTone', 'wavecal.bad',
+                 'wavecal.failed_validation', 'wavecal.failed_convergence', 'wavecal.not_monotonic',
+                 'wavecal.not_enough_histogram_fits', 'wavecal.no_histograms',
+                 'wavecal.not_attempted')
+
+UNSPECCALABLE_FLAGS = PROBLEM_FLAGS
+
+
 class StepConfig(mkidpipeline.config.BaseStepConfig):
-    yaml_tag = u'!spectralcal_cfg'
+    yaml_tag = u'!speccal_cfg'
     REQUIRED_KEYS = (('photometry_type', 'aperture', 'aperture | psf'),
                      ('plots', 'summary', 'summary | none'),
-                     ('interpolation', 'linear', ' linear | cubic | nearest'))
+                     ('interpolation', 'linear', ' linear | cubic | nearest'),
+                     ('power', 3, 'The power?')) #TODO
 
 
 FLAGS = pixelflags.FlagSet.define(
-        ('inf_weight', 1, 'Spurious infinite weight was calculated - weight set to 1.0'),
-        ('lz_weight', 2, 'Spurious less-than-or-equal-to-zero weight was calculated - weight set to 1.0'),
-        ('nan_weight', 4, 'NaN weight was calculated.'),
-        ('below_range', 8, 'Derived wavelength is below formal validity range of calibration'),
-        ('above_range', 16, 'Derived wavelength is above formal validity range of calibration'),
-    )
+    ('inf_weight', 1, 'Spurious infinite weight was calculated - weight set to 1.0'),
+    ('lz_weight', 2, 'Spurious less-than-or-equal-to-zero weight was calculated - weight set to 1.0'),
+    ('nan_weight', 4, 'NaN weight was calculated.'),
+    ('below_range', 8, 'Derived wavelength is below formal validity range of calibration'),
+    ('above_range', 16, 'Derived wavelength is above formal validity range of calibration'),
+)
+
 
 class StandardSpectrum:
     """
     replaces the MKIDStandards class from the ARCONS pipeline for MEC.
     """
+
     def __init__(self, save_path='', std_path=None, object_name=None, object_ra=None, object_dec=None, coords=None):
         self.save_dir = save_path
         self.object_name = object_name
         self.ra = object_ra
         self.dec = object_dec
         self.std_path = std_path
-        self.coords = coords # SkyCoord object
+        self.coords = coords  # SkyCoord object
         self.spectrum_file = None
         self.k = 5.03411259e7
 
@@ -103,7 +118,7 @@ class StandardSpectrum:
                     sys.exit()
             data = np.loadtxt(self.spectrum_file)
             # to convert to the appropriate units if ESO spectra
-            data[:, 1] = data[:, 1] * 10**(-16)
+            data[:, 1] = data[:, 1] * 10 ** (-16)
             return data
 
     def counts_to_ergs(self, a):
@@ -137,16 +152,16 @@ class SpectralCalibrator:
         self.wvl_bin_edges = wvl_bin_edges
         self.aperture_radius = aperture_radius
         self.wvl_start = wvl_start
-        self.wvl_stop= wvl_stop
+        self.wvl_stop = wvl_stop
         self.save_path = save_path
         self.platescale = platescale
-        self.std_path=std_path
-        self.object_name=object_name
-        self.photometry=photometry_type
-        self.summary_plot=summary_plot
-        self.cfg=configuration
-        self.ncpu=ncpu
-       # various spectra
+        self.std_path = std_path
+        self.object_name = object_name
+        self.photometry = photometry_type
+        self.summary_plot = summary_plot
+        self.cfg = configuration
+        self.ncpu = ncpu
+        # various spectra
         self.std = None
         self.rebin_std = None
         self.bb = None
@@ -233,7 +248,7 @@ class SpectralCalibrator:
                                                                                  self.wvl_bin_edges[wvl + 1] / 10))
                 drizzled = form_drizzle(self.data, mode='spatial', wvlMin=self.wvl_bin_edges[wvl] / 10,
                                         wvlMax=self.wvl_bin_edges[wvl + 1] / 10, pixfrac=0.5, wcs_timestep=1,
-                                        exp_timestep=1, exclude_flags=pixelflags.PROBLEM_FLAGS, usecache=False,
+                                        exp_timestep=1, exclude_flags=PROBLEM_FLAGS, usecache=False,
                                         ncpu=self.ncpu, derotate=not self.use_satellite_spots, align_start_pa=False,
                                         whitelight=False, debug_dither_plot=False)
                 getLogger(__name__).info(('finished image {}/ {}'.format(wvl + 1.0, len(self.wvl_bin_edges) - 1)))
@@ -241,7 +256,7 @@ class SpectralCalibrator:
             self.cube = np.array(cube)
         n_wvl_bins = len(self.wvl_bin_edges) - 1
 
-        wvl_bin_centers = [(a+b)/2 for a,b in zip(self.wvl_bin_edges, self.wvl_bin_edges[1::])]
+        wvl_bin_centers = [(a + b) / 2 for a, b in zip(self.wvl_bin_edges, self.wvl_bin_edges[1::])]
 
         self.mkid = np.zeros((n_wvl_bins, n_wvl_bins))
         self.mkid[0] = wvl_bin_centers
@@ -253,7 +268,7 @@ class SpectralCalibrator:
             if self.obj_pos is None:
                 getLogger(__name__).info('No coordinate specified for the object. Performing a PSF fit '
                                          'to find the location')
-                x, y, flux = astropy_psf_photometry(cube[:,:,0], 5.0)
+                x, y, flux = astropy_psf_photometry(cube[:, :, 0], 5.0)
                 ind = np.where(flux == flux.max())
                 self.obj_pos = (x.data.data[ind][0], y.data.data[ind][0])
                 getLogger(__name__).info('Found the object at {}'.format(self.obj_pos))
@@ -272,7 +287,7 @@ class SpectralCalibrator:
         standard = StandardSpectrum(save_path=self.save_path, std_path=self.std_path,
                                     object_name=self.object_name[0], object_ra=self.ra[0],
                                     object_dec=self.dec[0])
-        std_wvls, std_flux = standard.get() # standard star object spectrum in ergs/s/Angs/cm^2
+        std_wvls, std_flux = standard.get()  # standard star object spectrum in ergs/s/Angs/cm^2
         self.std = np.hstack(std_wvls, std_flux)
         conv_wvls_rev, conv_flux_rev = self.extend_and_convolve(self.std[0], self.std[1])
         # convolved spectrum comes back sorted backwards, from long wvls to low which screws up rebinning
@@ -280,13 +295,13 @@ class SpectralCalibrator:
 
         # rebin cleaned spectrum to flat cal's wvlBinEdges
         rebin_std_data = rebin(self.conv[0], self.conv[1], self.wvl_bin_edges)
-        wvl_bin_centers = [(a+b)/2 for a,b in zip(self.wvl_bin_edges, self.wvl_bin_edges[1::])]
+        wvl_bin_centers = [(a + b) / 2 for a, b in zip(self.wvl_bin_edges, self.wvl_bin_edges[1::])]
 
         if self.use_satellite_spots:
             for i, wvl in enumerate(wvl_bin_centers):
                 self.contrast[i] = satellite_spot_contrast(wvl)
-                rebin_std_data[i,1] = rebin_std_data[i,1] * self.contrast[i]
-        self.rebin_std =  np.hstack(np.array(rebin_std_data[:, 0]), np.array(rebin_std_data[:, 1]))
+                rebin_std_data[i, 1] = rebin_std_data[i, 1] * self.contrast[i]
+        self.rebin_std = np.hstack(np.array(rebin_std_data[:, 0]), np.array(rebin_std_data[:, 1]))
 
     def extend_and_convolve(self, x, y):
         """
@@ -306,14 +321,14 @@ class SpectralCalibrator:
                 self.bb = np.hstack((wvls, flux))
             # Gaussian convolution to smooth std spectrum to MKIDs median resolution
             new_x, new_y = gaussian_convolution(self.bb[0], self.bb[1], x_en_min=self.energy_stop,
-                                             x_en_max=self.energy_start, flux_units="lambda", r=r, plots=False)
+                                                x_en_max=self.energy_start, flux_units="lambda", r=r, plots=False)
         else:
             getLogger(__name__).info('Standard Spectrum spans whole energy range - no need to perform blackbody fit')
             # Gaussian convolution to smooth std spectrum to MKIDs median resolution
-            std_stop = (c.h * c.c) / (self.std[0][0] * 10**(-10) * c.e)
+            std_stop = (c.h * c.c) / (self.std[0][0] * 10 ** (-10) * c.e)
             std_start = (c.h * c.c) / (self.std[0][-1] * 10 ** (-10) * c.e)
             new_x, new_y = gaussian_convolution(x, y, x_en_min=std_start, x_en_max=std_stop, flux_units="lambda", r=r,
-                                               plots=False)
+                                                plots=False)
         return new_x, new_y
 
     def calculate_response_curve(self):
@@ -321,7 +336,7 @@ class SpectralCalibrator:
         Divide the MEC Spectrum by the rebinned and gaussian convolved standard spectrum
         """
         curve_x = self.rebin_std[0]
-        curve_y = self.rebin_std[1]/self.mkid
+        curve_y = self.rebin_std[1] / self.mkid
         self.curve = np.vstack((curve_x, curve_y))
         return self.curve
 
@@ -344,7 +359,6 @@ class SpectralCalibrator:
         axes_list[1].set_xlabel('Wavelength (A)')
         axes_list[1].set_ylabel('Flux (erg/s/cm^2)')
         axes_list[1].legend(loc='upper right', prop={'size': 6})
-
 
         axes_list[2].step(self.rebin_std[0], self.mkid, where='mid',
                           label='MKID Histogram of Object')
@@ -410,6 +424,7 @@ class ResponseCurve:
         self.name = os.path.splitext(os.path.basename(file_path))[0]  # new name for saving
         getLogger(__name__).info("Complete")
 
+
 def name_to_ESO_extension(object_name):
     """
     converts an input object name string to the standard filename format for the ESO standards catalog on their
@@ -427,6 +442,7 @@ def name_to_ESO_extension(object_name):
         else:
             extension = extension + char
     return 'f{}.dat'.format(extension)
+
 
 def fetch_spectra_ESO(object_name, save_dir):
     """
@@ -453,6 +469,7 @@ def fetch_spectra_ESO(object_name, save_dir):
             pass
     return spectrum_file
 
+
 def fetch_spectra_SDSS(object_name, save_dir, coords):
     """
     saves a textfile in self.save_dir where the first column is the wavelength in angstroms and the second
@@ -466,12 +483,13 @@ def fetch_spectra_SDSS(object_name, save_dir, coords):
     getLogger(__name__).info('Looking for {} spectrum in SDSS catalog'.format(object_name))
     result = SDSS.query_region(coords, spectro=True)
     if not result:
-        getLogger(__name__).warning('Could not find spectrum for {} at {},{} in SDSS catalog'.format(object_name, coords.ra, coords.dec))
+        getLogger(__name__).warning(
+            'Could not find spectrum for {} at {},{} in SDSS catalog'.format(object_name, coords.ra, coords.dec))
         spectrum_file = None
         return spectrum_file
     spec = SDSS.get_spectra(matches=result)
     data = spec[0][1].data
-    lamb = 10**data['loglam'] * u.AA
+    lamb = 10 ** data['loglam'] * u.AA
     flux = data['flux'] * 10 ** -17 * u.Unit('erg cm-2 s-1 AA-1')
     spectrum = Spectrum1D(spectral_axis=lamb, flux=flux)
     res = np.array([spectrum.spectral_axis, spectrum.flux])
@@ -480,6 +498,7 @@ def fetch_spectra_SDSS(object_name, save_dir, coords):
     np.savetxt(spectrum_file, res, fmt='%1.4e')
     getLogger(__name__).info('Spectrum loaded for {} from SDSS catalog'.format(object_name))
     return spectrum_file
+
 
 def fetch_spectra_URL(object_name, url_path, save_dir):
     """
@@ -500,6 +519,7 @@ def fetch_spectra_URL(object_name, url_path, save_dir):
         spectrum_file = save_dir + object_name + 'spectrum.dat'
         return spectrum_file
 
+
 def get_coords(object_name, ra, dec):
     """
     finds the SkyCoord object given a specified ra and dec or object_name
@@ -511,10 +531,11 @@ def get_coords(object_name, ra, dec):
         try:
             coords = coord.SkyCoord.from_name(object_name)
         except TimeoutError:
-            coords=None
+            coords = None
     if not coords:
         getLogger(__name__).error('No coordinates found for spectrophotometric calibration object')
     return coords
+
 
 def satellite_spot_contrast(lam, ref_contrast=2.72e-3,
                             ref_wvl=1.55 * 10 ** 4):  # 2.72e-3 number from Currie et. al. 2018b
@@ -527,6 +548,7 @@ def satellite_spot_contrast(lam, ref_contrast=2.72e-3,
     """
     contrast = ref_contrast * (ref_wvl / lam) ** 2
     return contrast
+
 
 def load_solution(sc, singleton_ok=True):
     """sc is a solution filename string, a ResponseCurve object, or a mkidpipeline.config.MKIDSpeccalDescription"""
@@ -543,6 +565,7 @@ def load_solution(sc, singleton_ok=True):
     except KeyError:
         _loaded_solutions[sc] = ResponseCurve(file_path=sc)
     return _loaded_solutions[sc]
+
 
 def fetch(dataset, config=None, ncpu=None, remake=False, **kwargs):
     solution_descriptors = dataset.speccals
@@ -572,3 +595,35 @@ def fetch(dataset, config=None, ncpu=None, remake=False, **kwargs):
             # solutions.append(load_solution(sf))  # don't need to reload from file
             solutions.append(cal.solution)  # TODO: solutions.append(load_solution(cal.solution))
     return solutions
+
+
+def apply(o, config=None):
+    obs = o.photontable
+    if obs.query_header('isFluxCalibrated'):
+        getLogger(__name__).info(f"{obs.filename} previously calibrated with {obs.query_header('SPECCAL.ID')}, "
+                                 f"skipping")
+        return
+
+    cfg = mkidpipeline.config.config if config is None else config
+    if cfg is None:
+        cfg = StepConfig()  #TODO must be registered at speccal
+
+    power = cfg.speccal.power
+
+    spectralcal = load_solution(o.speccal)
+    response_curve = spectralcal.response_curve
+
+    getLogger(__name__).info('Applying {} to {}'.format(o.speccal, obs.filename))
+    ind = np.isfinite(response_curve.curve[1])  # dont include nan or inf values
+    coeffs = np.polyfit(response_curve.curve[0][ind] / 10.0, response_curve.curve[1][ind], power)
+    func = np.poly1d(coeffs)
+    tic = time.time()
+    for resid in obs.resonators(exclude=UNSPECCALABLE_FLAGS): #TODO this is inefficent and fits the file twice
+        obs.multiply_column_weight(resid, func(obs.query(resid=resid, field='Wavelength')['Wavelength']), 'SpecWeight',
+                                   flush=False)
+
+    obs.update_header('isFluxCalibrated', True)
+    obs.update_header('SPECCAL.ID', spectralcal.id)
+    obs.update_header('SPECCAL.POW', power)
+
+    getLogger(__name__).info('speccal applied in {:.2f}s'.format(time.time() - tic))
