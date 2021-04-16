@@ -70,7 +70,7 @@ def estimate_ram_gb(directory, start, inttime):
 def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250, shuffle=True, bitshuffle=False,
                    wait_for_ram=3600, ndx_shuffle=True, ndx_bitshuffle=False):
     """wait_for_ram speficies the number of seconds to wait for sufficient ram"""
-    from mkidcore.hdf.mkidbin import extract
+    from mkidcore.binfile.mkidbin import extract
     from mkidpipeline.pipeline import PIPELINE_FLAGS, BEAMMAP_FLAGS    #here to prevent circular imports!
 
     if cfg.starttime < 1518222559:

@@ -15,7 +15,7 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 
-from mkidcore.hdf.mkidbin import parse
+from mkidcore.binfile.mkidbin import parse
 from mkidcore.corelog import getLogger
 import mkidcore.corelog
 
