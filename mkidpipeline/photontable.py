@@ -382,6 +382,14 @@ class Photontable(object):
         self.mode = 'read'
         self._load_file(self.filename)
 
+    def attach_new_table(self, group, group_descr, table, table_descr, header, data):
+        group = self.photonTable.create_group("/", group, group_descr)
+        filt = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=True, bitshuffle=False, fletcher32=False)
+        table = self.photonTable.create_table(group, name=table, description=header, title=table_descr,
+                                              expectedrows=len(data), filters=filt, chunkshape=None)
+        table.append(data)
+        table.flush()
+
     def detailed_str(self):
         t = self.photonTable.read()
         tinfo = repr(self.photonTable).replace('\n', '\n\t\t')
