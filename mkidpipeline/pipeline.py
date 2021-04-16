@@ -269,7 +269,7 @@ def run_stage1(dataset):
     getLogger(__name__).info(f'Stage 1 complete in {(time.time() - toc) / 60:.0f} m')
 
 
-def generate_outputs(outputs):
+def generate_outputs(outputs: config.MKIDOutputCollection):
     mkidpipeline.steps.drizzler.fetch(outputs)
 
     for o in outputs:
@@ -279,8 +279,8 @@ def generate_outputs(outputs):
 
             for obs in o.data.obs:
                 h5 = mkidpipeline.photontable.Photontable(obs.h5)
-                img = h5.get_fits(wave_start=o.startw, wave_stop=o.stopw, spec_weight=o.enable_photom,
-                                  noise_weight=o.enable_noise, rate=True)
+                img = h5.get_fits(wave_start=o.min_wave, wave_stop=o.max_wave, spec_weight=o.photom,
+                                  noise_weight=o.noise, rate=True)
                 img.writeto(o.output_file)
                 getLogger(__name__).info('Generated fits file for {}'.format(obs.h5))
         if o.wants_movie:
