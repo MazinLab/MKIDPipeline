@@ -226,31 +226,39 @@ def batch_apply_flatcals(dset, ncpu=None):
 
 def batch_apply_badpix(dset, ncpu=None):
     pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
+
     def apply(h5):
         try:
             mkidpipeline.steps.pixcal.apply(h5)
-        except Exception as e:
-            getLogger(__name__).critical(f'Caught exception during run of mkidpipeline.steps.pixcal.apply({h5})',
-                                         exc_info=True)
+        except Exception:
+            getLogger(__name__).critical(f'Exception during mkidpipeline.steps.pixcal.apply({h5})', exc_info=True)
     pool.map(apply, set([o.h5 for o in dset.pixcalable]))
     pool.close()
 
 
 def batch_apply_lincal(dset, ncpu=None):
     pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
-    pool.map(lincal_apply, set([o.h5 for o in dset.all_observations]))
+    pool.map(lincal_apply, set([o.h5 for o in dset.lincalable]))
     pool.close()
 
 
-def batch_build_hdf(timeranges, ncpu=None):
+def batch_apply_cosmiccal(dset, ncpu=None):
+    pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
+    pool.map(mkidpipeline.steps.cosmiccal.apply, set([o.h5 for o in dset.cosmiccalable]))
+    pool.close()
+
+
+def batch_build_hdf(dset, ncpu=None):
     """will also accept an opject with a .timeranges (e.g. a dataset)"""
     ncpu = ncpu if ncpu is not None else config.n_cpus_available()
-    mkidpipeline.steps.buildhdf.buildtables(timeranges, ncpu=ncpu, remake=False)
+    mkidpipeline.steps.buildhdf.buildtables(dset.timeranges, ncpu=ncpu, remake=False)
+
 
 
 def run_stage1(dataset):
     operations = (('Building H5s', mkidpipeline.steps.buildhdf.buildtables),
                   ('Attaching metadata', batch_apply_metadata),
+                  ('Finding Cosmic-rays', batch_apply_cosmiccal),
                   ('Fetching wavecals', mkidpipeline.steps.wavecal.fetch),
                   ('Applying linearity correction', batch_apply_lincal),
                   ('Applying wavelength solutions', batch_apply_wavecals),
