@@ -23,6 +23,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from regions import CirclePixelRegion, PixCoord
 from progressbar import *
+import mkidcore.metadata
 from mkidcore.headers import PhotonCType, PhotonNumpyType, METADATA_BLOCK_BYTES
 from mkidcore.corelog import getLogger
 from mkidcore.pixelflags import FlagSet
@@ -986,42 +987,30 @@ class Photontable(object):
         header = hdu.header
 
         # TODO flesh this out and integrate the non metadata keys
-        time_nfo = self._parse_query_range_info(start=start, intt=duration)
-        header['START'] = time_nfo['start']
-        header['RELSTART'] = time_nfo['relstart']
-        header['STOP'] = time_nfo['stop']
-        header['EXPTIME'] = time_nfo['duration']
-        header['RELSTOP'] = time_nfo['relstop']
-        # header['SPECCAL']
-        # header['WAVECAL']
-        # header['FLATCAL']
-        # header['BADPIX']
-        # header['COSMIC']
-        # header['LINCAL']
-        header['MINWAVE'] = wave_start
-        header['MAXWAVE'] = wave_stop
-        # header['EXFLAG'] = exclude_flags
-        header['UNIT'] = 'photons/s' if rate else 'photons'
+        time_nfo = self._parse_query_range_info(start=start, intt=duration, startw=wave_start, stopw=wave_stop)
+
         header['H5.FILENAME'] = self.filename
 
         md = self.metadata(timestamp=start)
-        if md is not None:
-            for k, v in md.items():
-                if k.lower() == 'comments':
-                    for c in v:
-                        header['comment'] = c
-                else:
-                    try:
-                        header[k] = v
-                    except ValueError:
-                        header[k] = str(v).replace('\n', '_')
-        else:
-            getLogger(__name__).warning('No metadata found to add to fits header')
 
+        if md is None:
+            getLogger(__name__).warning('No metadata found to add to fits header')
+            md = {}
+        else:
+            md = dict(md)
+        md['START'] = time_nfo['start']
+        md['RELSTART'] = time_nfo['relstart']
+        md['STOP'] = time_nfo['stop']
+        md['EXPTIME'] = time_nfo['duration']
+        md['integrationTime'] = duration  # TODO refactor code that uses this to use EXPTIME
+        md['RELSTOP'] = time_nfo['relstop']
+        md['MINWAVE'] = time_nfo['startw']
+        md['MAXWAVE'] = time_nfo['stopw']
+        md['EXFLAG'] = self.flags.bitmask(exclude_flags, unknown='ignore')
+        md['UNIT'] = 'photons/s' if rate else 'photons'
+        mkidcore.metadata.build_header(md)
         header.update(self.get_wcs(cube_type=cube_type, bins=bin_edges)[0])
 
-        # TODO ensure the following are present
-        header['integrationTime'] = duration
         hdul = fits.HDUList([fits.PrimaryHDU(header=header),
                              fits.ImageHDU(data=data / duration if rate else data,
                                            header=header, name='SCIENCE'),
@@ -1073,7 +1062,7 @@ class Photontable(object):
 
         if no timestamp is specified the first record is returned.
         if a timestamp is specified then the first record
-        before or equal the time is returned unless there is only one record, and then that is returned
+        before or equal to the time is returned unless there is only one record then that is returned
 
         None if there are no records, ValueError if there is not matching timestamp
         """
