@@ -20,12 +20,13 @@ Edited by: Sarah Steiger    Date: October 31, 2019
 import os
 import multiprocessing as mp
 import scipy.constants as c
-
+import time
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import tables
 from PyPDF2 import PdfFileMerger, PdfFileReader
+import astropy.units as u
 
 from matplotlib.backends.backend_pdf import PdfPages
 from mkidpipeline.steps import wavecal
@@ -34,7 +35,6 @@ from mkidcore.corelog import getLogger
 import mkidpipeline.config
 from mkidpipeline.config import H5Subset
 from mkidcore.utils import query
-import mkidcore.pixelflags as pixelflags
 from mkidcore.pixelflags import FlagSet, PROBLEM_FLAGS
 
 
@@ -70,8 +70,7 @@ FLAGS = FlagSet.define(
     ('above_range', 8, 'Derived wavelength is above formal validity range of calibration'),
 )
 
-
-UNFLATABLE = tuple  # flags that can't be flatcaled
+UNFLATABLE = tuple()  # flags that can't be flatcaled
 
 
 # TODO need to create a calibrator factory that works with three options: wavecal, white light, and filtered or laser
@@ -419,7 +418,8 @@ class LaserCalibrator(FlatCalibrator):
                 stopw = wvl + delta_list[w_mask]
 
             hdul = obs.get_fits(duration=self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks, rate=True,
-                                bin_width=self.cfg.flatcal.chunk_time, wave_start=startw, wave_stop=stopw, cube_type='time')
+                                bin_width=self.cfg.flatcal.chunk_time, wave_start=startw, wave_stop=stopw,
+                                cube_type='time')
 
             getLogger(__name__).info(f'Loaded {wvl} nm spectral cube')
             int_times[:, :, w_mask] = self.cfg.flatcal.chunk_time
@@ -686,29 +686,12 @@ def fetch(dataset, config=None, ncpu=np.inf, remake=False):
 
     return solutions
 
-def apply(o : mkidpipeline.config.MKIDObservation, config):
+
+def apply(o: mkidpipeline.config.MKIDObservation, config=None):
     """
-    Applies a flat calibration to the "SpecWeight" column of a single pixel.
+    Applies a flat calibration to the "SpecWeight" column for each pixel.
 
     Weights are multiplied in and replaced; NOT reversible
-
-    Parameters
-    ----------
-    o: an mkidpipeline.config.MKIDObservation that specifies a flatcal
-        Path to the location of the FlatCal solution files
-        should contain the base filename of these solution files
-        e.g '/mnt/data0/isabel/DeltaAnd/Flats/DeltaAndFlatSoln.h5')
-        Code will grab all files titled DeltaAndFlatSoln#.h5 from that directory
-    if verbose: will print resID, row, and column of pixels which have a successful FlatCal
-                will print averaged flat weights of pixels which have a successful FlatCal.
-    Will write plots of flatcal solution (5 second increments over a single flat exposure)
-         with average weights overplotted to a pdf for pixels which have a successful FlatCal.
-         Written to the calSolnPath+'FlatCalSolnPlotsPerPixel.pdf'
-         :param use_wavecal:
-         :param startw:
-         :param stopw:
-         :param calsolFile:
-         :param save_plots:
     """
     cfg = mkidpipeline.config.config.cosmiccal if config is None else config
     if cfg in None:
@@ -721,27 +704,29 @@ def apply(o : mkidpipeline.config.MKIDObservation, config):
     of = o.photontable
     if of.query_header('isFlatCalibrated'):
         getLogger(__name__).info(f"{of.filename} is already flat calibrated with {of.query_header('fltCalFile')}")
-        if of.query_header('fltCalFile') !=o.flatcal.path:
+        if of.query_header('fltCalFile') != o.flatcal.path:
             getLogger(__name__).warning(f'{o} is calibrated with a different flat than requested.')
         return
 
     use_wavecal = cfg.flatcal.use_wavecal
+    startw = cfg.flatcal.min_wave.to(u.nm).value
+    stopw = cfg.flatcal.max_wave.to(u.nm).value
 
     if use_wavecal and not of.query_header('isWavelengthCalibrated'):
         getLogger(__name__).info("Wavecal must be applied first")
         return
 
     tic = time.time()
-    getLogger(__name__).info(f'Applying {s} to {o}')
     calsoln = FlatSolution(o.flatcal.path)
+    getLogger(__name__).info(f'Applying {calsoln} to {o}')
 
-    #Set flags for pixels that have them
-    #TODO
+    # Set flags for pixels that have them
+    # TODO
     # of.flag(np.ones_like(of.of.flags.bitmask())
 
     for pixel, resID in of.resonators(exclude=UNFLATABLE, pixel=True):
 
-        soln = calsoln.get(resID)  #TODO
+        soln = calsoln.get(resID)  # TODO
 
         if not soln:
             getLogger(__name__).warning('No flat calibration for good pixel {}'.format(resID))
@@ -758,7 +743,7 @@ def apply(o : mkidpipeline.config.MKIDObservation, config):
             if use_wavecal:
                 w = of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
                 weights = soln.poly(w)  # TODO
-                weights[w < startw] = 1
+                weights[w < startw] = 1 #TODO this concerns me
                 weights[w > stopw] = 1
             else:
                 weighted_avg = np.ma.average(soln['weight'].flatten(), axis=0, weights=soln['err'].flatten() ** -2.)
@@ -767,7 +752,7 @@ def apply(o : mkidpipeline.config.MKIDObservation, config):
             weights = weights.clip(0)  # enforce positive weights only
 
             if any(weights > 100) or any(weights < 0.01):
-                #TODO this is adhoc and requires fixing!
+                # TODO this is adhoc and requires fixing!
                 getLogger(__name__).debug(f'Unreasonable fitted weight of for {resID}')
 
             of.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=weights, colname='SpecWeight')
@@ -784,5 +769,5 @@ def apply(o : mkidpipeline.config.MKIDObservation, config):
     of.update_header('isFlatCalibrated', True)
     of.update_header('fltCalFile', calsoln.file_path.encode())
     # TODO header cards
-    #of.update_header(f'FLATCAL.TODO', 0)
+    # of.update_header(f'FLATCAL.TODO', 0)
     getLogger(__name__).info('Flatcal applied in {:.2f}s'.format(time.time() - tic))
