@@ -259,7 +259,7 @@ class Photontable(object):
         self.nXPix, self.nYPix = self.beamImage.shape
         self.photonTable = self.file.get_node('/Photons/PhotonTable')
 
-    def multiply_column_weight(self, resid, weights, column):
+    def multiply_column_weight(self, resid, weights, column, flush=True):
         """
         Applies a weight calibration to the column specified by colName.
 
@@ -286,9 +286,10 @@ class Photontable(object):
         if len(indices) != len(weights):
             raise ValueError('weights length does not match length of photon list for resID!')
 
-        new = self.query(resid=resid)[column] * np.asarray(weights)
+        new = self.query(resid=resid, field=column)[column] * np.asarray(weights)
         self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=new, colname=column)
-        self.photonTable.flush()
+        if flush:
+            self.photonTable.flush()
 
     def _update_extensible_header_store(self, extensible_header):
         if not isinstance(extensible_header, dict):
@@ -512,7 +513,7 @@ class Photontable(object):
                       for i, n in enumerate(names)])
         return f
 
-    def flag(self, flag, pixel=(slice(None), slice(None))):
+    def flag(self, flag: int, pixel=(slice(None), slice(None))):
         """
         Applies a flag to the selected pixel on the BeamFlag array. Flag is a bitmask;
         new flag is bitwise OR between current flag and provided flag. Flag definitions

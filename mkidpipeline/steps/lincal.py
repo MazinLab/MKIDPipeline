@@ -16,6 +16,9 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
     REQUIRED_KEYS = (('dt', 1000, 'time range over which to calculate the weights (us)'),)
 
 
+HEADER_KEYS = ('LINCAL.DT', 'LINCAL.TAU')
+
+
 PROBLEM_FLAGS = ('pixcal.hot', 'pixcal.cold', 'pixcal.unstable', 'beammap.noDacTone', 'wavecal.bad',
                  'wavecal.failed_validation', 'wavecal.failed_convergence', 'wavecal.not_monotonic',
                  'wavecal.not_enough_histogram_fits', 'wavecal.no_histograms',
@@ -58,8 +61,9 @@ def apply(o: mkidpipeline.config.MKIDTimerange, config=None):
     for resid in of.resonators(exclude=PROBLEM_FLAGS):
         photons = of.query(resid=resid, column='Time')
         weights = calculate_weights(photons['TIME'], cfg.lincal.dt, cfg.instrument.deadtime * 1 * 10 ** 6)
-        of.multiply_column_weight(resid, weights, 'SpecWeight')
+        of.multiply_column_weight(resid, weights, 'SpecWeight', flush=False)
         bar.update()
+    of.photonTable.flush()
     bar.finish()
     of.update_header('isLinearityCorrected', True)
     of.update_header(f'LINCAL.DT', cfg.lincal.dt)
