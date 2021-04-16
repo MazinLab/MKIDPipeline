@@ -23,14 +23,14 @@ import mkidpipeline.config
 from mkidpipeline.photontable import Photontable
 import tables
 
-NP_IMPACT_TYPE = np.dtype([('count', np.uint8), ('start', np.uint64), ('stop', np.uint64), ('energy', np.float32)])
+NP_IMPACT_TYPE = np.dtype([('count', np.uint8), ('start', np.uint64), ('stop', np.uint64), ('rete', np.uint32)])
 
 
 class CRImpact(tables.IsDescription):
     count = tables.UInt8Col()  # unsigned byte
-    start = tables.Int64Col()  # 32-bit integer
-    stop = tables.Int64Col()  # 32-bit integer
-    energy = tables.Float32Col()  # double (double-precision)
+    start = tables.UInt64Col()  # 64-bit integer
+    stop = tables.UInt64Col()  # 64-bit integer
+    rate = tables.UInt32Col()  # double (double-precision)
 
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
@@ -86,7 +86,7 @@ class CosmicCleaner:
     def run(self):
         start = datetime.utcnow().timestamp()
         getLogger(__name__).debug(f"Starting cosmic ray detection on {self.obs.filename}")
-        self.photons = self.obs.query(startw=self.wave_range[0], stopw=self.wave_range[1])
+        self.photons = self.obs.query(startw=self.wave_range[0], stopw=self.wave_range[1], column='Time')
         self.make_timestream()
         self.make_count_histogram()
         self.generate_poisson_pdf()
@@ -193,10 +193,11 @@ class CosmicCleaner:
         """
         Generates the timestamps in microseconds to be removed from the obsFile. Removes doubles for clarity.
         """
+        # cutouttimes=np.arange(*self.removalRange)[:,None]*self.cosmictimes).flatten()
+        #TODO
         cutouttimes = np.array([np.arange(i - self.removalRange[0],
                                           i + self.removalRange[1], 1) for i in self.cosmictimes]).flatten()
-        cutouttimes = np.array(list(dict.fromkeys(cutouttimes)))
-        self.cutouttimes = cutouttimes
+        self.cutouttimes = np.array(set(cutouttimes))
 
     def trim_timestream(self):
         """
@@ -251,18 +252,26 @@ def apply(o: mkidpipeline.config.MKIDTimerange, config=None):
     if cfg in None:
         cfg = StepConfig()
 
-    #todo
+    #TODO
     exclude = [k[0] for k in StepConfig.REQUIRED_KEYS]
     methodkw = {k: cfg.get(k) for k in cfg.keys() if k not in exclude}
     cc = CosmicCleaner(o.h5, **methodkw)
-    cc.run()
-    md = {}
-    impacts = np.zeros(len(cc.n_cosmics), dtype=NP_IMPACT_TYPE)
-    impacts[:]['start']=cc.starts
-    impacts[:]['stop']=cc.stopts
+    cc.determine_cosmic_intervals()
 
+    impacts = np.zeros(len(cc.interval_starts), dtype=NP_IMPACT_TYPE)
+    # for i, uniqe_exclude_region in enumerate(cc.cosmic_intervals):
+    #     impacts[i]['start'] = uniqe_exclude_region.start
+    #     impacts[i]['stop'] = uniqe_exclude_region.stop
+    #     impacts[i]['count'] = len(uniqe_exclude_region.events)
+    #     impacts[i]['rate'] = np.average([x.peak_val for x in uniqe_exclude_region.events])
+    impacts[:]['start'] = cc.interval_starts
+    impacts[:]['stop'] = cc.interval_stops
+    impacts[:]['count'] = cc.interval_event_count
+    impacts[:]['rate'] = cc.interval_avg_peak
+
+    md = dict(region=cc.removalRange, thresh=cc.threshold, method=cc.method, wavecut=cc.wave_range)
     cc.obs.enablewrite()
     for k, v in md.items:
-        cc.obs.update_header(f'cosmiccal.{k}',v)
+        cc.obs.update_header(f'COSMICCAL.{k}', v)
     cc.obs.attach_new_table('cosmics', 'Cosmic Ray Info', 'impacts', CRImpact, "Cosmic-Ray Hits", impacts)
     cc.obs.disablewrite()
