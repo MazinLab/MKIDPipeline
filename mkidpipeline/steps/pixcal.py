@@ -62,6 +62,7 @@ hpm_poisson_dist:  Checks if photons arriving at pixels are obeying Poisson stat
 import warnings
 import numpy as np
 import scipy.ndimage.filters as spfilters
+import time
 
 from mkidcore.corelog import getLogger
 from mkidpipeline.photontable import Photontable
@@ -476,46 +477,7 @@ def cpscut(image, sigma=5, max_cut=2450, cold_mask=False):
     return {'cold': dead_mask, 'hot': hot_mask, 'image': raw_image}
 
 
-def apply(o, config=None, method='threshold', step=30):
-    """
-    This routine is the main code entry point of the bad pixel masking code.
-    Takes an obs. file as input and writes a 'bad pixel table' to that h5 file where each entry is an indicator of
-    whether the pixel was good, dead, hot, or cold.  Defaults should be somewhat reasonable for a typical on-sky image.
-    HPCut method is interchangeable with any of the methods listed here.
-
-    The HOT and DEAD masks are combined into a single BAD mask at the end
-
-    Required Input:
-    :param obsfile:           user passes an obsfile instance here
-
-    :param step          Scalar Integer.  Number of seconds to do the bad pixel masking over (should be an integer
-                                               number of steps through the obsfile), default = 30
-    config is a StepConfig or a pipeline config with .pixcal:StepConfig
-
-    :return:
-    """
-
-    obs = Photontable(o.h5)
-    if obs.query_header('isBadPixMasked'):
-        getLogger(__name__).info('{} is already pixel calibrated'.format(o.h5))
-        return
-
-    cfg = mkidpipeline.config.config if config is None else config
-
-    if cfg is None:
-        cfg = StepConfig()
-
-    startt, stopt = o.start, o.stop
-    step = min(stopt-startt, cfg.step)
-    if cfg.step > stopt-startt:
-        getLogger(__name__).warning(f'Step time longer than data time by {step-(stopt-startt):.0f} s, '
-                                    f'using full exposure.')
-
-    # This is how method keywords are fetched is propagated
-    exclude = [k[0] for k in StepConfig.REQUIRED_KEYS]
-    methodkw = {k: mkidpipeline.config.config.pixcal.get(k) for k in mkidpipeline.config.config.pixcal.keys() if
-                k not in exclude}
-
+def _compute_mask(obs, method, step, startt, stopt, methodkw, spec_weight, noise_weight):
     starts = np.arange(startt, stopt, step, dtype=int)  # Start time for each step (in seconds).
     step_ends = starts + int(step)  # End time for each step
     step_ends[step_ends > stopt] = int(stopt)  # Clip any time steps that run over the end of the requested time range.
@@ -530,8 +492,8 @@ def apply(o, config=None, method='threshold', step=30):
     # Generate a stack of bad pixel mask, one for each time step
     for i, each_time in enumerate(starts):
         getLogger(__name__).info(f'Processing time slice: {each_time} - {each_time + step} s')
-        img = obs.get_fits(start=each_time, duration=step, spec_weight=cfg.pixcal.spec_weight,
-                           noise_weight=cfg.pixcal.noise_weight, rate=False)
+        img = obs.get_fits(start=each_time, duration=step, spec_weight=spec_weight,
+                           noise_weight=noise_weight, rate=False)
         result = func(img['SCIENCE'].data, **methodkw)
         masks[:, :, i, 0] = result['hot']
         masks[:, :, i, 1] = result['cold']
@@ -541,8 +503,55 @@ def apply(o, config=None, method='threshold', step=30):
     mask[:, :, :2] = masks.all(axis=2)
     mask[:, :, 2] = masks.any(axis=2) & ~mask.any(axis=2)
 
-    meta = dict(method=method, step=step)  #TODO flesh this out with flatcal fits keys
+    meta = dict(method=method, step=step)  #TODO flesh this out with pixcal fits keys
     meta.update(methodkw)
+
+    return mask, meta
+
+
+def fetch(o, config=None):
+
+    obs = Photontable(o.h5)
+    if obs.query_header('isBadPixMasked'):
+        getLogger(__name__).info('{} is already pixel calibrated'.format(o.h5))
+        return None, None
+
+    cfg = mkidpipeline.config.config if config is None else config
+
+    if cfg is None:
+        cfg = StepConfig()  #TODO need to ensure regestered at cfg.pixcal
+
+    startt, stopt = o.start, o.stop
+    step = min(stopt-startt, cfg.pixcal.step)
+    method = cfg.pixcal.method
+
+    if cfg.pixcal.step > stopt-startt:
+        getLogger(__name__).warning(f'Step time longer than data time by {step-(stopt-startt):.0f} s, '
+                                    f'using full exposure.')
+
+    # This is how method keywords are fetched is propagated
+    exclude = [k[0] for k in StepConfig.REQUIRED_KEYS]
+    methodkw = {k: mkidpipeline.config.config.pixcal.get(k) for k in mkidpipeline.config.config.pixcal.keys() if
+                k not in exclude}
+
+    return _compute_mask(obs, method, step, startt, stopt, methodkw, cfg.pixcal.spec_weight, cfg.pixcal.noise_weight)
+
+
+def apply(o, config=None):
+    mask, meta = fetch(o, config)
+    if mask is None:
+        return
+
+    obs = Photontable(o.h5)
+    tic = time.time()
+    getLogger(__name__).info(f'Applying pixel mask to {o}')
     obs.enablewrite()
-    obs.apply_badpix(mask, metadata=meta)
+    f = obs.flags
+    obs.flag(f.bitmask('pixcal.hot') * mask[:, :, 0])
+    obs.flag(f.bitmask('pixcal.cold') * mask[:, :, 1])
+    obs.flag(f.bitmask('pixcal.unstable') * mask[:, :, 2])
+    obs.update_header('isBadPixMasked', True)
+    for k, v in meta.items():
+        obs.update_header(f'PIXCAL.{k}', v)
     obs.disablewrite()
+    getLogger(__name__).info(f'Mask applied in {time.time() - tic:.3f}s')
