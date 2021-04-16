@@ -259,7 +259,7 @@ class Photontable(object):
         self.nXPix, self.nYPix = self.beamImage.shape
         self.photonTable = self.file.get_node('/Photons/PhotonTable')
 
-    def _apply_column_weight(self, resid, weights, column):
+    def multiply_column_weight(self, resid, weights, column):
         """
         Applies a weight calibration to the column specified by colName.
 
@@ -563,7 +563,7 @@ class Photontable(object):
         self._flagArray[y, x] &= ~flag
         self._flagArray.flush()
 
-    def query(self, startw=None, stopw=None, start=None, stopt=None, resid=None, intt=None, pixel=None):
+    def query(self, startw=None, stopw=None, start=None, stopt=None, resid=None, intt=None, pixel=None, column=None):
         """
         intt takes precedence, all none is the full file
 
@@ -652,7 +652,7 @@ class Photontable(object):
         else:
             tic = time.time()
             try:
-                q = self.photonTable.read_where(query)
+                q = self.photonTable.read_where(query, field=column)
             except SyntaxError:
                 raise
             toc = time.time()
@@ -1400,7 +1400,7 @@ class Photontable(object):
                 self.update_header(f'BADPIX.{k}', v)
         getLogger(__name__).info('Mask applied in {:.3f}s'.format(time.time() - tic))
 
-    def apply_lincal(self, dt=1000, tau=0.000001):
+    def apply_lincal(self, lincal_weights, metadata: dict = None):
         tic = time.time()
         if self.query_header('isLinearityCorrected'):
             getLogger(__name__).info("H5 {} is already linearity calibrated".format(self.filename))
@@ -1410,13 +1410,25 @@ class Photontable(object):
             if self.flagged(pixelflags.PROBLEM_FLAGS, resid=resid):
                 continue
             photons = self.query(resid=resid)
-            self._apply_column_weight(resid, lincal.calculate_weights(photons['TIME'], dt, tau), 'SpecWeight')
+            self.multiply_column_weight(resid, lincal_weights, 'SpecWeight')
             bar.update(i)
         bar.finish()
         getLogger(__name__).info('Lincal applied to {} in {:.2f}s'.format(self.filename, time.time() - tic))
         self.update_header('isLinearityCorrected', True)
-        self.update_header('LINCAL.DT', dt)
-        self.update_header('LINCAL.TAU', tau)
+        if metadata is not None:
+            for k, v in metadata.items():
+                self.update_header(f'LINCAL.{k}', v)
+
+    def resonators(self, exclude=None, select=None, pixel=False):
+        """A resonator iterator excluding resonators flagged with any flags in exclude and selecting only pixels with
+        all the flags in select (select=None|empty implies no restriction. set pixel=True to yield resID,(x,y) instead
+        of resid"""
+        excludemask = self.flagged(exclude, all_flags=False)
+        selectmask = self.flagged(select, all_flags=False)
+        for pix, (resid, excl, sel) in np.enumerate(zip(self.beamImage, excludemask, selectmask)):
+            if excl or (select and not sel):
+                continue
+            yield pix, resid if pixel else resid
 
     def apply_speccal(self, spectralcal, power=3):
         """
@@ -1439,7 +1451,7 @@ class Photontable(object):
         for resid in self.beamImage:
             if self.flagged(pixelflags.PROBLEM_FLAGS, resid=resid):
                 continue
-            self._apply_column_weight(resid, func(self.query(resid=resid)['Wavelength']), 'SpecWeight')
+            self.multiply_column_weight(resid, func(self.query(resid=resid)['Wavelength']), 'SpecWeight')
 
         self.update_header('isFluxCalibrated', True)
         self.update_header('SPECCAL.ID', spectralcal.id)
