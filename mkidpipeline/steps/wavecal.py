@@ -4,56 +4,35 @@ import warnings
 from logging import getLogger
 import numpy as np
 import multiprocessing as mp
-from datetime import datetime
+import time
 from distutils.spawn import find_executable
 from six.moves.configparser import ConfigParser
+import progressbar as pb
+
+import astropy.constants
 import matplotlib
 from matplotlib import gridspec
 from matplotlib.widgets import Button, Slider
 from matplotlib import cm, lines, pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from mpl_toolkits.axes_grid1 import axes_size, make_axes_locatable
+
 import mkidcore.corelog as pipelinelog
-import mkidpipeline.config
 import mkidcore.config
 from mkidcore.objects import Beammap
 from mkidcore.pixelflags import FlagSet
-
-import astropy.constants
-import progressbar as pb
+import mkidpipeline.config
 import mkidpipeline.photontable as photontable
 
 log = pipelinelog.getLogger('mkidpipeline.steps.wavecal', setup=False)
 
 import mkidpipeline.utils.wavecal_models as wm
 
+
 PLANK_CONSTANT_EVS = astropy.constants.h.to('eV s').value
 SPEED_OF_LIGHT_NMS = astropy.constants.c.to('nm/s').value
 
-
 _loaded_solutions = {}  # storage for loaded wavelength solutions
-
-
-def setup_logging(tologfile='', toconsole=True, time_stamp=None):
-    """
-    Set up logging for the wavelength calibration module for running from the command line.
-
-    Args:
-        tologfile: directory where the logs folder will be placed. If empty, no logfile is made.
-        toconsole: boolean specifying if the console log is set up.
-        time_stamp: utc time stamp to name the log file.
-    """
-    if time_stamp is None:
-        time_stamp = int(datetime.utcnow().timestamp())
-    if toconsole:
-        log_format = "%(levelname)s : %(message)s"
-        pipelinelog.create_log('mkidpipeline', console=True, fmt=log_format, level="INFO")
-
-    if tologfile:
-        log_directory = os.path.join(tologfile, 'logs')
-        log_file = os.path.join(log_directory, '{:.0f}.log'.format(time_stamp))
-        log_format = '%(asctime)s : %(funcName)s : %(levelname)s : %(message)s'
-        pipelinelog.create_log('mkidpipeline', logfile=log_file, console=False, fmt=log_format, level="DEBUG")
 
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
@@ -2650,6 +2629,10 @@ class Solution(object):
         return not isinstance(self.fit_array[pixel[0], pixel[1]][0], dict)
 
 
+mkidpipeline.config.yaml.register_class(Configuration)
+mkidpipeline.config.yaml.register_class(Solution)
+
+
 def load_solution(wc, singleton_ok=True):
     """wc is a solution filename string, a Solution object, or a mkidpipeline.config.MKIDWavecalDescription"""
     global _loaded_solutions
@@ -2700,7 +2683,7 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
             if ncpu is not None:
                 wcfg.update('ncpu', ncpu)
 
-            cfg = Configuration(wcfg, h5s=[x.h5 for x in sd.data], wavelengths=[w for w in sd.wavelengths],
+            cfg = Configuration(wcfg, h5s=tuple(x.h5 for x in sd.data), wavelengths=tuple(w for w in sd.wavelengths),
                                 darks=sd.darks)
             cal = Calibrator(cfg, solution_name=sf)
             cal.run(**kwargs)
@@ -2708,5 +2691,66 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
     return solutions
 
 
-mkidpipeline.config.yaml.register_class(Configuration)
-mkidpipeline.config.yaml.register_class(Solution)
+def apply(o, config=None):
+    """
+    loads the wavelength cal coefficients from a given file and applies them to the
+    wavelengths table for each pixel. Photontable must be loaded in write mode. Dont call updateWavelengths !!!
+
+    Note that run-times longer than ~330s for a full MEC dither (~70M photons, 8kpix) is a regression and
+    something is wrong. -JB 2/19/19
+    """
+
+    if o.wavecal is None:
+        getLogger(__name__).info('No wavecal to apply for {}'.format(o.h5))
+        return
+
+    solution = load_solution(o.wavecal.path)
+    obs = o.photontable
+    obs.enablewrite()
+    
+    # check file_name and status of obsFile
+    if obs.query_header('isWvlCalibrated'):
+        getLogger(__name__).info('Data already calibrated using {}'.format(obs.query_header('wvlCalFile')))
+        return
+
+    getLogger(__name__).info('Applying {} to {}'.format(solution, obs.filename))
+
+    obs.photonTable.autoindex = False  # Don't reindex every time we change column
+
+    tic = time.time()
+    for (row, column), resID in obs.resonators():
+
+        if not solution.has_good_calibration_solution(res_id=resID):
+            continue
+
+        indices = obs.photonTable.get_where_list('ResID==resID')
+        if not indices.size:
+            continue
+
+        flags = obs.flags
+        obs.unflag(flags.bitmask([f for f in flags.names if f.startswith('wavecal')]), pixel=(column, row))
+        obs.flag(flags.bitmask([f'wavecal.{f.name}' for f in solution.get_flag(res_id=resID)]), pixel=(column, row))
+
+        calibration = solution.calibration_function(res_id=resID, wavelength_units=True)
+
+        if (np.diff(indices) == 1).all():  # This takes ~475s for ALL photons combined on a 70Mphot file.
+            # getLogger(__name__).debug('Using modify_column')
+            phase = obs.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
+            obs.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=calibration(phase),
+                                          colname='Wavelength')
+        else:  # This takes 3.5s on a 70Mphot file!!!
+            # raise NotImplementedError('This code path is impractically slow at present.')
+            getLogger(__name__).debug('Using modify_coordinates')
+            rows = obs.photonTable.read_coordinates(indices)
+            rows['Wavelength'] = calibration(rows['Wavelength'])
+            obs.photonTable.modify_coordinates(indices, rows)
+        tic2 = time.time()
+        getLogger(__name__).debug('Wavelength updated in {:.2f}s'.format(time.time() - tic2))
+
+    obs.update_header('isWvlCalibrated', True)
+    obs.update_header('wvlCalFile', str.encode(solution.name))
+    #TODO update header with WAVECAL.XXXX cards
+    obs.photonTable.reindex_dirty()  # recompute "dirty" wavelength index
+    obs.photonTable.autoindex = True  # turn on auto-indexing
+    obs.disablewrite()
+    getLogger(__name__).info('Wavecal applied in {:.2f}s'.format(time.time() - tic))

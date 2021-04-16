@@ -380,6 +380,7 @@ class Photontable(object):
         """USE CARE IN A THREADED ENVIRONMENT"""
         if self.mode == 'read':
             return
+        self.photonTable.flush()
         self.file.close()
         self.mode = 'read'
         self._load_file(self.filename)
@@ -1220,59 +1221,6 @@ class Photontable(object):
 
         getLogger(__name__).debug('Wavelengths updated in {:.2f}s'.format(time.time() - tic))
 
-    def apply_wavecal(self, solution):
-        """
-        loads the wavelength cal coefficients from a given file and applies them to the
-        wavelengths table for each pixel. Photontable must be loaded in write mode. Dont call updateWavelengths !!!
-
-        Note that run-times longer than ~330s for a full MEC dither (~70M photons, 8kpix) is a regression and
-        something is wrong. -JB 2/19/19
-        """
-        # check file_name and status of obsFile
-        if self.query_header('isWvlCalibrated'):
-            getLogger(__name__).info('Data already calibrated using {}'.format(self.query_header('wvlCalFile')))
-            return
-        getLogger(__name__).info('Applying {} to {}'.format(solution, self.filename))
-        self.photonTable.autoindex = False  # Don't reindex every time we change column
-        # apply waveCal
-        tic = time.time()
-        for (row, column), resID in np.ndenumerate(self.beamImage):
-
-            if not solution.has_good_calibration_solution(res_id=resID):
-                continue
-
-            indices = self.photonTable.get_where_list('ResID==resID')
-            if not indices.size:
-                continue
-
-            flags = self.flags
-            self.unflag(flags.bitmask([f for f in flags.names if f.startswith('wavecal')]), pixel=(column, row))
-            self.flag(flags.bitmask([f'wavecal.{f.name}' for f in solution.get_flag(res_id=resID)]),
-                      pixel=(column, row))
-
-            calibration = solution.calibration_function(res_id=resID, wavelength_units=True)
-
-            if (np.diff(indices) == 1).all():  # This takes ~475s for ALL photons combined on a 70Mphot file.
-                # getLogger(__name__).debug('Using modify_column')
-                phase = self.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
-                self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=calibration(phase),
-                                               colname='Wavelength')
-            else:  # This takes 3.5s on a 70Mphot file!!!
-                # raise NotImplementedError('This code path is impractically slow at present.')
-                getLogger(__name__).debug('Using modify_coordinates')
-                rows = self.photonTable.read_coordinates(indices)
-                rows['Wavelength'] = calibration(rows['Wavelength'])
-                self.photonTable.modify_coordinates(indices, rows)
-            tic2 = time.time()
-            getLogger(__name__).debug('Wavelength updated in {:.2f}s'.format(time.time() - tic2))
-
-        self.update_header('isWvlCalibrated', True)
-        self.update_header('wvlCalFile', str.encode(solution.name))
-        self.photonTable.reindex_dirty()  # recompute "dirty" wavelength index
-        self.photonTable.autoindex = True  # turn on auto-indexing
-        self.photonTable.flush()
-        getLogger(__name__).info('Wavecal applied in {:.2f}s'.format(time.time() - tic))
-
     def resonators(self, exclude=None, select=None, pixel=False):
         """A resonator iterator excluding resonators flagged with any flags in exclude and selecting only pixels with
         all the flags in select (select=None|empty implies no restriction. set pixel=True to yield resID,(x,y) instead
@@ -1283,34 +1231,6 @@ class Photontable(object):
             if excl or (select and not sel):
                 continue
             yield pix, resid if pixel else resid
-
-    def apply_speccal(self, spectralcal, power=3):
-        """
-        :param spectralcal: a spectralcal solution. must have id and response_curve attributes, the latter
-         a 2xN columnss are wavelength in angstroms and the spectral response
-        :return:
-        """
-        if self.query_header('isFluxCalibrated'):
-            getLogger(__name__).info(f"{self.filename} previously calibrated with {self.query_header('SPECCAL.ID')}, "
-                                     f"skipping")
-            return
-
-        response_curve = spectralcal.response_curve
-
-        getLogger(__name__).info('Applying {} to {}'.format(response_curve, self.filename))
-        ind = np.isfinite(response_curve.curve[1])  # dont include nan or inf values
-        coeffs = np.polyfit(response_curve.curve[0][ind] / 10.0, response_curve.curve[1][ind], power)
-        func = np.poly1d(coeffs)
-        tic = time.time()
-        for resid in self.beamImage:
-            if self.flagged(pixelflags.PROBLEM_FLAGS, resid=resid):
-                continue
-            self.multiply_column_weight(resid, func(self.query(resid=resid)['Wavelength']), 'SpecWeight')
-
-        self.update_header('isFluxCalibrated', True)
-        self.update_header('SPECCAL.ID', spectralcal.id)
-        self.update_header('SPECCAL.POW', power)
-        getLogger(__name__).info('spectralcal applied in {:.2f}s'.format(time.time() - tic))
 
 
 def calculate_slices(inter, timestamps):

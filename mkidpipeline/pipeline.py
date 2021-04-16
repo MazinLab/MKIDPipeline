@@ -152,18 +152,6 @@ def generate_sample_output():
     return data
 
 
-def wavecal_apply(o):
-    if o.wavecal is None:
-        getLogger(__name__).info('No wavecal to apply for {}'.format(o.h5))
-        return
-    try:
-        of = photontable.Photontable(o.h5, mode='a')
-        of.apply_wavecal(wavecal.load_solution(o.wavecal.path))
-        of.file.close()
-    except Exception as e:
-        getLogger(__name__).critical('Caught exception during run of {}'.format(o.h5), exc_info=True)
-
-
 def safe(func):
     @functools.wraps(func)
     def wrapper_decorator(*args, **kwargs):
@@ -205,7 +193,7 @@ def batch_apply_metadata(dset):
 def batch_apply_wavecals(dset, ncpu=None):
     wavecal.clear_solution_cache()
     ncpu = ncpu if ncpu is not None else config.n_cpus_available(config.config.wavecal.ncpu)
-    batch_applier(wavecal_apply, dset.wavecalable, ncpu=ncpu)
+    batch_applier(mkidpipeline.steps.wavecal.apply, dset.wavecalable, ncpu=ncpu)
 
 
 def batch_apply_flatcals(dset, ncpu=None):
