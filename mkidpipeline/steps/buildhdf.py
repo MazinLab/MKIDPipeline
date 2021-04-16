@@ -25,8 +25,8 @@ PHOTON_BIN_SIZE_BYTES = 8
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!hdf_cfg'
     REQUIRED_KEYS = (('remake', False, 'Remake H5 even if they exist'),
-                     ('include_baseline', False, 'Include the baseline in H5 phase/wavelength column'))
-    OPTIONAL_KEYS = (('chunkshape', None, 'HDF5 Chunkshape to use'),)  # nb propagates to kwargs of build_pytables
+                     ('include_baseline', False, 'Include the baseline in H5 phase/wavelength column'),
+                     ('chunkshape', 250, 'HDF5 Chunkshape to use'),)  # nb propagates to kwargs of build_pytables
 
 
 mkidcore.config.yaml.register_class(StepConfig)
@@ -325,6 +325,7 @@ def buildtables(timeranges, config=None, ncpu=None, remake=None, **kwargs):
     cfg = mkidpipeline.config.config if config is None else config
     if cfg is None:
         raise RuntimeError('Pipeline not configured')
+
     b2h_configs = []
     for start_t, end_t in timeranges:
         bc = Bin2HdfConfig(datadir=_get_dir_for_start(cfg.paths.data, start_t), beammap=cfg.beammap,
@@ -334,7 +335,8 @@ def buildtables(timeranges, config=None, ncpu=None, remake=None, **kwargs):
 
     remake = mkidpipeline.config.config.hdf.get('remake', False) if remake is None else remake
     ncpu = mkidpipeline.config.config.hdf.get('ncpu', 1) if ncpu is None else ncpu
-    for k in mkidpipeline.config.config.hdf.keys():
+
+    for k in mkidpipeline.config.config.hdf.keys():  # This is how chunkshape is propagated
         if k not in kwargs and k not in ('ncpu', 'remake', 'include_baseline'):
             kwargs[k] = mkidpipeline.config.config.hdf.get(k)
 
@@ -343,7 +345,7 @@ def buildtables(timeranges, config=None, ncpu=None, remake=None, **kwargs):
     if ncpu == 1:
         for b in builders:
             try:
-                b.run(**kwargs)
+                b.run()
             except MemoryError:
                 getLogger(__name__).error('Insufficient memory to process {}'.format(b.h5file))
         return timeranges
