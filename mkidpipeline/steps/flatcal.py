@@ -71,6 +71,9 @@ FLAGS = FlagSet.define(
 )
 
 
+UNFLATABLE = tuple  # flags that can't be flatcaled
+
+
 # TODO need to create a calibrator factory that works with three options: wavecal, white light, and filtered or laser
 #  light. In essence each needs a load_data functionand maybe a load_flat_spectra in the parlance of the current
 #  structure. The individual cases can be determined by seeing if the input data has a starttime or a wavesol
@@ -682,3 +685,104 @@ def fetch(dataset, config=None, ncpu=np.inf, remake=False):
         pool.join()
 
     return solutions
+
+def apply(o : mkidpipeline.config.MKIDObservation, config):
+    """
+    Applies a flat calibration to the "SpecWeight" column of a single pixel.
+
+    Weights are multiplied in and replaced; NOT reversible
+
+    Parameters
+    ----------
+    o: an mkidpipeline.config.MKIDObservation that specifies a flatcal
+        Path to the location of the FlatCal solution files
+        should contain the base filename of these solution files
+        e.g '/mnt/data0/isabel/DeltaAnd/Flats/DeltaAndFlatSoln.h5')
+        Code will grab all files titled DeltaAndFlatSoln#.h5 from that directory
+    if verbose: will print resID, row, and column of pixels which have a successful FlatCal
+                will print averaged flat weights of pixels which have a successful FlatCal.
+    Will write plots of flatcal solution (5 second increments over a single flat exposure)
+         with average weights overplotted to a pdf for pixels which have a successful FlatCal.
+         Written to the calSolnPath+'FlatCalSolnPlotsPerPixel.pdf'
+         :param use_wavecal:
+         :param startw:
+         :param stopw:
+         :param calsolFile:
+         :param save_plots:
+    """
+    cfg = mkidpipeline.config.config.cosmiccal if config is None else config
+    if cfg in None:
+        cfg = StepConfig()
+
+    if o.flatcal is None:
+        getLogger(__name__).info(f"No flatcal specified for {o}, nothing to do")
+        return
+
+    of = o.photontable
+    if of.query_header('isFlatCalibrated'):
+        getLogger(__name__).info(f"{of.filename} is already flat calibrated with {of.query_header('fltCalFile')}")
+        if of.query_header('fltCalFile') !=o.flatcal.path:
+            getLogger(__name__).warning(f'{o} is calibrated with a different flat than requested.')
+        return
+
+    use_wavecal = cfg.flatcal.use_wavecal
+
+    if use_wavecal and not of.query_header('isWavelengthCalibrated'):
+        getLogger(__name__).info("Wavecal must be applied first")
+        return
+
+    tic = time.time()
+    getLogger(__name__).info(f'Applying {s} to {o}')
+    calsoln = FlatSolution(o.flatcal.path)
+
+    #Set flags for pixels that have them
+    #TODO
+    # of.flag(np.ones_like(of.of.flags.bitmask())
+
+    for pixel, resID in of.resonators(exclude=UNFLATABLE, pixel=True):
+
+        soln = calsoln.get(resID)  #TODO
+
+        if not soln:
+            getLogger(__name__).warning('No flat calibration for good pixel {}'.format(resID))
+            continue
+
+        indices = of.photonTable.get_where_list('ResID==resID')
+        if not indices.size:
+            continue
+
+        tic2 = time.time()
+
+        if (np.diff(indices) == 1).all():  # This takes ~300s for ALL photons combined on a 70Mphot file.
+            # getLogger(__name__).debug('Using modify_column')
+            if use_wavecal:
+                w = of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
+                weights = soln.poly(w)  # TODO
+                weights[w < startw] = 1
+                weights[w > stopw] = 1
+            else:
+                weighted_avg = np.ma.average(soln['weight'].flatten(), axis=0, weights=soln['err'].flatten() ** -2.)
+                weights = np.ones_like(w) * weighted_avg
+
+            weights = weights.clip(0)  # enforce positive weights only
+
+            if any(weights > 100) or any(weights < 0.01):
+                #TODO this is adhoc and requires fixing!
+                getLogger(__name__).debug(f'Unreasonable fitted weight of for {resID}')
+
+            of.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=weights, colname='SpecWeight')
+        else:  # This takes 3.5s per pixel on a 70 Mphot file!!!
+            raise NotImplementedError('This code path is impractically slow at present.')
+            getLogger(__name__).debug('Using modify_coordinates')
+            if not use_wavecal:
+                raise NotImplementedError('Not implemented for use_wavecal=False')
+            rows = of.photonTable.read_coordinates(indices)
+            rows['SpecWeight'] = soln.poly(rows['Wavelength'])
+            of.photonTable.modify_coordinates(indices, rows)
+            getLogger(__name__).debug('Flat weights updated in {:.2f}s'.format(time.time() - tic2))
+
+    of.update_header('isFlatCalibrated', True)
+    of.update_header('fltCalFile', calsoln.file_path.encode())
+    # TODO header cards
+    #of.update_header(f'FLATCAL.TODO', 0)
+    getLogger(__name__).info('Flatcal applied in {:.2f}s'.format(time.time() - tic))
