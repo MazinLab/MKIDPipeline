@@ -252,9 +252,9 @@ def run_stage1(dataset):
     operations = (('Building H5s', mkidpipeline.steps.buildhdf.buildtables),
                   ('Attaching metadata', batch_apply_metadata),
                   ('Fetching wavecals', mkidpipeline.steps.wavecal.fetch),
+                  ('Applying linearity correction', batch_apply_lincal),
                   ('Applying wavelength solutions', batch_apply_wavecals),
                   ('Applying wavelength solutions', batch_apply_badpix),
-                  ('Applying linearity correction', batch_apply_lincal),
                   ('Fetching flatcals', mkidpipeline.steps.flatcal.fetch),
                   ('Applying flatcals', batch_apply_flatcals),
                   ('Fetching speccals', mkidpipeline.steps.speccal.fetch))
