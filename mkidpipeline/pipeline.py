@@ -3,6 +3,7 @@ import pkgutil
 import multiprocessing as mp
 import time
 from collections import defaultdict
+import functools
 
 from mkidcore.pixelflags import FlagSet, BEAMMAP_FLAGS
 from mkidcore.config import getLogger
@@ -63,6 +64,7 @@ def generate_default_config():
 
 def generate_sample_data():
     i = defaultdict(lambda: 0)
+
     def namer(name='Thing'):
         ret = f"{name}{i[name]}"
         i[name] = i[name] + 1
@@ -119,18 +121,19 @@ def generate_sample_data():
                                          flatcal='flatcal0', speccal='speccal0', use='0,2,4-9', wcscal='wcscal0'),
             config.MKIDDitherDescription(name=namer('dither'), data='dither.logfile', wavecal='wavecal0',
                                          flatcal='flatcal0', speccal='speccal0', use=(1,), wcscal='wcscal0'),
-            config.MKIDDitherDescription(name=namer('dither'), flatcal='', speccal='', wcscal='',wavecal='',
-                                         data=(config.MKIDObservation(name=namer('HIP109427_'), start=1602047815, duration=10,
-                                                                      wavecal='wavecal0', dither_pos=(0.2,0.3),
-                                                                      dark=config.MKIDTimerange(name=namer(), start=350,
-                                                                                                duration=10)),
-                                               config.MKIDObservation(name=namer('HIP109427_'), start=1602047825, duration=10,
-                                                                      wavecal='wavecal0', dither_pos=(0.1, 0.1),
-                                                                      wcscal='wcscal0'),
-                                               config.MKIDObservation(name=namer('HIP109427_'), start=1602047835, duration=10,
-                                                                      wavecal='wavecal0', dither_pos=(-0.1, -0.1),
-                                                                      wcscal='wcscal0')
-                                               )
+            config.MKIDDitherDescription(name=namer('dither'), flatcal='', speccal='', wcscal='', wavecal='',
+                                         data=(
+                                         config.MKIDObservation(name=namer('HIP109427_'), start=1602047815, duration=10,
+                                                                wavecal='wavecal0', dither_pos=(0.2, 0.3),
+                                                                dark=config.MKIDTimerange(name=namer(), start=350,
+                                                                                          duration=10)),
+                                         config.MKIDObservation(name=namer('HIP109427_'), start=1602047825, duration=10,
+                                                                wavecal='wavecal0', dither_pos=(0.1, 0.1),
+                                                                wcscal='wcscal0'),
+                                         config.MKIDObservation(name=namer('HIP109427_'), start=1602047835, duration=10,
+                                                                wavecal='wavecal0', dither_pos=(-0.1, -0.1),
+                                                                wcscal='wcscal0')
+                                         )
                                          )
             ]
     return data
@@ -143,15 +146,10 @@ def generate_sample_output():
         ret = f"{name}{i[name]}"
         i[name] = i[name] + 1
         return ret
+
     data = [config.MKIDOutput(name=namer('out'), data='dither0', min_wave='850 nm', max_wave='1375 nm',
                               kind='spatial', noise=True, photom=True, ssd=True)]
     return data
-
-
-def metadata_apply(ob):
-    o = photontable.Photontable(ob.h5, mode='w')
-    o.attach_observing_metadata(ob.metadata)
-    del o
 
 
 def wavecal_apply(o):
@@ -166,105 +164,82 @@ def wavecal_apply(o):
         getLogger(__name__).critical('Caught exception during run of {}'.format(o.h5), exc_info=True)
 
 
-def flatcal_apply(o):
-    if o.flatcal is None:
-        getLogger(__name__).info('No flatcal to apply for {}'.format(o.h5))
-        return
-    try:
-        of = photontable.Photontable(o.h5, mode='a')
-        cfg = mkidpipeline.config.config
-        of.apply_flatcal(o.flatcal.path, use_wavecal=cfg.flatcal.use_wavecal, startw=850, stopw=1375)
-        of.file.close()
-    except Exception as e:
-        getLogger(__name__).critical('Caught exception during run of {}'.format(o.h5), exc_info=True)
+def safe(func):
+    @functools.wraps(func)
+    def wrapper_decorator(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception:
+            getLogger(__name__).critical('Caught exception during run of {}'.format(o), exc_info=True)
+            return None
+
+    return wrapper_decorator
 
 
-def lincal_apply(o):
-    try:
-        mkidpipeline.steps.lincal.apply(o)
-    except Exception as e:
-        getLogger(__name__).critical('Caught exception during run of {}'.format(o), exc_info=True)
+def batch_applier(func, obs, ncpu=None, unique_h5=True):
+    if unique_h5:
+        obs = {o.h5: o for o in obs}.values()
+    ncpu = ncpu if ncpu is not None else config.n_cpus_available()
+    ncpu = min(ncpu, len(obs))
+    if ncpu == 1:
+        for o in obs:
+            safe(func)(o)
+    else:
+        pool = mp.Pool()
+        pool.map(safe(func), obs)
+        pool.close()
 
 
-def badpix_apply(o):
-    try:
-        mkidpipeline.steps.pixcal.apply(o.h5)
-    except Exception as e:
-        getLogger(__name__).critical('Caught exception during run of {}'.format(o), exc_info=True)
+def batch_build_hdf(dset, ncpu=None):
+    batch_applier(mkidpipeline.steps.buildhdf.buildtables, dset.timeranges, ncpu=ncpu, unique_h5=False)
 
 
-def batch_apply_metadata(dataset):
+def batch_apply_metadata(dset):
     """Function associates things not known at hdf build time (e.g. that aren't in the bin files)"""
-    # Associate metadata
-    for ob in dataset.all_observations:
+    for ob in dset.all_observations:
         o = photontable.Photontable(ob.h5, mode='w')
         o.attach_observing_metadata(ob.metadata)
         del o
 
 
 def batch_apply_wavecals(dset, ncpu=None):
-    """ filter for unique h5 files, not responsible for mixed wavecal specs """
     wavecal.clear_solution_cache()
-    pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available(config.config.wavecal.ncpu))
-    obs = {o.h5: o for o in dset.wavecalable if o.wavecal is not None}.values()
-    pool.map(wavecal_apply, obs)
-    pool.close()
+    ncpu = ncpu if ncpu is not None else config.n_cpus_available(config.config.wavecal.ncpu)
+    batch_applier(wavecal_apply, dset.wavecalable, ncpu=ncpu)
 
 
 def batch_apply_flatcals(dset, ncpu=None):
-    """
-    Will filter for unique h5 files, not responsible for mixed flatcal specs
-    """
-    pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
-    obs = {o.h5: o for o in dset.flatcalable if o.flatcal is not None}.values()
-    pool.map(flatcal_apply, obs)
-    pool.close()
+    batch_applier(mkidpipeline.steps.flatcal.apply, dset.flatcalable, ncpu=ncpu)
 
 
-def batch_apply_badpix(dset, ncpu=None):
-    pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
-
-    def apply(h5):
-        try:
-            mkidpipeline.steps.pixcal.apply(h5)
-        except Exception:
-            getLogger(__name__).critical(f'Exception during mkidpipeline.steps.pixcal.apply({h5})', exc_info=True)
-    pool.map(apply, set([o.h5 for o in dset.pixcalable]))
-    pool.close()
+def batch_apply_pixcals(dset, ncpu=None):
+    batch_applier(mkidpipeline.steps.pixcal.apply, dset.pixcalable, ncpu=ncpu)
 
 
-def batch_apply_lincal(dset, ncpu=None):
-    obs = dset.lincalable
-    #TODO filter obs by unique h5s
-    pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
-    pool.map(lincal_apply, obs)
-    pool.close()
+def batch_apply_lincals(dset, ncpu=None):
+    batch_applier(mkidpipeline.steps.lincal.apply, dset.lincalable, ncpu=ncpu)
 
 
-def batch_apply_cosmiccal(dset, ncpu=None):
-    pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
-    pool.map(mkidpipeline.steps.cosmiccal.apply, set([o.h5 for o in dset.cosmiccalable]))
-    pool.close()
+def batch_apply_speccals(dset, ncpu=None):
+    batch_applier(mkidpipeline.steps.speccal.apply, dset.speccalable, ncpu=ncpu)
 
 
-def batch_build_hdf(dset, ncpu=None):
-    """will also accept an opject with a .timeranges (e.g. a dataset)"""
-    ncpu = ncpu if ncpu is not None else config.n_cpus_available()
-    mkidpipeline.steps.buildhdf.buildtables(dset.timeranges, ncpu=ncpu, remake=False)
-
+def batch_apply_cosmiccals(dset, ncpu=None):
+    batch_applier(mkidpipeline.steps.cosmiccal.apply, dset.cosmiccalable, ncpu=ncpu)
 
 
 def run_stage1(dataset):
     operations = (('Building H5s', mkidpipeline.steps.buildhdf.buildtables),
                   ('Attaching metadata', batch_apply_metadata),
-                  ('Finding Cosmic-rays', batch_apply_cosmiccal),
+                  ('Finding Cosmic-rays', batch_apply_cosmiccals),
                   ('Fetching wavecals', mkidpipeline.steps.wavecal.fetch),
-                  ('Applying linearity correction', batch_apply_lincal),
+                  ('Applying linearity correction', batch_apply_lincals),
                   ('Applying wavelength solutions', batch_apply_wavecals),
-                  ('Applying wavelength solutions', batch_apply_badpix),
+                  ('Applying wavelength solutions', batch_apply_pixcals),
                   ('Fetching flatcals', mkidpipeline.steps.flatcal.fetch),
                   ('Applying flatcals', batch_apply_flatcals),
-                  ('Fetching speccals', mkidpipeline.steps.speccal.fetch))
+                  ('Fetching speccals', mkidpipeline.steps.speccal.fetch),
+                  ('Applying speccals', batch_apply_speccals))
 
     toc = time.time()
     for task_name, task in operations:
