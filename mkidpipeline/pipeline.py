@@ -191,7 +191,7 @@ def lincal_apply(o):
 
 def badpix_apply(o):
     try:
-        mkidpipeline.steps.pixcal.mask_hot_pixels(o)
+        mkidpipeline.steps.pixcal.apply(o.h5)
     except Exception as e:
         getLogger(__name__).critical('Caught exception during run of {}'.format(o), exc_info=True)
 
@@ -226,7 +226,13 @@ def batch_apply_flatcals(dset, ncpu=None):
 
 def batch_apply_badpix(dset, ncpu=None):
     pool = mp.Pool(ncpu if ncpu is not None else config.n_cpus_available())
-    pool.map(badpix_apply, set([o.h5 for o in dset.pixcalable]))
+    def apply(h5):
+        try:
+            mkidpipeline.steps.pixcal.apply(h5)
+        except Exception as e:
+            getLogger(__name__).critical(f'Caught exception during run of mkidpipeline.steps.pixcal.apply({h5})',
+                                         exc_info=True)
+    pool.map(apply, set([o.h5 for o in dset.pixcalable]))
     pool.close()
 
 
