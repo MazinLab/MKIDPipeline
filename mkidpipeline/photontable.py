@@ -856,7 +856,8 @@ class Photontable(object):
                             :param bin_edges:
                             :param bin_type:
         """
-        if (bin_edges or bin_width) and applyWeight and self.query_header('isFlatCalibrated'):
+        if (bin_edges or bin_width) and spec_weight and self.query_header('isFlatCalibrated'):
+            # TODO is this even accurate anymore
             raise ValueError('Using flat cal, so flat cal bins must be used')
 
         photons = self.query(pixel=pixel, start=start, intt=duration, startw=wave_start, stopw=wave_stop)
@@ -1248,7 +1249,8 @@ class Photontable(object):
 
             flags = self.flags
             self.unflag(flags.bitmask([f for f in flags.names if f.startswith('wavecal')]), pixel=(column, row))
-            self.flag(flags.bitmask([f'wavecal.{f.name}' for f in solution.get_flag(res_id=resID)]), pixel=(column, row))
+            self.flag(flags.bitmask([f'wavecal.{f.name}' for f in solution.get_flag(res_id=resID)]),
+                      pixel=(column, row))
 
             calibration = solution.calibration_function(res_id=resID, wavelength_units=True)
 
