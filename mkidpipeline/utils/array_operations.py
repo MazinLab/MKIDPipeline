@@ -13,6 +13,7 @@ from mkidcore.corelog import getLogger
 from matplotlib.colors import LogNorm
 import astropy.units as u
 
+
 def fit_rigid_rotation(x, y, ra, dec, x0=0, y0=0):
     """
     calculate the rigid rotation from row,col positions to ra,dec positions
@@ -27,14 +28,10 @@ def fit_rigid_rotation(x, y, ra, dec, x0=0, y0=0):
 
     ra,dec are input in decimal degrees
 
-    if chatter is True print some things to stdout
-
     The scale and rotation of the transform are recovered from the cd matrix;
       rm = w.wcs.cd
       wScale = math.sqrt(rm[0,0]**2+rm[0,1]**2) # degrees per pixel
       wTheta = math.atan2(rm[1,0],rm[0,0])      # radians
-
-
     """
     assert (len(x) == len(y) == len(ra) == len(dec)), "all inputs must be same length"
     assert (len(x) > 1), "need at least two points"
@@ -68,6 +65,7 @@ def fit_rigid_rotation(x, y, ra, dec, x0=0, y0=0):
     w.wcs.cd = [[sct, -sst], [sst, sct]]  # scaled rotation matrix
     w.wcs.ctype = ["RA---TAN", "DEC--TAN"]
     return w
+
 
 def get_device_orientation(coords, fits_filename='Theta1 Orionis B_mean.fits', separation=0.938, pa=253):
     """
