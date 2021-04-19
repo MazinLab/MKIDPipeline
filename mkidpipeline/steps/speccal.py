@@ -569,16 +569,19 @@ def load_solution(sc, singleton_ok=True):
 
 def fetch(dataset, config=None, ncpu=None, remake=False, **kwargs):
     solution_descriptors = dataset.speccals
-    cfg = mkidpipeline.config.config if config is None else config
+
+    cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(speccal=StepConfig()), cfg=config, ncpu=ncpu,
+                                                    copy=True)
     for sd in dataset.wavecals:
         wavcal = sd.path
+
     solutions = []
     for sd in solution_descriptors:
         sf = sd.path
         if os.path.exists(sf) and not remake:
             solutions.append(load_solution(sf))
         else:
-            if 'spectralcal' not in cfg:
+            if 'speccal' not in cfg:
                 scfg = mkidpipeline.config.load_task_config(StepConfig())
             else:
                 scfg = cfg.copy()
@@ -604,10 +607,7 @@ def apply(o, config=None):
                                  f"skipping")
         return
 
-    cfg = mkidpipeline.config.config if config is None else config
-    if cfg is None:
-        cfg = StepConfig()  #TODO must be registered at speccal
-
+    cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(speccal=StepConfig()), cfg=config, copy=True)
     power = cfg.speccal.power
 
     spectralcal = load_solution(o.speccal)

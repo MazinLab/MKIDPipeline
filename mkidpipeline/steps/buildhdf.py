@@ -322,9 +322,8 @@ def buildtables(timeranges, config=None, ncpu=None, remake=None, **kwargs):
 
     timeranges = list(set(timeranges))
 
-    cfg = mkidpipeline.config.config if config is None else config
-    if cfg is None:
-        raise RuntimeError('Pipeline not configured')
+    cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(buildhdf=StepConfig()), cfg=config, ncpu=ncpu,
+                                                    copy=True)
 
     b2h_configs = []
     for start_t, end_t in timeranges:
