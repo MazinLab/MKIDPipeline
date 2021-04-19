@@ -68,21 +68,24 @@ class Configuration(object):
     """Configuration class for the wavelength calibration analysis."""
     yaml_tag = u'!wavecalconfig'
 
-    def __init__(self, configfile=None, h5s=tuple(), wavelengths=tuple(),
+    def __init__(self, cfg=None, h5s=tuple(), wavelengths=tuple(),
                  darks=None, beammap=None, outdir='',
                  histogram_model_names=('GaussianAndExponential',), bin_width=2, histogram_fit_attempts=3,
                  calibration_model_names=('Quadratic', 'Linear'), dt=500, parallel=True, parallel_prefetch=False,
-                 summary_plot=True, templarfile='', max_count_rate=2000):
+                 summary_plot=True, templarfile='', max_count_rate=2000, ncpu=1):
         """ darks should be a dict with fully qualified h5 paths to background files. wavelengths are keys.
-        missing darks are fine """
+        missing darks are fine
+        If specified cfg should be a fully configured PipeConfig with a .wavecal attribute
+
+        """
 
         self.max_count_rate = max_count_rate
 
         # parse arguments
-        self.configuration_path = configfile
+        self.ncpu = ncpu
         self.out_directory = outdir
         self.wavelengths = list(map(float, wavelengths))
-
+        self.h5_file_names = {wave: h5 for wave, h5 in zip(self.wavelengths, h5s)}
         self.darks = {} if darks is None else darks
 
         # Things with defaults
@@ -96,16 +99,13 @@ class Configuration(object):
         self.summary_plot = summary_plot
         self.templar_configuration_path = templarfile
 
-        if self.configuration_path is not None:
-            # load in the configuration file
-            cfg = mkidcore.config.load(self.configuration_path)
+        if cfg is None:
+            self.beammap = beammap if beammap is not None else Beammap('MEC')
+        else:
+            # load in configuration params
             self.ncpu = cfg.ncpu
             self.beammap = cfg.beammap
-            # load in the parameters
-            self.beam_map_path = cfg.beammap.file
             self.out_directory = cfg.paths.database
-
-            # Things with defaults
             self.histogram_model_names = list(cfg.wavecal.histogram_model_names)
             self.bin_width = float(cfg.wavecal.bin_width)
             self.histogram_fit_attempts = int(cfg.wavecal.histogram_fit_attempts)
@@ -120,10 +120,8 @@ class Configuration(object):
             except KeyError:
                 if self.beammap.frequencies is None:
                     log.warning('Beammap loaded without frequencies and no templar config specified.')
-        else:
-            self.beammap = beammap if beammap is not None else Beammap('MEC')
 
-        self.h5_file_names = {wave: h5 for wave, h5 in zip(self.wavelengths, h5s)}
+        self.beam_map_path = self.beammap.file
 
         for model in self.histogram_model_names:
             assert issubclass(getattr(wm, model), wm.PartialLinearModel), \
@@ -135,18 +133,18 @@ class Configuration(object):
 
         self.wavelengths, self.start_times = zip(*sorted(zip(self.wavelengths, self.start_times)))
 
-
-    @classmethod
-    def to_yaml(cls, representer, node):
-        d = node.__dict__.copy()
-        d.pop('config')
-        return representer.represent_mapping(cls.yaml_tag, d)
-
-    @classmethod
-    def from_yaml(cls, loader, node):
-        #TODO I don't know why I used extract_from_node here and dict(loader.construct_pairs(node)) elsewhere
-        d = mkidcore.config.extract_from_node(loader, 'configuration_path', node)
-        return cls(d['configuration_path'])
+    #
+    # @classmethod
+    # def to_yaml(cls, representer, node):
+    #     d = node.__dict__.copy()
+    #     d.pop('config')
+    #     return representer.represent_mapping(cls.yaml_tag, d)
+    #
+    # @classmethod
+    # def from_yaml(cls, loader, node):
+    #     #TODO I don't know why I used extract_from_node here and dict(loader.construct_pairs(node)) elsewhere
+    #     d = mkidcore.config.extract_from_node(loader, 'configuration_path', node)
+    #     return cls(d['configuration_path'])
 
     def hdf_exist(self):
         """Check if all hdf5 files specified exist."""
@@ -187,7 +185,7 @@ class Calibrator(object):
         # defer initializing the solution
         self._solution = None
         if main:
-            log.info('Wave Calibrator configured with: {}'.format(self.cfg.configuration_path))
+            log.info(f'Wave Calibrator configured with: {self.cfg}')
             log.info('Parallel mode: {}'.format(self.cfg.parallel))
 
     @classmethod
