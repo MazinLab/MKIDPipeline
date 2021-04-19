@@ -1046,7 +1046,10 @@ class Photontable(object):
         """
         if self.mode != 'write':
             raise IOError("Must open file in write mode to do this!")
-
+        try:
+            value = value.encode()
+        except AttributeError:
+            pass
         if key not in self.header.colnames:
             extensible_header = self.extensible_header_store
             if key not in extensible_header:
