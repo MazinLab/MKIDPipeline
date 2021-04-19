@@ -364,9 +364,9 @@ class Calibrator(object):
                                    "after the negative phase only cut")
                         log.debug(message.format(pixel[0], pixel[1], wavelength))
                         continue
-
+                    norm = photon_list.duration/bg.duration if bg else None
                     # make histogram
-                    centers, counts, variance = self._histogram(phase_list, bkgd_phase_list)
+                    centers, counts, variance = self._histogram(phase_list, bkgd_phase_list, norm)
                     # assign x, y and variance data to the fit model
                     model.x, model.y = centers, counts
                     # gaussian mle for the variance of poisson distributed data
@@ -684,7 +684,7 @@ class Calibrator(object):
         photon_list = photon_list[logic]
         return photon_list
 
-    def _histogram(self, phase_list, bkgd_phase_list=None):
+    def _histogram(self, phase_list, bkgd_phase_list=None, norm=None):
         # initialize variables
         min_phase, max_phase = np.min(phase_list), np.max(phase_list)
         update = 0
@@ -701,7 +701,8 @@ class Calibrator(object):
             # find background counts and subtract them off
             centers = (x0[:-1] + x0[1:]) / 2.0
             update += 1
-            bkgd_counts = np.histogram(bkgd_phase_list, bins=bin_edges)[0] if bkgd_phase_list is not None else 0
+            bkgd_counts = np.histogram(bkgd_phase_list, bins=bin_edges, weights=np.full(len(bkgd_phase_list), norm))[0] \
+                if bkgd_phase_list else 0
             if (counts-bkgd_counts).max() >= 400:
                 break
         # gaussian mle for the variance of poisson distributed data
