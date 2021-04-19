@@ -600,7 +600,7 @@ class Photontable(object):
             resid = (resid,)
 
         if startw is None and stopw is None and start is None and stopt is None and not resid:
-            return self.photonTable.read()  # we need it all!
+            return self.photonTable.read(field=column)  # we need it all!
 
         res = '|'.join(['(ResID=={})'.format(r) for r in map(int, resid)])
         res = '(' + res + ')' if '|' in res and res else res

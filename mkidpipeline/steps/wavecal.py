@@ -320,7 +320,7 @@ class Calibrator(object):
                         # create background phase list if specified
                         bg = self.fetch_obsfile(wavelength, background=True)
                         if bg is not None:
-                            bkgd_phase_list = bg.query(pixel=pixel)['Wavelength']
+                            bkgd_phase_list = bg.query(pixel=pixel, column='Wavelength')
                             bkgd_phase_list = bkgd_phase_list[bkgd_phase_list < 0]
                     else:
                         table_data, bg = self._shared_tables[wavelength].data

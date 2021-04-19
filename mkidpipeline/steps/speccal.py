@@ -618,9 +618,8 @@ def apply(o, config=None):
     coeffs = np.polyfit(response_curve.curve[0][ind] / 10.0, response_curve.curve[1][ind], power)
     func = np.poly1d(coeffs)
     tic = time.time()
-    for resid in obs.resonators(exclude=UNSPECCALABLE_FLAGS): #TODO this is inefficent and fits the file twice
-        obs.multiply_column_weight(resid, func(obs.query(resid=resid, field='Wavelength')['Wavelength']), 'SpecWeight',
-                                   flush=False)
+    for resid in obs.resonators(exclude=UNSPECCALABLE_FLAGS):  # TODO this is inefficent and fits the file twice
+        obs.multiply_column_weight(resid, func(obs.query(resid=resid, field='Wavelength')), 'SpecWeight', flush=False)
 
     obs.update_header('isFluxCalibrated', True)
     obs.update_header('SPECCAL.ID', spectralcal.id)
