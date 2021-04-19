@@ -1070,7 +1070,7 @@ if __name__ == '__main__':
     Conf.remote_timeout.set(10)
 
     # set up logging
-    mkidpipeline.logtoconsole()
+    mkidpipeline.config.log_to_console()
     pipelinelog.create_log('mkidpipeline.imaging.drizzler', console=True, level="INFO")
 
     # load as a task configuration
