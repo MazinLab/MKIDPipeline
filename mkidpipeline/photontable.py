@@ -531,12 +531,11 @@ class Photontable(object):
         if self.mode != 'write':
             raise Exception("Must open file in write mode to do this!")
 
-        x, y = pixel
         flag = np.asarray(flag)
         self.flags.valid(flag, error=True)
-        if not np.isscalar(flag) and self._flagArray[y, x].shape != flag.shape:
+        if not np.isscalar(flag) and self._flagArray[pixel].shape != flag.shape:
             raise ValueError('flag must be scalar or match the desired region selected by x & y coordinates')
-        self._flagArray[y, x] |= flag
+        self._flagArray[pixel] |= flag
         self._flagArray.flush()
 
     def unflag(self, flag, pixel=(slice(None, slice(None)))):
@@ -557,12 +556,11 @@ class Photontable(object):
         if self.mode != 'write':
             raise Exception("Must open file in write mode to do this!")
 
-        x, y = pixel
         flag = np.asarray(flag)
         self.flags.valid(flag, error=True)
-        if not np.isscalar(flag) and self._flagArray[y, x].shape != flag.shape:
+        if not np.isscalar(flag) and self._flagArray[pixel].shape != flag.shape:
             raise ValueError('flag must be scalar or match the desired region selected by x & y coordinates')
-        self._flagArray[y, x] &= ~flag
+        self._flagArray[pixel] &= ~flag
         self._flagArray.flush()
 
     def query(self, startw=None, stopw=None, start=None, stopt=None, resid=None, intt=None, pixel=None, column=None):
