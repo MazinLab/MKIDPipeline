@@ -531,12 +531,11 @@ class Photontable(object):
         if self.mode != 'write':
             raise Exception("Must open file in write mode to do this!")
 
-        x, y = pixel
         flag = np.asarray(flag)
         self.flags.valid(flag, error=True)
-        if not np.isscalar(flag) and self._flagArray[y, x].shape != flag.shape:
+        if not np.isscalar(flag) and self._flagArray[pixel].shape != flag.shape:
             raise ValueError('flag must be scalar or match the desired region selected by x & y coordinates')
-        self._flagArray[y, x] |= flag
+        self._flagArray[pixel] |= flag
         self._flagArray.flush()
 
     def unflag(self, flag, pixel=(slice(None, slice(None)))):
@@ -557,12 +556,11 @@ class Photontable(object):
         if self.mode != 'write':
             raise Exception("Must open file in write mode to do this!")
 
-        x, y = pixel
         flag = np.asarray(flag)
         self.flags.valid(flag, error=True)
-        if not np.isscalar(flag) and self._flagArray[y, x].shape != flag.shape:
+        if not np.isscalar(flag) and self._flagArray[pixel].shape != flag.shape:
             raise ValueError('flag must be scalar or match the desired region selected by x & y coordinates')
-        self._flagArray[y, x] &= ~flag
+        self._flagArray[pixel] &= ~flag
         self._flagArray.flush()
 
     def query(self, startw=None, stopw=None, start=None, stopt=None, resid=None, intt=None, pixel=None, column=None):
@@ -600,7 +598,7 @@ class Photontable(object):
             resid = (resid,)
 
         if startw is None and stopw is None and start is None and stopt is None and not resid:
-            return self.photonTable.read()  # we need it all!
+            return self.photonTable.read(field=column)  # we need it all!
 
         res = '|'.join(['(ResID=={})'.format(r) for r in map(int, resid)])
         res = '(' + res + ')' if '|' in res and res else res
@@ -1046,7 +1044,10 @@ class Photontable(object):
         """
         if self.mode != 'write':
             raise IOError("Must open file in write mode to do this!")
-
+        try:
+            value = value.encode()
+        except AttributeError:
+            pass
         if key not in self.header.colnames:
             extensible_header = self.extensible_header_store
             if key not in extensible_header:

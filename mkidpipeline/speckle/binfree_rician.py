@@ -672,7 +672,7 @@ def getPixelPhotonList(filename, xCoord, yCoord, **kwargs):
         ts - timestamps in us of photon arrival times
     """
     obs = Photontable(filename)
-    times = obs.query(pixel=(xCoord, yCoord), **kwargs)['Time']
+    times = obs.query(pixel=(xCoord, yCoord), column='Time' **kwargs)
     print("#photons: "+str(len(times)))
     del obs  # make sure to close files nicely
     return times

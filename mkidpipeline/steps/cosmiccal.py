@@ -105,9 +105,9 @@ class CosmicCleaner:
         times larger than the bin size it ultimately doesn't matter.
         """
         self.get_time_info()
-        self.timebins = np.arange(0, int(np.ceil(self.photons['Time'].max() / 10) * 10) + 10, 10)
-        assert self.timebins[-1] >= self.photons['Time'].max()
-        self.arraycounts, timebins = np.histogram(self.photons['Time'], self.timebins)
+        self.timebins = np.arange(0, int(np.ceil(self.photons.max() / 10) * 10) + 10, 10)
+        assert self.timebins[-1] >= self.photons.max()
+        self.arraycounts, timebins = np.histogram(self.photons, self.timebins)
         assert np.setdiff1d(timebins, self.timebins).size == 0
         self.timestream = np.array((self.timebins[:-1], self.arraycounts))
 
@@ -203,8 +203,8 @@ class CosmicCleaner:
         """
         Function designed to create a new timestream with the cosmic ray timestamped photos removed.
         """
-        trimmask = np.in1d(self.photons['Time'], self.cutouttimes)
-        trimmedphotons = self.photons['Time'][~trimmask]
+        trimmask = np.in1d(self.photons, self.cutouttimes)
+        trimmedphotons = self.photons[~trimmask]
         trimmedarraycounts, timebins = np.histogram(trimmedphotons, self.timebins)
         assert np.setdiff1d(timebins, self.timebins).size == 0
         self.trimmedtimestream = np.array((self.timebins[:-1], trimmedarraycounts))
@@ -246,11 +246,9 @@ class CosmicCleaner:
         return frames
 
 
-def apply(o: mkidpipeline.config.MKIDTimerange, config=None):
-
-    cfg = mkidpipeline.config.config.cosmiccal if config is None else config
-    if cfg in None:
-        cfg = StepConfig()
+def apply(o: mkidpipeline.config.MKIDTimerange, config=None, ncpu=None):
+    cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(cosmiccal=StepConfig()), cfg=config, ncpu=ncpu,
+                                                    copy=True)
 
     #TODO
     exclude = [k[0] for k in StepConfig.REQUIRED_KEYS]
