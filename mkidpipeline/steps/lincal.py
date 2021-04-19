@@ -46,10 +46,7 @@ def calculate_weights(time_stamps, dt=1000, tau=0.000001):
 
 
 def apply(o: mkidpipeline.config.MKIDTimerange, config=None):
-
-    cfg = mkidpipeline.config.config.cosmiccal if config is None else config
-    if cfg in None:
-        cfg = StepConfig()
+    cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(lincal=StepConfig()), cfg=config, copy=True)
 
     of = o.photontable
     if of.query_header('isLinearityCorrected'):

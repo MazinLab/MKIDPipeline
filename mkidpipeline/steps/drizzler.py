@@ -1032,7 +1032,7 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
 
 
 def fetch(outputs, config=None):
-    config = mkidpipeline.config.config if config is None else config
+    config = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(drizzler=StepConfig()), cfg=config, copy=True)
 
     for o in (o for o in outputs if o.wants_drizzled):
         if not isinstance(o.data, mkidpipeline.config.MKIDDitherDescription):
@@ -1070,11 +1070,12 @@ if __name__ == '__main__':
     Conf.remote_timeout.set(10)
 
     # set up logging
-    mkidpipeline.logtoconsole()
+    mkidpipeline.config.log_to_console()
     pipelinelog.create_log('mkidpipeline.imaging.drizzler', console=True, level="INFO")
 
     # load as a task configuration
-    cfg = mkidpipeline.config.load_task_config(args.cfg)
+    cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(drizzler=StepConfig()),
+                                                    cfg=mkidpipeline.config.configure_pipeline(args.cfg), copy=False)
 
     wvlMin = args.wvlMin
     wvlMax = args.wvlMax

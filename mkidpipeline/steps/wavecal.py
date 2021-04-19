@@ -68,21 +68,24 @@ class Configuration(object):
     """Configuration class for the wavelength calibration analysis."""
     yaml_tag = u'!wavecalconfig'
 
-    def __init__(self, configfile=None, h5s=tuple(), wavelengths=tuple(),
+    def __init__(self, cfg=None, h5s=tuple(), wavelengths=tuple(),
                  darks=None, beammap=None, outdir='',
                  histogram_model_names=('GaussianAndExponential',), bin_width=2, histogram_fit_attempts=3,
                  calibration_model_names=('Quadratic', 'Linear'), dt=500, parallel=True, parallel_prefetch=False,
-                 summary_plot=True, templarfile='', max_count_rate=2000):
+                 summary_plot=True, templarfile='', max_count_rate=2000, ncpu=1):
         """ darks should be a dict with fully qualified h5 paths to background files. wavelengths are keys.
-        missing darks are fine """
+        missing darks are fine
+        If specified cfg should be a fully configured PipeConfig with a .wavecal attribute
+
+        """
 
         self.max_count_rate = max_count_rate
 
         # parse arguments
-        self.configuration_path = configfile
+        self.ncpu = ncpu
         self.out_directory = outdir
         self.wavelengths = list(map(float, wavelengths))
-
+        self.h5_file_names = {wave: h5 for wave, h5 in zip(self.wavelengths, h5s)}
         self.darks = {} if darks is None else darks
 
         # Things with defaults
@@ -94,18 +97,14 @@ class Configuration(object):
         self.parallel = parallel
         self.parallel_prefetch = parallel_prefetch
         self.summary_plot = summary_plot
-        self.templar_configuration_path = templarfile
 
-        if self.configuration_path is not None:
-            # load in the configuration file
-            cfg = mkidcore.config.load(self.configuration_path)
+        if cfg is None:
+            self.beammap = beammap if beammap is not None else Beammap('MEC')
+        else:
+            # load in configuration params
             self.ncpu = cfg.ncpu
             self.beammap = cfg.beammap
-            # load in the parameters
-            self.beam_map_path = cfg.beammap.file
             self.out_directory = cfg.paths.database
-
-            # Things with defaults
             self.histogram_model_names = list(cfg.wavecal.histogram_model_names)
             self.bin_width = float(cfg.wavecal.bin_width)
             self.histogram_fit_attempts = int(cfg.wavecal.histogram_fit_attempts)
@@ -115,15 +114,10 @@ class Configuration(object):
             self.parallel_prefetch = cfg.wavecal.parallel_prefetch
             self.summary_plot = str(cfg.wavecal.plots).lower() in ('all', 'summary')
 
-            try:
-                self.templar_configuration_path = cfg.templar.file
-            except KeyError:
-                if self.beammap.frequencies is None:
-                    log.warning('Beammap loaded without frequencies and no templar config specified.')
-        else:
-            self.beammap = beammap if beammap is not None else Beammap('MEC')
+        if self.beammap.frequencies is None:
+            log.warning('Beammap loaded without frequencies and no templar config specified.')
 
-        self.h5_file_names = {wave: h5 for wave, h5 in zip(self.wavelengths, h5s)}
+        self.beam_map_path = self.beammap.file
 
         for model in self.histogram_model_names:
             assert issubclass(getattr(wm, model), wm.PartialLinearModel), \
@@ -135,18 +129,18 @@ class Configuration(object):
 
         self.wavelengths, self.start_times = zip(*sorted(zip(self.wavelengths, self.start_times)))
 
-
-    @classmethod
-    def to_yaml(cls, representer, node):
-        d = node.__dict__.copy()
-        d.pop('config')
-        return representer.represent_mapping(cls.yaml_tag, d)
-
-    @classmethod
-    def from_yaml(cls, loader, node):
-        #TODO I don't know why I used extract_from_node here and dict(loader.construct_pairs(node)) elsewhere
-        d = mkidcore.config.extract_from_node(loader, 'configuration_path', node)
-        return cls(d['configuration_path'])
+    #
+    # @classmethod
+    # def to_yaml(cls, representer, node):
+    #     d = node.__dict__.copy()
+    #     d.pop('config')
+    #     return representer.represent_mapping(cls.yaml_tag, d)
+    #
+    # @classmethod
+    # def from_yaml(cls, loader, node):
+    #     #TODO I don't know why I used extract_from_node here and dict(loader.construct_pairs(node)) elsewhere
+    #     d = mkidcore.config.extract_from_node(loader, 'configuration_path', node)
+    #     return cls(d['configuration_path'])
 
     def hdf_exist(self):
         """Check if all hdf5 files specified exist."""
@@ -187,7 +181,7 @@ class Calibrator(object):
         # defer initializing the solution
         self._solution = None
         if main:
-            log.info('Wave Calibrator configured with: {}'.format(self.cfg.configuration_path))
+            log.info(f'Wave Calibrator configured with: {self.cfg}')
             log.info('Parallel mode: {}'.format(self.cfg.parallel))
 
     @classmethod
@@ -320,7 +314,7 @@ class Calibrator(object):
                         # create background phase list if specified
                         bg = self.fetch_obsfile(wavelength, background=True)
                         if bg is not None:
-                            bkgd_phase_list = bg.query(pixel=pixel)['Wavelength']
+                            bkgd_phase_list = bg.query(pixel=pixel, column='Wavelength')
                             bkgd_phase_list = bkgd_phase_list[bkgd_phase_list < 0]
                     else:
                         table_data, bg = self._shared_tables[wavelength].data
@@ -2084,13 +2078,11 @@ class Solution(object):
         if axes is None:
             _, axes = plt.subplots()
         # load in the data
-        if self.cfg.beammap.frequencies is not None:
+        try:
             data = np.array([self.cfg.beammap.resIDs, self.cfg.beammap.frequencies * 1e6]).T
-        else:
-            try:
-                data = self.load_frequency_files(self.cfg.templar_configuration_path)
-            except RuntimeError:
-                data = np.array([[np.nan, np.nan]])
+        except TypeError:
+            getLogger(__name__).error('The beammap does not have associated frequencies')
+            data = np.array([[np.nan, np.nan]])
         # find the median r values for plotting
         with warnings.catch_warnings():
             # rows with all nan values will give an unnecessary RuntimeWarning
@@ -2493,45 +2485,6 @@ class Solution(object):
             return
         return axes_list
 
-    @staticmethod
-    def load_frequency_files(config_file):
-        """
-        Deprecated! Use the 'beammap' section with the 'freqfiles' key in the configuration yaml file.
-
-        Gets the res_ids and frequencies from the templar configuration file
-
-        Args:
-            config_file: full path and file name of the templar configuration file. (string)
-        Returns:
-            a numpy array of the frequency files that could be loaded from the templar
-            configuration file vertically stacked. The first column is the res_id and the
-            second is the frequency.
-        Raises:
-            RuntimeError: if no frequency files could be loaded
-        """
-        message = "Use the 'beammap' section with the 'freqfiles' key in the configuration yaml file"
-        warnings.warn(message, DeprecationWarning)
-        configuration = ConfigParser()
-        configuration.read(config_file)
-        data = []
-        for roach in configuration.keys():
-            if roach[:5] == 'Roach':
-                freq_file = configuration[roach]['freqfile']
-                log.info('loading frequency file: {0}'.format(freq_file))
-                try:
-                    frequency_array = np.loadtxt(freq_file)
-                    data.append(frequency_array)
-                except (OSError, ValueError, UnicodeDecodeError, IsADirectoryError):
-                    log.warn('could not load file: {}'.format(freq_file))
-        if len(data) == 0:
-            raise RuntimeError('No frequency files could be loaded')
-        data = np.vstack(data)
-        if np.unique(data[:, 0]).size != data[:, 0].size:
-            message = ("There are duplicate ResIDs in the frequency files. " +
-                       "Check the templarconfig.cfg")
-            log.warn(message)
-        return data
-
     def _parse_resonators(self, pixels=None, res_ids=None, return_res_ids=False):
         if not self._parse:
             return pixels, res_ids
@@ -2668,31 +2621,29 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
     except AttributeError:
         pass
 
-    cfg = mkidpipeline.config.config if config is None else config
+    wcfg = config.PipelineConfigFactory(step_defaults=dict(wavecal=StepConfig()), cfg=config, ncpu=ncpu, copy=True)
 
-    solutions = []
-    for sd in solution_descriptors:
-        sf = sd.path
-        if os.path.exists(sf) and not remake:
-            solutions.append(load_solution(sf))
-        else:
-            if 'wavecal' not in cfg:
-                cfg = mkidpipeline.config.load_task_config(StepConfig())
+    solutions = {}
+    if not remake:
+        for sd in solution_descriptors:
+            try:
+                solutions[sd.id] = load_solution(sd.path)
+            except IOError:
+                pass
+            except Exception as e:
+                getLogger(__name__).info(f'Failed to load {sd} due to a {e}')
 
-            wcfg = cfg.copy()
+    for sd in (sd for sd in solution_descriptors if sd.id not in solutions):
+        cfg = Configuration(wcfg, h5s=tuple(x.h5 for x in sd.data), wavelengths=tuple(w for w in sd.wavelengths),
+                            darks=sd.darks)
+        cal = Calibrator(cfg, solution_name=sd.path)
+        cal.run(**kwargs)
+        solutions[sd.id] = cal.solution
 
-            if ncpu is not None:
-                wcfg.update('ncpu', ncpu)
-
-            cfg = Configuration(wcfg, h5s=tuple(x.h5 for x in sd.data), wavelengths=tuple(w for w in sd.wavelengths),
-                                darks=sd.darks)
-            cal = Calibrator(cfg, solution_name=sf)
-            cal.run(**kwargs)
-            solutions.append(cal.solution)
     return solutions
 
 
-def apply(o, config=None):
+def apply(o):
     """
     loads the wavelength cal coefficients from a given file and applies them to the
     wavelengths table for each pixel. Photontable must be loaded in write mode. Dont call updateWavelengths !!!
@@ -2719,7 +2670,7 @@ def apply(o, config=None):
     obs.photonTable.autoindex = False  # Don't reindex every time we change column
 
     tic = time.time()
-    for (row, column), resID in obs.resonators():
+    for pixel, resID in obs.resonators():
 
         if not solution.has_good_calibration_solution(res_id=resID):
             continue
@@ -2729,8 +2680,8 @@ def apply(o, config=None):
             continue
 
         flags = obs.flags
-        obs.unflag(flags.bitmask([f for f in flags.names if f.startswith('wavecal')]), pixel=(column, row))
-        obs.flag(flags.bitmask([f'wavecal.{f.name}' for f in solution.get_flag(res_id=resID)]), pixel=(column, row))
+        obs.unflag(flags.bitmask([f for f in flags.names if f.startswith('wavecal')]), pixel=pixel)
+        obs.flag(flags.bitmask([f'wavecal.{f.name}' for f in solution.get_flag(res_id=resID)]), pixel=pixel)
 
         calibration = solution.calibration_function(res_id=resID, wavelength_units=True)
 
@@ -2749,8 +2700,9 @@ def apply(o, config=None):
         getLogger(__name__).debug('Wavelength updated in {:.2f}s'.format(time.time() - tic2))
 
     obs.update_header('isWvlCalibrated', True)
-    obs.update_header('wvlCalFile', str.encode(solution.name))
+    obs.update_header('wvlCalFile', solution.name)
     #TODO update header with WAVECAL.XXXX cards
+    obs.update_header(f'FLATCAL.TODO', 0)
     obs.photonTable.reindex_dirty()  # recompute "dirty" wavelength index
     obs.photonTable.autoindex = True  # turn on auto-indexing
     obs.disablewrite()

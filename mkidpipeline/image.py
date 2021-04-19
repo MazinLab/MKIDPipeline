@@ -1,16 +1,18 @@
-from photontable import Photontable
+import os
 import scipy.ndimage as ndi
 import numpy as np
 from multiprocessing import Pool
+from astropy.io import fits
+
 from mkidcore.corelog import getLogger
 from mkidcore.instruments import CONEX2PIXEL
-from astropy.io import fits
+from mkidpipeline.photontable import Photontable
 from mkidpipeline.config import n_cpus_available
+from mkidpipeline.steps import drizzler
 
 
 def fetchimg(ob, kwargs):
     of = Photontable(ob.h5)
-
     im = of.get_fits(cube_type='wave' if kwargs['nwvl'] > 1 else None)['SCIENCE']
     del of
 
@@ -84,23 +86,12 @@ def makeimage(data, mode, nwvl=1, wvlRange=(None,None), cfg=None, ncpu=None):
     hdul.writeto('{id}_{mode}.fits'.format(id=id, mode=mode))
 
 
-import mkidpipeline
-import os
-import pkg_resources as pkg
-
-
 def drizzle(dither, config=None):
-    cfg = mkidpipeline.config.config if config is None else config
-    if 'drizzler' not in cfg:
-        cfg = mkidpipeline.config.load_task_config(pkg.resource_filename(__name__, 'drizzler.yml'))
+    cfg = config.PipelineConfigFactory(step_defaults=dict(drizzler=drizzler.StepConfig()), cfg=config, copy=True)
 
-    # startt = args.startt
-    # intt = args.intt
-
-    form = mkidpipeline.steps.drizzler.form
-    out = form(dither, mode=cfg.drizzler.mode, rotation_center=cfg.drizzler.rotation_origin,
-               wvlMin=dither.out.startw, wvlMax=dither.out.stopw,
-               pixfrac= cfg.drizzler.pixfrac, target_radec=cfg.drizzler.target_radec,
-               device_orientation=cfg.drizzler.device_orientation, derotate=dither.out.derotate)
+    out = drizzler.form(dither, mode=cfg.drizzler.mode, rotation_center=cfg.drizzler.rotation_origin,
+                        wvlMin=dither.out.startw, wvlMax=dither.out.stopw,
+                        pixfrac= cfg.drizzler.pixfrac, target_radec=cfg.drizzler.target_radec,
+                        device_orientation=cfg.drizzler.device_orientation, derotate=dither.out.derotate)
 
     out.writefits(os.path.join(cfg.paths.out, '{name}_{kind}.fits'.format(dither.name, dither.out.kind)))

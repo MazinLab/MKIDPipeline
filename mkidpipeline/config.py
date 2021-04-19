@@ -18,6 +18,7 @@ import mkidcore.config
 from mkidcore.corelog import getLogger, create_log, MakeFileHandler
 from mkidcore.utils import getnm, derangify
 from mkidcore.objects import Beammap
+from mkidcore.instruments import InstrumentInfo
 
 # Ensure that the beammap gets registered with yaml, the import does this
 # but without this note an IDE or human might remove the import
@@ -37,52 +38,6 @@ STANDARD_KEYS = (
 
 REQUIRED_KEYS = ('ra', 'dec', 'target', 'observatory', 'instrument', 'dither_ref', 'dither_home', 'platescale',
                  'device_orientation')
-
-
-def load_task_config(file, use_global_config=True):
-    """
-    Load a task specific yml configuration
-
-    If the pipeline is not configured then do all needed to get it online,
-    loading defaults and overwriting them with the task config. If pipeline has been
-    configured by user then there is a choice of which settings take precedence (pipeline or task
-    via use_global_config), thought the config will be updated with any additional pipeline
-    settings. Will never edit an existing pipeline config.
-
-    :param file: Config file (or config object) to load
-    :param use_global_config: config/pipe precedence
-    :return:
-    """
-    global config
-
-    # Allow pass-through of a config
-    cfg = mkidcore.config.load(file) if isinstance(file, str) else file
-    pipeline_settings = ('beammap', 'paths', 'instrument', 'ncpu')
-    if config is None:
-        configure_pipeline(pkg.resource_filename('mkidpipeline', 'pipe.yml'))
-        for k in pipeline_settings:
-            try:
-                config.update(k, cfg.get(k))
-            except KeyError:
-                pass
-
-    for k in pipeline_settings:
-        cfg.register(k, config.get(k), update=use_global_config)
-
-    return cfg
-
-
-def configure_pipeline(pipeline_config):
-    """ Load a pipeline config, configuring the pipeline. Any existing configuration will be replaced"""
-    global config
-    config = mkidcore.config.load(pipeline_config, namespace=None)
-    return config
-
-
-def update_paths(d):
-    global config
-    for k, v in d.items():
-        config.update(f'paths.{k}', v)
 
 
 def get_ditherinfo(time, path=None):
@@ -149,17 +104,63 @@ class PipeConfig(BaseStepConfig):
     yaml_tag = u'!pipe_cfg'
     REQUIRED_KEYS = (('ncpu', 1, 'number of cpus'),
                      ('verbosity', 0, 'level of verbosity'),
-                     ('flow', ('wavecal', 'metadata', 'flatcal', 'cosmiccal', 'photcal', 'lincal'),
+                     ('flow', ('metadata', 'wavecal', 'lincal', 'flatcal', 'cosmiccal', 'photcal'),
                       'Calibration steps to apply'),
                      ('paths.dithers', '/darkdata/MEC/logs/', 'dither log location'),
                      ('paths.data', '/darkdata/ScienceData/Subaru/', 'bin file parent folder'),
                      ('paths.database', '/work/temp/database/', 'calibrations will be retrieved/stored here'),
                      ('paths.obslog', '/work/temp/database/obslog', 'obslog.json go here'),
                      ('paths.out', '/work/temp/out/', 'root of output'),
-                     ('paths.tmp', '/work/temp/scratch/', 'use for data intensive temp files'))
+                     ('paths.tmp', '/work/temp/scratch/', 'use for data intensive temp files'),
+                     ('beammap', None, 'A Beammap to use'),
+                     ('instrument', None, 'An mkidcore.instruments.InstrumentInfo instance')
+                     )
+
+    def __init__(self, *args, defaults: dict = None, instrument='MEC', **kwargs):
+        super().__init__(*args, **kwargs)
+        self.register('beammap', Beammap(specifier=instrument), update=True)
+        self.register('instrument', InstrumentInfo(instrument), update=True)
+        if defaults is not None:
+            for k, v in defaults.items():
+                self.register(k, v, update=True)
 
 
 mkidcore.config.yaml.register_class(PipeConfig)
+
+
+def PipelineConfigFactory(step_defaults: dict = None, cfg=None, ncpu=None, copy=True):
+    """
+    Return a pipeline config with the specified step.
+    cfg will take precedence over an existing pipeline config
+    ncpu will take precedence (at the root level only so if a step has defaults those will control for the step!)
+    the step defaults will only be used if the step is not configured
+    if copy is set is returned such that it is safe to edit, if not set any defaults will be updated
+    into cfg (if passed) or the global config (if extant)
+    """
+    global config
+    if cfg is None:
+        cfg = PipeConfig(instrument='MEC') if config is None else config
+    if copy:
+        cfg = cfg.copy()
+    if step_defaults:
+        for name, defaults in step_defaults.items():
+            cfg.register(name, defaults, update=False)
+    if ncpu is not None:
+        config.update('ncpu', ncpu)
+    return cfg
+
+
+def configure_pipeline(pipeline_config):
+    """ Load a pipeline config, configuring the pipeline. Any existing configuration will be replaced"""
+    global config
+    config = mkidcore.config.load(pipeline_config, namespace=None)
+    return config
+
+
+def update_paths(d):
+    global config
+    for k, v in d.items():
+        config.update(f'paths.{k}', v)
 
 
 def make_paths(config=None, output_dirs=tuple()):

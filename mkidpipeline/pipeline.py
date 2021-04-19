@@ -49,16 +49,14 @@ PROBLEM_FLAGS = ('pixcal.hot', 'pixcal.cold', 'pixcal.unstable', 'beammap.noDacT
                  'wavecal.not_attempted')
 
 
-def generate_default_config():
-    cfg = config.PipeConfig()
+def generate_default_config(instrument='MEC'):
+    cfg = config.PipeConfig(instrument)
     for name, step in PIPELINE_STEPS.items():
         try:
             cfg.register(name, step.StepConfig(), update=True)
         except AttributeError:
             getLogger(__name__).warning(f'Pipeline step mkidpipeline.steps.{name} does not '
                                         f'support automatic configuration discovery.')
-    cfg.register('beammap', mkidcore.objects.Beammap(specifier='MEC'))
-    cfg.register('instrument', mkidcore.instruments.InstrumentInfo('MEC'))
     return cfg
 
 
