@@ -97,7 +97,6 @@ class Configuration(object):
         self.parallel = parallel
         self.parallel_prefetch = parallel_prefetch
         self.summary_plot = summary_plot
-        self.templar_configuration_path = templarfile
 
         if cfg is None:
             self.beammap = beammap if beammap is not None else Beammap('MEC')
@@ -115,11 +114,8 @@ class Configuration(object):
             self.parallel_prefetch = cfg.wavecal.parallel_prefetch
             self.summary_plot = str(cfg.wavecal.plots).lower() in ('all', 'summary')
 
-            try:
-                self.templar_configuration_path = cfg.templar.file
-            except KeyError:
-                if self.beammap.frequencies is None:
-                    log.warning('Beammap loaded without frequencies and no templar config specified.')
+        if self.beammap.frequencies is None:
+            log.warning('Beammap loaded without frequencies and no templar config specified.')
 
         self.beam_map_path = self.beammap.file
 
@@ -2081,13 +2077,11 @@ class Solution(object):
         if axes is None:
             _, axes = plt.subplots()
         # load in the data
-        if self.cfg.beammap.frequencies is not None:
+        try:
             data = np.array([self.cfg.beammap.resIDs, self.cfg.beammap.frequencies * 1e6]).T
-        else:
-            try:
-                data = self.load_frequency_files(self.cfg.templar_configuration_path)
-            except RuntimeError:
-                data = np.array([[np.nan, np.nan]])
+        except TypeError:
+            getLogger(__name__).error('The beammap does not have associated frequencies')
+            data = np.array([[np.nan, np.nan]])
         # find the median r values for plotting
         with warnings.catch_warnings():
             # rows with all nan values will give an unnecessary RuntimeWarning
@@ -2489,45 +2483,6 @@ class Solution(object):
             # don't return the axes since they no longer will plot
             return
         return axes_list
-
-    @staticmethod
-    def load_frequency_files(config_file):
-        """
-        Deprecated! Use the 'beammap' section with the 'freqfiles' key in the configuration yaml file.
-
-        Gets the res_ids and frequencies from the templar configuration file
-
-        Args:
-            config_file: full path and file name of the templar configuration file. (string)
-        Returns:
-            a numpy array of the frequency files that could be loaded from the templar
-            configuration file vertically stacked. The first column is the res_id and the
-            second is the frequency.
-        Raises:
-            RuntimeError: if no frequency files could be loaded
-        """
-        message = "Use the 'beammap' section with the 'freqfiles' key in the configuration yaml file"
-        warnings.warn(message, DeprecationWarning)
-        configuration = ConfigParser()
-        configuration.read(config_file)
-        data = []
-        for roach in configuration.keys():
-            if roach[:5] == 'Roach':
-                freq_file = configuration[roach]['freqfile']
-                log.info('loading frequency file: {0}'.format(freq_file))
-                try:
-                    frequency_array = np.loadtxt(freq_file)
-                    data.append(frequency_array)
-                except (OSError, ValueError, UnicodeDecodeError, IsADirectoryError):
-                    log.warn('could not load file: {}'.format(freq_file))
-        if len(data) == 0:
-            raise RuntimeError('No frequency files could be loaded')
-        data = np.vstack(data)
-        if np.unique(data[:, 0]).size != data[:, 0].size:
-            message = ("There are duplicate ResIDs in the frequency files. " +
-                       "Check the templarconfig.cfg")
-            log.warn(message)
-        return data
 
     def _parse_resonators(self, pixels=None, res_ids=None, return_res_ids=False):
         if not self._parse:
