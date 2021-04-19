@@ -403,7 +403,6 @@ class LaserCalibrator(FlatCalibrator):
 
         if self.cfg.flatcal.use_wavecal:
             delta_list = self.wavelengths / self.r_list / 2
-
         startw, stopw = None, None
         for wvl, h5 in self.h5s.items():
             obs = h5.photontable
@@ -505,6 +504,12 @@ class FlatSolution(object):
         self._file_path = file_path  # new file_path for the solution
         self.name = os.path.splitext(os.path.basename(file_path))[0]  # new name for saving
         getLogger(__name__).info("Complete")
+
+    def get(self, pixel, resID):
+        for pix, res in self.cfg.beammap:
+            if res == resID or pix == pixel: #in case of non unique resIDs
+                coeffs = self.coeff_array[pixel[0], pixel[1]]
+                return np.poly1d(coeffs)
 
     def summary_plot(self):
         return None
@@ -693,7 +698,7 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
 
     Weights are multiplied in and replaced; NOT reversible
     """
-    cfg = mkidpipeline.config.config.cosmiccal if config is None else config
+    cfg = mkidpipeline.config.config.flatcal if config is None else config
     if cfg in None:
         cfg = StepConfig()
 
@@ -708,14 +713,6 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
             getLogger(__name__).warning(f'{o} is calibrated with a different flat than requested.')
         return
 
-    use_wavecal = cfg.flatcal.use_wavecal
-    startw = cfg.flatcal.min_wave.to(u.nm).value
-    stopw = cfg.flatcal.max_wave.to(u.nm).value
-
-    if use_wavecal and not of.query_header('isWavelengthCalibrated'):
-        getLogger(__name__).info("Wavecal must be applied first")
-        return
-
     tic = time.time()
     calsoln = FlatSolution(o.flatcal.path)
     getLogger(__name__).info(f'Applying {calsoln} to {o}')
@@ -726,7 +723,7 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
 
     for pixel, resID in of.resonators(exclude=UNFLATABLE, pixel=True):
 
-        soln = calsoln.get(resID)  # TODO
+        soln = calsoln.get(pixel, resID)
 
         if not soln:
             getLogger(__name__).warning('No flat calibration for good pixel {}'.format(resID))
@@ -740,15 +737,9 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
 
         if (np.diff(indices) == 1).all():  # This takes ~300s for ALL photons combined on a 70Mphot file.
             # getLogger(__name__).debug('Using modify_column')
-            if use_wavecal:
-                w = of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
-                weights = soln.poly(w)  # TODO
-                weights[w < startw] = 1 #TODO this concerns me
-                weights[w > stopw] = 1
-            else:
-                weighted_avg = np.ma.average(soln['weight'].flatten(), axis=0, weights=soln['err'].flatten() ** -2.)
-                weights = np.ones_like(w) * weighted_avg
-
+            w = of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
+            old_specweights = of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='SpecWeight')
+            weights = soln(w) * old_specweights
             weights = weights.clip(0)  # enforce positive weights only
 
             if any(weights > 100) or any(weights < 0.01):
@@ -757,12 +748,10 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
 
             of.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=weights, colname='SpecWeight')
         else:  # This takes 3.5s per pixel on a 70 Mphot file!!!
-            raise NotImplementedError('This code path is impractically slow at present.')
+            #raise NotImplementedError('This code path is impractically slow at present.')
             getLogger(__name__).debug('Using modify_coordinates')
-            if not use_wavecal:
-                raise NotImplementedError('Not implemented for use_wavecal=False')
             rows = of.photonTable.read_coordinates(indices)
-            rows['SpecWeight'] = soln.poly(rows['Wavelength'])
+            rows['SpecWeight'] *= soln(rows['Wavelength']) # TODO make sure this is changing the column correctly
             of.photonTable.modify_coordinates(indices, rows)
             getLogger(__name__).debug('Flat weights updated in {:.2f}s'.format(time.time() - tic2))
 
