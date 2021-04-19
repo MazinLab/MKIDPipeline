@@ -40,52 +40,6 @@ REQUIRED_KEYS = ('ra', 'dec', 'target', 'observatory', 'instrument', 'dither_ref
                  'device_orientation')
 
 
-def load_task_config(file, use_global_config=True):
-    """
-    Load a task specific yml configuration
-
-    If the pipeline is not configured then do all needed to get it online,
-    loading defaults and overwriting them with the task config. If pipeline has been
-    configured by user then there is a choice of which settings take precedence (pipeline or task
-    via use_global_config), thought the config will be updated with any additional pipeline
-    settings. Will never edit an existing pipeline config.
-
-    :param file: Config file (or config object) to load
-    :param use_global_config: config/pipe precedence
-    :return:
-    """
-    global config
-
-    # Allow pass-through of a config
-    cfg = mkidcore.config.load(file) if isinstance(file, str) else file
-    pipeline_settings = ('beammap', 'paths', 'instrument', 'ncpu')
-    if config is None:
-        configure_pipeline(pkg.resource_filename('mkidpipeline', 'pipe.yml'))
-        for k in pipeline_settings:
-            try:
-                config.update(k, cfg.get(k))
-            except KeyError:
-                pass
-
-    for k in pipeline_settings:
-        cfg.register(k, config.get(k), update=use_global_config)
-
-    return cfg
-
-
-def configure_pipeline(pipeline_config):
-    """ Load a pipeline config, configuring the pipeline. Any existing configuration will be replaced"""
-    global config
-    config = mkidcore.config.load(pipeline_config, namespace=None)
-    return config
-
-
-def update_paths(d):
-    global config
-    for k, v in d.items():
-        config.update(f'paths.{k}', v)
-
-
 def get_ditherinfo(time, path=None):
     if path is None:
         path = config.paths.dithers

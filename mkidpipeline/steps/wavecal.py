@@ -2665,27 +2665,25 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
     except AttributeError:
         pass
 
-    cfg = mkidpipeline.config.config if config is None else config
+    wcfg = config.PipelineConfigFactory(step_defaults=dict(wavecal=StepConfig()), cfg=config, ncpu=ncpu, copy=True)
 
-    solutions = []
-    for sd in solution_descriptors:
-        sf = sd.path
-        if os.path.exists(sf) and not remake:
-            solutions.append(load_solution(sf))
-        else:
-            if 'wavecal' not in cfg:
-                cfg = mkidpipeline.config.load_task_config(StepConfig())
+    solutions = {}
+    if not remake:
+        for sd in solution_descriptors:
+            try:
+                solutions[sd.id] = load_solution(sd.path)
+            except IOError:
+                pass
+            except Exception as e:
+                getLogger(__name__).info(f'Failed to load {sd} due to a {e}')
 
-            wcfg = cfg.copy()
+    for sd in (sd for sd in solution_descriptors if sd.id not in solutions):
+        cfg = Configuration(wcfg, h5s=tuple(x.h5 for x in sd.data), wavelengths=tuple(w for w in sd.wavelengths),
+                            darks=sd.darks)
+        cal = Calibrator(cfg, solution_name=sd.path)
+        cal.run(**kwargs)
+        solutions[sd.id] = cal.solution
 
-            if ncpu is not None:
-                wcfg.update('ncpu', ncpu)
-
-            cfg = Configuration(wcfg, h5s=tuple(x.h5 for x in sd.data), wavelengths=tuple(w for w in sd.wavelengths),
-                                darks=sd.darks)
-            cal = Calibrator(cfg, solution_name=sf)
-            cal.run(**kwargs)
-            solutions.append(cal.solution)
     return solutions
 
 
@@ -2746,8 +2744,9 @@ def apply(o, config=None):
         getLogger(__name__).debug('Wavelength updated in {:.2f}s'.format(time.time() - tic2))
 
     obs.update_header('isWvlCalibrated', True)
-    obs.update_header('wvlCalFile', str.encode(solution.name))
+    obs.update_header('wvlCalFile', solution.name)
     #TODO update header with WAVECAL.XXXX cards
+    obs.update_header(f'FLATCAL.TODO', 0)
     obs.photonTable.reindex_dirty()  # recompute "dirty" wavelength index
     obs.photonTable.autoindex = True  # turn on auto-indexing
     obs.disablewrite()

@@ -650,36 +650,41 @@ def load_solution(sc, singleton_ok=True):
     return _loaded_solutions[sc]
 
 
-def fetch(dataset, config=None, ncpu=np.inf, remake=False):
+def fetch(dataset, config=None, ncpu=None, remake=False):
     solution_descriptors = dataset.flatcals
-    cfg = mkidpipeline.config.config if config is None else config
-    solutions = []
-    flattners = []
-    for sd in solution_descriptors:
-        sf = sd.path
-        if os.path.exists(sf) and not remake:
-            solutions.append(load_solution(sf))
-        else:
-            fcfg = mkidpipeline.config.load_task_config(StepConfig()) if 'flatcal' not in cfg else cfg.copy()
-            # fcfg.register('flatcal.wavsol', sd.wavecal, update=True) #TODO whats the point of this line
-            if sd.method == 'laser':
-                flattner = LaserCalibrator(h5s=sd.h5s, config=fcfg, solution_name=sf,
-                                           darks=[o.dark for o in sd.obs if o.dark is not None])
-            else:
-                flattner = WhiteCalibrator(H5Subset(sd.ob), config=fcfg, solution_name=sf)
 
-            solutions.append(sf)
-            flattners.append(flattner)
+    fcfg = config.PipelineConfigFactory(step_defaults=dict(flatcal=StepConfig()), cfg=config, ncpu=ncpu, copy=True)
+
+    solutions = {}
+    if not remake:
+        for sd in solution_descriptors:
+            try:
+                solutions[sd.id] = load_solution(sd.path)
+            except IOError:
+                pass
+            except Exception as e:
+                getLogger(__name__).info(f'Failed to load {sd} due to a {e}')
+
+    flattners = []
+    for sd in (sd for sd in solution_descriptors if sd.id not in solutions):
+        if sd.method == 'laser':
+            flattner = LaserCalibrator(h5s=sd.h5s, config=fcfg, solution_name=sd.path,
+                                       darks=[o.dark for o in sd.obs if o.dark is not None])
+        else:
+            flattner = WhiteCalibrator(H5Subset(sd.ob), config=fcfg, solution_name=sd.path)
+
+        solutions[sd.id] = sd.path
+        flattners.append(flattner)
 
     if not flattners:
         return solutions
 
-    ncpu = mkidpipeline.config.n_cpus_available(max=min(fcfg.ncpu, ncpu))
-    if ncpu == 1 or len(flattners) == 1:
+    poolsize = mkidpipeline.config.n_cpus_available(max=min(fcfg.ncpu, len(flattners)))
+    if poolsize == 1:
         for f in flattners:
             f.run()
     else:
-        pool = mp.Pool(ncpu)
+        pool = mp.Pool(poolsize)
         pool.map(_run, flattners)
         pool.close()
         pool.join()
@@ -693,9 +698,8 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
 
     Weights are multiplied in and replaced; NOT reversible
     """
-    cfg = mkidpipeline.config.config.cosmiccal if config is None else config
-    if cfg in None:
-        cfg = StepConfig()
+
+    cfg = config.PipelineConfigFactory(step_defaults=dict(flatcal=StepConfig()), cfg=config, copy=True)
 
     if o.flatcal is None:
         getLogger(__name__).info(f"No flatcal specified for {o}, nothing to do")

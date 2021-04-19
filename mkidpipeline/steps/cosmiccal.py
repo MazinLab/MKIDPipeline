@@ -246,11 +246,9 @@ class CosmicCleaner:
         return frames
 
 
-def apply(o: mkidpipeline.config.MKIDTimerange, config=None):
-
-    cfg = mkidpipeline.config.config.cosmiccal if config is None else config
-    if cfg in None:
-        cfg = StepConfig()
+def apply(o: mkidpipeline.config.MKIDTimerange, config=None, ncpu=None):
+    cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(cosmiccal=StepConfig()), cfg=config, ncpu=ncpu,
+                                                    copy=True)
 
     #TODO
     exclude = [k[0] for k in StepConfig.REQUIRED_KEYS]

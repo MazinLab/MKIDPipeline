@@ -516,11 +516,7 @@ def fetch(o, config=None):
         getLogger(__name__).info('{} is already pixel calibrated'.format(o.h5))
         return None, None
 
-    cfg = mkidpipeline.config.config if config is None else config
-
-    if cfg is None:
-        cfg = StepConfig()  #TODO need to ensure regestered at cfg.pixcal
-
+    cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(pixcal=StepConfig()), cfg=config, copy=True)
     startt, stopt = o.start, o.stop
     step = min(stopt-startt, cfg.pixcal.step)
     method = cfg.pixcal.method
