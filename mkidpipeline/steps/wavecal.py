@@ -2687,7 +2687,7 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
     return solutions
 
 
-def apply(o, config=None):
+def apply(o):
     """
     loads the wavelength cal coefficients from a given file and applies them to the
     wavelengths table for each pixel. Photontable must be loaded in write mode. Dont call updateWavelengths !!!
@@ -2714,7 +2714,7 @@ def apply(o, config=None):
     obs.photonTable.autoindex = False  # Don't reindex every time we change column
 
     tic = time.time()
-    for (row, column), resID in obs.resonators():
+    for pixel, resID in obs.resonators():
 
         if not solution.has_good_calibration_solution(res_id=resID):
             continue
@@ -2724,8 +2724,8 @@ def apply(o, config=None):
             continue
 
         flags = obs.flags
-        obs.unflag(flags.bitmask([f for f in flags.names if f.startswith('wavecal')]), pixel=(column, row))
-        obs.flag(flags.bitmask([f'wavecal.{f.name}' for f in solution.get_flag(res_id=resID)]), pixel=(column, row))
+        obs.unflag(flags.bitmask([f for f in flags.names if f.startswith('wavecal')]), pixel=pixel)
+        obs.flag(flags.bitmask([f'wavecal.{f.name}' for f in solution.get_flag(res_id=resID)]), pixel=pixel)
 
         calibration = solution.calibration_function(res_id=resID, wavelength_units=True)
 
