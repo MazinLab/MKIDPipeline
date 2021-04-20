@@ -150,7 +150,7 @@ class DarkQuick(QtGui.QMainWindow):
                             if newX >0 and newY>0: 
                                 newImage[newY,newX] = image[y,x]
                                 #print '('+str(x)+', '+str(y)+') --> ('+str(newX)+', '+str(newY)+')'
-                            #else: 
+                            #else:
                             #    print '('+str(x)+', '+str(y)+') --> 0'
                             #    newImage[y,x]=0
                     image = newImage
@@ -192,7 +192,7 @@ class DarkQuick(QtGui.QMainWindow):
         paramsDict = self.imageParamsWindow.getParams()
         self.image = self.imageStack[self.currentImageIndex]
         self.plotArray(self.image,**paramsDict['plotParams'])
-        print self.currentImageIndex
+        print(self.currentImageIndex)
 
     def jumpToBeginning(self):
         self.currentImageIndex = 0
@@ -206,20 +206,20 @@ class DarkQuick(QtGui.QMainWindow):
         if self.currentImageIndex < len(self.imageStack)-1:
             self.currentImageIndex = self.currentImageIndex + 1
         else:
-            print 'Warning: can\'t increment any more'
+            print('Warning: can\'t increment any more')
         self.getObsImage()
 
     def incrementBack(self):
         if self.currentImageIndex > 0:
             self.currentImageIndex = self.currentImageIndex - 1
         else:
-            print 'Warning: can\'t decrement any more'
+            print('Warning: can\'t decrement any more')
         self.getObsImage()
 
     def jumpToTstamp(self):
         desiredTstamp = int(self.lineEdit_currentTstamp.text())
         if (desiredTstamp > self.endTstamp) or (desiredTstamp < self.startTstamp):
-            print 'Warning: requested time stamp is outside available range'
+            print('Warning: requested time stamp is outside available range')
         else:
             self.currentImageIndex = desiredTstamp-self.startTstamp
             self.getObsImage()
@@ -381,7 +381,7 @@ class PlotWindow(QtGui.QDialog):
             self.axes.cla()
         self.plotLightCurve()
         self.draw()
-        print 'plot updated'
+        print('plot updated')
 
     
     def plotLightCurve(self,getRaw=False):
@@ -506,7 +506,7 @@ class ArrayImageWidget(QtGui.QWidget):
             self.drawOverlayImage()
         else:
             self.draw()
-        print 'image drawn'
+        print('image drawn')
 
     def drawSelections(self):
         for patch in self.selectionPatches:
@@ -639,7 +639,7 @@ def layoutBox(type,elements):
                         box.addWidget(label)
                         #label.adjustSize()
                     except:
-                        print 'could\'t add {} to layout box'.format(element)
+                        print('could\'t add {} to layout box'.format(element))
     return box
 
 def plotHist(ax,histBinEdges,hist,**kwargs):
@@ -649,7 +649,7 @@ def plotHist(ax,histBinEdges,hist,**kwargs):
 if __name__ == "__main__":
     kwargs = {}
     if len(sys.argv) != 3:
-        print 'Usage: {} tstampStart tstampEnd'.format(sys.argv[0])
+        print('Usage: {} tstampStart tstampEnd'.format(sys.argv[0]))
         exit(0)
     else:
         kwargs['startTstamp'] = int(sys.argv[1])

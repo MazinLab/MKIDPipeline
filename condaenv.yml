@@ -1,0 +1,60 @@
+#conda update -n base conda
+#conda env create -f <thisfile>
+name: pipeline
+channels:
+  - defaults
+  - conda-forge
+  - http://ssb.stsci.edu/astroconda
+  - intel
+dependencies:
+  #Key parts
+  - python>3
+  - hdf5>=1.10.3
+  - pytables>=3.4.4
+  - mkl
+  - astropy==3.2.3
+  - astroquery
+  - specutils
+  - scipy
+  - matplotlib
+  - scikit-image
+  - scikit-learn
+  - pyqt>=5.6
+  - regions
+  - photutils
+  - ruamel.yaml==0.15.64
+  - drizzle
+  - statsmodels>=0.9
+  - mpmath>=1.0
+  - lmfit>=0.9.11
+  - sharedarray
+  - psutil
+  #Required but might be able to be trimmed or made optional functionality
+  - pypdf2
+  - astroplan
+  - progressbar2
+  - ffmpeg
+  - imagemagick
+  # Key Utilities
+  - ipdb
+  - ipython
+  - pip
+  - cython
+  #Getting ipp requires the intel channel, it is not known if this is boosting performance
+  - ipp
+  #Useful Utilities
+  - vitables
+
+#Things that probably don't need to be added back
+#  - tensorflow
+#  - mkl-include
+#  - boost
+#  - openblas
+
+  #pip requirements
+  - pip:
+    - multiprocessing-logging>=0.2.6
+    - pyinterval
+
+#prefix: ~/.conda/envs/pipeline
+

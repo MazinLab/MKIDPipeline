@@ -1,0 +1,32 @@
+!configdict
+beammap: !bmap
+  file: /scratch/baileyji/mec/speedtest/finalMap_20181218.bmap
+  freqfiles: /scratch/baileyji/mec/speedtest/ps_freqs_FL*_clip.txt
+  nrows: 146
+  ncols: 140
+
+paths: !configdict
+    dithers: /scratch/baileyji/mec/speedtest/
+    data: /mnt/data0/ScienceData/Subaru/
+    database: /scratch/baileyji/mec/speedtest/
+    out: /scratch/baileyji/mec/speedtest/out
+    tmp: /scratch/tmp/
+
+ncpu: 1
+
+#instrument: !configdict
+#  #This section provides information about the specific wavelength and energy parameters for this instrument
+#  #deadtime (number)
+#  deadtime: 0.000001
+#  #Energy bin width in eV  (number)
+#  energy_bin_width: 0.01
+#  #Starting Wavelength in nanometers (number)
+#  wvl_start: 700
+#  #Final Wavelength in nanometers (number)
+#  wvl_stop: 1500
+#  device_orientation: -48.0
+#
+#templar: !configdict
+#  file: the_conf.yml
+#
+#verbose: True

@@ -1,0 +1,28 @@
+!configdict
+
+paths: !configdict
+  fits: /work/nswimmer/MEC/20200731/animation_test/Hip5319_dither2_temporal_100ms_5wvlBins.fits  # Fits file to be animated. Must be a temporal drizzle
+  out: /work/nswimmer/MEC/20200731/animation_test/hip5319_test_video.mp4  # Desired output file. Must have a '.mp4' file type
+
+data: !configdict
+  exp_time: .1  # <float | int>. Exposure time (same as exp_timestep in the drizzler block of pipe.yml that was
+                # used to make the temporal drizzle)
+  smooth: True  # < True | False >. If true, attempts to remove any 'spikes' in counts from the duration of the temporal drizzle
+  square_size:  # < int | None > . Size of the square around the central star in pixels. If none, doesn't change the frame size at all
+  startt: 0  # < float | None >. Time within the drizzle to start the animation at. If None, defaults to 0
+  stopt:  # < float | None >. Time to stop the drizzle animation.
+  duration:  # <float | None >. Duration of the desired animation.
+  # Duration and stopt can both be specified, in which case duration supersedes stopt. If only one is specified, that is used.
+  wvl_bin:  # < int | None >. The index of the wavelength bin desired (if the FITS file has nwvlbins > 1.) If None, uses all wavelengths
+
+animation: !configdict
+  target: Hip5319  # Target name. If you do not wish for this to be shown in the animation but still want it saved in
+                   # the mp4 metadata, use show_title: False
+  stretch: linear  # linear | asinh | log | power | powerdist | sinh | sqrt | squared
+  power: 5  # If stretch: power is used, the colorbar stretch will use this value for the power scaling
+  type: temporal  # temporal | spectral
+  fps: 10  # frames per second
+  show_title: True  # Display the title at the top of the animation
+  plot_data: True  # Plot the data from the drizzled FITS file.
+  plot_stack: True  # Plot the stacked frames from the drizzled FITS file successively on top of one another
+                    # If plot_data and plot_stack are both true, it will plot them side-by-side which each other.
