@@ -46,6 +46,7 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('nchunks', 6, 'number of chunks to median combine'),
                      ('power', 1, 'power of polynomial to fit, <3 advised'),
                      ('power', 0, 'TODO'),
+                     ('use_wavecal', True, 'Use a wavelength dependant correction for wavecaled data.'),
                      ('plots', 'summary', 'none|summary|all'))
 
     def _vet_errors(self):
@@ -717,6 +718,12 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
             getLogger(__name__).warning(f'{o} is calibrated with a different flat than requested.')
         return
 
+    use_wavecal = cfg.flatcal.use_wavecal
+
+    if use_wavecal and not of.query_header('isWavelengthCalibrated'):
+        getLogger(__name__).info("Wavecal must be applied first")
+        return
+
     tic = time.time()
     calsoln = FlatSolution(o.flatcal.path)
     getLogger(__name__).info(f'Applying {calsoln} to {o}')
@@ -741,9 +748,13 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
 
         if (np.diff(indices) == 1).all():  # This takes ~300s for ALL photons combined on a 70Mphot file.
             # getLogger(__name__).debug('Using modify_column')
-            w = of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
-            old_specweights = of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='SpecWeight')
-            weights = soln(w) * old_specweights
+            if use_wavecal:
+                wave = of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
+                weights = soln(wave) * of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='SpecWeight')
+            else:
+                weighted_avg = np.ma.average(soln['weight'].flatten(), weights=soln['err'].flatten() ** -2.)
+                weights = np.full_like(indices, weighted_avg, dtype=float)
+
             weights = weights.clip(0)  # enforce positive weights only
 
             if any(weights > 100) or any(weights < 0.01):
@@ -761,6 +772,6 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
 
     of.update_header('isFlatCalibrated', True)
     of.update_header('fltCalFile', calsoln.file_path.encode())
-    # TODO header cards
-    # of.update_header(f'FLATCAL.TODO', 0)
+    of.update_header('FLATCAL.ID', calsoln.id)  #TODO ensure is pulled over from definition/is consistent
+    of.update_header('FLATCAL.TYPE', calsoln.type)  #TODO add type parameter to calsoln
     getLogger(__name__).info('Flatcal applied in {:.2f}s'.format(time.time() - tic))
