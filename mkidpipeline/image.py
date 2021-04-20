@@ -1,28 +1,16 @@
-from mkidpipeline.hdf.photontable import ObsFile
 import scipy.ndimage as ndi
 import numpy as np
 from multiprocessing import Pool
+from astropy.io import fits
+
 from mkidcore.corelog import getLogger
 from mkidcore.instruments import CONEX2PIXEL
-from astropy.io import fits
 from mkidpipeline.config import n_cpus_available
 
 
-def fetchimg(ob, kwargs):
-    of = ObsFile(ob.h5)
-    if kwargs['nwvl'] > 1:
-        im = of.getSpectralCube(hdu=True, **kwargs)
-    else:
-        kwargs.pop('wvlN', None)
-        im = of.getPixelCountImage(hdu=True, **kwargs)
-    del of
-
-    #TODO move to photontable and fetch it from an import
-    im.headerh['PIXELA'] = 10.0**2
-    return im
-
 
 def makeimage(data, mode, nwvl=1, wvlRange=(None,None), cfg=None, ncpu=None):
+    #TODO merge into drizzle if not there or delete
     """Make an image or cube from the data (Obs, list of obs, or dither) using sum, median, or average"""
 
     kw = dict(wvlStart=wvlRange[0], wvlStop=wvlRange[1], applyWeight=True, applyTPFWeight=True, wvlN=nwvl)
@@ -86,24 +74,3 @@ def makeimage(data, mode, nwvl=1, wvlRange=(None,None), cfg=None, ncpu=None):
 
     hdul.writeto('{id}_{mode}.fits'.format(id=id, mode=mode))
 
-
-import mkidpipeline
-import os
-import pkg_resources as pkg
-
-
-def drizzle(dither, config=None):
-    cfg = mkidpipeline.config.config if config is None else config
-    if 'drizzler' not in cfg:
-        cfg = mkidpipeline.config.load_task_config(pkg.resource_filename(__name__, 'drizzler.yml'))
-
-    # startt = args.startt
-    # intt = args.intt
-
-    form = mkidpipeline.imaging.drizzler.form
-    out = form(dither, mode=cfg.drizzler.mode, rotation_center=cfg.drizzler.rotation_origin,
-               wvlMin=dither.out.startw, wvlMax=dither.out.stopw,
-               pixfrac= cfg.drizzler.pixfrac, target_radec=cfg.drizzler.target_radec,
-               device_orientation=cfg.drizzler.device_orientation, derotate=dither.out.derotate)
-
-    out.writefits(os.path.join(cfg.paths.out, '{name}_{kind}.fits'.format(dither.name, dither.out.kind)))

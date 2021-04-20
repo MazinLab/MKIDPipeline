@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 from scipy.optimize import curve_fit
 
-from mkidpipeline.speckle.genphotonlist_IcIsIr import genphotonlist
+from mkidpipeline.speckle.generate_photons import genphotonlist
 from mpmath import mp, hyp1f1
 import mpmath
 from scipy import special
@@ -26,7 +26,7 @@ from scipy import optimize
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy.stats import poisson
 #import mkidpipeline.speckle.optimize_IcIsIr as binfree
-import mkidpipeline.speckle.binFreeRicianEstimate as binfree
+import mkidpipeline.speckle.binfree_rician as binfree
 import multiprocessing
 
 import time
@@ -136,31 +136,31 @@ def muVar_to_IcIs(mu, var, effExpTime):
 
 
 def modifiedRician(I, Ic, Is):
-    '''
+    """
     MR pdf(I) = 1/Is * exp(-(I+Ic)/Is) * I0(2*sqrt(I*Ic)/Is)
     mean = Ic + Is
     variance = Is^2 + 2*Ic*Is
-    '''
+    """
     mr = 1.0/Is * np.exp(-1.0*(I+Ic)/Is)* special.iv(0,2.0*np.sqrt(I*Ic)/Is)
     return mr
 
 
 
 def binMRlogL(n, Ic, Is):
-    '''
+    """
     Given a light curve, calculate the Log likelihood that
     its intensity distribution follows a blurred modified Rician with Ic, Is.
 
     "Blurred" means that it's not a pure MR, rather a Poisson sampling of an MR.
-    
+
     INPUTS:
-        n: 1d array containing the (binned) intensity as a function of time, i.e. a lightcurve [counts/bin]. Bin size must be fixed. 
+        n: 1d array containing the (binned) intensity as a function of time, i.e. a lightcurve [counts/bin]. Bin size must be fixed.
         Ic: Constant portion of MR [cts/bin]
         Is: Speckle portion of MR [cts/bin]
     OUTPUTS:
         lnL: [float] the Log likelihood of the entire light curve.
         lnL_array: an array where each index corresponds to the log likelihood of each element of the light curve array.
-    '''
+    """
 
     type_n = type(n)
     if type_n==float or type_n==int:  # len(n) will break if n is not a numpy array and only an int or float
@@ -212,18 +212,18 @@ def negLogLike(p, n):
 
 
 def binMR_like(n, Ic, Is):
-    '''
+    """
     Given a light curve, calculate the likelihood that
-    its intensity distribution follows a blurred modified Rician with Ic, Is. 
-    
+    its intensity distribution follows a blurred modified Rician with Ic, Is.
+
     INPUTS:
-        n: 1d array containing the (binned) intensity as a function of time, i.e. a lightcurve [counts/bin]. Bin size must be fixed. 
+        n: 1d array containing the (binned) intensity as a function of time, i.e. a lightcurve [counts/bin]. Bin size must be fixed.
         Ic: Coherent portion of MR [cts/bin]
         Is: Speckle portion of MR [cts/bin]
     OUTPUTS:
          - the likelihood of the entire light curve
          - an array with one likelihoood value for each element of the light curve array
-    '''
+    """
 #    k = -Ic/(Is**2 + Is)
 #    like = (1+1/Is)**-n/(1+Is)*np.exp(-Ic/Is-k)*eval_laguerre(n,k)
 #    like[np.argwhere(np.isnan(like))]=0
@@ -648,10 +648,6 @@ def logL_array(ts, Ic_list, Is_list, Ip_list, IcpIs_list = None, deadtime = 1.e-
 
     return cube
 
-
-
-
-
 def logLMap_binfree_sliceIs(t, x_list, Ir_list, IcPlusIs = False,Is_slice=.1, deadtime = 0):
     """
     makes a map of the bin-free log likelihood function over the range of Ic+Is, Ir
@@ -695,9 +691,6 @@ def logLMap_binfree_sliceIs(t, x_list, Ir_list, IcPlusIs = False,Is_slice=.1, de
     X, Y = np.meshgrid(x_list, Ir_list)
 
     return X,Y,im
-
-
-
 
 def get_binfree_seed(ts, deadtime, Ir_zero = False):
     """
@@ -876,11 +869,6 @@ def check_binfree_loglike_max(ts, p1, deadtime = 0):
         else:
             return False
 
-
-
-
-
-
 def blurredMR(n, Ic, Is):
     """
     Depricated.
@@ -961,7 +949,7 @@ def fitBlurredMR(bins, intensityHist, effExpTime, **kwargs):
     return Ic, Is, pcov
 
 
-def maxBinMRlogL(n, Ic_guess=1., Is_guess=1., method='Newton-CG'):  # Newton-CG
+def maxBinMRlogL(n, Ic_guess=1., Is_guess=1., method='Newton-CG', effExpTime=0.02):  # Newton-CG
     """
     Depricated.
 
