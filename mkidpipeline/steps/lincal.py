@@ -67,6 +67,5 @@ def apply(o: mkidpipeline.config.MKIDTimerange, config=None):
     bar.finish()
     of.update_header('isLinearityCorrected', True)
     of.update_header(f'LINCAL.DT', cfg.lincal.dt)
-    of.update_header(f'LINCAL.TAU', cfg.instrument.deadtime * 1 * 10 ** 6)
     getLogger(__name__).info(f'Lincal applied to {of.filename} in {time.time() - tic:.2f}s')
     of.disablewrite()
