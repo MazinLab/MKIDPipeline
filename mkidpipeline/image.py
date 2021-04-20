@@ -1,4 +1,3 @@
-import os
 import scipy.ndimage as ndi
 import numpy as np
 from multiprocessing import Pool
@@ -6,22 +5,12 @@ from astropy.io import fits
 
 from mkidcore.corelog import getLogger
 from mkidcore.instruments import CONEX2PIXEL
-from mkidpipeline.photontable import Photontable
 from mkidpipeline.config import n_cpus_available
-from mkidpipeline.steps import drizzler
 
-
-def fetchimg(ob, kwargs):
-    of = Photontable(ob.h5)
-    im = of.get_fits(cube_type='wave' if kwargs['nwvl'] > 1 else None)['SCIENCE']
-    del of
-
-    #TODO move to photontable and fetch it from an import
-    im.headerh['PIXELA'] = 10.0**2
-    return im
 
 
 def makeimage(data, mode, nwvl=1, wvlRange=(None,None), cfg=None, ncpu=None):
+    #TODO merge into drizzle if not there or delete
     """Make an image or cube from the data (Obs, list of obs, or dither) using sum, median, or average"""
 
     kw = dict(wvlStart=wvlRange[0], wvlStop=wvlRange[1], applyWeight=True, applyTPFWeight=True, wvlN=nwvl)
@@ -85,13 +74,3 @@ def makeimage(data, mode, nwvl=1, wvlRange=(None,None), cfg=None, ncpu=None):
 
     hdul.writeto('{id}_{mode}.fits'.format(id=id, mode=mode))
 
-
-def drizzle(dither, config=None):
-    cfg = config.PipelineConfigFactory(step_defaults=dict(drizzler=drizzler.StepConfig()), cfg=config, copy=True)
-
-    out = drizzler.form(dither, mode=cfg.drizzler.mode, rotation_center=cfg.drizzler.rotation_origin,
-                        wvlMin=dither.out.startw, wvlMax=dither.out.stopw,
-                        pixfrac= cfg.drizzler.pixfrac, target_radec=cfg.drizzler.target_radec,
-                        device_orientation=cfg.drizzler.device_orientation, derotate=dither.out.derotate)
-
-    out.writefits(os.path.join(cfg.paths.out, '{name}_{kind}.fits'.format(dither.name, dither.out.kind)))

@@ -74,7 +74,7 @@ DRIZ_PROBLEM_FLAGS = ()  # currently no pixel flags make drizzler explode
 
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
-    yaml_tag = u'!badpix_cfg'
+    yaml_tag = u'!drizzler_cfg'
     REQUIRED_KEYS = (('plots', 'all', 'Which plots to generate'),
                      ('pixfrac', 0.5, 'TODO'),
                      ('wcs_timestep', 1, 'time between different wcs parameters (eg orientations). 0 will use '
@@ -1048,6 +1048,7 @@ def fetch(outputs, config=None):
                         derotate=config.drizzler.derotate, align_start_pa=config.drizzler.align_start_pa,
                         whitelight=config.drizzler.whitelight, intermediate_file=intermediate_file)
         drizzled.write(o.output_file)
+
 
 
 if __name__ == '__main__':
