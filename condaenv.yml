@@ -1,6 +1,6 @@
 #conda update -n base conda
 #conda env create -f <thisfile>
-name: pipeline-new
+name: pipeline
 channels:
   - defaults
   - conda-forge
@@ -12,7 +12,9 @@ dependencies:
   - hdf5>=1.10.3
   - pytables>=3.4.4
   - mkl
-  - astropy
+  - astropy==3.2.3
+  - astroquery
+  - specutils
   - scipy
   - matplotlib
   - scikit-image
@@ -26,6 +28,7 @@ dependencies:
   - mpmath>=1.0
   - lmfit>=0.9.11
   - sharedarray
+  - psutil
   #Required but might be able to be trimmed or made optional functionality
   - pypdf2
   - astroplan
@@ -53,5 +56,5 @@ dependencies:
     - multiprocessing-logging>=0.2.6
     - pyinterval
 
-prefix: /opt/anaconda/envs/pipeline-new
+#prefix: ~/.conda/envs/pipeline
 

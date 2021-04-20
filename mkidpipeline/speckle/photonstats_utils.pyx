@@ -7,7 +7,7 @@ import numpy as np
 def removedeadtime(double [:] t, double deadtime):
 
     n = t.shape[0]
-    keep_np = np.ones((n), np.int)
+    keep_np = np.ones(n, np.int)
     cdef long [:] keep = keep_np
 
     cdef int i, j

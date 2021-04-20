@@ -78,8 +78,8 @@ After the wavelength calibration .h5 solution file is made, it can be applied to
 
     # path to your wavecal solution file
     file_name = '/path/to/calsol_timestamp.h5'
-    obs.applyWaveCal(file_name)
-where obs is your obs file object. The method applyWaveCal() will change all of the phase heights to wavelengths in nanometers. For pixels where no calibration is available, the phase heights are not changed and a flag is applied to mark the pixel as uncalibrated. Warning, the wavelength calibration can not be undone after applied and permanently alters the .h5 file. Make a backup .h5 file if you are testing different calibrations.
+    obs.apply_wavecal(file_name)
+where obs is your obs file object. The method apply_wavecal() will change all of the phase heights to wavelengths in nanometers. For pixels where no calibration is available, the phase heights are not changed and a flag is applied to mark the pixel as uncalibrated. Warning, the wavelength calibration can not be undone after applied and permanently alters the .h5 file. Make a backup .h5 file if you are testing different calibrations.
 
 Flat Fielding
 ----------------------------------------------
@@ -187,7 +187,7 @@ After the flatfield calibration .h5 solution files are made, they can be applied
     calSolnPath='/path/to/calSolutionFile.h5'
 
     obsfile=obs(ObsFN, mode='write')
-    obsfilecal=obs.applyFlatCal(obsfile,calSolnPath,verbose=True)
+    obsfilecal=obs.apply_flatcal(obsfile,calSolnPath,verbose=True)
 
 Weights are multiplied in and replaced; if "weights" are the contents of the "SpecWeight" column, weights = weights*weightArr. NOT reversible unless the original contents (or weightArr) is saved.
 Will write plots of flatcal solution (5 second increments over a single flat exposure) with average weights overplotted to a pdf for pixels which have a successful FlatCal.
