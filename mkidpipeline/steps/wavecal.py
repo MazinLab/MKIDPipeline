@@ -2684,8 +2684,9 @@ def apply(o):
             continue
 
         flags = obs.flags
-        obs.unflag(flags.bitmask([f for f in flags.names if f.startswith('wavecal')]), pixel=pixel)
-        obs.flag(flags.bitmask([f'wavecal.{f.name}' for f in solution.get_flag(res_id=resID)]), pixel=pixel)
+        obs.unflag(flags.bitmask([f for f in flags.names if f.startswith('wavecal')], unknown='ignore'), pixel=pixel)
+        obs.flag(flags.bitmask([f'wavecal.{f.name}' for f in solution.get_flag(res_id=resID)], unknown='warn'),
+                 pixel=pixel)
 
         calibration = solution.calibration_function(res_id=resID, wavelength_units=True)
 
