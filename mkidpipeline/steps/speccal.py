@@ -44,24 +44,12 @@ PROBLEM_FLAGS = ('pixcal.hot', 'pixcal.cold', 'pixcal.unstable', 'beammap.noDacT
                  'wavecal.not_enough_histogram_fits', 'wavecal.no_histograms',
                  'wavecal.not_attempted')
 
-UNSPECCALABLE_FLAGS = PROBLEM_FLAGS
-
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!speccal_cfg'
     REQUIRED_KEYS = (('photometry_type', 'aperture', 'aperture | psf'),
                      ('plots', 'summary', 'summary | none'),
-                     ('interpolation', 'linear', ' linear | cubic | nearest'),
-                     ('power', 3, 'The power?')) #TODO
-
-
-FLAGS = pixelflags.FlagSet.define(
-    ('inf_weight', 1, 'Spurious infinite weight was calculated - weight set to 1.0'),
-    ('lz_weight', 2, 'Spurious less-than-or-equal-to-zero weight was calculated - weight set to 1.0'),
-    ('nan_weight', 4, 'NaN weight was calculated.'),
-    ('below_range', 8, 'Derived wavelength is below formal validity range of calibration'),
-    ('above_range', 16, 'Derived wavelength is above formal validity range of calibration'),
-)
+                     ('interpolation', 'linear', ' linear | cubic | nearest')) #TODO
 
 
 class StandardSpectrum:
@@ -600,29 +588,4 @@ def fetch(dataset, config=None, ncpu=None, remake=False, **kwargs):
     return solutions
 
 
-def apply(o, config=None):
-    obs = o.photontable
-    if obs.query_header('isFluxCalibrated'):
-        getLogger(__name__).info(f"{obs.filename} previously calibrated with {obs.query_header('SPECCAL.ID')}, "
-                                 f"skipping")
-        return
-
-    cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(speccal=StepConfig()), cfg=config, copy=True)
-    power = cfg.speccal.power
-
-    spectralcal = load_solution(o.speccal)
-    response_curve = spectralcal.response_curve
-
-    getLogger(__name__).info('Applying {} to {}'.format(o.speccal, obs.filename))
-    ind = np.isfinite(response_curve.curve[1])  # dont include nan or inf values
-    coeffs = np.polyfit(response_curve.curve[0][ind] / 10.0, response_curve.curve[1][ind], power)
-    func = np.poly1d(coeffs)
-    tic = time.time()
-    for resid in obs.resonators(exclude=UNSPECCALABLE_FLAGS):  # TODO this is inefficent and fits the file twice
-        obs.multiply_column_weight(resid, func(obs.query(resid=resid, field='Wavelength')), 'SpecWeight', flush=False)
-
-    obs.update_header('isFluxCalibrated', True)
-    obs.update_header('SPECCAL.ID', spectralcal.id)
-    obs.update_header('SPECCAL.POW', power)
-
-    getLogger(__name__).info('speccal applied in {:.2f}s'.format(time.time() - tic))
+# Note that there is no apply function as how to apply is hihgly data dependent and in MKIDAnalysis
