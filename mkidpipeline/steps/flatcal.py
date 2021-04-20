@@ -729,8 +729,11 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
     getLogger(__name__).info(f'Applying {calsoln} to {o}')
 
     # Set flags for pixels that have them
-    # TODO
-    # of.flag(np.ones_like(of.of.flags.bitmask())
+    to_clear = of.flags.bitmask([f'flatcal.{name}' for name,_,_  in FLAGS], unknown='ignore')
+    of.unflag(to_clear)
+    for name, bit, _ in FLAGS:
+        # TODO instrument FlatSoln (e.g. w/ get_flag_map) so there is a way to get a 2b boolean map of each set flag
+        of.flag(calsoln.get_flag_map(name)*of.flags.bitmask([f'flatcal.{name}'], unknown='warn'))
 
     for pixel, resID in of.resonators(exclude=UNFLATABLE, pixel=True):
 
@@ -766,7 +769,7 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
             #raise NotImplementedError('This code path is impractically slow at present.')
             getLogger(__name__).debug('Using modify_coordinates')
             rows = of.photonTable.read_coordinates(indices)
-            rows['SpecWeight'] *= soln(rows['Wavelength']) # TODO make sure this is changing the column correctly
+            rows['SpecWeight'] *= soln(rows['Wavelength'])  # TODO make sure this is changing the column correctly
             of.photonTable.modify_coordinates(indices, rows)
             getLogger(__name__).debug('Flat weights updated in {:.2f}s'.format(time.time() - tic2))
 

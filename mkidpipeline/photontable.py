@@ -541,10 +541,9 @@ class Photontable(object):
     def unflag(self, flag, pixel=(slice(None, slice(None)))):
         """
         Resets the specified flag in the BeamFlag array to 0. Flag is a bitmask;
-        only the bit specified by 'flag' is reset. Flag definitions
-        can be found in Headers/pipelineFlags.py.
+        only the bit(s) specified by 'flag' is/are reset.
 
-        Named flags must be converged to bitmask via self.flag_bitmask(flag names) first
+        Named flags must be converged to bitmask via self.flags.flag_bitmask(flag names) first
 
         Parameters
         ----------
