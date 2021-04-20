@@ -1,0 +1,50 @@
+- !out
+  name: out1
+  data: HD22179
+  startw: 811
+  stopw: 1351
+  kind: spatial  # stack (align MKID array) | spatial (align sky coords) | temporal (many "spatial" maps stacked) |
+  enable_noise: True
+  enable_photom: True
+  enable_ssd: True
+  filename: HD22179_spatial.fits
+
+- !out
+  name: out2
+  data: HD22179
+  startw: 811
+  stopw: 1351
+  kind: temporal
+  enable_noise: True
+  enable_photom: True
+  enable_ssd: True
+#  filename: test.f
+
+- !out
+  name: out3
+  data: HD22179
+  startw: 811
+  stopw: 1351
+  kind: stack
+  enable_noise: True
+  enable_photom: True
+  enable_ssd: True
+#  filename: test.f
+
+- !out
+  name: out4
+  data: HD22179
+  kind: movie
+  movieduration: 20
+  startt: 2
+  stopt: 10
+#  startw: 850
+#  stopw: 1375
+#  colormap: 'viridis'
+  timestep: 0.1
+#  frameduration: 1
+#  cps_cutoff: 100
+  enable_noise: True
+  enable_photom: True
+  enable_ssd: True
+  filename: movie.gif

@@ -39,8 +39,7 @@ class mainWindow(QMainWindow):
         self.create_status_bar()
         self.createMenu()
         #self.load_beam_map()
-        
-        
+
     def initializeEmptyArrays(self,nCol = 80,nRow = 125):
         self.nCol = nCol
         self.nRow = nRow
@@ -51,11 +50,8 @@ class mainWindow(QMainWindow):
         self.image = np.zeros(self.nRow*self.nCol).reshape((self.nRow,self.nCol))
         self.beamFlagMask = np.zeros(self.nRow*self.nCol).reshape((self.nRow,self.nCol))
 
-        
-        
-
     def get_nPixels(self,filename):	
-        #140 x 145 for MEC	
+        #140 x 146 for MEC
         #80 x 125 for darkness	
         	
         npixels = len(np.fromfile(open(filename, mode='rb'),dtype=np.uint16))	
@@ -65,12 +61,12 @@ class mainWindow(QMainWindow):
             nCol = 80	
             nRow = 125	
             print('\n\ncamera is DARKNESS/PICTURE-C\n\n')	
-        elif npixels == 20300:  #mec	
+        elif npixels == 20440:  #mec
             nCol = 140	
-            nRow = 145	
+            nRow = 146
             print('\n\ncamera is MEC\n\n')	
         else:	
-            raise ValueError('img does not have 10000 or 20300 pixels')	
+            raise ValueError('img does not have 10000 or 20440 pixels')
            	
         return nCol, nRow
 
@@ -152,8 +148,6 @@ class mainWindow(QMainWindow):
         self.beamFlagMask[yPos[temp]][xPos[temp]]=1 #beamFlagMask is 1 when the pixel is not beam mapped
         #self.beamFlagMask = beamFlagMask
 
-
-
     def initialize_spinbox_values(self,filename):
         #set up the spinbox limits and start value, which will be the file you selected
         self.spinbox_imgTimestamp.setMinimum(self.timeStampList[0])
@@ -163,20 +157,17 @@ class mainWindow(QMainWindow):
         self.spinbox_darkStart.setMinimum(self.timeStampList[0])
         self.spinbox_darkStart.setMaximum(self.timeStampList[-10])
         self.spinbox_darkStart.setValue(np.fromstring(os.path.basename(filename)[:-4],dtype=int, sep=' ')[0])
-        
 
-        
-        
     def plotImage(self,filename = None):        
         
         if filename == None:
             filename = self.fileListRaw[np.where(self.timeStampList==self.spinbox_imgTimestamp.value())[0][0]]      
 
         self.ax1.clear()         
-        
-        self.rawImage = np.transpose(np.reshape(np.fromfile(open(filename, mode='rb'),dtype=np.uint16), (self.nCol,self.nRow)))        
-        
-        
+
+        with open(filename, mode='rb') as f:
+            self.rawImage = np.transpose(np.reshape(np.fromfile(f,dtype=np.uint16), (self.nCol,self.nRow)))
+
 #        image=np.fromfile(open(fn, mode='rb'),dtype=np.uint16)
 #        image = np.transpose(np.reshape(image, (self.nCols, self.nRows)))
         
@@ -567,9 +558,6 @@ class mainWindow(QMainWindow):
 
         else:
             return
-        
-        #140 x 145 for MEC
-        
         
         
         

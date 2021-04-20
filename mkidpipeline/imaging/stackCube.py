@@ -19,13 +19,13 @@ import glob
 import sys
 
 import mkidpipeline.utils.irUtils as irUtils
-from mkidpipeline.hdf.darkObsFile import ObsFile as darkObsFile
+from mkidpipeline.hdf.photontable import Photontable as darkObsFile
 from mkidpipeline.utils.FileName import FileName
 # from matplotlib.backends.backend_qt4agg import NavigationToolbar2QTAgg as NavigationToolbar
 # import mpfit
-from mkidpipeline.utils.arrayPopup import plotArray
+from mkidpipeline.utils.plottingTools import plot_array
 from mkidpipeline.utils.loadStack import *
-from mkidpipeline.utils.readDict import readDict
+from mkidcore.utils.readdict import ReadDict
 
 
 # import hotpix.hotPixels as hp
@@ -33,8 +33,7 @@ from mkidpipeline.utils.readDict import readDict
 
 def makeCubeTimestream(configFileName):
     
-    configData = readDict()
-    configData.read_from_file(configFileName)
+    configData = ReadDict(file=configFileName)
 
     # Extract parameters from config file
     nPos = int(configData['nPos'])
@@ -182,7 +181,7 @@ def stackCube(h5File,npzFile, verbose=True):
             paddedFrame = irUtils.embedInLargerArray(im,frameSize=padFraction)
 
             #upSample frame for sub-pixel registration with fitting code
-            upSampledFrame = irUtils.upSampleIm(paddedFrame,upSample)
+            upSampledFrame = paddedFrame.repeat(upSample, axis=0).repeat(upSample, axis=1)
             #conserve flux. Break each pixel into upSample^2 sub pixels, 
             #each subpixel should have 1/(upSample^2) the flux of the original pixel
             upSampledFrame/=float(upSample*upSample)
@@ -200,9 +199,9 @@ def stackCube(h5File,npzFile, verbose=True):
 
     cubeStack = np.array(cubeStack)
     for n in np.arange(nWvlBins):
-        finalCube.append(irUtils.medianStack(cubeStack[n]))
+        finalCube.append(np.nanmedian(cubeStack[n], axis=0))
         if verbose:
-            plotArray(finalCube[n],title="%i nm"%centers[n])
+            plot_array(finalCube[n],title="%i nm"%centers[n])
     finalCube = np.array(finalCube)
 
     return {'finalCube':finalCube,'wvls':centers, 'cubeStack':cubeStack, 'times':finalTimes}
