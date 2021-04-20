@@ -121,7 +121,7 @@ def _increment_id(self):
 stdrizzle.Drizzle.increment_id = _increment_id
 
 
-class DrizzleParams(object):
+class DrizzleParams:
     """
     Calculates and stores the relevant info for Drizzler
 
@@ -355,7 +355,7 @@ def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfi
     return dithers_data
 
 
-class Canvas(object):
+class Canvas:
     def __init__(self, dithers_data, ob, coords, nPixRA=None, nPixDec=None):
         """
         Class common to SpatialDrizzler, TemporalDrizzler and ListDrizzler. It generates the canvas that is
@@ -919,6 +919,36 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0, 0), zo
     getLogger(__name__).info('rotation_center: {}'.format(rotation_center))
 
     return rotation_center
+
+
+from mkidcore.corelog import getLogger
+from mkidcore.instruments import CONEX2PIXEL
+import scipy.ndimage as ndimage
+
+
+def align_hdu_conex(hdus, mode):
+    #TODO merge into drizzle and support wcs
+    """Make an image or cube from the data (Obs, list of obs, or dither) using sum, median, or average"""
+
+    shifts = []
+    angles = []
+    frames = []
+    for h in hdus:
+        shifts.append(CONEX2PIXEL(h.header['CONEXX'], h.header['CONEXY']))
+        angles.append(h.header['PARAAOFF'])
+        frames.append(h.data)
+    shifts = np.array(shifts)
+
+    # Combine frames, NB this assumes that frames are in surface brightness units
+
+    padx_high, pady_high = shifts.max(0).clip(0, np.inf)
+    padx_low, pady_low = np.abs(np.array(shifts).min(0).clip(-np.inf, 0))
+    stack = []
+    for data, angle, shift in zip(frames, angles, shifts):
+        padim = np.pad(data, ((padx_low, padx_high), (pady_low, pady_high)), 'constant', constant_values=0)
+        stack.append(ndimage.shift(ndimage.rotate(padim, angle, order=1, reshape=False), shift, order=1))
+
+    return getattr(np, mode)(stack, axis=0)
 
 
 def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt=0., intt=60., pixfrac=.5, nwvlbins=1,
