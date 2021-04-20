@@ -23,7 +23,7 @@ PHOTON_BIN_SIZE_BYTES = 8
 
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
-    yaml_tag = u'!hdf_cfg'
+    yaml_tag = u'!buildhdf_cfg'
     REQUIRED_KEYS = (('remake', False, 'Remake H5 even if they exist'),
                      ('include_baseline', False, 'Include the baseline in H5 phase/wavelength column'),
                      ('chunkshape', 250, 'HDF5 Chunkshape to use'),)  # nb propagates to kwargs of build_pytables

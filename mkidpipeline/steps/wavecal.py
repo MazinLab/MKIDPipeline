@@ -38,11 +38,15 @@ _loaded_solutions = {}  # storage for loaded wavelength solutions
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!wavecal_cfg'
     REQUIRED_KEYS = (('plots', 'summary', 'summary or all'),
-                     ('histogram_models', ('GaussianAndExponential',), 'model types from wavecal_models.py to attempt to fit to the phase peak histograms'),
-                     ('bin_width', 2, 'minimum bin width for the phase histogram. Larger widths will be used for low photon  count pixels (number)'),
-                     ('histogram_fit_attempts', 3, 'how many times should the code try to fit each histogram model before giving up'),
-                     ('calibration_models', ('Quadratic', 'Linear'), 'model types from wavecal_models.py to attempt to fit to the phase-energy relationship'),
-                     ('dt', 500,'ignore photons which arrive this many microseconds from another photon (number)'),
+                     ('histogram_models', ('GaussianAndExponential',), 'model types from wavecal_models.py to attempt'
+                                                                       ' to fit to the phase peak histograms'),
+                     ('bin_width', 2, 'minimum bin width for the phase histogram. Larger widths will be used for '
+                                      'low photon  count pixels (number)'),
+                     ('histogram_fit_attempts', 3, 'how many times should the code try to fit each histogram '
+                                                   'model before giving up'),
+                     ('calibration_models', ('Quadratic', 'Linear'), 'model types from wavecal_models.py to '
+                                                                     'attempt to fit to the phase-energy relationship'),
+                     ('dt', 500, 'ignore photons which arrive this many microseconds from another photon (number)'),
                      ('parallel', True, 'Fitting using more than one core'),
                      ('parallel_prefetch', False, 'use shared memory to load ALL the photon data into ram'))
 
@@ -2702,7 +2706,9 @@ def apply(o):
     obs.update_header('isWvlCalibrated', True)
     obs.update_header('wvlCalFile', solution.name)
     #TODO update header with WAVECAL.XXXX cards
-    obs.update_header(f'FLATCAL.TODO', 0)
+    obs.update_header(f'WAVECAL.ID', solution.id)
+    #TODO R and error for each wavelength
+    obs.update_header(f'WAVECAL.ID', solution.id)
     obs.photonTable.reindex_dirty()  # recompute "dirty" wavelength index
     obs.photonTable.autoindex = True  # turn on auto-indexing
     obs.disablewrite()

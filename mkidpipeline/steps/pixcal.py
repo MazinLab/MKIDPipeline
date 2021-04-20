@@ -92,7 +92,7 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
     REQUIRED_KEYS = (('method', 'median', 'method to use cpscut|laplacian|median|threshold'),
                      ('step', 30, 'Time interval for methods that need one'),
                      ('spec_weight', True, 'Use the spec weights'),
-                     ('noise_weight', True, 'Use the noise weights'))
+                     ('noise_weight', True, 'Use the noise weights'))   #TODO remove one or both if they aren't determined by this step run
 
 
 FLAGS = FlagSet.define(('hot', 1, 'Hot pixel'),

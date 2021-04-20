@@ -34,7 +34,7 @@ class CRImpact(tables.IsDescription):
 
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
-    yaml_tag = u'!badpix_cfg'
+    yaml_tag = u'!cosmiccal_cfg'
     REQUIRED_KEYS = (('plots', 'all', 'Which plots to generate'),
                      ('wave_range', None, 'TODO'),
                      ('method', 'poisson', 'TODO'),
@@ -271,5 +271,7 @@ def apply(o: mkidpipeline.config.MKIDTimerange, config=None, ncpu=None):
     cc.obs.enablewrite()
     for k, v in md.items:
         cc.obs.update_header(f'COSMICCAL.{k}', v)
+
+        #TODO some info on stats, but generate dynamically in photontable
     cc.obs.attach_new_table('cosmics', 'Cosmic Ray Info', 'impacts', CRImpact, "Cosmic-Ray Hits", impacts)
     cc.obs.disablewrite()
