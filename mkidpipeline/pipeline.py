@@ -182,6 +182,8 @@ def batch_build_hdf(dset, ncpu=None):
 
 def batch_apply_metadata(dset):
     """Function associates things not known at hdf build time (e.g. that aren't in the bin files)"""
+    #TODO add a testing check that there aren't multiple observations backed by the same h5, that could result in
+    # metadata oddness
     for ob in dset.all_observations:
         o = photontable.Photontable(ob.h5, mode='w')
         o.attach_observing_metadata(ob.metadata)
@@ -206,10 +208,6 @@ def batch_apply_lincals(dset, ncpu=None):
     batch_applier(mkidpipeline.steps.lincal.apply, dset.lincalable, ncpu=ncpu)
 
 
-def batch_apply_speccals(dset, ncpu=None):
-    batch_applier(mkidpipeline.steps.speccal.apply, dset.speccalable, ncpu=ncpu)
-
-
 def batch_apply_cosmiccals(dset, ncpu=None):
     batch_applier(mkidpipeline.steps.cosmiccal.apply, dset.cosmiccalable, ncpu=ncpu)
 
@@ -217,15 +215,15 @@ def batch_apply_cosmiccals(dset, ncpu=None):
 def run_stage1(dataset):
     operations = (('Building H5s', mkidpipeline.steps.buildhdf.buildtables),
                   ('Attaching metadata', batch_apply_metadata),
-                  ('Finding Cosmic-rays', batch_apply_cosmiccals),
                   ('Fetching wavecals', mkidpipeline.steps.wavecal.fetch),
+                  ('Finding Cosmic-rays', batch_apply_cosmiccals),
                   ('Applying linearity correction', batch_apply_lincals),
                   ('Applying wavelength solutions', batch_apply_wavecals),
-                  ('Applying wavelength solutions', batch_apply_pixcals),
+                  ('Applying pixel masks', batch_apply_pixcals),
                   ('Fetching flatcals', mkidpipeline.steps.flatcal.fetch),
                   ('Applying flatcals', batch_apply_flatcals),
-                  ('Fetching speccals', mkidpipeline.steps.speccal.fetch),
-                  ('Applying speccals', batch_apply_speccals))
+                  ('Fetching speccals', mkidpipeline.steps.speccal.fetch)
+                  )
 
     toc = time.time()
     for task_name, task in operations:
