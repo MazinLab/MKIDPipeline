@@ -40,7 +40,8 @@ from mkidcore.pixelflags import FlagSet, PROBLEM_FLAGS
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!flatcal_cfg'
-    REQUIRED_KEYS = (('rate_cutoff', 0, 'Count Rate Cutoff in inverse seconds (number)'),
+    REQUIRED_KEYS = (('type', 'Laser', 'Laser | White'),
+                     ('rate_cutoff', 0, 'Count Rate Cutoff in inverse seconds (number)'),
                      ('trim_chunks', 1, 'number of Chunks to trim (integer)'),
                      ('chunk_time', 10, 'duration of chunks used for weights (s)'),
                      ('nchunks', 6, 'number of chunks to median combine'),
@@ -91,11 +92,9 @@ class FlatCalibrator:
         self.r_list = None
         self.solution_name = solution_name
 
-        if self.cfg.flatcal.use_wavecal:
-            sol = wavecal.Solution(self.cfg.flatcal.wavsol)
-            r, _ = sol.find_resolving_powers(cache=True)
-            self.r_list = np.nanmedian(r, axis=0)
-            # TODO shouldn't this pull the wavelengths from the wavesol
+        sol = wavecal.Solution(self.cfg.flatcal.wavsol)
+        r, _ = sol.find_resolving_powers(cache=True)
+        self.r_list = np.nanmedian(r, axis=0)
 
         self.save_plots = self.cfg.flatcal.plots.lower() == 'all'
         self.summary_plot = self.cfg.flatcal.plots.lower() in ('all', 'summary')
@@ -113,12 +112,28 @@ class FlatCalibrator:
         self.plotName = None
         self.fig = None
         self.coeff_array = np.zeros(self.cfg.beammap.ncols, self.cfg.beammap.nrows)
+        self.mask=None
 
     def load_data(self):
         pass
 
-    def load_flat_spectra(self):
+    def make_spectral_cube(self):
         pass
+
+    def load_flat_spectra(self):
+        self.make_spectral_cube()
+        dark_frame = self.get_dark_frame()
+        for icube, cube in enumerate(self.spectral_cube):
+            dark_subtracted_cube = np.zeros_like(cube)
+            for iwvl, wvl in enumerate(cube[0, 0, :]):
+                dark_subtracted_cube[:, :, iwvl] = np.subtract(cube[:, :, iwvl], dark_frame)
+            # mask out hot and cold pixels
+            masked_cube = np.ma.masked_array(dark_subtracted_cube, mask=self.mask).data
+            self.spectral_cube[icube] = masked_cube
+        self.spectral_cube = np.array(self.spectral_cube)
+        self.eff_int_times = np.array(self.eff_int_times)
+        # count cubes is the counts over the integration time
+        self.spectral_cube_in_counts = self.eff_int_times * self.spectral_cube
 
     def run(self):
         getLogger(__name__).info("Loading Data")
@@ -221,6 +236,27 @@ class FlatCalibrator:
     def make_summary(self):
         generate_summary_plot(flatsol=self.save_name, save_plot=True)
 
+    def get_dark_frame(self):
+        """
+        takes however many dark files that are specified in the pipe.yml and computes the counts/pixel/sec for the sum
+        of all the dark obs. This creates a stitched together long dark obs from all of the smaller obs given. This
+        is useful for legacy data where there may not be a specified dark observation but parts of observations where
+        the filter wheel was closed.
+
+        :return: expected dark counts for each pixel over a flat observation
+        """
+        if not self.darks:
+            return np.zeros_like(self.spectral_cube[0][:, :, 0])
+
+        getLogger(__name__).info('Loading dark frames for Laser flat')
+        frames = []
+        itime = 0
+        for dark in self.darks:
+            im = dark.photontable.get_fits(start=dark.start, duration=dark.duration, rate=False)['SCIENCE']
+            frames.append(im.data)
+            itime += im.header['EXPTIME']
+        return np.sum(frames, axis=2) / itime
+
     def plotWeightsWvlSlices(self):
         """
         Plot weights in images of a single wavelength bin (wavelength-sliced images)
@@ -302,7 +338,6 @@ class FlatCalibrator:
             self._mergePlots()
         plt.close('all')
 
-
 class WhiteCalibrator(FlatCalibrator):
     """
     Opens flat file using parameters from the param file, sets wavelength binning parameters, and calculates flat
@@ -310,7 +345,7 @@ class WhiteCalibrator(FlatCalibrator):
     and in wavelength-sliced images.
     """
 
-    def __init__(self, h5, config=None, solution_name='flat_solution.npz'):
+    def __init__(self, h5, config=None, solution_name='flat_solution.npz', darks=None):
         """
         Reads in the param file and opens appropriate flat file.  Sets wavelength binning parameters.
         """
@@ -318,51 +353,55 @@ class WhiteCalibrator(FlatCalibrator):
         self.exposure_time = self.cfg.exposure_time
         self.h5 = h5
         self.energies = None
-        self.energyBinWidth = None
+        self.energy_bin_width = None
         self.solution_name = solution_name
 
     def load_data(self):
         getLogger(__name__).info('Loading calibration data from {}'.format(self.h5))
-        self.obs = self.h5.photontable
-        if not self.obs.wavelength_calibrated:
+        pt = self.h5.photontable
+        if not pt.wavelength_calibrated:
             raise RuntimeError('Photon data is not wavelength calibrated.')
-        self.xpix = self.obs.nXPix
-        self.ypix = self.obs.nYPix
-
+        # define wavelengths to use
         self.energies = [(c.h * c.c) / (i * 10 ** (-9) * c.e) for i in self.wavelengths]
         middle = int(len(self.wavelengths) / 2.0)
-        self.energyBinWidth = self.energies[middle] / (5.0 * self.r_list[middle])
-        self.wvl_bin_edges = Photontable.wavelength_bins(self.energyBinWidth, self.wvl_start, self.wvl_stop,
-                                                         energy=True)
-        self.wavelengths = (self.wvl_bin_edges[: -1] + np.diff(self.wvl_bin_edges)).flatten()
+        self.energy_bin_width = self.energies[middle] / (5.0 * self.r_list[middle])
+        wvl_bin_edges = Photontable.wavelength_bins(self.energy_bin_width, self.wvl_start, self.wvl_stop,
+                                                    energy=True)
+        self.wavelengths = (wvl_bin_edges[: -1] + np.diff(wvl_bin_edges)).flatten()
 
-    def load_flat_spectra(self):
-        """
-        Reads the flat data into a spectral cube whose dimensions are determined
-        by the number of x and y pixels and the number of wavelength bins.
-        Each element will be the spectral cube for a time chunk
+    def make_spectral_cube(self):
+        n_wvls = len(self.wavelengths)
+        n_times = self.cfg.flatcal.nchunks
+        x, y = self.cfg.beammap.ncols, self.cfg.beammap.nrows
+        exposure_time = self.h5.duration
+        if self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks > exposure_time:
+            n_times = int(exposure_time / self.cfg.flatcal.chunk_time)
+            getLogger(__name__).info('Number of chunks * chunk time is longer than the laser exposure. Using full'
+                                     'length of exposure ({} chunks)'.format(n_times))
+        cps_cube_list = np.zeros([n_times, x, y, n_wvls])
+        mask = np.zeros([x, y, n_wvls])
+        int_times = np.zeros([x, y, n_wvls])
 
-        To be used for whitelight flat data
-        """
-        self.spectral_cube = []
-        self.eff_int_times = []
-        for start in range(0, self.exposure_time, self.cfg.flatcal.chunk_time):  # for each time chunk
-            cubeDict = self.obs.get_fits(start=start, duration=self.cfg.flatcal.chunk_time, spec_weight=False,
-                                         noise_weight=False, bin_edges=self.wvl_bin_edges,
-                                         cube_type='wave', bin_type='energy', rate=True)
-            cube = cubeDict['SCIENCE'].data
-            cube[np.isnan(cube)] = 0  # TODO need to update masks to note why these 0s appeared
+        delta_list = self.wavelengths / self.r_list / 2
+        pt = self.h5.photontable
+        for i, wvl in enumerate(self.wavelengths):
+            if not pt.query_header('isBadPixMasked'):
+                getLogger(__name__).warning('H5 File not hot pixel masked, could skew flat weights')
 
-            self.spectral_cube.append(cube)
-            self.eff_int_times.append(cubeDict['SCIENCE'].header['integrationTime'])
-            msg = f'Loaded {self.cfg.flatcal.chunk_time:.1f} s of spectral data at time {start:.1f}'
-            getLogger(__name__).info(msg)
+            mask[:, :, i] = pt.flagged(PROBLEM_FLAGS)
+            startw = wvl - delta_list[i]
+            stopw = wvl + delta_list[i]
 
-        self.spectral_cube = np.array(self.spectral_cube[0])
-        # Haven't had a chance to check if the following lines break - find me if you come across this before me - Sarah
-        self.eff_int_times = np.array(self.eff_int_times)
-        self.spectral_cube_in_counts = self.eff_int_times * self.spectral_cube
+            hdul = pt.get_fits(duration=self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks, rate=True,
+                                bin_width=self.cfg.flatcal.chunk_time, wave_start=startw, wave_stop=stopw,
+                                cube_type='time')
 
+            getLogger(__name__).info(f'Loaded {wvl} nm spectral cube')
+            int_times[:, :, i] = self.cfg.flatcal.chunk_time
+            cps_cube_list[:, :, :, i] = np.moveaxis(hdul['SCIENCE'].data, 2, 0)
+        self.spectral_cube = cps_cube_list
+        self.eff_int_times = int_times
+        self.mask = mask
 
 class LaserCalibrator(FlatCalibrator):
     def __init__(self, h5s, solution_name='flat_solution.npz', config=None, darks=None):
@@ -372,24 +411,7 @@ class LaserCalibrator(FlatCalibrator):
         self.darks = darks
         self.solution_name = solution_name
 
-    def load_flat_spectra(self):
-        cps_cube_list, int_times, mask = self.make_spectralcube()
-        self.spectral_cube = cps_cube_list
-        self.eff_int_times = int_times
-        dark_frame = self.get_dark_frame()
-        for icube, cube in enumerate(self.spectral_cube):
-            dark_subtracted_cube = np.zeros_like(cube)
-            for iwvl, wvl in enumerate(cube[0, 0, :]):
-                dark_subtracted_cube[:, :, iwvl] = np.subtract(cube[:, :, iwvl], dark_frame)
-            # mask out hot and cold pixels
-            masked_cube = np.ma.masked_array(dark_subtracted_cube, mask=mask).data
-            self.spectral_cube[icube] = masked_cube
-        self.spectral_cube = np.array(self.spectral_cube)
-        self.eff_int_times = np.array(self.eff_int_times)
-        # count cubes is the counts over the integration time
-        self.spectral_cube_in_counts = self.eff_int_times * self.spectral_cube
-
-    def make_spectralcube(self):
+    def make_spectral_cube(self):
         n_wvls = len(self.wavelengths)
         n_times = self.cfg.flatcal.nchunks
         x, y = self.cfg.beammap.ncols, self.cfg.beammap.nrows
@@ -424,28 +446,9 @@ class LaserCalibrator(FlatCalibrator):
             getLogger(__name__).info(f'Loaded {wvl} nm spectral cube')
             int_times[:, :, w_mask] = self.cfg.flatcal.chunk_time
             cps_cube_list[:, :, :, w_mask] = np.moveaxis(hdul['SCIENCE'].data, 2, 0)
-        return cps_cube_list, int_times, mask
-
-    def get_dark_frame(self):
-        """
-        takes however many dark files that are specified in the pipe.yml and computes the counts/pixel/sec for the sum
-        of all the dark obs. This creates a stitched together long dark obs from all of the smaller obs given. This
-        is useful for legacy data where there may not be a specified dark observation but parts of observations where
-        the filter wheel was closed.
-
-        :return: expected dark counts for each pixel over a flat observation
-        """
-        if not self.darks:
-            return np.zeros_like(self.spectral_cube[0][:, :, 0])
-
-        getLogger(__name__).info('Loading dark frames for Laser flat')
-        frames = []
-        itime = 0
-        for dark in self.darks:
-            im = dark.photontable.get_fits(start=dark.start, duration=dark.duration, rate=False)['SCIENCE']
-            frames.append(im.data)
-            itime += im.header['EXPTIME']
-        return np.sum(frames, axis=2) / itime
+        self.spectral_cube = cps_cube_list
+        self.eff_int_times = int_times
+        self.mask = mask
 
 
 class FlatSolution(object):
@@ -677,7 +680,8 @@ def fetch(dataset, config=None, ncpu=None, remake=False):
             flattner = LaserCalibrator(h5s=sd.h5s, config=fcfg, solution_name=sd.path,
                                        darks=[o.dark for o in sd.obs if o.dark is not None])
         else:
-            flattner = WhiteCalibrator(H5Subset(sd.ob), config=fcfg, solution_name=sd.path)
+            flattner = WhiteCalibrator(H5Subset(sd.ob), config=fcfg, solution_name=sd.path,
+                                       darks=[o.dark for o in sd.obs if o.dark is not None])
 
         solutions[sd.id] = sd.path
         flattners.append(flattner)
