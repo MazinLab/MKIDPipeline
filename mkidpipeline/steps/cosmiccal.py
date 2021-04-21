@@ -83,7 +83,7 @@ class CosmicCleaner:
                 getLogger(__name__).warning("The Poisson method is not optimized for broadband data and may remove "
                                             "more time than desired!")
 
-    def run(self):
+    def determine_cosmic_intervals(self):
         start = datetime.utcnow().timestamp()
         getLogger(__name__).debug(f"Starting cosmic ray detection on {self.obs.filename}")
         self.photons = self.obs.query(startw=self.wave_range[0], stopw=self.wave_range[1], column='Time')
@@ -91,8 +91,7 @@ class CosmicCleaner:
         self.make_count_histogram()
         self.generate_poisson_pdf()
         self.find_cosmic_times()
-        self.find_cutout_times()
-        self.trim_timestream()
+        self.generate_cosmic_info()
         end = datetime.utcnow().timestamp()
         getLogger(__name__).info(f"Cosmic ray cleaning of {self.obs.filename} took {end - start} s")
 
@@ -189,25 +188,30 @@ class CosmicCleaner:
         self.cosmictimes = signal.find_peaks(self.arraycounts, height=self.threshold, threshold=10,
                                              distance=50)[0] * self.bin_width
 
-    def find_cutout_times(self):
+    def generate_cosmic_info(self):
         """
         Generates the timestamps in microseconds to be removed from the obsFile. Removes doubles for clarity.
         """
-        # cutouttimes=np.arange(*self.removalRange)[:,None]*self.cosmictimes).flatten()
-        #TODO
-        cutouttimes = np.array([np.arange(i - self.removalRange[0],
-                                          i + self.removalRange[1], 1) for i in self.cosmictimes]).flatten()
-        self.cutouttimes = np.array(set(cutouttimes))
 
-    def trim_timestream(self):
-        """
-        Function designed to create a new timestream with the cosmic ray timestamped photos removed.
-        """
-        trimmask = np.in1d(self.photons, self.cutouttimes)
-        trimmedphotons = self.photons[~trimmask]
-        trimmedarraycounts, timebins = np.histogram(trimmedphotons, self.timebins)
-        assert np.setdiff1d(timebins, self.timebins).size == 0
-        self.trimmedtimestream = np.array((self.timebins[:-1], trimmedarraycounts))
+        overlaps = [abs(i - self.cosmictimes) <= np.max(self.removalRange) for i in self.cosmictimes]
+        cosmicbunches = [self.cosmictimes[i] for i in overlaps]
+        cvals = np.array([[np.mean(i), (i[0]-50, i[-1]+100), len(i), tuple(i)] for i in cosmicbunches])
+        delidx = []
+        for i in range(len(cvals)):
+            if cvals[i][2] > 1:
+                t = cvals[i][0]
+                d = cvals[i][2]
+                if t == cvals[i+d-1][0]:
+                    pass
+                else:
+                    delidx.append(i)
+        cvals = np.delete(cvals, delidx, axis=0)
+        self.cosmicdata = cvals
+        self.interval_starts = [i[0] for i in cvals[:, 1]]
+        self.interval_stops = [i[1] for i in cvals[:, 1]]
+        self.interval_event_count = cvals[:, 2]
+
+
 
     def animate_cr_event(self, timestamp, saveName=None, timeBefore=150, timeAfter=250, frameSpacing=5, frameIntTime=10,
                          wvlStart=None, wvlStop=None, fps=5, save=True):
@@ -273,5 +277,6 @@ def apply(o: mkidpipeline.config.MKIDTimerange, config=None, ncpu=None):
         cc.obs.update_header(f'COSMICCAL.{k}', v)
 
         #TODO some info on stats, but generate dynamically in photontable
+
     cc.obs.attach_new_table('cosmics', 'Cosmic Ray Info', 'impacts', CRImpact, "Cosmic-Ray Hits", impacts)
     cc.obs.disablewrite()
