@@ -149,7 +149,7 @@ class FlatCalibrator:
 
         if self.summary_plot:
             getLogger(__name__).info('Making a summary plot')
-            sol.summary_plot()
+            sol.generate_summary_plot()
 
         if self.save_plots:
             getLogger(__name__).info("Writing detailed plots, go get some tea.")
@@ -232,9 +232,6 @@ class FlatCalibrator:
                 self.coeff_array[x, y] = np.polyfit(self.wavelengths[fittable], self.flat_weights[fittable],
                                                     self.cfg.flatcal.power, w=1 / self.flat_weight_err[fittable] ** 2)
         getLogger(__name__).info('Calculated Flat coefficients')
-
-    def make_summary(self):
-        generate_summary_plot(flatsol=self.save_name, save_plot=True)
 
     def get_dark_frame(self):
         """
@@ -450,7 +447,6 @@ class LaserCalibrator(FlatCalibrator):
         self.eff_int_times = int_times
         self.mask = mask
 
-
 class FlatSolution(object):
     yaml_tag = '!fsoln'
 
@@ -515,81 +511,59 @@ class FlatSolution(object):
                 coeffs = self.coeff_array[pixel[0], pixel[1]]
                 return np.poly1d(coeffs)
 
-    def summary_plot(self):
-        return None
+    def generate_summary_plot(self, save_plot=False):
+        """ Writes a summary plot of the Flat Fielding """
+        weight_array = self.flat_weights
+        wavelengths = self.wavelengths
 
+        mean_weight_array = np.nanmean(weight_array)
+        weight_array[weight_array == 0] = np.nan
+        std_weight_array = np.nanstd(weight_array, axis=2)
+        mean_weight_array[mean_weight_array == 0] = np.nan
 
-def generate_summary_plot(flatsol, save_plot=False):
-    """ Writes a summary plot of the Flat Fielding """
-    flat_cal = tables.open_file(flatsol, mode='r')
-    calsoln = flat_cal.root.flatcal.calsoln.read()
-    weightArrPerPixel = flat_cal.root.flatcal.weights.read()
-    beamImage = flat_cal.root.header.beamMap.read()
-    xpix = flat_cal.root.header.xpix.read()
-    ypix = flat_cal.root.header.ypix.read()
-    wavelengths = flat_cal.root.flatcal.wavelength_bins.read()
-    flat_cal.close()
+        array_averaged_weights = np.nanmean(weight_array, axis=(0, 1))
 
-    meanWeightList = np.zeros((xpix, ypix))
-    meanSpecList = np.zeros((xpix, ypix))
+        class Dummy(object):
+            def __enter__(self):
+                return None
 
-    for (iRow, iCol), res_id in np.ndenumerate(beamImage):
-        use = res_id == np.asarray(calsoln['resid'])
-        weights = calsoln['weight'][use]
-        spectrum = calsoln['spectrum'][use]
-        meanWeightList[iRow, iCol] = np.nanmean(weights)
-        meanSpecList[iRow, iCol] = np.nanmean(spectrum)
+            def __exit__(self, exc_type, exc_value, traceback):
+                return False
 
-    weightArrPerPixel[weightArrPerPixel == 0] = np.nan
-    weightArrAveraged = np.nanmean(weightArrPerPixel, axis=(0, 1))
-    weightArrStd = np.nanstd(weightArrPerPixel, axis=(0, 1))
-    meanSpecList[meanSpecList == 0] = np.nan
-    meanWeightList[meanWeightList == 0] = np.nan
+            def savefig(self):
+                pass
 
-    class Dummy(object):
-        def __enter__(self):
-            return None
+        with PdfPages(self.save_name.split('.npz')[0] + '_summary.pdf') if save_plot else Dummy() as pdf:
 
-        def __exit__(self, exc_type, exc_value, traceback):
-            return False
+            fig, ax = plt.subplot_mosaic(
+                """
+                AB
+                CD
+                """
+            )
+            ax[0].set_title('Mean Flat weight across the array')
+            max = np.nanmean(mean_weight_array) + 1 * np.nanstd(mean_weight_array)
+            mean_weight_array[np.isnan(mean_weight_array)] = 0
+            ax[0].imshow(mean_weight_array.T, cmap=plt.get_cmap('viridis'), vmin=0.0, vmax=max)
+            plt.colorbar()
 
-        def savefig(self):
-            pass
+            ax[1].scatter(wavelengths, array_averaged_weights)
+            ax[1].set_title('Mean Weight Versus Wavelength')
+            ax[1].set_ylabel('Mean Weight')
+            ax[1].set_xlabel(r'$\lambda$ ($\AA$)')
 
-    with PdfPages(flatsol.split('.h5')[0] + '_summary.pdf') if save_plot else Dummy() as pdf:
+            ax[2].scatter(wavelengths, std_weight_array)
+            ax[2].set_title('Standard Deviation of Weight Versus Wavelength')
+            ax[2].set_ylabel('Standard Deviation')
+            ax[2].set_xlabel(r'$\lambda$ ($\AA$)')
 
-        fig = plt.figure(figsize=(10, 10))
+            for x in weight_array:
+                for weights in x:
+                    ax[3].scatter(wavelengths, weights)
+            pdf.savefig(fig)
 
-        ax = fig.add_subplot(2, 2, 1)
-        ax.set_title('Mean Flat weight across the array')
-        maxValue = np.nanmean(meanWeightList) + 1 * np.nanstd(meanWeightList)
-        meanWeightList[np.isnan(meanWeightList)] = 0
-        plt.imshow(meanWeightList.T, cmap=plt.get_cmap('viridis'), vmin=0.0, vmax=maxValue)
-        plt.colorbar()
-
-        ax = fig.add_subplot(2, 2, 2)
-        ax.set_title('Mean Flat value across the array')
-        maxValue = np.nanmean(meanSpecList) + 1 * np.nanstd(meanSpecList)
-        meanSpecList[np.isnan(meanSpecList)] = 0
-        plt.imshow(meanSpecList.T, cmap=plt.get_cmap('viridis'), vmin=0.0, vmax=maxValue)
-        plt.colorbar()
-
-        ax = fig.add_subplot(2, 2, 3)
-        ax.scatter(wavelengths, weightArrAveraged)
-        ax.set_title('Mean Weight Versus Wavelength')
-        ax.set_ylabel('Mean Weight')
-        ax.set_xlabel(r'$\lambda$ ($\AA$)')
-
-        ax = fig.add_subplot(2, 2, 4)
-        ax.scatter(wavelengths, weightArrStd)
-        ax.set_title('Standard Deviation of Weight Versus Wavelength')
-        ax.set_ylabel('Standard Deviation')
-        ax.set_xlabel(r'$\lambda$ ($\AA$)')
-        pdf.savefig(fig)
-
-    if not save_plot:
-        plt.show()
-
+        if not save_plot:
+            plt.show()
 
 def plot_calibrations(flatsol, wvlCalFile, pixel):
     """
@@ -601,9 +575,9 @@ def plot_calibrations(flatsol, wvlCalFile, pixel):
     flat_cal = tables.open_file(flatsol, mode='r')
     calsoln = flat_cal.root.flatcal.calsoln.read()
     wavelengths = flat_cal.root.flatcal.wavelength_bins.read()
-    beamImage = flat_cal.root.header.beamMap.read()
+    beam_map = flat_cal.root.header.beamMap.read()
     matplotlib.rcParams['font.size'] = 10
-    res_id = beamImage[pixel[0], pixel[1]]
+    res_id = beam_map[pixel[0], pixel[1]]
     index = np.where(res_id == np.array(calsoln['resid']))
     weights = calsoln['weight'][index].flatten()
     spectrum = calsoln['spectrum'][index].flatten()
@@ -636,11 +610,9 @@ def plot_calibrations(flatsol, wvlCalFile, pixel):
     else:
         print('Pixel Failed Wavecal')
 
-
 def _run(flattner):
     getLogger(__name__).debug('Calling run on {}'.format(flattner))
     flattner.run()
-
 
 def load_solution(sc, singleton_ok=True):
     """sc is a solution filename string, a FlatSolution object, or a mkidpipeline.config.MKIDFlatcalDescription"""
@@ -657,7 +629,6 @@ def load_solution(sc, singleton_ok=True):
     except KeyError:
         _loaded_solutions[sc] = FlatSolution(file_path=sc)
     return _loaded_solutions[sc]
-
 
 def fetch(dataset, config=None, ncpu=None, remake=False):
     solution_descriptors = dataset.flatcals
@@ -701,7 +672,6 @@ def fetch(dataset, config=None, ncpu=None, remake=False):
 
     return solutions
 
-
 def apply(o: mkidpipeline.config.MKIDObservation, config=None):
     """
     Applies a flat calibration to the "SpecWeight" column for each pixel.
@@ -724,10 +694,6 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
 
     use_wavecal = cfg.flatcal.use_wavecal
 
-    if use_wavecal and not of.query_header('isWavelengthCalibrated'):
-        getLogger(__name__).info("Wavecal must be applied first")
-        return
-
     tic = time.time()
     calsoln = FlatSolution(o.flatcal.path)
     getLogger(__name__).info(f'Applying {calsoln} to {o}')
@@ -740,9 +706,7 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
         of.flag(calsoln.get_flag_map(name)*of.flags.bitmask([f'flatcal.{name}'], unknown='warn'))
 
     for pixel, resID in of.resonators(exclude=UNFLATABLE, pixel=True):
-
         soln = calsoln.get(pixel, resID)
-
         if not soln:
             getLogger(__name__).warning('No flat calibration for good pixel {}'.format(resID))
             continue
@@ -754,26 +718,15 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
         tic2 = time.time()
 
         if (np.diff(indices) == 1).all():  # This takes ~300s for ALL photons combined on a 70Mphot file.
-            # getLogger(__name__).debug('Using modify_column')
-            if use_wavecal:
-                wave = of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
-                weights = soln(wave) * of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='SpecWeight')
-            else:
-                weighted_avg = np.ma.average(soln['weight'].flatten(), weights=soln['err'].flatten() ** -2.)
-                weights = np.full_like(indices, weighted_avg, dtype=float)
-
+            wave = of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
+            weights = soln(wave) * of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='SpecWeight')
             weights = weights.clip(0)  # enforce positive weights only
-
-            if any(weights > 100) or any(weights < 0.01):
-                # TODO this is adhoc and requires fixing!
-                getLogger(__name__).debug(f'Unreasonable fitted weight of for {resID}')
-
             of.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=weights, colname='SpecWeight')
         else:  # This takes 3.5s per pixel on a 70 Mphot file!!!
             #raise NotImplementedError('This code path is impractically slow at present.')
             getLogger(__name__).debug('Using modify_coordinates')
             rows = of.photonTable.read_coordinates(indices)
-            rows['SpecWeight'] *= soln(rows['Wavelength'])  # TODO make sure this is changing the column correctly
+            rows['SpecWeight'] *= soln(rows['Wavelength'])
             of.photonTable.modify_coordinates(indices, rows)
             getLogger(__name__).debug('Flat weights updated in {:.2f}s'.format(time.time() - tic2))
 
