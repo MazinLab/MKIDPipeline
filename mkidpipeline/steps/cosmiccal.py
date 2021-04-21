@@ -47,35 +47,19 @@ class CosmicCleaner:
         self.wave_range = wave_range
         self.method = method
         self.removalRange = removal_range
-        self.photons = None  # The photon list used for the cosmic ray removal. Not modified from allphotons if no cut
-        self.photonMask = None  # The mask used to remove photons from the master list (e.g. wvl outside of allowed range)
-        self.arraycounts = None  # Number of counts across the array for each time bin
-        self.timebins = None  # Edges of the time bins (microseconds) used to bin photon arrival times and generate
-        # a photon timestream for the file. This is a property rather than an immediate step for
-        # eventual plotting tools and use between functions
-        self.timestream = None  # A (2,N) array where N is the number of time bins and the elements are a timestamp and
-        # the number of counts across the array in that bin
-        self.trimmedtimestream = None  # Same as self.timestream, but with cosmic rays removed, again for plotting
-        self.countsperbin = None  # The data which will form the x-axis in a histogram of frequency of counts per bin
-        # in the ObsFile photon timestream
-        self.countoccurrences = None  # The 'y-values' of the counts per bin histogram. If using Poisson statistics,
-        # this will be used to calculate the PDF needed to get a threshold value
-        self.countshistogram = None  # A container for the previous two attributes, for plotting/reporting ease.
+        self.photons = None  # Photon list used for the cosmic ray removal. Only modified if wave_range!=(-np.inf, np.inf)
+        self.timestream = None  # (2,N) array. timestream[0] = time bins, timestream[1] = cts (over array)
+        self.countshistogram = None  # a histogram of the number of times each number of cts/bin appears
         self.pdf = None  # The 'y-values' of the Poisson PDF, if used
-        self.threshold = None  # The minimum number of counts per bin which will be able to be identified as a cosmic
-        # ray event. If self.method='peak-finding', not all bins with values greater than this will necessarily be
-        # marked as cosmic rays, although all bins with values greater than this should still be removed (due to their
-        # proximity to the cosmic ray event.
-        self.cosmictimes = None  # A list of all the timestamps of cosmic ray events. In the "poisson" method, there
-        # may be multiple timestamps corresponding to the same peak, as this shows all bins that have more counts than
-        # the calculated threshold. In "peak-finding method" this is not the case, and it should find the timestamp of
-        # the peak of the cosmic ray, allowing the code to generate the times around it to cut out.
-        self.cosmicpeaktimes = None  # A list of all of the timestamps of the peaks of cosmic ray events. This is needed
-        # as single cosmic ray events can have sequential bins over the calculated threshold. This picks out the
-        # timestamp of the highest number of counts in each cosmic ray.
-        self.cutouttimes = None  # A list of all the timestamps affected by a cosmic ray event. This is the ultimate
-        # information that is needed to clean the ObsFile cosmic rays and remove the
-        # offending photons.
+        self.threshold = None  # The minimum number of counts per bin which will be able to be identified as a cosmic ray event
+        self.cosmictimes = None  # A list of all the timestamps of cosmic ray events
+
+        self.cosmicdata = None  # Object from which interval_[data] is derived
+        self.interval_starts = None  # start time in us of cosmic event
+        self.interval_stops = None  # corresponding stop time in us of cosmic event
+        self.interval_event_count = None  # number of cosmic hits in cosmic event
+        self.interval_event_avg = None  # average cts over the duration of the event
+        self.interval_event_peak = None  # peak number of counts for the event
 
         if not np.isfinite(np.sum(self.wave_range)):
             getLogger(__name__).warning("Consider using a wavelength cut to speed removal.")
@@ -89,7 +73,6 @@ class CosmicCleaner:
         self.photons = self.obs.query(startw=self.wave_range[0], stopw=self.wave_range[1], column='Time')
         self.make_timestream()
         self.make_count_histogram()
-        self.generate_poisson_pdf()
         self.find_cosmic_times()
         self.generate_cosmic_info()
         end = datetime.utcnow().timestamp()
@@ -103,12 +86,11 @@ class CosmicCleaner:
         the start times of each bin. We could also plot the midpoint of each bin but because the removal range is 15
         times larger than the bin size it ultimately doesn't matter.
         """
-        self.get_time_info()
-        self.timebins = np.arange(0, int(np.ceil(self.photons.max() / 10) * 10) + 10, 10)
-        assert self.timebins[-1] >= self.photons.max()
-        self.arraycounts, timebins = np.histogram(self.photons, self.timebins)
-        assert np.setdiff1d(timebins, self.timebins).size == 0
-        self.timestream = np.array((self.timebins[:-1], self.arraycounts))
+        timebins = np.arange(0, int(np.ceil(self.photons.max() / 10) * 10) + 10, 10)
+        assert timebins[-1] >= self.photons.max()
+        arraycounts, ts_timebins = np.histogram(self.photons, timebins)
+        assert np.setdiff1d(timebins, ts_timebins).size == 0
+        self.timestream = np.array((timebins[:-1], arraycounts))
 
     def make_count_histogram(self):
         """
@@ -117,47 +99,29 @@ class CosmicCleaner:
         corresponding number of times that each of those values appear. This will allow us to create a histogram for
         data visualization as well as create the Poisson PDF to determine the cosmic ray threshold value.
         """
-        unique, counts = np.unique(self.arraycounts, return_counts=True)
-        unique_full = np.arange(np.min(unique), np.max(unique) + 1, 1)
+        unique, counts = np.unique(self.timestream[1], return_counts=True)
+        unique_full = np.arange(unique.min(), unique.max() + 1, 1)
         counts_full = np.zeros(len(unique_full))
         for i, j in enumerate(unique_full):
             if j in unique:
                 m = unique == j
                 counts_full[i] = counts[m]
-        self.countsperbin = unique_full  # This is the x-axis of the histogram. It will be filled with all of the values
-        # that occur in the self.arraycounts attribute.
-        self.countoccurrences = counts_full  # The y-axis of the histogram. It will be filled with the correspongding number
-        # of times that each value in self.countsperbin occurs.
-        self.countshistogram = np.array((self.countsperbin, self.countoccurrences))
+        self.countshistogram = np.array((unique_full, counts_full))
 
-    def generate_poisson_pdf(self):
-        """
-        This function generates a Poisson probability density function fit to the histogram of counts per bin.
-        Regardless of whether or not photon list has been cut for wavelength the distribution should be Poisson and
-        should help provide a reasonable value for the number of counts per bin that can be classified as a cosmic ray.
-        """
-        avgcounts = np.average(self.arraycounts)  # Takes the average number of counts over the array in 10-microsecond
+    def _generate_poisson_threshold(self):
+        avgcounts = np.average(self.timestream[1])  # Takes the average number of counts over the array in 10-microsecond
         # bins to be used in creating the Poisson PDF
         pdf = poisson.pmf(self.countshistogram[0], avgcounts)  # Creates a Poisson PDF of the number of counts per time
         # bin. This can be used to compare with wavelength cut or non-cut data, but more care must be taken with non-cut
         # data if there is a low probability of no counts over the array.
-        mask = pdf < 1 / np.sum(self.arraycounts)  # Creates a mask where the probability of that number of countsperbin
+        mask = pdf < 1 / np.sum(
+            self.timestream[1])  # Creates a mask where the probability of that number of countsperbin
         # happening is less than 1-in-all the counts during the observation.
         pdf[mask] = 0  # Applies the 'low-probability mask' to the PDF for (1) plotting and
         # (2) helping determine where the threshold for cosmic ray cuts should be made.
         self.pdf = pdf
 
-    def _generate_poisson_threshold(self):
-        """
-        For the Poisson cosmic ray identification method generates the threshold of counts in a given bin which will be
-        considered a cosmic ray event. For the Poisson method, that is the lowest value where the probability of that
-        number of counts occurring is essentially less than expected from the data. It also sets a lower limit in the
-        case that the photon list was not filtered based on wavelength and the Poisson statistics are trending towards
-        being Gaussian (and in turn low count rates also have near 0 probability).
-        :return:
-        threshold - The number of photons/10-microsecond bin
-        """
-        thresholdmask = (self.pdf <= 1 / np.sum(self.arraycounts)) & (self.countshistogram[0] >= 2)
+        thresholdmask = (self.pdf <= 1 / np.sum(self.timestream[1])) & (self.countshistogram[0] >= 2)
         threshold = self.countshistogram[0][thresholdmask].min()
         return threshold
 
@@ -171,7 +135,7 @@ class CosmicCleaner:
         :return:
         threshold - The number of photons/10-microsecond bin
         """
-        avgcounts = np.average(self.arraycounts)
+        avgcounts = np.average(self.timestream[1])
         threshold = np.ceil(6 * poisson.std(avgcounts, loc=0) + avgcounts)
         return threshold
 
@@ -185,8 +149,8 @@ class CosmicCleaner:
 
         # distance is in bin widths noah sasy thats 10ms
         # after peak double threshold for the decay time
-        self.cosmictimes = signal.find_peaks(self.arraycounts, height=self.threshold, threshold=10,
-                                             distance=50)[0] * self.bin_width
+        self.cosmictimes = signal.find_peaks(self.timestream[1], height=self.threshold, threshold=10,
+                                             distance=50)[0] * 10
 
     def generate_cosmic_info(self):
         """
@@ -206,11 +170,13 @@ class CosmicCleaner:
                 else:
                     delidx.append(i)
         cvals = np.delete(cvals, delidx, axis=0)
+        masks = [((i[0] <= self.timestream[0]) & (self.timestream[0] <= i[1])) for i in cvals[:, 1]]
         self.cosmicdata = cvals
         self.interval_starts = [i[0] for i in cvals[:, 1]]
         self.interval_stops = [i[1] for i in cvals[:, 1]]
         self.interval_event_count = cvals[:, 2]
-
+        self.interval_event_avg = [np.sum(self.timestream[1][i]) for i in masks]
+        self.interval_event_peak = [self.timestream[1][i].max() for i in masks]
 
 
     def animate_cr_event(self, timestamp, saveName=None, timeBefore=150, timeAfter=250, frameSpacing=5, frameIntTime=10,
@@ -261,19 +227,15 @@ def apply(o: mkidpipeline.config.MKIDTimerange, config=None, ncpu=None):
     cc.determine_cosmic_intervals()
 
     impacts = np.zeros(len(cc.interval_starts), dtype=NP_IMPACT_TYPE)
-    # for i, uniqe_exclude_region in enumerate(cc.cosmic_intervals):
-    #     impacts[i]['start'] = uniqe_exclude_region.start
-    #     impacts[i]['stop'] = uniqe_exclude_region.stop
-    #     impacts[i]['count'] = len(uniqe_exclude_region.events)
-    #     impacts[i]['rate'] = np.average([x.peak_val for x in uniqe_exclude_region.events])
     impacts[:]['start'] = cc.interval_starts
     impacts[:]['stop'] = cc.interval_stops
     impacts[:]['count'] = cc.interval_event_count
-    impacts[:]['rate'] = cc.interval_avg_peak
+    impacts[:]['avg'] = cc.interval_event_avg
+    impacts[:]['peak'] = cc.interval_event_peak
 
     md = dict(region=cc.removalRange, thresh=cc.threshold, method=cc.method, wavecut=cc.wave_range)
     cc.obs.enablewrite()
-    for k, v in md.items:
+    for k, v in md.items():
         cc.obs.update_header(f'COSMICCAL.{k}', v)
 
         #TODO some info on stats, but generate dynamically in photontable
