@@ -71,15 +71,10 @@ if __name__ == "__main__":
     #0
     steps.buildhdf.buildtables(outputs.input_timeranges)
     #1
-    for tr in outputs.input_timeranges:
-        o = tr.photontable
-        o.enablewrite()
-        o.attach_observing_metadata(tr.metadata)
-        o.disablewrite()
+    pipe.batch_apply_metadata(outputs)
     #2
-    pool=Pool()
-    steps.wavecal.fetch(outputs.wavecals, pool=pool)
-    pipe.batch_apply_lincals(outputs.to_lincal, pool=pool)
+    steps.wavecal.fetch(outputs.wavecals)
+    pipe.batch_apply_lincals(outputs.to_lincal)
     #3
     pipe.batch_apply_wavecals(outputs.to_wavecal)
     #4
@@ -91,7 +86,7 @@ if __name__ == "__main__":
     pipe.batch_apply_flatcals(outputs.to_flatcal)
     #steps.wcscal.fetch(outputs.wcscals)
     #7
-    steps.drizzler.form(outputs.to_drizzle)
+    pipe.generate_outputs(outputs)
     #8
     steps.speccal.fetch(outputs.speccals)
 
