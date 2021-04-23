@@ -50,7 +50,7 @@ PROBLEM_FLAGS = ('pixcal.hot', 'pixcal.cold', 'pixcal.unstable', 'beammap.noDacT
 
 
 def generate_default_config(instrument='MEC'):
-    cfg = config.PipeConfig(instrument)
+    cfg = config.PipeConfig(instrument=instrument)
     for name, step in PIPELINE_STEPS.items():
         try:
             cfg.register(name, step.StepConfig(), update=True)
@@ -74,7 +74,7 @@ def generate_sample_data():
                                    dark=config.MKIDTimerange(name=namer(), start=1602046500, duration=10),
                                    flatcal='flactcal0', wcscal='wcscal0', speccal='speccal0'),
             # a wavecal
-            config.MKIDWavecalDescription(name=namer('wavecal'), obs=(
+            config.MKIDWavecalDescription(name=namer('wavecal'), data=(
                 config.MKIDTimerange(name='850 nm', start=1602040820, duration=60,
                                      dark=config.MKIDTimerange(name=namer(), start=1602046500, duration=10),
                                      header=dict(laser='on', other='fits_key')),
