@@ -505,9 +505,11 @@ class FlatSolution(object):
         self.name = os.path.splitext(os.path.basename(file_path))[0]  # new name for saving
         getLogger(__name__).info("Complete")
 
-    def get(self, pixel, resID):
+    def get(self, pixel=None, res_id=None):
+        if not pixel and not res_id:
+            raise ValueError('Need to specify either resID or pixel coordinates')
         for pix, res in self.cfg.beammap:
-            if res == resID or pix == pixel: #in case of non unique resIDs
+            if res == res_id or pix == pixel: #in case of non unique resIDs
                 coeffs = self.coeff_array[pixel[0], pixel[1]]
                 return np.poly1d(coeffs)
 
@@ -565,50 +567,12 @@ class FlatSolution(object):
         if not save_plot:
             plt.show()
 
-    def plot_calibrations(self, pixel):
+    def get_calibration(self, wavelengths, pixel=None, res_id=None):
         """
-        Plot weights of each wavelength bin for every single pixel
-        Makes a plot of wavelength vs weights, twilight spectrum, and wavecal solution for each pixel
+        wrapper to get the flatcal solution fora given pixel at specified wavelengths
         """
-        wavesol = wavecal.load_solution(wvlCalFile)
-        assert os.path.exists(flatsol), "{0} does not exist".format(flatsol)
-        flat_cal = tables.open_file(flatsol, mode='r')
-        calsoln = flat_cal.root.flatcal.calsoln.read()
-        wavelengths = flat_cal.root.flatcal.wavelength_bins.read()
-        beam_map = flat_cal.root.header.beamMap.read()
-        matplotlib.rcParams['font.size'] = 10
-        res_id = beam_map[pixel[0], pixel[1]]
-        index = np.where(res_id == np.array(calsoln['resid']))
-        weights = calsoln['weight'][index].flatten()
-        spectrum = calsoln['spectrum'][index].flatten()
-        errors = calsoln['err'][index].flatten()
-        if not calsoln['bad'][index]:
-            fig = plt.figure(figsize=(20, 10), dpi=100)
-            ax = fig.add_subplot(1, 3, 1)
-            ax.scatter(wavelengths, weights, label='weights', alpha=.7, color='red')
-            ax.errorbar(wavelengths, weights, yerr=errors, label='weights', color='green', fmt='o')
-            ax.set_title('p %d,%d' % (pixel[0], pixel[1]))
-            ax.set_ylabel('weight')
-            ax.set_xlabel(r'$\lambda$ ($\AA$)')
-            ax.set_ylim(min(weights) - 2 * np.nanstd(weights),
-                        max(weights) + 2 * np.nanstd(weights))
-            plt.plot(wavelengths, np.poly1d(calsoln[index]['coeff'][0])(wavelengths))
-            # Put a plot of twilight spectrums for this pixel
-            ax = fig.add_subplot(1, 3, 2)
-            ax.scatter(wavelengths, spectrum, label='spectrum', alpha=.7, color='blue')
-            ax.set_title('p %d,%d' % (pixel[0], pixel[1]))
-            ax.set_ylim(min(spectrum) - 2 * np.nanstd(spectrum),
-                        max(spectrum) + 2 * np.nanstd(spectrum))
-            ax.set_ylabel('spectrum')
-            ax.set_xlabel(r'$\lambda$ ($\AA$)')
-            # Plot wavecal solution
-            ax = fig.add_subplot(1, 3, 3)
-            my_pixel = [pixel[0], pixel[1]]
-            wavesol.plot_calibration(pixel=my_pixel, axes=ax)
-            ax.set_title('p %d,%d' % (pixel[0], pixel[1]))
-            plt.show()
-        else:
-            print('Pixel Failed Wavecal')
+        func = self.get(pixel=pixel, res_id=res_id)
+        return func(wavelengths)
 
 def _run(flattner):
     getLogger(__name__).debug('Calling run on {}'.format(flattner))
@@ -692,8 +656,6 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
             getLogger(__name__).warning(f'{o} is calibrated with a different flat than requested.')
         return
 
-    use_wavecal = cfg.flatcal.use_wavecal
-
     tic = time.time()
     calsoln = FlatSolution(o.flatcal.path)
     getLogger(__name__).info(f'Applying {calsoln} to {o}')
@@ -706,7 +668,7 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
         of.flag(calsoln.get_flag_map(name)*of.flags.bitmask([f'flatcal.{name}'], unknown='warn'))
 
     for pixel, resID in of.resonators(exclude=UNFLATABLE, pixel=True):
-        soln = calsoln.get(pixel, resID)
+        soln = calsoln.get(pixel=pixel, res_id=resID)
         if not soln:
             getLogger(__name__).warning('No flat calibration for good pixel {}'.format(resID))
             continue
