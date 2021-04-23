@@ -386,11 +386,11 @@ class WhiteCalibrator(FlatCalibrator):
                 getLogger(__name__).warning('H5 File not hot pixel masked, could skew flat weights')
 
             mask[:, :, i] = pt.flagged(PROBLEM_FLAGS)
-            startw = wvl - delta_list[i]
-            stopw = wvl + delta_list[i]
+            wvl_start = wvl - delta_list[i]
+            wvl_stop = wvl + delta_list[i]
 
             hdul = pt.get_fits(duration=self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks, rate=True,
-                                bin_width=self.cfg.flatcal.chunk_time, wave_start=startw, wave_stop=stopw,
+                                bin_width=self.cfg.flatcal.chunk_time, wave_start=wvl_start, wave_stop=wvl_stop,
                                 cube_type='time')
 
             getLogger(__name__).info(f'Loaded {wvl} nm spectral cube')
@@ -423,7 +423,8 @@ class LaserCalibrator(FlatCalibrator):
 
         if self.cfg.flatcal.use_wavecal:
             delta_list = self.wavelengths / self.r_list / 2
-        startw, stopw = None, None
+        wvl_start, wvl_stop = None, None
+
         for wvl, h5 in self.h5s.items():
             obs = h5.photontable
             if not obs.query_header('isBadPixMasked') and not self.cfg.flatcal.use_wavecal:
@@ -433,11 +434,11 @@ class LaserCalibrator(FlatCalibrator):
 
             mask[:, :, w_mask] = obs.flagged(PROBLEM_FLAGS)
             if self.cfg.flatcal.use_wavecal:
-                startw = wvl - delta_list[w_mask]
-                stopw = wvl + delta_list[w_mask]
+                wvl_start = wvl - delta_list[w_mask]
+                wvl_stop = wvl + delta_list[w_mask]
 
             hdul = obs.get_fits(duration=self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks, rate=True,
-                                bin_width=self.cfg.flatcal.chunk_time, wave_start=startw, wave_stop=stopw,
+                                bin_width=self.cfg.flatcal.chunk_time, wave_start=wvl_start, wave_stop=wvl_stop,
                                 cube_type='time')
 
             getLogger(__name__).info(f'Loaded {wvl} nm spectral cube')
@@ -449,7 +450,6 @@ class LaserCalibrator(FlatCalibrator):
 
 class FlatSolution(object):
     yaml_tag = '!fsoln'
-
     def __init__(self, file_path=None, configuration=None, beam_map=None, flat_weights=None, coeff_array=None,
                  wavelengths=None, flat_weight_err=None, flat_flags=None, solution_name='flat_solution'):
         self.cfg = configuration
@@ -565,50 +565,50 @@ class FlatSolution(object):
         if not save_plot:
             plt.show()
 
-def plot_calibrations(flatsol, wvlCalFile, pixel):
-    """
-    Plot weights of each wavelength bin for every single pixel
-    Makes a plot of wavelength vs weights, twilight spectrum, and wavecal solution for each pixel
-    """
-    wavesol = wavecal.load_solution(wvlCalFile)
-    assert os.path.exists(flatsol), "{0} does not exist".format(flatsol)
-    flat_cal = tables.open_file(flatsol, mode='r')
-    calsoln = flat_cal.root.flatcal.calsoln.read()
-    wavelengths = flat_cal.root.flatcal.wavelength_bins.read()
-    beam_map = flat_cal.root.header.beamMap.read()
-    matplotlib.rcParams['font.size'] = 10
-    res_id = beam_map[pixel[0], pixel[1]]
-    index = np.where(res_id == np.array(calsoln['resid']))
-    weights = calsoln['weight'][index].flatten()
-    spectrum = calsoln['spectrum'][index].flatten()
-    errors = calsoln['err'][index].flatten()
-    if not calsoln['bad'][index]:
-        fig = plt.figure(figsize=(20, 10), dpi=100)
-        ax = fig.add_subplot(1, 3, 1)
-        ax.scatter(wavelengths, weights, label='weights', alpha=.7, color='red')
-        ax.errorbar(wavelengths, weights, yerr=errors, label='weights', color='green', fmt='o')
-        ax.set_title('p %d,%d' % (pixel[0], pixel[1]))
-        ax.set_ylabel('weight')
-        ax.set_xlabel(r'$\lambda$ ($\AA$)')
-        ax.set_ylim(min(weights) - 2 * np.nanstd(weights),
-                    max(weights) + 2 * np.nanstd(weights))
-        plt.plot(wavelengths, np.poly1d(calsoln[index]['coeff'][0])(wavelengths))
-        # Put a plot of twilight spectrums for this pixel
-        ax = fig.add_subplot(1, 3, 2)
-        ax.scatter(wavelengths, spectrum, label='spectrum', alpha=.7, color='blue')
-        ax.set_title('p %d,%d' % (pixel[0], pixel[1]))
-        ax.set_ylim(min(spectrum) - 2 * np.nanstd(spectrum),
-                    max(spectrum) + 2 * np.nanstd(spectrum))
-        ax.set_ylabel('spectrum')
-        ax.set_xlabel(r'$\lambda$ ($\AA$)')
-        # Plot wavecal solution
-        ax = fig.add_subplot(1, 3, 3)
-        my_pixel = [pixel[0], pixel[1]]
-        wavesol.plot_calibration(pixel=my_pixel, axes=ax)
-        ax.set_title('p %d,%d' % (pixel[0], pixel[1]))
-        plt.show()
-    else:
-        print('Pixel Failed Wavecal')
+    def plot_calibrations(self, pixel):
+        """
+        Plot weights of each wavelength bin for every single pixel
+        Makes a plot of wavelength vs weights, twilight spectrum, and wavecal solution for each pixel
+        """
+        wavesol = wavecal.load_solution(wvlCalFile)
+        assert os.path.exists(flatsol), "{0} does not exist".format(flatsol)
+        flat_cal = tables.open_file(flatsol, mode='r')
+        calsoln = flat_cal.root.flatcal.calsoln.read()
+        wavelengths = flat_cal.root.flatcal.wavelength_bins.read()
+        beam_map = flat_cal.root.header.beamMap.read()
+        matplotlib.rcParams['font.size'] = 10
+        res_id = beam_map[pixel[0], pixel[1]]
+        index = np.where(res_id == np.array(calsoln['resid']))
+        weights = calsoln['weight'][index].flatten()
+        spectrum = calsoln['spectrum'][index].flatten()
+        errors = calsoln['err'][index].flatten()
+        if not calsoln['bad'][index]:
+            fig = plt.figure(figsize=(20, 10), dpi=100)
+            ax = fig.add_subplot(1, 3, 1)
+            ax.scatter(wavelengths, weights, label='weights', alpha=.7, color='red')
+            ax.errorbar(wavelengths, weights, yerr=errors, label='weights', color='green', fmt='o')
+            ax.set_title('p %d,%d' % (pixel[0], pixel[1]))
+            ax.set_ylabel('weight')
+            ax.set_xlabel(r'$\lambda$ ($\AA$)')
+            ax.set_ylim(min(weights) - 2 * np.nanstd(weights),
+                        max(weights) + 2 * np.nanstd(weights))
+            plt.plot(wavelengths, np.poly1d(calsoln[index]['coeff'][0])(wavelengths))
+            # Put a plot of twilight spectrums for this pixel
+            ax = fig.add_subplot(1, 3, 2)
+            ax.scatter(wavelengths, spectrum, label='spectrum', alpha=.7, color='blue')
+            ax.set_title('p %d,%d' % (pixel[0], pixel[1]))
+            ax.set_ylim(min(spectrum) - 2 * np.nanstd(spectrum),
+                        max(spectrum) + 2 * np.nanstd(spectrum))
+            ax.set_ylabel('spectrum')
+            ax.set_xlabel(r'$\lambda$ ($\AA$)')
+            # Plot wavecal solution
+            ax = fig.add_subplot(1, 3, 3)
+            my_pixel = [pixel[0], pixel[1]]
+            wavesol.plot_calibration(pixel=my_pixel, axes=ax)
+            ax.set_title('p %d,%d' % (pixel[0], pixel[1]))
+            plt.show()
+        else:
+            print('Pixel Failed Wavecal')
 
 def _run(flattner):
     getLogger(__name__).debug('Calling run on {}'.format(flattner))
