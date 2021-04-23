@@ -79,21 +79,21 @@ if __name__ == "__main__":
     #2
     pool=Pool()
     steps.wavecal.fetch(outputs.wavecals, pool=pool)
-    batch_apply_lincals(outputs.to_lincal, pool=pool)
+    pipe.batch_apply_lincals(outputs.to_lincal, pool=pool)
     #3
-    batch_apply_wavecals(outputs.to_wavecal)  #flatcal_obs+outputs wanting wavecal
+    pipe.batch_apply_wavecals(outputs.to_wavecal)
     #4
-    batch_apply_pixcals(outputs.to_pixcal)
-    batch_apply_cosmiccals(outputs.to_cosmiccal)
+    pipe.batch_apply_pixcals(outputs.to_pixcal)
+    pipe.batch_apply_cosmiccals(outputs.to_cosmiccal)
     #5
-    mkidpipeline.steps.flatcal.fetch(outputs.flatcals)
+    steps.flatcal.fetch(outputs.flatcals)
     #6
-    batch_apply_flatcals(outputs.to_flatcal)
-    #mkidpipeline.steps.wcscal.fetch
+    pipe.batch_apply_flatcals(outputs.to_flatcal)
+    #steps.wcscal.fetch(outputs.wcscals)
     #7
-    mkidpipeline.steps.drizzler.form(outputs.to_drizzle)
+    steps.drizzler.form(outputs.to_drizzle)
     #8
-    mkidpipeline.steps.speccal.fetch(outputs.speccals)
+    steps.speccal.fetch(outputs.speccals)
 
 
     # pipe.run_stage1(outputs.dataset)
