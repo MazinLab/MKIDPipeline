@@ -414,7 +414,7 @@ class MKIDTimerange(DataBase):
     @property
     def photontable(self):
         """Convenience method for a photontable, file must exist, creates a new photon table on every call"""
-        from photontable import Photontable
+        from mkidpipeline.photontable import Photontable
         return Photontable(self.h5)
 
     @property

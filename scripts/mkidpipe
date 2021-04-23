@@ -14,9 +14,9 @@ import mkidpipeline.steps as steps
 if __name__ == "__main__":
     # read in command line arguments
     parser = argparse.ArgumentParser(description='MKID Pipeline CLI')
-    parser.add_argument('-o', type=str, help='An output specification file', default='out.yml', dest='out_cfg')
-    parser.add_argument('-p', type=str, help='A pipeline config file', default='pipe.yml', dest='pipe_cfg')
-    parser.add_argument('-d', type=str, help='A input config file', default='data.yml', dest='data_cfg')
+    parser.add_argument('-o', type=str, help='An output specification file', default='out.yaml', dest='out_cfg')
+    parser.add_argument('-p', type=str, help='A pipeline config file', default='pipe.yaml', dest='pipe_cfg')
+    parser.add_argument('-d', type=str, help='A input config file', default='data.yaml', dest='data_cfg')
     parser.add_argument('--vet',  action='store_true', help='Check pipeline configuration', default=False)
     parser.add_argument('--init', action='store_true', help='Setup the pipeline, clobbers files freely')
     parser.add_argument('--verbose', action='store_true', help='Verbose')
