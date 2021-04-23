@@ -63,29 +63,32 @@ from drizzle import drizzle as stdrizzle
 import argparse
 
 import mkidcore.pixelflags
-from mkidcore.instruments import CONEX2PIXEL
 from mkidcore.corelog import getLogger
 import mkidcore.corelog as pipelinelog
 from mkidpipeline.photontable import Photontable
 from mkidpipeline.utils.array_operations import get_device_orientation
 import mkidpipeline.config
 
-DRIZ_PROBLEM_FLAGS = ()  # currently no pixel flags make drizzler explode
+DRIZ_PROBLEM_FLAGS = tuple()  # currently no pixel flags make drizzler explode
+# but there are plenty one wouldn't want by default in the output
+PROBLEM_FLAGS = ('pixcal.hot', 'pixcal.cold', 'pixcal.unstable', 'beammap.noDacTone', 'wavecal.bad',
+                 'wavecal.failed_validation', 'wavecal.failed_convergence', 'wavecal.not_monotonic',
+                 'wavecal.not_enough_histogram_fits', 'wavecal.no_histograms',
+                 'wavecal.not_attempted')
 
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!drizzler_cfg'
-    REQUIRED_KEYS = (('plots', 'all', 'Which plots to generate'),
-                     ('pixfrac', 0.5, 'TODO'),
-                     ('wcs_timestep', 1, 'time between different wcs parameters (eg orientations). 0 will use '
-                                         'the calculated non-blurring min'),
-                     ('n_wave', 1, 'number of equal width wavelength bins in the temporally drizzled cube'),
+    REQUIRED_KEYS = (('plots', 'all', 'Which plots to generate: none|summary|all'),
+                     ('pixfrac', 0.5, 'The drizzle algorithm pixel fraction'),
+                     ('wcs_timestep', None, 'Seconds between different WCS (eg orientations). If None, the the '
+                                            'non-blurring minimum (1 pixel at furthest dither center) will be used'),
+                     ('n_wave', None, 'number of equal width wavelength bins in the temporally drizzled cube'),
                      ('derotate', False, 'TODO'),
                      ('align_start_pa', False, 'TODO'),
                      ('whitelight', True, 'TODO'),
                      ('save_steps', False, 'Save intermediate fits files where possible (only some modes)'),
-                     ('usecache', False, 'Cache the reformatted photontable data from each dither '
-                                         'for subsequent runs'))
+                     ('usecache', False, 'Cache photontable for subsequent runs'))
 
 
 def _increment_id(self):
@@ -100,16 +103,12 @@ def _increment_id(self):
     a new image is added. Each plane in the context image can hold 32 bits,
     so after each 32 images, a new plane is added to the context.
     """
-
     getLogger(__name__).warning('Using _increment_id monkey patch')
 
-    # Compute what plane of the context image this input would
-    # correspond to:
-
+    # Compute what plane of the context image this input would correspond to:
     planeid = int(self.uniqid / 32)
 
     # Add a new plane to the context image if planeid overflows
-
     if self.outcon.shape[0] == planeid:
         plane = np.zeros_like(self.outcon[0])
         self.outcon = np.append(self.outcon, [plane], axis=0)
@@ -117,48 +116,35 @@ def _increment_id(self):
     # Increment the id
     self.uniqid += 1
 
-
 stdrizzle.Drizzle.increment_id = _increment_id
 
 
 class DrizzleParams:
-    """
-    Calculates and stores the relevant info for Drizzler
-
-    """
-
-    def __init__(self, dither, used_inttime, wcs_timestep=None, pixfrac=1.):
+    """ Calculates and stores the relevant info for Drizzler """
+    def __init__(self, dither, used_inttime, wcs_timestep=None, pixfrac=1.0, simbad=False):
         self.dither = dither
         self.used_inttime = used_inttime
         self.pixfrac = pixfrac
-        self.get_coords()
+        self.coords = None
+        self.get_coords(simbad_lookup=simbad)
         self.nPixRA = None
         self.nPixDec = None
-
-        if wcs_timestep:
-            self.wcs_timestep = wcs_timestep
-        else:
-            self.wcs_timestep = self.non_blurring_timestep()
+        self.wcs_timestep = wcs_timestep if wcs_timestep else self.non_blurring_timestep()
 
     def get_coords(self, simbad_lookup=False):
         """
         Get the SkyCoord type coordinates to use for center of sky grid that is drizzled onto
 
-        :param simbad_lookup: use dither.target to get the J2000 coordinates
+        :param simbad_lookup: use dither.target to get the coordinates
         """
-
         if simbad_lookup:
             self.coords = SkyCoord.from_name(self.dither.target)
-            getLogger(__name__).warning(
-                'Using J2000 coordinates at: {} {} for target {} from Simbad for canvas wcs'.format(self.coords.ra,
-                                                                                                    self.coords.dec,
-                                                                                                    self.dither.target))
+            getLogger(__name__).info(f'Using coordinates {self.coords} for {self.dither.target} from '
+                                     f'Simbad for canvas wcs')
         else:
             self.coords = SkyCoord(self.dither.ra, self.dither.dec, unit=('hourangle', 'deg'))
-            getLogger(__name__).info(
-                'Using coordinates at: {} {} for target {} from h5 header for canvas wcs'.format(self.coords.ra,
-                                                                                                 self.coords.dec,
-                                                                                                 self.dither.target))
+            getLogger(__name__).info(f'Using user coordinates {self.coords} for {self.dither.target} from '
+                                     f'data for canvas wcs')
 
     def dither_pixel_vector(self, center=(0, 0)):
         """
@@ -168,8 +154,7 @@ class DrizzleParams:
         :return:
         """
         positions = np.asarray(self.dither.pos)
-        pix = np.asarray(CONEX2PIXEL(positions[:, 0], positions[:, 1])) - np.array(CONEX2PIXEL(*center)).reshape(2, 1)
-        return pix
+        return np.asarray(CONEX2PIXEL(positions[:, 0], positions[:, 1])) - np.array(CONEX2PIXEL(*center)).reshape(2, 1)
 
     def non_blurring_timestep(self, allowable_pixel_smear=1):
         """
@@ -177,7 +162,6 @@ class DrizzleParams:
 
         :param allowable_pixel_smear: the resolution element threshold
         """
-
         # get the field rotation rate at the start of each dither
         dith_start_times = np.array([o.start for o in self.dither.obs])
 
@@ -195,7 +179,7 @@ class DrizzleParams:
         dith_start_rot_rates = earthrate * np.cos(lat) * np.cos(az) / np.cos(alt)
 
         dith_pix_offset = self.dither_pixel_vector()
-        # get the minimum required timestep. One that would produce 1 pixel displacement at the
+        # get the minimum required timestep. One that would produce allowable_pixel_smear pixel displacement at the
         # center of furthest dither
         dith_dists = np.sqrt(dith_pix_offset[0] ** 2 + dith_pix_offset[1] ** 2)
         dith_angle = np.arctan(allowable_pixel_smear / dith_dists)
@@ -212,8 +196,8 @@ def metadata_config_check(filename, conf_wcs):
     md = ob.metadata()
     for attribute in ['dither_home', 'dither_ref', 'platescale', 'device_orientation']:
         if getattr(md, attribute) != getattr(conf_wcs, attribute):
-            getLogger(__name__).warning(
-                f'{attribute} is different in config and obsfile metadata. metadata should be reapplied')
+            getLogger(__name__).warning(f'{attribute} is different in config and '
+                                        f'obsfile metadata. metadata should be reapplied')
 
 
 def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, single_pa_time=None, exclude_flags=()):
@@ -952,8 +936,8 @@ def align_hdu_conex(hdus, mode):
 
 
 def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt=0., intt=60., pixfrac=.5, nwvlbins=1,
-         wcs_timestep=1., exp_timestep=1., usecache=True, ncpu=1, exclude_flags=(), whitelight=False,
-         align_start_pa=False, debug_dither_plot=False, intermediate_file=''):
+         wcs_timestep=1., exp_timestep=1., usecache=True, ncpu=1, exclude_flags=PROBLEM_FLAGS, whitelight=False,
+         align_start_pa=False, debug_dither_plot=False, save_steps=False, output_file=''):
     """
     Takes in a MKIDDitherDescription object and drizzles the dithers onto a common sky grid.
 
@@ -1013,6 +997,9 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
     (doing binned SSD on a target that barely rotates).
     """
 
+    out_root = os.path.dirname('./' if not output_file else output_file)
+    intermediate_file = os.path.join(out_root, 'drizstep_') if save_steps else ''
+
     if mode not in ('stack', 'spatial', 'temporal', 'list'):
         raise ValueError('mode must be: stack|spatial|temporal|list')
 
@@ -1046,7 +1033,6 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
 
     if mode is 'list':
         driz = ListDrizzler(dithers_data, drizzle_params)
-        driz.run()
     elif mode in ('spatial', 'stack'):
         driz = SpatialDrizzler(dithers_data, drizzle_params, stack=mode == 'stack', save_file=intermediate_file)
     else:
@@ -1056,29 +1042,12 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
     driz.run()
     drizzle_data = driz if mode is 'list' else DrizzledData(driz, mode, drizzle_params=drizzle_params)
 
+    if output_file:
+        drizzle_data.write(output_file)
+
     getLogger(__name__).info('Finished drizzling')
 
     return drizzle_data
-
-
-def fetch(outputs, config=None):
-    config = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(drizzler=StepConfig()), cfg=config, copy=True)
-
-    for o in (o for o in outputs if o.wants_drizzled):
-        if not isinstance(o.data, mkidpipeline.config.MKIDDitherDescription):
-            getLogger(__name__).error(f'No dither specified for {o}: o.data is {o.data}')
-            continue
-
-        intermediate_file = os.path.join(os.path.dirname(o.output_file), 'temp_') if config.drizzler.save_steps else ''
-
-        drizzled = form(o.data, mode=o.kind, wvlMin=o.startw, wvlMax=o.stopw, nwvlbins=config.drizzler.n_wave,
-                        pixfrac=config.drizzler.pixfrac, wcs_timestep=config.drizzler.wcs_timestep,
-                        exp_timestep=o.exp_timestep, exclude_flags=mkidcore.pixelflags.PROBLEM_FLAGS,
-                        usecache=config.drizzler.usecache, ncpu=config.drizzler.ncpu,
-                        derotate=config.drizzler.derotate, align_start_pa=config.drizzler.align_start_pa,
-                        whitelight=config.drizzler.whitelight, intermediate_file=intermediate_file)
-        drizzled.write(o.output_file)
-
 
 
 if __name__ == '__main__':
