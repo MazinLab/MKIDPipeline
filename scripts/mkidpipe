@@ -91,11 +91,12 @@ if __name__ == "__main__":
     batch_apply_flatcals(outputs.to_flatcal)
     #mkidpipeline.steps.wcscal.fetch
     #7
-    mkidpipeline.steps.drizzler.form(outputs)
+    mkidpipeline.steps.drizzler.form(outputs.to_drizzle)
+    #8
     mkidpipeline.steps.speccal.fetch(outputs.speccals)
 
 
-    pipe.run_stage1(outputs.dataset)
+    # pipe.run_stage1(outputs.dataset)
     pipe.generate_outputs(outputs)
 
     # build, meta, wave, pix -> wcs
