@@ -156,7 +156,7 @@ def safe(func):
         try:
             return func(*args, **kwargs)
         except Exception:
-            getLogger(__name__).critical('Caught exception during run of {}'.format(o), exc_info=True)
+            getLogger(__name__).critical(f'Caught exception during run of {func}', exc_info=True)
             return None
 
     return wrapper_decorator
@@ -244,7 +244,7 @@ def generate_outputs(outputs: config.MKIDOutputCollection):
         if o.wants_image:
 
             for obs in o.data.obs:
-                h5 = mkidpipeline.photontable.Photontable(obs.h5)
+                h5 = obs.photontable
                 img = h5.get_fits(wave_start=o.min_wave, wave_stop=o.max_wave, spec_weight=o.photom,
                                   noise_weight=o.noise, rate=True)
                 img.writeto(o.output_file)
