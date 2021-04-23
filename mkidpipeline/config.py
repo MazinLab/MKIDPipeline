@@ -12,6 +12,8 @@ from astropy.coordinates import SkyCoord
 import ruamel.yaml.comments
 from collections import defaultdict
 
+from typing import Set
+
 from mkidcore.utils import parse_ditherlog
 from mkidcore.legacy import parse_dither_log
 import mkidcore.config
@@ -163,10 +165,11 @@ def update_paths(d):
         config.update(f'paths.{k}', v)
 
 
-def make_paths(config=None, output_dirs=tuple()):
+def make_paths(config=None, output_collection=None):
     if config is None:
         config = globals()['config']
 
+    output_dirs = [] if output_collection is None else [os.path.dirname(o.output_file) for o in output_collection]
     paths = set([config.paths.out, config.paths.database, config.paths.tmp] + list(output_dirs))
 
     for p in filter(os.path.exists, paths):
@@ -299,10 +302,6 @@ class DataBase:
         #         except AttributeError:
         #             pass
 
-    @property
-    def key_names(self):
-        return tuple([k.name for k in self.KEYS])
-
     def _vet(self):
         def joiner(x):
             return ', '.join(x)
@@ -341,6 +340,10 @@ class DataBase:
             cm.yaml_add_eol_comment(node._keys[k].comment if k in node._keys else 'User added key', key=k)
         return representer.represent_mapping(cls.yaml_tag, cm)
 
+    @property
+    def key_names(self):
+        return tuple([k.name for k in self.KEYS])
+
 
 class MKIDTimerange(DataBase):
     yaml_tag = u'!MKIDTimerange'
@@ -362,12 +365,25 @@ class MKIDTimerange(DataBase):
     def __str__(self):
         return f'{self.name} ({type(self).__name__}): {self.duration}s @ {self.start}'
 
+    def __hash__(self):
+        """Note that this mease that a set of MKIDTimeranges where one has a dark and the other does makes no
+        promises about which you get, DO NOT add to this to include self.dark without factoring in that sets of
+        timeranges would now contain members with identical (start, stop) (i.e. much of the pipeline execution path"""
+        return hash((self.start, self.stop))
+
     def _vet(self):
         if self.duration > 43200:
             getLogger(__name__).warning(f'Duration of {self.name} longer than 12h!')
         if self.stop < self.start:
             self._key_errors['stop'] += [f'Stop ({self.stop}) must come after start ({self.start})']
         return super()._vet()
+
+    def _metadata(self):
+        """ Return a dict of the metadata unique to self"""
+        d = dict(start=self.start, stop=self.stop,
+                 dark=f'{self.dark.duration}@{self.dark.start}' if self.dark else 'None')
+        d.update({k: getattr(self, k) for k in self.extra_keys})
+        return d
 
     @property
     def date(self):
@@ -383,10 +399,10 @@ class MKIDTimerange(DataBase):
 
     @property
     def timerange(self):
-        return self.start, self.stop
+        return self
 
     @property
-    def timeranges(self):
+    def input_timeranges(self):
         yield self.timerange
         if self.dark is not None:
             yield self.dark.timerange
@@ -400,13 +416,6 @@ class MKIDTimerange(DataBase):
         """Convenience method for a photontable, file must exist, creates a new photon table on every call"""
         from photontable import Photontable
         return Photontable(self.h5)
-
-    def _metadata(self):
-        """ Return a dict of the metadata unique to self"""
-        d = dict(start=self.start, stop=self.stop, dark=f'{self.dark.duration}@{self.dark.start}' if self.dark
-                    else 'None')
-        d.update({k: getattr(self, k) for k in self.extra_keys})
-        return d
 
     @property
     def metadata(self):
@@ -467,6 +476,24 @@ class MKIDObservation(MKIDTimerange):
     def obs(self):
         yield self
 
+    @property
+    def input_timeranges(self):
+        """Return all of the MKIDTimeranges(NB this, by definition includes subclasses) go in to making the obs"""
+        for tr in self.input_timeranges:
+            yield tr
+        if self.wavecal is not None:
+            for tr in self.wavecal.input_timeranges:
+                yield tr
+        if self.flatcal is not None:
+            for tr in self.flatcal.input_timeranges:
+                yield tr
+        if self.wcscal is not None:
+            for tr in self.wcscal.input_timeranges:
+                yield tr
+        if self.speccal is not None:
+            for tr in self.speccal.input_timeranges:
+                yield tr
+
     def associate(self, **kwargs):
         """ Call with dicts for wavecal, flatcal, speccal, and wcscal"""
         for k in ('wavecal', 'flatcal', 'speccal', 'wcscal'):
@@ -482,6 +509,21 @@ class CalDefinitionMixin:
     def path(self):
         return os.path.join(config.paths.database, self.id + '.npz')
 
+    @property
+    def timeranges(self):
+        for o in self.obs:
+            yield o.timerange
+
+    @property
+    def input_timeranges(self):
+        try:
+            x = self.obs
+        except AttributeError:
+            x = self.data
+        for o in x:
+            for tr in o.input_timeranges:
+                yield tr
+
     def id(self, cfg=None):
         """
         Compute a wavecal id string from a wavedata id string and either the active or a specified wavecal config
@@ -493,36 +535,30 @@ class CalDefinitionMixin:
         config_hash = hashlib.md5(str(cfg).encode()).hexdigest()
         return f'{self.STEPNAME}_{id}_{config_hash[-8:]}'
 
-    @property
-    def timeranges(self):
-        for o in self.obs:
-            for tr in o.timeranges:
-                yield tr
-
 
 class MKIDWavecalDescription(DataBase, CalDefinitionMixin):
     """requires keys name and data"""
     yaml_tag = u'!MKIDWavecalDescription'
     KEYS = (
         Key(name='name', default='', comment='A name', dtype=str),
-        Key('obs', None, 'List of MKIDTimerange named like 950 nm', tuple),
+        Key('data', None, 'List of MKIDTimerange named like 950 nm', tuple),
     )
-    REQUIRED = ('name', 'obs')
+    REQUIRED = ('name', 'data')
     STEPNAME = 'wavecal'
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        for d in self.obs:
+        for d in self.data:
             if not isinstance(d, MKIDTimerange):
-                self._key_errors['obs'] += [f'Element {d} of obs is not an MKIDTimerange']
+                self._key_errors['data'] += [f'Element {d} of data is not an MKIDTimerange']
         if not self.obs:
-            self._key_errors['obs'] += ['obs must be a list of MKIDTimerange']
+            self._key_errors['data'] += ['obs must be a list of MKIDTimerange']
 
     def __str__(self):
         start = min(x.start for x in self.data)
         stop = min(x.stop for x in self.data)
         date = datetime.utcfromtimestamp(start).strftime('%Y-%m-%d-%H%M_')
-        return f'{self.name} (MKIDWavedata): {start}-{stop}\n' + '\n '.join(str(x) for x in self.obs)
+        return f'{self.name} (MKIDWavecalDescription): {start}-{stop}\n' + '\n '.join(str(x) for x in self.obs)
 
     @property
     def wavelengths(self):
@@ -539,17 +575,20 @@ class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
         Key(name='name', default=None, comment='A name', dtype=str),
         Key('data', None, 'An MKIDObservation (for a whitelight flat) or an MKIDWavedata '
                           '(or name) for a lasercal flat', None),
-        Key('wavecal_duration', None, 'Number of seconds of the wavecal to use, float ok. Required if using wavecal',
-            float),
+        Key('wavecal_duration', None, 'Number of seconds of the wavecal to use, float ok. '
+                                      'Required if using wavecal', float),
         Key('wavecal_offset', None, 'An offset in seconds (>=1) from the start of the wavecal '
                                     'timerange. Required if not ob', int),
+        Key('lincal', False, 'Apply lincal to h5s ', bool),
+        Key('pixcal', True, 'Apply pixcal to data ', bool),
+        Key('cosmiccal', False, 'Apply cosmiccal to data ', bool)
     )
     REQUIRED = ('name', 'data',)
     STEPNAME = 'flatcal'
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if isinstance(self.data, str):
+        if isinstance(self.data, (MKIDWavecalDescription, str)):
             try:
                 if self.wavecal_offset < 1:
                     self._key_errors['wavecal_offset'] += ['must be >= 1s']
@@ -565,46 +604,47 @@ class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
             except TypeError:
                 pass  # covered by super init
 
-            if not isinstance(getattr(self, 'wavecal', None), (MKIDWavecalDescription, str)):
-                self._key_errors['wavecal'] += ['must be an MKIDWavecalDescription or name of the same']
         else:
             if not isinstance(self.data, MKIDObservation):
-                self._key_errors['ob'] += ['must be an MKIDTimerange']
+                self._key_errors['data'] += [
+                    'must be an MKIDObservation, MKIDWavecalDescription, or name of the latter']
             if not isinstance(getattr(self.data, 'wavecal', None), (MKIDWavecalDescription, str)):
-                self._key_errors['ob'] += ['data must specify a wavecal']
+                self._key_errors['data'] += ['data must specify a wavecal when an MKIDObservation']
             self.wavecal_offset = None
             self.wavecal_duration = None
 
     def __str__(self):
-        return '{}: {}'.format(self.name, self.ob.start if self.ob is not None else self.wavecal.id)
-
-    def associate(self, **kwargs):
-        if isinstance(self.data, str):
-            self.data = kwargs['wavecal'].get(self.data, self.data)
-        else:
-            self.data.associate(**kwargs)
+        return '{}: {}'.format(self.name, self.data.start if self.method != 'laser' else self.data.id)
 
     @property
     def method(self):
-        return 'laser' if self.ob is None else 'white'
+        return 'white' if isinstance(self.data, MKIDObservation) else 'laser'
 
     @property
     def h5s(self):
         """Returns MKIDObservations for the wavelengths of the wavecal, will raise errors for whitelight flats"""
-        if self.ob is not None:
+        if self.method != 'laser':
             raise NotImplementedError('h5s only available for laser flats')
-        return {w: ob for w, ob in zip(self.wavecal.wavelengths, self.obs)}
+        return {w: ob for w, ob in zip(self.data.wavelengths, self.obs)}
 
     @property
     def obs(self):
         if isinstance(self.data, MKIDObservation):
             yield self.data
         else:
-            for ob in self.data.obs:
-                o = MKIDObservation(f'{self.name}_{ob.name}', ob.start + self.wavecal_offset,
-                                    duration=min(self.wavecal_duration, ob.duration - self.wavecal_offset),
-                                    dark=ob.dark, wavecal=self.data, **ob.extra())
+            if isinstance(self.data, str):
+                raise RuntimeError(f'Must associate wavecal {self.data} prior to calling')
+            for tr in self.data.input_timeranges:
+                o = MKIDObservation(f'{self.name}_{tr.name}', tr.start + self.wavecal_offset,
+                                    duration=min(self.wavecal_duration, tr.duration - self.wavecal_offset),
+                                    dark=tr.dark, wavecal=self.data, **tr.extra())
                 yield o
+
+    def associate(self, **kwargs):
+        if isinstance(self.data, str):
+            self.data = kwargs['wavecal'].get(self.data, self.data)
+        else:
+            self.data.associate(**kwargs)
 
 
 class MKIDSpeccalDescription(DataBase, CalDefinitionMixin):
@@ -715,12 +755,6 @@ class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
                                           f'domain {config.beammap.ncols},{config.beammap.nrows}')
                 self._key_errors['dither_home'] += ['must be a valid pixel (x,y) position']
 
-    def associate(self, **kwargs):
-        if isinstance(self.data, str):
-            self.data = kwargs['dither'].get(self.data, self.data)
-        elif isinstance(self.data, (MKIDObservation,MKIDDitherDescription)):
-            self.data.associate(**kwargs)
-
     @property
     def platescale(self):
         if not isinstance(self.data, u.Quantity):
@@ -735,6 +769,12 @@ class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
         else:
             for o in self.data.obs:
                 yield self.data
+
+    def associate(self, **kwargs):
+        if isinstance(self.data, str):
+            self.data = kwargs['dither'].get(self.data, self.data)
+        elif isinstance(self.data, (MKIDObservation, MKIDDitherDescription)):
+            self.data.associate(**kwargs)
 
 
 class MKIDDitherDescription(DataBase):
@@ -839,8 +879,10 @@ class MKIDDitherDescription(DataBase):
             if k not in kwargs:
                 continue
             if isinstance(getattr(self, k), str):
-                setattr(self, f'_{k}', getattr(self, k))
-                setattr(self, k, kwargs.get(k, getattr(self, k)))
+                setattr(self, f'_{k}', getattr(self, k))  # store the name
+                setattr(self, k, kwargs.get(k, getattr(self, k)))  # pull the object from the kwargs if preset
+        for o in self.obs:
+            o.associate(kwargs)
 
     @property
     def inttime(self):
@@ -854,6 +896,12 @@ class MKIDDitherDescription(DataBase):
     def timeranges(self):
         for o in self.obs:
             for tr in o.timeranges:
+                yield tr
+
+    @property
+    def input_timeranges(self):
+        for o in self.obs:
+            for tr in o.input_timeranges:
                 yield tr
 
 
@@ -910,31 +958,58 @@ class MKIDObservingDataset:
         except:
             getLogger(__name__).error('Failure during name/data association', exc_info=True)
 
+    def _find_nested(self, attr, kind, look_in):
+        for r in self.meta:
+            if isinstance(r, kind):
+                yield r
+            # This is necessary as we allow the user to define directly where they are used
+            if isinstance(r, look_in):
+                for o in r.obs:
+                    x = getattr(o, attr, None)
+                    if isinstance(x, kind):
+                        yield x
+
+    def by_name(self, name):
+        d = [d for d in self.meta if d.name == name]
+        try:
+            if len(d) > 1:
+                getLogger(__name__).warning(f'There are {len(d)} things named {name}, returning the first')
+            return d[0]
+        except IndexError:
+            return None
+
     @property
-    def timeranges(self):
-        for x in self.meta:
-            for tr in x.timeranges:
-                yield tr
+    def all_timeranges(self) -> Set[MKIDTimerange]:
+        tr = set([tr for x in self.meta for tr in x.input_timeranges])
+        return tr
 
     @property
     def wavecals(self):
-        return [r for r in self.meta if isinstance(r, MKIDWavecalDescription)]
+        yield self._find_nested('wavecal', MKIDWavecalDescription,
+                                (MKIDObservation, MKIDWCSCalDescription, MKIDDitherDescription, MKIDFlatcalDescription,
+                                 MKIDSpeccalDescription))
 
     @property
     def flatcals(self):
-        return [r for r in self.meta if isinstance(r, MKIDFlatcalDescription)]
+        yield self._find_nested('flatcal', MKIDFlatcalDescription, (MKIDObservation, MKIDWCSCalDescription,
+                                                                    MKIDDitherDescription, MKIDSpeccalDescription))
 
     @property
     def wcscals(self):
-        return [r for r in self.meta if isinstance(r, MKIDWCSCalDescription)]
+        yield self._find_nested('wcscal', MKIDWCSCalDescription, (MKIDObservation, MKIDDitherDescription,
+                                                                  MKIDSpeccalDescription))
 
     @property
     def dithers(self):
-        return [r for r in self.meta if isinstance(r, MKIDDitherDescription)]
+        for r in self.meta:
+            if isinstance(r, MKIDDitherDescription):
+                yield r
+            if isinstance(r, MKIDSpeccalDescription) and isinstance(r.data, MKIDDitherDescription):
+                yield r.data
 
     @property
     def speccals(self):
-        return [r for r in self.meta if isinstance(r, MKIDSpeccalDescription)]
+        yield self._find_nested('speccal', MKIDSpeccalDescription, (MKIDObservation, MKIDDitherDescription))
 
     @property
     def all_observations(self):
@@ -997,15 +1072,6 @@ class MKIDObservingDataset:
         return ([o for o in self.meta if isinstance(o, MKIDObservation)] +
                 [o for d in self.meta if isinstance(d, MKIDDitherDescription) for o in d.obs])
 
-    def by_name(self, name):
-        d = [d for d in self.meta if d.name == name]
-        try:
-            if len(d) > 1:
-                getLogger(__name__).warning(f'There are {len(d)} things named {name}, returning the first')
-            return d[0]
-        except IndexError:
-            return None
-
     @property
     def description(self):
         """Return a string describing the data"""
@@ -1036,11 +1102,14 @@ class MKIDOutput(DataBase):
         Key('ssd', True, 'Use ssd TODO', bool),
         Key('noise', True, 'Use noise TODO', bool),
         Key('photom', True, 'Use photom TODO', bool),
-        Key('exp_timestep', None, 'Duration of time bins in output cubes with a temporal axis (req. by temporal)', float)
+        Key('lincal', False, 'Use lincal', bool),
+        Key('exp_timestep', None, 'Duration of time bins in output cubes with a temporal axis (req. by temporal)',
+            float)
     )
     REQUIRED = ('name', 'data', 'kind')
     EXPLICIT_ALLOW = ('filename',)
-    #OPTIONAL = tuple
+
+    # OPTIONAL = tuple
 
     def __init__(self, *args, **kwargs):
         """
@@ -1072,12 +1141,12 @@ class MKIDOutput(DataBase):
 
     @property
     def startw(self):
-        #TODO remove me and all that use me
+        # TODO remove me and all that use me
         return self.min_wave
 
     @property
     def startw(self):
-        #TODO remove me and all that use me
+        # TODO remove me and all that use me
         return self.max_wave
 
     @property
@@ -1093,8 +1162,8 @@ class MKIDOutput(DataBase):
         return self.kind == 'movie'
 
     @property
-    def input_timeranges(self):
-        return list(self.data.timeranges) + list(self.data.wavecal.timeranges) + list(self.data.flatcal.timeranges)
+    def input_timeranges(self) -> Set[MKIDTimerange]:
+        return set(self.data.input_timeranges)
 
     @property
     def output_file(self):
@@ -1132,7 +1201,7 @@ class MKIDOutputCollection:
                 else:
                     getLogger(__name__).critical(f'Unable to find data description for "{o.data}"')
 
-    def __iter__(self):
+    def __iter__(self) -> MKIDOutput:
         for o in self.meta:
             yield o
 
@@ -1140,13 +1209,172 @@ class MKIDOutputCollection:
         return f'MKIDOutputCollection: {self.file}'
 
     @property
-    def input_timeranges(self):
+    def input_timeranges(self) -> Set[MKIDTimerange]:
         return set([r for o in self for r in o.input_timeranges])
 
-    # @property
-    # def pipeline_sequence(self):
-    # TODO one option would be to return a dynamically constructed seris of steps that the input needed
-    #  Caveat is that the pipeline runner (elsewhere) would need to filter and check these for compatibility
+    @property
+    def wavecals(self):
+        return [o.wavecal for o in self.to_wavecal if o.wavecal]
+
+    @property
+    def flatcals(self):
+        return [o.flatcal for o in self.to_flatcal if o.flatcal]
+
+    @property
+    def speccals(self):
+        return [o.speccal for o in self.to_speccal if o.speccal]
+
+    @property
+    def to_lincal(self):
+        for out in self:
+            if out.lincal:
+                for o in out.data.obs:
+                    yield o
+            for o in out.data.obs:
+                if o.flatcal and o.flatcal.lincal:
+                    for x in o.flatcal.obs:
+                        yield x
+                if o.speccal:
+                    for x in o.speccal.obs:
+                        if x.flatcal and x.flatcal.lincal:
+                            for y in x.flatcal.obs:
+                                yield y
+                if o.wcscal:
+                    for x in o.wcscal.obs:
+                        if x.flatcal and x.flatcal.lincal:
+                            for y in x.flatcal.obs:
+                                yield y
+
+    @property
+    def to_wavecal(self):
+        def input_observations(obs):
+            for o in obs:
+                if o.flatcal:
+                    for x in o.flatcal.obs:
+                        yield x
+                if o.speccal:
+                    for x in o.speccal.obs:
+                        yield x
+                        if x.flatcal:
+                            for y in x.flatcal.obs:
+                                yield y
+                        if x.wcscal:
+                            for y in x.wcscal.obs:
+                                yield
+                                if y.flatcal:
+                                    for z in y.flatcal.obs:
+                                        yield z
+                if o.wcscal:
+                    for x in o.wcscal.obs:
+                        yield x
+                        if x.flatcal:
+                            for y in x.flatcal.obs:
+                                yield y
+        for out in self:
+            if out.wavecal:
+                for o in out.data.obs:
+                    yield o
+            yield input_observations(out.data.obs)
+
+    @property
+    def to_pixcal(self):
+        def input_observations(obs):
+            for o in obs:
+                if o.flatcal and o.flatcal.pixcal:
+                    for x in o.flatcal.obs:
+                        yield x
+                if o.speccal:
+                    for x in o.speccal.obs:
+                        yield x
+                        if x.flatcal and x.flatcal.pixcal:
+                            for y in x.flatcal.obs:
+                                yield y
+                        if x.wcscal:
+                            for y in x.wcscal.obs:
+                                yield y
+                                if y.flatcal and y.flatcal.pixcal:
+                                    for z in y.flatcal.obs:
+                                        yield z
+                if o.wcscal:
+                    for x in o.wcscal.obs:
+                        yield x
+                        if x.flatcal and x.flatcal.pixcal:
+                            for y in x.flatcal.obs:
+                                yield y
+        for out in self:
+            if out.pixcal:
+                for o in out.data.obs:
+                    yield o
+            yield input_observations(out.data.obs)
+
+    @property
+    def to_cosmiccal(self):
+        def input_observations(obs):
+            for o in obs:
+                if o.flatcal and o.flatcal.cosmiccal:
+                    for x in o.flatcal.obs:
+                        yield x
+                if o.speccal:
+                    for x in o.speccal.obs:
+                        #yield x
+                        if x.flatcal and x.flatcal.cosmiccal:
+                            for y in x.flatcal.obs:
+                                yield y
+                        if x.wcscal:
+                            for y in x.wcscal.obs:
+                                #yield y
+                                if y.flatcal and y.flatcal.cosmiccal:
+                                    for z in y.flatcal.obs:
+                                        yield z
+                if o.wcscal:
+                    for x in o.wcscal.obs:
+                        #yield x
+                        if x.flatcal and x.flatcal.cosmiccal:
+                            for y in x.flatcal.obs:
+                                yield y
+        for out in self:
+            if out.cosmical:
+                for o in out.data.obs:
+                    yield o
+            yield input_observations(out.data.obs)
+
+    @property
+    def to_flatcal(self):
+        def input_observations(obs):
+            for o in obs:
+                if o.speccal:
+                    for x in o.speccal.obs:
+                        if x.flatcal:
+                            yield x
+                        if x.wcscal:
+                            for y in x.wcscal.obs:
+                                if y.flatcal:
+                                    yield y
+                if o.wcscal:
+                    for x in o.wcscal.obs:
+                        if x.flatcal:
+                            yield x
+        for out in self:
+            if out.flatcal:
+                for o in out.data.obs:
+                    if o.flatcal:
+                        yield o
+            yield input_observations(out.data.obs)
+
+    @property
+    def to_speccal(self):
+        for out in self:
+            if out.speccal:
+                for o in out.data.obs:
+                    if o.speccal:
+                        yield o
+
+def inspect_database(detailed=False):
+    """Warning detailed=True will load each thing in the database for detailed inspection"""
+    from glob import glob
+
+    for f in glob(config.config.paths.database + '*'):
+        print(f'{f}')
 
 
 def validate_metadata(md, warn=True, error=False):
