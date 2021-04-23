@@ -701,7 +701,7 @@ class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
     name - required
 
     Either:
-    data - The name of nn MKIDObservation from whitch to extract platescale dirter_ref, and dither_home.
+    data - The name of nn MKIDObservation from which to extract platescale dirter_ref, and dither_home.
         Presently unsupported
     Or   (the platescale in mas, though note that TODO is the authoratative def. on units)
     dither_ref - 2 tuple (dither controller position for dither_hope)
@@ -1226,11 +1226,8 @@ class MKIDOutputCollection:
 
     @property
     def to_lincal(self):
-        for out in self:
-            if out.lincal:
-                for o in out.data.obs:
-                    yield o
-            for o in out.data.obs:
+        def input_observations(obs):
+            for o in obs:
                 if o.flatcal and o.flatcal.lincal:
                     for x in o.flatcal.obs:
                         yield x
@@ -1244,6 +1241,12 @@ class MKIDOutputCollection:
                         if x.flatcal and x.flatcal.lincal:
                             for y in x.flatcal.obs:
                                 yield y
+
+        for out in self:
+            if out.lincal:
+                for o in out.data.obs:
+                    yield o
+            yield input_observations(out.data.obs)
 
     @property
     def to_wavecal(self):
@@ -1368,6 +1371,15 @@ class MKIDOutputCollection:
                 for o in out.data.obs:
                     if o.speccal:
                         yield o
+
+    @property
+    def to_drizzle(self):
+        for out in self:
+            if isinstance(out.data, MKIDDitherDescription):
+                yield out.data
+            if out.data.speccal and isinstance(out.data.speccal.data, MKIDDitherDescription):
+                yield out.data.speccal.data
+
 
 def inspect_database(detailed=False):
     """Warning detailed=True will load each thing in the database for detailed inspection"""
