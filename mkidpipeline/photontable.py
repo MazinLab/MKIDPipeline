@@ -1015,6 +1015,8 @@ class Photontable(object):
                                            header=header, name='SCIENCE'),
                              fits.ImageHDU(data=np.sqrt(data), header=header, name='VARIANCE'),
                              fits.ImageHDU(data=self._flagArray, header=header, name='FLAGS'),
+                             fits.ImageHDU(data=self._flagArray & self.flags.bitmask(exclude_flags, unknown='ignore'),
+                                           header=header, name='BAD'),
                              fits.TableHDU(data=bin_edges, name='CUBE_BINS')])
         hdul['CUBE_BINS'].header['UNIT'] = 'us' if cube_type is 'time' else 'nm'
         return hdul
