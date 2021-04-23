@@ -909,7 +909,7 @@ class Photontable(object):
         :param bin_edges:
         :param bin_type:
         :param start: float
-            Photon list start time, in seconds relative to beginning of file
+            Photon list start time (seconds) relative or absolute. see _parse_query_range_info for details
         :param duration: float
             Photon list end time, in seconds relative to start.
             If None, goes to end of file
@@ -975,10 +975,10 @@ class Photontable(object):
 
         toc = time.time()
         xe = xedg[:-1]
-        for (x, y), resID in np.ndenumerate(self.beamImage):
-            if self.flagged(exclude_flags, (x, y)):
+        for pixel, resID in np.ndenumerate(self.beamImage):
+            if self.flagged(exclude_flags, pixel):
                 continue
-            data[x, y] = hist[xe == resID]
+            data[pixel] = hist[xe == resID]
 
         toc2 = time.time()
         getLogger(__name__).debug(f'Histogram completed in {toc2 - tic:.2f} s, reformatting in {toc2 - toc:.2f}')

@@ -178,7 +178,6 @@ class CosmicCleaner:
         self.interval_event_avg = [np.sum(self.timestream[1][i]) for i in masks]
         self.interval_event_peak = [self.timestream[1][i].max() for i in masks]
 
-
     def animate_cr_event(self, timestamp, saveName=None, timeBefore=150, timeAfter=250, frameSpacing=5, frameIntTime=10,
                          wvlStart=None, wvlStop=None, fps=5, save=True):
         """
@@ -220,7 +219,6 @@ def apply(o: mkidpipeline.config.MKIDTimerange, config=None, ncpu=None):
     cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(cosmiccal=StepConfig()), cfg=config, ncpu=ncpu,
                                                     copy=True)
 
-    #TODO
     exclude = [k[0] for k in StepConfig.REQUIRED_KEYS]
     methodkw = {k: cfg.get(k) for k in cfg.keys() if k not in exclude}
     cc = CosmicCleaner(o.h5, **methodkw)
