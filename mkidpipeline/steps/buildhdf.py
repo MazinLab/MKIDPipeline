@@ -310,17 +310,14 @@ def gen_configs(timeranges, config=None):
 
 def buildtables(timeranges, config=None, ncpu=None, remake=None, **kwargs):
     """
-    timeranges must be an iterable of (start, stop) or an object that hase a .timeranges attribute providing the same
-    Pipeline must be configured or a loaded config passed
+    timeranges must be an iterable of (start, stop) or objects that have .start, .stop attributes providing the same
+    If the pipeline is not configured it will be configured with defaults.
     ncpu and remake will be pulled from config if not specified
-    kwargs my be used to pass settings on to pytables
+    kwargs my be used to pass settings on to pytables, exttra settings in the step config will also be passed to
+    pytables
     """
-    try:
-        timeranges = timeranges.timeranges
-    except AttributeError:
-        pass
-
-    timeranges = list(set(timeranges))
+    timeranges = map(lambda x: x if isinstance(x, tuple) else (x.start, x.stop), timeranges)
+    timeranges = set(map(lambda x: (int(np.floor(x[0])), int(np.ceil(x[1]))), timeranges))
 
     cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(buildhdf=StepConfig()), cfg=config, ncpu=ncpu,
                                                     copy=True)
