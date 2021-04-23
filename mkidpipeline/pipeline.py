@@ -5,15 +5,15 @@ import time
 from collections import defaultdict
 import functools
 
+import steps.drizzler
 from mkidcore.pixelflags import FlagSet, BEAMMAP_FLAGS
 from mkidcore.config import getLogger
 import mkidpipeline
-import mkidpipeline.photontable as photontable
 import mkidpipeline.config as config
 import mkidpipeline.steps
 from mkidpipeline.steps import wavecal
 import mkidpipeline.steps.buildhdf
-import mkidpipeline.imaging.movies
+import steps.movies
 
 import mkidcore.instruments
 import mkidcore.objects
@@ -184,9 +184,11 @@ def batch_apply_metadata(dset):
     """Function associates things not known at hdf build time (e.g. that aren't in the bin files)"""
     #TODO add a testing check that there aren't multiple observations backed by the same h5, that could result in
     # metadata oddness
-    for ob in dset.all_observations:
-        o = photontable.Photontable(ob.h5, mode='w')
-        o.attach_observing_metadata(ob.metadata)
+    for tr in dset.input_timeranges:
+        o = tr.photontable
+        o.enablewrite()
+        o.attach_observing_metadata(tr.metadata)
+        o.disablewrite()
         del o
 
 
@@ -236,19 +238,26 @@ def run_stage1(dataset):
 
 
 def generate_outputs(outputs: config.MKIDOutputCollection):
-    mkidpipeline.steps.drizzler.fetch(outputs)
 
     for o in outputs:
         # TODO make into a batch process
         getLogger(__name__).info('Generating {}'.format(o.name))
         if o.wants_image:
-
             for obs in o.data.obs:
-                h5 = obs.photontable
-                img = h5.get_fits(wave_start=o.min_wave, wave_stop=o.max_wave, spec_weight=o.photom,
-                                  noise_weight=o.noise, rate=True)
-                img.writeto(o.output_file)
-                getLogger(__name__).info('Generated fits file for {}'.format(obs.h5))
+                obs.photontable.get_fits(wave_start=o.min_wave, wave_stop=o.max_wave, spec_weight=o.photom,
+                                         noise_weight=o.noise, rate=True).writeto(o.output_file)
+                getLogger(__name__).info(f'Generated fits file for {obs}')
         if o.wants_movie:
-            getLogger('mkidpipeline.hdf.photontable').setLevel('DEBUG')
-            mkidpipeline.imaging.movies.make_movie(o, inpainting=False)
+            steps.movies.make_movie(o, inpainting=config.movies.inpaint)
+        if o.wants_drizzled:
+            config = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(drizzler=steps.drizzler.StepConfig()),
+                                                               copy=True)
+
+            steps.drizzler.form(o.data, mode=o.kind, wvlMin=o.min_wave, wvlMax=o.max_wave,
+                                nwvlbins=config.drizzler.n_wave, pixfrac=config.drizzler.pixfrac,
+                                wcs_timestep=config.drizzler.wcs_timestep, exp_timestep=o.exp_timestep,
+                                exclude_flags=mkidcore.pixelflags.PROBLEM_FLAGS,
+                                usecache=config.drizzler.usecache, ncpu=config.drizzler.ncpu,
+                                derotate=config.drizzler.derotate, align_start_pa=config.drizzler.align_start_pa,
+                                whitelight=config.drizzler.whitelight, save_steps=config.drizzler.save_steps,
+                                output_file=o.output_file)

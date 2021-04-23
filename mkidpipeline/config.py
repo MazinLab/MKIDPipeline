@@ -474,7 +474,7 @@ class MKIDObservation(MKIDTimerange):
 
     @property
     def obs(self):
-        yield self
+        return [self]
 
     @property
     def input_timeranges(self):
@@ -884,6 +884,12 @@ class MKIDDitherDescription(DataBase):
         for o in self.obs:
             o.associate(kwargs)
 
+    def obs_for_time(self, timestamp):
+        for o in self.obs:
+            if o.start <= timestamp <= o.stop:
+                return o
+        raise ValueError(f'Dither {self.name} does not cover time {time}')
+
     @property
     def inttime(self):
         return [o.duration for o in self.obs]
@@ -914,6 +920,8 @@ class MKIDObservingDataset:
             msg = 'Duplicate names not allowed in {}.'.format(yml)
             getLogger(__name__).critical(msg)
             raise ValueError(msg)
+
+        self.datadict = {x.name: x for x in self.meta}
 
         wcdict = {w.name: w for w in self.wavecals}
         fcdict = {f.name: f for f in self.flatcals}
@@ -968,15 +976,6 @@ class MKIDObservingDataset:
                     x = getattr(o, attr, None)
                     if isinstance(x, kind):
                         yield x
-
-    def by_name(self, name):
-        d = [d for d in self.meta if d.name == name]
-        try:
-            if len(d) > 1:
-                getLogger(__name__).warning(f'There are {len(d)} things named {name}, returning the first')
-            return d[0]
-        except IndexError:
-            return None
 
     @property
     def all_timeranges(self) -> Set[MKIDTimerange]:
@@ -1097,6 +1096,8 @@ class MKIDOutput(DataBase):
         Key('kind', 'image', "('stack', 'spatial', 'temporal', 'list', 'image', 'movie')", str),
         Key('min_wave', float('-inf'), 'Wavelength start for wavelength sensitive outputs', str),
         Key('max_wave', float('inf'), 'Wavelength stop for wavelength sensitive outputs, ', str),
+        Key('start_offset', 0, 'start time (s) offset from start of data', float),
+        Key('duration', None, 'number of seconds of the data to use, None=all', float),
         Key('filename', '', 'relative or fully qualified path, defaults to name+output type,'
                             'so set if making multiple outputs with different settings', str),
         Key('ssd', True, 'Use ssd TODO', bool),
@@ -1137,17 +1138,17 @@ class MKIDOutput(DataBase):
         opt = ('stack', 'spatial', 'temporal', 'list', 'image', 'movie')
         if self.kind not in opt:
             self._key_errors['kind'] += [f"Must be one of: {opt}"]
-        # self.exp_timestep=1  # 'duration of time bins in the output cube, required by temporal only, nbins=frametime/exp_timestep '
+        self._data = ''
 
-    @property
-    def startw(self):
-        # TODO remove me and all that use me
-        return self.min_wave
-
-    @property
-    def startw(self):
-        # TODO remove me and all that use me
-        return self.max_wave
+    def associate(self, data):
+        if not isinstance(self.data, str):
+            raise RuntimeError('Association already complete')
+        if self.wants_drizzled and not isinstance(data, MKIDDitherDescription):
+            raise ValueError(f'Output {self.kind} requires a dither')
+        if self.data != data.name:
+            getLogger(__name__).warning(f'Data named {data.name} used of dataset {self.data}')
+        self._data = self.data
+        self.data = data
 
     @property
     def wants_image(self):
@@ -1173,18 +1174,14 @@ class MKIDOutput(DataBase):
         else:
             if self.kind in ('stack', 'spatial', 'temporal', 'image'):
                 ext = 'fits'
-            elif self.kind is 'movie':
-                ext = 'gif'
             else:
-                ext = 'h5'
+                ext = 'gif' if self.kind is 'movie' else 'h5'
             file = f'{self.name}_{self.kind}.{ext}'
 
         if os.pathsep in file:
             return file
         else:
-            return os.path.join(config.paths.out,
-                                self.data if isinstance(self.data, str) else self.data.name,
-                                file)
+            return os.path.join(config.paths.out, self.data if isinstance(self.data, str) else self.data.name, file)
 
 
 class MKIDOutputCollection:
@@ -1195,11 +1192,13 @@ class MKIDOutputCollection:
 
         if self.dataset is not None:
             for o in self.meta:
-                d = self.dataset.by_name(o.data)
-                if d is not None:
-                    o.data = d
-                else:
-                    getLogger(__name__).critical(f'Unable to find data description for "{o.data}"')
+                try:
+                    o.associate(self.dataset.datadict[o.data])
+                except KeyError:
+                    getLogger(__name__).error(f'Unable to find data description for "{o.data}"')
+                except ValueError:
+                    getLogger(__name__).error(f'Data description for {o.data} if not of the type required for '
+                                              f'output {o.name}')
 
     def __iter__(self) -> MKIDOutput:
         for o in self.meta:
