@@ -1225,6 +1225,16 @@ class MKIDOutputCollection:
         return [o.speccal for o in self.to_speccal if o.speccal]
 
     @property
+    def wcscals(self):
+        for out in self:
+            if out.data.wcscal:
+                yield out.data.wcscal
+            if out.data.speccal:
+                for o in out.data.speccal.obs:
+                    if o.wcscal:
+                        yield o.wcscal
+
+    @property
     def to_lincal(self):
         def input_observations(obs):
             for o in obs:
