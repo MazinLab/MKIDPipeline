@@ -72,14 +72,7 @@ FLAGS = FlagSet.define(
     ('above_range', 8, 'Derived wavelength is above formal validity range of calibration'),
 )
 
-UNFLATABLE = tuple()  # flags that can't be flatcaled
-
-
-# TODO need to create a calibrator factory that works with three options: wavecal, white light, and filtered or laser
-#  light. In essence each needs a load_data functionand maybe a load_flat_spectra in the parlance of the current
-#  structure. The individual cases can be determined by seeing if the input data has a starttime or a wavesol
-#  Subclasses for special functions and a factory function for deciding which to instantiate.
-
+UNFLATABLE = tuple()  # todo flags that can't be flatcaled
 
 class FlatCalibrator:
     def __init__(self, config=None, solution_name='flat_solution.npz'):
@@ -109,10 +102,9 @@ class FlatCalibrator:
         self.flat_weights = None
         self.flat_weight_err = None
         self.flat_flags = None
-        self.plotName = None
-        self.fig = None
         self.coeff_array = np.zeros(self.cfg.beammap.ncols, self.cfg.beammap.nrows)
         self.mask=None
+        self.h5s = None
 
     def load_data(self):
         pass
@@ -146,15 +138,9 @@ class FlatCalibrator:
         sol = FlatSolution(configuration=self.cfg, flat_weights=self.flat_weights, flat_weight_err=self.flat_weight_err,
                            flat_flags=self.flat_flags, coeff_array=self.coeff_array)
         sol.save(save_name=self.solution_name)
-
         if self.summary_plot:
             getLogger(__name__).info('Making a summary plot')
-            sol.generate_summary_plot()
-
-        if self.save_plots:
-            getLogger(__name__).info("Writing detailed plots, go get some tea.")
-            getLogger(__name__).info('Plotting Weights by Wvl Slices at WeightsWvlSlices')
-            self.plotWeightsWvlSlices()
+            sol.generate_summary_plot(save_plot=self.save_plots)
         getLogger(__name__).info('Done')
 
     def calculate_weights(self):
@@ -225,12 +211,11 @@ class FlatCalibrator:
         self.flat_weights = np.divide(self.flat_weights.data, wvl_weight_avg)
 
     def calculate_coefficients(self):
-        for x in range(self.cfg.beammap.ncols):
-            for y in range(self.cfg.beammap.nrows):
-                fittable = (self.flat_weights[x, y] != 0) & np.isfinite(
-                    self.flat_weights[x, y] + self.flat_weight_err[x, y])
-                self.coeff_array[x, y] = np.polyfit(self.wavelengths[fittable], self.flat_weights[fittable],
-                                                    self.cfg.flatcal.power, w=1 / self.flat_weight_err[fittable] ** 2)
+        for (x, y) in np.ndenumerate(Photontable(self.h5s).beamImage):
+            fittable = (self.flat_weights[x, y] != 0) &\
+                       np.isfinite(self.flat_weights[x, y] + self.flat_weight_err[x, y])
+            self.coeff_array[x, y] = np.polyfit(self.wavelengths[fittable], self.flat_weights[fittable],
+                                                self.cfg.flatcal.power, w=1 / self.flat_weight_err[fittable] ** 2)
         getLogger(__name__).info('Calculated Flat coefficients')
 
     def get_dark_frame(self):
@@ -254,87 +239,6 @@ class FlatCalibrator:
             itime += im.header['EXPTIME']
         return np.sum(frames, axis=2) / itime
 
-    def plotWeightsWvlSlices(self):
-        """
-        Plot weights in images of a single wavelength bin (wavelength-sliced images)
-        """
-        self.plotName = 'WeightsWvlSlices_{0}'.format('TODO')  # TODO
-        self._setup_plots()
-        matplotlib.rcParams['font.size'] = 4
-        for iWvl, wvl in enumerate(self.wavelengths):
-            if self.iPlot % self.nPlotsPerPage == 0:
-                self.fig = plt.figure(figsize=(10, 10), dpi=100)
-            ax = self.fig.add_subplot(self.nPlotsPerCol, self.nPlotsPerRow, self.iPlot % self.nPlotsPerPage + 1)
-            ax.set_title(r'Weights %.0f $\AA$' % wvl)
-            image = self.flat_weights[:, :, iWvl]
-            vmax = np.nanmean(image) + 3 * np.nanstd(image)
-            plt.imshow(image.T, cmap=plt.get_cmap('viridis'), origin='lower', vmax=vmax, vmin=0)
-            plt.colorbar()
-            if self.iPlot % self.nPlotsPerPage == self.nPlotsPerPage - 1:
-                pdf = PdfPages(os.path.join(self.cfg.paths.out, 'temp.pdf'))
-                pdf.savefig(self.fig)
-            self.iPlot += 1
-            ax = self.fig.add_subplot(self.nPlotsPerCol, self.nPlotsPerRow, self.iPlot % self.nPlotsPerPage + 1)
-            ax.set_title(r'Spectrum %.0f $\AA$' % wvl)
-            image = self.combined_image[:, :, iWvl]
-            vmax = np.nanmean(image) + 3 * np.nanstd(image)
-            plt.imshow(image.T, cmap=plt.get_cmap('viridis'), origin='lower', vmin=0, vmax=vmax)
-            plt.colorbar()
-            if self.iPlot % self.nPlotsPerPage == self.nPlotsPerPage - 1:
-                pdf = PdfPages(os.path.join(self.cfg.paths.out, 'temp.pdf'))
-                pdf.savefig(self.fig)
-                pdf.close()
-                self._mergePlots()
-                self.saved = True
-                plt.close('all')
-            self.iPlot += 1
-        self._closePlots()
-
-    def _setup_plots(self):
-        """
-        Initialize plotting variables
-        """
-        self.nPlotsPerRow = 2
-        self.nPlotsPerCol = 3
-        self.nPlotsPerPage = self.nPlotsPerRow * self.nPlotsPerCol
-        self.iPlot = 0
-        self.pdfFullPath = self.cfg.paths.out + self.plotName + '.pdf'
-        if os.path.isfile(self.pdfFullPath):
-            answer = query("{0} already exists. Overwrite?".format(self.pdfFullPath), yes_or_no=True)
-            if answer is False:
-                answer = query("Provide a new file name (type exit to quit):")
-                if answer == 'exit':
-                    raise RuntimeError("User doesn't want to overwrite the plot file " + "... exiting")
-                self.pdfFullPath = self.cfg.paths.out + str(answer) + '.pdf'
-            else:
-                os.remove(self.pdfFullPath)
-
-    def _mergePlots(self):
-        """
-        Merge recently created temp.pdf with the main file
-        """
-        temp_file = os.path.join(self.cfg.paths.out, 'temp.pdf')
-        if os.path.isfile(self.pdfFullPath):
-            merger = PdfFileMerger()
-            merger.append(PdfFileReader(open(self.pdfFullPath, 'rb')))
-            merger.append(PdfFileReader(open(temp_file, 'rb')))
-            merger.write(self.pdfFullPath)
-            merger.close()
-            os.remove(temp_file)
-        else:
-            os.rename(temp_file, self.pdfFullPath)
-
-    def _closePlots(self):
-        """
-        Safely close plotting variables after plotting since the last page is only saved if it is full.
-        """
-        if not self.saved:
-            pdf = PdfPages(os.path.join(self.cfg.paths.out, 'temp.pdf'))
-            pdf.savefig(self.fig)
-            pdf.close()
-            self._mergePlots()
-        plt.close('all')
-
 class WhiteCalibrator(FlatCalibrator):
     """
     Opens flat file using parameters from the param file, sets wavelength binning parameters, and calculates flat
@@ -342,20 +246,20 @@ class WhiteCalibrator(FlatCalibrator):
     and in wavelength-sliced images.
     """
 
-    def __init__(self, h5, config=None, solution_name='flat_solution.npz', darks=None):
+    def __init__(self, h5s, config=None, solution_name='flat_solution.npz', darks=None):
         """
         Reads in the param file and opens appropriate flat file.  Sets wavelength binning parameters.
         """
         super().__init__(config)
         self.exposure_time = self.cfg.exposure_time
-        self.h5 = h5
+        self.h5s = h5s
         self.energies = None
         self.energy_bin_width = None
         self.solution_name = solution_name
 
     def load_data(self):
-        getLogger(__name__).info('Loading calibration data from {}'.format(self.h5))
-        pt = self.h5.photontable
+        getLogger(__name__).info('Loading calibration data from {}'.format(self.h5s))
+        pt = self.h5s.photontable
         if not pt.wavelength_calibrated:
             raise RuntimeError('Photon data is not wavelength calibrated.')
         # define wavelengths to use
@@ -370,7 +274,7 @@ class WhiteCalibrator(FlatCalibrator):
         n_wvls = len(self.wavelengths)
         n_times = self.cfg.flatcal.nchunks
         x, y = self.cfg.beammap.ncols, self.cfg.beammap.nrows
-        exposure_time = self.h5.duration
+        exposure_time = self.h5s.duration
         if self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks > exposure_time:
             n_times = int(exposure_time / self.cfg.flatcal.chunk_time)
             getLogger(__name__).info('Number of chunks * chunk time is longer than the laser exposure. Using full'
@@ -380,7 +284,7 @@ class WhiteCalibrator(FlatCalibrator):
         int_times = np.zeros([x, y, n_wvls])
 
         delta_list = self.wavelengths / self.r_list / 2
-        pt = self.h5.photontable
+        pt = self.h5s.photontable
         for i, wvl in enumerate(self.wavelengths):
             if not pt.query_header('isBadPixMasked'):
                 getLogger(__name__).warning('H5 File not hot pixel masked, could skew flat weights')
@@ -566,13 +470,6 @@ class FlatSolution(object):
 
         if not save_plot:
             plt.show()
-
-    def get_calibration(self, wavelengths, pixel=None, res_id=None):
-        """
-        wrapper to get the flatcal solution fora given pixel at specified wavelengths
-        """
-        func = self.get(pixel=pixel, res_id=res_id)
-        return func(wavelengths)
 
 def _run(flattner):
     getLogger(__name__).debug('Calling run on {}'.format(flattner))
