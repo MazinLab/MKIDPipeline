@@ -23,6 +23,7 @@ if __name__ == "__main__":
     parser.add_argument('--run-step', dest='single_step', help='Run a single named step', type=str)
     parser.add_argument('--make-dir', dest='make_paths', help='Create all needed directories', action='store_true')
     parser.add_argument('--info', dest='info', help='Report information about the configuration', action='store_true')
+    parser.add_argument('--make-outputs', dest='makeout', help='Run the pipeline on the outputs', action='store_true')
 
     getLogger('mkidcore').setLevel('INFO')
     log = getLogger('mkidpipeline')
@@ -68,34 +69,33 @@ if __name__ == "__main__":
     if args.single_step:
         pipe.PIPELINE_STEPS[args.single_step].run(dataset)
 
-    #0
-    steps.buildhdf.buildtables(outputs.input_timeranges)
-    #1
-    pipe.batch_apply_metadata(outputs)
-    #2
-    steps.wavecal.fetch(outputs.wavecals)
-    pipe.batch_apply_lincals(outputs.to_lincal)
-    #3
-    pipe.batch_apply_wavecals(outputs.to_wavecal)
-    #4
-    pipe.batch_apply_pixcals(outputs.to_pixcal)
-    pipe.batch_apply_cosmiccals(outputs.to_cosmiccal)
-    #5
-    steps.flatcal.fetch(outputs.flatcals)
-    #6
-    pipe.batch_apply_flatcals(outputs.to_flatcal)
-    #steps.wcscal.fetch(outputs.wcscals)
-    #7
-    pipe.generate_outputs(outputs)
-    #8
-    steps.speccal.fetch(outputs.speccals)
+    if args.makeout:
+        # [] denote optional
+        # build, meta, wave, pix -> wcs
+        # build, meta, wave, pix, [flat] ->  spec
+        # build, meta, [lin, wave, pix, cr, flat] -> image / movie
+        # build, meta, [lin], wave, [pix, cr] -> flat
+        # build, meta -> wave
 
+        #0
+        steps.buildhdf.buildtables(outputs.input_timeranges)
+        #1
+        pipe.batch_apply_metadata(outputs)
+        #2
+        steps.wavecal.fetch(outputs.wavecals)
+        pipe.batch_apply_lincals(outputs.to_lincal)
+        #3
+        pipe.batch_apply_wavecals(outputs.to_wavecal)
+        #4
+        pipe.batch_apply_pixcals(outputs.to_pixcal)
+        pipe.batch_apply_cosmiccals(outputs.to_cosmiccal)
+        #5
+        steps.flatcal.fetch(outputs.flatcals)
+        #6
+        pipe.batch_apply_flatcals(outputs.to_flatcal)
+        steps.wcscal.fetch(outputs.wcscals)
+        #7
+        pipe.generate_outputs(outputs)
+        #8
+        steps.speccal.fetch(outputs.speccals)
 
-    # pipe.run_stage1(outputs.dataset)
-    pipe.generate_outputs(outputs)
-
-    # build, meta, wave, pix -> wcs
-    # build, meta, wave, pix, [flat] ->  spec
-    # build, meta, [cr, lin, wave, pix, flat] -> image / movie
-    # build, meta, [cr, lin], wave, [pix] -> flat
-    # build, meta -> wave

@@ -146,7 +146,8 @@ def generate_sample_output():
         return ret
 
     data = [config.MKIDOutput(name=namer('out'), data='dither0', min_wave='850 nm', max_wave='1375 nm',
-                              kind='spatial', noise=True, photom=True, ssd=True)]
+                              kind='spatial', noise=False, photom=False, ssd=False)]
+
     return data
 
 
