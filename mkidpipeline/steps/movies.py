@@ -28,7 +28,7 @@ def make_movie(out):
     else:
         ob = out.obs[0]
 
-    _make_movie(ob.h5, out.output_file, out.timestep, movie_duration=out.movie_length,
+    _make_movie(ob.h5, out.filename, out.timestep, movie_duration=out.movie_length,
                 title=out.name, usewcs=out.usewcs, startw=out.min_wave, stopw=out.max_wave, startt=out.startt,
                 stopt=out.stopt, showaxes=config.movies.axes, inpainting=config.movies.inpaint,
                 cps_cutoff=config.movies.cps_cutoff, maskbad=out.pixcal, colormap=config.movies.colormap,

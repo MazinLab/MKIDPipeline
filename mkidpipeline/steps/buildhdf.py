@@ -329,12 +329,12 @@ def buildtables(timeranges, config=None, ncpu=None, remake=None, **kwargs):
                            include_baseline=cfg.hdf.include_baseline)
         b2h_configs.append(bc)
 
-    remake = mkidpipeline.config.config.hdf.get('remake', False) if remake is None else remake
-    ncpu = mkidpipeline.config.config.hdf.get('ncpu', 1) if ncpu is None else ncpu
+    remake = mkidpipeline.config.config.buildhdf.get('remake', False) if remake is None else remake
+    ncpu = mkidpipeline.config.config.buildhdf.get('ncpu', 1) if ncpu is None else ncpu
 
-    for k in mkidpipeline.config.config.hdf.keys():  # This is how chunkshape is propagated
+    for k in mkidpipeline.config.config.buildhdf.keys():  # This is how chunkshape is propagated
         if k not in kwargs and k not in ('ncpu', 'remake', 'include_baseline'):
-            kwargs[k] = mkidpipeline.config.config.hdf.get(k)
+            kwargs[k] = mkidpipeline.config.config.buildhdf.get(k)
 
     builders = [HDFBuilder(c, force=remake, **kwargs) for c in b2h_configs]
 
