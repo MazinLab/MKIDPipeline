@@ -74,6 +74,7 @@ FLAGS = FlagSet.define(
 
 UNFLATABLE = tuple()  # todo flags that can't be flatcaled
 
+
 class FlatCalibrator:
     def __init__(self, config=None, solution_name='flat_solution.npz'):
         self.cfg = mkidpipeline.config.load_task_config(StepConfig() if config is None else config)  # TODO
@@ -103,7 +104,7 @@ class FlatCalibrator:
         self.flat_weight_err = None
         self.flat_flags = None
         self.coeff_array = np.zeros(self.cfg.beammap.ncols, self.cfg.beammap.nrows)
-        self.mask=None
+        self.mask = None
         self.h5s = None
 
     def load_data(self):
@@ -212,7 +213,7 @@ class FlatCalibrator:
 
     def calculate_coefficients(self):
         for (x, y) in np.ndenumerate(Photontable(self.h5s).beamImage):
-            fittable = (self.flat_weights[x, y] != 0) &\
+            fittable = (self.flat_weights[x, y] != 0) & \
                        np.isfinite(self.flat_weights[x, y] + self.flat_weight_err[x, y])
             self.coeff_array[x, y] = np.polyfit(self.wavelengths[fittable], self.flat_weights[fittable],
                                                 self.cfg.flatcal.power, w=1 / self.flat_weight_err[fittable] ** 2)
@@ -238,6 +239,7 @@ class FlatCalibrator:
             frames.append(im.data)
             itime += im.header['EXPTIME']
         return np.sum(frames, axis=2) / itime
+
 
 class WhiteCalibrator(FlatCalibrator):
     """
@@ -294,8 +296,8 @@ class WhiteCalibrator(FlatCalibrator):
             wvl_stop = wvl + delta_list[i]
 
             hdul = pt.get_fits(duration=self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks, rate=True,
-                                bin_width=self.cfg.flatcal.chunk_time, wave_start=wvl_start, wave_stop=wvl_stop,
-                                cube_type='time')
+                               bin_width=self.cfg.flatcal.chunk_time, wave_start=wvl_start, wave_stop=wvl_stop,
+                               cube_type='time')
 
             getLogger(__name__).info(f'Loaded {wvl} nm spectral cube')
             int_times[:, :, i] = self.cfg.flatcal.chunk_time
@@ -303,6 +305,7 @@ class WhiteCalibrator(FlatCalibrator):
         self.spectral_cube = cps_cube_list
         self.eff_int_times = int_times
         self.mask = mask
+
 
 class LaserCalibrator(FlatCalibrator):
     def __init__(self, h5s, solution_name='flat_solution.npz', config=None, darks=None):
@@ -352,8 +355,10 @@ class LaserCalibrator(FlatCalibrator):
         self.eff_int_times = int_times
         self.mask = mask
 
+
 class FlatSolution(object):
     yaml_tag = '!fsoln'
+
     def __init__(self, file_path=None, configuration=None, beam_map=None, flat_weights=None, coeff_array=None,
                  wavelengths=None, flat_weight_err=None, flat_flags=None, solution_name='flat_solution'):
         self.cfg = configuration
@@ -413,7 +418,7 @@ class FlatSolution(object):
         if not pixel and not res_id:
             raise ValueError('Need to specify either resID or pixel coordinates')
         for pix, res in self.cfg.beammap:
-            if res == res_id or pix == pixel: #in case of non unique resIDs
+            if res == res_id or pix == pixel:  # in case of non unique resIDs
                 coeffs = self.coeff_array[pixel[0], pixel[1]]
                 return np.poly1d(coeffs)
 
@@ -471,9 +476,11 @@ class FlatSolution(object):
         if not save_plot:
             plt.show()
 
+
 def _run(flattner):
     getLogger(__name__).debug('Calling run on {}'.format(flattner))
     flattner.run()
+
 
 def load_solution(sc, singleton_ok=True):
     """sc is a solution filename string, a FlatSolution object, or a mkidpipeline.config.MKIDFlatcalDescription"""
@@ -491,10 +498,12 @@ def load_solution(sc, singleton_ok=True):
         _loaded_solutions[sc] = FlatSolution(file_path=sc)
     return _loaded_solutions[sc]
 
-def fetch(dataset, config=None, ncpu=None, remake=False):
-    solution_descriptors = dataset.flatcals
 
-    fcfg = config.PipelineConfigFactory(step_defaults=dict(flatcal=StepConfig()), cfg=config, ncpu=ncpu, copy=True)
+def fetch(dataset, config=None, ncpu=None, remake=False):
+    solution_descriptors = getattr(dataset, 'flatcals', dataset)
+
+    fcfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(flatcal=StepConfig()), cfg=config, ncpu=ncpu,
+                                                     copy=True)
 
     solutions = {}
     if not remake:
@@ -533,6 +542,7 @@ def fetch(dataset, config=None, ncpu=None, remake=False):
 
     return solutions
 
+
 def apply(o: mkidpipeline.config.MKIDObservation, config=None):
     """
     Applies a flat calibration to the "SpecWeight" column for each pixel.
@@ -540,7 +550,7 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
     Weights are multiplied in and replaced; NOT reversible
     """
 
-    cfg = config.PipelineConfigFactory(step_defaults=dict(flatcal=StepConfig()), cfg=config, copy=True)
+    # cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(flatcal=StepConfig()), cfg=config, copy=True)
 
     if o.flatcal is None:
         getLogger(__name__).info(f"No flatcal specified for {o}, nothing to do")
@@ -558,11 +568,11 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
     getLogger(__name__).info(f'Applying {calsoln} to {o}')
 
     # Set flags for pixels that have them
-    to_clear = of.flags.bitmask([f'flatcal.{name}' for name,_,_  in FLAGS], unknown='ignore')
+    to_clear = of.flags.bitmask([f'flatcal.{name}' for name, _, _ in FLAGS], unknown='ignore')
     of.unflag(to_clear)
     for name, bit, _ in FLAGS:
         # TODO instrument FlatSoln (e.g. w/ get_flag_map) so there is a way to get a 2b boolean map of each set flag
-        of.flag(calsoln.get_flag_map(name)*of.flags.bitmask([f'flatcal.{name}'], unknown='warn'))
+        of.flag(calsoln.get_flag_map(name) * of.flags.bitmask([f'flatcal.{name}'], unknown='warn'))
 
     for pixel, resID in of.resonators(exclude=UNFLATABLE, pixel=True):
         soln = calsoln.get(pixel=pixel, res_id=resID)
@@ -582,7 +592,7 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
             weights = weights.clip(0)  # enforce positive weights only
             of.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=weights, colname='SpecWeight')
         else:  # This takes 3.5s per pixel on a 70 Mphot file!!!
-            #raise NotImplementedError('This code path is impractically slow at present.')
+            # raise NotImplementedError('This code path is impractically slow at present.')
             getLogger(__name__).debug('Using modify_coordinates')
             rows = of.photonTable.read_coordinates(indices)
             rows['SpecWeight'] *= soln(rows['Wavelength'])
@@ -591,6 +601,6 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
 
     of.update_header('isFlatCalibrated', True)
     of.update_header('fltCalFile', calsoln.file_path.encode())
-    of.update_header('FLATCAL.ID', calsoln.id)  #TODO ensure is pulled over from definition/is consistent
-    of.update_header('FLATCAL.TYPE', calsoln.type)  #TODO add type parameter to calsoln
+    of.update_header('FLATCAL.ID', calsoln.id)  # TODO ensure is pulled over from definition/is consistent
+    of.update_header('FLATCAL.TYPE', calsoln.type)  # TODO add type parameter to calsoln
     getLogger(__name__).info('Flatcal applied in {:.2f}s'.format(time.time() - tic))

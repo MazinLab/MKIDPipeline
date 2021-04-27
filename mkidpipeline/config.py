@@ -1123,7 +1123,13 @@ class MKIDOutput(DataBase):
         Key('ssd', True, 'Use ssd TODO', bool),
         Key('noise', True, 'Use noise TODO', bool),
         Key('photom', True, 'Use photom TODO', bool),
-        Key('lincal', False, 'Use lincal', bool),
+        Key('lincal', False, 'Apply and use lincal, slow', bool),
+        Key('pixcal', True, 'Apply pixcal', bool),
+        Key('cosmical', False, 'Determine cosmic ray hits, slow', bool),
+        Key('flatcal', True, 'Apply flatcal', bool),
+        # NB wavecal is applied and used if the underlying data specifies them, min/max wave allow ignoring it
+        # there is no speccal key as it isn't something that is applied to the data
+        # speccals are just fetched and determined for
         Key('exp_timestep', None, 'Duration of time bins in output cubes with a temporal axis (req. by temporal)',
             float)
     )
@@ -1275,7 +1281,8 @@ class MKIDOutputCollection:
             if out.lincal:
                 for o in out.data.obs:
                     yield o
-            yield input_observations(out.data.obs)
+            for o in input_observations(out.data.obs):
+                yield o
 
     @property
     def to_wavecal(self):
@@ -1303,10 +1310,10 @@ class MKIDOutputCollection:
                             for y in x.flatcal.obs:
                                 yield y
         for out in self:
-            if out.wavecal:
-                for o in out.data.obs:
-                    yield o
-            yield input_observations(out.data.obs)
+            for o in out.data.obs:
+                yield o
+            for o in input_observations(out.data.obs):
+                yield o
 
     @property
     def to_pixcal(self):
@@ -1337,7 +1344,8 @@ class MKIDOutputCollection:
             if out.pixcal:
                 for o in out.data.obs:
                     yield o
-            yield input_observations(out.data.obs)
+            for o in input_observations(out.data.obs):
+                yield o
 
     @property
     def to_cosmiccal(self):
@@ -1368,7 +1376,8 @@ class MKIDOutputCollection:
             if out.cosmical:
                 for o in out.data.obs:
                     yield o
-            yield input_observations(out.data.obs)
+            for o in input_observations(out.data.obs):
+                yield o
 
     @property
     def to_flatcal(self):
@@ -1391,15 +1400,18 @@ class MKIDOutputCollection:
                 for o in out.data.obs:
                     if o.flatcal:
                         yield o
-            yield input_observations(out.data.obs)
+            for o in input_observations(out.data.obs):
+                yield o
 
     @property
     def to_speccal(self):
         for out in self:
-            if out.speccal:
-                for o in out.data.obs:
-                    if o.speccal:
-                        yield o
+            # speccals aren't applied to the data, so just return them all for generation so
+            # that the user has them for later
+            # if out.speccal:
+            for o in out.data.obs:
+                if o.speccal:
+                    yield o
 
     @property
     def to_drizzle(self):

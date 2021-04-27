@@ -2625,7 +2625,7 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
     except AttributeError:
         pass
 
-    wcfg = config.PipelineConfigFactory(step_defaults=dict(wavecal=StepConfig()), cfg=config, ncpu=ncpu, copy=True)
+    wcfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(wavecal=StepConfig()), cfg=config, ncpu=ncpu, copy=True)
 
     solutions = {}
     if not remake:
