@@ -250,7 +250,7 @@ class SpectralCalibrator:
         self.mkid[0] = wvl_bin_centers
         if self.use_satellite_spots:
             fluxes = mec_measure_satellite_spot_flux(self.cube, wvl_start=self.wvl_bin_edges[:-1],
-                                                     wvl_stop=self.wvl_bin_edges[1:])
+                                                     wvl_stop=self.wvl_bin_edges[1:], platescale=self.platescale)
             self.mkid[1] = np.nanmean(fluxes, axis=1)
         else:
             if self.obj_pos is None:
