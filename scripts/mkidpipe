@@ -57,10 +57,7 @@ if __name__ == "__main__":
         config.make_paths(output_collection=outputs)
 
     if args.vet:
-        for x in outputs:
-            print(x._vet())
-        for x in dataset:
-            print(x._vet())
+        config.report_vetting(outputs)
         sys.exit(0)
 
     if args.info:

@@ -837,6 +837,24 @@ class MKIDDitherDescription(DataBase):
                 self.use = list(range(maxn))
 
         try:
+            if isinstance(self.data, (list, tuple)):
+                check_use(len(self.data))
+                self.obs = [self.data[i] for i in self.use]
+
+                for i,o in enumerate(self.obs):
+                    try:
+                        assert isinstance(o, MKIDObservation)
+                    except AssertionError:
+                        self._key_errors['data'] += [f'data[{i}] ({o}) is not an MKIDObservation']
+                        continue
+
+                    try:
+                        assert len(o.dither_pos) == 2 and 0 <= o.dither_pos[0] <= 1 and 0 <= o.dither_pos[0] <= 1
+                    except Exception:
+                        self._key_errors['data'] += [f'data[{i} ({o}) does not specify a dither_pos '
+                                                     f'for the conex (x,y) [0,1]']
+                return
+
             if isinstance(self.data, str):  # by old file
                 file = self.data
                 if not os.path.isfile(file):
@@ -860,23 +878,18 @@ class MKIDDitherDescription(DataBase):
                                                 f'in {dither_path}')
                     endt, startt, pos = [], [], []
             else:
-                check_use(len(self.data))
-                self.obs = [self.data[i] for i in self.use]
-
-                for o in self.obs:
-                    try:
-                        assert len(o.dither_pos) == 2 and 0 <= o.dither_pos[0] <= 1 and 0 <= o.dither_pos[0] <= 1
-                    except Exception:
-                        self._key_errors['data'] += [f'{o} does not specify a dither_pos for the conex (x,y) [0,1]']
+                self._key_errors['data'] += [f'data is not a timestamp, list of MKIDObservations, or dither logfile']
+                self.obs = []
                 return
 
-            check_use(len(startt))
+            n = len(startt)
+            check_use(n)
 
             startt = [startt[i] for i in self.use]
             endt = [endt[i] for i in self.use]
             pos = [pos[i] for i in self.use]
 
-            self.obs = [MKIDObservation(f'{self.name}_{i}/{len(self.obs)}', b, stop=e, dither_pos=p,
+            self.obs = [MKIDObservation(f'{self.name}_{i}/{n}', b, stop=e, dither_pos=p,
                                         wavecal=self.wavecal, flatcal=self.flatcal, wcscal=self.wcscal,
                                         speccal=self.speccal, **self.extra())
                         for i, b, e, p in zip(self.use, startt, endt, pos)]
@@ -977,6 +990,11 @@ class MKIDObservingDataset:
 
         except:
             getLogger(__name__).error('Failure during name/data association', exc_info=True)
+
+    def __iter__(self):
+        for o in self.meta:
+            # TODO this isn't exhaustive as nested things might not referent top things
+            yield o
 
     def _find_nested(self, attr, kind, look_in):
         for r in self.meta:
@@ -1421,6 +1439,30 @@ class MKIDOutputCollection:
             if out.data.speccal and isinstance(out.data.speccal.data, MKIDDitherDescription):
                 yield out.data.speccal.data
 
+def report_vetting(data):
+    if isinstance(data, MKIDOutputCollection):
+        for x in data:
+            issues = x._vet()
+            if issues:
+                print(issues)
+
+        if data.dataset is not None:
+            for x in data.dataset:
+                issues = x._vet()
+                if issues:
+                    print(issues)
+    elif isinstance(data, MKIDObservingDataset):
+        for x in data.dataset:
+            issues = x._vet()
+            if issues:
+                print(issues)
+    else:
+        try:
+            issues = data._vet()
+            if issues:
+                print(issues)
+        except AttributeError:
+            raise TypeError('Object must offer a _vet() method if not a dataset or output collection')
 
 def inspect_database(detailed=False):
     """Warning detailed=True will load each thing in the database for detailed inspection"""
