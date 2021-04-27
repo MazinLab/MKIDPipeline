@@ -245,7 +245,7 @@ def generate_outputs(outputs: config.MKIDOutputCollection):
         if o.wants_image:
             for obs in o.data.obs:
                 obs.photontable.get_fits(wave_start=o.min_wave, wave_stop=o.max_wave, spec_weight=o.photom,
-                                         noise_weight=o.noise, rate=True).writeto(o.output_file)
+                                         noise_weight=o.noise, rate=True).writeto(o.filename)
                 getLogger(__name__).info(f'Generated fits file for {obs}')
         if o.wants_movie:
             steps.movies.make_movie(o, inpainting=config.movies.inpaint)
@@ -260,4 +260,4 @@ def generate_outputs(outputs: config.MKIDOutputCollection):
                                 usecache=config.drizzler.usecache, ncpu=config.drizzler.ncpu,
                                 derotate=config.drizzler.derotate, align_start_pa=config.drizzler.align_start_pa,
                                 whitelight=config.drizzler.whitelight, save_steps=config.drizzler.save_steps,
-                                output_file=o.output_file)
+                                output_file=o.filename)

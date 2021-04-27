@@ -105,6 +105,7 @@ class BaseStepConfig(mkidcore.config.ConfigThing):
     def _vet_errors(self):
         return []
 
+_pathroot = os.path.join('/work', os.environ.get('USER',''))
 
 class PipeConfig(BaseStepConfig):
     yaml_tag = u'!pipe_cfg'
@@ -114,10 +115,11 @@ class PipeConfig(BaseStepConfig):
                       'Calibration steps to apply'),
                      ('paths.dithers', '/darkdata/MEC/logs/', 'dither log location'),
                      ('paths.data', '/darkdata/ScienceData/Subaru/', 'bin file parent folder'),
-                     ('paths.database', '/work/temp/database/', 'calibrations will be retrieved/stored here'),
-                     ('paths.obslog', '/work/temp/database/obslog', 'obslog.json go here'),
-                     ('paths.out', '/work/temp/out/', 'root of output'),
-                     ('paths.tmp', '/work/temp/scratch/', 'use for data intensive temp files'),
+                     ('paths.database', os.path.join(_pathroot, 'database'),
+                      'calibrations will be retrieved/stored here'),
+                     ('paths.obslog', os.path.join(_pathroot, 'database','obslog'), 'obslog.json go here'),
+                     ('paths.out', os.path.join(_pathroot, 'out'), 'root of output'),
+                     ('paths.tmp', os.path.join(_pathroot, 'scratch'), 'use for data intensive temp files'),
                      ('beammap', None, 'A Beammap to use'),
                      ('instrument', None, 'An mkidcore.instruments.InstrumentInfo instance')
                      )
@@ -173,7 +175,7 @@ def make_paths(config=None, output_collection=None):
     if config is None:
         config = globals()['config']
 
-    output_dirs = [] if output_collection is None else [os.path.dirname(o.output_file) for o in output_collection]
+    output_dirs = [] if output_collection is None else [os.path.dirname(o.filename) for o in output_collection]
     paths = set([config.paths.out, config.paths.database, config.paths.tmp] + list(output_dirs))
 
     for p in filter(os.path.exists, paths):
@@ -1185,10 +1187,10 @@ class MKIDOutput(DataBase):
         return set(self.data.input_timeranges)
 
     @property
-    def output_file(self):
+    def filename(self):
         global config
-        if self.filename:
-            file = self.filename
+        if hasattr(self, '_filename'):
+            file = self._filename
         else:
             if self.kind in ('stack', 'spatial', 'temporal', 'image'):
                 ext = 'fits'
