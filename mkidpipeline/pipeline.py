@@ -257,7 +257,7 @@ def generate_outputs(outputs: config.MKIDOutputCollection):
                                 nwvlbins=config.drizzler.n_wave, pixfrac=config.drizzler.pixfrac,
                                 wcs_timestep=config.drizzler.wcs_timestep, exp_timestep=o.exp_timestep,
                                 exclude_flags=mkidcore.pixelflags.PROBLEM_FLAGS,
-                                usecache=config.drizzler.usecache, ncpu=config.drizzler.ncpu,
+                                usecache=config.drizzler.usecache, ncpu=config.get('drizzler.ncpu'),
                                 derotate=config.drizzler.derotate, align_start_pa=config.drizzler.align_start_pa,
                                 whitelight=config.drizzler.whitelight, save_steps=config.drizzler.save_steps,
                                 output_file=o.filename)
