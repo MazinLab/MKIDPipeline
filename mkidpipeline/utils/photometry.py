@@ -176,7 +176,7 @@ def interpolateImage(inputArray, method='linear'):
 
     return interpolatedFrame
 
-def mec_measure_satellite_spot_flux(cube, aperradii=None, wvl_start=np.array([950]), wvl_stop=np.array([1375])):
+def mec_measure_satellite_spot_flux(cube, aperradii=None, wvl_start=None, wvl_stop=None, platescale=10.4, D=8.2):
     """
     performs aperture photometry using an adaptation of the racetrack aperture from the polarimetry mode of the
      GPI pipeline (http://docs.planetimager.org/pipeline/usage/tutorial_polphotometry.html)
@@ -184,9 +184,13 @@ def mec_measure_satellite_spot_flux(cube, aperradii=None, wvl_start=np.array([95
     :param aperradii: radius of the aperture - if 'None' will use the diffraction limited aperture for each wvl
     :param wvl_start: array, start wavelengths
     :param wvl_stop: array, stop wavelenghts
+    :param platescale: platescale in arcsec/pix
+    :param D: telescope diameter in meters
     :return: background subtracted flux of the satellite spot in counts/sec
     """
     flux = np.zeros((len(cube), 4))
+    if len(cube) != len(wvl_start) or len(cube) != len(wvl_stop):
+        raise ValueError('cube must have same wavelength dimensions wvl start and wvl stop')
     for i, img in enumerate(cube):
         imgspare = img.copy()
         dim = np.shape(cube[0, :, :])
@@ -198,13 +202,12 @@ def mec_measure_satellite_spot_flux(cube, aperradii=None, wvl_start=np.array([95
         if aperradii is None:
             aperradii = get_aperture_radius(landa)
         R_spot = np.zeros(3)
-        D = 8.2e10
-        R_spot[0] = (206265 / 0.0104) * 15.91 * lambdamin / D
-        R_spot[1] = (206265 / 0.0104) * 15.91 * landa / D
-        R_spot[2] = (206265 / 0.0104) * 15.91 * lambdamax / D
+        R_spot[0] = (206265 / platescale) * 15.91 * lambdamin / D
+        R_spot[1] = (206265 / platescale) * 15.91 * landa / D
+        R_spot[2] = (206265 / platescale) * 15.91 * lambdamax / D
         halflength = R_spot[2] - R_spot[1]
 
-        ROT_ANG = [42.73, 90+(90-43.96), 180+46.9, -48.26]
+        ROT_ANG = [42.73, 180-43.96, 180+46.9, -48.26]
         ROT_ANG = np.deg2rad(ROT_ANG)
 
         xs0 = starx + R_spot[1] * np.cos(ROT_ANG[0])
