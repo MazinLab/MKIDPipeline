@@ -248,12 +248,12 @@ def generate_outputs(outputs: config.MKIDOutputCollection):
                                          noise_weight=o.noise, rate=True).writeto(o.filename)
                 getLogger(__name__).info(f'Generated fits file for {obs}')
         if o.wants_movie:
-            steps.movies.make_movie(o, inpainting=config.movies.inpaint)
+            mkidpipeline.steps.movies.make_movie(o)
         if o.wants_drizzled:
-            config = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(drizzler=steps.drizzler.StepConfig()),
+            config = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(drizzler=mkidpipeline.steps.drizzler.StepConfig()),
                                                                copy=True)
 
-            steps.drizzler.form(o.data, mode=o.kind, wvlMin=o.min_wave, wvlMax=o.max_wave,
+            mkidpipeline.steps.drizzler.form(o.data, mode=o.kind, wvlMin=o.min_wave, wvlMax=o.max_wave,
                                 nwvlbins=config.drizzler.n_wave, pixfrac=config.drizzler.pixfrac,
                                 wcs_timestep=config.drizzler.wcs_timestep, exp_timestep=o.exp_timestep,
                                 exclude_flags=mkidcore.pixelflags.PROBLEM_FLAGS,

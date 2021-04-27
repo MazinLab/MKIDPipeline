@@ -83,16 +83,17 @@ if __name__ == "__main__":
         pipe.batch_apply_metadata(outputs)
         #2
         steps.wavecal.fetch(outputs.wavecals)
-        pipe.batch_apply_lincals(outputs.to_lincal)
+        pipe.batch_applier(steps.lincal.apply, outputs.to_lincal)
         #3
-        pipe.batch_apply_wavecals(outputs.to_wavecal)
+        pipe.batch_applier(steps.wavecal.apply, outputs.to_wavecal)
+        # pipe.batch_apply_wavecals(outputs.to_wavecal)
         #4
-        pipe.batch_apply_pixcals(outputs.to_pixcal)
-        pipe.batch_apply_cosmiccals(outputs.to_cosmiccal)
+        pipe.batch_applier(steps.pixcal.apply, outputs.to_pixcal)
+        pipe.batch_applier(steps.cosmiccal.apply, outputs.to_cosmiccal)
         #5
         steps.flatcal.fetch(outputs.flatcals)
         #6
-        pipe.batch_apply_flatcals(outputs.to_flatcal)
+        pipe.batch_applier(steps.flatcal.apply, outputs.to_flatcal)
         steps.wcscal.fetch(outputs.wcscals)
         #7
         pipe.generate_outputs(outputs)
