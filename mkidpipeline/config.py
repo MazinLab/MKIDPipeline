@@ -551,7 +551,7 @@ class MKIDWavecalDescription(DataBase, CalDefinitionMixin):
         for d in self.data:
             if not isinstance(d, MKIDTimerange):
                 self._key_errors['data'] += [f'Element {d} of data is not an MKIDTimerange']
-        if not self.obs:
+        if not self.data:
             self._key_errors['data'] += ['obs must be a list of MKIDTimerange']
 
     def __str__(self):
@@ -924,6 +924,8 @@ class MKIDObservingDataset:
         self.datadict = {x.name: x for x in self.meta}
 
         wcdict = {w.name: w for w in self.wavecals}
+        for f in self.flatcals:
+            f.associate(wavecal=wcdict)
         fcdict = {f.name: f for f in self.flatcals}
         wcsdict = {w.name: w for w in self.wcscals}
         scdict = {s.name: s for s in self.speccals}
@@ -972,10 +974,13 @@ class MKIDObservingDataset:
                 yield r
             # This is necessary as we allow the user to define directly where they are used
             if isinstance(r, look_in):
-                for o in r.obs:
-                    x = getattr(o, attr, None)
-                    if isinstance(x, kind):
-                        yield x
+                if kind=='wavecal' and isinstance(r, MKIDFlatcalDescription) and isinstance(r.wavecal, str):
+                    pass
+                else:
+                    for o in r.obs:
+                        x = getattr(o, attr, None)
+                        if isinstance(x, kind):
+                            yield x
 
     @property
     def all_timeranges(self) -> Set[MKIDTimerange]:
@@ -984,19 +989,22 @@ class MKIDObservingDataset:
 
     @property
     def wavecals(self):
-        yield self._find_nested('wavecal', MKIDWavecalDescription,
-                                (MKIDObservation, MKIDWCSCalDescription, MKIDDitherDescription, MKIDFlatcalDescription,
-                                 MKIDSpeccalDescription))
+        look_in = (MKIDObservation, MKIDWCSCalDescription, MKIDDitherDescription,  MKIDFlatcalDescription,
+                   MKIDSpeccalDescription)
+        for x in self._find_nested('wavecal', MKIDWavecalDescription,look_in):
+            yield x
 
     @property
     def flatcals(self):
-        yield self._find_nested('flatcal', MKIDFlatcalDescription, (MKIDObservation, MKIDWCSCalDescription,
-                                                                    MKIDDitherDescription, MKIDSpeccalDescription))
+        look_in = (MKIDObservation, MKIDWCSCalDescription, MKIDDitherDescription, MKIDSpeccalDescription)
+        for x in self._find_nested('flatcal', MKIDFlatcalDescription, look_in):
+            yield x
 
     @property
     def wcscals(self):
-        yield self._find_nested('wcscal', MKIDWCSCalDescription, (MKIDObservation, MKIDDitherDescription,
-                                                                  MKIDSpeccalDescription))
+        look_in = (MKIDObservation, MKIDDitherDescription, MKIDSpeccalDescription)
+        for x in self._find_nested('wcscal', MKIDWCSCalDescription, look_in):
+            yield x
 
     @property
     def dithers(self):
@@ -1008,7 +1016,9 @@ class MKIDObservingDataset:
 
     @property
     def speccals(self):
-        yield self._find_nested('speccal', MKIDSpeccalDescription, (MKIDObservation, MKIDDitherDescription))
+        look_in = (MKIDObservation, MKIDDitherDescription)
+        for x in self._find_nested('speccal', MKIDSpeccalDescription, look_in):
+            yield x
 
     @property
     def all_observations(self):
