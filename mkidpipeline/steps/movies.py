@@ -159,7 +159,7 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('title', True, 'Display the title at the top of the animation'))
 
 
-def generate_stack_data(fits_file, exp_time, smooth_sigma=None, region=None, time_range, wvl_bin=None):
+def generate_stack_data(fits_file, exp_time, time_range, smooth_sigma=None, region=None, wvl_bin=None):
     hdul = fits.open(fits_file)
 
     cps = hdul['SCIENCE'].header['UNIT'] == 'photons/s'
@@ -304,19 +304,19 @@ def animate(data, outfile=None, target='', stretch='linear', type='temporal', fp
                 writer.grab_frame()
 
 
-if config.animation.power:
-    VALID_STRETCHES['power'] = PowerStretch(config.animation.power)
+# if config.animation.power:
+#     VALID_STRETCHES['power'] = PowerStretch(config.animation.power)
+#
+# if not config.animation.target:
+#     log.warning('Target missing! Must be specified in the config for metadata.')
 
-if not config.animation.target:
-    log.warning('Target missing! Must be specified in the config for metadata.')
-
-stacked_data = generate_stack_data(config.paths.fits, config.data.exp_time, config.data.smooth,
-                                   config.data.square_size, (start, end), config.data.wvl_bin)
-
-animate(stacked_data, outfile=config.paths.out, target=config.animation.target,
-        stretch=config.animation.stretch, type=config.animation.type, fps=config.animation.fps,
-        plot_data=config.animation.plot_data, plot_stack=config.animation.plot_stack,
-        title=config.animation.show_title)
+# stacked_data = generate_stack_data(config.paths.fits, config.data.exp_time, (start, end), config.data.smooth,
+#                                    config.data.square_size, config.data.wvl_bin)
+#
+# animate(stacked_data, outfile=config.paths.out, target=config.animation.target,
+#         stretch=config.animation.stretch, type=config.animation.type, fps=config.animation.fps,
+#         plot_data=config.animation.plot_data, plot_stack=config.animation.plot_stack,
+#         title=config.animation.show_title)
 
 #+++++++++
 

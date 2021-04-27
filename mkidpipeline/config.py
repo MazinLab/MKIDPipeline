@@ -42,6 +42,10 @@ REQUIRED_KEYS = ('ra', 'dec', 'target', 'observatory', 'instrument', 'dither_ref
                  'device_orientation')
 
 
+class UnassociatedError(RuntimeError):
+    pass
+
+
 def get_ditherinfo(time, path=None):
     if path is None:
         path = config.paths.dithers
@@ -568,6 +572,10 @@ class MKIDWavecalDescription(DataBase, CalDefinitionMixin):
     def darks(self):
         return {w: ob.dark for w, ob in zip(self.wavelengths, self.obs)}
 
+    def associate(self, *args, **kwargs):
+        """Provided for interface compatibility"""
+        pass
+
 
 class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
     yaml_tag = u'!MKIDFlatcalDescription'
@@ -633,7 +641,7 @@ class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
             yield self.data
         else:
             if isinstance(self.data, str):
-                raise RuntimeError(f'Must associate wavecal {self.data} prior to calling')
+                raise UnassociatedError(f'Must associate wavecal {self.data} prior to calling')
             for tr in self.data.input_timeranges:
                 o = MKIDObservation(f'{self.name}_{tr.name}', tr.start + self.wavecal_offset,
                                     duration=min(self.wavecal_duration, tr.duration - self.wavecal_offset),
@@ -882,7 +890,7 @@ class MKIDDitherDescription(DataBase):
                 setattr(self, f'_{k}', getattr(self, k))  # store the name
                 setattr(self, k, kwargs.get(k, getattr(self, k)))  # pull the object from the kwargs if preset
         for o in self.obs:
-            o.associate(kwargs)
+            o.associate(**kwargs)
 
     def obs_for_time(self, timestamp):
         for o in self.obs:
@@ -974,13 +982,13 @@ class MKIDObservingDataset:
                 yield r
             # This is necessary as we allow the user to define directly where they are used
             if isinstance(r, look_in):
-                if kind=='wavecal' and isinstance(r, MKIDFlatcalDescription) and isinstance(r.wavecal, str):
-                    pass
-                else:
+                try:
                     for o in r.obs:
                         x = getattr(o, attr, None)
                         if isinstance(x, kind):
                             yield x
+                except UnassociatedError:
+                    getLogger(__name__).debug(f'Skipping nested search of unassociated "{r.data}" for {attr}')
 
     @property
     def all_timeranges(self) -> Set[MKIDTimerange]:
@@ -991,7 +999,7 @@ class MKIDObservingDataset:
     def wavecals(self):
         look_in = (MKIDObservation, MKIDWCSCalDescription, MKIDDitherDescription,  MKIDFlatcalDescription,
                    MKIDSpeccalDescription)
-        for x in self._find_nested('wavecal', MKIDWavecalDescription,look_in):
+        for x in self._find_nested('wavecal', MKIDWavecalDescription, look_in):
             yield x
 
     @property
