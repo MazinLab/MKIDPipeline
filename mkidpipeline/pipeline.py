@@ -4,8 +4,7 @@ import multiprocessing as mp
 import time
 from collections import defaultdict
 import functools
-
-import steps.drizzler
+import mkidpipeline.steps.drizzler
 from mkidcore.pixelflags import FlagSet, BEAMMAP_FLAGS
 from mkidcore.config import getLogger
 import mkidpipeline
@@ -13,7 +12,7 @@ import mkidpipeline.config as config
 import mkidpipeline.steps
 from mkidpipeline.steps import wavecal
 import mkidpipeline.steps.buildhdf
-import steps.movies
+import mkidpipeline.steps.movies
 
 import mkidcore.instruments
 import mkidcore.objects
