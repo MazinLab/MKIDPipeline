@@ -454,7 +454,7 @@ class MKIDObservation(MKIDTimerange):
 
     @property
     def _metadata(self):
-        d = super()._metadata
+        d = super()._metadata()
         try:
             wc = self.wavecal.id
         except AttributeError:
@@ -1548,7 +1548,7 @@ def observing_metadata_for_timerange(timerange, metadata_source=None):
     # Select the nearest metadata to the midpoint
     start = datetime.fromtimestamp(timerange.start)
     time_since_start = np.array([(md.utc - start).total_seconds() for md in metadata_source])
-    ok, _ = np.where((time_since_start < timerange.duration) & (time_since_start >= 0))
+    ok, = np.where((time_since_start < timerange.duration) & (time_since_start >= 0))
     mdl = [metadata_source[i] for i in ok]
     return mdl
 
