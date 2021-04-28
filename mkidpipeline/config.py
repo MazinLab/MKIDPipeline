@@ -323,9 +323,10 @@ class DataBase:
         return cls(**dict(loader.construct_pairs(node, deep=True)))
 
     @classmethod
-    def to_yaml(cls, representer, node):
+    def to_yaml(cls, representer, node, use_underscore=tuple()):
         d = node.__dict__.copy()
-
+        for k in use_underscore:
+            d[k] = d.pop(f"_{k}", d[k])
         # We want to write out all the keys needed to recreate the definition
         #  keys that are explicitly allowed are used in __init__ to support dual definition (e.g. stop/duration)
         #  we exclude th to prevent redundancy
@@ -363,8 +364,8 @@ class MKIDTimerange(DataBase):
     REQUIRED = ('name', 'start', ('duration', 'stop'))
     EXPLICIT_ALLOW = ('duration',)  # if a key is allows AND is a property or method name it must be listed here
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         if hasattr(self, '_duration'):
             self.stop = self.start + self._duration
 
@@ -442,15 +443,20 @@ class MKIDObservation(MKIDTimerange):
     """requires keys name, wavecal, flatcal, wcscal, and all the things from ob"""
     yaml_tag = u'!MKIDObservation'
     KEYS = MKIDTimerange.KEYS + (
-        Key('wavecal', '', 'A MKIDWavedata or name of the same', None),
-        Key('flatcal', '', 'A MKIDFlatdata or name of the same', None),
-        Key('wcscal', '', 'A MKIDWCSCal or name of the same', None),
-        Key('speccal', '', 'A MKIDSpecdata or name of the same', None),
+        Key('wavecal', '', 'A MKIDWavedata name', str),
+        Key('flatcal', '', 'A MKIDFlatdata name', str),
+        Key('wcscal', '', 'A MKIDWCSCal name', str),
+        Key('speccal', '', 'A MKIDSpecdata nam', str),
     )
     REQUIRED = MKIDTimerange.REQUIRED + ('wavecal', 'flatcal', 'wcscal', 'speccal')
     EXPLICIT_ALLOW = MKIDTimerange.EXPLICIT_ALLOW
 
     # OPTIONAL = ('standard', 'conex_pos')
+
+    @classmethod
+    def to_yaml(cls, representer, node):
+        return super().to_yaml(representer, node, use_underscore=('wavecal', 'flatcal', 'wcscal', 'speccal')) # save as
+        # named references!
 
     @property
     def _metadata(self):
@@ -589,7 +595,7 @@ class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
         Key('wavecal_duration', None, 'Number of seconds of the wavecal to use, float ok. '
                                       'Required if using wavecal', float),
         Key('wavecal_offset', None, 'An offset in seconds (>=1) from the start of the wavecal '
-                                    'timerange. Required if not ob', int),
+                                    'timerange. Required if not ob', float),
         Key('lincal', False, 'Apply lincal to h5s ', bool),
         Key('pixcal', True, 'Apply pixcal to data ', bool),
         Key('cosmiccal', False, 'Apply cosmiccal to data ', bool)
@@ -647,7 +653,7 @@ class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
                 raise UnassociatedError(f'Must associate wavecal {self.data} prior to calling')
             for tr in self.data.input_timeranges:
                 stop = tr.start + self.wavecal_offset + min(self.wavecal_duration, tr.duration - self.wavecal_offset)
-                o = MKIDObservation(f'{self.name}_{tr.name}', start=tr.start + self.wavecal_offset,
+                o = MKIDObservation(name=f'{self.name}_{tr.name}', start=tr.start + self.wavecal_offset,
                                     stop=stop, dark=tr.dark, wavecal=self.data, **tr.extra())
                 yield o
 
@@ -898,7 +904,7 @@ class MKIDDitherDescription(DataBase):
             endt = [endt[i] for i in self.use]
             pos = [pos[i] for i in self.use]
 
-            self.obs = [MKIDObservation(f'{self.name}_{i}/{n}', start=b, stop=e, dither_pos=p,
+            self.obs = [MKIDObservation(name=f'{self.name}_{i}/{n}', start=b, stop=e, dither_pos=p,
                                         wavecal=self.wavecal, flatcal=self.flatcal, wcscal=self.wcscal,
                                         speccal=self.speccal, **self.extra())
                         for i, b, e, p in zip(self.use, startt, endt, pos)]
@@ -956,8 +962,6 @@ class MKIDObservingDataset:
         self.datadict = {x.name: x for x in self.meta}
 
         wcdict = {w.name: w for w in self.wavecals}
-        # for f in self.flatcals:
-        #     f.associate(wavecal=wcdict)
         fcdict = {f.name: f for f in self.flatcals}
         wcsdict = {w.name: w for w in self.wcscals}
         scdict = {s.name: s for s in self.speccals}
