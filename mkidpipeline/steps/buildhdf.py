@@ -326,7 +326,7 @@ def buildtables(timeranges, config=None, ncpu=None, remake=None, **kwargs):
     for start_t, end_t in timeranges:
         bc = Bin2HdfConfig(datadir=_get_dir_for_start(cfg.paths.data, start_t), beammap=cfg.beammap,
                            outdir=cfg.paths.out, starttime=start_t, inttime=end_t - start_t,
-                           include_baseline=cfg.hdf.include_baseline)
+                           include_baseline=cfg.buildhdf.include_baseline)
         b2h_configs.append(bc)
 
     remake = mkidpipeline.config.config.buildhdf.get('remake', False) if remake is None else remake

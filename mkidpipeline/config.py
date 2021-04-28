@@ -259,13 +259,13 @@ class DataBase:
                 required_type = self._keys[k].dtype
                 if required_type == tuple and isinstance(v, list):
                     v = tuple(v)
-                if required_type == float and isinstance(v, str) and v.endswith('inf'):
+                if required_type == float and v is not None:# and isinstance(v, str) and v.endswith('inf'):
                     try:
                         v = float(v)
-                    except ValueError:
+                    except (ValueError, TypeError):
                         pass
                 if required_type is not None and not isinstance(v, required_type):
-                    self._key_errors[k] += [f'not an instance of {required_type}']
+                    self._key_errors[k] += [f'not an instance of {required_type.__name__}']
 
             if isinstance(v, str):
                 try:
@@ -487,16 +487,16 @@ class MKIDObservation(MKIDTimerange):
         """Return all of the MKIDTimeranges(NB this, by definition includes subclasses) go in to making the obs"""
         for tr in super().input_timeranges:
             yield tr
-        if self.wavecal is not None:
+        if self.wavecal:
             for tr in self.wavecal.input_timeranges:
                 yield tr
-        if self.flatcal is not None:
+        if self.flatcal:
             for tr in self.flatcal.input_timeranges:
                 yield tr
-        if self.wcscal is not None:
+        if self.wcscal:
             for tr in self.wcscal.input_timeranges:
                 yield tr
-        if self.speccal is not None:
+        if self.speccal:
             for tr in self.speccal.input_timeranges:
                 yield tr
 
@@ -646,9 +646,9 @@ class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
             if isinstance(self.data, str):
                 raise UnassociatedError(f'Must associate wavecal {self.data} prior to calling')
             for tr in self.data.input_timeranges:
+                stop = tr.start + self.wavecal_offset + min(self.wavecal_duration, tr.duration - self.wavecal_offset)
                 o = MKIDObservation(f'{self.name}_{tr.name}', tr.start + self.wavecal_offset,
-                                    duration=min(self.wavecal_duration, tr.duration - self.wavecal_offset),
-                                    dark=tr.dark, wavecal=self.data, **tr.extra())
+                                    stop=stop, dark=tr.dark, wavecal=self.data, **tr.extra())
                 yield o
 
     def associate(self, **kwargs):
@@ -823,15 +823,23 @@ class MKIDDitherDescription(DataBase):
             getLogger(__name__).warning('Pipeline config.paths.dithers not configured')
 
         def check_use(maxn):
-            if self.use is None:
-                self.use = list(range(maxn))
+            if self.use is None or not self.use:
+                self.use = tuple(range(maxn))
             else:
-                try:
-                    rspec = self.use
-                    self.use = [self.use] if isinstance(self.use, int) else derangify(self.use)
-                except Exception:
-                    self.use = list(range(maxn))
-                    self._key_errors['use'] += [f'Failed to derangify {rspec}, using all positions']
+                if isinstance(self.use, str):
+                    try:
+                        rspec = self.use
+                        self.use = derangify(self.use)
+                    except Exception:
+                        self.use = tuple(range(maxn))
+                        self._key_errors['use'] += [f'Failed to derangify {rspec}, using all positions']
+                elif isinstance(self.use, int):
+                    self.use = (self.use,)
+                else:
+                    try:
+                        self.use = tuple(map(int, self.use))
+                    except Exception:
+                        self._key_errors['use'] += [f'Failed to parse use, not int, list of ints, range spec or none']
             if self.use and (min(self.use) < 0 or max(self.use) >= maxn):
                 self._key_errors['use'] += [f'Values must be in [0, {maxn}]']
                 getLogger(__name__).info('Clearing use due to illegal/out-of-range values.')
@@ -850,10 +858,10 @@ class MKIDDitherDescription(DataBase):
                         continue
 
                     try:
-                        assert len(o.dither_pos) == 2 and 0 <= o.dither_pos[0] <= 1 and 0 <= o.dither_pos[0] <= 1
+                        assert len(o.dither_pos) == 2 and -1 <= o.dither_pos[0] <= 1 and -1 <= o.dither_pos[0] <= 1
                     except Exception:
-                        self._key_errors['data'] += [f'data[{i} ({o}) does not specify a dither_pos '
-                                                     f'for the conex (x,y) [0,1]']
+                        self._key_errors['data'] += [f'data[{i}]={o} does not specify a dither_pos '
+                                                     f'for the conex (x,y) in [-1,1]']
                 return
 
             if isinstance(self.data, str):  # by old file
@@ -1035,20 +1043,17 @@ class MKIDObservingDataset:
     def wavecals(self):
         look_in = (MKIDObservation, MKIDWCSCalDescription, MKIDDitherDescription,  MKIDFlatcalDescription,
                    MKIDSpeccalDescription)
-        for x in self._find_nested('wavecal', MKIDWavecalDescription, look_in):
-            yield x
+        return set(self._find_nested('wavecal', MKIDWavecalDescription, look_in))
 
     @property
     def flatcals(self):
         look_in = (MKIDObservation, MKIDWCSCalDescription, MKIDDitherDescription, MKIDSpeccalDescription)
-        for x in self._find_nested('flatcal', MKIDFlatcalDescription, look_in):
-            yield x
+        return set(self._find_nested('flatcal', MKIDFlatcalDescription, look_in))
 
     @property
     def wcscals(self):
         look_in = (MKIDObservation, MKIDDitherDescription, MKIDSpeccalDescription)
-        for x in self._find_nested('wcscal', MKIDWCSCalDescription, look_in):
-            yield x
+        return set(self._find_nested('wcscal', MKIDWCSCalDescription, look_in))
 
     @property
     def dithers(self):
