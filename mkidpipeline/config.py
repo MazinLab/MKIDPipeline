@@ -21,6 +21,7 @@ from mkidcore.corelog import getLogger, create_log, MakeFileHandler
 from mkidcore.utils import getnm, derangify
 from mkidcore.objects import Beammap
 from mkidcore.instruments import InstrumentInfo
+from mkidcore.metadata import DEFAULT_CARDSET
 
 # Ensure that the beammap gets registered with yaml, the import does this
 # but without this note an IDE or human might remove the import
@@ -32,14 +33,6 @@ _parsed_dither_logs = {}
 _metadata = {}
 
 yaml = mkidcore.config.yaml
-
-STANDARD_KEYS = (
-    'ra', 'dec', 'airmass', 'az', 'el', 'ha', 'equinox', 'parallactic', 'target', 'utctcs', 'laser', 'flipper',
-    'filter', 'observatory', 'utc', 'comment', 'device_orientation', 'instrument', 'dither_ref', 'dither_home',
-    'dither_pos', 'platescale')
-
-REQUIRED_KEYS = ('ra', 'dec', 'target', 'observatory', 'instrument', 'dither_ref', 'dither_home', 'platescale',
-                 'device_orientation')
 
 
 class UnassociatedError(RuntimeError):
@@ -387,8 +380,8 @@ class MKIDTimerange(DataBase):
 
     def _metadata(self):
         """ Return a dict of the metadata unique to self"""
-        d = dict(start=self.start, stop=self.stop,
-                 dark=f'{self.dark.duration}@{self.dark.start}' if self.dark else 'None')
+        d = dict(UNIXSTR=self.start, UNIXEND=self.stop, M_DARK=f'{self.dark.duration}@{self.dark.start}'
+                                                               f'' if self.dark else 'None')
         d.update({k: getattr(self, k) for k in self.extra_keys})
         return d
 
@@ -426,16 +419,17 @@ class MKIDTimerange(DataBase):
 
     @property
     def metadata(self):
-        mdl = observing_metadata_for_timerange(self)
+        data = mkidcore.metadata.load_observing_metadata(config.paths.obslog, use_cache=True)
+        mdl = mkidcore.metadata.observing_metadata_for_timerange(self.start, self.duration, data)
 
         if not mdl:
             mdl = [mkidcore.config.ConfigThing()]
+
         bad = False
         for md in mdl:
             md.registerfromkvlist(self._metadata.items(), namespace='')
-            bad |= validate_metadata(md, warn=True, error=False)
-        if bad:
-            raise RuntimeError("Did not specify all the necessary metadata")
+            bad |= mkidcore.metadata.validate_metadata_dict(md, warn=True, error=False,)
+
         return mdl
 
 
@@ -460,7 +454,7 @@ class MKIDObservation(MKIDTimerange):
 
     @property
     def _metadata(self):
-        d = super()._metadata()
+        d = super()._metadata
         try:
             wc = self.wavecal.id
         except AttributeError:
@@ -1520,78 +1514,13 @@ def report_vetting(data):
         except AttributeError:
             raise TypeError('Object must offer a _vet() method if not a dataset or output collection')
 
+
 def inspect_database(detailed=False):
     """Warning detailed=True will load each thing in the database for detailed inspection"""
     from glob import glob
 
     for f in glob(config.config.paths.database + '*'):
         print(f'{f}')
-
-
-def validate_metadata(md, warn=True, error=False):
-    fail = False
-    for k in REQUIRED_KEYS:
-        if k not in md:
-            if error:
-                raise KeyError(msg)
-            fail = True
-            msg = '{} missing from {}'.format(k, md)
-            if warn:
-                getLogger(__name__).warning(msg)
-    return fail
-
-
-def observing_metadata_for_timerange(timerange, metadata_source=None):
-    """
-    Metadata that goes into an H5 consists of records within the duration
-
-    requires metadata_source be an indexable iterable with an attribute utc pointing to a datetime
-    """
-    if not metadata_source:
-        metadata_source = load_observing_metadata()
-    # Select the nearest metadata to the midpoint
-    start = datetime.fromtimestamp(timerange.start)
-    time_since_start = np.array([(md.utc - start).total_seconds() for md in metadata_source])
-    ok, = np.where((time_since_start < timerange.duration) & (time_since_start >= 0))
-    mdl = [metadata_source[i] for i in ok]
-    return mdl
-
-
-def parse_obslog(file):
-    """Return a list of configthings for each record in the observing log filterable on the .utc attribute"""
-    with open(file, 'r') as f:
-        lines = f.readlines()
-    ret = []
-    for l in lines:
-        ct = mkidcore.config.ConfigThing(json.loads(l).items())
-        ct.register('utc', datetime.strptime(ct.utc, "%Y%m%d%H%M%S"), update=True)
-        ret.append(ct)
-    return ret
-
-
-def load_observing_metadata(files=tuple(), include_database=True, use_cache=True):
-    """Return a list of mkidcore.config.ConfigThings with the contents of the metadata from observing log files"""
-    global config, _metadata
-
-    # _metadata is a dict of file: parsed_file records
-    files = list(files)
-    if config is not None and include_database:
-        files += glob(os.path.join(config.paths.obslog, 'obslog*.json'))
-    elif include_database:
-        getLogger(__name__).warning('No pipleline database configured.')
-    files = set(files)
-    if use_cache:
-        for f in files:
-            if f not in _metadata:
-                _metadata[f] = parse_obslog(f)
-        metad = _metadata
-    else:
-        metad = {f: parse_obslog(f) for f in files}
-
-    metadata = []
-    for f in files:
-        metadata += metad[f]
-    return metadata
 
 
 def n_cpus_available(max=np.inf):
