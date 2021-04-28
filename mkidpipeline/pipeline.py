@@ -71,7 +71,7 @@ def generate_sample_data():
                                  dark=config.MKIDTimerange(name=namer(), start=1602046500, stop=1602046510)),
             config.MKIDObservation(name=namer('star'), start=1602048875, duration=10, wavecal='wavecal0',
                                    dark=config.MKIDTimerange(name=namer(), start=1602046500, duration=10),
-                                   flatcal='flactcal0', wcscal='wcscal0', speccal='speccal0'),
+                                   flatcal='flatcal0', wcscal='wcscal0', speccal='speccal0'),
             # a wavecal
             config.MKIDWavecalDescription(name=namer('wavecal'), data=(
                 config.MKIDTimerange(name='850 nm', start=1602040820, duration=60,
@@ -87,12 +87,12 @@ def generate_sample_data():
             )),
             # Flatcals
             config.MKIDFlatcalDescription(name=namer('flatcal'),
-                                          data=config.MKIDObservation(name='950 nm', start=1602040900, duration=50,
+                                          data=config.MKIDObservation(name='950 nm', start=1602040900, duration=50.0,
                                                                       dark=config.MKIDTimerange(name=namer(),
                                                                                                 start=1602046500,
                                                                                                 duration=10),
                                                                       wavecal='wavecal0')),
-            config.MKIDFlatcalDescription(name=namer('flatcal'), wavecal_duration=50.0, wavecal_offset=1,
+            config.MKIDFlatcalDescription(name=namer('flatcal'), wavecal_duration=50.0, wavecal_offset=1.0,
                                           data='wavecal0'),
             # Speccal
             config.MKIDSpeccalDescription(name=namer('speccal'),
@@ -103,7 +103,7 @@ def generate_sample_data():
                                           aperture=('15h22m32.3', '30.32 deg', '200 mas')),
 
             # WCS cal
-            config.MKIDWCSCalDescription(name=namer('wcscal'), dither_home=(107, 46), dither_ref=(-0.16, -0.4),
+            config.MKIDWCSCalDescription(name=namer('wcscal'), dither_home=[107, 46], dither_ref=[-0.16, -0.4],
                                          data='10.40 mas'),
             config.MKIDWCSCalDescription(name=namer('wcscal'), comment='ob wcscals may be used to manually determine '
                                                                        'WCS parameters. They are not yet supported for '
