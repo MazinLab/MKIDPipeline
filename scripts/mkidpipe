@@ -75,8 +75,7 @@ if __name__ == "__main__":
         # build, meta -> wave
         errors = outputs.validate(return_errors=True)
         if errors:
-            for e in errors:
-                print(e)
+            getLogger('mkidpipeline').critical('Validation failed. Errors: \n\t'+'\n\t'.join(errors))
             sys.exit(0)
         #0
         steps.buildhdf.buildtables(outputs.input_timeranges)
