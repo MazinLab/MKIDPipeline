@@ -73,7 +73,11 @@ if __name__ == "__main__":
         # build, meta, [lin, wave, pix, cr, flat] -> image / movie
         # build, meta, [lin], wave, [pix, cr] -> flat
         # build, meta -> wave
-
+        errors = outputs.validate(return_errors=True)
+        if errors:
+            for e in errors:
+                print(e)
+            sys.exit(0)
         #0
         steps.buildhdf.buildtables(outputs.input_timeranges)
         #1

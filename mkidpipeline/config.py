@@ -485,7 +485,7 @@ class MKIDObservation(MKIDTimerange):
     @property
     def input_timeranges(self):
         """Return all of the MKIDTimeranges(NB this, by definition includes subclasses) go in to making the obs"""
-        for tr in self.input_timeranges:
+        for tr in super().input_timeranges:
             yield tr
         if self.wavecal is not None:
             for tr in self.wavecal.input_timeranges:
@@ -505,9 +505,10 @@ class MKIDObservation(MKIDTimerange):
         for k in ('wavecal', 'flatcal', 'speccal', 'wcscal'):
             if k not in kwargs:
                 continue
-            if isinstance(getattr(self, k), str):
-                setattr(self, f'_{k}', getattr(self, k))
-                setattr(self, k, kwargs.get(k, getattr(self, k)))
+            item = getattr(self, k)
+            if isinstance(item, str) and item in kwargs[k]:
+                setattr(self, f'_{k}', item)  # move the item to _name
+                setattr(self, k, kwargs[k][item])  # pull item from kwargs[k]
 
 
 class CalDefinitionMixin:
@@ -947,8 +948,8 @@ class MKIDObservingDataset:
         self.datadict = {x.name: x for x in self.meta}
 
         wcdict = {w.name: w for w in self.wavecals}
-        for f in self.flatcals:
-            f.associate(wavecal=wcdict)
+        # for f in self.flatcals:
+        #     f.associate(wavecal=wcdict)
         fcdict = {f.name: f for f in self.flatcals}
         wcsdict = {w.name: w for w in self.wcscals}
         scdict = {s.name: s for s in self.speccals}
@@ -987,11 +988,12 @@ class MKIDObservingDataset:
             for o in self.speccalable:
                 if isinstance(o.speccal, str) and o.speccal:
                     missing['speccal'].add(o.speccal)
-
         except:
             getLogger(__name__).error('Failure during name/data association', exc_info=True)
+        self.missing = missing
 
     def __iter__(self):
+        getLogger(__name__).warning('Iterating on a dataset excludes nested definitions')
         for o in self.meta:
             # TODO this isn't exhaustive as nested things might not referent top things
             yield o
@@ -1009,6 +1011,20 @@ class MKIDObservingDataset:
                             yield x
                 except UnassociatedError:
                     getLogger(__name__).debug(f'Skipping nested search of unassociated "{r.data}" for {attr}')
+
+    def validate(self, return_errors=False, error=False):
+        errors = []
+        for x in self:
+            issues = x._vet()
+            if issues:
+                errors.append(issues)
+        for k in self.missing:
+            errors += [f'Missing {k}: {v}' for v in self.missing[k]]
+        if return_errors:
+            return errors
+        if error and errors:
+            raise Exception('Validation failed')
+        return len(errors) == 0
 
     @property
     def all_timeranges(self) -> Set[MKIDTimerange]:
@@ -1050,6 +1066,7 @@ class MKIDObservingDataset:
 
     @property
     def all_observations(self):
+        " TODO this isn't exhaustive due to possible nesting"
         for o in self.meta:
             if isinstance(o, MKIDObservation):
                 yield o
@@ -1251,6 +1268,34 @@ class MKIDOutputCollection:
     def __str__(self):
         return f'MKIDOutputCollection: {self.file}'
 
+    def validate(self, error=False, return_errors=False):
+        """ Return True if everything is good and all is associated, if error=True raise an exception instead of
+        returning false"""
+        errors = []
+        for x in self:
+            issues = x._vet()
+            if issues:
+                errors.append(issues)
+
+        if self.dataset is not None:
+            errors += self.dataset.validate(return_errors=True)
+
+        for o in set(self.to_wavecal):
+            if isinstance(o.wavecal, str):
+                errors.append(f'wavecal {o.wavecal} missing for {o.name} ')
+        for o in set(self.to_flatcal):
+            if isinstance(o.flatcal, str):
+                errors.append(f'flatcal {o.flatcal} missing for {o.name} ')
+        for o in set(self.to_speccal):
+            if isinstance(o.wavecal, str):
+                errors.append(f'speccal {o.speccal} missing for {o.name} ')
+
+        if return_errors:
+            return errors
+        if error and errors:
+            raise RuntimeError('Validation failed')
+        return len(errors)==0
+
     @property
     def input_timeranges(self) -> Set[MKIDTimerange]:
         return set([r for o in self for r in o.input_timeranges])
@@ -1269,6 +1314,7 @@ class MKIDOutputCollection:
 
     @property
     def wcscals(self):
+        getLogger(__name__).warning('wcscals not searching for nested cals except in speccals')
         for out in self:
             if out.data.wcscal:
                 yield out.data.wcscal
@@ -1438,6 +1484,7 @@ class MKIDOutputCollection:
                 yield out.data
             if out.data.speccal and isinstance(out.data.speccal.data, MKIDDitherDescription):
                 yield out.data.speccal.data
+
 
 def report_vetting(data):
     if isinstance(data, MKIDOutputCollection):
