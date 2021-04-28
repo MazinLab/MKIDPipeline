@@ -92,7 +92,7 @@ def generate_sample_data():
                                                                                                 start=1602046500,
                                                                                                 duration=10),
                                                                       wavecal='wavecal0')),
-            config.MKIDFlatcalDescription(name=namer('flatcal'), wavecal_duration=50.0, wavecal_offset=1.0,
+            config.MKIDFlatcalDescription(name=namer('flatcal'), wavecal_duration=50.0, wavecal_offset=2,
                                           data='wavecal0'),
             # Speccal
             config.MKIDSpeccalDescription(name=namer('speccal'),
@@ -108,15 +108,16 @@ def generate_sample_data():
             config.MKIDWCSCalDescription(name=namer('wcscal'), comment='ob wcscals may be used to manually determine '
                                                                        'WCS parameters. They are not yet supported for '
                                                                        'automatic WCS parameter computation',
-                                         data=config.MKIDObservation(name=namer('star'), start=360, duration=10,
+                                         data=config.MKIDObservation(name=namer('star'), start=1602047935, duration=10,
                                                                      wavecal='wavecal0',
-                                                                     dark=config.MKIDTimerange(name=namer(), start=350,
+                                                                     dark=config.MKIDTimerange(name=namer(),
+                                                                                               start=1602046500,
                                                                                                duration=10)),
                                          dither_home=(107, 46), dither_ref=(-0.16, -0.4)),
             # Dithers
             config.MKIDDitherDescription(name=namer('dither'), data=1602047815, wavecal='wavecal0',
                                          flatcal='flatcal0', speccal='speccal0', use='0,2,4-9', wcscal='wcscal0'),
-            config.MKIDDitherDescription(name=namer('dither'), data='dither.logfile', wavecal='wavecal0',
+            config.MKIDDitherDescription(name=namer('dither'), data='dither_sample.log', wavecal='wavecal0',
                                          flatcal='flatcal0', speccal='speccal0', use=(1,), wcscal='wcscal0'),
             config.MKIDDitherDescription(name=namer('dither'), flatcal='', speccal='', wcscal='', wavecal='',
                                          data=(

@@ -647,7 +647,7 @@ class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
                 raise UnassociatedError(f'Must associate wavecal {self.data} prior to calling')
             for tr in self.data.input_timeranges:
                 stop = tr.start + self.wavecal_offset + min(self.wavecal_duration, tr.duration - self.wavecal_offset)
-                o = MKIDObservation(f'{self.name}_{tr.name}', tr.start + self.wavecal_offset,
+                o = MKIDObservation(f'{self.name}_{tr.name}', start=tr.start + self.wavecal_offset,
                                     stop=stop, dark=tr.dark, wavecal=self.data, **tr.extra())
                 yield o
 
@@ -898,7 +898,7 @@ class MKIDDitherDescription(DataBase):
             endt = [endt[i] for i in self.use]
             pos = [pos[i] for i in self.use]
 
-            self.obs = [MKIDObservation(f'{self.name}_{i}/{n}', b, stop=e, dither_pos=p,
+            self.obs = [MKIDObservation(f'{self.name}_{i}/{n}', start=b, stop=e, dither_pos=p,
                                         wavecal=self.wavecal, flatcal=self.flatcal, wcscal=self.wcscal,
                                         speccal=self.speccal, **self.extra())
                         for i, b, e, p in zip(self.use, startt, endt, pos)]
