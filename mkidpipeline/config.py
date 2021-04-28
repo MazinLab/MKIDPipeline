@@ -734,7 +734,7 @@ class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
 
         if isinstance(self.data, u.Quantity):
             try:
-                self.self.data.to('arcsec')
+                self.data.to('arcsec')
             except Exception:
                 self._key_errors['platescale'] += ['must be a valid angular unit e.g. "10 mas"']
         elif isinstance(self.data, (MKIDObservation, MKIDDitherDescription)):
@@ -748,8 +748,8 @@ class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
         if self.dither_ref is not None:
             try:
                 assert (len(self.dither_ref) == 2 and
-                        0 <= self.dither_ref[0] < 1.0 and
-                        0 <= self.dither_ref[1] < 1.0)
+                        -1.0 <= self.dither_ref[0] < 1.0 and
+                        -1.0 <= self.dither_ref[1] < 1.0)
             except Exception:
                 self._key_errors['dither_ref'] += ['must be a valid conex position (x,y), x & y in [0,1.0]']
 
