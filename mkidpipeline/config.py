@@ -323,9 +323,10 @@ class DataBase:
         return cls(**dict(loader.construct_pairs(node, deep=True)))
 
     @classmethod
-    def to_yaml(cls, representer, node):
-        d = node if isinstance(node, dict) else node.__dict__.copy()  # support subclasses mucking with details
-
+    def to_yaml(cls, representer, node, use_underscore=tuple()):
+        d = node.__dict__.copy()
+        for k in use_underscore:
+            d[k] = d.pop(f"_{k}", d[k])
         # We want to write out all the keys needed to recreate the definition
         #  keys that are explicitly allowed are used in __init__ to support dual definition (e.g. stop/duration)
         #  we exclude th to prevent redundancy
@@ -454,10 +455,8 @@ class MKIDObservation(MKIDTimerange):
 
     @classmethod
     def to_yaml(cls, representer, node):
-        d = node.__dict__.copy()
-        for k in ('wavecal', 'flatcal', 'wcscal', 'speccal'):  # save as named references!
-            d[k] = d.pop(f"_{k}", d[k])
-        return super(cls).to_yaml(representer, d)
+        return super().to_yaml(representer, node, use_underscore=('wavecal', 'flatcal', 'wcscal', 'speccal')) # save as
+        # named references!
 
     @property
     def _metadata(self):
