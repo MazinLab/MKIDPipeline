@@ -509,14 +509,14 @@ def fetch(dataset, config=None, ncpu=None, remake=False):
     if not remake:
         for sd in solution_descriptors:
             try:
-                solutions[sd.id] = load_solution(sd.path)
+                solutions[sd.id()] = load_solution(sd.path)
             except IOError:
                 pass
             except Exception as e:
                 getLogger(__name__).info(f'Failed to load {sd} due to a {e}')
 
     flattners = []
-    for sd in (sd for sd in solution_descriptors if sd.id not in solutions):
+    for sd in (sd for sd in solution_descriptors if sd.id() not in solutions):
         if sd.method == 'laser':
             flattner = LaserCalibrator(h5s=sd.h5s, config=fcfg, solution_name=sd.path,
                                        darks=[o.dark for o in sd.obs if o.dark is not None])
@@ -524,7 +524,7 @@ def fetch(dataset, config=None, ncpu=None, remake=False):
             flattner = WhiteCalibrator(H5Subset(sd.ob), config=fcfg, solution_name=sd.path,
                                        darks=[o.dark for o in sd.obs if o.dark is not None])
 
-        solutions[sd.id] = sd.path
+        solutions[sd.id()] = sd.path
         flattners.append(flattner)
 
     if not flattners:
