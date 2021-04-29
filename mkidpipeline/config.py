@@ -514,7 +514,7 @@ class MKIDObservation(MKIDTimerange):
 class CalDefinitionMixin:
     @property
     def path(self):
-        return os.path.join(config.paths.database, self.id + '.npz')
+        return os.path.join(config.paths.database, self.id() + '.npz')
 
     @property
     def timeranges(self):
@@ -565,15 +565,15 @@ class MKIDWavecalDescription(DataBase, CalDefinitionMixin):
         start = min(x.start for x in self.data)
         stop = min(x.stop for x in self.data)
         date = datetime.utcfromtimestamp(start).strftime('%Y-%m-%d-%H%M_')
-        return f'{self.name} (MKIDWavecalDescription): {start}-{stop}\n' + '\n '.join(str(x) for x in self.obs)
+        return f'{self.name} (MKIDWavecalDescription): {start}-{stop}\n' + '\n '.join(str(x) for x in self.data)
 
     @property
     def wavelengths(self):
-        return tuple([getnm(x.name) for x in self.obs])
+        return tuple([getnm(x.name) for x in self.data])
 
     @property
     def darks(self):
-        return {w: ob.dark for w, ob in zip(self.wavelengths, self.obs)}
+        return {w: ob.dark for w, ob in zip(self.wavelengths, self.data)}
 
     def associate(self, *args, **kwargs):
         """Provided for interface compatibility"""

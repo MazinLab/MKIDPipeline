@@ -88,7 +88,7 @@ class Configuration(object):
         # parse arguments
         self.ncpu = ncpu
         self.out_directory = outdir
-        self.wavelengths = list(map(float, wavelengths))
+        self.wavelengths = list(map(float, [w.value for w in wavelengths]))
         self.h5_file_names = {wave: h5 for wave, h5 in zip(self.wavelengths, h5s)}
         self.darks = {} if darks is None else darks
 

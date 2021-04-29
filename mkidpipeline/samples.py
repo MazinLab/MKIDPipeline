@@ -30,7 +30,7 @@ SAMPLEDATA = {'default': (
                                       config.MKIDTimerange(name='1.25 um', start=1602041040, duration=60,
                                                            dark=config.MKIDTimerange(name=namer(), start=1602046500,
                                                                                      duration=10)),
-                                      config.MKIDTimerange(name='13750 A', start=1602041110, duration=60))
+                                      config.MKIDTimerange(name='13750 AA', start=1602041110, duration=60))
                                   ),
     # Flatcals
     config.MKIDFlatcalDescription(name=namer('flatcal'),
