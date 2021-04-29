@@ -535,12 +535,12 @@ class CalDefinitionMixin:
         """
         Compute a wavecal id string from a wavedata id string and either the active or a specified wavecal config
         """
-        id = str(self) + '_' + hashlib.md5(str(self).encode()).hexdigest()[-8:]
+        id = str(self.name) + '_' + hashlib.md5(str(self).encode()).hexdigest()[-8:]
         if cfg is None:
             global config
             cfg = config.get(self.STEPNAME)
         config_hash = hashlib.md5(str(cfg).encode()).hexdigest()
-        return f'{self.STEPNAME}_{id}_{config_hash[-8:]}'
+        return f'{id}_{config_hash[-8:]}.{self.STEPNAME}'
 
 
 class MKIDWavecalDescription(DataBase, CalDefinitionMixin):

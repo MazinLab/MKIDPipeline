@@ -109,10 +109,10 @@ class Configuration(object):
             self.ncpu = cfg.ncpu
             self.beammap = cfg.beammap
             self.out_directory = cfg.paths.database
-            self.histogram_model_names = list(cfg.wavecal.histogram_model_names)
+            self.histogram_model_names = list(cfg.wavecal.histogram_models)
             self.bin_width = float(cfg.wavecal.bin_width)
             self.histogram_fit_attempts = int(cfg.wavecal.histogram_fit_attempts)
-            self.calibration_model_names = list(cfg.wavecal.calibration_model_names)
+            self.calibration_model_names = list(cfg.wavecal.calibration_models)
             self.dt = float(cfg.wavecal.dt)
             self.parallel = cfg.wavecal.parallel
             self.parallel_prefetch = cfg.wavecal.parallel_prefetch
@@ -131,7 +131,7 @@ class Configuration(object):
             assert issubclass(getattr(wm, model), wm.XErrorsModel), \
                    '{} is not a subclass of wavecal_models.XErrorsModel'.format(model)
 
-        self.wavelengths, self.start_times = zip(*sorted(zip(self.wavelengths, self.start_times)))
+        # self.wavelengths, self.start_times = zip(*sorted(zip(self.wavelengths, self.start_times)))
 
     #
     # @classmethod
@@ -314,7 +314,7 @@ class Calibrator(object):
                     # load the data
                     bkgd_phase_list = None
                     if self._shared_tables is None:
-                        photon_list = self.fetch_obsfile(wavelength).query(pixel=pixel)
+                        photon_list = self.fetch_obsfile(wavelength).query(pixel=tuple(pixel))
                         # create background phase list if specified
                         bg = self.fetch_obsfile(wavelength, background=True)
                         if bg is not None:
@@ -2631,7 +2631,7 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
     if not remake:
         for sd in solution_descriptors:
             try:
-                solutions[sd.id] = load_solution(sd.path)
+                solutions[sd.id()] = load_solution(sd.path)
             except IOError:
                 pass
             except Exception as e:
