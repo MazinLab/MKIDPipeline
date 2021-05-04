@@ -31,7 +31,7 @@ import mkidcore.pixelflags as pixelflags
 from mkidcore.config import yaml, StringIO
 
 from mkidcore.instruments import compute_wcs_ref_pixel
-
+from itertools import count
 import SharedArray
 from mkidpipeline.steps import lincal
 import tables
@@ -1229,7 +1229,7 @@ class Photontable(object):
         of resid"""
         excludemask = self.flagged(exclude, all_flags=False)
         selectmask = self.flagged(select, all_flags=False)
-        for pix, (resid, excl, sel) in np.enumerate(zip(self.beamImage, excludemask, selectmask)):
+        for (pix, resid, excl, sel) in zip(count(), self.beamImage.ravel(), excludemask.ravel(), selectmask.ravel()):
             if excl or (select and not sel):
                 continue
             yield pix, resid if pixel else resid
