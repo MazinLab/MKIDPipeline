@@ -2686,7 +2686,7 @@ def apply(o):
 
         flags = obs.flags
         obs.unflag(flags.bitmask([f for f in flags.names if f.startswith('wavecal')], unknown='ignore'), pixel=pixel)
-        obs.flag(flags.bitmask([f'wavecal.{f.name}' for f in solution.get_flag(res_id=resID)], unknown='warn'),
+        obs.flag(flags.bitmask([f'wavecal.{f}' for f in solution.get_flag(res_id=resID)], unknown='warn'),
                  pixel=pixel)
 
         calibration = solution.calibration_function(res_id=resID, wavelength_units=True)
@@ -2708,9 +2708,8 @@ def apply(o):
     obs.update_header('isWvlCalibrated', True)
     obs.update_header('wvlCalFile', solution.name)
     #TODO update header with WAVECAL.XXXX cards
-    obs.update_header(f'WAVECAL.ID', solution.id)
+    obs.update_header(f'WAVECAL.ID', solution.name)
     #TODO R and error for each wavelength
-    obs.update_header(f'WAVECAL.ID', solution.id)
     obs.photonTable.reindex_dirty()  # recompute "dirty" wavelength index
     obs.photonTable.autoindex = True  # turn on auto-indexing
     obs.disablewrite()
