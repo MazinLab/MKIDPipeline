@@ -88,7 +88,7 @@ class Configuration(object):
         # parse arguments
         self.ncpu = ncpu
         self.out_directory = outdir
-        self.wavelengths = list(map(float, wavelengths))
+        self.wavelengths = list(map(float, [w.value for w in wavelengths]))
         self.h5_file_names = {wave: h5 for wave, h5 in zip(self.wavelengths, h5s)}
         self.darks = {} if darks is None else darks
 
@@ -109,10 +109,10 @@ class Configuration(object):
             self.ncpu = cfg.ncpu
             self.beammap = cfg.beammap
             self.out_directory = cfg.paths.database
-            self.histogram_model_names = list(cfg.wavecal.histogram_model_names)
+            self.histogram_model_names = list(cfg.wavecal.histogram_models)
             self.bin_width = float(cfg.wavecal.bin_width)
             self.histogram_fit_attempts = int(cfg.wavecal.histogram_fit_attempts)
-            self.calibration_model_names = list(cfg.wavecal.calibration_model_names)
+            self.calibration_model_names = list(cfg.wavecal.calibration_models)
             self.dt = float(cfg.wavecal.dt)
             self.parallel = cfg.wavecal.parallel
             self.parallel_prefetch = cfg.wavecal.parallel_prefetch
@@ -131,7 +131,7 @@ class Configuration(object):
             assert issubclass(getattr(wm, model), wm.XErrorsModel), \
                    '{} is not a subclass of wavecal_models.XErrorsModel'.format(model)
 
-        self.wavelengths, self.start_times = zip(*sorted(zip(self.wavelengths, self.start_times)))
+        # self.wavelengths, self.start_times = zip(*sorted(zip(self.wavelengths, self.start_times)))
 
     #
     # @classmethod
@@ -314,7 +314,7 @@ class Calibrator(object):
                     # load the data
                     bkgd_phase_list = None
                     if self._shared_tables is None:
-                        photon_list = self.fetch_obsfile(wavelength).query(pixel=pixel)
+                        photon_list = self.fetch_obsfile(wavelength).query(pixel=tuple(pixel))
                         # create background phase list if specified
                         bg = self.fetch_obsfile(wavelength, background=True)
                         if bg is not None:
@@ -2625,19 +2625,20 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
     except AttributeError:
         pass
 
-    wcfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(wavecal=StepConfig()), cfg=config, ncpu=ncpu, copy=True)
+    wcfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(wavecal=StepConfig()), cfg=config, ncpu=ncpu,
+                                                     copy=True)
 
     solutions = {}
     if not remake:
         for sd in solution_descriptors:
             try:
-                solutions[sd.id] = load_solution(sd.path)
+                solutions[sd.id()] = load_solution(sd.path)
             except IOError:
                 pass
             except Exception as e:
                 getLogger(__name__).info(f'Failed to load {sd} due to a {e}')
 
-    for sd in (sd for sd in solution_descriptors if sd.id not in solutions):
+    for sd in (sd for sd in solution_descriptors if sd.id() not in solutions):
         cfg = Configuration(wcfg, h5s=tuple(x.h5 for x in sd.data), wavelengths=tuple(w for w in sd.wavelengths),
                             darks=sd.darks)
         cal = Calibrator(cfg, solution_name=sd.path)
@@ -2685,7 +2686,7 @@ def apply(o):
 
         flags = obs.flags
         obs.unflag(flags.bitmask([f for f in flags.names if f.startswith('wavecal')], unknown='ignore'), pixel=pixel)
-        obs.flag(flags.bitmask([f'wavecal.{f.name}' for f in solution.get_flag(res_id=resID)], unknown='warn'),
+        obs.flag(flags.bitmask([f'wavecal.{f}' for f in solution.get_flag(res_id=resID)], unknown='warn'),
                  pixel=pixel)
 
         calibration = solution.calibration_function(res_id=resID, wavelength_units=True)
@@ -2707,9 +2708,8 @@ def apply(o):
     obs.update_header('isWvlCalibrated', True)
     obs.update_header('wvlCalFile', solution.name)
     #TODO update header with WAVECAL.XXXX cards
-    obs.update_header(f'WAVECAL.ID', solution.id)
+    obs.update_header(f'WAVECAL.ID', solution.name)
     #TODO R and error for each wavelength
-    obs.update_header(f'WAVECAL.ID', solution.id)
     obs.photonTable.reindex_dirty()  # recompute "dirty" wavelength index
     obs.photonTable.autoindex = True  # turn on auto-indexing
     obs.disablewrite()
