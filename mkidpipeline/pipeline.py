@@ -163,29 +163,3 @@ def run_stage1(dataset):
         getLogger(__name__).info(f'Completed {task_name} in {time.time() - tic:.0f} s')
 
     getLogger(__name__).info(f'Stage 1 complete in {(time.time() - toc) / 60:.0f} m')
-
-
-def generate_outputs(outputs: config.MKIDOutputCollection):
-
-    for o in outputs:
-        # TODO make into a batch process
-        getLogger(__name__).info('Generating {}'.format(o.name))
-        if o.wants_image:
-            for obs in o.data.obs:
-                obs.photontable.get_fits(wave_start=o.min_wave, wave_stop=o.max_wave, spec_weight=o.photom,
-                                         noise_weight=o.noise, rate=True).writeto(o.filename)
-                getLogger(__name__).info(f'Generated fits file for {obs}')
-        if o.wants_movie:
-            mkidpipeline.steps.movies.make_movie(o)
-        if o.wants_drizzled:
-            config = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(drizzler=mkidpipeline.steps.drizzler.StepConfig()),
-                                                               copy=True)
-
-            mkidpipeline.steps.drizzler.form(o.data, mode=o.kind, wvlMin=o.min_wave, wvlMax=o.max_wave,
-                                nwvlbins=config.drizzler.n_wave, pixfrac=config.drizzler.pixfrac,
-                                wcs_timestep=config.drizzler.wcs_timestep, exp_timestep=o.exp_timestep,
-                                exclude_flags=mkidcore.pixelflags.PROBLEM_FLAGS,
-                                usecache=config.drizzler.usecache, ncpu=config.get('drizzler.ncpu'),
-                                derotate=config.drizzler.derotate, align_start_pa=config.drizzler.align_start_pa,
-                                whitelight=config.drizzler.whitelight, save_steps=config.drizzler.save_steps,
-                                output_file=o.filename)
