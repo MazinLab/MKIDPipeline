@@ -929,18 +929,21 @@ class Photontable(object):
         ridbins = sorted(self.beamImage.ravel())
         ridbins = np.append(ridbins, ridbins[-1] + 1)
 
-        if cube_type is 'time':
+        if cube_type == 'time':
             ycol = 'Time'
             if not bin_edges:
                 t0 = 0 if start is None else start
                 itime = self.duration if duration is None else duration
-                bin_edges = np.linspace(t0, t0 + itime, int(itime / bin_width) + 1)
+                try:
+                    bin_edges = np.linspace(t0, t0 + itime, int(itime / bin_width) + 1)
+                except TypeError:
+                    raise Warning('Either bin_width or bin_edges must be specified for get_fits')
 
             start = bin_edges[0]
             duration = bin_edges[-1] - bin_edges[0]
             bin_edges = (bin_edges * 1e6)  # .astype(int)
 
-        elif cube_type is 'wave':
+        elif cube_type == 'wave':
             ycol = 'Wavelength'
             if bin_edges and bin_width:
                 getLogger(__name__).warning('Both bin_width and bin_edges provided. Using edges')
@@ -1003,8 +1006,8 @@ class Photontable(object):
         md['EXPTIME'] = time_nfo['duration']
         md['integrationTime'] = duration  # TODO refactor code that uses this to use EXPTIME
         md['RELSTOP'] = time_nfo['relstop']
-        md['MINWAVE'] = time_nfo['startw']
-        md['MAXWAVE'] = time_nfo['stopw']
+        md['MINWAVE'] = time_nfo['minw']
+        md['MAXWAVE'] = time_nfo['maxw']
         md['EXFLAG'] = self.flags.bitmask(exclude_flags, unknown='ignore')
         md['UNIT'] = 'photons/s' if rate else 'photons'
         mkidcore.metadata.build_header(md)
