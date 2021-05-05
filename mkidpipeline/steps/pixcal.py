@@ -197,7 +197,7 @@ def threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.0, max_it
             getLogger(__name__).info('Doing iteration: {}'.format(iteration))
             # Remove all the NaNs in an image and calculate a median filtered image
             # each pixel takes the median of itself and the surrounding box_size x box_size box.
-            nan_fixed_image = smoothing.replace_nan(raw_image, mode='mean', boxsize=box_size)
+            nan_fixed_image = smoothing.replace_nan(raw_image, mode='mean', box_size=box_size)
             assert np.all(np.isfinite(nan_fixed_image))
             median_filter_image = spfilters.median_filter(nan_fixed_image, box_size, mode='mirror')
 
@@ -493,7 +493,7 @@ def _compute_mask(obs, method, step, startt, stopt, methodkw, spec_weight, noise
     for i, each_time in enumerate(starts):
         getLogger(__name__).info(f'Processing time slice: {each_time} - {each_time + step} s')
         img = obs.get_fits(start=each_time, duration=step, spec_weight=spec_weight,
-                           noise_weight=noise_weight, rate=False)
+                           noise_weight=noise_weight, rate=False, cube_type='time', bin_width=step)
         result = func(img['SCIENCE'].data, **methodkw)
         masks[:, :, i, 0] = result['hot']
         masks[:, :, i, 1] = result['cold']

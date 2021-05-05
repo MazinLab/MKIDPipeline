@@ -93,14 +93,14 @@ def safe(func):
 def batch_applier(func, obs, ncpu=None, unique_h5=True):
     if unique_h5:
         obs = {o.h5: o for o in obs}.values()
-    ncpu = ncpu if ncpu is not None else config.n_cpus_available()
+    ncpu = ncpu if ncpu else config.n_cpus_available()
     ncpu = min(ncpu, len(obs))
     if ncpu == 1:
         for o in obs:
             safe(func)(o)
     else:
-        pool = mp.Pool()
-        pool.map(safe(func), obs)
+        pool = mp.Pool(processes=ncpu)
+        pool.map(func, set(obs)) #TODO debug why multiprocessing still sometimes doesnt work
         pool.close()
 
 
