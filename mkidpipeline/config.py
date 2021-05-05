@@ -98,7 +98,9 @@ class BaseStepConfig(mkidcore.config.ConfigThing):
     def _vet_errors(self):
         return []
 
-_pathroot = os.path.join('/work', os.environ.get('USER',''))
+
+_pathroot = os.path.join('/work', os.environ.get('USER', ''))
+
 
 class PipeConfig(BaseStepConfig):
     yaml_tag = u'!pipe_cfg'
@@ -110,7 +112,7 @@ class PipeConfig(BaseStepConfig):
                      ('paths.data', '/darkdata/ScienceData/Subaru/', 'bin file parent folder'),
                      ('paths.database', os.path.join(_pathroot, 'database'),
                       'calibrations will be retrieved/stored here'),
-                     ('paths.obslog', os.path.join(_pathroot, 'database','obslog'), 'obslog.json go here'),
+                     ('paths.obslog', os.path.join(_pathroot, 'database', 'obslog'), 'obslog.json go here'),
                      ('paths.out', os.path.join(_pathroot, 'out'), 'root of output'),
                      ('paths.tmp', os.path.join(_pathroot, 'scratch'), 'use for data intensive temp files'),
                      ('beammap', None, 'A Beammap to use'),
@@ -252,7 +254,7 @@ class DataBase:
                 required_type = self._keys[k].dtype
                 if required_type == tuple and isinstance(v, list):
                     v = tuple(v)
-                if required_type == float and v is not None:# and isinstance(v, str) and v.endswith('inf'):
+                if required_type == float and v is not None:  # and isinstance(v, str) and v.endswith('inf'):
                     try:
                         v = float(v)
                     except (ValueError, TypeError):
@@ -428,7 +430,7 @@ class MKIDTimerange(DataBase):
         bad = False
         for md in mdl:
             md.registerfromkvlist(self._metadata.items(), namespace='')
-            bad |= mkidcore.metadata.validate_metadata_dict(md, warn=True, error=False,)
+            bad |= mkidcore.metadata.validate_metadata_dict(md, warn=True, error=False, )
 
         return mdl
 
@@ -449,7 +451,7 @@ class MKIDObservation(MKIDTimerange):
 
     @classmethod
     def to_yaml(cls, representer, node):
-        return super().to_yaml(representer, node, use_underscore=('wavecal', 'flatcal', 'wcscal', 'speccal')) # save as
+        return super().to_yaml(representer, node, use_underscore=('wavecal', 'flatcal', 'wcscal', 'speccal'))  # save as
         # named references!
 
     @property
@@ -850,7 +852,7 @@ class MKIDDitherDescription(DataBase):
                 check_use(len(self.data))
                 self.obs = [self.data[i] for i in self.use]
 
-                for i,o in enumerate(self.obs):
+                for i, o in enumerate(self.obs):
                     try:
                         assert isinstance(o, MKIDObservation)
                     except AssertionError:
@@ -920,7 +922,7 @@ class MKIDDitherDescription(DataBase):
         for o in self.obs:
             if o.start <= timestamp <= o.stop:
                 return o
-        raise ValueError(f'Dither {self.name} does not cover time {time}')
+        raise ValueError(f'Dither {self.name} does not cover time {timestamp}')
 
     @property
     def inttime(self):
@@ -1039,7 +1041,7 @@ class MKIDObservingDataset:
 
     @property
     def wavecals(self):
-        look_in = (MKIDObservation, MKIDWCSCalDescription, MKIDDitherDescription,  MKIDFlatcalDescription,
+        look_in = (MKIDObservation, MKIDWCSCalDescription, MKIDDitherDescription, MKIDFlatcalDescription,
                    MKIDSpeccalDescription)
         return set(self._find_nested('wavecal', MKIDWavecalDescription, look_in))
 
@@ -1147,20 +1149,34 @@ class MKIDObservingDataset:
 
 
 class MKIDOutput(DataBase):
+    """
+
+    Kind 'movie' requires exp_timestep and either frameduration or movieduration with frameduration
+    taking precedence. startt and stopt may be included as well and are RELATIVE to the start of the file.
+
+    image - uses photontable.get_fits to the a simple image of the data, applies to a single h5
+    stack - uses drizzler.SpatialDrizzler
+    spatial - uses drizzler.SpatialDrizzler
+    temporal - uses drizzler.TemporalDrizzler
+    list - drizzler.ListDrizzler to assign photons an RA and Dec
+    movie - uses movie.make_movie to make an animation
+
+    """
     yaml_tag = '!MKIDOutput'
     KEYS = (
         Key(name='name', default='', comment='A name', dtype=str),
         Key('data', '', 'An data name', str),
-        Key('kind', 'image', "('stack', 'spatial', 'temporal', 'list', 'image', 'movie')", str),
+        Key('kind', 'image', "stack|spatial|temporal|list|image|movie|tcube|scube", str),
+
+        Key('exclude_flags', None, 'A list of pixel flag names to exclude', None),
         Key('min_wave', float('-inf'), 'Wavelength start for wavelength sensitive outputs', str),
         Key('max_wave', float('inf'), 'Wavelength stop for wavelength sensitive outputs, ', str),
         Key('start_offset', 0, 'start time (s) offset from start of data', float),
         Key('duration', None, 'number of seconds of the data to use, None=all', float),
         Key('filename', '', 'relative or fully qualified path, defaults to name+output type,'
                             'so set if making multiple outputs with different settings', str),
-        Key('ssd', True, 'Use ssd TODO', bool),
-        Key('noise', True, 'Use noise TODO', bool),
-        Key('photom', True, 'Use photom TODO', bool),
+        Key('units', 'photons', 'photons|photons/s', str),
+        Key('use_weights', True, 'Use photon weights', bool),
         Key('lincal', False, 'Apply and use lincal, slow', bool),
         Key('pixcal', True, 'Apply pixcal', bool),
         Key('cosmical', False, 'Determine cosmic ray hits, slow', bool),
@@ -1168,8 +1184,9 @@ class MKIDOutput(DataBase):
         # NB wavecal is applied and used if the underlying data specifies them, min/max wave allow ignoring it
         # there is no speccal key as it isn't something that is applied to the data
         # speccals are just fetched and determined for
-        Key('exp_timestep', None, 'Duration of time bins in output cubes with a temporal axis (req. by temporal)',
-            float)
+        Key('timestep', None, 'Duration of time bins in output cubes with a temporal axis (req. by temporal)',
+            float),
+        Key('wavestep', None, 'Width of wavelength bins in output cubes with a wavelenght axis', float)
     )
     REQUIRED = ('name', 'data', 'kind')
     EXPLICIT_ALLOW = ('filename',)
@@ -1177,31 +1194,13 @@ class MKIDOutput(DataBase):
     # OPTIONAL = tuple
 
     def __init__(self, *args, **kwargs):
-        """
-        :param name: a name
-        :param dataname: a name of a data association
-        :param kind: stack|spatial|temporal|list|image|movie
-        :param startw: wavelength start
-        :param stopw: wavelength stop
-        :param filename: an optional relative or fully qualified path, defaults to name+output type,
-            so set if making multiple outputs with different settings
-
-        Kind 'movie' requires _extra keys timestep and either frameduration or movieduration with frameduration
-        taking precedence. startt and stopt may be included as well and are RELATIVE to the start of the file.
-
-        image - uses photontable.get_fits to the a simple image of the data, applies to a single h5
-        stack - uses drizzler.SpatialDrizzler
-        spatial - uses drizzler.SpatialDrizzler
-        temporal - uses drizzler.TemporalDrizzler
-        list - drizzler.ListDrizzler to assign photons an RA and Dec
-        movie - uses movie.make_movie to make an animation
-
-        """
         super().__init__(*args, **kwargs)
         self.kind = self.kind.lower()
-        opt = ('stack', 'spatial', 'temporal', 'list', 'image', 'movie')
+        opt = ('stack', 'spatial', 'temporal', 'list', 'image', 'movie', 'tcube', 'scube')
         if self.kind not in opt:
             self._key_errors['kind'] += [f"Must be one of: {opt}"]
+        # TODO add exclude flag checking
+        # TODO improve extra keys settings
         self._data = ''
 
     def associate(self, data):
@@ -1215,8 +1214,22 @@ class MKIDOutput(DataBase):
         self.data = data
 
     @property
+    def output_settings_dict(self):
+        """returns a dict of kwargs from the various output settings"""
+        cube_type = None
+        if self.kind == 'tcube':
+            cube_type = 'time'
+        elif self.kind == 'scube':
+            cube_type = 'wave'
+        kwargs = dict(start=self.start_offset, duration=self.duration, spec_weight=self.use_weights,
+                      wave_start=self.min_wave, wave_stop=self.max_wave, rate=self.unit == 'photons/s',
+                      cube_type=cube_type, bin_width=self.exp_timestep, bin_type='energy',
+                      exclude_flags=mkidcore.pixelflags.PROBLEM_FLAGS)
+        return kwargs
+
+    @property
     def wants_image(self):
-        return self.kind == 'image'
+        return self.kind in ('image', 'tcube', 'scube')
 
     @property
     def wants_drizzled(self):
@@ -1297,7 +1310,7 @@ class MKIDOutputCollection:
             return errors
         if error and errors:
             raise RuntimeError('Validation failed')
-        return len(errors)==0
+        return len(errors) == 0
 
     @property
     def input_timeranges(self) -> Set[MKIDTimerange]:
@@ -1376,6 +1389,7 @@ class MKIDOutputCollection:
                         if x.flatcal:
                             for y in x.flatcal.obs:
                                 yield y
+
         for out in self:
             for o in out.data.obs:
                 yield o
@@ -1407,6 +1421,7 @@ class MKIDOutputCollection:
                         if x.flatcal and x.flatcal.pixcal:
                             for y in x.flatcal.obs:
                                 yield y
+
         for out in self:
             if out.pixcal:
                 for o in out.data.obs:
@@ -1423,22 +1438,23 @@ class MKIDOutputCollection:
                         yield x
                 if o.speccal:
                     for x in o.speccal.obs:
-                        #yield x
+                        # yield x
                         if x.flatcal and x.flatcal.cosmiccal:
                             for y in x.flatcal.obs:
                                 yield y
                         if x.wcscal:
                             for y in x.wcscal.obs:
-                                #yield y
+                                # yield y
                                 if y.flatcal and y.flatcal.cosmiccal:
                                     for z in y.flatcal.obs:
                                         yield z
                 if o.wcscal:
                     for x in o.wcscal.obs:
-                        #yield x
+                        # yield x
                         if x.flatcal and x.flatcal.cosmiccal:
                             for y in x.flatcal.obs:
                                 yield y
+
         for out in self:
             if out.cosmical:
                 for o in out.data.obs:
@@ -1462,6 +1478,7 @@ class MKIDOutputCollection:
                     for x in o.wcscal.obs:
                         if x.flatcal:
                             yield x
+
         for out in self:
             if out.flatcal:
                 for o in out.data.obs:
