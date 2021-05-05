@@ -96,7 +96,6 @@ if __name__ == "__main__":
         pipe.batch_applier(steps.flatcal.apply, outputs.to_flatcal)
         steps.wcscal.fetch(outputs.wcscals)
         #7
-        pipe.generate_outputs(outputs)
+        steps.output.generate(outputs)
         #8
         steps.speccal.fetch(outputs.speccals)
-
