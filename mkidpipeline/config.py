@@ -516,7 +516,7 @@ class MKIDObservation(MKIDTimerange):
 class CalDefinitionMixin:
     @property
     def path(self):
-        return os.path.join(config.paths.database, self.id + '.npz')
+        return os.path.join(config.paths.database, self.id() + '.npz')
 
     @property
     def timeranges(self):
@@ -537,12 +537,12 @@ class CalDefinitionMixin:
         """
         Compute a wavecal id string from a wavedata id string and either the active or a specified wavecal config
         """
-        id = str(self) + '_' + hashlib.md5(str(self).encode()).hexdigest()[-8:]
+        id = str(self.name) + '_' + hashlib.md5(str(self).encode()).hexdigest()[-8:]
         if cfg is None:
             global config
             cfg = config.get(self.STEPNAME)
         config_hash = hashlib.md5(str(cfg).encode()).hexdigest()
-        return f'{self.STEPNAME}_{id}_{config_hash[-8:]}'
+        return f'{id}_{config_hash[-8:]}.{self.STEPNAME}'
 
 
 class MKIDWavecalDescription(DataBase, CalDefinitionMixin):
@@ -567,15 +567,15 @@ class MKIDWavecalDescription(DataBase, CalDefinitionMixin):
         start = min(x.start for x in self.data)
         stop = min(x.stop for x in self.data)
         date = datetime.utcfromtimestamp(start).strftime('%Y-%m-%d-%H%M_')
-        return f'{self.name} (MKIDWavecalDescription): {start}-{stop}\n' + '\n '.join(str(x) for x in self.obs)
+        return f'{self.name} (MKIDWavecalDescription): {start}-{stop}\n' + '\n '.join(str(x) for x in self.data)
 
     @property
     def wavelengths(self):
-        return tuple([getnm(x.name) for x in self.obs])
+        return tuple([getnm(x.name) for x in self.data])
 
     @property
     def darks(self):
-        return {w: ob.dark for w, ob in zip(self.wavelengths, self.obs)}
+        return {w: ob.dark for w, ob in zip(self.wavelengths, self.data)}
 
     def associate(self, *args, **kwargs):
         """Provided for interface compatibility"""

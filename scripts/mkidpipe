@@ -64,7 +64,14 @@ if __name__ == "__main__":
         config.inspect_database(detailed=args.verbose)
 
     if args.single_step:
-        pipe.PIPELINE_STEPS[args.single_step].run(dataset)
+        try:
+            pipe.PIPELINE_STEPS[args.single_step].fetch(dataset)
+        except AttributeError:
+            pass
+        try:
+            pipe.PIPELINE_STEPS[args.single_step].apply(dataset)
+        except AttributeError:
+            pass
 
     if args.makeout:
         # [] denote optional

@@ -31,7 +31,7 @@ import mkidcore.pixelflags as pixelflags
 from mkidcore.config import yaml, StringIO
 
 from mkidcore.instruments import compute_wcs_ref_pixel
-
+from itertools import count
 import SharedArray
 from mkidpipeline.steps import lincal
 import tables
@@ -510,7 +510,7 @@ class Photontable(object):
             self.update_header('flags', names)
             self.disablewrite()
 
-        f = FlagSet(*[(n, i, PIPELINE_FLAGS.flags[n].description if n in PIPELINE_FLAGS.flags else '')
+        f = FlagSet.define(*[(n, i, PIPELINE_FLAGS.flags[n].description if n in PIPELINE_FLAGS.flags else '')
                       for i, n in enumerate(names)])
         return f
 
@@ -531,14 +531,14 @@ class Photontable(object):
         if self.mode != 'write':
             raise Exception("Must open file in write mode to do this!")
 
-        flag = np.asarray(flag)
+        # flag = np.asarray(flag)
         self.flags.valid(flag, error=True)
         if not np.isscalar(flag) and self._flagArray[pixel].shape != flag.shape:
             raise ValueError('flag must be scalar or match the desired region selected by x & y coordinates')
         self._flagArray[pixel] |= flag
         self._flagArray.flush()
 
-    def unflag(self, flag, pixel=(slice(None, slice(None)))):
+    def unflag(self, flag, pixel=(slice(None), slice(None))):
         """
         Resets the specified flag in the BeamFlag array to 0. Flag is a bitmask;
         only the bit(s) specified by 'flag' is/are reset.
@@ -555,7 +555,7 @@ class Photontable(object):
         if self.mode != 'write':
             raise Exception("Must open file in write mode to do this!")
 
-        flag = np.asarray(flag)
+        # flag = np.asarray(flag)
         self.flags.valid(flag, error=True)
         if not np.isscalar(flag) and self._flagArray[pixel].shape != flag.shape:
             raise ValueError('flag must be scalar or match the desired region selected by x & y coordinates')
@@ -1229,11 +1229,11 @@ class Photontable(object):
         of resid"""
         excludemask = self.flagged(exclude, all_flags=False)
         selectmask = self.flagged(select, all_flags=False)
-        for pix, (resid, excl, sel) in np.enumerate(zip(self.beamImage, excludemask, selectmask)):
+        for pix, resid in np.ndenumerate(self.beamImage):
+            excl, sel = excludemask[pix], selectmask[pix]
             if excl or (select and not sel):
                 continue
             yield pix, resid if pixel else resid
-
 
 def calculate_slices(inter, timestamps):
     """
