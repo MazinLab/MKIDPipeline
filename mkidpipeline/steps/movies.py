@@ -11,12 +11,9 @@ from astropy.visualization import ImageNormalize, AsinhStretch, LinearStretch, \
 
 import mkidpipeline.config
 
-
-
 from mkidcore.corelog import getLogger
 import mkidpipeline.config
 import mkidpipeline.photontable as photontable
-
 
 STRETCHES = {'asinh': AsinhStretch, 'linear': LinearStretch, 'log': LogStretch, 'powerdist': PowerDistStretch,
              'sinh': SinhStretch, 'sqrt': SqrtStretch, 'squared': SquaredStretch, 'power': PowerStretch}
@@ -32,7 +29,8 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('wcs', True, 'Use the WCS solution'),
                      ('mask_bad', True, 'Mask bad pixels'),
                      ('fps', 24, 'framerate'),
-                     ('stretch.name', 'linear', 'linear | asinh | log | power[power=5] | powerdist | sinh | sqrt | squared'),
+                     ('stretch.name', 'linear',
+                      'linear | asinh | log | power[power=5] | powerdist | sinh | sqrt | squared'),
                      ('stretch.args', tuple(), 'see matplotlib docs'),
                      ('stretch.kwargs', dict(), 'see matplotlib docs'),
                      ('title', True, 'Display the title at the top of the animation'))
@@ -74,7 +72,7 @@ def _fetch_data(file, timestep, start=0, stop=np.inf, min_wave=None, max_wave=No
         getLogger(__name__).error('FITS data in invalid format')
         raise IOError('Invalid data format')
 
-    assert time_mask.size == frames.shape[0]+1
+    assert time_mask.size == frames.shape[0] + 1
 
     return frames[time_mask[1:] & time_mask[:-1]], exp_time[time_mask], hdul
 
@@ -84,7 +82,7 @@ def _process(frames, time, region=None, smooth_sigma=None, n_frames_smooth=6, sm
     """ Apply smoothing, region selection, inpainting and compute the cumsum of the frames"""
 
     if not smooth_sigma:
-        smooth_mask = np.ones_like(time,dtype=True)
+        smooth_mask = np.ones_like(time, dtype=True)
     else:
         from scipy.signal import savgol_filter
         curve = np.median(np.median(frames, axis=1), axis=1)
@@ -111,8 +109,8 @@ def _process(frames, time, region=None, smooth_sigma=None, n_frames_smooth=6, sm
     tmp = np.diff(time)
     tmp[smooth_mask] = 0
     tmp = np.cumsum(tmp)
-    itime = (time[1:]-time[0] - np.cumsum(tmp))[smooth_mask]  # bin integration time
-    times = (time[:-1]+time[0:])[smooth_mask]/2  # bin midpoint
+    itime = (time[1:] - time[0] - np.cumsum(tmp))[smooth_mask]  # bin integration time
+    times = (time[:-1] + time[0:])[smooth_mask] / 2  # bin midpoint
 
     if inpaint:
         getLogger(__name__).info('Inpainting requested')
@@ -125,7 +123,7 @@ def _process(frames, time, region=None, smooth_sigma=None, n_frames_smooth=6, sm
 
 
 def _save_frames(frames, movie_duration, units, suptitle='', movie_type='simple', outfile='file.mp4', wcs=None,
-                 mask=None, showaxes=True, description='', colormap='viridis',  interpolation='none', dpi=None,
+                 mask=None, showaxes=True, description='', colormap='viridis', interpolation='none', dpi=None,
                  bad_color='black', stretch='linear'):
     """
     RA is assumed along x and Dec along y
@@ -136,7 +134,7 @@ def _save_frames(frames, movie_duration, units, suptitle='', movie_type='simple'
     origin = 'lower'
     movie_type = movie_type.lower()
 
-    fps = frames.shape[0]/movie_duration
+    fps = frames.shape[0] / movie_duration
 
     if mask:
         frames[mask[np.newaxis, :, :]] = np.nan
@@ -149,7 +147,7 @@ def _save_frames(frames, movie_duration, units, suptitle='', movie_type='simple'
     if isinstance(stretch, str):
         stretch = STRETCHES[stretch]()
 
-    #fetch the colormap
+    # fetch the colormap
     try:
         cmap = plt.get_cmap(colormap)
     except Exception:
@@ -186,12 +184,12 @@ def _save_frames(frames, movie_duration, units, suptitle='', movie_type='simple'
     elif movie_type == 'upramp':
         image_names = ('Integration',)
         cbmaxs = (int(stack.max()),)
-        norms = (ImageNormalize(vmin=-10, vmax=stack.max() + 5, stretch=stretch), )
+        norms = (ImageNormalize(vmin=-10, vmax=stack.max() + 5, stretch=stretch),)
         frame_data = stack
     else:
         image_names = ('Frame',)
         cbmaxs = (int(frames.max()),)
-        norms = (ImageNormalize(vmin=-10, vmax=frames.max() + 5, stretch=stretch), )
+        norms = (ImageNormalize(vmin=-10, vmax=frames.max() + 5, stretch=stretch),)
         frame_data = frames
 
     with writer.saving(fig, outfile, frames[0].shape[1] * 2, dpi=dpi):
@@ -207,11 +205,12 @@ def _save_frames(frames, movie_duration, units, suptitle='', movie_type='simple'
             # cbar.set_ticks(ticks)
             # cbar.set_ticklabels(list(map('{:.0f}'.format, ticks)))  #TODO
 
+        plt.tight_layout()
         writer.grab_frame()
 
         for i, frame_im in enumerate(frame_data[1:]):
-            if not (i+1 % 10):
-                getLogger(__name__).debug(f"Frame {i+1} of {nframes}")
+            if not (i + 1 % 10):
+                getLogger(__name__).debug(f"Frame {i + 1} of {nframes}")
             for im, data in zip(img, frame_im):
                 im.set_data(data)
             writer.grab_frame()
@@ -221,20 +220,14 @@ def fetch(out, **kwargs):
     """Make a movie of a single observation"""
     config = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(movies=StepConfig()), cfg=None, copy=True)
 
-    STRETCHES['power'] = STRETCHES['power'](config.movies.stretch.args)
-
     ob = out.data
     if isinstance(ob, mkidpipeline.config.MKIDDitherDescription):
         ob = ob.obs_for_time(ob.start + out.start_offset)
 
-    file=ob.h5
-    outfile=out.filename
-    timestep=out.timestep
-    movie_duration=out.movie_length
-
+    file = ob.h5
     outcfg = out.output_settings_dict
 
-    movietype = os.path.splitext(outfile)[1].lower()
+    movietype = os.path.splitext(out.filename)[1].lower()
     if movietype not in ('.mp4', '.gif'):
         raise ValueError('Only mp4 and gif movies are supported')
 
@@ -243,10 +236,10 @@ def fetch(out, **kwargs):
                                       use_weights=out.use_weights, cps=outcfg.rate,
                                       exclude_flags=outcfg.exclude_flags)
 
-    suptitle=f"{out.name}: {np.diff(times[:2])[0]} s/frame, {hdul['SCIENCE'].header['EXPTIME']} s total"
+    suptitle = f"{out.name}: {np.diff(times[:2])[0]} s/frame, {hdul['SCIENCE'].header['EXPTIME']} s total"
     wavestr = f" {out.min_wave} - {out.max_wave:.0f} nm" if np.isinf(out.min_wave) | np.isinf(out.min_wave) else ''
 
-    description = f't0={times[0]:.0f} dt={timestep:.1f}s{wavestr}'
+    description = f't0={times[0]:.0f} dt={out.timestep:.1f}s{wavestr}'
 
     if not frames.size:
         getLogger(__name__).warning(f'No frames in {outcfg.start}-{outcfg.stop} for {file}')
@@ -269,41 +262,25 @@ def fetch(out, **kwargs):
                                     f"Defaulting to linear.")
         stretch = STRETCHES['linear']()
 
-    _save_frames(frames, out.movie_duration, hdul['SCIENCE'].header['UNIT'],  suptitle=suptitle, stretch=stretch,
-                 mask=hdul['BAD'].data if config.movies.mask_bad else None,
-
+    _save_frames(frames, out.movie_runtime, hdul['SCIENCE'].header['UNIT'], suptitle=suptitle, stretch=stretch,
+                 description=description, mask=hdul['BAD'].data if config.movies.mask_bad else None,
                  outfile=out.filename, movie_type=out.movie_type,
-
                  wcs=WCS(hdul['SCIENCE'].header) if config.movies.usewcs else None,
-                 colormap=config.movies.colormap,
-                 showaxes=config.movies.show_axes,
-                 dpi=config.movies.dpi,
-                 bad_color='black',
-                 interpolation='none',
-                 description=description)
+                 colormap=config.movies.colormap, showaxes=config.movies.show_axes, dpi=config.movies.dpi,
+                 bad_color='black', interpolation='none')
 
 
-
-def test_writers(out='garbage.gif', showaxes=False, fps=24):
-    import os
-    frames = np.random.uniform(0,100,size=(100,140,146))
-
+def test_writers(out='garbage.gif'):
+    frames = np.random.uniform(0, 100, size=(100, 140, 146))
     movietype = os.path.splitext(out)[1].lower()
     if movietype not in ('.mp4', '.gif'):
         raise ValueError('Only mp4 and gif movies are supported')
-
-    Writer = manimation.writers['ffmpeg'] if movietype is 'mp4' else manimation.writers['imagemagick']
-    metadata = dict(title='test', artist=__name__, genre='Astronomy', comment='comment')
-    writer = Writer(fps=fps, metadata=metadata, bitrate=-1)
-
+    writer = manimation.writers['ffmpeg' if 'mp4' in out else 'imagemagick'](fps=24, bitrate=-1)
     fig = plt.figure()
     im = plt.imshow(frames[0], interpolation='none')
-    if not showaxes:
-        fig.patch.set_visible(False)
-        plt.gca().axis('off')
-
     plt.tight_layout()
     with writer.saving(fig, out, frames.shape[0]):
-        for a in frames:
+        writer.grab_frame()
+        for a in frames[1:]:
             im.set_array(a)
             writer.grab_frame()
