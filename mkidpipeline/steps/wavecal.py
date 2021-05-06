@@ -1095,6 +1095,12 @@ class Solution(object):
             self.npz = None  # no npz file so all the properties should be set
             self._finish_init()
 
+    def __getstate__(self):
+        return {'file': self._file_path}
+
+    def __setstate__(self, state):
+        self.__init__(state['_file_path'])
+
     def _finish_init(self):
         # load in fitting models
         self.histogram_model_list = [getattr(wm, name) for _, name in
@@ -2671,12 +2677,10 @@ def apply(o):
         return
 
     getLogger(__name__).info('Applying {} to {}'.format(solution, obs.filename))
-
     obs.photonTable.autoindex = False  # Don't reindex every time we change column
 
     tic = time.time()
     for pixel, resID in obs.resonators():
-
         if not solution.has_good_calibration_solution(res_id=resID):
             continue
 
