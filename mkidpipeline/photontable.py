@@ -5,8 +5,8 @@ Modified 2017 for Darkness/MEC
 Authors: Seth Meeker, Neelay Fruitwala, Alex Walter
 
 The class Photontable is an interface to observation files.  It provides methods
-for typical ways of accessing photon list observation data.  It can also load 
-and apply wavelength and flat calibration.  
+for typical ways of accessing photon list observation data.  It can also load
+and apply wavelength and flat calibration.
 """
 from __future__ import print_function
 import os
@@ -126,7 +126,7 @@ class SharedTable(object):
         self.data = np.frombuffer(self._X, dtype=PhotonNumpyType).reshape(self._shape)
 
     def __getstate__(self):
-        d = dict(__dict__)
+        d = dict(self.__dict__)
         d.pop('data', None)
         return d
 
@@ -202,14 +202,14 @@ class Photontable(object):
             file_name: String
                 Path to HDF5 File
             mode: String
-                'read' or 'write'. File should be opened in 'read' mode 
+                'read' or 'write'. File should be opened in 'read' mode
                 unless you are applying a calibration.
             verbose: bool
                 Prints debug messages if True
         Returns
         -------
             Photontable instance
-                
+
         """
         self.mode = 'write' if mode.lower() in ('write', 'w', 'a', 'append') else 'read'
         self.verbose = verbose
