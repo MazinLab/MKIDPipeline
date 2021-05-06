@@ -1181,6 +1181,7 @@ class MKIDOutput(DataBase):
         Key('pixcal', True, 'Apply pixcal', bool),
         Key('cosmical', False, 'Determine cosmic ray hits, slow', bool),
         Key('flatcal', True, 'Apply flatcal', bool),
+        Key('movie_runtime', 0, 'Runtime of movie, defaults to realtime', float)
         # NB wavecal is applied and used if the underlying data specifies them, min/max wave allow ignoring it
         # there is no speccal key as it isn't something that is applied to the data
         # speccals are just fetched and determined for
@@ -1199,6 +1200,9 @@ class MKIDOutput(DataBase):
         opt = ('stack', 'spatial', 'temporal', 'list', 'image', 'movie', 'tcube', 'scube')
         if self.kind not in opt:
             self._key_errors['kind'] += [f"Must be one of: {opt}"]
+        if self.kind=='movie':
+            if not self.movie_runtime:
+                self.movie_runtime = self.duration
         # TODO add exclude flag checking
         # TODO improve extra keys settings
         self._data = ''
@@ -1219,13 +1223,15 @@ class MKIDOutput(DataBase):
         cube_type = None
         if self.kind == 'tcube':
             cube_type = 'time'
+            step=self.timestep
         elif self.kind == 'scube':
             cube_type = 'wave'
+            step=self.wavestep
         kwargs = dict(start=self.start_offset, duration=self.duration, spec_weight=self.use_weights,
                       wave_start=self.min_wave, wave_stop=self.max_wave, rate=self.unit == 'photons/s',
-                      cube_type=cube_type, bin_width=self.exp_timestep, bin_type='energy',
+                      cube_type=cube_type, bin_width=step,
                       exclude_flags=mkidcore.pixelflags.PROBLEM_FLAGS)
-        return kwargs
+        return mkidcore.config.ConfigThing.registerfromkvlist(kwargs.items())
 
     @property
     def wants_image(self):
