@@ -1,0 +1,55 @@
+loggers:
+  mkidpipe:
+    handlers: [ default ]
+    level: DEBUG
+  mkidpipeline:
+    handlers: [ default, file ]
+    level: DEBUG
+  mkidpipeline.steps.wavecal:
+    handlers: [ default ]
+    level: INFO
+    propagate: False
+  mkidpipeline.photontable:
+    handlers: [ default ]
+    level: INFO
+  mkidpipeline.steps.buildhdf:
+    handlers: [ default ]
+    level: INFO
+    propagate: False
+  mkidcore:
+    handlers: [ default, file ]
+    level: DEBUG
+  mkidcore.config:
+    handlers: [ default, file ]
+    level: INFO
+  __main__:
+    handlers: [ default ]
+    level: DEBUG
+    propagate': False
+root:
+  handlers: [ default ]
+  level: NOTSET
+  propagate': False
+
+
+version: 1
+disable_existing_loggers: False
+handlers:
+  default:
+    class : logging.StreamHandler
+    formatter: default
+    level   : DEBUG
+    stream  : ext://sys.stdout
+  file:
+    (): mkidcore.corelog.MakeFileHandler
+    filename: default.log
+    mode: a
+    level: DEBUG
+    formatter: default
+
+formatters:
+  brieffmt:
+    format: '%(message)s'
+  default:
+    format: '%(asctime)s %(name)s:%(levelname)-8s %(message)s'
+    datefmt: '%Y-%m-%d %H:%M:%S'
