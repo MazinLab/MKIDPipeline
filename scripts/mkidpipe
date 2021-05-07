@@ -97,7 +97,7 @@ if __name__ == "__main__":
         pipe.batch_applier(steps.wavecal.apply, outputs.to_wavecal)
         # pipe.batch_apply_wavecals(outputs.to_wavecal)
         #4
-        # pipe.batch_applier(steps.pixcal.apply, outputs.to_pixcal)
+        pipe.batch_applier(steps.pixcal.apply, outputs.to_pixcal)
         # pipe.batch_applier(steps.cosmiccal.apply, outputs.to_cosmiccal)
         #5
         # steps.flatcal.fetch(outputs.flatcals)

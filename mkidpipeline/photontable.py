@@ -1000,22 +1000,20 @@ class Photontable(object):
             md = {}
         else:
             md = dict(md)
-        md['START'] = time_nfo['start']
-        md['RELSTART'] = time_nfo['relstart']
-        md['STOP'] = time_nfo['stop']
+        md['UNIXSTR'] = time_nfo['start']
+        md['UNIXEND'] = time_nfo['stop']
         md['EXPTIME'] = time_nfo['duration']
-        md['integrationTime'] = duration  # TODO refactor code that uses this to use EXPTIME
-        md['RELSTOP'] = time_nfo['relstop']
-        md['MINWAVE'] = time_nfo['minw']
-        md['MAXWAVE'] = time_nfo['maxw']
-        md['EXFLAG'] = self.flags.bitmask(exclude_flags, unknown='ignore')
-        md['UNIT'] = 'photons/s' if rate else 'photons'
         mkidcore.metadata.build_header(md)
         header.update(self.get_wcs(cube_type=cube_type, bins=bin_edges)[0])
-
+        # add necessary keys to non Primary HDU
+        hdr = header.copy()
+        hdr['UNIT'] = 'photons/s' if rate else 'photons'
+        hdr['MINWAVE'] = time_nfo['minw']
+        hdr['MAXWAVE'] = time_nfo['maxw']
+        md['EXFLAG'] = self.flags.bitmask(exclude_flags, unknown='ignore')
         hdul = fits.HDUList([fits.PrimaryHDU(header=header),
                              fits.ImageHDU(data=data / duration if rate else data,
-                                           header=header, name='SCIENCE'),
+                                           header=hdr, name='SCIENCE'),
                              fits.ImageHDU(data=np.sqrt(data), header=header, name='VARIANCE'),
                              fits.ImageHDU(data=self._flagArray, header=header, name='FLAGS'),
                              fits.ImageHDU(data=self._flagArray & self.flags.bitmask(exclude_flags, unknown='ignore'),
