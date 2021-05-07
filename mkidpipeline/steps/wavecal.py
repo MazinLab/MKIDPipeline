@@ -88,7 +88,7 @@ class Configuration(object):
         # parse arguments
         self.ncpu = ncpu
         self.out_directory = outdir
-        self.wavelengths = list(map(float, [w.value for w in wavelengths]))
+        self.wavelengths = [w.value for w in wavelengths]
         self.h5_file_names = {wave: h5 for wave, h5 in zip(self.wavelengths, h5s)}
         self.darks = {} if darks is None else darks
 
@@ -1088,7 +1088,7 @@ class Solution(object):
             except FileNotFoundError:
                 mkidcore.corelog.getLogger(__name__).warning(f'Unable to find {self._file_path}, '
                                                              f'initialization of solution incomplete')
-                pass
+                raise
         # if not finish the init
         else:
             self.name = solution_name  # use the default or specified name for saving
@@ -1453,7 +1453,7 @@ class Solution(object):
         """
 
         calibrations, res_ids = self.find_calibrations(minimum, maximum, feedline)
-        np.savez(os.path.splitext(self._file_path)[0] + '_cal_coeffs.npz', 
+        np.savez(os.path.splitext(self._file_path)[0] + '_cal_coeffs.npz',
                  calibrations=calibrations, res_ids=res_ids, min_r=minimum, max_r=maximum,
                  feedline=feedline, solution_file_path=self._file_path)
 
@@ -2638,6 +2638,8 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
     if not remake:
         for sd in solution_descriptors:
             try:
+                if not os.path.exists(sd.path):
+                    raise IOError
                 solutions[sd.id()] = load_solution(sd.path)
             except IOError:
                 pass
@@ -2645,6 +2647,7 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
                 getLogger(__name__).info(f'Failed to load {sd} due to a {e}')
 
     for sd in (sd for sd in solution_descriptors if sd.id() not in solutions):
+        getLogger(__name__).info(f'Making {sd}')
         cfg = Configuration(wcfg, h5s=tuple(x.h5 for x in sd.data), wavelengths=tuple(w for w in sd.wavelengths),
                             darks=sd.darks)
         cal = Calibrator(cfg, solution_name=sd.path)
@@ -2670,7 +2673,7 @@ def apply(o):
     solution = load_solution(o.wavecal.path)
     obs = o.photontable
     obs.enablewrite()
-    
+
     # check file_name and status of obsFile
     if obs.query_header('isWvlCalibrated'):
         getLogger(__name__).info('Data already calibrated using {}'.format(obs.query_header('wvlCalFile')))

@@ -18,7 +18,7 @@ from mkidcore.utils import parse_ditherlog
 from mkidcore.legacy import parse_dither_log
 import mkidcore.config
 from mkidcore.corelog import getLogger, create_log, MakeFileHandler
-from mkidcore.utils import getnm, derangify
+from mkidcore.utils import derangify
 from mkidcore.objects import Beammap
 from mkidcore.instruments import InstrumentInfo
 from mkidcore.metadata import DEFAULT_CARDSET
@@ -108,7 +108,7 @@ class PipeConfig(BaseStepConfig):
                      ('verbosity', 0, 'level of verbosity'),
                      ('flow', ('metadata', 'wavecal', 'lincal', 'flatcal', 'cosmiccal', 'photcal'),
                       'Calibration steps to apply'),
-                     ('paths.dithers', '/darkdata/MEC/logs/', 'dither log location'),
+                     ('paths.dithers', '/darkdata/ScienceData/Subaru/20201006/logs', 'dither log location'),
                      ('paths.data', '/darkdata/ScienceData/Subaru/', 'bin file parent folder'),
                      ('paths.database', os.path.join(_pathroot, 'database'),
                       'calibrations will be retrieved/stored here'),
@@ -571,7 +571,8 @@ class MKIDWavecalDescription(DataBase, CalDefinitionMixin):
 
     @property
     def wavelengths(self):
-        return tuple([getnm(x.name) for x in self.data])
+        #TODO update this to use metadata when avaialable
+        return tuple([astropy.units.Quantity(x.name).to('nm') for x in self.data])
 
     @property
     def darks(self):
@@ -589,9 +590,9 @@ class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
         Key('data', None, 'An MKIDObservation (for a whitelight flat) or an MKIDWavedata '
                           '(or name) for a lasercal flat', None),
         Key('wavecal_duration', None, 'Number of seconds of the wavecal to use, float ok. '
-                                      'Required if using wavecal', float),
+                                      'Required if using wavecal', None),
         Key('wavecal_offset', None, 'An offset in seconds (>=1) from the start of the wavecal '
-                                    'timerange. Required if not ob', float),
+                                    'timerange. Required if not ob', None),
         Key('lincal', False, 'Apply lincal to h5s ', bool),
         Key('pixcal', True, 'Apply pixcal to data ', bool),
         Key('cosmiccal', False, 'Apply cosmiccal to data ', bool)
@@ -605,17 +606,13 @@ class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
             try:
                 if self.wavecal_offset < 1:
                     self._key_errors['wavecal_offset'] += ['must be >= 1s']
-            except AttributeError:
+            except (AttributeError, TypeError):
                 self._key_errors['wavecal_offset'] += ['required for a wavecal flat (i.e. no ob specified)']
-            except TypeError:
-                pass  # covered by super init
             try:
                 if self.wavecal_duration < 1:
                     self._key_errors['wavecal_duration'] += ['must be >= 1s']
-            except AttributeError:
+            except (AttributeError, TypeError):
                 self._key_errors['wavecal_duration'] += ['required for a wavecal flat (i.e. no ob specified)']
-            except TypeError:
-                pass  # covered by super init
 
         else:
             if not isinstance(self.data, MKIDObservation):

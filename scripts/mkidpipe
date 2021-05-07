@@ -3,6 +3,7 @@ import argparse
 import os
 import sys
 import pkg_resources as pkg
+from datetime import datetime
 
 import mkidcore
 import mkidcore.config
@@ -24,18 +25,18 @@ if __name__ == "__main__":
     parser.add_argument('--make-dir', dest='make_paths', help='Create all needed directories', action='store_true')
     parser.add_argument('--info', dest='info', help='Report information about the configuration', action='store_true')
     parser.add_argument('--make-outputs', dest='makeout', help='Run the pipeline on the outputs', action='store_true')
-
-    getLogger('mkidcore').setLevel('INFO')
-    log = getLogger('mkidpipeline')
-    log.setLevel('INFO')
+    parser.add_argument('--logcfg', dest='logcfg', help='Run the pipeline on the outputs', type=str,
+                        default=pkg.resource_filename('mkidpipeline', './utils/logging.yaml'))
 
     args = parser.parse_args()
+    getLogger('mkidcore', setup=True, logfile=f'mkidpipe_{datetime.now().strftime("%Y-%m-%d_%z")}.log',
+              configfile=args.logcfg)
+    log = getLogger('mkidpipe')
+
     if args.verbose:
-        log.setLevel('DEBUG')
+        getLogger('mkidpipe').setLevel('DEBUG')
+        getLogger('mkidpipeline').setLevel('DEBUG')
         getLogger('mkidcore').setLevel('DEBUG')
-    else:
-        pipe.getLogger('mkidpipeline.steps').setLevel('INFO')
-        pipe.getLogger('mkidpipeline.hdf').setLevel('INFO')
 
     if args.init:
         default_pipe_config = pipe.generate_default_config()
