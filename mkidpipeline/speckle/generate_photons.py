@@ -5,15 +5,14 @@ import numpy as np
 from scipy import special, interpolate
 import mkidpipeline.speckle.photonstats_utils as utils
 from astropy.convolution import Gaussian2DKernel, convolve
-from mkidcore.headers import ObsHeader
-from mkidcore.headers import ObsFileCols
+from mkidpipeline.photontable import Photontable
 import tables
 
 
 def MRicdf(Ic, Is, interpmethod='cubic'):
     """
     Compute an interpolation function to give the inverse CDF of the
-    modified Rician with a given Ic and Is.  
+    modified Rician with a given Ic and Is.
 
     Arguments:
     Ic: float, parameter for M-R
@@ -22,7 +21,7 @@ def MRicdf(Ic, Is, interpmethod='cubic'):
     Optional argument:
     interpmethod: keyword passed as 'kind' to interpolate.interp1d
 
-    Returns: 
+    Returns:
     interpolation function f for the inverse CDF of the M-R
 
     """
@@ -77,7 +76,7 @@ def corrsequence(Ttot, tau):
     recursion is implemented as an explicit for loop but has a lower
     computational cost than converting uniform random variables to
     modified-Rician random variables.
-    
+
     Arguments:
     Ttot: int, the total integration time in microseconds.
     tau: float, the correlation time in microseconds.
@@ -114,7 +113,7 @@ def genphotonlist(Ic, Is, Ir, Ttot, tau, deadtime=0, interpmethod='cubic',
 
     Optional arguments:
     deadtime: float, units microseconds
-    interpmethod: argument 'kind' to interpolate.interp1d 
+    interpmethod: argument 'kind' to interpolate.interp1d
     taufac: float, discretize intensity with bin width tau/taufac.  Doing so speeds up the code immensely.  Default 500 (intensity errors ~1e-3)
     return_IDs: return an array giving the distribution (MR or constant) that produced each photon?  Default False.
 
@@ -248,7 +247,7 @@ def genphotonlist2D(Ic, Is, Ir, Ttot, tau, out_directory, deadtime=0, interpmeth
     intensity_cube_corr = np.copy(intensity_cube)
     photon_table = tables.open_file(out_directory, mode='w')
     Header = photon_table.create_group(photon_table.root, 'header', 'header')
-    header = photon_table.create_table(Header, 'header', ObsHeader, title='Header')
+    header = photon_table.create_table(Header, 'header', Photontable.PhotontableHeader, title='Header')
 
     beamFlag = np.zeros([x_size, y_size])
     beamMap = np.zeros([x_size, y_size])
@@ -260,27 +259,24 @@ def genphotonlist2D(Ic, Is, Ir, Ttot, tau, out_directory, deadtime=0, interpmeth
     Images = photon_table.create_group(photon_table.root, 'Images', 'Images')
 
     Photons = photon_table.create_group(photon_table.root, 'Photons', 'Photons')
-    PhotonTable = photon_table.create_table(Photons, 'PhotonTable', ObsFileCols, title='Photon Data')
+    PhotonTable = photon_table.create_table(Photons, 'PhotonTable', Photontable.PhotonDescription, title='Photon Data')
 
     head = header.row
 
-    head['beammapFile'] = ''
-    head['dataDir'] = ''
-    head['energyBinWidth'] = 0.1
-    head['expTime'] = 0.0
-    head['isFlatCalibrated'] = False
-    head['isLinearityCorrected'] = False
-    head['isPhaseNoiseCorrected'] = False
-    head['isPhotonTailCorrected'] = False
-    head['isFluxCalibrated'] = False
-    head['isWvlCalibrated'] = False
-    head['isFlatCalibrated'] = False
-    head['startTime'] = 0
+    head['beammap_file'] = ''
+    head['data_path'] = ''
+    head['energy_resolution'] = 0.1
+    head['EXPTIME'] = 0.0
+    head['flatcal'] = ''
+    head['lincal'] = False
+    head['pixcal'] = False
+    head['speccal'] = ''
+    head['UNIXSTART'] = 0
     head['target'] = 'CHARIS'
     head['timeMaskExists'] = False
-    head['wvlBinStart'] = 700.0
-    head['wvlBinEnd'] = 700.0
-    head['wvlCalFile'] = ''
+    head['min_wavelength'] = 700.0
+    head['max_wavelength'] = 700.0
+    head['wavecal'] = ''
     head.append()
 
     photon = PhotonTable.row
@@ -326,11 +322,10 @@ def genphotonlist2D(Ic, Is, Ir, Ttot, tau, out_directory, deadtime=0, interpmeth
 
             final_tlist = tlist_tot[indx][np.where(keep)]
             for Time in final_tlist:
-                photon['ResID'] = float(iteration)
-                photon['Wavelength'] = 700.0
-                photon['SpecWeight'] = 1.0
-                photon['NoiseWeight'] = 1.0
-                photon['Time'] = Time
+                photon['resID'] = float(iteration)
+                photon['wavelength'] = 700.0
+                photon['weight'] = 1.0
+                photon['time'] = Time
                 photon.append()
 
             iteration += 1
@@ -352,8 +347,8 @@ if __name__ == "__main__":
     # Is_array = np.load('/mnt/data0/isabel/sandbox/CHARIS/Is.npy')[70:120, 70:120]
     Ic_array = np.load('/mnt/data0/isabel/sandbox/CHARIS/Ic.npy')
     Is_array = np.load('/mnt/data0/isabel/sandbox/CHARIS/Is.npy')
-    # newIc=rotate(Ic_array, 30, 0,0)
-    # newIs=rotate(Is_array, 30, 0,0)
+    newIc=np.rotate(Ic_array, 30, 0,0)
+    newIs=np.rotate(Is_array, 30, 0,0)
     Ic_array_crop = newIc[28:153, 28:153]
     Is_array_crop = newIs[28:153, 28:153]
     # Is_array = np.zeros([20, 20])+300

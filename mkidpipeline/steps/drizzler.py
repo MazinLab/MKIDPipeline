@@ -244,7 +244,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, single_
     num_filtered = len(photons)
     getLogger(__name__).info("Removed {} photons from {} total from bad pix"
                              .format(num_unfiltered - num_filtered, num_unfiltered))
-    weights = photons['SpecWeight'] * photons['NoiseWeight']
+    weights = photons['weight']
     x, y = obsfile.xy(photons)
 
     # ob.get_wcs returns all wcs solutions (including those after intt), so just pass then remove post facto()
@@ -489,15 +489,13 @@ class ListDrizzler(Canvas):
                                             filters=filter, chunkshape=chunkshape)
 
             photons = np.zeros(len(dither_photons["timestamps"]),
-                               dtype=np.dtype([('ResID', np.uint32), ('Time', np.uint32), ('Wavelength', np.float32),
-                                               ('SpecWeight', np.float32), ('NoiseWeight', np.float32),
-                                               ('RA', np.float32), ('Dec', np.float32)]))
+                               dtype=np.dtype([('resID', np.uint32), ('time', np.uint32), ('wavelength', np.float32),
+                                               ('weight', np.float32), ('RA', np.float32), ('Dec', np.float32)])) #TODO change case of RA and Dec
 
-            photons['ResID'] = ob.beamImage[dither_photons['xPhotonPixels'], dither_photons['yPhotonPixels']]
-            photons['Time'] = dither_photons["timestamps"]
-            photons['Wavelength'] = dither_photons["wavelengths"]
-            photons['SpecWeight'] = dither_photons["weight"]  # todo allow different weights to be stored
-            photons['NoiseWeight'] = dither_photons["weight"]
+            photons['resID'] = ob.beamImage[dither_photons['xPhotonPixels'], dither_photons['yPhotonPixels']]
+            photons['time'] = dither_photons["timestamps"]
+            photons['wavelength'] = dither_photons["wavelengths"]
+            photons['weight'] = dither_photons["weight"]  # todo allow different weights to be stored
             photons['RA'] = dither_photons["RA"]
             photons['Dec'] = dither_photons["Dec"]
 

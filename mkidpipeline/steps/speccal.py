@@ -223,11 +223,10 @@ class SpectralCalibrator:
         if self.wvl_bin_edges is None:
             # TODO make sure in angstroms
             self.wvl_bin_edges = self.data.data[0].wavelength_bins(width=self.energy_bin_width,
-                                                                   start=self.wvl_start,
-                                                                   stop=self.wvl_stop)
+                                                                   start=self.wvl_start, stop=self.wvl_stop)
         if len(self.data.data) == 1:
-            hdul = self.data.data[0].get_fits(spec_weight=True, rate=True, cube_type='wave',
-                                              bin_edges=self.wvl_bin_edges, bin_type='energy')
+            hdul = self.data.data[0].get_fits(weight=True, rate=True, cube_type='wave', bin_edges=self.wvl_bin_edges,
+                                              bin_type='energy')
             cube = np.array(hdul['SCIENCE'].data, dtype=np.double)
         else:
             cube = []

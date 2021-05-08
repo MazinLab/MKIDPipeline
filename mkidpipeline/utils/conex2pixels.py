@@ -26,7 +26,7 @@ def get_transforms(ditherfile, wvl_start=None, wvl_stop=None, fwhm_guess=3.0, fi
 
     for o in dither.obs:
         obs = o.photontable
-        data = obs.get_fits(spec_weight=False, wave_start=wvl_start, wave_stop=wvl_stop, rate=False)['SCIENCE'].data.T
+        data = obs.get_fits(weight=False, wave_start=wvl_start, wave_stop=wvl_stop, rate=False)['SCIENCE'].data.T
         debug_images.append(data)
         mean, median, std = stats.sigma_clipped_stats(data, sigma=3.0, mask_value=0)
         mask = data == 0

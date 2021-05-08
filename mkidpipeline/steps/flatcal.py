@@ -288,7 +288,7 @@ class WhiteCalibrator(FlatCalibrator):
         delta_list = self.wavelengths / self.r_list / 2
         pt = self.h5s.photontable
         for i, wvl in enumerate(self.wavelengths):
-            if not pt.query_header('isBadPixMasked'):
+            if not pt.query_header('pixcal'):
                 getLogger(__name__).warning('H5 File not hot pixel masked, could skew flat weights')
 
             mask[:, :, i] = pt.flagged(PROBLEM_FLAGS)
@@ -334,7 +334,7 @@ class LaserCalibrator(FlatCalibrator):
 
         for wvl, h5 in self.h5s.items():
             obs = h5.photontable
-            if not obs.query_header('isBadPixMasked') and not self.cfg.flatcal.use_wavecal:
+            if not obs.query_header('pixcal') and not self.cfg.flatcal.use_wavecal:
                 getLogger(__name__).warning('H5 File not hot pixel masked, could skew flat weights')
 
             w_mask = self.wavelengths == wvl
@@ -557,10 +557,12 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
         return
 
     of = o.photontable
-    if of.query_header('isFlatCalibrated'):
-        getLogger(__name__).info(f"{of.filename} is already flat calibrated with {of.query_header('fltCalFile')}")
-        if of.query_header('fltCalFile') != o.flatcal.path:
-            getLogger(__name__).warning(f'{o} is calibrated with a different flat than requested.')
+    fcf = of.query_header('flatcal')
+    if fcf:
+        if fcf != o.flatcal.path:
+            getLogger(__name__).warning(f'{o} is already calibrated with a different flat ({fcf}).')
+        else:
+            getLogger(__name__).info(f"{o} is already flat calibrated.")
         return
 
     tic = time.time()
@@ -580,27 +582,26 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
             getLogger(__name__).warning('No flat calibration for good pixel {}'.format(resID))
             continue
 
-        indices = of.photonTable.get_where_list('ResID==resID')
+        indices = of.photonTable.get_where_list('resID==resID')
         if not indices.size:
             continue
 
         tic2 = time.time()
 
         if (np.diff(indices) == 1).all():  # This takes ~300s for ALL photons combined on a 70Mphot file.
-            wave = of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
-            weights = soln(wave) * of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='SpecWeight')
+            wave = of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='wavelength')
+            weights = soln(wave) * of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='weight')
             weights = weights.clip(0)  # enforce positive weights only
-            of.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=weights, colname='SpecWeight')
+            of.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=weights, colname='weight')
         else:  # This takes 3.5s per pixel on a 70 Mphot file!!!
             # raise NotImplementedError('This code path is impractically slow at present.')
             getLogger(__name__).debug('Using modify_coordinates')
             rows = of.photonTable.read_coordinates(indices)
-            rows['SpecWeight'] *= soln(rows['Wavelength'])
+            rows['weight'] *= soln(rows['wavelength'])
             of.photonTable.modify_coordinates(indices, rows)
             getLogger(__name__).debug('Flat weights updated in {:.2f}s'.format(time.time() - tic2))
 
-    of.update_header('isFlatCalibrated', True)
-    of.update_header('fltCalFile', calsoln.file_path.encode())
+    of.update_header('flatcal', calsoln.file_path)
     of.update_header('FLATCAL.ID', calsoln.id)  # TODO ensure is pulled over from definition/is consistent
     of.update_header('FLATCAL.TYPE', calsoln.type)  # TODO add type parameter to calsoln
     getLogger(__name__).info('Flatcal applied in {:.2f}s'.format(time.time() - tic))

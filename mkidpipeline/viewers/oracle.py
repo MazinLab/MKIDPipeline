@@ -57,7 +57,7 @@ def ssd_worker(args):
             continue
 
         ts = obsfile_object.query(pixel=(col, row), start=startTime, intt=duration,
-                                  startw=startLambda, stopw=stopLambda)['Time'] * 1e-6
+                                  startw=startLambda, stopw=stopLambda, column='time') * 1e-6
         dt = np.diff(ts)
 
         # get the bin-free fit of Ic, Is Ip
@@ -246,11 +246,11 @@ class timeStream(subWindow):
         self.eff_exp_time = self.spinbox_eff_exp_time.value() / 1000
         if type(self.a).__name__ == 'Photontable':
             self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(
-                self.photonList['Time'] / 1e6, self.spinbox_startTime.value(),
+                self.photonList['time'] / 1e6, self.spinbox_startTime.value(),
                 self.spinbox_startTime.value() + self.spinbox_integrationTime.value(), self.eff_exp_time)
         else:
             self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(
-                self.photonList['Time'] / 1e6, 0, self.spinbox_integrationTime.value(), self.eff_exp_time)
+                self.photonList['time'] / 1e6, 0, self.spinbox_integrationTime.value(), self.eff_exp_time)
 
         self.ax.plot(self.lightCurveTimes, self.lightCurveIntensity, color=self.lineColor)
         self.ax.set_xlabel('time [seconds]')
@@ -278,7 +278,7 @@ class intensityHistogram(subWindow):
         self.ax.clear()
 
         self.photonList = self.get_photon_list()
-        ts = self.photonList['Time'] / 1e6  # timestamps in seconds
+        ts = self.photonList['time'] / 1e6  # timestamps in seconds
         print(ts[0:3])
         dt = (ts[1:] - ts[:-1])
         deadtime = 0
@@ -292,7 +292,7 @@ class intensityHistogram(subWindow):
                                                                                                                     self.eff_exp_time)
         else:
             self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(
-                self.photonList['Time'] / 1e6, 0, self.spinbox_integrationTime.value(), self.eff_exp_time)
+                self.photonList['time'] / 1e6, 0, self.spinbox_integrationTime.value(), self.eff_exp_time)
 
         self.intensityHist, self.bins = binnedRE.histogramLC(self.lightCurveIntensityCounts)
 
@@ -378,7 +378,7 @@ class pulseHeightHistogram(subWindow):
     def plotData(self):
         self.ax.clear()
 
-        pulseHeights = self.a.query(pixel=self.activePixel)['Wavelength']
+        pulseHeights = self.a.query(pixel=self.activePixel, column='wavelength')
 
         hist, binEdges = np.histogram(pulseHeights, bins=50)
 
@@ -481,8 +481,8 @@ class main_window(QMainWindow):
                 self.call_plot_method()
                 # set the max integration time to the h5 exp time in the header
                 self.expTime = self.a.duration
-                self.wvlBinStart = self.a.query_header('wvlBinStart')
-                self.wvlBinEnd = self.a.query_header('wvlBinEnd')
+                self.wvlBinStart = self.a.query_header('min_wavelength')
+                self.wvlBinEnd = self.a.query_header('max_wavelength')
 
                 # set the max and min values for the lambda spinboxes
                 # check if the data is wavecaled and set the limits on the spinboxes accordingly

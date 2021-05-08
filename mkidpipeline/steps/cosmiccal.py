@@ -70,7 +70,7 @@ class CosmicCleaner:
     def determine_cosmic_intervals(self):
         start = datetime.utcnow().timestamp()
         getLogger(__name__).debug(f"Starting cosmic ray detection on {self.obs.filename}")
-        self.photons = self.obs.query(startw=self.wave_range[0], stopw=self.wave_range[1], column='Time')
+        self.photons = self.obs.query(startw=self.wave_range[0], stopw=self.wave_range[1], column='time')
         self.make_timestream()
         self.make_count_histogram()
         self.find_cosmic_times()
