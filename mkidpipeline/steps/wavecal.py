@@ -318,14 +318,14 @@ class Calibrator(object):
                         # create background phase list if specified
                         bg = self.fetch_obsfile(wavelength, background=True)
                         if bg is not None:
-                            bkgd_phase_list = bg.query(pixel=pixel, column='Wavelength')
+                            bkgd_phase_list = bg.query(pixel=pixel, column='wavelength')
                             bkgd_phase_list = bkgd_phase_list[bkgd_phase_list < 0]
                     else:
                         table_data, bg = self._shared_tables[wavelength].data
-                        photon_list = table_data[table_data['ResID'] == self.solution.beam_map[tuple(pixel)]]
+                        photon_list = table_data[table_data['resID'] == self.solution.beam_map[tuple(pixel)]]
 
                         if bg is not None:
-                            bkgd_phase_list = bg['Wavelength'][bg['ResID'] == self.solution.beam_map[tuple(pixel)]]
+                            bkgd_phase_list = bg['wavelength'][bg['resID'] == self.solution.beam_map[tuple(pixel)]]
                             bkgd_phase_list = bkgd_phase_list[bkgd_phase_list < 0]
 
                     # check for enough photons
@@ -335,8 +335,8 @@ class Calibrator(object):
                         continue
 
                     # remove hot pixels
-                    rate = (len(photon_list['Wavelength']) * 1e6 /
-                            (max(photon_list['Time']) - min(photon_list['Time'])))
+                    rate = (len(photon_list['wavelength']) * 1e6 /
+                            (max(photon_list['time']) - min(photon_list['time'])))
 
                     if rate > self.cfg.max_count_rate:
                         model.flag = wm.pixel_flags['hot pixel']
@@ -354,7 +354,7 @@ class Calibrator(object):
                         continue
 
                     # remove photons with positive peak heights
-                    phase_list = photon_list['Wavelength']
+                    phase_list = photon_list['wavelength']
                     phase_list = phase_list[phase_list < 0]
                     if phase_list.size == 0:
                         model.flag = wm.pixel_flags['positive cut']
@@ -675,10 +675,10 @@ class Calibrator(object):
             raise KeyboardInterrupt
 
     def _remove_tail_riding_photons(self, photon_list):
-        indices = np.argsort(photon_list['Time'])
+        indices = np.argsort(photon_list['time'])
         photon_list = photon_list[indices]
 
-        logic = np.hstack([True, np.diff(photon_list['Time']) > self.cfg.dt])
+        logic = np.hstack([True, np.diff(photon_list['time']) > self.cfg.dt])
         photon_list = photon_list[logic]
         return photon_list
 
@@ -2675,8 +2675,9 @@ def apply(o):
     obs.enablewrite()
 
     # check file_name and status of obsFile
-    if obs.query_header('isWvlCalibrated'):
-        getLogger(__name__).info('Data already calibrated using {}'.format(obs.query_header('wvlCalFile')))
+    wcf = obs.query_header('wavecal')
+    if wcf:
+        getLogger(__name__).info(f'Data already calibrated using {wcf}')
         return
 
     getLogger(__name__).info('Applying {} to {}'.format(solution, obs.filename))
@@ -2687,7 +2688,7 @@ def apply(o):
         if not solution.has_good_calibration_solution(res_id=resID):
             continue
 
-        indices = obs.photonTable.get_where_list('ResID==resID')
+        indices = obs.photonTable.get_where_list('resID==resID')
         if not indices.size:
             continue
 
@@ -2700,23 +2701,20 @@ def apply(o):
 
         if (np.diff(indices) == 1).all():  # This takes ~475s for ALL photons combined on a 70Mphot file.
             # getLogger(__name__).debug('Using modify_column')
-            phase = obs.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
+            phase = obs.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='wavelength')
             obs.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=calibration(phase),
-                                          colname='Wavelength')
+                                          colname='wavelength')
         else:  # This takes 3.5s on a 70Mphot file!!!
             # raise NotImplementedError('This code path is impractically slow at present.')
             getLogger(__name__).debug('Using modify_coordinates')
             rows = obs.photonTable.read_coordinates(indices)
-            rows['Wavelength'] = calibration(rows['Wavelength'])
+            rows['wavelength'] = calibration(rows['wavelength'])
             obs.photonTable.modify_coordinates(indices, rows)
         tic2 = time.time()
         getLogger(__name__).debug('Wavelength updated in {:.2f}s'.format(time.time() - tic2))
 
-    obs.update_header('isWvlCalibrated', True)
-    obs.update_header('wvlCalFile', solution.name)
-    #TODO update header with WAVECAL.XXXX cards
-    obs.update_header(f'WAVECAL.ID', solution.name)
-    #TODO R and error for each wavelength
+    obs.update_header('wavecal', solution.name)
+    #TODO R and error for each wavelength and any other info to header
     obs.photonTable.reindex_dirty()  # recompute "dirty" wavelength index
     obs.photonTable.autoindex = True  # turn on auto-indexing
     obs.disablewrite()

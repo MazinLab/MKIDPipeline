@@ -49,7 +49,7 @@ def apply(o: mkidpipeline.config.MKIDTimerange, config=None):
     cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(lincal=StepConfig()), cfg=config, copy=True)
 
     of = o.photontable
-    if of.query_header('isLinearityCorrected'):
+    if of.query_header('lincal'):
         getLogger(__name__).info("H5 {} is already linearity calibrated".format(of.filename))
         return
 
@@ -58,14 +58,13 @@ def apply(o: mkidpipeline.config.MKIDTimerange, config=None):
     bar = ProgressBar().start()
     for resid in of.resonators(exclude=PROBLEM_FLAGS):
         #TODO as written this performes the same query twice, look at flatcal to improve performance
-        photons = of.query(resid=resid, column='Time')
-        # TODO pull deadtime from photon table
-        weights = calculate_weights(photons['TIME'], cfg.lincal.dt, cfg.instrument.deadtime * 1 * 10 ** 6)
-        of.multiply_column_weight(resid, weights, 'SpecWeight', flush=False)
+        photons = of.query(resid=resid, column='time')
+        weights = calculate_weights(photons['time'], cfg.lincal.dt, of.query_header('dead_time')*1e-6)
+        of.multiply_column_weight(resid, weights, 'weight', flush=False)
         bar.update()
     of.photonTable.flush()
     bar.finish()
-    of.update_header('isLinearityCorrected', True)
+    of.update_header('lincal', True)
     of.update_header(f'LINCAL.DT', cfg.lincal.dt)
     getLogger(__name__).info(f'Lincal applied to {of.filename} in {time.time() - tic:.2f}s')
     of.disablewrite()

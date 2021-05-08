@@ -91,10 +91,10 @@ if __name__ == "__main__":
         # pipe.batch_apply_metadata(outputs)
         #2
         steps.wavecal.fetch(outputs.wavecals)
-        steps.wavecal._loaded_solutions = {}
+        # steps.wavecal._loaded_solutions = {}
         # pipe.batch_applier(steps.lincal.apply, outputs.to_lincal)
         #3
-        pipe.batch_applier(steps.wavecal.apply, outputs.to_wavecal)
+        # pipe.batch_applier(steps.wavecal.apply, outputs.to_wavecal)
         # pipe.batch_apply_wavecals(outputs.to_wavecal)
         #4
         pipe.batch_applier(steps.pixcal.apply, outputs.to_pixcal)

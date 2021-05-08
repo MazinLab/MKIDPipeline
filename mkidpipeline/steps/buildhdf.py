@@ -8,11 +8,11 @@ from datetime import datetime
 from glob import glob
 import warnings
 from io import StringIO
-from mkidcore.headers import ObsFileCols, ObsHeader
 from mkidcore.corelog import getLogger
 from mkidcore.config import yaml, yaml_object
 import mkidcore.utils
 from mkidcore.objects import Beammap
+
 
 from mkidpipeline.photontable import Photontable
 import mkidpipeline.config
@@ -82,7 +82,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
 
     ram_est_gb = estimate_ram_gb(cfg.datadir, cfg.starttime, cfg.inttime) + 2  # add some headroom
     if free_ram_gb() < ram_est_gb:
-        msg = 'Insufficint free RAM to build {}, {:.1f} vs. {:.1f} GB.'
+        msg = 'Insufficient free RAM to build {}, {:.1f} vs. {:.1f} GB.'
         getLogger(__name__).warning(msg.format(cfg.h5file, free_ram_gb(), ram_est_gb))
         if wait_for_ram:
             getLogger(__name__).info('Waiting up to {} s for enough RAM'.format(wait_for_ram))
@@ -104,21 +104,21 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
     getLogger(__name__).debug('Data Extracted for {}'.format(cfg.h5file))
 
     if timesort:
-        photons.sort(order=('Time', 'ResID'))
+        photons.sort(order=('time', 'resID'))
         getLogger(__name__).warning('Sorting photon data on time for {}'.format(cfg.h5file))
-    elif not np.all(photons['ResID'][:-1] <= photons['ResID'][1:]):
+    elif not np.all(photons['resID'][:-1] <= photons['resID'][1:]):
         getLogger(__name__).warning('binprocessor.extract returned data that was not sorted on ResID, sorting'
                                     '({})'.format(cfg.h5file))
-        photons.sort(order=('ResID', 'Time'))
+        photons.sort(order=('resID', 'time'))
 
     h5file = tables.open_file(cfg.h5file, mode="a", title="MKID Photon File")
     group = h5file.create_group("/", 'Photons', 'Photon Information')
     filter = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=shuffle, bitshuffle=bitshuffle, fletcher32=False)
-    table = h5file.create_table(group, name='PhotonTable', description=ObsFileCols, title="Photon Datatable",
+    table = h5file.create_table(group, name='PhotonTable', description=Photontable.PhotonDescription, title="Photon Datatable",
                                 expectedrows=len(photons), filters=filter, chunkshape=chunkshape)
     table.append(photons)
 
-    getLogger(__name__).debug('Table Populated for {}'.format(cfg.h5file))
+    getLogger(__name__).debug('Table populated for {}'.format(cfg.h5file))
     if index:
         index_filter = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=ndx_shuffle, bitshuffle=ndx_bitshuffle,
                                       fletcher32=False)
@@ -153,37 +153,41 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
     h5file.create_array(group, 'Flag', beammap_flagmap_to_h5_flagmap(bmap.flagmap), 'flag map')
     getLogger(__name__).debug('Beammap Attached to {}'.format(cfg.h5file))
 
-    h5file.create_group('/', 'header', 'Header')
-    headerTable = h5file.create_table('/header', 'header', ObsHeader, 'Header')
-    headerContents = headerTable.row
-    headerContents['isWvlCalibrated'] = False
-    headerContents['isFlatCalibrated'] = False
-    headerContents['isFluxCalibrated'] = False
-    headerContents['isLinearityCorrected'] = False
-    headerContents['isPhaseNoiseCorrected'] = False
-    headerContents['isPhotonTailCorrected'] = False
-    headerContents['timeMaskExists'] = False
-    headerContents['startTime'] = cfg.starttime
-    headerContents['expTime'] = cfg.inttime
-    headerContents['wvlBinStart'] = 700
-    headerContents['wvlBinEnd'] = 1500
-    headerContents['energyBinWidth'] = 0.1
-    headerContents['target'] = ''
-    headerContents['dataDir'] = cfg.datadir
-    headerContents['beammapFile'] = cfg.beamfile
-    headerContents['wvlCalFile'] = ''
-    headerContents['fltCalFile'] = ''
-    headerContents['metadata'] = ''
+    h5file.create_group('/', 'metadata', 'Metadata')
+    metadataTable = h5file.create_table('/metadata', 'metadata', Photontable.MetadataDescription, 'Metadata',
+                                        filters=filter, expectedrows=1)
     out = StringIO()
-
     yaml.dump({'flags': PIPELINE_FLAGS.names}, out)
     out = out.getvalue().encode()
-    if len(out) > mkidcore.headers.METADATA_BLOCK_BYTES:  # this should match mkidcore.headers.ObsHeader.metadata
-        raise ValueError("Too much metadata! {} KB needed, {} allocated".format(len(out) // 1024,
-                                                                                mkidcore.headers.METADATA_BLOCK_BYTES // 1024))
-    headerContents['metadata'] = out
+    MAX_BYTES = mkidpipeline.photontable._METADATA_BLOCK_BYTES
+    if len(out) > MAX_BYTES:  # this should match mkidcore.headers.ObsHeader.metadata
+        raise ValueError(f"Too much metadata! {len(out)//1024} KB needed, {MAX_BYTES/1024} allocated")
+    row = metadataTable.row
+    row['metadata'] = out
+    metadataTable.append(row)
 
-    headerContents.append()
+    h5file.create_group('/', 'header', 'Header')
+    filter = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=True, bitshuffle=False, fletcher32=False)
+    headerTable = h5file.create_table('/header', 'header', Photontable.PhotontableHeader, 'Header', expectedrows=256,
+                                      filters=filter)
+    headerContents = {}
+    headerContents['wavecal'] = ''
+    headerContents['flatcal'] = ''
+    headerContents['speccal'] = ''
+    headerContents['pixcal'] = False
+    headerContents['lincal'] = False
+    headerContents['comsmiccal'] = False
+    headerContents['dead_time'] = mkidpipeline.config.config.instrument.deadtime_us
+    headerContents['UNIXSTART'] = cfg.starttime
+    headerContents['EXPTIME'] = cfg.inttime
+    headerContents['max_wavelength'] = mkidpipeline.config.config.instrument.maximum_wavelength
+    headerContents['min_wavelength'] = mkidpipeline.config.config.instrument.minimum_wavelength
+    headerContents['energy_resolution'] = mkidpipeline.config.config.instrument.energy_bin_width_ev
+    headerContents['target'] = ''
+    headerContents['data_path'] = cfg.datadir
+    headerContents['beammap_file'] = cfg.beamfile
+
+    headerTable.append([(str(k), str(v)) for k, v in headerContents.items()])
     getLogger(__name__).debug('Header Attached to {}'.format(cfg.h5file))
 
     h5file.close()

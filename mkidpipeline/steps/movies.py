@@ -55,8 +55,8 @@ def _fetch_data(file, timestep, start=0, stop=np.inf, min_wave=None, max_wave=No
             getLogger(__name__).info('Fetching temporal cube from {}'.format(file))
             of = photontable.Photontable(file)
             hdul = of.get_fits(start=start, duration=stop, bin_width=timestep, wave_start=min_wave,
-                               wave_stop=max_wave, spec_weight=use_weights, noise_weight=use_weights,
-                               cube_type='time', rate=cps, exclude_flags=exclude_flags)
+                               wave_stop=max_wave, weight=use_weights, cube_type='time', rate=cps,
+                               exclude_flags=exclude_flags)
             del of
             getLogger(__name__).info(f"Retrieved a temporal cube of shape {hdul['SCIENCE'].data.shape}")
 

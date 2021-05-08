@@ -91,9 +91,11 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!pixcal_cfg'
     REQUIRED_KEYS = (('method', 'median', 'method to use cpscut|laplacian|median|threshold'),
                      ('step', 30, 'Time interval for methods that need one'),
-                     ('spec_weight', True, 'Use the spec weights'),
-                     ('noise_weight', True, 'Use the noise weights'))   #TODO remove one or both if they aren't determined by this step run
+                     ('use_weight', True, 'Use photon weights'))
 
+
+TEST_CFGS= (StepConfig(method='median', step=30), StepConfig(method='cpscut', step=30),
+            StepConfig(method='laplacian', step=30), StepConfig(method='threshold', step=30))
 
 FLAGS = FlagSet.define(('hot', 1, 'Hot pixel'),
                        ('cold', 2, 'Cold pixel'),
@@ -240,7 +242,7 @@ def threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.0, max_it
             if np.all(hot_mask == initial_hot_mask) and np.all(cold_mask == initial_cold_mask):
                 break
 
-            # Otherwise update 'initial_hot_mask' and 'initial_cold_mask' and set all detected bad pixels 
+            # Otherwise update 'initial_hot_mask' and 'initial_cold_mask' and set all detected bad pixels
             # to NaN for the next iteration
             initial_cold_mask = np.copy(cold_mask)
             initial_hot_mask = np.copy(hot_mask)
@@ -477,7 +479,7 @@ def cpscut(image, sigma=5, max_cut=2450, cold_mask=False):
     return {'cold': dead_mask, 'hot': hot_mask, 'image': raw_image}
 
 
-def _compute_mask(obs, method, step, startt, stopt, methodkw, spec_weight, noise_weight):
+def _compute_mask(obs, method, step, startt, stopt, methodkw, weight):
     starts = np.arange(startt, stopt, step, dtype=int)  # Start time for each step (in seconds).
     step_ends = starts + int(step)  # End time for each step
     step_ends[step_ends > stopt] = int(stopt)  # Clip any time steps that run over the end of the requested time range.
@@ -492,8 +494,8 @@ def _compute_mask(obs, method, step, startt, stopt, methodkw, spec_weight, noise
     # Generate a stack of bad pixel mask, one for each time step
     for i, each_time in enumerate(starts):
         getLogger(__name__).info(f'Processing time slice: {each_time} - {each_time + step} s')
-        img = obs.get_fits(start=each_time, duration=step, spec_weight=spec_weight,
-                           noise_weight=noise_weight, rate=False, cube_type='time', bin_width=step)
+        img = obs.get_fits(start=each_time, duration=step, weight=weight, rate=False, cube_type='time',
+                           bin_width=step)
         result = func(img['SCIENCE'].data, **methodkw)
         masks[:, :, i, 0] = result['hot']
         masks[:, :, i, 1] = result['cold']
@@ -512,7 +514,7 @@ def _compute_mask(obs, method, step, startt, stopt, methodkw, spec_weight, noise
 def fetch(o, config=None):
 
     obs = Photontable(o.h5)
-    if obs.query_header('isBadPixMasked'):
+    if obs.query_header('pixcal'):
         getLogger(__name__).info('{} is already pixel calibrated'.format(o.h5))
         return None, None
 
@@ -530,7 +532,7 @@ def fetch(o, config=None):
     methodkw = {k: mkidpipeline.config.config.pixcal.get(k) for k in mkidpipeline.config.config.pixcal.keys() if
                 k not in exclude}
 
-    return _compute_mask(obs, method, step, startt, stopt, methodkw, cfg.pixcal.spec_weight, cfg.pixcal.noise_weight)
+    return _compute_mask(obs, method, step, startt, stopt, methodkw, cfg.pixcal.use_weight)
 
 
 def apply(o, config=None):
@@ -546,7 +548,7 @@ def apply(o, config=None):
     obs.flag(f.bitmask('pixcal.hot') * mask[:, :, 0])
     obs.flag(f.bitmask('pixcal.cold') * mask[:, :, 1])
     obs.flag(f.bitmask('pixcal.unstable') * mask[:, :, 2])
-    obs.update_header('isBadPixMasked', True)
+    obs.update_header('pixcal', True)
     for k, v in meta.items():
         obs.update_header(f'PIXCAL.{k}', v)
     obs.disablewrite()

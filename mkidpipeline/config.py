@@ -571,7 +571,7 @@ class MKIDWavecalDescription(DataBase, CalDefinitionMixin):
 
     @property
     def wavelengths(self):
-        #TODO update this to use metadata when avaialable
+        # TODO update this to use metadata when avaialable
         return tuple([astropy.units.Quantity(x.name).to('nm') for x in self.data])
 
     @property
@@ -1197,7 +1197,7 @@ class MKIDOutput(DataBase):
         opt = ('stack', 'spatial', 'temporal', 'list', 'image', 'movie', 'tcube', 'scube')
         if self.kind not in opt:
             self._key_errors['kind'] += [f"Must be one of: {opt}"]
-        if self.kind=='movie':
+        if self.kind == 'movie':
             if not self.movie_runtime:
                 self._key_errors['movie_runtime'] += [f"Runtime required"]
         # TODO add exclude flag checking
@@ -1220,14 +1220,13 @@ class MKIDOutput(DataBase):
         cube_type = None
         if self.kind == 'tcube':
             cube_type = 'time'
-            step=self.timestep
+            step = self.timestep
         elif self.kind == 'scube':
             cube_type = 'wave'
-            step=self.wavestep
-        kwargs = dict(start=self.start_offset, duration=self.duration, spec_weight=self.use_weights,
+            step = self.wavestep
+        kwargs = dict(start=self.start_offset, duration=self.duration, weight=self.use_weights,
                       wave_start=self.min_wave, wave_stop=self.max_wave, rate=self.unit == 'photons/s',
-                      cube_type=cube_type, bin_width=step,
-                      exclude_flags=mkidcore.pixelflags.PROBLEM_FLAGS)
+                      cube_type=cube_type, bin_width=step, exclude_flags=mkidcore.pixelflags.PROBLEM_FLAGS)
         return mkidcore.config.ConfigThing.registerfromkvlist(kwargs.items())
 
     @property

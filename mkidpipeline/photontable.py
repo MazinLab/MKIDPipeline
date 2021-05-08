@@ -1,39 +1,20 @@
-#!/bin/python
-"""
-Author: Matt Strader        Date: August 19, 2012
-Modified 2017 for Darkness/MEC
-Authors: Seth Meeker, Neelay Fruitwala, Alex Walter
-
-The class Photontable is an interface to observation files.  It provides methods
-for typical ways of accessing photon list observation data.  It can also load
-and apply wavelength and flat calibration.
-"""
-from __future__ import print_function
 import os
-import warnings
 import time
 from datetime import datetime
 import multiprocessing as mp
 import functools
-from interval import interval
 import numpy as np
-import matplotlib
-import matplotlib.pyplot as plt
 
-from matplotlib.backends.backend_pdf import PdfPages
-from regions import CirclePixelRegion, PixCoord
-from progressbar import *
 import mkidcore.metadata
-from mkidcore.headers import PhotonCType, PhotonNumpyType, METADATA_BLOCK_BYTES
+from mkidcore.binfile.mkidbin import PhotonCType, PhotonNumpyType
 from mkidcore.corelog import getLogger
 from mkidcore.pixelflags import FlagSet
 import mkidcore.pixelflags as pixelflags
 from mkidcore.config import yaml, StringIO
-
 from mkidcore.instruments import compute_wcs_ref_pixel
-from itertools import count
+
 import SharedArray
-from mkidpipeline.steps import lincal
+
 import tables
 import tables.parameters
 import tables.file
@@ -41,9 +22,9 @@ import tables.file
 import astropy.constants
 from astropy.coordinates import SkyCoord
 from astropy import wcs
+import astropy.units as u
 from astropy.io import fits
 from astroplan import Observer
-import astropy.units as u
 
 
 # These are little better than blind guesses and don't seem to impact performaace, but still need benchmarking
@@ -188,10 +169,26 @@ class SharedPhotonList(object):
             SharedArray.delete("shm://{}".format(self._name))
 
 
-class Photontable(object):
-    h = astropy.constants.h.to('eV s').value
-    c = astropy.constants.c.to('m/s').value
-    ticks_per_sec = int(1.0 / 1e-6)  # each integer value is 1 microsecond
+_METADATA_BLOCK_BYTES = 4 * 1024 * 1024
+_KEY_BYTES = 256
+_VALUE_BYTES = 4096
+
+
+class Photontable:
+    TICKS_PER_SEC = int(1.0 / 1e-6)  # each integer value is 1 microsecond
+
+    class MetadataDescription(tables.IsDescription):
+        metadata = tables.StringCol(_METADATA_BLOCK_BYTES)
+
+    class PhotontableHeader(tables.IsDescription):
+        key = tables.StringCol(_KEY_BYTES)
+        value = tables.StringCol(_VALUE_BYTES)
+
+    class PhotonDescription(tables.IsDescription):
+        resID = tables.UInt32Col(pos=0)
+        time = tables.UInt32Col(pos=1)
+        wavelength = tables.Float32Col(pos=2)
+        weight = tables.Float32Col(pos=3)
 
     def __init__(self, file_name, mode='read', verbose=False):
         """
@@ -249,9 +246,9 @@ class Photontable(object):
         self.header = self.file.root.header.header
 
         # get important cal params
-        self.nominal_wavelength_bins = self.wavelength_bins(width=self.query_header('energyBinWidth'),
-                                                            start=self.query_header('wvlBinStart'),
-                                                            stop=self.query_header('wvlBinEnd'))
+        self.nominal_wavelength_bins = self.wavelength_bins(width=self.query_header('energy_resolution'),
+                                                            start=self.query_header('min_wavelength'),
+                                                            stop=self.query_header('max_wavelength'))
 
         # get the beam image
         self.beamImage = self.file.get_node('/BeamMap/Map').read()
@@ -270,15 +267,15 @@ class Photontable(object):
         weights: array of floats
             Array of cal weights. Multiplied into the specified column column.
         column: string
-            Name of weight column. Should be either 'SpecWeight' or 'NoiseWeight'
+            Name of weight column. Should be 'weight'
         """
         if self.mode != 'write':
             raise Exception("Must open file in write mode to do this!")
 
-        if column not in ('SpecWeight' or 'NoiseWeight'):
-            raise ValueError(f"{column} is not 'SpecWeight' or 'NoiseWeight'")
+        if column != 'weight':
+            raise ValueError(f"{column} is not 'weight'")
 
-        indices = self.photonTable.get_where_list('ResID==resid')
+        indices = self.photonTable.get_where_list('resID==resid')
 
         if not (np.diff(indices) == 1).all():
             raise NotImplementedError('Table is not sorted by Res ID!')
@@ -326,7 +323,7 @@ class Photontable(object):
                 relstart = start
                 start = self.start_time + start
 
-            qstart = int(relstart * self.ticks_per_sec)
+            qstart = int(relstart * self.TICKS_PER_SEC)
 
             if start <= 0 or start > self.duration:
                 raise TypeError
@@ -346,7 +343,7 @@ class Photontable(object):
                     raise TypeError
             relstop = stop
             stop += self.start_time
-            qstop = int(relstop * self.ticks_per_sec)
+            qstop = int(relstop * self.TICKS_PER_SEC)
 
         except TypeError:
             stop = self.duration + self.start_time
@@ -396,10 +393,10 @@ class Photontable(object):
     def detailed_str(self):
         t = self.photonTable.read()
         tinfo = repr(self.photonTable).replace('\n', '\n\t\t')
-        if np.all(t['Time'][:-1] <= t['Time'][1:]):
-            sort = 'Time '
-        elif np.all(t['ResID'][:-1] <= t['ResID'][1:]):
-            sort = 'ResID '
+        if np.all(t['time'][:-1] <= t['time'][1:]):
+            sort = 'time '
+        elif np.all(t['resID'][:-1] <= t['resID'][1:]):
+            sort = 'resID '
         else:
             sort = 'Un'
 
@@ -415,9 +412,9 @@ class Photontable(object):
                            and self.photonTable.cols._g_col(n).index.dirty])
 
         s = msg.format(file=self.filename, nphot=len(self.photonTable), sort=sort, tbl=tinfo,
-                       start=t['Time'].min(), stop=t['Time'].max(), dur=self.duration,
+                       start=t['time'].min(), stop=t['time'].max(), dur=self.duration,
                        dirty='Column(s) {} have dirty indices.'.format(dirty) if dirty else 'No columns dirty',
-                       wave=self.query_header('wvlCalFile'), flat=self.query_header('fltCalFile'))
+                       wave=self.query_header('wavecal'), flat=self.query_header('flatcal'))
         return s
 
     def xy(self, photons):
@@ -433,7 +430,7 @@ class Photontable(object):
 
     @property
     def start_time(self):
-        return self.query_header('startTime')
+        return self.query_header('UNIXSTART')
 
     @property
     def stop_time(self):
@@ -447,7 +444,7 @@ class Photontable(object):
 
     @property
     def wavelength_calibrated(self):
-        return self.query_header('isWvlCalibrated')
+        return bool(self.query_header('wavecal'))
 
     @property
     def extensible_header_store(self):
@@ -511,7 +508,7 @@ class Photontable(object):
             self.disablewrite()
 
         f = FlagSet.define(*[(n, i, PIPELINE_FLAGS.flags[n].description if n in PIPELINE_FLAGS.flags else '')
-                      for i, n in enumerate(names)])
+                             for i, n in enumerate(names)])
         return f
 
     def flag(self, flag: int, pixel=(slice(None), slice(None))):
@@ -642,12 +639,8 @@ class Photontable(object):
             query += ')'
 
         if not query:
-            # TODO make dtype pull from mkidcore.headers
-            # TODO check whether dtype for Time should be u4 or u8. u4 loses
-            #  a bunch of leading bits, but it may not matter.
             getLogger(__name__).debug('Null Query, returning empty result')
-            return np.array([], dtype=[('ResID', '<u4'), ('Time', '<u4'), ('Wavelength', '<f4'),
-                                       ('SpecWeight', '<f4'), ('NoiseWeight', '<f4')])
+            return np.array([], dtype=mkidcore.binfile.mkidbin.PhotonNumpyType)
         else:
             tic = time.time()
             try:
@@ -802,7 +795,7 @@ class Photontable(object):
 
         return obs_wcs_seq
 
-    def get_pixel_spectrum(self, pixel, start=None, duration=None, spec_weight=False, noise_weight=False,
+    def get_pixel_spectrum(self, pixel, start=None, duration=None, weight=False,
                            wave_start=None, wave_stop=None, bin_width=None, bin_edges=None, bin_type='energy'):
         """
         returns a spectral histogram of a given pixel integrated from start to start+duration,
@@ -824,10 +817,8 @@ class Photontable(object):
             Start time of integration, in seconds relative to beginning of file
         duration: float
             Total integration time in seconds. If -1, everything after start is used
-        spec_weight: bool
+        weight: bool
             If True, weights counts by spectral/flat/linearity weight
-        noise_weight: bool
-            If True, weights counts by true positive fraction (noise weight)
         wave_start: float
             Start wavelength of histogram. Only used if wvlBinWidth or energyBinWidth is
             specified (otherwise it's redundant). Defaults to self.wvlLowerLimit or 7000.
@@ -853,8 +844,7 @@ class Photontable(object):
                            after accounting for hot-pixel time-masking.
             'rawCounts' - The total number of photon triggers (including from
                             the noise tail) during the effective exposure.
-                            :param spec_weight:
-                            :param noise_weight:
+                            :param weight:
                             :param wave_start:
                             :param wave_stop:
                             :param pixel:
@@ -864,17 +854,13 @@ class Photontable(object):
                             :param bin_edges:
                             :param bin_type:
         """
-        if (bin_edges or bin_width) and spec_weight and self.query_header('isFlatCalibrated'):
+        if (bin_edges or bin_width) and weight and self.query_header('flatcal'):
             # TODO is this even accurate anymore
             raise ValueError('Using flat cal, so flat cal bins must be used')
 
         photons = self.query(pixel=pixel, start=start, intt=duration, startw=wave_start, stopw=wave_stop)
 
-        weights = np.ones(len(photons))
-        if spec_weight:
-            weights *= photons['SpecWeight']
-        if noise_weight:
-            weights *= photons['NoiseWeight']
+        weights = photons['weight'] if weight else None
 
         if bin_edges and bin_width:
             getLogger(__name__).warning('Both bin_width and bin_edges provided. Using edges')
@@ -884,11 +870,11 @@ class Photontable(object):
         elif not bin_edges and not bin_width:
             bin_edges = self.nominal_wavelength_bins
 
-        spectrum, _ = np.histogram(photons['Wavelength'], bins=bin_edges, weights=weights)
+        spectrum, _ = np.histogram(photons['wavelength'], bins=bin_edges, weights=weights)
 
         return {'spectrum': spectrum, 'wavelengths': bin_edges, 'nphotons': len(photons)}
 
-    def get_fits(self, start=None, duration=None, spec_weight=False, noise_weight=False, wave_start=None,
+    def get_fits(self, start=None, duration=None, weight=False, wave_start=None,
                  wave_stop=None, rate=True, cube_type=None, bin_width=None, bin_edges=None, bin_type='energy',
                  exclude_flags=pixelflags.PROBLEM_FLAGS):
         """
@@ -913,10 +899,8 @@ class Photontable(object):
         :param duration: float
             Photon list end time, in seconds relative to start.
             If None, goes to end of file
-        :param spec_weight: bool
+        :param weight: bool
             If True, applies the spectral/flat/linearity weight
-        :param noise_weight: bool
-            If True, applies the true positive fraction (noise) weight
         :param exclude_flags: int
             Specifies flags to exclude from the tallies
             flag definitions see 'h5FileFlags' in Headers/pipelineFlags.py
@@ -930,7 +914,7 @@ class Photontable(object):
         ridbins = np.append(ridbins, ridbins[-1] + 1)
 
         if cube_type == 'time':
-            ycol = 'Time'
+            ycol = 'time'
             if not bin_edges:
                 t0 = 0 if start is None else start
                 itime = self.duration if duration is None else duration
@@ -944,7 +928,7 @@ class Photontable(object):
             bin_edges = (bin_edges * 1e6)  # .astype(int)
 
         elif cube_type == 'wave':
-            ycol = 'Wavelength'
+            ycol = 'wavelength'
             if bin_edges and bin_width:
                 getLogger(__name__).warning('Both bin_width and bin_edges provided. Using edges')
             elif not bin_edges and bin_width:
@@ -959,22 +943,15 @@ class Photontable(object):
         # Retrieval rate is about 2.27Mphot/s for queries in the 100-200M photon range
         photons = self.query(start=start, intt=duration, startw=wave_start, stopw=wave_stop)
 
-        if spec_weight and noise_weight:
-            weights = photons['SpecWeight'] * photons['NoiseWeight']
-        elif noise_weight:
-            weights = photons['NoiseWeight']
-        elif spec_weight:
-            weights = photons['SpecWeight']
-        else:
-            weights = None
+        weights = photons['weight'] if weight else None
 
         if cube_type in ('time', 'wave'):
             data = np.zeros((self.nXPix, self.nYPix, bin_edges.size - 1))
-            hist, xedg, yedg = np.histogram2d(photons['ResID'], photons[ycol], bins=(ridbins, bin_edges),
+            hist, xedg, yedg = np.histogram2d(photons['resID'], photons[ycol], bins=(ridbins, bin_edges),
                                               weights=weights)
         else:
             data = np.zeros((self.nXPix, self.nYPix))
-            hist, xedg = np.histogram(photons['ResID'], bins=ridbins, weights=weights)
+            hist, xedg = np.histogram(photons['resID'], bins=ridbins, weights=weights)
 
         toc = time.time()
         xe = xedg[:-1]
@@ -1135,43 +1112,16 @@ class Photontable(object):
         """
         if not energy:
             return np.linspace(start, stop, int((stop - start) / width) + 1)
-        const = Photontable.h * Photontable.c * 1e9
+
+        h = astropy.constants.h.to('eV s').value
+        c = astropy.constants.c.to('m/s').value
+        const = h * c * 1e9
         # Calculate upper and lower energy limits from wavelengths, note that start and stop switch when going to energy
         e_stop = const / start
         e_start = const / stop
         n = int((e_stop - e_start) / width)
         # Construct energy bin edges (reversed) and convert back to wavelength
         return const / np.linspace(e_stop, e_start, n + 1)
-
-    def mask_timestamps(self, timestamps, inter=interval(), otherListsToFilter=[]):
-        """
-        Masks out timestamps that fall in an given interval
-        inter is an interval of time values to mask out
-        otherListsToFilter is a list of parallel arrays to timestamps that should be masked in the same way
-        returns a dict with keys 'timestamps','otherLists'
-        """
-        # first special case:  inter masks out everything so return zero-length
-        # numpy arrays
-        raise NotImplementedError('Out of date, update for cosmics')
-        if inter == self.intervalAll:
-            filteredTimestamps = np.arange(0)
-            otherLists = [np.arange(0) for list in otherListsToFilter]
-        else:
-            if inter == interval() or len(timestamps) == 0:
-                # nothing excluded or nothing to exclude
-                # so return all unpacked values
-                filteredTimestamps = timestamps
-                otherLists = otherListsToFilter
-            else:
-                # there is a non-trivial set of times to mask.
-                slices = calculate_slices(inter, timestamps)
-                filteredTimestamps = repack_array(timestamps, slices)
-                otherLists = []
-                for eachList in otherListsToFilter:
-                    filteredList = repack_array(eachList, slices)
-                    otherLists.append(filteredList)
-        # return the values filled in above
-        return {'timestamps': filteredTimestamps, 'otherLists': otherLists}
 
     def updateWavelengths(self, wvlCalArr, xCoord=None, yCoord=None, resID=None, flush=True):
         """
@@ -1197,13 +1147,12 @@ class Photontable(object):
 
         if self.mode != 'write':
             raise Exception("Must open file in write mode to do this!")
-        if self.query_header('isWvlCalibrated'):
+        if bool(self.query_header('wavecal')):
             getLogger(__name__).warning("Wavelength calibration already exists!")
-            warnings.warn("Wavelength calibration already exists!")
 
         tic = time.time()
 
-        indices = self.photonTable.get_where_list('ResID==resID')
+        indices = self.photonTable.get_where_list('resID==resID')
         assert len(indices) == len(wvlCalArr), 'Calibrated wavelength list does not match length of photon list!'
 
         if not indices:
@@ -1212,11 +1161,11 @@ class Photontable(object):
         if (np.diff(indices) == 1).all():
             getLogger(__name__).debug('Using modify_column')
             self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=wvlCalArr,
-                                           colname='Wavelength')
+                                           colname='wavelength')
         else:
             getLogger(__name__).debug('Using modify_coordinates')
             rows = self.photonTable.read_coordinates(indices)
-            rows['Wavelength'] = wvlCalArr
+            rows['wavelength'] = wvlCalArr
             self.photonTable.modify_coordinates(indices, rows)
 
         if flush:
@@ -1236,65 +1185,95 @@ class Photontable(object):
                 continue
             yield pix, resid if pixel else resid
 
-def calculate_slices(inter, timestamps):
-    """
-    Hopefully a quicker version of  the original calculate_slices. JvE 3/8/2013
+# def mask_timestamps(self, timestamps, inter=interval(), otherListsToFilter=[]):
+#     """
+#     Masks out timestamps that fall in an given interval
+#     inter is an interval of time values to mask out
+#     otherListsToFilter is a list of parallel arrays to timestamps that should be masked in the same way
+#     returns a dict with keys 'timestamps','otherLists'
+#     """
+#     # first special case:  inter masks out everything so return zero-length
+#     # numpy arrays
+#     raise NotImplementedError('Out of date, update for cosmics')
+#     if inter == self.intervalAll:
+#         filteredTimestamps = np.arange(0)
+#         otherLists = [np.arange(0) for list in otherListsToFilter]
+#     else:
+#         if inter == interval() or len(timestamps) == 0:
+#             # nothing excluded or nothing to exclude
+#             # so return all unpacked values
+#             filteredTimestamps = timestamps
+#             otherLists = otherListsToFilter
+#         else:
+#             # there is a non-trivial set of times to mask.
+#             slices = calculate_slices(inter, timestamps)
+#             filteredTimestamps = repack_array(timestamps, slices)
+#             otherLists = []
+#             for eachList in otherListsToFilter:
+#                 filteredList = repack_array(eachList, slices)
+#                 otherLists.append(filteredList)
+#     # return the values filled in above
+#     return {'timestamps': filteredTimestamps, 'otherLists': otherLists}
 
-    Returns a list of strings, with format i0:i1 for a python array slice
-    inter is the interval of values in timestamps to mask out.
-    The resulting list of strings indicate elements that are not masked out
+# def calculate_slices(inter, timestamps):
+#     """
+#     Hopefully a quicker version of  the original calculate_slices. JvE 3/8/2013
+#
+#     Returns a list of strings, with format i0:i1 for a python array slice
+#     inter is the interval of values in timestamps to mask out.
+#     The resulting list of strings indicate elements that are not masked out
+#
+#     inter must be a single pyinterval 'interval' object (can be multi-component)
+#     timestamps is a 1D array of timestamps (MUST be an *ordered* array).
+#
+#     If inter is a multi-component interval, the components must be unioned and sorted
+#     (which is the default behaviour when intervals are defined, and is probably
+#     always the case, so shouldn't be a problem).
+#     """
+#     timerange = interval([timestamps[0], timestamps[-1]])
+#     slices = []
+#     slce = "0:"  # Start at the beginning of the timestamps array....
+#     imax = 0  # Will prevent error if inter is an empty interval
+#     for eachComponent in inter.components:
+#         # Check if eachComponent of the interval overlaps the timerange of the
+#         # timestamps - if not, skip to the next component.
+#
+#         if eachComponent & timerange == interval(): continue
+#         # [
+#         # Possibly a bit faster to do this and avoid interval package, but not fully tested:
+#         # if eachComponent[0][1] < timestamps[0] or eachComponent[0][0] > timestamps[-1]: continue
+#         # ]
+#
+#         imin = np.searchsorted(timestamps, eachComponent[0][0], side='left')  # Find nearest timestamp to lower bound
+#         imax = np.searchsorted(timestamps, eachComponent[0][1], side='right')  # Nearest timestamp to upper bound
+#         # As long as we're not about to create a wasteful '0:0' slice, go ahead
+#         # and finish the new slice and append it to the list
+#         if imin != 0:
+#             slce += str(imin)
+#             slices.append(slce)
+#         slce = str(imax) + ":"
+#     # Finish the last slice at the end of the timestamps array if we're not already there:
+#     if imax != len(timestamps):
+#         slce += str(len(timestamps))
+#         slices.append(slce)
+#     return slices
 
-    inter must be a single pyinterval 'interval' object (can be multi-component)
-    timestamps is a 1D array of timestamps (MUST be an *ordered* array).
 
-    If inter is a multi-component interval, the components must be unioned and sorted
-    (which is the default behaviour when intervals are defined, and is probably
-    always the case, so shouldn't be a problem).
-    """
-    timerange = interval([timestamps[0], timestamps[-1]])
-    slices = []
-    slce = "0:"  # Start at the beginning of the timestamps array....
-    imax = 0  # Will prevent error if inter is an empty interval
-    for eachComponent in inter.components:
-        # Check if eachComponent of the interval overlaps the timerange of the
-        # timestamps - if not, skip to the next component.
-
-        if eachComponent & timerange == interval(): continue
-        # [
-        # Possibly a bit faster to do this and avoid interval package, but not fully tested:
-        # if eachComponent[0][1] < timestamps[0] or eachComponent[0][0] > timestamps[-1]: continue
-        # ]
-
-        imin = np.searchsorted(timestamps, eachComponent[0][0], side='left')  # Find nearest timestamp to lower bound
-        imax = np.searchsorted(timestamps, eachComponent[0][1], side='right')  # Nearest timestamp to upper bound
-        # As long as we're not about to create a wasteful '0:0' slice, go ahead
-        # and finish the new slice and append it to the list
-        if imin != 0:
-            slce += str(imin)
-            slices.append(slce)
-        slce = str(imax) + ":"
-    # Finish the last slice at the end of the timestamps array if we're not already there:
-    if imax != len(timestamps):
-        slce += str(len(timestamps))
-        slices.append(slce)
-    return slices
-
-
-def repack_array(array, slices):
-    """
-    returns a copy of array that includes only the element defined by slices
-    """
-    nIncluded = 0
-    for slce in slices:
-        s0 = int(slce.split(":")[0])
-        s1 = int(slce.split(":")[1])
-        nIncluded += s1 - s0
-    retval = np.zeros(nIncluded)
-    iPt = 0;
-    for slce in slices:
-        s0 = int(slce.split(":")[0])
-        s1 = int(slce.split(":")[1])
-        iPtNew = iPt + s1 - s0
-        retval[iPt:iPtNew] = array[s0:s1]
-        iPt = iPtNew
-    return retval
+# def repack_array(array, slices):
+#     """
+#     returns a copy of array that includes only the element defined by slices
+#     """
+#     nIncluded = 0
+#     for slce in slices:
+#         s0 = int(slce.split(":")[0])
+#         s1 = int(slce.split(":")[1])
+#         nIncluded += s1 - s0
+#     retval = np.zeros(nIncluded)
+#     iPt = 0;
+#     for slce in slices:
+#         s0 = int(slce.split(":")[0])
+#         s1 = int(slce.split(":")[1])
+#         iPtNew = iPt + s1 - s0
+#         retval[iPt:iPtNew] = array[s0:s1]
+#         iPt = iPtNew
+#     return retval

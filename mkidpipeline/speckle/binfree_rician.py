@@ -6,7 +6,7 @@ Last Updated: Sept 19, 2018
 This code is for analyzing the photon arrival time statistics in a bin-free way
 to find a maximum likelihood estimate of Ic, Is in the presence of an incoherent background source Ir.
 
-For example usage, see if __name__ == "__main__": 
+For example usage, see if __name__ == "__main__":
 """
 
 import matplotlib.pyplot as plt
@@ -109,19 +109,19 @@ def optimize_IcIsIr2(dt, guessParams=[-1,-1,-1], deadtime=1.e-5, method='Newton-
     #Provide a reasonable guess everywhere that guessParams<0
     #If a prior is given then make that the guess
     #equally distributes the average flux amongst params<0
-    #ie. guess=[-1, 30, -1] and I_avg=330 then guess-->[150,30,150]. 
+    #ie. guess=[-1, 30, -1] and I_avg=330 then guess-->[150,30,150].
     guessParams=np.asarray(guessParams)
     assert len(guessParams)==3, "Must provide a guess for I1, I2, Ir. Choose -1 for automatic guess."
-    
+
     if np.any(prior==None): prior[prior==None]=np.nan
     guessParams[np.isfinite(prior)]=prior[np.isfinite(prior)]
     if forceIp2zero: guessParams[-1] = 0
     if np.any(guessParams<0):
         I_avg=(len(dt))/np.sum(dt)
         I_guess = (I_avg-np.sum(guessParams[guessParams>=0])) /np.sum(guessParams<0)
-        guessParams[guessParams<0]=max(I_guess,0)    
+        guessParams[guessParams<0]=max(I_guess,0)
 
-    loglike = lambda p: _posterior(p, dt=dt, deadtime=deadtime, prior=prior, prior_sig=prior_sig) 
+    loglike = lambda p: _posterior(p, dt=dt, deadtime=deadtime, prior=prior, prior_sig=prior_sig)
     score = lambda p: _posterior_jacobian(p, dt=dt, deadtime=deadtime, prior=prior, prior_sig=prior_sig)
     hess = lambda p: _posterior_hessian(p, dt=dt, deadtime=deadtime, prior=prior, prior_sig=prior_sig)
 
@@ -161,10 +161,10 @@ def optimize_IcIsIr(dt, guessParams=[-1,-1,-1], deadtime=1.e-5, method='nm', pri
     #Provide a reasonable guess everywhere that guessParams<0
     #If a prior is given then make that the guess
     #equally distributes the average flux amongst params<0
-    #ie. guess=[-1, 30, -1] and I_avg=330 then guess-->[150,30,150]. 
+    #ie. guess=[-1, 30, -1] and I_avg=330 then guess-->[150,30,150].
     guessParams = np.asarray(guessParams)
     assert len(guessParams) == 3, "Must provide a guess for I1, I2, Ir. Choose -1 for automatic guess."
-    
+
     if np.any(prior == None):
         prior[prior == None] = np.nan
     guessParams[np.isfinite(prior)] = prior[np.isfinite(prior)]
@@ -188,7 +188,7 @@ def optimize_IcIsIr(dt, guessParams=[-1,-1,-1], deadtime=1.e-5, method='nm', pri
 
     #fit model
     return model.fit(guessParams, method=method, **kwargs)
-    
+
 
 
 def MRlogL(params, dt, deadtime=1.e-5):
@@ -256,9 +256,9 @@ def _MRlogL(params, dt, deadtime=1.e-5):
 def posterior(params, dt, deadtime=1.e-5, prior=None, prior_sig=None):
     """
     Given an array of photon interarrival times, calculate the posterior using the
-    Log likelihood that those photons follow a modified Rician Intensity probability 
+    Log likelihood that those photons follow a modified Rician Intensity probability
     distribution with [Ic, Is, Ip]=params
-    
+
     If given, assume a guassian prior on the parameters with the value and 1 sigma errors given.
     The log prior probability is .5*((I - I_prior)/sigma_I_prior)**2
 
@@ -302,9 +302,9 @@ def _posterior(params, dt, deadtime=1.e-5, prior=None, prior_sig=None):
 def MRlogL_Jacobian(params, dt, deadtime=1.e-5):
     """
     Calculates the Jacobian of the MR log likelihood function.
-    Also called a Gradient or Fisher's Score Function. 
+    Also called a Gradient or Fisher's Score Function.
     It's just the vector of first partial derivatives.
-    
+
     INPUTS:
         params: 2 or 3 element list of Ic, Is, Ir
             Ic - Coherent portion of MR [1/second]
@@ -316,13 +316,13 @@ def MRlogL_Jacobian(params, dt, deadtime=1.e-5):
         jacobian vector [dlnL/dIc, dlnL/dIs, dlnL/dIr] at Ic, Is, Ir
         if Ir not given in params then force Ir=0 and dlnL/dIr not calculated
     """
-    
+
     Ic=params[0]
     Is=params[1]
     try: Ir=params[2]
     except IndexError: Ir=0.
 
-    if np.sum(np.asarray(params)<0)>0: 
+    if np.sum(np.asarray(params)<0)>0:
         print("Negatives in Jac")
         #We'll find the slope nearby and then later force it positive
     if Ir<0: Ir=0.
@@ -426,7 +426,7 @@ def MRlogL_Hessian(params, dt, deadtime=1.e-5):
     Calculates the Hessian matrix of the MR log likelihood function.
     It's just the matrix of second partial derivitives.
     It's the negative of Fisher's Observed Information Matrix
-    
+
     INPUTS:
         params: 2 or 3 element list of Ic, Is, Ir
             Ic - Coherent portion of MR [1/second]
@@ -442,7 +442,7 @@ def MRlogL_Hessian(params, dt, deadtime=1.e-5):
     try: Ir=params[2]
     except IndexError: Ir=0.
 
-    if np.sum(params<0)>0: 
+    if np.sum(params<0)>0:
         print("Negatives in Hess")
         #We'll find the curvature nearby
     if Ir<0: Ir=0.
@@ -462,7 +462,7 @@ def MRlogL_Hessian(params, dt, deadtime=1.e-5):
     u_m_1 = u - 1.
     u_m_1_sq = u_m_1*u_m_1
     N = len(u)
-    
+
     denom_inv = 1./((Ic**2)*u4 + (4*Ic*Is)*u3 + (2*Is**2 + 2*Ir*Ic)*u2 + (2*Ir*Is)*u + Ir**2)
     denom2_inv = denom_inv*denom_inv
 
@@ -565,15 +565,15 @@ def _posterior_hessian(params, dt, deadtime=1.e-5, prior=None, prior_sig=None):
 
 def MRlogL_opgCov(Ic, Is, Ir, dt, deadtime=0):
     """
-    Calculates the Outer Product Gradient estimate of the asymptotic covariance matrix 
+    Calculates the Outer Product Gradient estimate of the asymptotic covariance matrix
     evaluated at the Maximum Likelihood Estimates for Ic, Is
-    
+
     It's the invert of the outer product of the gradients
-    
+
     INPUTS:
         dt: list of inter-arrival times [seconds]
         Ic: The maximum likelihood estimate of Ic [1/second]
-        Is: 
+        Is:
     OUTPUTS:
         covariance matrix for mle Ic, Is from opg method
         [[cov(Ic,Ic), cov(Ic,Is)], [cov(Is,Ic), cov(Is,Is)]]
@@ -581,25 +581,25 @@ def MRlogL_opgCov(Ic, Is, Ir, dt, deadtime=0):
     raise NotImplementedError
     grad_Ic = -1./(1./dt+Is) + 1./(Ic+Is+dt*Is**2.)
     grad_Is = dt**2.*Ic/(1.+dt*Is)**2. - 3.*dt/(1.+dt*Is) + (1.+2.*dt*Is)/(Ic+Is+dt*Is**2.)
-    
+
     #n=1.0*len(dt)
     grad_Ic2 = np.sum(grad_Ic**2.)
     grad_Is2 = np.sum(grad_Is**2.)
     grad_IcIs = np.sum(grad_Ic*grad_Is)
-    
+
     return np.asarray([[grad_Is2, -1.*grad_IcIs],[-1.*grad_IcIs, grad_Ic2]])/(grad_Ic2*grad_Is2 - grad_IcIs**2.)
 
 def MRlogL_hessianCov(Ic, Is, Ir, dt, deadtime=0):
     """
-    Calculates the Hessian estimate of the asymptotic covariance matrix 
+    Calculates the Hessian estimate of the asymptotic covariance matrix
     evaluated at the Maximum Likelihood Estimates for Ic, Is
-    
+
     It's the invert of the observed Information matrix
-    
+
     INPUTS:
         dt: list of inter-arrival times [seconds]
         Ic: The maximum likelihood estimate of Ic [1/second]
-        Is: 
+        Is:
     OUTPUTS:
         covariance matrix for mle Ic, Is from Hessian method
         [[cov(Ic,Ic), cov(Ic,Is)], [cov(Is,Ic), cov(Is,Is)]]
@@ -612,13 +612,13 @@ def MRlogL_sandwichCov(Ic, Is, Ir, dt, deadtime=0):
     """
     Estimates the asymptotic covariance matrix with the sandwich method
     evaluated at the Maximum Likelihood Estimates for Ic, Is
-    
+
     It's Cov_hessian * Cov_OPG^-1 * Cov_hessian
-    
+
     INPUTS:
         dt: list of inter-arrival times [seconds]
         Ic: The maximum likelihood estimate of Ic [1/second]
-        Is: 
+        Is:
     OUTPUTS:
         covariance matrix for mle Ic, Is from sandwich method
         [[cov(Ic,Ic), cov(Ic,Is)], [cov(Is,Ic), cov(Is,Is)]]
@@ -626,7 +626,7 @@ def MRlogL_sandwichCov(Ic, Is, Ir, dt, deadtime=0):
     h_cov = MRlogL_hessianCov(Ic, Is, Ir, dt, deadtime)
     opg_cov = MRlogL_opgCov(Ic, Is, Ir, dt, deadtime)
     opg_cov_inv = np.linalg.inv(opg_cov)
-    
+
     return np.matmul(np.matmul(h_cov, opg_cov_inv),h_cov)
 
 
@@ -636,18 +636,18 @@ def MRlogL_sandwichCov(Ic, Is, Ir, dt, deadtime=0):
 def maxMRlogL(ts, Ic_guess=1., Is_guess=1., method='Powell'):
     """
     Get maximum likelihood estimate of Ic, Is given dt
-    
+
     It uses scipy.optimize.minimize to minimizes the negative log likelihood
-    
+
     INPUTS:
         ts - list of photon arrival times [us]
         Ic_guess - guess for Ic [photons/second]
-        Is_guess - 
+        Is_guess -
         method - the optimization method (see scipy.optimize.minimize)
     OUTPUTS:
         res - OptimizeResult Object
               see https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.OptimizeResult.html
-        
+
     """
     dt = ts[1:] - ts[:-1]
     dt = dt[np.where(dt < 1.e6)]/10.**6
@@ -662,17 +662,17 @@ def maxMRlogL(ts, Ic_guess=1., Is_guess=1., method='Powell'):
 def getPixelPhotonList(filename, xCoord, yCoord, **kwargs):
     """
     Gets the list of photon arrival times from a H5 file
-    
+
     INPUTS:
         filename - Name of H5 data file
-        xCoord - 
-        yCoord - 
+        xCoord -
+        yCoord -
         **kwargs - keywords for Obsfile getpixelphotonlist()
     OUTPUTS:
         ts - timestamps in us of photon arrival times
     """
     obs = Photontable(filename)
-    times = obs.query(pixel=(xCoord, yCoord), column='Time' **kwargs)
+    times = obs.query(pixel=(xCoord, yCoord), column='time', **kwargs)
     print("#photons: "+str(len(times)))
     del obs  # make sure to close files nicely
     return times
@@ -682,19 +682,19 @@ def getPixelPhotonList(filename, xCoord, yCoord, **kwargs):
 
 if __name__ == "__main__":
 
-    
+
     print("Getting photon list: ")
     Ic, Is, Ir, Ttot, tau, deadTime = [30., 300., 0., 30., .1, 10.]
     print("[Ic, Is, Ir, Ttot, tau, deadTime]: "+str([Ic, Is, Ir, Ttot, tau, deadTime]))
     print("\t...", end="", flush=True)
     ts = genphotonlist(Ic, Is, Ir, Ttot, tau, deadTime)
     print("Done.\n")
-    
+
     #dt = ts[1:] - ts[:-1]
     #dt=dt[np.where(dt<1.e6)]/10.**6     #remove negative values and convert into seconds
-    
-    
-    
+
+
+
     #fn = '/home/abwalter/peg32/1507175503.h5'
     #print("From: ",fn)
     #print("\t...",end="", flush=True)
@@ -718,7 +718,7 @@ if __name__ == "__main__":
     print(np.sqrt(MRlogL_hessianCov(dt, Ic_mle, Is_mle)))
     print(np.sqrt(MRlogL_sandwichCov(dt, Ic_mle, Is_mle)))
     print("=====================================\n")
-    
+
 
     print("Optimizing with StatModels...")
     m = MR_SpeckleModel(ts, deadtime=deadTime, inttime=Ttot)
@@ -726,7 +726,7 @@ if __name__ == "__main__":
     print(res.summary())
     #print(res.params)
     #print(res.bse)
-    
+
     print("\n#photons: "+str(len(ts)))
     countRate = len(ts)/Ttot
     print('photons/s: '+str(countRate))
@@ -753,5 +753,3 @@ if __name__ == "__main__":
     Is_list = np.arange(100., 400., 1.)
     plotLogLMap(ts, Ic_list, Is_list, deadtime=deadTime, inttime=Ttot)
     plt.show()
-
-
