@@ -4,80 +4,85 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as manimation
 from astropy.wcs import WCS
 import astropy.units as u
-from skimage.restoration import inpaint
+import skimage.restoration as restoration
+from astropy.io import fits
+from astropy.visualization import ImageNormalize, AsinhStretch, LinearStretch, \
+    LogStretch, PowerDistStretch, PowerStretch, SinhStretch, SqrtStretch, SquaredStretch
+
+import mkidpipeline.config
 
 from mkidcore.corelog import getLogger
 import mkidpipeline.config
 import mkidpipeline.photontable as photontable
 
+STRETCHES = {'asinh': AsinhStretch, 'linear': LinearStretch, 'log': LogStretch, 'powerdist': PowerDistStretch,
+             'sinh': SinhStretch, 'sqrt': SqrtStretch, 'squared': SquaredStretch, 'power': PowerStretch}
+
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!movies_cfg'
-    REQUIRED_KEYS = (('inpaint', False, 'Inpaint?'),
+    REQUIRED_KEYS = (('type', 'simple', 'simple|upramp|both'),
+                     ('inpaint', False, 'Inpaint?'),
                      ('colormap', 'viridis', 'Colormap to use'),
                      ('rate_cut', None, 'Count (rate) cutoff, None=none'),
-                     ('axes', True, 'Show the axes'))
+                     ('axes', True, 'Show the axes'),
+                     ('wcs', True, 'Use the WCS solution'),
+                     ('mask_bad', True, 'Mask bad pixels'),
+                     ('fps', 24, 'framerate'),
+                     ('stretch.name', 'linear',
+                      'linear | asinh | log | power[power=5] | powerdist | sinh | sqrt | squared'),
+                     ('stretch.args', tuple(), 'see matplotlib docs'),
+                     ('stretch.kwargs', dict(), 'see matplotlib docs'),
+                     ('title', True, 'Display the title at the top of the animation'))
 
 
-def make_movie(out, **kwargs):
-    """Make a movie of a single observation"""
-    config = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(movies=StepConfig()), cfg=None, copy=True)
-
-    ob = out.data
-    if isinstance(ob, mkidpipeline.config.MKIDDitherDescription):
-        ob = ob.obs_for_time(ob.start + out.start_offset)
-
-    _make_movie(ob.h5, out.filename, out.timestep, movie_duration=out.movie_length,
-                title=out.name, usewcs=out.usewcs, startw=out.min_wave, stopw=out.max_wave, startt=out.start_offset,
-                stopt=out.duration, showaxes=config.movies.axes, inpainting=config.movies.inpaint,
-                cps_cutoff=config.movies.cps_cutoff, colormap=config.movies.colormap,
-                use_weight=out.use_weights, maskbad=out.exclude_flags, **kwargs)
-
-from astropy.io import fits
-file=''
-
-
-def fetch_data(file, startt,stopt):
+def _fetch_data(file, timestep, start=0, stop=np.inf, min_wave=None, max_wave=None, use_weights=False, cps=True,
+                exclude_flags=None):
+    """
+    cps = true each frame consists of the count rate in that timestep, if false each frame consist of the counts in
+    that frame. cps is ignored and the unit from the file is used if a fits file is provided.
+    """
     global _cache
-    try:
-        hdul, wcs, nfo = _cache
-        if (file, timestep, startt, stopt, usewcs, startw, stopw, spec_weight, noise_weight) != nfo:
-            raise ValueError
-    except ValueError:
-        if file.endswith('fits'):
-            hdul = fits.open(file)
-        else:
-            getLogger(__name__).info('Fetching temporal cube from {}'.format(h5file))
+
+    if file.endswith('fits'):
+        hdul = fits.open(file)
+    else:
+        try:
+            hdul, nfo = _cache
+            if (file, timestep, start, stop, min_wave, max_wave, use_weights, cps, exclude_flags) != nfo:
+                raise ValueError
+        except (ValueError, TypeError, NameError):
+            getLogger(__name__).info('Fetching temporal cube from {}'.format(file))
             of = photontable.Photontable(file)
-            hdul = of.get_fits(start=startt, duration=stopt, bin_width=timestep, wave_start=min_wave,
-                               wave_stop=max_wave, spec_weight=use_weight, noise_weight=use_weight,
-                               cube_type='time', rate=cps)
+            hdul = of.get_fits(start=start, duration=stop, bin_width=timestep, wave_start=min_wave,
+                               wave_stop=max_wave, spec_weight=use_weights, noise_weight=use_weights,
+                               cube_type='time', rate=cps, exclude_flags=exclude_flags)
             del of
             getLogger(__name__).info(f"Retrieved a temporal cube of shape {hdul['SCIENCE'].data.shape}")
 
-        _cache = hdul, file, (timestep, startt, stopt, usewcs, startw, stopw, spec_weight, noise_weight)
+        _cache = hdul, (file, timestep, start, stop, min_wave, max_wave, use_weights, cps, exclude_flags)
 
     # fetch what is needed from the fits
     try:
-        wcs = WCS(hdul['SCIENCE'].header)
         cps = hdul['SCIENCE'].header['UNIT'] == 'photons/s'
         exp_time = hdul['BIN_EDGES'].data * u.Quantity(f"1 {hdul['BIN_EDGES'].header['UNIT']}").to('s').value
         frames = hdul['SCIENCE'].data * (exp_time if cps else 1)
-        time = exp_time
-        time_mask = (time >= startt) & (time <= stopt)
-        frames = frames[time_mask]
-        time = time[time_mask]
+        time_mask = (exp_time >= start) & (exp_time <= stop)
     except KeyError:
         getLogger(__name__).error('FITS data in invalid format')
+        raise IOError('Invalid data format')
 
-    return frames, time, wcs
+    assert time_mask.size == frames.shape[0] + 1
+
+    return frames[time_mask[1:] & time_mask[:-1]], exp_time[time_mask], hdul
 
 
-def process(frames, time, cps=True, region=None, smooth_sigma=None, n_frames_smooth=6, smooth_power=3,
-            cumulative=False, inpaint=False, inpaint_limit=np.inf):
+def _process(frames, time, region=None, smooth_sigma=None, n_frames_smooth=6, smooth_power=3,
+             inpaint=False, inpaint_limit=np.inf):
+    """ Apply smoothing, region selection, inpainting and compute the cumsum of the frames"""
 
     if not smooth_sigma:
-        smooth_mask = np.ones_like(time,dtype=True)
+        smooth_mask = np.ones_like(time, dtype=True)
     else:
         from scipy.signal import savgol_filter
         curve = np.median(np.median(frames, axis=1), axis=1)
@@ -99,259 +104,183 @@ def process(frames, time, cps=True, region=None, smooth_sigma=None, n_frames_smo
     region_slice = (slice(None),) + region
 
     frames = frames[smooth_mask][region_slice]
-    time = time[smooth_mask]
 
-    if cumulative:
-        frames = np.cumsum(frames, axis=0)
-        if cps:
-            # Each frame in the spectral_stack is in CPS, not counts. To keep the scale consistent average by the
-            # number of frames that went into that stacked frame
-            frames /= np.arange(frames.shape[0]) + 1
+    # pull out the axed integration time
+    tmp = np.diff(time)
+    tmp[smooth_mask] = 0
+    tmp = np.cumsum(tmp)
+    itime = (time[1:] - time[0] - np.cumsum(tmp))[smooth_mask]  # bin integration time
+    times = (time[:-1] + time[0:])[smooth_mask] / 2  # bin midpoint
 
     if inpaint:
         getLogger(__name__).info('Inpainting requested')
-        inpainted = np.array([inpaint.inpaint_biharmonic(frame, frame < inpaint_limit, multichannel=False)
+        inpainted = np.array([restoration.inpaint.inpaint_biharmonic(frame, frame < inpaint_limit, multichannel=False)
                               for frame in frames])
         getLogger(__name__).info('Completed inpainting!')
         frames = inpainted
 
-    return frames, time
+    return frames, times, itime
 
 
+def _save_frames(frames, movie_duration, units, suptitle='', movie_type='simple', outfile='file.mp4', wcs=None,
+                 mask=None, showaxes=True, description='', colormap='viridis', interpolation='none', dpi=None,
+                 bad_color='black', stretch='linear'):
+    """
+    RA is assumed along x and Dec along y
+    movie_type = simple|upramp|both
+    units must have '/s' in it if data is in per second form
+    """
 
-def save_frames(frames, times, title='', outfile='file.mp4', wcs=None, mask=None, showaxes=True, description='',
-                colormap='viridis', movie_duration=None, **kwargs):
+    origin = 'lower'
+    movie_type = movie_type.lower()
 
-    if movie_duration:
-        fps = frames.shape[0]/movie_duration
-
-    #Load the writer
-    Writer = manimation.writers['ffmpeg'] if 'mp4' in outfile else manimation.writers['imagemagick']
-
-    metadata = dict(title=title, artist=__name__, genre='Astronomy', comment=description)
-    writer = Writer(fps=fps, metadata=metadata, bitrate=-1)
-
-    fig = plt.figure()
-    if wcs:
-        plt.subplot(projection=wcs)
+    fps = frames.shape[0] / movie_duration
 
     if mask:
         frames[mask[np.newaxis, :, :]] = np.nan
-    im = plt.imshow(frames[0], interpolation='none', origin='lower', vmin=0, vmax=cps_cutoff*timestep,
-                    cmap=plt.get_cmap(colormap))
-    im.cmap.set_bad('black')
-    cbar = plt.colorbar()
-    ticks = cbar.get_ticks()
-    cbar.set_label('photons/s')
-    cbar.set_ticks(ticks)
-    cbar.set_ticklabels(list(map('{:.0f}'.format, ticks/timestep)))
 
-    if not showaxes:
-        fig.patch.set_visible(False)
-        plt.gca().axis('off')
+    # Create the writer
+    writerkey = 'ffmpeg' if 'mp4' in outfile else 'imagemagick'
+    metadata = dict(title=suptitle, artist=__name__, genre='Astronomy', comment=description)
+    writer = manimation.writers[writerkey](fps=fps, metadata=metadata, bitrate=-1)
+
+    if isinstance(stretch, str):
+        stretch = STRETCHES[stretch]()
+
+    # fetch the colormap
+    try:
+        cmap = plt.get_cmap(colormap)
+    except Exception:
+        getLogger(__name__).warning(f"Invalid colormap ({colormap}), using 'hot'.")
+        cmap = plt.get_cmap('hot')
+
+    fig, axs = plt.subplots(1, 2 if movie_type == 'both' else 1, constrained_layout=True, projection=wcs)
+    if suptitle:
+        plt.suptitle(suptitle)
+
+    if showaxes:
+        for ax in axs:
+            plt.sca(ax)
+            plt.xlabel('RA' if wcs else 'pixel')
+            plt.ylabel('Dec' if wcs else 'pixel')
     else:
-        if wcs:
-            plt.xlabel('RA')
-            plt.ylabel('Dec')
-        else:
-            plt.xlabel('pixel')
-            plt.ylabel('pixel')
-        plt.tight_layout()
+        fig.patch.set_visible(False)
+        for ax in axs:
+            ax.axis('off')
 
-    with writer.saving(fig, outfile, dpi):
-        for a in frames:
-            im.set_array(a)
+    stack = np.cumsum(frames, axis=0)
+    if '/s' in units:
+        # When in counts per second we build a progressively more accurate average not a sum!
+        stack /= np.arange(frames.shape[0]) + 1
+
+    nframes = frames.shape[0]
+    if movie_type == 'both':
+        image_names = ('Frame', 'Integration')
+
+        cbmaxs = (int(frames.max()), int(stack.max()))
+        norms = (ImageNormalize(vmin=-10, vmax=frames.max() + 5, stretch=stretch),
+                 ImageNormalize(vmin=-10, vmax=stack.max() + 5, stretch=stretch))
+        frame_data = np.stack((frames, stack), axis=1)
+    elif movie_type == 'upramp':
+        image_names = ('Integration',)
+        cbmaxs = (int(stack.max()),)
+        norms = (ImageNormalize(vmin=-10, vmax=stack.max() + 5, stretch=stretch),)
+        frame_data = stack
+    else:
+        image_names = ('Frame',)
+        cbmaxs = (int(frames.max()),)
+        norms = (ImageNormalize(vmin=-10, vmax=frames.max() + 5, stretch=stretch),)
+        frame_data = frames
+
+    with writer.saving(fig, outfile, frames[0].shape[1] * 2, dpi=dpi):
+
+        img = []
+        for ax, frame_im, name, cbmax, norm in zip(axs, frame_data[0], image_names, cbmaxs, norms):
+            img.append(ax.imshow(frame_im, cmap=cmap, norm=norm, interpolation=interpolation, origin=origin))
+            img[-1].cmap.set_bad(bad_color)
+            ax.set_title(name)
+            cbar = fig.colorbar(frame_im, ax=ax, location='bottom', shrink=0.7, ticks=[0, cbmax])
+            cbar.set_label(units)
+            # ticks = cbar.get_ticks()
+            # cbar.set_ticks(ticks)
+            # cbar.set_ticklabels(list(map('{:.0f}'.format, ticks)))  #TODO
+
+        plt.tight_layout()
+        writer.grab_frame()
+
+        for i, frame_im in enumerate(frame_data[1:]):
+            if not (i + 1 % 10):
+                getLogger(__name__).debug(f"Frame {i + 1} of {nframes}")
+            for im, data in zip(img, frame_im):
+                im.set_data(data)
             writer.grab_frame()
 
-    return frames
 
+def fetch(out, **kwargs):
+    """Make a movie of a single observation"""
+    config = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(movies=StepConfig()), cfg=None, copy=True)
 
-def _make_movie(file, outfile, timestep, movie_duration=None, title='', usewcs=False, startw=None, stopw=None, startt=None,
-                stopt=None, fps=15, showaxes=False, inpainting=False, cps_cutoff=5000, maskbad=False,
-                colormap='Blue', dpi=400, noise_weight=False, spec_weight=True):
-    """returns the movie frames"""
-    global _cache
-    movietype = os.path.splitext(outfile)[1].lower()
+    ob = out.data
+    if isinstance(ob, mkidpipeline.config.MKIDDitherDescription):
+        ob = ob.obs_for_time(ob.start + out.start_offset)
+
+    file = ob.h5
+    outcfg = out.output_settings_dict
+
+    movietype = os.path.splitext(out.filename)[1].lower()
     if movietype not in ('.mp4', '.gif'):
         raise ValueError('Only mp4 and gif movies are supported')
 
-    frames, times, wcs, hdul = fetch_data(file, **kwargs)
+    frames, times, hdul = _fetch_data(file, outcfg.bin_width, start=outcfg.start, stop=outcfg.stop,
+                                      min_wave=outcfg.min_wave, max_wave=outcfg.min_wave,
+                                      use_weights=out.use_weights, cps=outcfg.rate,
+                                      exclude_flags=outcfg.exclude_flags)
 
+    suptitle = f"{out.name}: {np.diff(times[:2])[0]} s/frame, {hdul['SCIENCE'].header['EXPTIME']} s total"
+    wavestr = f" {out.min_wave} - {out.max_wave:.0f} nm" if np.isinf(out.min_wave) | np.isinf(out.min_wave) else ''
 
-    if not len(frames):
-        getLogger(__name__).warning(f'No frames in {startt}-{stopt} s for {h5file}')
+    description = f't0={times[0]:.0f} dt={out.timestep:.1f}s{wavestr}'
+
+    if not frames.size:
+        getLogger(__name__).warning(f'No frames in {outcfg.start}-{outcfg.stop} for {file}')
         return
 
-    frames, times = process(frames, times, **kwargs)
+    frames, times, itimes = _process(frames, times, region=out.region,
+                                     smooth_sigma=config.movies.smoothing.sigma,
+                                     n_frames_smooth=config.movies.smoothing.n,
+                                     smooth_power=config.movies.smoothing.power,
+                                     inpaint=config.movies.inpainting,
+                                     inpaint_limit=config.movies.inpaint_limit)
 
-    if not len(frames):
-        getLogger(__name__).warning(f'No frames in {startt}-{stopt} s after processing for {h5file}')
+    if not frames.size:
+        getLogger(__name__).warning(f'No frames in {outcfg.start}-{outcfg.stop} for {file}')
         return
+    try:
+        STRETCHES[config.movies.stretch.name](*config.movies.stretch.args, **config.movies.stretch.kwargs)
+    except Exception:
+        getLogger(__name__).warning(f"Error parsing stretch args stretch: {config.movies.stretch.name}. "
+                                    f"Defaulting to linear.")
+        stretch = STRETCHES['linear']()
 
-    description = 't0={:.0f} dt={:.1f}s {:.0f} - {:.0f} nm'.format(times[0], timestep,
-                                                               startw if startw is not None else 0,
-                                                               stopw if stopw is not None else np.inf)
-    save_frames(frames, times, wcs, mask=hdul['BAD'].data if maskbad else None, description=description, **kwargs)
+    _save_frames(frames, out.movie_runtime, hdul['SCIENCE'].header['UNIT'], suptitle=suptitle, stretch=stretch,
+                 description=description, mask=hdul['BAD'].data if config.movies.mask_bad else None,
+                 outfile=out.filename, movie_type=out.movie_type,
+                 wcs=WCS(hdul['SCIENCE'].header) if config.movies.usewcs else None,
+                 colormap=config.movies.colormap, showaxes=config.movies.show_axes, dpi=config.movies.dpi,
+                 bad_color='black', interpolation='none')
 
 
-
-def test_writers(out='garbage.gif',showaxes=False, fps=5):
-    import os
-    frames = np.random.uniform(0,100,size=(100,140,146))
-
+def test_writers(out='garbage.gif'):
+    frames = np.random.uniform(0, 100, size=(100, 140, 146))
     movietype = os.path.splitext(out)[1].lower()
     if movietype not in ('.mp4', '.gif'):
         raise ValueError('Only mp4 and gif movies are supported')
-
-    Writer = manimation.writers['ffmpeg'] if movietype is 'mp4' else manimation.writers['imagemagick']
-    metadata = dict(title='test', artist=__name__, genre='Astronomy', comment='comment')
-    writer = Writer(fps=fps, metadata=metadata, bitrate=-1)
-
+    writer = manimation.writers['ffmpeg' if 'mp4' in out else 'imagemagick'](fps=24, bitrate=-1)
     fig = plt.figure()
     im = plt.imshow(frames[0], interpolation='none')
-    if not showaxes:
-        fig.patch.set_visible(False)
-        plt.gca().axis('off')
-
     plt.tight_layout()
     with writer.saving(fig, out, frames.shape[0]):
-        for a in frames:
+        writer.grab_frame()
+        for a in frames[1:]:
             im.set_array(a)
             writer.grab_frame()
-
-
-
-#+++++++++
-
-
-class StepConfig(mkidpipeline.config.BaseStepConfig):
-    yaml_tag = u'!animation_cfg'
-    REQUIRED_KEYS = (('plots', 'all', 'none|data|stack|all'),
-                     ('fps', 24, 'framerate'),
-                     ('stretch', 'linear', 'linear | asinh | log | power[power=5] | powerdist | sinh | sqrt | squared'),
-                     ('title', True, 'Display the title at the top of the animation'))
-
-
-
-def animate(data, outfile=None, target='', stretch='linear', type='temporal', fps=10,
-            plot_data=True, plot_stack=True, title=True):
-    outfile = f'{target}.mp4' if outfile is None else outfile
-
-    time_range = [data['lightcurve']['time'][0], data['lightcurve']['time'][-1] + data['exp_time']]
-    exp_time = data['exp_time']
-
-    FFMpegWriter = anim.writers['ffmpeg']
-    writer = FFMpegWriter(fps, metadata=dict(title=f"Dither Movie: {outfile}", artist='Matplotlib'))
-
-    if type == 'temporal':
-        anim_data = {'data': data['data']['temporal'], 'stack': data['stack']['temporal']}
-    elif type == 'spectral':
-        anim_data = {'data': data['data']['spectral'], 'stack': data['stack']['spectral']}
-    else:
-        log.error(f"Trying to animate an unsupported data type!!")
-        return None
-
-    if plot_data and not plot_stack:
-        log.info(f"Only plotting real-time data!")
-        anim_data = anim_data['data']
-        side_by_side = False
-    elif plot_stack and not plot_data:
-        log.info(f"Only plotting the frames being stacked!")
-        anim_data = anim_data['stack']
-        side_by_side = False
-    elif plot_data and plot_stack:
-        log.info(f"Plotting real-time data and stacked frames side-by-side!")
-        side_by_side = True
-    else:
-        log.error(f"Trying not to animate real-time data or image stacking!")
-        return None
-
-    if stretch not in VALID_STRETCHES:
-        log.warning(f"Invalid stretch: {stretch}. Defaulting to linear.")
-        stretch = 'linear'
-
-    if side_by_side:
-        fig, axs = plt.subplots(1, 2, constrained_layout=True)
-        if title:
-            plt.suptitle(f"{target}, {exp_time} s Frame exposure time, "
-                         f"{fps} fps, {time_range[1] - time_range[0]} s of data")
-
-        ims = []
-        with writer.saving(fig, outfile, anim_data['data'][0].shape[1] * 2):
-            for count, i in enumerate(zip(anim_data['data'], anim_data['stack'])):
-                if (count % 10) == 0:
-                    print(f"Frame {count} of {len(anim_data['data'])}")
-                if count == 0:
-                    norm_d = ImageNormalize(vmin=-10, vmax=np.max(anim_data['data']) + 5,
-                                            stretch=VALID_STRETCHES[stretch])
-                    norm_s = ImageNormalize(vmin=-10, vmax=np.max(anim_data['stack']) + 5,
-                                            stretch=VALID_STRETCHES[stretch])
-                    im1 = axs[0].imshow(i[0], cmap='hot', norm=norm_d)
-                    im2 = axs[1].imshow(i[1], cmap='hot', norm=norm_s)
-                    axs[0].set_title('Instantaneous Data')
-                    axs[1].set_title('Integrated Data')
-                    ims.append([im1, im2])
-                    c1 = fig.colorbar(im1, ax=axs[0], location='bottom', shrink=0.7,
-                                      ticks=[0, int(np.max(anim_data['data']))])
-                    c2 = fig.colorbar(im2, ax=axs[1], location='bottom', shrink=0.7,
-                                      ticks=[0, int(np.max(anim_data['stack']))])
-                else:
-                    im1.set_data(i[0])
-                    im2.set_data(i[1])
-                    ims.append([im1, im2])
-                writer.grab_frame()
-
-    else:
-        fig, axs = plt.subplots(1, 1, constrained_layout=True)
-        if title:
-            plt.suptitle(f"{target}, {exp_time} s Frame exposure time, "
-                         f"{fps} fps, {time_range[1] - time_range[0]} s of data")
-
-        ims = []
-        with writer.saving(fig, outfile, anim_data[0].shape[1] * 2):
-            for count, i in enumerate(anim_data):
-                if (count % 10) == 0:
-                    log.debug(f"Frame {count} of {len(anim_data)}")
-                if count == 0:
-                    norm_d = ImageNormalize(vmin=-10, vmax=np.max(anim_data) + 5, stretch=VALID_STRETCHES[stretch])
-                    im1 = axs.imshow(i, cmap='hot', norm=norm_d)
-                    if plot_data:
-                        axs.set_title('Instantaneous Data')
-                    elif plot_stack:
-                        axs.set_title('Stacked Data')
-                    ims.append([im1])
-                    c1 = fig.colorbar(im1, ax=axs, location='bottom', shrink=0.7, ticks=[0, int(np.max(anim_data))])
-                else:
-                    im1.set_data(i)
-                    ims.append([im1])
-
-                writer.grab_frame()
-
-
-# if config.animation.power:
-#     VALID_STRETCHES['power'] = PowerStretch(config.animation.power)
-#
-# if not config.animation.target:
-#     log.warning('Target missing! Must be specified in the config for metadata.')
-
-# stacked_data = generate_stack_data(config.paths.fits, config.data.exp_time, (start, end), config.data.smooth,
-#                                    config.data.square_size, config.data.wvl_bin)
-#
-# animate(stacked_data, outfile=config.paths.out, target=config.animation.target,
-#         stretch=config.animation.stretch, type=config.animation.type, fps=config.animation.fps,
-#         plot_data=config.animation.plot_data, plot_stack=config.animation.plot_stack,
-#         title=config.animation.show_title)
-
-#+++++++++
-
-# from mkidpipeline.hdf.photontable import Photontable
-# h5file='/scratch/steiger/MEC/DeltaAnd/output/1567930101.h5'
-# of = Photontable('/scratch/steiger/MEC/DeltaAnd/output/1567930101.h5')
-# # 1567930101, 1567931601
-# cube = of.getTemporalCube(None, 10, timeslice=.1, startw=None, stopw=None,
-#                           spec_weight=True, noise_weight=True)
-# # cube,times=cube['cube'],cube['timeslices'][:-1]
-# import mkidpipeline.imaging.movies import _make_movie
-if __name__ == '__main__':
-    data = _make_movie('/scratch/steiger/MEC/DeltaAnd/output/1567930101.h5', 'dand.gif', .1, 5, title='dAnd',
-                       startt=None, stopt=10, usewcs=False, startw=None, stopw=None,  showaxes=False)
