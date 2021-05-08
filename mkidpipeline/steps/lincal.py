@@ -59,7 +59,7 @@ def apply(o: mkidpipeline.config.MKIDTimerange, config=None):
     for resid in of.resonators(exclude=PROBLEM_FLAGS):
         #TODO as written this performes the same query twice, look at flatcal to improve performance
         photons = of.query(resid=resid, column='time')
-        weights = calculate_weights(photons['time'], cfg.lincal.dt, of.query_header('dead_time')*1e-6)
+        weights = calculate_weights(photons, cfg.lincal.dt, of.query_header('dead_time')*1e-6)
         of.multiply_column_weight(resid, weights, 'weight', flush=False)
         bar.update()
     of.photonTable.flush()
