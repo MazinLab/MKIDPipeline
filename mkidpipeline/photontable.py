@@ -171,14 +171,15 @@ class SharedPhotonList(object):
 
 _METADATA_BLOCK_BYTES = 4 * 1024 * 1024
 _KEY_BYTES = 256
-_VALUE_BYTES = 4096
+_VALUE_BYTES = 8192
 
 
 class Photontable:
     TICKS_PER_SEC = int(1.0 / 1e-6)  # each integer value is 1 microsecond
 
     class MetadataDescription(tables.IsDescription):
-        metadata = tables.StringCol(_METADATA_BLOCK_BYTES)
+        time = tables.UInt32Col(pos=0)
+        metadata = tables.StringCol(_METADATA_BLOCK_BYTES, pos=1)
 
     class PhotontableHeader(tables.IsDescription):
         key = tables.StringCol(_KEY_BYTES)
@@ -255,56 +256,8 @@ class Photontable:
         self._flagArray = self.file.get_node('/Beammap/Flag')  # The absence of .read() here is correct
         self.nXPix, self.nYPix = self.beamImage.shape
 
-        #get the photontable
+        # get the photontable
         self.photonTable = self.file.get_node('/Photons/Photontable')
-
-    def multiply_column_weight(self, resid, weights, column, flush=True):
-        """
-        Applies a weight calibration to the column specified by colName.
-
-        Parameters
-        ----------
-        resid: int
-            resID of desired pixel
-        weights: array of floats
-            Array of cal weights. Multiplied into the specified column column.
-        column: string
-            Name of weight column. Should be 'weight'
-        """
-        if self.mode != 'write':
-            raise Exception("Must open file in write mode to do this!")
-
-        if column != 'weight':
-            raise ValueError(f"{column} is not 'weight'")
-
-        indices = self.photonTable.get_where_list('resID==resid')
-
-        if not (np.diff(indices) == 1).all():
-            raise NotImplementedError('Table is not sorted by Res ID!')
-
-        if len(indices) != len(weights):
-            raise ValueError('weights length does not match length of photon list for resID!')
-
-        new = self.query(resid=resid, field=column)[column] * np.asarray(weights)
-        self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=new, colname=column)
-        if flush:
-            self.photonTable.flush()
-
-    def _update_extensible_header_store(self, extensible_header):
-        if self.mode != 'write':
-            raise IOError("Must open file in write mode to do this!")
-        if not isinstance(extensible_header, dict):
-            raise TypeError('extensible_header must be of type dict')
-        out = StringIO()
-        yaml.dump(extensible_header, out)
-        emdstr = out.getvalue().encode()
-        if len(emdstr) > _METADATA_BLOCK_BYTES:  # this should match mkidcore.headers.ObsHeader.metadata
-            raise ValueError(f"Too much metadata! {len(emdstr) // 1024} KB needed, "
-                             f"{_METADATA_BLOCK_BYTES // 1024} allocated")
-        self._mdcache = extensible_header
-        # self.update_header('metadata', emdstr)
-        self.file.root.metadata.metadata.modify_column(column=emdstr, colname='metadata')
-        self.file.root.metadata.metadata.flush()
 
     def _parse_query_range_info(self, startw=None, stopw=None, start=None, stop=None, intt=None):
         """ return a dict with info about the data returned by query with a particular set of args
@@ -371,6 +324,83 @@ class Photontable:
         return dict(start=start, stop=stop, relstart=relstart, relstop=relstop, duration=relstop - relstart,
                     qstart=qstart, qstop=qstop, minw=startw, maxw=stopw, qminw=qminw, qmaxw=qmaxw)
 
+    @property
+    def duration(self):
+        return self.query_header('expTime')
+
+    @property
+    def start_time(self):
+        return self.query_header('UNIXSTART')
+
+    @property
+    def stop_time(self):
+        return self.start_time + self.duration
+
+    @property
+    def bad_pixel_mask(self):
+        """A boolean image with true where pixel data has problems """
+        from mkidpipeline.pipeline import PROBLEM_FLAGS  # This must be here to prevent a circular import!
+        return self.flagged(PROBLEM_FLAGS)
+
+    @property
+    def wavelength_calibrated(self):
+        return bool(self.query_header('wavecal'))
+
+    @property
+    def flags(self):
+        """
+        The flags associated with the with the file.
+
+        Changing this once it is initialized is at your own peril!
+        """
+        from mkidpipeline.pipeline import PIPELINE_FLAGS  # This must be here to prevent a circular import!
+
+        names = self.query_header('flags')
+        if not names:
+            getLogger(__name__).warning('Flag names were not attached at time of H5 creation. '
+                                        'If beammap flags have changed since then things WILL break. '
+                                        'You must recreate the H5 file.')
+            names = PIPELINE_FLAGS.names
+            self.enablewrite()
+            self.update_header('flags', names)
+            self.disablewrite()
+
+        f = FlagSet.define(*[(n, i, PIPELINE_FLAGS.flags[n].description if n in PIPELINE_FLAGS.flags else '')
+                             for i, n in enumerate(names)])
+        return f
+
+    def multiply_column_weight(self, resid, weights, column, flush=True):
+        """
+        Applies a weight calibration to the column specified by colName.
+
+        Parameters
+        ----------
+        resid: int
+            resID of desired pixel
+        weights: array of floats
+            Array of cal weights. Multiplied into the specified column column.
+        column: string
+            Name of weight column. Should be 'weight'
+        """
+        if self.mode != 'write':
+            raise Exception("Must open file in write mode to do this!")
+
+        if column != 'weight':
+            raise ValueError(f"{column} is not 'weight'")
+
+        indices = self.photonTable.get_where_list('resID==resid')
+
+        if not (np.diff(indices) == 1).all():
+            raise NotImplementedError('Table is not sorted by Res ID!')
+
+        if len(indices) != len(weights):
+            raise ValueError('weights length does not match length of photon list for resID!')
+
+        new = self.query(resid=resid, field=column)[column] * np.asarray(weights)
+        self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=new, colname=column)
+        if flush:
+            self.photonTable.flush()
+
     def enablewrite(self):
         """USE CARE IN A THREADED ENVIRONMENT"""
         if self.mode == 'write':
@@ -430,42 +460,6 @@ class Photontable:
         ind = np.searchsorted(flatbeam[beamsorted], photons["ResID"])
         return np.unravel_index(beamsorted[ind], self.beamImage.shape)
 
-    @property
-    def duration(self):
-        return self.query_header('expTime')
-
-    @property
-    def start_time(self):
-        return self.query_header('UNIXSTART')
-
-    @property
-    def stop_time(self):
-        return self.start_time + self.duration
-
-    @property
-    def bad_pixel_mask(self):
-        """A boolean image with true where pixel data has problems """
-        from mkidpipeline.pipeline import PROBLEM_FLAGS  # This must be here to prevent a circular import!
-        return self.flagged(PROBLEM_FLAGS)
-
-    @property
-    def wavelength_calibrated(self):
-        return bool(self.query_header('wavecal'))
-
-    @property
-    def extensible_header_store(self):
-        if self._mdcache is None:
-            try:
-                d = yaml.load(self.header[0]['metadata'].decode())
-                self._mdcache = {} if d is None else dict(d)
-            except TypeError:
-                msg = ('Could not restore a dict of extensible metadata, '
-                       'purging and repairing (file will not be changed until write).'
-                       'Metadata must be reattached to {}.')
-                getLogger(__name__).warning(msg.format(type(self._mdcache), self.filename))
-                self._mdcache = {}
-        return self._mdcache
-
     def flagged(self, flags, pixel=(slice(None), slice(None)), allow_unknown_flags=True, all_flags=False,
                 resid=None):
         """
@@ -493,29 +487,6 @@ class Photontable:
         bitmask = f.bitmask(flags, unknown='ignore')
         bits = self._flagArray[x, y] & bitmask
         return bits == bitmask if all_flags else bits.astype(bool)
-
-    @property
-    def flags(self):
-        """
-        The flags associated with the with the file.
-
-        Changing this once it is initialized is at your own peril!
-        """
-        from mkidpipeline.pipeline import PIPELINE_FLAGS  # This must be here to prevent a circular import!
-
-        names = self.extensible_header_store.get('flags', [])
-        if not names:
-            getLogger(__name__).warning('Flag names were not attached at time of H5 creation. '
-                                        'If beammap flags have changed since then things WILL break. '
-                                        'You must recreate the H5 file.')
-            names = PIPELINE_FLAGS.names
-            self.enablewrite()
-            self.update_header('flags', names)
-            self.disablewrite()
-
-        f = FlagSet.define(*[(n, i, PIPELINE_FLAGS.flags[n].description if n in PIPELINE_FLAGS.flags else '')
-                             for i, n in enumerate(names)])
-        return f
 
     def flag(self, flag: int, pixel=(slice(None), slice(None))):
         """
@@ -1015,7 +986,7 @@ class Photontable:
         raw = self.header.read_where('key==encoded_key', field='value')
         if not raw.size:
             raise ValueError(f'Key {name} not in header of {self}')
-        return yaml.load(raw.decode())
+        return yaml.load(raw[0].decode())
 
     def update_header(self, key, value):
         """
@@ -1108,7 +1079,19 @@ class Photontable:
         return ret
 
     def attach_observing_metadata(self, metadata):
-        self.update_header('obs_metadata', metadata)
+        if self.mode != 'write':
+            raise IOError("Must open file in write mode to do this!")
+        raise NotImplementedError('TODO')
+        mtable = self.file.get_node('/Metadata/header')
+        rows = []
+        for m in metadata:
+            out = StringIO()
+            yaml.dump(m, out)
+            value = out.getvalue().encode()
+            if len(value) > _METADATA_BLOCK_BYTES:
+                raise ValueError(f'Metadata records must be less than {_METADATA_BLOCK_BYTES} long when yaml encoded')
+            rows.append((m.time,   value))
+        mtable.append(rows)
 
     @staticmethod
     def wavelength_bins(width=.1, start=700, stop=1500, energy=True):
@@ -1135,56 +1118,6 @@ class Photontable:
         n = int((e_stop - e_start) / width)
         # Construct energy bin edges (reversed) and convert back to wavelength
         return const / np.linspace(e_stop, e_start, n + 1)
-
-    def updateWavelengths(self, wvlCalArr, xCoord=None, yCoord=None, resID=None, flush=True):
-        """
-        Changes wavelengths for a single pixel. Overwrites "Wavelength" column w/
-        contents of wvlCalArr. NOT reversible unless you have a copy of the original contents.
-        Photontable must be open in "write" mode to use.
-
-        Parameters
-        ----------
-        resID: int
-            resID of pixel to overwrite
-        wvlCalArr: array of floats
-            Array of calibrated wavelengths. Replaces "Wavelength" column of this pixel's
-            photon list.
-            :param wvlCalArr:
-            :param resID:
-            :param xCoord:
-            :param yCoord:
-            :param flush:
-        """
-        if resID is None:
-            resID = self.beamImage[xCoord, yCoord]
-
-        if self.mode != 'write':
-            raise Exception("Must open file in write mode to do this!")
-        if bool(self.query_header('wavecal')):
-            getLogger(__name__).warning("Wavelength calibration already exists!")
-
-        tic = time.time()
-
-        indices = self.photonTable.get_where_list('resID==resID')
-        assert len(indices) == len(wvlCalArr), 'Calibrated wavelength list does not match length of photon list!'
-
-        if not indices:
-            return
-
-        if (np.diff(indices) == 1).all():
-            getLogger(__name__).debug('Using modify_column')
-            self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=wvlCalArr,
-                                           colname='wavelength')
-        else:
-            getLogger(__name__).debug('Using modify_coordinates')
-            rows = self.photonTable.read_coordinates(indices)
-            rows['wavelength'] = wvlCalArr
-            self.photonTable.modify_coordinates(indices, rows)
-
-        if flush:
-            self.photonTable.flush()
-
-        getLogger(__name__).debug('Wavelengths updated in {:.2f}s'.format(time.time() - tic))
 
     def resonators(self, exclude=None, select=None, pixel=False):
         """A resonator iterator excluding resonators flagged with any flags in exclude and selecting only pixels with
