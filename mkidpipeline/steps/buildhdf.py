@@ -166,8 +166,8 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
 
     metadataTable.row['metadata'] = out
 
-    h5file.create_group('/', 'header', 'Header')
-    headerTable = h5file.create_table('/header', 'header', Photontable.PhotontableHeader, 'Header', expectedrows=512,
+    h5file.create_group('/', 'Header', 'Header')
+    headerTable = h5file.create_table('/Header', 'header', Photontable.PhotontableHeader, 'Header', expectedrows=512,
                                       filters=filter)
     headerContents = {}
     headerContents['wavecal'] = ''
@@ -188,7 +188,15 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
     headerContents['beammap_file'] = cfg.beamfile
     headerContents['M_BMAP'] = cfg.beamfile  #TODO eventually a uuid
 
-    headerTable.append([(str(k), str(v)) for k, v in headerContents.items()])
+    hdr = []
+    for k, v in headerContents.items():
+        out = StringIO()
+        yaml.dump(v, out)
+        value = out.getvalue().encode()
+        assert len(value) < mkidpipeline.photontable._VALUE_BYTES
+        hdr.append((k.encode(), value))
+
+    headerTable.append(hdr)
     getLogger(__name__).debug('Header Attached to {}'.format(cfg.h5file))
 
     h5file.close()
@@ -313,6 +321,14 @@ def gen_configs(timeranges, config=None):
     return b2h_configs
 
 
+def _runbuilder(b):
+    getLogger(__name__).debug('Calling run on {}'.format(b.cfg.h5file))
+    try:
+        b.run()
+    except Exception as e:
+        getLogger(__name__).critical('Caught exception during run of {}'.format(b.cfg.h5file), exc_info=True)
+
+
 def buildtables(timeranges, config=None, ncpu=None, remake=None, **kwargs):
     """
     timeranges must be an iterable of (start, stop) or objects that have .start, .stop attributes providing the same
@@ -335,7 +351,7 @@ def buildtables(timeranges, config=None, ncpu=None, remake=None, **kwargs):
         b2h_configs.append(bc)
 
     remake = mkidpipeline.config.config.buildhdf.get('remake', False) if remake is None else remake
-    ncpu = mkidpipeline.config.config.buildhdf.get('ncpu', 1) if ncpu is None else ncpu
+    ncpu = mkidpipeline.config.config.get('buildhdf.ncpu') if ncpu is None else ncpu
 
     for k in mkidpipeline.config.config.buildhdf.keys():  # This is how chunkshape is propagated
         if k not in kwargs and k not in ('ncpu', 'remake', 'include_baseline'):
@@ -351,14 +367,8 @@ def buildtables(timeranges, config=None, ncpu=None, remake=None, **kwargs):
                 getLogger(__name__).error('Insufficient memory to process {}'.format(b.h5file))
         return timeranges
 
-    def runbuilder(b):
-        getLogger(__name__).debug('Calling run on {}'.format(b.cfg.h5file))
-        try:
-            b.run()
-        except Exception as e:
-            getLogger(__name__).critical('Caught exception during run of {}'.format(b.cfg.h5file), exc_info=True)
 
     pool = mp.Pool(mkidpipeline.config.n_cpus_available(ncpu))
-    pool.map(runbuilder, builders)
+    pool.map(_runbuilder, builders)
     pool.close()
     pool.join()

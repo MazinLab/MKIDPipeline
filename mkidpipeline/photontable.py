@@ -569,6 +569,8 @@ class Photontable:
         """
         intt takes precedence, all none is the full file
 
+        if a column is specified there is no need to do ['colname'] on the return
+
         :param start:
         :param pixel:
         :param stopt:
@@ -1011,7 +1013,8 @@ class Photontable:
         """
         encoded_key = name.encode()
         raw = self.header.read_where('key==encoded_key', field='value')
-        #TODO add handing for missing values
+        if not raw.size:
+            raise ValueError(f'Key {name} not in header of {self}')
         return yaml.load(raw.decode())
 
     def update_header(self, key, value):
@@ -1040,7 +1043,7 @@ class Photontable:
 
         encoded_key = key.encode()
         coord = self.header.get_where_list('key==encoded_key')
-        if coord:
+        if coord.size:
             self.header.modify_coordinates(coord, (key.encode(), value))
         else:
             getLogger(__name__).info(f'Adding new header key: {key}')
