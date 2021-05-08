@@ -153,18 +153,10 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
     h5file.create_array(group, 'Flag', beammap_flagmap_to_h5_flagmap(bmap.flagmap), 'flag map')
     getLogger(__name__).debug('Beammap Attached to {}'.format(cfg.h5file))
 
-    h5file.create_group('/', 'metadata', 'Metadata')
+    h5file.create_group('/', 'Metadata', 'Metadata')
     filter = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=True, bitshuffle=False, fletcher32=False)
-    metadataTable = h5file.create_table('/metadata', 'metadata', Photontable.MetadataDescription, 'Metadata',
-                                        filters=filter, expectedrows=1)
-    out = StringIO()
-    yaml.dump({'flags': PIPELINE_FLAGS.names}, out)
-    out = out.getvalue().encode()
-    MAX_BYTES = mkidpipeline.photontable._METADATA_BLOCK_BYTES
-    if len(out) > MAX_BYTES:  # this should match mkidcore.headers.ObsHeader.metadata
-        raise ValueError(f"Too much metadata! {len(out)//1024} KB needed, {MAX_BYTES/1024} allocated")
-
-    metadataTable.row['metadata'] = out
+    metadataTable = h5file.create_table('/Metadata', 'metadata', Photontable.MetadataDescription, 'Metadata',
+                                        filters=filter, expectedrows=10)
 
     h5file.create_group('/', 'Header', 'Header')
     headerTable = h5file.create_table('/Header', 'header', Photontable.PhotontableHeader, 'Header', expectedrows=512,
@@ -173,6 +165,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
     headerContents['wavecal'] = ''
     headerContents['flatcal'] = ''
     headerContents['speccal'] = ''
+    headerContents['flags'] = PIPELINE_FLAGS.names
     headerContents['pixcal'] = False
     headerContents['lincal'] = False
     headerContents['comsmiccal'] = False
