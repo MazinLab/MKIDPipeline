@@ -2,9 +2,11 @@ loggers:
   mkidpipe:
     handlers: [ default ]
     level: DEBUG
+    propagate: False
   mkidpipeline:
     handlers: [ default, file ]
     level: DEBUG
+    propagate: False
   mkidpipeline.steps.wavecal:
     handlers: [ default ]
     level: INFO
@@ -12,24 +14,27 @@ loggers:
   mkidpipeline.photontable:
     handlers: [ default ]
     level: INFO
+    propagate: False
   mkidpipeline.steps.buildhdf:
     handlers: [ default ]
-    level: INFO
+    level: DEBUG
     propagate: False
   mkidcore:
     handlers: [ default, file ]
     level: DEBUG
+    propagate: False
   mkidcore.config:
     handlers: [ default, file ]
     level: INFO
+    propagate: False
   __main__:
     handlers: [ default ]
     level: DEBUG
     propagate': False
-root:
-  handlers: [ default ]
-  level: NOTSET
-  propagate': False
+#root:
+#  handlers: [ default ]
+#  level: NOTSET
+#  propagate': False
 
 
 version: 1
@@ -48,7 +53,7 @@ handlers:
     formatter: default
 
 formatters:
-  brieffmt:
+  brief:
     format: '%(message)s'
   default:
     format: '%(asctime)s %(name)s:%(levelname)-8s %(message)s'
