@@ -114,7 +114,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
     h5file = tables.open_file(cfg.h5file, mode="a", title="MKID Photon File")
     group = h5file.create_group("/", 'Photons', 'Photon Information')
     filter = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=shuffle, bitshuffle=bitshuffle, fletcher32=False)
-    table = h5file.create_table(group, name='PhotonTable', description=Photontable.PhotonDescription, title="Photon Datatable",
+    table = h5file.create_table(group, name='Photontable', description=Photontable.PhotonDescription, title="Photon Datatable",
                                 expectedrows=len(photons), filters=filter, chunkshape=chunkshape)
     table.append(photons)
 
@@ -129,18 +129,18 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
             else:
                 col.create_index(optlevel=index[1], kind=index[0], filters=filter)
 
-        indexer(table.cols.Time, index, filter=index_filter)
+        indexer(table.cols.time, index, filter=index_filter)
         getLogger(__name__).debug('Time Indexed for {}'.format(cfg.h5file))
-        indexer(table.cols.ResID, index, filter=index_filter)
+        indexer(table.cols.resID, index, filter=index_filter)
         getLogger(__name__).debug('ResID Indexed for {}'.format(cfg.h5file))
-        indexer(table.cols.Wavelength, index, filter=index_filter)
+        indexer(table.cols.wavelength, index, filter=index_filter)
         getLogger(__name__).debug('Wavelength indexed for {}'.format(cfg.h5file))
         getLogger(__name__).debug('Table indexed ({}) for {}'.format(index, cfg.h5file))
     else:
         getLogger(__name__).debug('Skipping Index Generation for {}'.format(cfg.h5file))
 
     bmap = Beammap(cfg.beamfile, xydim=(cfg.x, cfg.y))
-    group = h5file.create_group("/", 'BeamMap', 'Beammap Information', filters=filter)
+    group = h5file.create_group("/", 'Beammap', 'Beammap Information', filters=filter)
     h5file.create_array(group, 'Map', bmap.residmap.astype(int), 'resID map')
 
     def beammap_flagmap_to_h5_flagmap(flagmap):
@@ -154,6 +154,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
     getLogger(__name__).debug('Beammap Attached to {}'.format(cfg.h5file))
 
     h5file.create_group('/', 'metadata', 'Metadata')
+    filter = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=True, bitshuffle=False, fletcher32=False)
     metadataTable = h5file.create_table('/metadata', 'metadata', Photontable.MetadataDescription, 'Metadata',
                                         filters=filter, expectedrows=1)
     out = StringIO()
@@ -162,13 +163,11 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
     MAX_BYTES = mkidpipeline.photontable._METADATA_BLOCK_BYTES
     if len(out) > MAX_BYTES:  # this should match mkidcore.headers.ObsHeader.metadata
         raise ValueError(f"Too much metadata! {len(out)//1024} KB needed, {MAX_BYTES/1024} allocated")
-    row = metadataTable.row
-    row['metadata'] = out
-    metadataTable.append(row)
+
+    metadataTable.row['metadata'] = out
 
     h5file.create_group('/', 'header', 'Header')
-    filter = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=True, bitshuffle=False, fletcher32=False)
-    headerTable = h5file.create_table('/header', 'header', Photontable.PhotontableHeader, 'Header', expectedrows=256,
+    headerTable = h5file.create_table('/header', 'header', Photontable.PhotontableHeader, 'Header', expectedrows=512,
                                       filters=filter)
     headerContents = {}
     headerContents['wavecal'] = ''
@@ -178,7 +177,8 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
     headerContents['lincal'] = False
     headerContents['comsmiccal'] = False
     headerContents['dead_time'] = mkidpipeline.config.config.instrument.deadtime_us
-    headerContents['UNIXSTART'] = cfg.starttime
+    headerContents['UNIXSTR'] = cfg.starttime
+    headerContents['UNIXEND'] = cfg.starttime + cfg.inttime
     headerContents['EXPTIME'] = cfg.inttime
     headerContents['max_wavelength'] = mkidpipeline.config.config.instrument.maximum_wavelength
     headerContents['min_wavelength'] = mkidpipeline.config.config.instrument.minimum_wavelength
@@ -186,6 +186,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
     headerContents['target'] = ''
     headerContents['data_path'] = cfg.datadir
     headerContents['beammap_file'] = cfg.beamfile
+    headerContents['M_BMAP'] = cfg.beamfile  #TODO eventually a uuid
 
     headerTable.append([(str(k), str(v)) for k, v in headerContents.items()])
     getLogger(__name__).debug('Header Attached to {}'.format(cfg.h5file))

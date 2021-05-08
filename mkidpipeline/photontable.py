@@ -243,7 +243,7 @@ class Photontable:
             raise
 
         # get the header
-        self.header = self.file.root.header.header
+        self.header = self.file.get_node('/Header/header')
 
         # get important cal params
         self.nominal_wavelength_bins = self.wavelength_bins(width=self.query_header('energy_resolution'),
@@ -251,10 +251,12 @@ class Photontable:
                                                             stop=self.query_header('max_wavelength'))
 
         # get the beam image
-        self.beamImage = self.file.get_node('/BeamMap/Map').read()
-        self._flagArray = self.file.get_node('/BeamMap/Flag')  # The absence of .read() here is correct
+        self.beamImage = self.file.get_node('/Beammap/Map').read()
+        self._flagArray = self.file.get_node('/Beammap/Flag')  # The absence of .read() here is correct
         self.nXPix, self.nYPix = self.beamImage.shape
-        self.photonTable = self.file.get_node('/Photons/PhotonTable')
+
+        #get the photontable
+        self.photonTable = self.file.get_node('/Photons/Photontable')
 
     def multiply_column_weight(self, resid, weights, column, flush=True):
         """
@@ -289,16 +291,20 @@ class Photontable:
             self.photonTable.flush()
 
     def _update_extensible_header_store(self, extensible_header):
+        if self.mode != 'write':
+            raise IOError("Must open file in write mode to do this!")
         if not isinstance(extensible_header, dict):
             raise TypeError('extensible_header must be of type dict')
         out = StringIO()
         yaml.dump(extensible_header, out)
         emdstr = out.getvalue().encode()
-        if len(emdstr) > METADATA_BLOCK_BYTES:  # this should match mkidcore.headers.ObsHeader.metadata
-            raise ValueError("Too much metadata! {} KB needed, {} allocated".format(len(emdstr) // 1024,
-                                                                                    METADATA_BLOCK_BYTES // 1024))
+        if len(emdstr) > _METADATA_BLOCK_BYTES:  # this should match mkidcore.headers.ObsHeader.metadata
+            raise ValueError(f"Too much metadata! {len(emdstr) // 1024} KB needed, "
+                             f"{_METADATA_BLOCK_BYTES // 1024} allocated")
         self._mdcache = extensible_header
-        self.update_header('metadata', emdstr)
+        # self.update_header('metadata', emdstr)
+        self.file.root.metadata.metadata.modify_column(column=emdstr, colname='metadata')
+        self.file.root.metadata.metadata.flush()
 
     def _parse_query_range_info(self, startw=None, stopw=None, start=None, stop=None, intt=None):
         """ return a dict with info about the data returned by query with a particular set of args
@@ -1003,11 +1009,10 @@ class Photontable:
         """
         Returns a requested entry from the obs file header
         """
-        # header = self.file.root.header.header
-        # titles = header.colnames
-        # info = header[0]
-        # return info[titles.index(name)]
-        return self.file.root.header.header[0][self.file.root.header.header.colnames.index(name)]
+        encoded_key = name.encode()
+        raw = self.header.read_where('key==encoded_key', field='value')
+        #TODO add handing for missing values
+        return yaml.load(raw.decode())
 
     def update_header(self, key, value):
         """
@@ -1023,20 +1028,25 @@ class Photontable:
         """
         if self.mode != 'write':
             raise IOError("Must open file in write mode to do this!")
-        try:
-            value = value.encode()
-        except AttributeError:
-            pass
-        if key not in self.header.colnames:
-            extensible_header = self.extensible_header_store
-            if key not in extensible_header:
-                msg = 'Creating a header entry for {} during purported modification to {}'
-                getLogger(__name__).warning(msg.format(key, value))
-            extensible_header[key] = value
-            self._update_extensible_header_store(extensible_header)
+
+        if len(key.encode()) > _KEY_BYTES:
+            raise ValueError(f'Keys must be less than {_KEY_BYTES} long')
+
+        out = StringIO()
+        yaml.dump(value, out)
+        value = out.getvalue().encode()
+        if len(value) > _VALUE_BYTES:
+            raise ValueError(f'Values must be less than {_VALUE_BYTES} long when yaml encoded')
+
+        encoded_key = key.encode()
+        coord = self.header.get_where_list('key==encoded_key')
+        if coord:
+            self.header.modify_coordinates(coord, (key.encode(), value))
         else:
-            self.header.modify_column(column=value, colname=key)
-            self.header.flush()
+            getLogger(__name__).info(f'Adding new header key: {key}')
+            self.header.append((key.encode(), value))
+
+        self.header.flush()
 
     def metadata(self, timestamp=None, include_h5_header=True):
         """ Return an object with attributes containing the the available observing metadata,
