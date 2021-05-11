@@ -248,7 +248,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, single_
     x, y = obsfile.xy(photons)
 
     # ob.get_wcs returns all wcs solutions (including those after intt), so just pass then remove post facto()
-    wcs = obsfile.get_wcs(derotate=derotate, wcs_timestep=wcs_timestep, single_pa_time=single_pa_time)  # 1545626973
+    wcs = obsfile.get_wcs(derotate=derotate, wcs_timestep=wcs_timestep, single_pa_time=single_pa_time).to_header()  # 1545626973
     nwcs = int(np.ceil(intt / wcs_timestep))
     wcs = wcs[:nwcs]
     del obsfile
