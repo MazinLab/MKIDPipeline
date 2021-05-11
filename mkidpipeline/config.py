@@ -421,18 +421,16 @@ class MKIDTimerange(DataBase):
 
     @property
     def metadata(self):
+        """Returns a dict of of KEY:mkidcore.metadata.MetadataSeries|value pairs, likely a subset of all keys"""
         data = mkidcore.metadata.load_observing_metadata(config.paths.obslog, use_cache=True)
-        mdl = mkidcore.metadata.observing_metadata_for_timerange(self.start, self.duration, data)
+        metadata = mkidcore.metadata.observing_metadata_for_timerange(self.start, self.duration, data)
 
-        if not mdl:
-            mdl = [mkidcore.config.ConfigThing()]
+        for k, v in self._metadata.items():
+            metadata[k] = v  # override
 
-        bad = False
-        for md in mdl:
-            md.registerfromkvlist(self._metadata.items(), namespace='')
-            bad |= mkidcore.metadata.validate_metadata_dict(md, warn=True, error=False, )
+        mkidcore.metadata.validate_metadata_dict(metadata, warn=True, error=False)
 
-        return mdl
+        return metadata
 
 
 class MKIDObservation(MKIDTimerange):
