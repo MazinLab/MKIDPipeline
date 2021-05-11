@@ -112,7 +112,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
         photons.sort(order=('resID', 'time'))
 
     h5file = tables.open_file(cfg.h5file, mode="a", title="MKID Photon File")
-    group = h5file.create_group("/", 'Photons', 'Photon Information')
+    group = h5file.create_group("/", 'photons', 'Photon Information')
     filter = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=shuffle, bitshuffle=bitshuffle, fletcher32=False)
     table = h5file.create_table(group, name='Photontable', description=Photontable.PhotonDescription, title="Photon Datatable",
                                 expectedrows=len(photons), filters=filter, chunkshape=chunkshape)
@@ -140,8 +140,8 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
         getLogger(__name__).debug('Skipping Index Generation for {}'.format(cfg.h5file))
 
     bmap = Beammap(cfg.beamfile, xydim=(cfg.x, cfg.y))
-    group = h5file.create_group("/", 'Beammap', 'Beammap Information', filters=filter)
-    h5file.create_array(group, 'Map', bmap.residmap.astype(int), 'resID map')
+    group = h5file.create_group("/", 'beammap', 'Beammap Information', filters=filter)
+    h5file.create_array(group, 'map', bmap.residmap.astype(int), 'resID map')
 
     def beammap_flagmap_to_h5_flagmap(flagmap):
         h5map = np.zeros_like(flagmap, dtype=int)
@@ -150,17 +150,17 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
             h5map.flat[i] = PIPELINE_FLAGS.bitmask(bset)
         return h5map
 
-    h5file.create_array(group, 'Flag', beammap_flagmap_to_h5_flagmap(bmap.flagmap), 'flag map')
+    h5file.create_array(group, 'flag', beammap_flagmap_to_h5_flagmap(bmap.flagmap), 'flag map')
     getLogger(__name__).debug('Beammap Attached to {}'.format(cfg.h5file))
 
-    h5file.create_group('/', 'Metadata', 'Metadata')
-    filter = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=True, bitshuffle=False, fletcher32=False)
-    metadataTable = h5file.create_table('/Metadata', 'metadata', Photontable.MetadataDescription, 'Metadata',
-                                        filters=filter, expectedrows=10)
+    # h5file.create_group('/', 'Metadata', 'Metadata')
+    # filter = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=True, bitshuffle=False, fletcher32=False)
+    # metadataTable = h5file.create_table('/Metadata', 'metadata', Photontable.MetadataDescription, 'Metadata',
+    #                                     filters=filter, expectedrows=10)
 
-    h5file.create_group('/', 'Header', 'Header')
-    headerTable = h5file.create_table('/Header', 'header', Photontable.PhotontableHeader, 'Header', expectedrows=512,
-                                      filters=filter)
+    # h5file.create_group('/', 'Header', 'Header')
+    # headerTable = h5file.create_table('/Header', 'header', Photontable.PhotontableHeader, 'Header', expectedrows=512,
+    #                                   filters=filter)
     headerContents = {}
     headerContents['wavecal'] = ''
     headerContents['flatcal'] = ''
@@ -181,16 +181,20 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
     headerContents['beammap_file'] = cfg.beamfile
     headerContents['M_BMAP'] = cfg.beamfile  #TODO eventually a uuid
 
-    hdr = []
+    #must not be an overlap
+    assert set(h5file.file.root.photons.atts._f_list('sys')).isdisjoint(headerContents)
+    # hdr = []
     for k, v in headerContents.items():
-        out = StringIO()
-        yaml.dump(v, out)
-        value = out.getvalue().encode()
-        assert len(value) < mkidpipeline.photontable._VALUE_BYTES
-        hdr.append((k.encode(), value))
+        # out = StringIO()
+        # yaml.dump(v, out)
+        # value = out.getvalue().encode()
+        # assert len(value) < mkidpipeline.photontable._VALUE_BYTES
+        # hdr.append((k.encode(), value))
 
-    headerTable.append(hdr)
-    getLogger(__name__).debug('Header Attached to {}'.format(cfg.h5file))
+        setattr(h5file.root.photons.attrs, k, v)
+
+    # headerTable.append(hdr)
+    # getLogger(__name__).debug('Header Attached to {}'.format(cfg.h5file))
 
     h5file.close()
     getLogger(__name__).debug('Done with {}'.format(cfg.h5file))

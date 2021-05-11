@@ -1,16 +1,15 @@
 import os
 import time
-from datetime import datetime
 import multiprocessing as mp
 import functools
 import numpy as np
 
+import metadata
 import mkidcore.metadata
 from mkidcore.binfile.mkidbin import PhotonCType, PhotonNumpyType
 from mkidcore.corelog import getLogger
 from mkidcore.pixelflags import FlagSet
 import mkidcore.pixelflags as pixelflags
-from mkidcore.config import yaml, StringIO
 from mkidcore.instruments import compute_wcs_ref_pixel
 
 import SharedArray
@@ -20,11 +19,9 @@ import tables.parameters
 import tables.file
 
 import astropy.constants
-from astropy.coordinates import SkyCoord
-from astropy import wcs
 import astropy.units as u
 from astropy.io import fits
-from astroplan import Observer
+
 
 
 # These are little better than blind guesses and don't seem to impact performaace, but still need benchmarking
@@ -657,8 +654,7 @@ class Photontable:
         filtered = self.flagged(disallowed, self.xy(photons))
         return photons[np.invert(filtered)]
 
-    def get_wcs(self, derotate=True, wcs_timestep=None, target_coordinates=None, cube_type=None, single_pa_time=None,
-                bins=None):
+    def get_wcs(self, derotate=True, wcs_timestep=None, cube_type=None, single_pa_time=None, bins=None):
         """
         Parameters
         ----------
@@ -686,93 +682,42 @@ class Photontable:
         :param bins:
         """
 
-        # TODO add target_coordinates=None
-        # 0) to header info during HDF creation, also add all fits header info from dashboard log
-
-        md = self.metadata()
-        ditherHome = md.dither_home
-        ditherReference = md.dither_ref
-        ditherPos = md.dither_pos
-        platescale = md.platescale  # units should be mas/pix
-        getLogger(__name__).debug(f'ditherHome: {md.dither_home} (conex units -3<x<3), '
-                                  f'ditherReference: {md.dither_ref} (pix 0<x<150), '
-                                  f'ditherPos: {md.dither_home} (conex units -3<x<3), '
-                                  f'platescale: {md.platescale} (mas/pix ~10)')
-
-        platescale = platescale.to(u.mas) if isinstance(platescale, u.Quantity) else platescale * u.mas
-
-        if target_coordinates is not None and not isinstance(target_coordinates, SkyCoord):
-            target_coordinates = SkyCoord.from_name(target_coordinates)
-        else:
-            target_coordinates = SkyCoord(md.ra, md.dec, unit=('hourangle', 'deg'))
-
-        apo = Observer.at_site(md.observatory)
-
-        if wcs_timestep is None:
-            wcs_timestep = self.duration
-
         # sample_times upper boundary is limited to the user defined end time
         sample_times = np.arange(self.start_time, self.stop_time, wcs_timestep)
-        getLogger(__name__).debug("sample_times: %s", sample_times)
+        if single_pa_time:
+            getLogger(__name__).info(f"Derotate off. Using PA at time: {single_pa_time}")
+            sample_times[:] = single_pa_time
 
-        device_orientation = np.deg2rad(md.device_orientation)
-        if derotate is True:
-            times = astropy.time.Time(val=sample_times, format='unix')
-            parallactic_angles = apo.parallactic_angle(times, target_coordinates).value  # radians
-            corrected_sky_angles = -parallactic_angles - device_orientation
-        else:
-            if single_pa_time is not None:
-                single_time = np.full_like(sample_times, fill_value=single_pa_time)
-                getLogger(__name__).info(f"Derotate off. Using single PA at time: {single_time[0]}")
-                single_times = astropy.time.Time(val=single_time, format='unix')
-                single_parallactic_angle = apo.parallactic_angle(single_times, target_coordinates).value  # radians
-                corrected_sky_angles = -single_parallactic_angle - device_orientation
-            else:
-                corrected_sky_angles = np.zeros_like(sample_times)
+        ref_pixels = []
+        try:
+            for t in sample_times:
+                md = self.metadata(t)
+                # getLogger(__name__).debug(f'ditherHome: {md.dither_home} (conex units -3<x<3), '
+                #                           f'ditherReference: {md.dither_ref} (pix 0<x<150), '
+                #                           f'ditherPos: {md.dither_home} (conex units -3<x<3), '
+                #                           f'platescale: {md.platescale} (mas/pix ~10)')
+                ref_pixels.append(compute_wcs_ref_pixel((md['M_CONEXX'], md['M_CONEXY']),
+                                                        (md['M_PREFX'], md['M_PREFY']),
+                                                        (md['M_CXREFX'], md['M_CXREFY'])))
+        except KeyError:
+            getLogger(__name__).warning('Insufficient data to build a WCS solution')
+            return None
 
-        getLogger(__name__).debug("Correction angles: %s", corrected_sky_angles)
+        wcs_solns = metadata.build_wcs(self.metadata(self.start_time),
+                                       astropy.time.Time(val=sample_times, format='unix'), ref_pixels,
+                                       derotate=derotate and not single_pa_time,
+                                       naxis=3 if cube_type in ('wave', 'time') else 2)
 
-        obs_wcs_seq = []
-        for t, ca in enumerate(corrected_sky_angles):
-            rotation_matrix = np.array([[np.cos(ca), -np.sin(ca)],
-                                        [np.sin(ca), np.cos(ca)]])
-
-            ref_pixel = compute_wcs_ref_pixel(ditherPos, ditherHome, ditherReference)
-
-            if cube_type in ('wave',):
-                obs_wcs = wcs.WCS(naxis=3)
-                obs_wcs.wcs.crpix = [ref_pixel[0], ref_pixel[1], 1]
-                obs_wcs.wcs.crval = [target_coordinates.ra.deg, target_coordinates.dec.deg, bins[0]]
-                obs_wcs.wcs.ctype = ["RA--TAN", "DEC-TAN", "WAVE"]
+        if cube_type in ('wave', 'time'):
+            for obs_wcs in wcs_solns:
+                obs_wcs.wcs.crpix[-1] = 1
+                obs_wcs.wcs.crval[-1] = bins[0]
+                obs_wcs.wcs.ctype[-1] = "WAVE" if cube_type == 'wave' else "TIME"
                 obs_wcs.naxis3 = obs_wcs._naxis3 = bins.size
-                obs_wcs.wcs.pc = np.eye(3)
-                obs_wcs.wcs.pc[:2, :2] = rotation_matrix
-                obs_wcs.wcs.cdelt = [platescale.to(u.deg).value, platescale.to(u.deg).value, (bins[1] - bins[0])]
-                obs_wcs.wcs.cunit = ["deg", "deg", "nm"]
-            elif cube_type in ('time',):
-                obs_wcs = wcs.WCS(naxis=3)
-                obs_wcs.wcs.crpix = [ref_pixel[0], ref_pixel[1], 1]
-                obs_wcs.wcs.crval = [target_coordinates.ra.deg, target_coordinates.dec.deg, bins[0]]
-                obs_wcs.wcs.ctype = ["RA--TAN", "DEC-TAN", "TIME"]
-                obs_wcs.naxis3 = obs_wcs._naxis3 = bins.size
-                obs_wcs.wcs.pc = np.eye(3)
-                obs_wcs.wcs.pc[:2, :2] = rotation_matrix
-                obs_wcs.wcs.cdelt = [platescale.to(u.deg).value, platescale.to(u.deg).value, (bins[1] - bins[0])]
-                obs_wcs.wcs.cunit = ["deg", "deg", "s"]
-            else:
-                obs_wcs = wcs.WCS(naxis=2)
-                obs_wcs.wcs.crpix = ref_pixel
-                obs_wcs.wcs.crval = [target_coordinates.ra.deg, target_coordinates.dec.deg]
-                obs_wcs.wcs.ctype = ["RA--TAN", "DEC-TAN"]
+                obs_wcs.wcs.cdelt[-1] = bins[1] - bins[0]
+                obs_wcs.wcs.cunit[-1] = "nm" if cube_type == 'wave' else "s"
 
-                obs_wcs.wcs.pc = rotation_matrix
-                obs_wcs.wcs.cdelt = [platescale.to(u.deg).value, platescale.to(u.deg).value]
-                obs_wcs.wcs.cunit = ["deg", "deg"]
-
-            header = obs_wcs.to_header()
-            obs_wcs_seq.append(header)
-
-        return obs_wcs_seq
+        return wcs_solns
 
     def get_pixel_spectrum(self, pixel, start=None, duration=None, weight=False,
                            wave_start=None, wave_stop=None, bin_width=None, bin_edges=None, bin_type='energy'):
@@ -941,39 +886,30 @@ class Photontable:
 
         toc2 = time.time()
         getLogger(__name__).debug(f'Histogram completed in {toc2 - tic:.2f} s, reformatting in {toc2 - toc:.2f}')
-        hdu = fits.PrimaryHDU()
-        header = hdu.header
 
-        # TODO flesh this out and integrate the non metadata keys
         time_nfo = self._parse_query_range_info(start=start, intt=duration, startw=wave_start, stopw=wave_stop)
-
-        header['H5.FILENAME'] = self.filename
 
         md = self.metadata(timestamp=start)
 
-        if md is None:
-            getLogger(__name__).warning('No metadata found to add to fits header')
-            md = {}
-        else:
-            md = dict(md)
+        md['M_H5FILE'] = self.filename
         md['UNIXSTR'] = time_nfo['start']
         md['UNIXEND'] = time_nfo['stop']
         md['EXPTIME'] = time_nfo['duration']
-        mkidcore.metadata.build_header(md)
-        header.update(self.get_wcs(cube_type=cube_type, bins=bin_edges)[0])
+        header = mkidcore.metadata.build_header(md)
+        header.update(self.get_wcs(cube_type=cube_type, bins=bin_edges,
+                                   single_pa_time=time_nfo['start'])[0].to_header())
         # add necessary keys to non Primary HDU
         hdr = header.copy()
         hdr['UNIT'] = 'photons/s' if rate else 'photons'
         hdr['MINWAVE'] = time_nfo['minw']
         hdr['MAXWAVE'] = time_nfo['maxw']
-        md['EXFLAG'] = self.flags.bitmask(exclude_flags, unknown='ignore')
+        hdr['EXFLAG'] = self.flags.bitmask(exclude_flags, unknown='ignore')
         hdul = fits.HDUList([fits.PrimaryHDU(header=header),
                              fits.ImageHDU(data=data / duration if rate else data,
                                            header=hdr, name='SCIENCE'),
                              fits.ImageHDU(data=np.sqrt(data), header=header, name='VARIANCE'),
                              fits.ImageHDU(data=self._flagArray, header=header, name='FLAGS'),
-                             fits.ImageHDU(data=self._flagArray & self.flags.bitmask(exclude_flags, unknown='ignore'),
-                                           header=header, name='BAD'),
+                             fits.ImageHDU(data=self._flagArray & hdr['EXFLAG'], header=header, name='BAD'),
                              fits.TableHDU(data=bin_edges, name='CUBE_BINS')])
         hdul['CUBE_BINS'].header['UNIT'] = 'us' if cube_type is 'time' else 'nm'
         return hdul
@@ -982,11 +918,7 @@ class Photontable:
         """
         Returns a requested entry from the obs file header
         """
-        encoded_key = name.encode()
-        raw = self.header.read_where('key==encoded_key', field='value')
-        if not raw.size:
-            raise ValueError(f'Key {name} not in header of {self}')
-        return yaml.load(raw[0].decode())
+        return getattr(self.file.root.photons.attrs, name)
 
     def update_header(self, key, value):
         """
@@ -1003,95 +935,36 @@ class Photontable:
         if self.mode != 'write':
             raise IOError("Must open file in write mode to do this!")
 
-        if len(key.encode()) > _KEY_BYTES:
-            raise ValueError(f'Keys must be less than {_KEY_BYTES} long')
+        if key not in self.file.root.photons.atts._f_list('sys'):
+            raise KeyError(f'"{key}" is reserved for use by pytables')
 
-        out = StringIO()
-        yaml.dump(value, out)
-        value = out.getvalue().encode()
-        if len(value) > _VALUE_BYTES:
-            raise ValueError(f'Values must be less than {_VALUE_BYTES} long when yaml encoded')
-
-        encoded_key = key.encode()
-        coord = self.header.get_where_list('key==encoded_key')
-        if coord.size:
-            self.header.modify_coordinates(coord, (key.encode(), value))
-        else:
+        if key not in self.file.root.photons.atts._f_list('user'):
             getLogger(__name__).info(f'Adding new header key: {key}')
-            self.header.append((key.encode(), value))
+        setattr(self.file.root.photons.attrs, key, value)
 
-        self.header.flush()
+    def metadata(self, timestamp=None):
+        """ Return an dict of key, value pairs asociated with the dataset
 
-    def metadata(self, timestamp=None, include_h5_header=True):
-        """ Return an object with attributes containing the the available observing metadata,
-        also supports dict access (Presently returns a mkidcore.config.ConfigThing)
-
-        if no timestamp is specified the first record is returned.
-        if a timestamp is specified then the first record
-        before or equal to the time is returned unless there is only one record then that is returned
-
-        None if there are no records, ValueError if there is not matching timestamp
+        if no timestamp is specified the first record for a key (if a series) is returned.
+        if a timestamp is specified then the most recent preceeding record is returned
         """
 
-        omd = self.extensible_header_store.get('obs_metadata', [])
+        records = {}
+        for k in self.file.root.photons.attrs._f_list('user'):
+            data = getattr(self.file.root.photons.attrs, k)
+            try:
+                data = data.get(timestamp, preceeding=True)
+            except AttributeError:
+                pass
+            records[k] = data
 
-        H5_FITS_KEYMAP = {'target': 'H5TARGET',
-                          'beammapFile': 'H5BEAMMAP',
-                          'isWvlCalibrated': 'H5WAVECAL',
-                          'isFlatCalibrated': 'H5FLATCAL',
-                          'isFluxCalibrated': 'H5SPECCAL',
-                          'isLinearityCorrected': 'H5LINCAL',
-                          # 'isPhaseNoiseCorrected': 'H5PHASECALED',
-                          # 'isPhotonTailCorrected': 'H5TAILCOR',
-                          # 'timeMaskExists': 'H5TIMEMASK',
-                          'startTime': 'H5START',
-                          'expTime': 'H5LENGTH',
-                          # 'wvlBinStart': 'H5WAVESTART',
-                          # 'wvlBinEnd': 'H5WAVEEND',
-                          # 'energyBinWidth': 'H5EBIN'
-                          }
-        #     wvlCalFile = StringCol(255)
-        #     fltCalFile = StringCol(255)
-
-        if not omd:
-            return None
-
-        if timestamp is None or len(omd) == 1:
-            ret = omd[0]
-        else:
-            utc = datetime.fromtimestamp(timestamp)
-            time_after = np.array([(m.utc - utc).total_seconds() for m in omd])
-            if not (time_after <= 0).any():
-                times = [m.utc.timestamp() for m in omd]
-                msg = 'No metadata available for {:.0f}, {} metadata records from {:.0f} to {:.0f}'
-                raise ValueError(msg.format(timestamp, len(omd), min(times), max(times)))
-
-            to_use, = np.where(time_after[time_after <= 0].max() == time_after)
-            ret = omd[to_use[0]]
-
-        if include_h5_header:
-            titles = self.file.root.header.header.colnames
-            info = self.file.root.header.header[0]
-            for x in titles:
-                if x in H5_FITS_KEYMAP:
-                    ret.register(H5_FITS_KEYMAP[x], info[titles.index(x)], update=True)
-
-        return ret
+        return records
 
     def attach_observing_metadata(self, metadata):
         if self.mode != 'write':
             raise IOError("Must open file in write mode to do this!")
-        raise NotImplementedError('TODO')
-        mtable = self.file.get_node('/Metadata/header')
-        rows = []
-        for m in metadata:
-            out = StringIO()
-            yaml.dump(m, out)
-            value = out.getvalue().encode()
-            if len(value) > _METADATA_BLOCK_BYTES:
-                raise ValueError(f'Metadata records must be less than {_METADATA_BLOCK_BYTES} long when yaml encoded')
-            rows.append((m.time,   value))
-        mtable.append(rows)
+        for k, v in metadata:
+            self.update_header(k, v)
 
     @staticmethod
     def wavelength_bins(width=.1, start=700, stop=1500, energy=True):
