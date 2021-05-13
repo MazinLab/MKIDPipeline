@@ -1,12 +1,10 @@
 import astropy.units.core
 import numpy as np
 import os
-from glob import glob
 import hashlib
 from datetime import datetime
 import multiprocessing as mp
 import pkg_resources as pkg
-import json
 import astropy.units as u
 from astropy.coordinates import SkyCoord
 import ruamel.yaml.comments
@@ -29,7 +27,6 @@ Beammap()
 
 config = None
 _dataset = None
-_parsed_dither_logs = {}
 _metadata = {}
 
 yaml = mkidcore.config.yaml
@@ -37,24 +34,6 @@ yaml = mkidcore.config.yaml
 
 class UnassociatedError(RuntimeError):
     pass
-
-
-def get_ditherinfo(time, path=None):
-    if path is None:
-        path = config.paths.dithers
-    global _parsed_dither_logs
-    if not _parsed_dither_logs:
-        for f in glob(os.path.join(path, 'dither_*.log')):
-            parsed_log = parse_ditherlog(f)
-            _parsed_dither_logs.update(parsed_log)
-
-    if isinstance(time, datetime):
-        time = time.timestamp()
-
-    for (t0, t1), v in _parsed_dither_logs.items():
-        if t0 - (t1 - t0) <= time <= t1:
-            return v
-    raise ValueError('No dither found for time {}'.format(time))
 
 
 def dump_dataconfig(data, file):
@@ -108,11 +87,10 @@ class PipeConfig(BaseStepConfig):
                      ('verbosity', 0, 'level of verbosity'),
                      ('flow', ('metadata', 'wavecal', 'lincal', 'flatcal', 'cosmiccal', 'photcal'),
                       'Calibration steps to apply'),
-                     ('paths.dithers', '/darkdata/ScienceData/Subaru/20201006/logs', 'dither log location'),
-                     ('paths.data', '/darkdata/ScienceData/Subaru/', 'bin file parent folder'),
+                     ('paths.data', '/darkdata/ScienceData/Subaru/',
+                      'bin file parent folder, must contain YYYYMMDD/*.bin and YYYYMMDD/logs/'),
                      ('paths.database', os.path.join(_pathroot, 'database'),
                       'calibrations will be retrieved/stored here'),
-                     ('paths.obslog', os.path.join(_pathroot, 'database', 'obslog'), 'obslog.json go here'),
                      ('paths.out', os.path.join(_pathroot, 'out'), 'root of output'),
                      ('paths.tmp', os.path.join(_pathroot, 'scratch'), 'use for data intensive temp files'),
                      ('beammap', None, 'A Beammap to use'),
@@ -422,7 +400,8 @@ class MKIDTimerange(DataBase):
     @property
     def metadata(self):
         """Returns a dict of of KEY:mkidcore.metadata.MetadataSeries|value pairs, likely a subset of all keys"""
-        data = mkidcore.metadata.load_observing_metadata(config.paths.obslog, use_cache=True)
+        obslog_files = mkidcore.utils.get_obslogs(config.path.data)
+        data = mkidcore.metadata.load_observing_metadata(files=obslog_files, use_cache=True)
         metadata = mkidcore.metadata.observing_metadata_for_timerange(self.start, self.duration, data)
 
         for k, v in self._metadata.items():
@@ -790,8 +769,8 @@ class MKIDDitherDescription(DataBase):
     KEYS = (
         Key(name='name', default=None, comment='A name', dtype=str),
         Key('data', tuple(), 'A list of !sob composing the dither, a unix time that falls within the range of a '
-                             'dither in a dither log in paths.dithers, or a legacy (starttimes, endtimes, xpos,ypos) '
-                             'dither file name (relative to paths.dithers or fully qualified)', None),
+                             'dither log in paths.data, or a fully qualified legacy (starttimes, endtimes, xpos,ypos) '
+                             'dither file.', None),
         Key('wavecal', '', 'A MKIDWavedata or name of the same', str),
         Key('flatcal', '', 'A MKIDFlatdata or name of the same', str),
         Key('wcscal', '', 'A MKIDWCSCal or name of the same', str),
@@ -814,10 +793,10 @@ class MKIDDitherDescription(DataBase):
         super().__init__(*args, **kwargs)
 
         try:
-            dither_path = config.paths.dithers
+            dither_path = config.paths.data
         except AttributeError:
             dither_path = ''
-            getLogger(__name__).warning('Pipeline config.paths.dithers not configured')
+            getLogger(__name__).warning('Pipeline config.paths.data not configured')
 
         def check_use(maxn):
             if self.use is None or not self.use:
@@ -876,7 +855,7 @@ class MKIDDitherDescription(DataBase):
             elif isinstance(self.data, (int, float)):  # by timestamp
                 getLogger(__name__).info(f'Searching for dither containing time {self.data}')
                 try:
-                    startt, endt, pos = get_ditherinfo(self.data, path=dither_path)
+                    startt, endt, pos = mkidcore.utils.get_ditherdata_for_time(dither_path, self.data)
                     getLogger(__name__).info(f'Dither associated ')
                 except ValueError:
                     self._key_errors['data'] += [f'Unable to find a dither at time {self.data}']
