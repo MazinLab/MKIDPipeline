@@ -41,7 +41,7 @@ SAMPLEDATA = {'default': (
     config.MKIDFlatcalDescription(name=namer('flatcal'), wavecal_duration=50.0, wavecal_offset=2.1, data='wavecal0'),
     # Speccal
     config.MKIDSpeccalDescription(name=namer('speccal'),
-                                  data=config.MKIDObservation(name=namer('star'), start=340, duration=10,
+                                  data=config.MKIDObservation(name=namer('star'), start=1602049166, duration=10,
                                                               wavecal='wavecal0',
                                                               spectrum='qualified/path/or/relative/'
                                                                        'todatabase/refspec.file'),
@@ -72,7 +72,7 @@ SAMPLEDATA = {'default': (
                                  data=(
                                      config.MKIDObservation(name=namer('HIP109427_'), start=1602047815,
                                                             duration=10, wavecal='wavecal0', dither_pos=(0.2, 0.3),
-                                                            dark=config.MKIDTimerange(name=namer(), start=350,
+                                                            dark=config.MKIDTimerange(name=namer(), start=1602046500,
                                                                                       duration=10)),
                                      config.MKIDObservation(name=namer('HIP109427_'), start=1602047825, duration=10,
                                                             wavecal='wavecal0', dither_pos=(0.1, 0.1),
