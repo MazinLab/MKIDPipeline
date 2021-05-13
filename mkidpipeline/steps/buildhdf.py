@@ -17,7 +17,6 @@ from mkidcore.objects import Beammap
 from mkidpipeline.photontable import Photontable
 import mkidpipeline.config
 
-_datadircache = {}
 
 PHOTON_BIN_SIZE_BYTES = 8
 
@@ -30,33 +29,6 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
 
 
 mkidcore.config.yaml.register_class(StepConfig)
-
-
-def _get_dir_for_start(base, start):
-    global _datadircache
-
-    if not base.endswith(os.path.sep):
-        base = base + os.path.sep
-
-    try:
-        nmin = _datadircache[base]
-    except KeyError:
-        try:
-            nights_times = glob(os.path.join(base, '*', '*.bin'))
-            with warnings.catch_warnings():  # ignore warning for nights_times = []
-                warnings.simplefilter("ignore", UserWarning)
-                nights, times = np.genfromtxt(list(map(lambda s: s[len(base):-4], nights_times)),
-                                              delimiter=os.path.sep, dtype=int).T
-            nmin = {times[nights == n].min(): str(n) for n in set(nights)}
-            _datadircache[base] = nmin
-        except ValueError:  # for not pipeline oriented bin file storage
-            return base
-
-    keys = np.array(list(nmin))
-    try:
-        return os.path.join(base, nmin[keys[keys < start].max()])
-    except ValueError:
-        raise ValueError('No directory in {} found for start {}'.format(base, start))
 
 
 def estimate_ram_gb(directory, start, inttime):
@@ -310,7 +282,7 @@ def gen_configs(timeranges, config=None):
 
     b2h_configs = []
     for start_t, end_t in timeranges:
-        bc = Bin2HdfConfig(datadir=_get_dir_for_start(cfg.paths.data, start_t), beammap=cfg.beammap,
+        bc = Bin2HdfConfig(datadir=mkidcore.utils.get_bindir_for_time(cfg.paths.data, start_t), beammap=cfg.beammap,
                            outdir=cfg.paths.out, starttime=start_t, inttime=end_t - start_t,
                            include_baseline=cfg.include_baseline)
         b2h_configs.append(bc)
