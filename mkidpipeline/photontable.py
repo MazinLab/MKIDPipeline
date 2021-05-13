@@ -4,8 +4,9 @@ import multiprocessing as mp
 import functools
 import numpy as np
 
+import metadata
 import mkidcore.metadata
-from mkidcore.headers import PhotonCType, PhotonNumpyType
+from mkidcore.binfile.mkidbin import PhotonCType, PhotonNumpyType
 from mkidcore.corelog import getLogger
 from mkidcore.pixelflags import FlagSet
 import mkidcore.pixelflags as pixelflags
