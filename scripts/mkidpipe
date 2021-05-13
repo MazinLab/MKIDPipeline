@@ -29,7 +29,7 @@ if __name__ == "__main__":
                         default=pkg.resource_filename('mkidpipeline', './utils/logging.yaml'))
 
     args = parser.parse_args()
-    getLogger('mkidcore', setup=True, logfile=f'mkidpipe_{datetime.now().strftime("%Y-%m-%d_%z")}.log',
+    getLogger('mkidcore', setup=True, logfile=f'mkidpipe_{datetime.now().strftime("%Y-%m-%d_%H%M")}.log',
               configfile=args.logcfg)
     log = getLogger('mkidpipe')
 
