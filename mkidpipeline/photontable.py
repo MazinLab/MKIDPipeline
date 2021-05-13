@@ -4,7 +4,6 @@ import multiprocessing as mp
 import functools
 import numpy as np
 
-import metadata
 import mkidcore.metadata
 from mkidcore.binfile.mkidbin import PhotonCType, PhotonNumpyType
 from mkidcore.corelog import getLogger
@@ -240,8 +239,6 @@ class Photontable:
         except (IOError, OSError):
             raise
 
-        # get the header
-        self.header = self.file.get_node('/Header/header')
 
         # get important cal params
         self.nominal_wavelength_bins = self.wavelength_bins(width=self.query_header('energy_resolution'),
