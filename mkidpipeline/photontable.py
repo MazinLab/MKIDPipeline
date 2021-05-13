@@ -932,12 +932,13 @@ class Photontable:
         if self.mode != 'write':
             raise IOError("Must open file in write mode to do this!")
 
-        if key not in self.file.root.photons.atts._f_list('sys'):
+        if key not in self.file.root.photons.photontable.attrs._f_list('sys'):
             raise KeyError(f'"{key}" is reserved for use by pytables')
 
-        if key not in self.file.root.photons.atts._f_list('user'):
+        if key not in self.file.root.photons.photontable.attrs._f_list('user'):
             getLogger(__name__).info(f'Adding new header key: {key}')
-        setattr(self.file.root.photons.attrs, key, value)
+
+        setattr(self.file.root.photons.photontable.attrs, key, value)
 
     def metadata(self, timestamp=None):
         """ Return an dict of key, value pairs asociated with the dataset
@@ -947,7 +948,7 @@ class Photontable:
         """
 
         records = {}
-        for k in self.file.root.photons.attrs._f_list('user'):
+        for k in self.file.root.photons.photontable.attrs._f_list('user'):
             data = getattr(self.file.root.photons.attrs, k)
             try:
                 data = data.get(timestamp, preceeding=True)
