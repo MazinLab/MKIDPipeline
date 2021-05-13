@@ -246,12 +246,12 @@ class Photontable:
                                                             stop=self.query_header('max_wavelength'))
 
         # get the beam image
-        self.beamImage = self.file.get_node('/Beammap/Map').read()
-        self._flagArray = self.file.get_node('/Beammap/Flag')  # The absence of .read() here is correct
+        self.beamImage = self.file.get_node('/beammap/map').read()
+        self._flagArray = self.file.get_node('/beammap/flag')  # The absence of .read() here is correct
         self.nXPix, self.nYPix = self.beamImage.shape
 
         # get the photontable
-        self.photonTable = self.file.get_node('/Photons/Photontable')
+        self.photonTable = self.file.get_node('/photons/photontable')
 
     def _parse_query_range_info(self, startw=None, stopw=None, start=None, stop=None, intt=None):
         """ return a dict with info about the data returned by query with a particular set of args
@@ -915,7 +915,7 @@ class Photontable:
         """
         Returns a requested entry from the obs file header
         """
-        return getattr(self.file.root.photons.attrs, name)
+        return getattr(self.file.root.photons.photontable.attrs, name)
 
     def update_header(self, key, value):
         """
