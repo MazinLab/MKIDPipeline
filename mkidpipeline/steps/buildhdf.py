@@ -114,7 +114,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
     h5file = tables.open_file(cfg.h5file, mode="a", title="MKID Photon File")
     group = h5file.create_group("/", 'photons', 'Photon Information')
     filter = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=shuffle, bitshuffle=bitshuffle, fletcher32=False)
-    table = h5file.create_table(group, name='Photontable', description=Photontable.PhotonDescription, title="Photon Datatable",
+    table = h5file.create_table(group, name='photontable', description=Photontable.PhotonDescription, title="Photon Datatable",
                                 expectedrows=len(photons), filters=filter, chunkshape=chunkshape)
     table.append(photons)
 
@@ -182,7 +182,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
     headerContents['M_BMAP'] = cfg.beamfile  #TODO eventually a uuid
 
     #must not be an overlap
-    assert set(h5file.file.root.photons.atts._f_list('sys')).isdisjoint(headerContents)
+    assert set(h5file.root.photons.photontable.attrs._f_list('sys')).isdisjoint(headerContents)
     # hdr = []
     for k, v in headerContents.items():
         # out = StringIO()
@@ -191,7 +191,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
         # assert len(value) < mkidpipeline.photontable._VALUE_BYTES
         # hdr.append((k.encode(), value))
 
-        setattr(h5file.root.photons.attrs, k, v)
+        setattr(h5file.root.photons.photontable.attrs, k, v)
 
     # headerTable.append(hdr)
     # getLogger(__name__).debug('Header Attached to {}'.format(cfg.h5file))
