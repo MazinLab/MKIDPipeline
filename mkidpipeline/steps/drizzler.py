@@ -48,6 +48,7 @@ import matplotlib.pylab as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.colors import LogNorm
 import pickle
+import pkg_resources as pkg
 
 import astropy
 from astropy.utils.data import Conf
@@ -62,8 +63,8 @@ import shutil
 from drizzle import drizzle as stdrizzle
 import argparse
 
+import mkidcore.corelog
 import mkidcore.pixelflags
-from mkidcore.corelog import getLogger
 import mkidcore.corelog as pipelinelog
 from mkidpipeline.photontable import Photontable
 from mkidpipeline.utils.array_operations import get_device_orientation
@@ -1068,7 +1069,8 @@ if __name__ == '__main__':
     Conf.remote_timeout.set(10)
 
     # set up logging
-    mkidpipeline.config.log_to_console()
+    mkidcore.corelog.getLogger('mkidcore', setup=True,
+                               configfile=pkg.resource_filename('mkidpipeline', './utils/logging.yaml'))
     pipelinelog.create_log('mkidpipeline.imaging.drizzler', console=True, level="INFO")
 
     # load as a task configuration

@@ -2,8 +2,10 @@
 import mkidpipeline.config as config
 import mkidpipeline.pipeline as pipe
 import pkg_resources as pkg
+import mkidcore.corelog
 
-config.log_to_console()
+mkidcore.corelog.getLogger('mkidcore', setup=True,
+                           configfile=pkg.resource_filename('mkidpipeline', './utils/logging.yaml'))
 pipe.getLogger('mkidpipeline.steps.wavecal').setLevel('INFO')
 
 config.configure_pipeline(pkg.resource_filename('mkidpipeline', 'pipe.yml'))

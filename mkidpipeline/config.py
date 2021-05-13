@@ -1551,17 +1551,6 @@ def n_cpus_available(max=np.inf):
     return mcpu
 
 
-def log_to_console(file='', **kwargs):
-    logs = (create_log('mkidcore', **kwargs), create_log('mkidreadout', **kwargs), create_log('mkidpipeline', **kwargs),
-            create_log('__main__', **kwargs))
-    if file:
-        import logging
-        handler = MakeFileHandler(file)
-        handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s (pid=%(process)d)'))
-        for l in logs:
-            l.addHandler(handler)
-
-
 yaml.register_class(MKIDTimerange)
 yaml.register_class(MKIDObservation)
 yaml.register_class(MKIDWavecalDescription)
