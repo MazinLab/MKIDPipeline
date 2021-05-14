@@ -320,7 +320,7 @@ class Photontable:
 
     @property
     def duration(self):
-        return self.query_header('expTime')
+        return self.query_header('duration')
 
     @property
     def start_time(self):

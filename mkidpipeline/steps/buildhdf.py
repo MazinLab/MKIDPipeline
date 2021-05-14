@@ -314,7 +314,7 @@ def buildtables(timeranges, config=None, ncpu=None, remake=None, **kwargs):
 
     b2h_configs = []
     for start_t, end_t in timeranges:
-        bc = Bin2HdfConfig(datadir=_get_dir_for_start(cfg.paths.data, start_t), beammap=cfg.beammap,
+        bc = Bin2HdfConfig(datadir=mkidcore.utils.get_bindir_for_time(cfg.paths.data, start_t), beammap=cfg.beammap,
                            outdir=cfg.paths.out, starttime=start_t, inttime=end_t - start_t,
                            include_baseline=cfg.buildhdf.include_baseline)
         b2h_configs.append(bc)
