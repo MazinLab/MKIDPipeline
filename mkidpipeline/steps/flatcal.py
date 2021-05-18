@@ -40,13 +40,11 @@ from mkidcore.pixelflags import FlagSet, PROBLEM_FLAGS
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!flatcal_cfg'
-    REQUIRED_KEYS = (('type', 'Laser', 'Laser | White'),
-                     ('rate_cutoff', 0, 'Count Rate Cutoff in inverse seconds (number)'),
+    REQUIRED_KEYS = (('rate_cutoff', 0, 'Count Rate Cutoff in inverse seconds (number)'),
                      ('trim_chunks', 1, 'number of Chunks to trim (integer)'),
                      ('chunk_time', 10, 'duration of chunks used for weights (s)'),
                      ('nchunks', 6, 'number of chunks to median combine'),
                      ('power', 1, 'power of polynomial to fit, <3 advised'),
-                     ('power', 0, 'TODO'),
                      ('use_wavecal', True, 'Use a wavelength dependant correction for wavecaled data.'),
                      ('plots', 'summary', 'none|summary|all'))
 
