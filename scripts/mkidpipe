@@ -19,7 +19,7 @@ if __name__ == "__main__":
     parser.add_argument('-p', type=str, help='A pipeline config file', default='pipe.yaml', dest='pipe_cfg')
     parser.add_argument('-d', type=str, help='A input config file', default='data.yaml', dest='data_cfg')
     parser.add_argument('--vet',  action='store_true', help='Check pipeline configuration', default=False)
-    parser.add_argument('--init', action='store_true', help='Setup the pipeline, clobbers files freely')
+    parser.add_argument('--init', action='store_true', help='Setup the pipeline, clobbers _default.yaml as needed')
     parser.add_argument('--verbose', action='store_true', help='Verbose')
     parser.add_argument('--run-step', dest='single_step', help='Run a single named step', type=str)
     parser.add_argument('--make-dir', dest='make_paths', help='Create all needed directories', action='store_true')
@@ -39,16 +39,18 @@ if __name__ == "__main__":
         getLogger('mkidcore').setLevel('DEBUG')
 
     if args.init:
+        defstr = lambda x: f"{x}_default.yaml" if os.path.exists(f"{x}.yaml") else f"{x}.yaml"
         default_pipe_config = pipe.generate_default_config()
-        with open('pipe.yaml', 'w') as f:
+        with open(defstr('pipe'), 'w') as f:
             config.yaml.dump(default_pipe_config, f)
 
         sample_data = pipe.generate_sample_data()
-        config.dump_dataconfig(sample_data, 'data.yaml')
+        config.dump_dataconfig(sample_data, defstr('data'))
 
         sample_out = pipe.generate_sample_output()
-        with open('out.yaml', 'w') as f:
+        with open(defstr('out'), 'w') as f:
             config.yaml.dump(sample_out, f)
+        sys.exit(0)
 
     config.configure_pipeline(args.pipe_cfg)
     outputs = config.MKIDOutputCollection(args.out_cfg, datafile=args.data_cfg)
