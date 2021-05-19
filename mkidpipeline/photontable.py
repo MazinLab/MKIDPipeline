@@ -324,7 +324,7 @@ class Photontable:
 
     @property
     def start_time(self):
-        return self.query_header('UNIXSTART')
+        return self.query_header('UNIXSTR')
 
     @property
     def stop_time(self):
@@ -915,6 +915,9 @@ class Photontable:
         """
         Returns a requested entry from the obs file header
         """
+        if name not in self.file.root.photons.photontable.attrs:
+            raise KeyError(name)
+        # the implementation does not like missing get calls
         return getattr(self.file.root.photons.photontable.attrs, name)
 
     def update_header(self, key, value):
