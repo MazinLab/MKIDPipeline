@@ -320,7 +320,7 @@ class Photontable:
 
     @property
     def duration(self):
-        return self.query_header('duration')
+        return self.query_header('EXPTIME')
 
     @property
     def start_time(self):
@@ -328,7 +328,7 @@ class Photontable:
 
     @property
     def stop_time(self):
-        return self.start_time + self.duration
+        return self.query_header('UNIXEND')
 
     @property
     def bad_pixel_mask(self):
@@ -932,7 +932,7 @@ class Photontable:
         if self.mode != 'write':
             raise IOError("Must open file in write mode to do this!")
 
-        if key not in self.file.root.photons.photontable.attrs._f_list('sys'):
+        if key in self.file.root.photons.photontable.attrs._f_list('sys'):
             raise KeyError(f'"{key}" is reserved for use by pytables')
 
         if key not in self.file.root.photons.photontable.attrs._f_list('user'):
@@ -961,7 +961,7 @@ class Photontable:
     def attach_observing_metadata(self, metadata):
         if self.mode != 'write':
             raise IOError("Must open file in write mode to do this!")
-        for k, v in metadata:
+        for k, v in metadata.items():
             self.update_header(k, v)
 
     @staticmethod

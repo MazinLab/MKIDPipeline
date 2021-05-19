@@ -332,7 +332,8 @@ class MKIDTimerange(DataBase):
         Key('start', None, 'The start unix time, float ok, rounded down for H5 creation.', (float, int)),
         Key('duration', None, 'A duration in seconds, float ok. If not specified stop must be', (float, int)),
         Key('stop', None, 'A stop unit time, float ok. If not specified duration must be', (float, int)),
-        Key('dark', None, 'An MKIDTimerange to use for a dark reference.', None)
+        Key('dark', None, 'An MKIDTimerange to use for a dark reference.', None),
+        Key('header', {}, 'A dictionary of fits header key overrides.', dict)
     )
     REQUIRED = ('name', 'start', ('duration', 'stop'))
     EXPLICIT_ALLOW = ('duration',)  # if a key is allows AND is a property or method name it must be listed here
@@ -358,11 +359,18 @@ class MKIDTimerange(DataBase):
             self._key_errors['stop'] += [f'Stop ({self.stop}) must come after start ({self.start})']
         return super()._vet()
 
+    @property
     def _metadata(self):
         """ Return a dict of the metadata unique to self"""
         d = dict(UNIXSTR=self.start, UNIXEND=self.stop, M_DARK=f'{self.dark.duration}@{self.dark.start}'
                                                                f'' if self.dark else 'None')
-        d.update({k: getattr(self, k) for k in self.extra_keys})
+        for k in self.header:
+            if k in mkidcore.metadata.MEC_KEY_INFO:
+                d[k] = self.header[k]
+            else:  #TODO remove once updated
+                x = mkidcore.metadata._LEGACY_OBSLOG_MAP.get(k, '')
+                if x in mkidcore.metadata.MEC_KEY_INFO:
+                    d[x] = self.header[k]
         return d
 
     @property
@@ -400,7 +408,7 @@ class MKIDTimerange(DataBase):
     @property
     def metadata(self):
         """Returns a dict of of KEY:mkidcore.metadata.MetadataSeries|value pairs, likely a subset of all keys"""
-        obslog_files = mkidcore.utils.get_obslogs(config.path.data)
+        obslog_files = mkidcore.utils.get_obslogs(config.paths.data)
         data = mkidcore.metadata.load_observing_metadata(files=obslog_files, use_cache=True)
         metadata = mkidcore.metadata.observing_metadata_for_timerange(self.start, self.duration, data)
 
@@ -493,7 +501,7 @@ class MKIDObservation(MKIDTimerange):
 class CalDefinitionMixin:
     @property
     def path(self):
-        return os.path.join(config.paths.database, self.id() + '.npz')
+        return os.path.join(config.paths.database, self.id + '.npz')
 
     @property
     def timeranges(self):
@@ -510,16 +518,22 @@ class CalDefinitionMixin:
             for tr in o.input_timeranges:
                 yield tr
 
-    def id(self, cfg=None):
+    def id_for_config(self, cfg):
         """
-        Compute a wavecal id string from a wavedata id string and either the active or a specified wavecal config
+        Compute a cal definition id string for a specified config (must have STEPNAME namespace)
         """
         id = str(self.name) + '_' + hashlib.md5(str(self).encode()).hexdigest()[-8:]
-        if cfg is None:
-            global config
-            cfg = config.get(self.STEPNAME)
+        cfg = config.get(self.STEPNAME)
         config_hash = hashlib.md5(str(cfg).encode()).hexdigest()
         return f'{id}_{config_hash[-8:]}.{self.STEPNAME}'
+
+    @property
+    def id(self):
+        """
+        Compute a cal definition id string for the active config (must have STEPNAME namespace)
+        """
+        global config
+        return self.id_for_config(config)
 
 
 class MKIDWavecalDescription(DataBase, CalDefinitionMixin):
