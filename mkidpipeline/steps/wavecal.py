@@ -2646,7 +2646,7 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
             except Exception as e:
                 getLogger(__name__).info(f'Failed to load {sd} due to a {e}')
 
-    for sd in (sd for sd in solution_descriptors if sd.id() not in solutions):
+    for sd in set(sd for sd in solution_descriptors if sd.id not in solutions):
         getLogger(__name__).info(f'Making {sd}')
         cfg = Configuration(wcfg, h5s=tuple(x.h5 for x in sd.data), wavelengths=tuple(w for w in sd.wavelengths),
                             darks=sd.darks)
