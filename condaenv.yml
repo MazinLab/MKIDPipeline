@@ -2,17 +2,17 @@
 #conda env create -f <thisfile>
 name: pipeline
 channels:
-  - defaults
   - conda-forge
   - http://ssb.stsci.edu/astroconda
   - intel
+  - defaults
 dependencies:
   #Key parts
-  - python>3
-  - hdf5>=1.10.3
-  - pytables>=3.4.4
+  - python>=3.6
+  - hdf5>=1.10.4
+  - pytables>=3.6
   - mkl
-  - astropy==3.2.3
+  - astropy
   - astroquery
   - specutils
   - scipy
@@ -54,6 +54,5 @@ dependencies:
   #pip requirements
   - pip:
     - multiprocessing-logging>=0.2.6
-    - pyinterval
 
 #prefix: ~/.conda/envs/pipeline
