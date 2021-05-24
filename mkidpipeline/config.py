@@ -408,7 +408,7 @@ class MKIDTimerange(DataBase):
     @property
     def metadata(self):
         """Returns a dict of of KEY:mkidcore.metadata.MetadataSeries|value pairs, likely a subset of all keys"""
-        obslog_files = mkidcore.utils.get_obslogs(config.paths.data)
+        obslog_files = mkidcore.utils.get_obslogs(config.paths.data, start=self.start)
         data = mkidcore.metadata.load_observing_metadata(files=obslog_files, use_cache=True)
         metadata = mkidcore.metadata.observing_metadata_for_timerange(self.start, self.duration, data)
 
