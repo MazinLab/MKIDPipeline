@@ -40,6 +40,7 @@ dependencies:
   - ipython
   - pip
   - cython
+  - yappi
   #Getting ipp requires the intel channel, it is not known if this is boosting performance
   - ipp
   #Useful Utilities
