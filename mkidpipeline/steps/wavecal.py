@@ -47,7 +47,7 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('calibration_models', ('Quadratic', 'Linear'), 'model types from wavecal_models.py to '
                                                                      'attempt to fit to the phase-energy relationship'),
                      ('dt', 500, 'ignore photons which arrive this many microseconds from another photon (number)'),
-                     ('parallel', True, 'Fitting using more than one core'),
+                     ('ncpu', 1, 'Run using more than one core'),
                      ('parallel_prefetch', False, 'use shared memory to load ALL the photon data into ram'))
 
     def _vet_errors(self):
@@ -75,7 +75,7 @@ class Configuration(object):
     def __init__(self, cfg=None, h5s=tuple(), wavelengths=tuple(),
                  darks=None, beammap=None, outdir='',
                  histogram_model_names=('GaussianAndExponential',), bin_width=2, histogram_fit_attempts=3,
-                 calibration_model_names=('Quadratic', 'Linear'), dt=500, parallel=True, parallel_prefetch=False,
+                 calibration_model_names=('Quadratic', 'Linear'), dt=500,  parallel_prefetch=False,
                  summary_plot=True, templarfile='', max_count_rate=2000, ncpu=1):
         """ darks should be a dict with fully qualified h5 paths to background files. wavelengths are keys.
         missing darks are fine
@@ -86,7 +86,7 @@ class Configuration(object):
         self.max_count_rate = max_count_rate
 
         # parse arguments
-        self.ncpu = ncpu
+        self.ncpu = mkidpipeline.config.n_cpus_available(max=ncpu)
         self.out_directory = outdir
         self.wavelengths = [w.value for w in wavelengths]
         self.h5_file_names = {wave: h5 for wave, h5 in zip(self.wavelengths, h5s)}
@@ -98,7 +98,7 @@ class Configuration(object):
         self.histogram_fit_attempts = int(histogram_fit_attempts)
         self.calibration_model_names = list(calibration_model_names)
         self.dt = float(dt)
-        self.parallel = parallel
+        self.parallel = ncpu > 1
         self.parallel_prefetch = parallel_prefetch
         self.summary_plot = summary_plot
 
@@ -106,7 +106,7 @@ class Configuration(object):
             self.beammap = beammap if beammap is not None else Beammap('MEC')
         else:
             # load in configuration params
-            self.ncpu = cfg.ncpu
+            self.ncpu = mkidpipeline.config.n_cpus_available(max=cfg.get('wavecal.ncpu', inherit=True))
             self.beammap = cfg.beammap
             self.out_directory = cfg.paths.database
             self.histogram_model_names = list(cfg.wavecal.histogram_models)
@@ -114,7 +114,7 @@ class Configuration(object):
             self.histogram_fit_attempts = int(cfg.wavecal.histogram_fit_attempts)
             self.calibration_model_names = list(cfg.wavecal.calibration_models)
             self.dt = float(cfg.wavecal.dt)
-            self.parallel = cfg.wavecal.parallel
+            self.parallel = self.ncpu>1
             self.parallel_prefetch = cfg.wavecal.parallel_prefetch
             self.summary_plot = str(cfg.wavecal.plots).lower() in ('all', 'summary')
 
@@ -1612,9 +1612,10 @@ class Solution(object):
         pixel, _ = self._parse_resonators(pixel, res_id)
         wavelengths = self._parse_wavelengths(wavelengths)
         models = self.histogram_models(wavelengths, pixel=pixel)
-        parameters = np.array([model.best_fit_result.params
-                               if model.best_fit_result is not None else None
-                               for model in models], dtype=object)
+        parameters = np.full_like(models, None, dtype=object)
+        for i, model in enumerate(models):
+            if model.best_fit_result is not None:
+                parameters[i] = model.best_fit_result.params
         return parameters
 
     def histogram_model_names(self, wavelengths=None, pixel=None, res_id=None):
@@ -2640,11 +2641,12 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
             try:
                 if not os.path.exists(sd.path):
                     raise IOError
-                solutions[sd.id()] = load_solution(sd.path)
+                solutions[sd.id] = load_solution(sd.path)
             except IOError:
                 pass
             except Exception as e:
-                getLogger(__name__).info(f'Failed to load {sd} due to a {e}')
+                getLogger(__name__).info(f'Failed to load {sd} due to a {e} error')
+                raise
 
     for sd in set(sd for sd in solution_descriptors if sd.id not in solutions):
         getLogger(__name__).info(f'Making {sd}')
@@ -2653,6 +2655,7 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
         cal = Calibrator(cfg, solution_name=sd.path)
         cal.run(**kwargs)
         solutions[sd.id] = cal.solution
+        getLogger(__name__).info(f'{sd} made.')
 
     return solutions
 
@@ -2709,10 +2712,10 @@ def apply(o):
             getLogger(__name__).debug('Using modify_coordinates')
             rows = obs.photonTable.read_coordinates(indices)
             rows['wavelength'] = calibration(rows['wavelength'])
-            obs.photonTable.modify_coordinates(indices, rows)
+            #obs.photonTable.modify_coordinates(indices, rows)
         tic2 = time.time()
         getLogger(__name__).debug('Wavelength updated in {:.2f}s'.format(time.time() - tic2))
-
+        return
     obs.update_header('wavecal', solution.name)
     #TODO R and error for each wavelength and any other info to header
     obs.photonTable.reindex_dirty()  # recompute "dirty" wavelength index
