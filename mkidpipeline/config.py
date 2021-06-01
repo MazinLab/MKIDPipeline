@@ -362,8 +362,8 @@ class MKIDTimerange(DataBase):
     @property
     def _metadata(self):
         """ Return a dict of the metadata unique to self"""
-        d = dict(UNIXSTR=self.start, UNIXEND=self.stop, M_DARK=f'{self.dark.duration}@{self.dark.start}'
-                                                               f'' if self.dark else 'None')
+        d = dict(UNIXSTR=self.start, UNIXEND=self.stop,
+                 M_DARK=f'{self.dark.duration}@{self.dark.start}' if self.dark else 'None')
         for k in self.header:
             if k in mkidcore.metadata.MEC_KEY_INFO:
                 d[k] = self.header[k]
@@ -403,7 +403,11 @@ class MKIDTimerange(DataBase):
     def photontable(self):
         """Convenience method for a photontable, file must exist, creates a new photon table on every call"""
         from mkidpipeline.photontable import Photontable
-        return Photontable(self.h5)
+        try:
+            return Photontable(self.h5)
+        except ValueError:
+            getLogger(__name__).warning(f'H5 already opened for writing, returning table in write mode')
+            return Photontable(self.h5, mode='w')
 
     @property
     def metadata(self):
@@ -442,26 +446,30 @@ class MKIDObservation(MKIDTimerange):
     @property
     def _metadata(self):
         d = super()._metadata
+        # try:
+        #     wc = self.wavecal.id
+        # except AttributeError:
+        #     wc = 'None'
+        # try:
+        #     fc = self.flatcal.id
+        # except AttributeError:
+        #     fc = 'None'
+        # try:
+        #     sc = self.speccal.id
+        # except AttributeError:
+        #     sc = 'None'
         try:
-            wc = self.wavecal.id
-        except AttributeError:
-            wc = 'None'
-        try:
-            fc = self.flatcal.id
-        except AttributeError:
-            fc = 'None'
-        try:
-            sc = self.speccal.id
-        except AttributeError:
-            sc = 'None'
-        try:
-            wcsd = dict(platescale=self.wcscal.platescale, dither_ref=self.wcscal.dither_ref,
-                        dither_home=self.wcscal.dither_home, device_orientation=self.wcscal.device_orientation)
+            wcsd = dict(M_PLTSCL=self.wcscal.platescale,
+                        M_CXREFX=self.wcscal.dither_ref[0],
+                        M_CXREFY=self.wcscal.dither_ref[1],
+                        M_PREFX=self.wcscal.dither_home[0],
+                        M_PREFY=self.wcscal.dither_home[1],
+                        M_DEVANG=config.instrument.device_orientation_deg)
         except AttributeError:
             wcsd = {}
 
-        d2 = dict(wavecal=wc, flatcal=fc, speccal=sc)
-        d.update(d2)
+        # d2 = dict(wavecal=wc, flatcal=fc, speccal=sc)
+        # d.update(d2)
         d.update(wcsd)
         return d
 
