@@ -84,8 +84,9 @@ def safe(func):
         try:
             return func(*args, **kwargs)
         except Exception:
-            getLogger(__name__).critical(f'Caught exception during run of {func}', exc_info=True)
-            return None
+            getLogger(__name__).critical(f'Caught exception during run of {func.__module__}.{func.__name__}',
+                                         exc_info=True)
+            raise
 
     return wrapper_decorator
 
