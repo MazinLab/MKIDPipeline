@@ -700,10 +700,10 @@ class Photontable:
             getLogger(__name__).warning('Insufficient data to build a WCS solution')
             return None
 
-        wcs_solns = metadata.build_wcs(self.metadata(self.start_time),
-                                       astropy.time.Time(val=sample_times, format='unix'), ref_pixels,
-                                       derotate=derotate and not single_pa_time,
-                                       naxis=3 if cube_type in ('wave', 'time') else 2)
+        wcs_solns = mkidcore.metadata.build_wcs(self.metadata(self.start_time),
+                                                astropy.time.Time(val=sample_times, format='unix'), ref_pixels,
+                                                derotate=derotate and not single_pa_time,
+                                                naxis=3 if cube_type in ('wave', 'time') else 2)
 
         if cube_type in ('wave', 'time'):
             for obs_wcs in wcs_solns:
@@ -955,9 +955,11 @@ class Photontable:
             data = getattr(self.file.root.photons.photontable.attrs, k)
             try:
                 data = data.get(timestamp, preceeding=True)
+                records[k] = data
             except AttributeError:
-                pass
-            records[k] = data
+                records[k] = data
+            except ValueError:
+                pass  # no data
 
         return records
 
