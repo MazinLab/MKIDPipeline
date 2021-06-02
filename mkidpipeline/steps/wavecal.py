@@ -2688,7 +2688,7 @@ def apply(o):
 
     tic = time.time()
     for pixel, resid in obs.resonators():
-        if not solution.has_good_calibration_solution(res_id=resID):
+        if not solution.has_good_calibration_solution(res_id=resid):
             continue
 
         indices = obs.photonTable.get_where_list('resID==resid')
@@ -2709,10 +2709,9 @@ def apply(o):
                                           colname='wavelength')
         else:  # This takes 3.5s on a 70Mphot file!!!
             # raise NotImplementedError('This code path is impractically slow at present.')
-            getLogger(__name__).debug('Using modify_coordinates')
-            rows = obs.photonTable.read_coordinates(indices)
-            rows['wavelength'] = calibration(rows['wavelength'])
-            #obs.photonTable.modify_coordinates(indices, rows)
+            getLogger(__name__).warning('Using modify_coordinates')
+            phase = obs.photonTable.read_coordinates(indices, field='wavelength')
+            obs.photonTable.modify_coordinates(indices, calibration(phase))
         tic2 = time.time()
         getLogger(__name__).debug('Wavelength updated in {:.2f}s'.format(time.time() - tic2))
         return
