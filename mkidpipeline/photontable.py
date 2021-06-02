@@ -952,7 +952,7 @@ class Photontable:
 
         records = {}
         for k in self.file.root.photons.photontable.attrs._f_list('user'):
-            data = getattr(self.file.root.photons.attrs, k)
+            data = getattr(self.file.root.photons.photontable.attrs, k)
             try:
                 data = data.get(timestamp, preceeding=True)
             except AttributeError:
