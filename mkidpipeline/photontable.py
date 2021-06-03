@@ -933,7 +933,7 @@ class Photontable:
                                                         name='CUBE_BINS')] + pixcal_hdu)
 
         hdul['CUBE_BINS'].header.append(fits.Card('UNIT', 'us' if cube_type is 'time' else 'nm', comment='Bin unit'))
-
+        getLogger(__name__).debug(f'FITS generated in {time.time()-tic:.0f} s')
         return hdul
 
     def query_header(self, name):
