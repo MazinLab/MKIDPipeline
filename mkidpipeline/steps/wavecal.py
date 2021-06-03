@@ -2674,8 +2674,7 @@ def apply(o):
         return
 
     solution = load_solution(o.wavecal.path)
-    obs = o.photontable
-    obs.enablewrite()
+    obs = photontable.Photontable(o.h5, mode='write')
 
     # check file_name and status of obsFile
     wcf = obs.query_header('wavecal')
@@ -2719,5 +2718,5 @@ def apply(o):
     #TODO R and error for each wavelength and any other info to header
     obs.photonTable.reindex_dirty()  # recompute "dirty" wavelength index
     obs.photonTable.autoindex = True  # turn on auto-indexing
-    obs.disablewrite()
+    del obs
     getLogger(__name__).info('Wavecal applied in {:.2f}s'.format(time.time() - tic))
