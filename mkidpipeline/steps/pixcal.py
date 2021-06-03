@@ -174,7 +174,6 @@ def median(image, box_size=5, n_sigma=4.0, max_iter=5):
     'median_filter_image': The median-filtered image
     'num_iter': number of iterations performed.
     """
-    if max_iter is None: max_iter = 5
 
     raw_image = np.copy(image)
 
@@ -293,33 +292,28 @@ def laplacian(image, box_size=5, n_sigma=4.0):
 
     return {'cold': dead_mask, 'hot': hot_mask, 'image': raw_image, 'laplacian_filter_image': laplacian_filter_image}
 
-def _compute_mask(obs, method, step, startt, stopt, methodkw, weight):
-    starts = np.arange(startt, stopt, step, dtype=int)  # Start time for each step (in seconds).
-    step_ends = starts + int(step)  # End time for each step
-    step_ends[step_ends > stopt] = int(stopt)  # Clip any time steps that run over the end of the requested time range.
 
-    # Initialise stack of masks, one for each time step
-    masks = np.zeros(obs.beamImage.shape+(starts.size, 2), dtype=bool)
+def _compute_mask(obs, method, step, startt, stopt, methodkw, weight):
     try:
         func = globals()[method]
     except KeyError:
         raise ValueError(f'"{method} is an unsupported pixel masking method')
 
     # Generate a stack of bad pixel mask, one for each time step
-    for i, each_time in enumerate(starts):
+    img = obs.get_fits(start=startt, duration=stopt-startt, weight=weight, rate=False, cube_type='time', bin_width=step)
+    masks = np.zeros(img['SCIENCE'].data.shape+(2,), dtype=bool)
+    for i, (img, each_time) in enumerate(zip(np.rollaxis(img['SCIENCE'].data, -1), img['CUBE_BINS'].data.edges[:-1])):
         getLogger(__name__).info(f'Processing time slice: {each_time} - {each_time + step} s')
-        img = obs.get_fits(start=each_time, duration=step, weight=weight, rate=False, cube_type='time',
-                           bin_width=step)
-        result = func(img['SCIENCE'].data, **methodkw)
+        result = func(img, **methodkw)
         masks[:, :, i, 0] = result['hot']
         masks[:, :, i, 1] = result['cold']
 
     # check for any pixels that switched from one to the other
-    mask = np.zeros(obs.beamImage.shape + (3,), dtype=bool)
+    mask = np.zeros(img['SCIENCE'].data.shape[:2] + (3,), dtype=bool)
     mask[:, :, :2] = masks.all(axis=2)
     mask[:, :, 2] = masks.any(axis=2) & ~mask.any(axis=2)
 
-    meta = dict(method=method, step=step)  #TODO flesh this out with pixcal fits keys
+    meta = dict(method=method, step=step)  # TODO flesh this out with pixcal fits keys
     meta.update(methodkw)
 
     return mask, meta
@@ -337,7 +331,7 @@ def fetch(o, config=None):
     method = cfg.pixcal.method
 
     if cfg.pixcal.step > stopt-startt:
-        getLogger(__name__).warning(f'Step time longer than data time by {step-(stopt-startt):.0f} s, '
+        getLogger(__name__).warning(f'Step time longer than data time by {(step-(stopt-startt))*1000:.0f} ms, '
                                     f'using full exposure.')
 
     # This is how method keywords are fetched is propagated
