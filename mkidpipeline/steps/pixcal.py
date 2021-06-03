@@ -1,64 +1,3 @@
-"""
-Author: Isabel Lipartito
-Date: October 2018
-
-Routines for checking for hot and dead pixels in obs. files (input can be calibrated or uncalibrated).
-
-The supplied obs. file is stepped through in short time steps, and a 2D mask
-made for each step. The current detection algorithm compares the flux in each pixel
-with that in each pixel in a surrounding box. If the difference is significantly
-higher than could be expected for a stellar (point-source) PSF (allowing for
-noise), then the flux level cannot be real and the pixel is flagged for the
-time step under examination.
-
-New PtSi devices do not seem to display hot pixel behavior from the same mechanism as
-old TiN devices. As such, the full time masking technique used in the ARCONS pipeline
-may not be necessary. Bad pixels largely remain "bad" with little switching behavior.
-
-Functions available for use:
-
--------------
-find_bad_pixels:  The main routine. Takes an obs. file  as input and writes a bad pixel mask as a table into the obsfile
-                  The routine by which hot, dead, and cold pixels are identified can be swapped out for one of four options
-                  Algorithms differ in how they flag hot pixels but they all are able to flag dead pixels
-
-                  Bad Pixel Masking Via Image Arrays --> Best for wavelength calibrated + flat-fielded arrays
-                    a.  flux_threshold:  Established PSF-comparison method to find hot pixels
-                    b.  laplacian:  New method to find hot pixels using a Laplacian filter
-                    c.  median_movingbox:  New method to find hot pixels using a median moving-box
-                    d.  cps_cut_image:  Basic hot pixel search using a count-per-second threshold (not robust)
-
-                  Bad Pixel Masking via Time Streams --> Best for uncalibrated obs data or calibration data
-                    a.  hpm_poisson_dist:  Identifies pixels whose histogram lightcurves do not obey Poisson stats as
-                                           potential HPs.  #TODO Develop this to iterate over all pixels
-
--------------
-Functions for first-order HP masking, plotting, viewing (takes an image or numpy array as input):
-
-cps_cut:    Creates a 2D bad pixel mask for a given time interval within a given
-                exposure using a count-per-second threshold routine.  USE THIS FOR DATA VIEWING/QUICK CHECKS
-
-save_mask_array:  Write bad pixel mask to desired output directory
-
-load_mask_array:  Load and return a mask
-
-plot_mask_array:  Plot a mask or masked image for viewing
-
--------------
-Functions for rigorous HP masking of obs data (takes an image or numpy array as input):
-
-flux_threshold: Creates a 2D bad pixel mask for a given time interval within a given
-                    exposure using a robust PSF-comparison method.  USE THIS FOR DATA REDUCTION
-
-median_movingbox:  Creates a 2D bad pixel mask for a given time interval within a given exposure using a
-                       median-moving-box.  Is extremely variable to input parameters, requires a lot of find-tuning
-
-laplacian:  Creates a 2D bad pixel mask for a given time interval within a given exposure using a Laplacian filter
-                based on approximate second derivatives.
-                Works all right on 51Eri Dither, got around 80% of HPs
-
-hpm_poisson_dist:  Checks if photons arriving at pixels are obeying Poisson stats
-"""
 import warnings
 import numpy as np
 import scipy.ndimage.filters as spfilters
@@ -259,9 +198,6 @@ def threshold(image, fwhm=4, box_size=5, nsigma_hot=4.0, nsigma_cold=4.0, max_it
 
 def median(image, box_size=5, nsigma_hot=4.0, max_iter=5):
     """
-    New routine, developed to serve as a generic hot pixel masking method
-    Finds the hot and dead pixels in a for a 2D input array.
-
     Passes a box_size by box_size moving box over the entire array and checks if the pixel at the center of that window
     has counts higher than the median plus nsigma_hot times the standard deviation of the pixels in that window
 
@@ -512,7 +448,6 @@ def _compute_mask(obs, method, step, startt, stopt, methodkw, weight):
 
 
 def fetch(o, config=None):
-
     obs = Photontable(o.h5)
     if obs.query_header('pixcal'):
         getLogger(__name__).info('{} is already pixel calibrated'.format(o.h5))
@@ -533,7 +468,6 @@ def fetch(o, config=None):
                 k not in exclude}
 
     return _compute_mask(obs, method, step, startt, stopt, methodkw, cfg.pixcal.use_weight)
-
 
 def apply(o, config=None):
     mask, meta = fetch(o, config)
