@@ -309,9 +309,8 @@ def _compute_mask(obs, method, step, startt, stopt, methodkw, weight):
         masks[:, :, i, 1] = result['cold']
 
     # check for any pixels that switched from one to the other
-    mask = np.zeros(img['SCIENCE'].data.shape[:2] + (3,), dtype=bool)
-    mask[:, :, :2] = masks.all(axis=2)
-    mask[:, :, 2] = masks.any(axis=2) & ~mask.any(axis=2)
+    mask = masks.all(axis=2)  # all hot, all cold
+    mask = np.dstack([mask, (masks.any(axis=2) & ~mask).any(axis=2)])  # and with any hot, any cold
 
     meta = dict(method=method, step=step)  # TODO flesh this out with pixcal fits keys
     meta.update(methodkw)
