@@ -33,6 +33,7 @@ if __name__ == "__main__":
               configfile=args.logcfg)
     log = getLogger('mkidpipe')
 
+    getLogger('mkidcore.objects').setLevel('INFO')
     if args.verbose:
         getLogger('mkidpipe').setLevel('DEBUG')
         getLogger('mkidpipeline').setLevel('DEBUG')
