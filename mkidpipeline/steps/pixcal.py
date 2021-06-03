@@ -360,7 +360,7 @@ def _compute_mask(obs, method, step, startt, stopt, methodkw, weight):
     step_ends[step_ends > stopt] = int(stopt)  # Clip any time steps that run over the end of the requested time range.
 
     # Initialise stack of masks, one for each time step
-    masks = np.zeros_like(obs.beamImage.shape+(starts.size, 2), dtype=bool)
+    masks = np.zeros(obs.beamImage.shape+(starts.size, 2), dtype=bool)
     try:
         func = globals()[method]
     except KeyError:
@@ -376,7 +376,7 @@ def _compute_mask(obs, method, step, startt, stopt, methodkw, weight):
         masks[:, :, i, 1] = result['cold']
 
     # check for any pixels that switched from one to the other
-    mask = np.zeros_like(obs.beamImage.shape + (3,), dtype=bool)
+    mask = np.zeros(obs.beamImage.shape + (3,), dtype=bool)
     mask[:, :, :2] = masks.all(axis=2)
     mask[:, :, 2] = masks.any(axis=2) & ~mask.any(axis=2)
 
