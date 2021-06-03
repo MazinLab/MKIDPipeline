@@ -302,7 +302,7 @@ def _compute_mask(obs, method, step, startt, stopt, methodkw, weight):
     # Generate a stack of bad pixel mask, one for each time step
     img = obs.get_fits(start=startt, duration=stopt-startt, weight=weight, rate=False, cube_type='time', bin_width=step)
     masks = np.zeros(img['SCIENCE'].data.shape+(2,), dtype=bool)
-    for i, (sl, each_time) in enumerate(zip(np.rollaxis(img['SCIENCE'].data, -1), img['CUBE_BINS'].data.edges[:-1])):
+    for i, (sl, each_time) in enumerate(zip(np.rollaxis(img['SCIENCE'].data, -1), img['CUBE_EDGES'].data.edges[:-1])):
         getLogger(__name__).info(f'Processing time slice: {each_time} - {each_time + step} s')
         result = func(sl, **methodkw)
         masks[:, :, i, 0] = result['hot']

@@ -929,10 +929,10 @@ class Photontable:
                              fits.ImageHDU(data=data / duration if rate else data, header=hdr, name='SCIENCE'),
                              fits.ImageHDU(data=np.sqrt(data), header=hdr, name='VARIANCE'),
                              fits.TableHDU.from_columns(np.recarray(shape=bin_edges.shape, buf=bin_edges,
-                                                                    dtype=np.dtype([('edges', float)])),
-                                                        name='CUBE_BINS')] + pixcal_hdu)
+                                                                    dtype=np.dtype([('edges', bin_edges.dtype)])),
+                                                        name='CUBE_EDGES')] + pixcal_hdu)
 
-        hdul['CUBE_BINS'].header.append(fits.Card('UNIT', 'us' if cube_type is 'time' else 'nm', comment='Bin unit'))
+        hdul['CUBE_EDGES'].header.append(fits.Card('UNIT', 'us' if cube_type is 'time' else 'nm', comment='Bin unit'))
         getLogger(__name__).debug(f'FITS generated in {time.time()-tic:.0f} s')
         return hdul
 
