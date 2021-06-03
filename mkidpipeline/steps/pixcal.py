@@ -354,67 +354,6 @@ def laplacian(image, box_size=5, nsigma_hot=4.0):
 
     return {'cold': dead_mask, 'hot': hot_mask, 'image': raw_image, 'laplacian_filter_image': laplacian_filter_image}
 
-
-def cpscut(image, sigma=5, max_cut=2450, cold_mask=False):
-    """
-    NOTE:  This is a routine for masking hot pixels in .img files and the like, NOT robust
-            OK to use for bad pixel masking for pretty-picture-generation or quicklook
-    Finds the hot and dead pixels in a for a 2D input array.
-    Input can be a stack, in that case, the median image will be generated
-    First order:  masks everything with a count level higher than the max cut
-                  If the pixel has counts less than 0.01, then the pixel is flagged as DEAD
-    Second order: masks everything with a count level higher than the mean count rate + sigma*st. dev
-    If cold_mask=True, third cut where everything with a count level less than mean count rate - sigma*stdev
-
-    The HOT and DEAD masks are combined into a single BAD mask at the end
-
-    Required Input:
-    :param image:           A 2D array of photon counts: can be (nx, ny) or (ny, nx) --> true if made with loadStack
-
-    Other Input:
-    :param sigma:             Scalar float.  Cut pixels this number of standard deviations away from the mean
-    :param max_cut:           Scalar integer.  Initial cut, 2450 as per the detector max
-    :param cold_mask:         Boolean.  If True, *cold* pixels will also be masked
-
-    :return:
-    A dictionary containing the result and various diagnostics. Keys are:
-    'bad_mask': the main output. Contains a 2D array of integers shaped as (nx, ny), where:
-            0 = Good pixel
-            1 = Hot pixel
-            2 = Cold Pixel
-            3 = Dead Pixel
-    'image': 2D array containing the input image. Regardless of input array format, stack will be returned as
-                                                  (nx, ny) just to standardize things
-    """
-    image_count = np.array(np.shape(image))
-    raw_image = np.nanmedian(image, axis=0) if len(image_count) >= 3 else np.array(image)
-
-    # Check if input is (ny, nx) instead of (nx, ny), if so, rearrange it (for purposes of standardization)
-    if raw_image.shape[0] > raw_image.shape[1]:
-        raw_image = raw_image.T
-
-    # initial masking, flag dead pixels (counts < 0.01) and flag anything with cps > maxCut as hot
-    hot_mask = np.zeros_like(raw_image)
-    dead_mask = np.zeros_like(raw_image)
-    hot_mask[raw_image >= max_cut] = FLAGS.flags['hot'].bit
-    dead_mask[raw_image <= 0.01] = FLAGS.flags['cod'].bit
-
-    # second round of masking, flag where cps > mean+sigma*std as hot
-    with warnings.catch_warnings():
-        # nan values will give an unnecessary RuntimeWarning
-        warnings.simplefilter("ignore", category=RuntimeWarning)
-        hot_mask[raw_image >= np.nanmedian(raw_image) + sigma * np.nanstd(raw_image)] = FLAGS.flags['hot'].bit
-
-    # if coldCut is true, also mask cps < mean-sigma*std
-    if cold_mask:
-        with warnings.catch_warnings():
-            # nan values will give an unnecessary RuntimeWarning
-            warnings.simplefilter("ignore", category=RuntimeWarning)
-            hot_mask[raw_image <= np.nanmedian(raw_image) - sigma * np.nanstd(raw_image)] = FLAGS.flags['hot'].bit
-
-    return {'cold': dead_mask, 'hot': hot_mask, 'image': raw_image}
-
-
 def _compute_mask(obs, method, step, startt, stopt, methodkw, weight):
     starts = np.arange(startt, stopt, step, dtype=int)  # Start time for each step (in seconds).
     step_ends = starts + int(step)  # End time for each step
