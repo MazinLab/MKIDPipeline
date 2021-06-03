@@ -125,14 +125,6 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
     h5file.create_array(group, 'flag', beammap_flagmap_to_h5_flagmap(bmap.flagmap), 'flag map')
     getLogger(__name__).debug('Beammap Attached to {}'.format(cfg.h5file))
 
-    # h5file.create_group('/', 'Metadata', 'Metadata')
-    # filter = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=True, bitshuffle=False, fletcher32=False)
-    # metadataTable = h5file.create_table('/Metadata', 'metadata', Photontable.MetadataDescription, 'Metadata',
-    #                                     filters=filter, expectedrows=10)
-
-    # h5file.create_group('/', 'Header', 'Header')
-    # headerTable = h5file.create_table('/Header', 'header', Photontable.PhotontableHeader, 'Header', expectedrows=512,
-    #                                   filters=filter)
     headerContents = {}
     headerContents['wavecal'] = ''
     headerContents['flatcal'] = ''
@@ -140,33 +132,21 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
     headerContents['flags'] = PIPELINE_FLAGS.names
     headerContents['pixcal'] = False
     headerContents['lincal'] = False
-    headerContents['comsmiccal'] = False
+    headerContents['cosmiccal'] = False
     headerContents['dead_time'] = mkidpipeline.config.config.instrument.deadtime_us
     headerContents['UNIXSTR'] = cfg.starttime
     headerContents['UNIXEND'] = cfg.starttime + cfg.inttime
     headerContents['EXPTIME'] = cfg.inttime
+    headerContents['M_BMAP'] = cfg.beamfile  #TODO eventually a uuid
     headerContents['max_wavelength'] = mkidpipeline.config.config.instrument.maximum_wavelength
     headerContents['min_wavelength'] = mkidpipeline.config.config.instrument.minimum_wavelength
     headerContents['energy_resolution'] = mkidpipeline.config.config.instrument.energy_bin_width_ev
-    headerContents['target'] = ''
     headerContents['data_path'] = cfg.datadir
-    headerContents['beammap_file'] = cfg.beamfile
-    headerContents['M_BMAP'] = cfg.beamfile  #TODO eventually a uuid
 
-    #must not be an overlap
+    # must not be an overlap
     assert set(h5file.root.photons.photontable.attrs._f_list('sys')).isdisjoint(headerContents)
-    # hdr = []
     for k, v in headerContents.items():
-        # out = StringIO()
-        # yaml.dump(v, out)
-        # value = out.getvalue().encode()
-        # assert len(value) < mkidpipeline.photontable._VALUE_BYTES
-        # hdr.append((k.encode(), value))
-
         setattr(h5file.root.photons.photontable.attrs, k, v)
-
-    # headerTable.append(hdr)
-    # getLogger(__name__).debug('Header Attached to {}'.format(cfg.h5file))
 
     h5file.close()
     getLogger(__name__).debug('Done with {}'.format(cfg.h5file))

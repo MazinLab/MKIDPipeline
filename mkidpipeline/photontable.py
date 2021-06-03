@@ -173,14 +173,6 @@ _VALUE_BYTES = 8192
 class Photontable:
     TICKS_PER_SEC = int(1.0 / 1e-6)  # each integer value is 1 microsecond
 
-    class MetadataDescription(tables.IsDescription):
-        time = tables.UInt32Col(pos=0)
-        metadata = tables.StringCol(_METADATA_BLOCK_BYTES, pos=1)
-
-    class PhotontableHeader(tables.IsDescription):
-        key = tables.StringCol(_KEY_BYTES)
-        value = tables.StringCol(_VALUE_BYTES)
-
     class PhotonDescription(tables.IsDescription):
         resID = tables.UInt32Col(pos=0)
         time = tables.UInt32Col(pos=1)
@@ -892,23 +884,49 @@ class Photontable:
         md['UNIXSTR'] = time_nfo['start']
         md['UNIXEND'] = time_nfo['stop']
         md['EXPTIME'] = time_nfo['duration']
-        header = mkidcore.metadata.build_header(md)
-        header.update(self.get_wcs(cube_type=cube_type, bins=bin_edges,
-                                   single_pa_time=time_nfo['start'])[0].to_header())
-        # add necessary keys to non Primary HDU
+
+        md.pop('data_path')
+        pixcal = mp.pop('pixcal')
+        flaglist = mp.pop('flags')
+
+        # Deal with non Primary HDU keys
+        ext_cards = [fits.Card('craycal', md.pop('cosmiccal'), comment='Cosmic ray data calculated'),
+                     fits.Card('lincal', md.pop('lincal'), comment='Linearity (dead time) corrected data'),
+                     fits.Card('speccal', md.pop('speccal'), comment='Speccal applied to data'),
+                     fits.Card('wavecal', md.pop('wavecal'), comment='Wavecal applied to data'),
+                     fits.Card('flatcal', md.pop('flatcal'), comment='Flatcal applied to data'),
+                     fits.Card('h5minwav', md.pop('min_wavelength'), comment='Min wavelength in h5 file'),
+                     fits.Card('h5maxwav', md.pop('max_wavelength'), comment='Max wavelength in h5 file'),
+                     fits.Card('MINWAVE', wave_start, comment='Lower wavelength cut'),
+                     fits.Card('MAXWAVE', wave_stop, comment='Upper wavelength cut'),
+                     fits.Card('eresol', md.pop('energy_resolution'), comment='Nominal energy resolution'),
+                     fits.Card('beammap', wave_stop, comment='Upper wavelength cut'),
+                     fits.Card('deadtime', mp.pop('dead_time'), comment='Firmware dead-time (us)'),
+                     fits.Card('UNIT', 'photons/s' if rate else 'photons', comment='Count unit')]
+
+        pixcal_hdu = []
+        if pixcal:
+            excluded = self.flags.bitmask(exclude_flags, unknown='ignore')
+            pixcal_hdu = [fits.ImageHDU(data=self._flagArray, name='FLAGS'),
+                          fits.ImageHDU(data=(self._flagArray & excluded).astype(bool), name='BAD'),
+                          fits.TableHDU(data=flaglist, name='FLAG_NAMES')]
+            ext_cards.append(fits.Card('EXFLAG', excluded, comment='Bitmask of excluded flags'))
+
+        # Build primary and image headers
+        header = mkidcore.metadata.build_header(md, unknown_keys='warn')
+        wcs = self.get_wcs(cube_type=cube_type, bins=bin_edges, single_pa_time=time_nfo['start'])[0].to_header()
+        header.update(wcs)
         hdr = header.copy()
-        hdr['UNIT'] = 'photons/s' if rate else 'photons'
-        hdr['MINWAVE'] = time_nfo['minw']
-        hdr['MAXWAVE'] = time_nfo['maxw']
-        hdr['EXFLAG'] = self.flags.bitmask(exclude_flags, unknown='ignore')
+        hdr.extend(ext_cards, unique=True)
+
+        # Build HDU List
         hdul = fits.HDUList([fits.PrimaryHDU(header=header),
-                             fits.ImageHDU(data=data / duration if rate else data,
-                                           header=hdr, name='SCIENCE'),
-                             fits.ImageHDU(data=np.sqrt(data), header=header, name='VARIANCE'),
-                             fits.ImageHDU(data=self._flagArray, header=header, name='FLAGS'),
-                             fits.ImageHDU(data=self._flagArray & hdr['EXFLAG'], header=header, name='BAD'),
-                             fits.TableHDU(data=bin_edges, name='CUBE_BINS')])
+                             fits.ImageHDU(data=data / duration if rate else data, header=hdr, name='SCIENCE'),
+                             fits.ImageHDU(data=np.sqrt(data), header=hdr, name='VARIANCE'),
+                             fits.TableHDU(data=bin_edges, name='CUBE_BINS')] + pixcal_hdu)
+
         hdul['CUBE_BINS'].header['UNIT'] = 'us' if cube_type is 'time' else 'nm'
+
         return hdul
 
     def query_header(self, name):
