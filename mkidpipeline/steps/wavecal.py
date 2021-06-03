@@ -47,6 +47,7 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('calibration_models', ('Quadratic', 'Linear'), 'model types from wavecal_models.py to '
                                                                      'attempt to fit to the phase-energy relationship'),
                      ('dt', 500, 'ignore photons which arrive this many microseconds from another photon (number)'),
+                     ('ncpu', 1, 'Run using more than one core'),
                      ('parallel_prefetch', False, 'use shared memory to load ALL the photon data into ram'))
 
     def _vet_errors(self):
@@ -2650,7 +2651,7 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
     for sd in set(sd for sd in solution_descriptors if sd.id not in solutions):
         getLogger(__name__).info(f'Making {sd}')
         cfg = Configuration(wcfg, h5s=tuple(x.h5 for x in sd.data), wavelengths=tuple(w for w in sd.wavelengths),
-                            darks=sd.darks, ncpu=wcfg.ncpu)
+                            darks=sd.darks)
         cal = Calibrator(cfg, solution_name=sd.path)
         cal.run(**kwargs)
         solutions[sd.id] = cal.solution
