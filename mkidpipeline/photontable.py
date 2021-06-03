@@ -485,13 +485,11 @@ class Photontable:
         Parameters
         ----------
         pixel: 2-tuple of int/slice denoting x,y pixel location
-        flag: int
-            Flag to apply to pixel
+        flag: int Flag to apply to pixel
         """
         if self.mode != 'write':
             raise Exception("Must open file in write mode to do this!")
 
-        # flag = np.asarray(flag)
         self.flags.valid(flag, error=True)
         if not np.isscalar(flag) and self._flagArray[pixel].shape != flag.shape:
             raise ValueError('flag must be scalar or match the desired region selected by x & y coordinates')
@@ -819,7 +817,8 @@ class Photontable:
             flag definitions see 'h5FileFlags' in Headers/pipelineFlags.py
         :param wave_start:
         """
-        cube_type = cube_type.lower()
+        if cube_type:
+            cube_type = cube_type.lower()
         bin_type = bin_type.lower()
 
         tic = time.time()
@@ -889,6 +888,18 @@ class Photontable:
         pixcal = md.pop('pixcal')
         flaglist = md.pop('flags')
 
+        if pixcal:
+            excluded = self.flags.bitmask(exclude_flags, unknown='ignore')
+            pixcal_hdu = [fits.ImageHDU(data=self._flagArray, name='FLAGS'),
+                          fits.ImageHDU(data=(self._flagArray & excluded).astype(bool), name='BAD'),
+                          fits.TableHDU.from_columns(np.recarray(shape=flaglist.shape, buf=flaglist,
+                                                                 dtype=np.dtype([('flags', '|S64')])),
+                                                     name='FLAG_NAMES')]
+
+        else:
+            excluded = 0
+            pixcal_hdu = []
+
         # Deal with non Primary HDU keys
         ext_cards = [fits.Card('craycal', md.pop('cosmiccal'), comment='Cosmic ray data calculated'),
                      fits.Card('lincal', md.pop('lincal'), comment='Linearity (dead time) corrected data'),
@@ -900,22 +911,16 @@ class Photontable:
                      fits.Card('MINWAVE', wave_start, comment='Lower wavelength cut'),
                      fits.Card('MAXWAVE', wave_stop, comment='Upper wavelength cut'),
                      fits.Card('eresol', md.pop('energy_resolution'), comment='Nominal energy resolution'),
-                     fits.Card('beammap', wave_stop, comment='Upper wavelength cut'),
                      fits.Card('deadtime', md.pop('dead_time'), comment='Firmware dead-time (us)'),
-                     fits.Card('UNIT', 'photons/s' if rate else 'photons', comment='Count unit')]
-
-        pixcal_hdu = []
-        if pixcal:
-            excluded = self.flags.bitmask(exclude_flags, unknown='ignore')
-            pixcal_hdu = [fits.ImageHDU(data=self._flagArray, name='FLAGS'),
-                          fits.ImageHDU(data=(self._flagArray & excluded).astype(bool), name='BAD'),
-                          fits.TableHDU(data=flaglist, name='FLAG_NAMES')]
-            ext_cards.append(fits.Card('EXFLAG', excluded, comment='Bitmask of excluded flags'))
+                     fits.Card('UNIT', 'photons/s' if rate else 'photons', comment='Count unit'),
+                     fits.Card('EXFLAG', excluded, comment='Bitmask of excluded flags')]
 
         # Build primary and image headers
         header = mkidcore.metadata.build_header(md, unknown_keys='warn')
-        wcs = self.get_wcs(cube_type=cube_type, bins=bin_edges, single_pa_time=time_nfo['start'])[0].to_header()
-        header.update(wcs)
+        wcs = self.get_wcs(cube_type=cube_type, bins=bin_edges, single_pa_time=time_nfo['start'])
+        if wcs:
+            wcs[0].to_header()
+            header.update(wcs)
         hdr = header.copy()
         hdr.extend(ext_cards, unique=True)
 
@@ -923,9 +928,11 @@ class Photontable:
         hdul = fits.HDUList([fits.PrimaryHDU(header=header),
                              fits.ImageHDU(data=data / duration if rate else data, header=hdr, name='SCIENCE'),
                              fits.ImageHDU(data=np.sqrt(data), header=hdr, name='VARIANCE'),
-                             fits.TableHDU(data=bin_edges, name='CUBE_BINS')] + pixcal_hdu)
+                             fits.TableHDU.from_columns(np.recarray(shape=bin_edges.shape, buf=bin_edges,
+                                                                    dtype=np.dtype([('edges', float)])),
+                                                        name='CUBE_BINS')] + pixcal_hdu)
 
-        hdul['CUBE_BINS'].header['UNIT'] = 'us' if cube_type is 'time' else 'nm'
+        hdul['CUBE_BINS'].header.append(fits.Card('UNIT', 'us' if cube_type is 'time' else 'nm', comment='Bin unit'))
 
         return hdul
 
