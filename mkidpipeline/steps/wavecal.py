@@ -2713,7 +2713,7 @@ def apply(o):
             obs.photonTable.modify_coordinates(indices, calibration(phase))
         tic2 = time.time()
         getLogger(__name__).debug('Wavelength updated in {:.2f}s'.format(time.time() - tic2))
-        return
+
     obs.update_header('wavecal', solution.name)
     #TODO R and error for each wavelength and any other info to header
     obs.photonTable.reindex_dirty()  # recompute "dirty" wavelength index

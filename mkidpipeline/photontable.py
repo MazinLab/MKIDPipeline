@@ -886,8 +886,8 @@ class Photontable:
         md['EXPTIME'] = time_nfo['duration']
 
         md.pop('data_path')
-        pixcal = mp.pop('pixcal')
-        flaglist = mp.pop('flags')
+        pixcal = md.pop('pixcal')
+        flaglist = md.pop('flags')
 
         # Deal with non Primary HDU keys
         ext_cards = [fits.Card('craycal', md.pop('cosmiccal'), comment='Cosmic ray data calculated'),
@@ -901,7 +901,7 @@ class Photontable:
                      fits.Card('MAXWAVE', wave_stop, comment='Upper wavelength cut'),
                      fits.Card('eresol', md.pop('energy_resolution'), comment='Nominal energy resolution'),
                      fits.Card('beammap', wave_stop, comment='Upper wavelength cut'),
-                     fits.Card('deadtime', mp.pop('dead_time'), comment='Firmware dead-time (us)'),
+                     fits.Card('deadtime', md.pop('dead_time'), comment='Firmware dead-time (us)'),
                      fits.Card('UNIT', 'photons/s' if rate else 'photons', comment='Count unit')]
 
         pixcal_hdu = []
