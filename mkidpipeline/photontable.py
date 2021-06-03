@@ -888,20 +888,16 @@ class Photontable:
         pixcal = md.pop('pixcal')
         flaglist = np.array(md.pop('flags'))
 
-        if pixcal:
-            excluded = self.flags.bitmask(exclude_flags, unknown='ignore')
-            pixcal_hdu = [fits.ImageHDU(data=self._flagArray, name='FLAGS'),
-                          fits.ImageHDU(data=(self._flagArray & excluded).astype(int), name='BAD'),
-                          fits.TableHDU.from_columns(np.recarray(shape=flaglist.shape, buf=flaglist,
-                                                                 dtype=np.dtype([('flags', flaglist.dtype)])),
-                                                     name='FLAG_NAMES')]
-
-        else:
-            excluded = 0
-            pixcal_hdu = []
+        excluded = self.flags.bitmask(exclude_flags, unknown='ignore')
+        pixcal_hdu = [fits.ImageHDU(data=self._flagArray, name='FLAGS'),
+                      fits.ImageHDU(data=(self._flagArray & excluded).astype(int), name='BAD'),
+                      fits.TableHDU.from_columns(np.recarray(shape=flaglist.shape, buf=flaglist,
+                                                             dtype=np.dtype([('flags', flaglist.dtype)])),
+                                                 name='FLAG_NAMES')]
 
         # Deal with non Primary HDU keys
         ext_cards = [fits.Card('craycal', md.pop('cosmiccal'), comment='Cosmic ray data calculated'),
+                     fits.Card('pixcal', md.pop('pixcal'), comment='Pixel masking step performed')
                      fits.Card('lincal', md.pop('lincal'), comment='Linearity (dead time) corrected data'),
                      fits.Card('speccal', md.pop('speccal'), comment='Speccal applied to data'),
                      fits.Card('wavecal', md.pop('wavecal'), comment='Wavecal applied to data'),
