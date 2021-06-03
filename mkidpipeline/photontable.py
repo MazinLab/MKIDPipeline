@@ -886,14 +886,14 @@ class Photontable:
 
         md.pop('data_path')
         pixcal = md.pop('pixcal')
-        flaglist = md.pop('flags')
+        flaglist = np.array(md.pop('flags'))
 
         if pixcal:
             excluded = self.flags.bitmask(exclude_flags, unknown='ignore')
             pixcal_hdu = [fits.ImageHDU(data=self._flagArray, name='FLAGS'),
-                          fits.ImageHDU(data=(self._flagArray & excluded).astype(bool), name='BAD'),
+                          fits.ImageHDU(data=(self._flagArray & excluded).astype(int), name='BAD'),
                           fits.TableHDU.from_columns(np.recarray(shape=flaglist.shape, buf=flaglist,
-                                                                 dtype=np.dtype([('flags', '|S64')])),
+                                                                 dtype=np.dtype([('flags', flaglist.dtype)])),
                                                      name='FLAG_NAMES')]
 
         else:
