@@ -897,7 +897,7 @@ class Photontable:
 
         # Deal with non Primary HDU keys
         ext_cards = [fits.Card('craycal', md.pop('cosmiccal'), comment='Cosmic ray data calculated'),
-                     fits.Card('pixcal', md.pop('pixcal'), comment='Pixel masking step performed')
+                     fits.Card('pixcal', md.pop('pixcal'), comment='Pixel masking step performed'),
                      fits.Card('lincal', md.pop('lincal'), comment='Linearity (dead time) corrected data'),
                      fits.Card('speccal', md.pop('speccal'), comment='Speccal applied to data'),
                      fits.Card('wavecal', md.pop('wavecal'), comment='Wavecal applied to data'),
