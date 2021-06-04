@@ -333,7 +333,7 @@ class MKIDTimerange(DataBase):
         Key('duration', None, 'A duration in seconds, float ok. If not specified stop must be', (float, int)),
         Key('stop', None, 'A stop unit time, float ok. If not specified duration must be', (float, int)),
         Key('dark', None, 'An MKIDTimerange to use for a dark reference.', None),
-        Key('header', {}, 'A dictionary of fits header key overrides.', dict)
+        Key('header', None, 'A dictionary of fits header key overrides.', dict)
     )
     REQUIRED = ('name', 'start', ('duration', 'stop'))
     EXPLICIT_ALLOW = ('duration',)  # if a key is allows AND is a property or method name it must be listed here
