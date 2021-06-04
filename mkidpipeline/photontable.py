@@ -825,10 +825,12 @@ class Photontable:
         ridbins = sorted(self.beamImage.ravel())
         ridbins = np.append(ridbins, ridbins[-1] + 1)
 
+        time_nfo = self._parse_query_range_info(start=start, intt=duration, startw=wave_start, stopw=wave_stop)
+
         if cube_type == 'time':
             ycol = 'time'
             if not bin_edges:
-                t0 = 0 if start is None else start
+                t0 = 0 if start is None else time_nfo['relstart']
                 itime = self.duration if duration is None else duration
                 try:
                     bin_edges = np.linspace(t0, t0 + itime, int(itime / bin_width) + 1)
@@ -875,8 +877,6 @@ class Photontable:
         toc2 = time.time()
         getLogger(__name__).debug(f'Histogram completed in {toc2 - tic:.2f} s, reformatting in {toc2 - toc:.2f}')
 
-        time_nfo = self._parse_query_range_info(start=start, intt=duration, startw=wave_start, stopw=wave_stop)
-
         md = self.metadata(timestamp=start)
 
         md['M_H5FILE'] = self.filename
@@ -885,7 +885,6 @@ class Photontable:
         md['EXPTIME'] = time_nfo['duration']
 
         md.pop('data_path')
-        pixcal = md.pop('pixcal')
         flaglist = np.array(md.pop('flags'))
 
         excluded = self.flags.bitmask(exclude_flags, unknown='ignore')
