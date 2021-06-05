@@ -695,7 +695,7 @@ class Photontable:
                                                 derotate=derotate and not single_pa_time,
                                                 naxis=3 if cube_type in ('wave', 'time') else 2)
 
-        if cube_type in ('wave', 'time'):
+        if cube_type in ('wave', 'time') and wcs_solns:
             for obs_wcs in wcs_solns:
                 obs_wcs.wcs.crpix[-1] = 1
                 obs_wcs.wcs.crval[-1] = bins[0]
