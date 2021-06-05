@@ -464,9 +464,6 @@ class MKIDObservation(MKIDTimerange):
                         M_DEVANG=config.instrument.device_orientation_deg)
         except AttributeError:
             wcsd = {}
-
-        # d2 = dict(wavecal=wc, flatcal=fc, speccal=sc)
-        # d.update(d2)
         d.update(wcsd)
         return d
 
