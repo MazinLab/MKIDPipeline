@@ -12,8 +12,8 @@ from collections import defaultdict
 
 from typing import Set
 
-from mkidcore.utils import parse_ditherlog
-from mkidcore.legacy import parse_dither_log
+from mkidcore.utils import parse_dither
+from mkidcore.legacy import parse_dither as parse_legacy_dither
 import mkidcore.config
 from mkidcore.corelog import getLogger, create_log, MakeFileHandler
 from mkidcore.utils import derangify
@@ -481,6 +481,10 @@ class MKIDObservation(MKIDTimerange):
         return [self]
 
     @property
+    def dither_pos(self):
+        return np.array([self._metadata['M_CONEXX'], self._metadata['M_CONEXY']])
+
+    @property
     def input_timeranges(self):
         """Return all of the MKIDTimeranges(NB this, by definition includes subclasses) go in to making the obs"""
         for tr in super().input_timeranges:
@@ -872,7 +876,7 @@ class MKIDDitherDescription(DataBase):
                     file = os.path.join(dither_path, file)
 
                 try:
-                    startt, endt, pos, inttime = parse_dither_log(file)
+                    startt, endt, pos, inttime = parse_legacy_dither(file)
                 except Exception as e:
                     self._key_errors['data'] += [f'Unable to load legacy dither {file}: {e}']
                     endt, startt, pos = [], [], []
