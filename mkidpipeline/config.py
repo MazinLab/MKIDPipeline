@@ -235,15 +235,15 @@ class DataBase:
                 except TypeError:
                     required_type = (required_type,)
 
-                if required_type[0] == tuple and isinstance(v, list):
+                if tuple in required_type and isinstance(v, list):
                     v = tuple(v)
-                if required_type == float and v is not None:  # and isinstance(v, str) and v.endswith('inf'):
+                if float in required_type and v is not None:  # and isinstance(v, str) and v.endswith('inf'):
                     try:
                         v = float(v)
                     except (ValueError, TypeError):
                         pass
                 if required_type[0] is not None and not isinstance(v, required_type):
-                    self._key_errors[k] += [f'not an instance of {tuple(map(lambda x: x.__name__, required_type))}']
+                    self._key_errors[k] += [f' {v} not an instance of {tuple(map(lambda x: x.__name__, required_type))}']
 
             if isinstance(v, str):
                 try:
