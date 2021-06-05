@@ -450,18 +450,6 @@ class MKIDObservation(MKIDTimerange):
     @property
     def _metadata(self):
         d = super()._metadata
-        # try:
-        #     wc = self.wavecal.id
-        # except AttributeError:
-        #     wc = 'None'
-        # try:
-        #     fc = self.flatcal.id
-        # except AttributeError:
-        #     fc = 'None'
-        # try:
-        #     sc = self.speccal.id
-        # except AttributeError:
-        #     sc = 'None'
         try:
             wcsd = dict(M_PLTSCL=self.wcscal.platescale,
                         M_CXREFX=self.wcscal.dither_ref[0],
