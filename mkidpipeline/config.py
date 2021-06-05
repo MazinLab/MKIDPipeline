@@ -785,7 +785,7 @@ class MKIDDitherDescription(DataBase):
     KEYS = (
         Key(name='name', default=None, comment='A name', dtype=str),
         Key('data', None, 'A list of !sob composing the dither, a unix time that falls within the range of a '
-                             'dither log in paths.data, or a fully qualified legacy (starttimes, endtimes, xpos,ypos) '
+                          'dither log in paths.data, or a fully qualified legacy (starttimes, endtimes, xpos,ypos) '
                           'dither file.', (tuple, float, str)),
         Key('wavecal', '', 'A MKIDWavedata or name of the same', str),
         Key('flatcal', '', 'A MKIDFlatdata or name of the same', str),
@@ -890,9 +890,9 @@ class MKIDDitherDescription(DataBase):
             endt = [endt[i] for i in self.use]
             pos = [pos[i] for i in self.use]
 
-            self.obs = [MKIDObservation(name=f'{self.name}_{i}/{n}', start=b, stop=e, dither_pos=p,
-                                        wavecal=self.wavecal, flatcal=self.flatcal, wcscal=self.wcscal,
-                                        speccal=self.speccal, **self.extra())
+            self.obs = [MKIDObservation(name=f'{self.name}_{i}/{n}', start=b, stop=e, wavecal=self.wavecal,
+                                        flatcal=self.flatcal, wcscal=self.wcscal, speccal=self.speccal,
+                                        header=dict(M_CONEXX=p[0], M_CONEXY=p[1]), **self.extra())
                         for i, b, e, p in zip(self.use, startt, endt, pos)]
         except:
             getLogger(__name__).critical('During creation of dither definition: ', exc_info=True)
