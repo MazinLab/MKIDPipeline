@@ -230,15 +230,20 @@ class DataBase:
         for k, v in kwargs.items():
             if k in self._keys:
                 required_type = self._keys[k].dtype
-                if required_type == tuple and isinstance(v, list):
+                try:
+                    required_type[0]
+                except TypeError:
+                    required_type = (required_type,)
+
+                if required_type[0] == tuple and isinstance(v, list):
                     v = tuple(v)
                 if required_type == float and v is not None:  # and isinstance(v, str) and v.endswith('inf'):
                     try:
                         v = float(v)
                     except (ValueError, TypeError):
                         pass
-                if required_type is not None and not isinstance(v, required_type):
-                    self._key_errors[k] += [f'not an instance of {required_type.__name__}']
+                if required_type[0] is not None and not isinstance(v, required_type):
+                    self._key_errors[k] += [f'not an instance of {tuple(map(lambda x: x.__name__, required_type))}']
 
             if isinstance(v, str):
                 try:
@@ -782,9 +787,9 @@ class MKIDDitherDescription(DataBase):
     yaml_tag = '!MKIDDitherDescription'
     KEYS = (
         Key(name='name', default=None, comment='A name', dtype=str),
-        Key('data', tuple(), 'A list of !sob composing the dither, a unix time that falls within the range of a '
+        Key('data', None, 'A list of !sob composing the dither, a unix time that falls within the range of a '
                              'dither log in paths.data, or a fully qualified legacy (starttimes, endtimes, xpos,ypos) '
-                             'dither file.', None),
+                          'dither file.', (tuple, float, str)),
         Key('wavecal', '', 'A MKIDWavedata or name of the same', str),
         Key('flatcal', '', 'A MKIDFlatdata or name of the same', str),
         Key('wcscal', '', 'A MKIDWCSCal or name of the same', str),
