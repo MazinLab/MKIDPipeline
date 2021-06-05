@@ -65,19 +65,19 @@ SAMPLEDATA = {'default': (
                                  wavecal='wavecal0', flatcal='flatcal0', speccal='speccal0', use=(1,),
                                  wcscal='wcscal0'),
     config.MKIDDitherDescription(name=namer('dither'), flatcal='', speccal='', wcscal='', wavecal='',
-                                 data=(
-                                     config.MKIDObservation(name=namer('HIP109427_'), start=1602047815,
-                                                            duration=10, wavecal='wavecal0',
-                                                            header=dict(M_CONEXX=.2, M_CONEXY=.3, OBJECT='HIP 109427'),
-                                                            dark=config.MKIDTimerange(name=namer(), start=1602046500,
-                                                                                      duration=10)),
-                                     config.MKIDObservation(name=namer('HIP109427_'), start=1602047825, duration=10,
-                                                            wavecal='wavecal0',
-                                                            header=dict(M_CONEXX=.1, M_CONEXY=.1),
-                                                            wcscal='wcscal0'),
-                                     config.MKIDObservation(name=namer('HIP109427_'), start=1602047835, duration=10,
-                                                            wavecal='wavecal0',
-                                                            header=dict(M_CONEXX=-.1, M_CONEXY=-.1),
-                                                            wcscal='wcscal0')
-                                 ))
+                                 header=dict(OBJECT='HIP 109427'),
+                                 data=(config.MKIDObservation(name=namer('HIP109427_'), start=1602047815,
+                                                              duration=10, wavecal='wavecal0',
+                                                              header=dict(M_CONEXX=.2, M_CONEXY=.3,
+                                                                          OBJECT='HIP 109427'),
+                                                              dark=config.MKIDTimerange(name=namer(), start=1602046500,
+                                                                                        duration=10)),
+                                       config.MKIDObservation(name=namer('HIP109427_'), start=1602047825, duration=10,
+                                                              wavecal='wavecal0', header=dict(M_CONEXX=.1, M_CONEXY=.1),
+                                                              wcscal='wcscal0'),
+                                       config.MKIDObservation(name=namer('HIP109427_'), start=1602047835,
+                                                              duration=10, wavecal='wavecal0', wcscal='wcscal0',
+                                                              header=dict(M_CONEXX=-.1, M_CONEXY=-.1))
+                                       )
+                                 )
 )}

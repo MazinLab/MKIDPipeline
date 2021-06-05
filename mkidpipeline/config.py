@@ -805,6 +805,7 @@ class MKIDDitherDescription(DataBase):
         Key('wcscal', '', 'A MKIDWCSCal or name of the same', str),
         Key('speccal', '', 'A MKIDSpecdata or name of the same', str),
         Key('use', None, 'Specify which dither obs to use, list or range specification string e.g. #,#-#,#,#', None),
+        Key('header', None, 'A dictionary of fits header key overrides, to be applied to the observations', dict)
     )
     REQUIRED = ('name', 'data', 'wavecal', 'flatcal', 'wcscal')
     STEPNAME = 'dither'
@@ -907,6 +908,8 @@ class MKIDDitherDescription(DataBase):
                                         flatcal=self.flatcal, wcscal=self.wcscal, speccal=self.speccal,
                                         header=dict(M_CONEXX=p[0], M_CONEXY=p[1]), **self.extra())
                         for i, b, e, p in zip(self.use, startt, endt, pos)]
+            for o in self.obs:
+                o.header.update(self.header)
         except:
             getLogger(__name__).critical('During creation of dither definition: ', exc_info=True)
             pass
