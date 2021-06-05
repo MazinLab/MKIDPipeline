@@ -320,6 +320,15 @@ class DataBase:
                 # getLogger(__name__).debug(f'{node.name} ({cls.__name__}.{k}) is a {type(d[k])} and '
                 #                           f'will be stored as ({d[k]}) for yaml representation ')
                 store[k] = d[k]
+        if 'header' in store:
+            cm = ruamel.yaml.comments.CommentedMap(store['header'])
+            for k in store['header']:
+                try:
+                    descr = mkidcore.metadata.MEC_KEY_INFO[k].description
+                except KeyError:
+                    descr = '!UNKNOWN MEC HEADER KEY!'
+                cm.yaml_add_eol_comment(descr, key=k)
+            store['header'] = cm
         cm = ruamel.yaml.comments.CommentedMap(store)
         for k in store:
             cm.yaml_add_eol_comment(node._keys[k].comment if k in node._keys else 'User added key', key=k)
