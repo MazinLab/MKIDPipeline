@@ -687,7 +687,7 @@ class Photontable:
                                                         (md['M_PREFX'], md['M_PREFY']),
                                                         (md['M_CXREFX'], md['M_CXREFY'])))
         except KeyError:
-            getLogger(__name__).warning('Insufficient data to build a WCS solution')
+            getLogger(__name__).warning('Insufficient data to build a WCS solution, conex info missing')
             return None
 
         wcs_solns = mkidcore.metadata.build_wcs(self.metadata(self.start_time),

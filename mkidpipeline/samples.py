@@ -68,7 +68,7 @@ SAMPLEDATA = {'default': (
                                  data=(
                                      config.MKIDObservation(name=namer('HIP109427_'), start=1602047815,
                                                             duration=10, wavecal='wavecal0',
-                                                            header=dict(M_CONEXX=.2, M_CONEXY=.3),
+                                                            header=dict(M_CONEXX=.2, M_CONEXY=.3, OBJECT='HIP 109427'),
                                                             dark=config.MKIDTimerange(name=namer(), start=1602046500,
                                                                                       duration=10)),
                                      config.MKIDObservation(name=namer('HIP109427_'), start=1602047825, duration=10,
