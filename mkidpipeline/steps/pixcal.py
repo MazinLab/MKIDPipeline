@@ -202,7 +202,7 @@ def median(image, box_size=5, n_sigma=4.0, max_iter=5):
             getLogger(__name__).info('Iteration: '.format(iteration))
             # Remove all the NaNs in an image and calculate a median filtered image
             # each pixel takes the median of itself and the surrounding box_size x box_size box.
-            nan_fixed_image = smoothing.replace_nan(raw_image, mode='mean', boxsize=box_size)
+            nan_fixed_image = smoothing.replace_nan(raw_image, mode='mean', box_size=box_size)
             assert np.all(np.isfinite(nan_fixed_image))
             median_filter_image = spfilters.median_filter(nan_fixed_image, box_size, mode='mirror')
             func = lambda x: np.nanstd(x) * _stddev_bias_corr((~np.isnan(x)).sum())
@@ -265,7 +265,7 @@ def laplacian(image, box_size=5, n_sigma=4.0):
     # Initialise a mask for hot pixels (all False)
     hot_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
 
-    nan_fixed_image = smoothing.replace_nan(raw_image, mode='mean', boxsize=box_size)
+    nan_fixed_image = smoothing.replace_nan(raw_image, mode='mean', box_size=box_size)
     assert np.all(np.isfinite(nan_fixed_image))
 
     laplacian_filter_image=None
