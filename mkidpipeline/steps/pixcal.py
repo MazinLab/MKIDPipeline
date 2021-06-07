@@ -106,7 +106,7 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
             threshold = np.maximum((max_ratio * median_filter_image - (max_ratio - 1) * median_bkgd), median_bkgd)
             getLogger(__name__).debug('Hot Pixel Masking Parameters:'
                                       'hot flux threshold is {}'
-                                      'median background is {}'.format(threshold, median_bkgd))
+                                      'median background is {}'.format(threshold[0][0], median_bkgd))
             hot_difference_image = raw_image - threshold
             cold_difference_image = raw_image - median_filter_image
 
@@ -136,68 +136,46 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
     return {'hot': hot_mask, 'cold': cold_mask, 'masked_image': raw_image, 'input_image': image,
             'num_iter': iteration + 1}
 
-def median(image, box_size=5, n_sigma=4.0, max_iter=5):
+def median(image, box_size=5, n_sigma=5.0, max_iter=5):
     """
     Passes a box_size by box_size moving box over the entire array and checks if the pixel at the center of that window
     has counts higher than the median plus n_sigma times the standard deviation of the pixels in that window
 
-    If the pixel has counts less than 0.01, then the pixel is flagged as DEAD
-
-    Dead pixels are excluded from the standard deviation calculation and the standard deviation is corrected for small
-    sample sizes as per the function _stddev_bias_corr(n)
-
-    The HOT and DEAD masks are combined into a single BAD mask at the end
-
-    Required Input:
-    :param image:           A 2D image array of photon counts.
-
-    Other Input:
-    :param box_size:           Scalar integer. Size box used for calculating median counts in the region surrounding each pixel.
-    :param n_sigma:         Scalar float. If the flux ratio for a pixel is n_sigma x standard deviation within the moving box
-                                             above the max expected given the PSF FWHM, then flag it as hot.
-    :param max_iter:           Scalar integer. Maximum number of iterations allowed.
+    :param image: 2D image array of photons (in counts)
+    :param box_size: in pixels
+    :param n_sigma: number of standard deviations above/below the expected value for which a pixel will be flagged as
+     'hot'/'cold'
+    :param max_iter: maximum number of iterations
 
     :return:
     A dictionary containing the result and various diagnostics. Keys are:
-
-    'bad_mask': the main output. Contains a 2D array of integers of the same shape as the input image, where:
-            0 = Good pixel
-            1 = Hot pixel
-            2 = Cold Pixel
-            3 = Dead Pixel
-    'dead_mask': 2D array of Bools of the same shape as the input image, where:
-                True = Dead Pixel
-                False = Not Dead Pixel
-    'hot_mask': 2D array of Bools of the same shape as the input image, where:
-                True = Hot Pixel
-                False = Not Hot Pixel
-    'image': 2D array containing the input image
-    'median_filter_image': The median-filtered image
+    'hot': boolean mask of hot pixels
+    'cold': boolean mask of cold pixels
+    'masked_image': The hot and dead pixel masked image
+    'input_image': original input image
     'num_iter': number of iterations performed.
     """
-
     raw_image = np.copy(image)
 
     # Assume everything with 0 counts is a dead pixel, turn dead pixel values into NaNs
-    dead_mask = raw_image < 0.01
+    dead_mask = raw_image == 0
     raw_image[dead_mask] = np.nan
 
     # Initialise a mask for hot pixels (all False) for comparison on each iteration.
     initial_hot_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
     hot_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
+    initial_cold_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
+    cold_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
 
     # Initialise some arrays with NaNs in case they don't get filled out during the iteration
     median_filter_image = np.zeros_like(raw_image)
     median_filter_image.fill(np.nan)
     iteration = -1
 
-    standard_filter_image = None
-    # In the case that *all* the pixels are dead, return a bad_mask where all the pixels are flagged as DEAD
     if raw_image[np.isfinite(raw_image)].sum() <= 0:
-        getLogger(__name__).info('Entire image consists of dead pixels')
-        bad_mask = dead_mask * 3
-        hot_mask = np.zeros_like(bad_mask, dtype=bool)
-        dead_mask = np.ones_like(bad_mask, dtype=bool)
+        getLogger(__name__).warning('Entire image consists of pixels with 0 counts')
+        cold_mask = np.ones_like(raw_image, dtype=bool)
+        iteration = -1
     else:
         for iteration in range(max_iter):
             getLogger(__name__).info('Iteration: '.format(iteration))
@@ -209,26 +187,27 @@ def median(image, box_size=5, n_sigma=4.0, max_iter=5):
             func = lambda x: np.nanstd(x) * _stddev_bias_corr((~np.isnan(x)).sum())
             standard_filter_image = spfilters.generic_filter(nan_fixed_image, func, box_size, mode='mirror')
 
-            threshold = median_filter_image + (n_sigma * standard_filter_image)
+            hot_threshold = median_filter_image + (n_sigma * standard_filter_image)
+            cold_threshold = median_filter_image - (n_sigma * standard_filter_image)
 
-            # Any pixel that has a count level more than n_sigma above the median should be flagged as hot:
-            # True = bad pixel; False = good pixel.
-            hot_mask = (median_filter_image > threshold) | initial_hot_mask
+            hot_mask = (median_filter_image > hot_threshold) | initial_hot_mask
+            cold_mask = (median_filter_image < cold_threshold) | initial_cold_mask
 
             # If no change between between this and the last iteration then stop iterating
-            if np.all(hot_mask == initial_hot_mask): break
+            if np.all(hot_mask == initial_hot_mask) and np.all(cold_mask == initial_cold_mask): break
 
             # Otherwise update 'initial_hot_mask' and set all detected bad pixels to NaN for the next iteration
             initial_hot_mask = np.copy(hot_mask)
             raw_image[hot_mask] = np.nan
 
-        # Finished with loop, make sure a pixel is not simultaneously hot and dead
-        assert ~(hot_mask & dead_mask).any()
+            initial_cold_mask = np.copy(cold_mask)
+            raw_image[cold_mask] = np.nan
 
-    return {'cold': dead_mask, 'hot': hot_mask, 'image': raw_image,
-            'standard_filter_image': standard_filter_image, 'median_filter_image': median_filter_image,
+        # Make sure a pixel is not simultaneously hot and cold
+        assert ~(hot_mask & cold_mask).any()
+
+    return {'hot': hot_mask, 'cold': cold_mask, 'masked_image': raw_image, 'input_image': image,
             'num_iter': iteration + 1}
-
 
 def laplacian(image, box_size=5, n_sigma=4.0):
     """
