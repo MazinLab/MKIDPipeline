@@ -75,7 +75,8 @@ UNFLATABLE = tuple()  # todo flags that can't be flatcaled
 
 class FlatCalibrator:
     def __init__(self, config=None, solution_name='flat_solution.npz'):
-        self.cfg = mkidpipeline.config.load_task_config(StepConfig() if config is None else config)  # TODO
+        self.cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(flatcal=StepConfig()),
+                                                             cfg=config, copy=True)
 
         self.wvl_start = self.cfg.instrument.minimum_wavelength
         self.wvl_stop = self.cfg.instrument.maximum_wavelength
@@ -101,7 +102,7 @@ class FlatCalibrator:
         self.flat_weights = None
         self.flat_weight_err = None
         self.flat_flags = None
-        self.coeff_array = np.zeros(self.cfg.beammap.ncols, self.cfg.beammap.nrows)
+        self.coeff_array = np.zeros((self.cfg.beammap.ncols, self.cfg.beammap.nrows))
         self.mask = None
         self.h5s = None
 
@@ -251,7 +252,6 @@ class WhiteCalibrator(FlatCalibrator):
         Reads in the param file and opens appropriate flat file.  Sets wavelength binning parameters.
         """
         super().__init__(config)
-        self.exposure_time = self.cfg.exposure_time
         self.h5s = h5s
         self.energies = None
         self.energy_bin_width = None
@@ -507,22 +507,22 @@ def fetch(dataset, config=None, ncpu=None, remake=False):
     if not remake:
         for sd in solution_descriptors:
             try:
-                solutions[sd.id()] = load_solution(sd.path)
+                solutions[sd.id] = load_solution(sd.path)
             except IOError:
                 pass
             except Exception as e:
                 getLogger(__name__).info(f'Failed to load {sd} due to a {e}')
 
     flattners = []
-    for sd in (sd for sd in solution_descriptors if sd.id() not in solutions):
+    for sd in set(sd for sd in solution_descriptors if sd.id not in solutions):
         if sd.method == 'laser':
             flattner = LaserCalibrator(h5s=sd.h5s, config=fcfg, solution_name=sd.path,
                                        darks=[o.dark for o in sd.obs if o.dark is not None])
         else:
-            flattner = WhiteCalibrator(H5Subset(sd.ob), config=fcfg, solution_name=sd.path,
+            flattner = WhiteCalibrator(H5Subset(sd.data), config=fcfg, solution_name=sd.path,
                                        darks=[o.dark for o in sd.obs if o.dark is not None])
 
-        solutions[sd.id()] = sd.path
+        solutions[sd.id] = sd.path
         flattners.append(flattner)
 
     if not flattners:
