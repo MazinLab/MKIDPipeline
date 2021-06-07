@@ -40,7 +40,7 @@ FLAGS = FlagSet.define(('hot', 1, 'Hot pixel'),
                        ('unstable', 3, 'Pixel is both hot at and at different times'))
 
 # TODO make n_sigma a user specified parameter in the config file
-def threshold(image, fwhm=4, box_size=5, n_sigma=4.0, max_iter=10):
+def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
     """
     Compares the ratio of flux in each pixel to the median of the flux in an enclosing box. If the ratio is too high
      -- i.e. the flux is too tightly distributed compared to a Gaussian PSF of the expected FWHM -- then the pixel is
@@ -51,7 +51,6 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=4.0, max_iter=10):
     :param n_sigma: number of standard deviations above/below the expected value for which a pixel will be flagged as
      'hot'/'cold'
     :param max_iter: maximum number of iterations
-    :param use_local_stdev:
     :return:
     A dictionary containing the result and various diagnostics. Keys are:
     'hot': boolean mask of hot pixels
@@ -113,7 +112,7 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=4.0, max_iter=10):
             # Any pixel that has a peak/median ratio more than n_sigma above the maximum ratio should be flagged as hot
             # Any pixel that has a value less than n_sigma below the median should be flagged as cold
             hot_mask = (hot_difference_image > (n_sigma * std_filter_image)) | reference_hot_mask
-            cold_mask = (cold_difference_image < - (n_sigma * std_filter_image)) | reference_cold_mask
+            cold_mask = (cold_difference_image < -(n_sigma * std_filter_image)) | reference_cold_mask
 
             #If no change between between this and the last iteration then stop iterating
             if np.all(hot_mask == reference_hot_mask) and np.all(cold_mask == reference_cold_mask):
@@ -131,7 +130,8 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=4.0, max_iter=10):
                                          ' outliers'.format(max_iter))
         # make sure a pixel is not simultaneously hot and cold
         assert ~(hot_mask & cold_mask).any()
-
+        getLogger(__name__).info('Masked {} hot pixels and {} cold pixels'.format(len(hot_mask[hot_mask!=False]),
+                                                                                  len(cold_mask[cold_mask!=False])))
     return {'hot': hot_mask, 'cold': cold_mask, 'masked_image': raw_image, 'input_image': image,
             'num_iter': iteration + 1}
 
@@ -317,7 +317,6 @@ def _compute_mask(obs, method, step, startt, stopt, methodkw, weight):
 
     return mask, meta
 
-
 def fetch(o, config=None):
     obs = Photontable(o.h5)
     if obs.query_header('pixcal'):
@@ -337,14 +336,12 @@ def fetch(o, config=None):
     exclude = [k[0] for k in StepConfig.REQUIRED_KEYS]
     methodkw = {k: mkidpipeline.config.config.pixcal.get(k) for k in mkidpipeline.config.config.pixcal.keys() if
                 k not in exclude}
-
     return _compute_mask(obs, method, step, startt, stopt, methodkw, cfg.pixcal.use_weight)
 
 def apply(o, config=None):
     mask, meta = fetch(o, config)
     if mask is None:
         return
-
     obs = Photontable(o.h5)
     tic = time.time()
     getLogger(__name__).info(f'Applying pixel mask to {o}')
