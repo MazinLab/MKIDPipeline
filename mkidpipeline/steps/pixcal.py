@@ -14,6 +14,7 @@ from mkidcore.pixelflags import FlagSet
 def _calc_stdev(x):
     return np.nanstd(x) * _stddev_bias_corr((~np.isnan(x)).sum())
 
+
 def _stddev_bias_corr(n):
     if n == 1:
         corr = 1.0
@@ -29,7 +30,8 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!pixcal_cfg'
     REQUIRED_KEYS = (('method', 'median', 'method to use laplacian|median|threshold'),
                      ('step', 30, 'Time interval for methods that need one'),
-                     ('use_weight', True, 'Use photon weights'))
+                     ('use_weight', True, 'Use photon weights'),
+                     ('remake', False, 'Remake the calibration even if it exists'))
 
 
 TEST_CFGS= (StepConfig(method='median', step=30), StepConfig(method='cpscut', step=30),
@@ -38,6 +40,7 @@ TEST_CFGS= (StepConfig(method='median', step=30), StepConfig(method='cpscut', st
 FLAGS = FlagSet.define(('hot', 1, 'Hot pixel'),
                        ('cold', 2, 'Cold pixel'),
                        ('unstable', 3, 'Pixel is both hot at and at different times'))
+
 
 # TODO make n_sigma a user specified parameter in the config file
 def threshold(image, fwhm=4, box_size=5, n_sigma=4.0, max_iter=10):
@@ -134,6 +137,7 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=4.0, max_iter=10):
 
     return {'hot': hot_mask, 'cold': cold_mask, 'masked_image': raw_image, 'input_image': image,
             'num_iter': iteration + 1}
+
 
 def median(image, box_size=5, n_sigma=4.0, max_iter=5):
     """
@@ -318,14 +322,11 @@ def _compute_mask(obs, method, step, startt, stopt, methodkw, weight):
     return mask, meta
 
 
-def fetch(o, config=None):
-    obs = Photontable(o.h5)
-    if obs.query_header('pixcal'):
-        getLogger(__name__).info('{} is already pixel calibrated'.format(o.h5))
-        return None, None
+def fetch(o, startt, stopt, config=None):
+    obs = Photontable(o) if isinstance(o,str) else o
 
     cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(pixcal=StepConfig()), cfg=config, copy=True)
-    startt, stopt = o.start, o.stop
+
     step = min(stopt-startt, cfg.pixcal.step)
     method = cfg.pixcal.method
 
@@ -340,12 +341,19 @@ def fetch(o, config=None):
 
     return _compute_mask(obs, method, step, startt, stopt, methodkw, cfg.pixcal.use_weight)
 
+
 def apply(o, config=None):
-    mask, meta = fetch(o, config)
-    if mask is None:
+    config = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(pixcal=StepConfig()), cfg=config, copy=True)
+    if o.photontable.query_header('pixcal') and not config.pixcal.remake:
+        getLogger(__name__).info('{} is already pixel calibrated'.format(o.h5))
         return
 
     obs = Photontable(o.h5)
+    mask, meta = fetch(obs, o.start, o.stop, config=config)
+
+    if mask is None:
+        return
+
     tic = time.time()
     getLogger(__name__).info(f'Applying pixel mask to {o}')
     obs.enablewrite()

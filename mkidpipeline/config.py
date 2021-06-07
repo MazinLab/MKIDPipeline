@@ -437,7 +437,7 @@ class MKIDTimerange(DataBase):
         for k, v in self._metadata.items():
             metadata[k] = v  # override
 
-        mkidcore.metadata.validate_metadata_dict(metadata, warn=True, error=False)
+        mkidcore.metadata.validate_metadata_dict(metadata, warn='required', error=False)
 
         return metadata
 
