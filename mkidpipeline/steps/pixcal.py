@@ -24,21 +24,21 @@ def _stddev_bias_corr(n):
         corr = lut[lut_ndx]
     return 1.0 / corr
 
-
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!pixcal_cfg'
-    REQUIRED_KEYS = (('method', 'median', 'method to use laplacian|median|threshold'),
+    REQUIRED_KEYS = (('method', 'threshold', 'method to use laplacian|median|threshold'),
                      ('step', 30, 'Time interval for methods that need one'),
                      ('use_weight', True, 'Use photon weights'),
-                     ('remake', False, 'Remake the calibration even if it exists'))
+                     ('remake', False, 'Remake the calibration even if it exists'),
+                     ('n_sigma', 5.0, 'number of standard deviations above/below the expected value for which a pixel'
+                                      ' will be flagged as hot/cold'))
 
 
 TEST_CFGS= (StepConfig(method='median', step=30), StepConfig(method='cpscut', step=30),
             StepConfig(method='laplacian', step=30), StepConfig(method='threshold', step=30))
 
 FLAGS = FlagSet.define(('hot', 1, 'Hot pixel'),
-                       ('cold', 2, 'Cold pixel'),
-                       ('unstable', 3, 'Pixel is both hot at and at different times'))
+                       ('cold', 2, 'Cold pixel'))
 
 # TODO make n_sigma a user specified parameter in the config file
 def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
@@ -315,8 +315,7 @@ def fetch(o, startt, stopt, config=None):
     methodkw = {k: mkidpipeline.config.config.pixcal.get(k) for k in mkidpipeline.config.config.pixcal.keys() if
                 k not in exclude}
 
-    return _compute_mask(obs, method, step, startt, stopt, methodkw, cfg.pixcal.use_weight)
-
+    return _compute_mask(obs, method, step, startt, stopt, methodkw, cfg.pixcal.use_weight, cfg.pixcal.n_sigma)
 
 def apply(o, config=None):
     config = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(pixcal=StepConfig()), cfg=config, copy=True)
@@ -336,7 +335,6 @@ def apply(o, config=None):
     f = obs.flags
     obs.flag(f.bitmask('pixcal.hot') * mask[:, :, 0])
     obs.flag(f.bitmask('pixcal.cold') * mask[:, :, 1])
-    obs.flag(f.bitmask('pixcal.unstable') * mask[:, :, 2])
     obs.update_header('pixcal', True)
     for k, v in meta.items():
         obs.update_header(f'PIXCAL.{k}', v)
