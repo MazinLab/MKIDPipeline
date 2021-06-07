@@ -47,7 +47,7 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('calibration_models', ('Quadratic', 'Linear'), 'model types from wavecal_models.py to '
                                                                      'attempt to fit to the phase-energy relationship'),
                      ('dt', 500, 'ignore photons which arrive this many microseconds from another photon (number)'),
-                     ('ncpu', 1, 'Run using more than one core'),
+                     ('ncpu', 1, 'Number of cores to use for fetching'),
                      ('parallel_prefetch', False, 'use shared memory to load ALL the photon data into ram'))
 
     def _vet_errors(self):
@@ -1099,7 +1099,7 @@ class Solution(object):
         return {'file': self._file_path}
 
     def __setstate__(self, state):
-        self.__init__(state['_file_path'])
+        self.__init__(file_path=state['_file_path'])
 
     def _finish_init(self):
         # load in fitting models

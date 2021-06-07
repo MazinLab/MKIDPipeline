@@ -255,18 +255,19 @@ class WhiteCalibrator(FlatCalibrator):
 
     def load_data(self):
         getLogger(__name__).info('Loading calibration data from {}'.format(self.h5s))
-        pt = self.h5s.photontable
-        r, _ = wavecal.Solution(pt.query_header('wavecal')).find_resolving_powers(cache=True)
-        self.r_list = np.nanmedian(r, axis=0)
+        pt = Photontable(self.h5s.timerange.h5)
         if not pt.wavelength_calibrated:
             raise RuntimeError('Photon data is not wavelength calibrated.')
+        r, _ = wavecal.Solution(pt.query_header('wavecal')).find_resolving_powers(cache=True)
+        self.r_list = np.nanmedian(r, axis=0)
+
         # define wavelengths to use
-        self.energies = [(c.h * c.c) / (i * 10 ** (-9) * c.e) for i in self.wavelengths]
-        middle = int(len(self.wavelengths) / 2.0)
+        #TODO what is this mess?
+        self.energies = [c.h * c.c / (i * 10e-9 * c.e) for i in self.wavelengths]
+        middle = len(self.wavelengths) // 2
         self.energy_bin_width = self.energies[middle] / (5.0 * self.r_list[middle])
-        wvl_bin_edges = Photontable.wavelength_bins(self.energy_bin_width, self.wvl_start, self.wvl_stop,
-                                                    energy=True)
-        self.wavelengths = (wvl_bin_edges[: -1] + np.diff(wvl_bin_edges)).flatten()
+        edges = pt.wavelength_bins(self.energy_bin_width, self.wvl_start, self.wvl_stop, energy=True)
+        self.wavelengths = (edges[: -1] + np.diff(edges)).flatten()
 
     def make_spectral_cube(self):
         n_wvls = len(self.wavelengths)

@@ -4,20 +4,22 @@ import multiprocessing as mp
 import time
 from collections import defaultdict
 import functools
-import mkidpipeline.steps.drizzler
+import numpy as np
+import mkidcore.instruments
+import mkidcore.objects
+import mkidcore.config
 from mkidcore.pixelflags import FlagSet, BEAMMAP_FLAGS
 from mkidcore.config import getLogger
+
 import mkidpipeline
 import mkidpipeline.config as config
 import mkidpipeline.steps
 from mkidpipeline.steps import wavecal
 import mkidpipeline.steps.buildhdf
 import mkidpipeline.steps.movies
+import mkidpipeline.steps.drizzler
 from mkidpipeline.samples import SAMPLEDATA
 
-import mkidcore.instruments
-import mkidcore.objects
-import mkidcore.config
 
 log = getLogger('mkidpipeline')
 
@@ -91,17 +93,16 @@ def safe(func):
     return wrapper_decorator
 
 
-def batch_applier(func, obs, ncpu=None, unique_h5=True):
+def batch_applier(func, obs, ncpu=np.inf, unique_h5=True):
     if unique_h5:
         obs = {o.h5: o for o in obs}.values()
-    ncpu = ncpu if ncpu else config.n_cpus_available()
-    ncpu = min(ncpu, len(obs))
+    ncpu = min(config.n_cpus_available(max=ncpu), len(obs))
     if ncpu == 1:
         for o in obs:
             safe(func)(o)
     else:
         pool = mp.Pool(processes=ncpu)
-        pool.map(func, set(obs)) #TODO debug why multiprocessing still sometimes doesnt work
+        pool.map(func, set(obs))
         pool.close()
 
 
@@ -111,8 +112,8 @@ def batch_build_hdf(dset, ncpu=None):
 
 def batch_apply_metadata(dset):
     """Function associates things not known at hdf build time (e.g. that aren't in the bin files)"""
-    #TODO add a testing check that there aren't multiple observations backed by the same h5, that could result in
-    # metadata oddness
+    # TODO add a testing check that there aren't multiple observations backed by the same h5, that could result in
+    #  metadata oddness
     for tr in dset.input_timeranges:
         o = tr.photontable
         o.enablewrite()
