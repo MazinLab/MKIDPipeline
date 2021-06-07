@@ -177,7 +177,7 @@ def median(image, box_size=5, n_sigma=5.0, max_iter=5):
         iteration = -1
     else:
         for iteration in range(max_iter):
-            getLogger(__name__).info('Iteration: '.format(iteration))
+            getLogger(__name__).info('Performing iteration: {}'.format(iteration + 1))
             # Remove all the NaNs in an image and calculate a median filtered image
             # each pixel takes the median of itself and the surrounding box_size x box_size box.
             nan_fixed_image = smoothing.replace_nan(raw_image, mode='mean', box_size=box_size)
@@ -245,14 +245,14 @@ def laplacian(image, box_size=5, n_sigma=5.0, max_iter=5):
         iteration = -1
     else:
         for iteration in range(max_iter):
-            getLogger(__name__).info('Iteration: '.format(iteration))
+            getLogger(__name__).info('Performing iteration: {}'.format(iteration + 1))
             # Remove all the NaNs in an image and calculate a median filtered image
             # each pixel takes the median of itself and the surrounding box_size x box_size box.
             nan_fixed_image = smoothing.replace_nan(raw_image, mode='mean', box_size=box_size)
             assert np.all(np.isfinite(nan_fixed_image))
             laplacian_filter_image = spfilters.laplace(nan_fixed_image)
-            hot_threshold = (np.std(laplacian_filter_image) + n_sigma * np.std(laplacian_filter_image))
-            cold_threshold = (np.std(laplacian_filter_image) - n_sigma * np.std(laplacian_filter_image))
+            hot_threshold = -(np.std(laplacian_filter_image) + n_sigma * np.std(laplacian_filter_image))
+            cold_threshold = -(np.std(laplacian_filter_image) - n_sigma * np.std(laplacian_filter_image))
 
             hot_mask = (laplacian_filter_image < hot_threshold) | reference_hot_mask
             cold_mask = (laplacian_filter_image > cold_threshold) | reference_cold_mask
