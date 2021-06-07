@@ -21,6 +21,7 @@ import astropy.constants
 import astropy.units as u
 from astropy.io import fits
 
+import warnings
 
 
 # These are little better than blind guesses and don't seem to impact performaace, but still need benchmarking
@@ -960,7 +961,9 @@ class Photontable:
         if key not in self.file.root.photons.photontable.attrs._f_list('user'):
             getLogger(__name__).info(f'Adding new header key: {key}')
 
-        setattr(self.file.root.photons.photontable.attrs, key, value)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=tables.NaturalNameWarning)
+            setattr(self.file.root.photons.photontable.attrs, key, value)
 
     def metadata(self, timestamp=None):
         """ Return an dict of key, value pairs asociated with the dataset
