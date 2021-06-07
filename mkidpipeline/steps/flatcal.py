@@ -85,10 +85,6 @@ class FlatCalibrator:
         self.r_list = None
         self.solution_name = solution_name
 
-        sol = wavecal.Solution(self.cfg.flatcal.wavsol)
-        r, _ = sol.find_resolving_powers(cache=True)
-        self.r_list = np.nanmedian(r, axis=0)
-
         self.save_plots = self.cfg.flatcal.plots.lower() == 'all'
         self.summary_plot = self.cfg.flatcal.plots.lower() in ('all', 'summary')
         if self.save_plots:
@@ -260,6 +256,8 @@ class WhiteCalibrator(FlatCalibrator):
     def load_data(self):
         getLogger(__name__).info('Loading calibration data from {}'.format(self.h5s))
         pt = self.h5s.photontable
+        r, _ = wavecal.Solution(pt.query_header('wavecal')).find_resolving_powers(cache=True)
+        self.r_list = np.nanmedian(r, axis=0)
         if not pt.wavelength_calibrated:
             raise RuntimeError('Photon data is not wavelength calibrated.')
         # define wavelengths to use
@@ -306,12 +304,14 @@ class WhiteCalibrator(FlatCalibrator):
 
 
 class LaserCalibrator(FlatCalibrator):
-    def __init__(self, h5s, solution_name='flat_solution.npz', config=None, darks=None):
+    def __init__(self, h5s,  wavesol, solution_name='flat_solution.npz', config=None, darks=None):
         super().__init__(config)
         self.h5s = h5s
         self.wavelengths = np.array(h5s.keys(), dtype=float)
         self.darks = darks
         self.solution_name = solution_name
+        r, _ = wavecal.Solution(wavesol).find_resolving_powers(cache=True)
+        self.r_list = np.nanmedian(r, axis=0)
 
     def make_spectral_cube(self):
         n_wvls = len(self.wavelengths)
@@ -517,7 +517,8 @@ def fetch(dataset, config=None, ncpu=None, remake=False):
     for sd in set(sd for sd in solution_descriptors if sd.id not in solutions):
         if sd.method == 'laser':
             flattner = LaserCalibrator(h5s=sd.h5s, config=fcfg, solution_name=sd.path,
-                                       darks=[o.dark for o in sd.obs if o.dark is not None])
+                                       darks=[o.dark for o in sd.obs if o.dark is not None],
+                                       wavesol=sd.data.path)
         else:
             flattner = WhiteCalibrator(H5Subset(sd.data), config=fcfg, solution_name=sd.path,
                                        darks=[o.dark for o in sd.obs if o.dark is not None])
