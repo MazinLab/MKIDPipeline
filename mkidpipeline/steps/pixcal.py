@@ -129,8 +129,8 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
                                          ' outliers'.format(max_iter))
         # make sure a pixel is not simultaneously hot and cold
         assert ~(hot_mask & cold_mask).any()
-    getLogger(__name__).info('Masked {} hot pixels and {} cold pixels'.format(len(hot_mask[hot_mask!=False]),
-                                                                              len(cold_mask[cold_mask!=False])))
+    getLogger(__name__).info(f'Masked {len(hot_mask[hot_mask != False])} hot pixels and'
+                             f' {len(hot_mask[cold_mask != False])} cold pixels')
     return {'hot': hot_mask, 'cold': cold_mask, 'masked_image': raw_image, 'input_image': image,
             'num_iter': iteration + 1}
 
@@ -204,8 +204,8 @@ def median(image, box_size=5, n_sigma=5.0, max_iter=5):
 
         # Make sure a pixel is not simultaneously hot and cold
         assert ~(hot_mask & cold_mask).any()
-    getLogger(__name__).info('Masked {} hot pixels and {} cold pixels'.format(len(hot_mask[hot_mask != False]),
-                                                                              len(cold_mask[cold_mask != False])))
+    getLogger(__name__).info(f'Masked {len(hot_mask[hot_mask != False])} hot pixels and'
+                             f' {len(hot_mask[cold_mask != False])} cold pixels')
     return {'hot': hot_mask, 'cold': cold_mask, 'masked_image': raw_image, 'input_image': image,
             'num_iter': iteration + 1}
 
@@ -269,8 +269,8 @@ def laplacian(image, box_size=5, n_sigma=5.0, max_iter=5):
 
         # Make sure a pixel is not simultaneously hot and cold
         assert ~(hot_mask & cold_mask).any()
-    getLogger(__name__).info('Masked {} hot pixels and {} cold pixels'.format(len(hot_mask[hot_mask != False]),
-                                                                              len(cold_mask[cold_mask != False])))
+    getLogger(__name__).info(f'Masked {len(hot_mask[hot_mask != False])} hot pixels and'
+                             f' {len(hot_mask[cold_mask != False])} cold pixels')
     return {'hot': hot_mask, 'cold': cold_mask, 'masked_image': raw_image, 'input_image': image,
             'num_iter': iteration + 1}
 
