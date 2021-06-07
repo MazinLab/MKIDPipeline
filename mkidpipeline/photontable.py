@@ -675,23 +675,23 @@ class Photontable:
             getLogger(__name__).info(f"Derotate off. Using PA at time: {single_pa_time}")
             sample_times[:] = single_pa_time
 
+
         ref_pixels = []
         try:
             for t in sample_times:
                 md = self.metadata(t)
-                # getLogger(__name__).debug(f'ditherHome: {md.dither_home} (conex units -3<x<3), '
-                #                           f'ditherReference: {md.dither_ref} (pix 0<x<150), '
-                #                           f'ditherPos: {md.dither_home} (conex units -3<x<3), '
-                #                           f'platescale: {md.platescale} (mas/pix ~10)')
+                # we want to inherit defaults for ref values
+                head = mkidcore.metadata.build_header(md, unknown_keys='ignore')
                 ref_pixels.append(compute_wcs_ref_pixel((md['M_CONEXX'], md['M_CONEXY']),
-                                                        (md['M_PREFX'], md['M_PREFY']),
-                                                        (md['M_CXREFX'], md['M_CXREFY'])))
+                                                        (head['M_PREFX'], head['M_PREFY']),
+                                                        (head['M_CXREFX'], head['M_CXREFY'])))
         except KeyError:
             getLogger(__name__).warning('Insufficient data to build a WCS solution, conex info missing')
             return None
 
-        wcs_solns = mkidcore.metadata.build_wcs(self.metadata(self.start_time),
-                                                astropy.time.Time(val=sample_times, format='unix'), ref_pixels,
+        # we want to inherit defaults for ref values
+        header = mkidcore.metadata.build_header(self.metadata(self.start_time), unknown_keys='warn')
+        wcs_solns = mkidcore.metadata.build_wcs(header, astropy.time.Time(val=sample_times, format='unix'), ref_pixels,
                                                 derotate=derotate and not single_pa_time,
                                                 naxis=3 if cube_type in ('wave', 'time') else 2)
 
@@ -914,8 +914,7 @@ class Photontable:
         header = mkidcore.metadata.build_header(md, unknown_keys='warn')
         wcs = self.get_wcs(cube_type=cube_type, bins=bin_edges, single_pa_time=time_nfo['start'])
         if wcs:
-            wcs[0].to_header()
-            header.update(wcs)
+            header.update(wcs[0].to_header())
         hdr = header.copy()
         hdr.extend(ext_cards, unique=True)
 
