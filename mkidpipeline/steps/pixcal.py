@@ -40,7 +40,6 @@ TEST_CFGS= (StepConfig(method='median', step=30), StepConfig(method='cpscut', st
 FLAGS = FlagSet.define(('hot', 1, 'Hot pixel'),
                        ('cold', 2, 'Cold pixel'))
 
-# TODO make n_sigma a user specified parameter in the config file
 def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
     """
     Compares the ratio of flux in each pixel to the median of the flux in an enclosing box. If the ratio is too high
@@ -119,8 +118,6 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
             if np.all(hot_mask == reference_hot_mask) and np.all(cold_mask == reference_cold_mask):
                 break
 
-            # Otherwise update 'reference_hot_mask' and 'reference_cold_mask' and set all detected bad pixels
-            # to NaN for the next iteration
             reference_cold_mask = np.copy(cold_mask)
             reference_hot_mask = np.copy(hot_mask)
             raw_image[hot_mask] = np.nan
@@ -209,71 +206,72 @@ def median(image, box_size=5, n_sigma=5.0, max_iter=5):
     return {'hot': hot_mask, 'cold': cold_mask, 'masked_image': raw_image, 'input_image': image,
             'num_iter': iteration + 1}
 
-def laplacian(image, box_size=5, n_sigma=4.0):
+def laplacian(image, box_size=5, n_sigma=5.0, max_iter=5):
     """
-    Required Input:
-    :param image:           A 2D image array of photon counts.
-
-    Other Input:
-    :param box_size:           Scalar integer. Size box used for replacing the NaNs in the region surrounding each dead or NaN pixel.
-    :param n_sigma:         Scalar float. If the flux ratio for a pixel is (n_sigma x expected error)
-                                             above the max expected given the PSF FWHM, then flag it as hot.
+    :param image: 2D image array of photons (in counts)
+    :param box_size: in pixels
+    :param n_sigma: number of standard deviations above/below the expected value for which a pixel will be flagged as
+     'hot'/'cold'
+    :param max_iter: maximum number of iterations
     :return:
     A dictionary containing the result and various diagnostics. Keys are:
-
-    'bad_mask': the main output. Contains a 2D array of integers of the same shape as the input image, where:
-        0 = Good pixel
-        1 = Hot pixel
-        2 = Cold Pixel
-        3 = Dead Pixel
-    'dead_mask': 2D array of Bools of the same shape as the input image, where:
-                True = Dead Pixel
-                False = Not Dead Pixel
-    'hot_mask': 2D array of Bools of the same shape as the input image, where:
-                True = Hot Pixel
-                False = Not Hot Pixel
-    'image': 2D array containing the input image
-    'laplacian_filter_image': The median-filtered image
+    'hot': boolean mask of hot pixels
+    'cold': boolean mask of cold pixels
+    'masked_image': The hot and dead pixel masked image
+    'input_image': original input image
+    'num_iter': number of iterations performed.
     """
 
     raw_image = np.copy(image)
 
     # Assume everything with 0 counts is a dead pixel, turn dead pixel values into NaNs
-    dead_mask = raw_image < 0.01
+    dead_mask = raw_image == 0
     raw_image[dead_mask] = np.nan
 
     # Initialise a mask for hot pixels (all False)
+    reference_hot_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
     hot_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
+    reference_cold_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
+    cold_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
+    cold_mask[dead_mask] = True
 
-    nan_fixed_image = smoothing.replace_nan(raw_image, mode='mean', box_size=box_size)
-    assert np.all(np.isfinite(nan_fixed_image))
-
-    laplacian_filter_image=None
     # In the case that *all* the pixels are dead, return a bad_mask where all the pixels are flagged as DEAD
-    if np.sum(raw_image[np.where(np.isfinite(raw_image))]) <= 0:
-        getLogger(__name__).info('Entire image consists of dead pixels')
-        bad_mask = dead_mask * 3
-        hot_mask = np.zeros_like(bad_mask, dtype=bool)
-        dead_mask = np.ones_like(bad_mask, dtype=bool)
+    if raw_image[np.isfinite(raw_image)].sum() <= 0:
+        getLogger(__name__).warning('Entire image consists of pixels with 0 counts')
+        cold_mask = np.ones_like(raw_image, dtype=bool)
+        iteration = -1
     else:
-        laplacian_filter_image = spfilters.laplace(nan_fixed_image)
-        threshold_laplace = -(np.std(laplacian_filter_image) + n_sigma * np.std(laplacian_filter_image))
-        hot_pix = np.where(laplacian_filter_image < threshold_laplace)
-        hot_pix_x = hot_pix[0]
-        hot_pix_y = hot_pix[1]
+        for iteration in range(max_iter):
+            getLogger(__name__).info('Iteration: '.format(iteration))
+            # Remove all the NaNs in an image and calculate a median filtered image
+            # each pixel takes the median of itself and the surrounding box_size x box_size box.
+            nan_fixed_image = smoothing.replace_nan(raw_image, mode='mean', box_size=box_size)
+            assert np.all(np.isfinite(nan_fixed_image))
+            laplacian_filter_image = spfilters.laplace(nan_fixed_image)
+            hot_threshold = (np.std(laplacian_filter_image) + n_sigma * np.std(laplacian_filter_image))
+            cold_threshold = (np.std(laplacian_filter_image) - n_sigma * np.std(laplacian_filter_image))
 
-        for i in np.arange(len(hot_pix_x)):
-            pix_up = laplacian_filter_image[hot_pix_x[i], hot_pix_y[i] + 1]
-            pix_down = laplacian_filter_image[hot_pix_x[i], hot_pix_y[i] - 1]
-            pix_left = laplacian_filter_image[hot_pix_x[i] - 1, hot_pix_y[i]]
-            pix_right = laplacian_filter_image[hot_pix_x[i] + 1, hot_pix_y[i]]
-            if pix_up > 0 and pix_down > 0 and pix_left > 0 and pix_right > 0:
-                hot_mask[hot_pix_x[i], hot_pix_y[i]] = True
+            hot_mask = (laplacian_filter_image < hot_threshold) | reference_hot_mask
+            cold_mask = (laplacian_filter_image > cold_threshold) | reference_cold_mask
 
-    return {'cold': dead_mask, 'hot': hot_mask, 'image': raw_image, 'laplacian_filter_image': laplacian_filter_image}
+            # If no change between between this and the last iteration then stop iterating
+            if np.all(hot_mask == reference_hot_mask) and np.all(cold_mask == reference_cold_mask): break
 
+            # Otherwise update 'reference_hot_mask' and set all detected bad pixels to NaN for the next iteration
+            reference_hot_mask = np.copy(hot_mask)
+            raw_image[hot_mask] = np.nan
 
-def _compute_mask(obs, method, step, startt, stopt, methodkw, weight):
+            reference_cold_mask = np.copy(cold_mask)
+            raw_image[cold_mask] = np.nan
+
+        # Make sure a pixel is not simultaneously hot and cold
+        assert ~(hot_mask & cold_mask).any()
+    getLogger(__name__).info('Masked {} hot pixels and {} cold pixels'.format(len(hot_mask[hot_mask != False]),
+                                                                              len(cold_mask[cold_mask != False])))
+    return {'hot': hot_mask, 'cold': cold_mask, 'masked_image': raw_image, 'input_image': image,
+            'num_iter': iteration + 1}
+
+def _compute_mask(obs, method, step, startt, stopt, methodkw, weight, n_sigma):
     try:
         func = globals()[method]
     except KeyError:
@@ -284,7 +282,7 @@ def _compute_mask(obs, method, step, startt, stopt, methodkw, weight):
     masks = np.zeros(img['SCIENCE'].data.shape+(2,), dtype=bool)
     for i, (sl, each_time) in enumerate(zip(np.rollaxis(img['SCIENCE'].data, -1), img['CUBE_EDGES'].data.edges[:-1])):
         getLogger(__name__).info(f'Processing time slice: {each_time} - {each_time + step} s')
-        result = func(sl, **methodkw)
+        result = func(sl, n_sigma=n_sigma, **methodkw)
         masks[:, :, i, 0] = result['hot']
         masks[:, :, i, 1] = result['cold']
 
@@ -296,7 +294,6 @@ def _compute_mask(obs, method, step, startt, stopt, methodkw, weight):
     meta.update(methodkw)
 
     return mask, meta
-
 
 def fetch(o, startt, stopt, config=None):
     obs = Photontable(o) if isinstance(o,str) else o
