@@ -68,14 +68,15 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
     max_ratio = np.max(gauss_array) / np.median(gauss_array)
 
     # turn dead pixel values into NaNs
-    raw_image[raw_image==0] = np.nan
+    dead_mask = raw_image == 0
+    raw_image[dead_mask] = np.nan
 
     # Initialise a mask for hot pixels (all False) for comparison on each iteration.
     reference_hot_mask = np.zeros_like(raw_image, dtype=bool)
     reference_cold_mask = np.zeros_like(raw_image, dtype=bool)
     hot_mask = np.zeros_like(raw_image, dtype=bool)
     cold_mask = np.zeros_like(raw_image, dtype=bool)
-
+    cold_mask[dead_mask] = True
     if raw_image[np.isfinite(raw_image)].sum() <= 0:
         getLogger(__name__).warning('Entire image consists of pixels with 0 counts')
         cold_mask = np.ones_like(raw_image, dtype=bool)
@@ -128,8 +129,8 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
                                          ' outliers'.format(max_iter))
         # make sure a pixel is not simultaneously hot and cold
         assert ~(hot_mask & cold_mask).any()
-        getLogger(__name__).info('Masked {} hot pixels and {} cold pixels'.format(len(hot_mask[hot_mask!=False]),
-                                                                                  len(cold_mask[cold_mask!=False])))
+    getLogger(__name__).info('Masked {} hot pixels and {} cold pixels'.format(len(hot_mask[hot_mask!=False]),
+                                                                              len(cold_mask[cold_mask!=False])))
     return {'hot': hot_mask, 'cold': cold_mask, 'masked_image': raw_image, 'input_image': image,
             'num_iter': iteration + 1}
 
@@ -159,10 +160,11 @@ def median(image, box_size=5, n_sigma=5.0, max_iter=5):
     raw_image[dead_mask] = np.nan
 
     # Initialise a mask for hot pixels (all False) for comparison on each iteration.
-    initial_hot_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
+    reference_hot_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
     hot_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
-    initial_cold_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
+    reference_cold_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
     cold_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
+    cold_mask[dead_mask] = True
 
     # Initialise some arrays with NaNs in case they don't get filled out during the iteration
     median_filter_image = np.zeros_like(raw_image)
@@ -182,27 +184,28 @@ def median(image, box_size=5, n_sigma=5.0, max_iter=5):
             assert np.all(np.isfinite(nan_fixed_image))
             median_filter_image = spfilters.median_filter(nan_fixed_image, box_size, mode='mirror')
             func = lambda x: np.nanstd(x) * _stddev_bias_corr((~np.isnan(x)).sum())
-            standard_filter_image = spfilters.generic_filter(nan_fixed_image, func, box_size, mode='mirror')
+            std_filter_image = spfilters.generic_filter(nan_fixed_image, func, box_size, mode='mirror')
 
-            hot_threshold = median_filter_image + (n_sigma * standard_filter_image)
-            cold_threshold = median_filter_image - (n_sigma * standard_filter_image)
+            hot_threshold = median_filter_image + (n_sigma * std_filter_image)
+            cold_threshold = median_filter_image - (n_sigma * std_filter_image)
 
-            hot_mask = (median_filter_image > hot_threshold) | initial_hot_mask
-            cold_mask = (median_filter_image < cold_threshold) | initial_cold_mask
+            hot_mask = (raw_image > hot_threshold) | reference_hot_mask
+            cold_mask = (raw_image < cold_threshold) | reference_cold_mask
 
             # If no change between between this and the last iteration then stop iterating
-            if np.all(hot_mask == initial_hot_mask) and np.all(cold_mask == initial_cold_mask): break
+            if np.all(hot_mask == reference_hot_mask) and np.all(cold_mask == reference_cold_mask): break
 
-            # Otherwise update 'initial_hot_mask' and set all detected bad pixels to NaN for the next iteration
-            initial_hot_mask = np.copy(hot_mask)
+            # Otherwise update 'reference_hot_mask' and set all detected bad pixels to NaN for the next iteration
+            reference_hot_mask = np.copy(hot_mask)
             raw_image[hot_mask] = np.nan
 
-            initial_cold_mask = np.copy(cold_mask)
+            reference_cold_mask = np.copy(cold_mask)
             raw_image[cold_mask] = np.nan
 
         # Make sure a pixel is not simultaneously hot and cold
         assert ~(hot_mask & cold_mask).any()
-
+    getLogger(__name__).info('Masked {} hot pixels and {} cold pixels'.format(len(hot_mask[hot_mask != False]),
+                                                                              len(cold_mask[cold_mask != False])))
     return {'hot': hot_mask, 'cold': cold_mask, 'masked_image': raw_image, 'input_image': image,
             'num_iter': iteration + 1}
 
