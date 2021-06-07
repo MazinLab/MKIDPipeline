@@ -59,6 +59,7 @@ SAMPLEDATA = {'default': (
                                  dither_home=(107, 46), dither_ref=(-0.16, -0.4)),  #TODO UPDATE to MEC KEYS
     # Dithers
     config.MKIDDitherDescription(name=namer('dither'), data=1602047815, wavecal='wavecal0',
+                                 header=dict(OBJECT="HIP 109427"),
                                  flatcal='flatcal0', speccal='speccal0', use='0,2,4-9', wcscal='wcscal0'),
     config.MKIDDitherDescription(name=namer('dither'),
                                  data=pkg_resources.resource_filename('mkidpipeline', 'dither_sample.log'),

@@ -29,7 +29,8 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!pixcal_cfg'
     REQUIRED_KEYS = (('method', 'median', 'method to use laplacian|median|threshold'),
                      ('step', 30, 'Time interval for methods that need one'),
-                     ('use_weight', True, 'Use photon weights'))
+                     ('use_weight', True, 'Use photon weights'),
+                     ('remake', False, 'Remake the calibration even if it exists'))
 
 
 TEST_CFGS= (StepConfig(method='median', step=30), StepConfig(method='cpscut', step=30),
@@ -317,14 +318,12 @@ def _compute_mask(obs, method, step, startt, stopt, methodkw, weight):
 
     return mask, meta
 
-def fetch(o, config=None):
-    obs = Photontable(o.h5)
-    if obs.query_header('pixcal'):
-        getLogger(__name__).info('{} is already pixel calibrated'.format(o.h5))
-        return None, None
+
+def fetch(o, startt, stopt, config=None):
+    obs = Photontable(o) if isinstance(o,str) else o
 
     cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(pixcal=StepConfig()), cfg=config, copy=True)
-    startt, stopt = o.start, o.stop
+
     step = min(stopt-startt, cfg.pixcal.step)
     method = cfg.pixcal.method
 
@@ -336,13 +335,22 @@ def fetch(o, config=None):
     exclude = [k[0] for k in StepConfig.REQUIRED_KEYS]
     methodkw = {k: mkidpipeline.config.config.pixcal.get(k) for k in mkidpipeline.config.config.pixcal.keys() if
                 k not in exclude}
+
     return _compute_mask(obs, method, step, startt, stopt, methodkw, cfg.pixcal.use_weight)
 
+
 def apply(o, config=None):
-    mask, meta = fetch(o, config)
+    config = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(pixcal=StepConfig()), cfg=config, copy=True)
+    if o.photontable.query_header('pixcal') and not config.pixcal.remake:
+        getLogger(__name__).info('{} is already pixel calibrated'.format(o.h5))
+        return
+
+    obs = Photontable(o.h5)
+    mask, meta = fetch(obs, o.start, o.stop, config=config)
+
     if mask is None:
         return
-    obs = Photontable(o.h5)
+
     tic = time.time()
     getLogger(__name__).info(f'Applying pixel mask to {o}')
     obs.enablewrite()
