@@ -232,8 +232,12 @@ class Photontable:
         except (IOError, OSError):
             raise
 
-
         # get important cal params
+        #TODO if we are wavelength calibrated we should use something more akin to:
+        # self.energies = [c.h * c.c / (i * 10e-9 * c.e) for i in self.wavelengths]
+        # middle = len(self.wavelengths) // 2
+        # energy_bin_width = self.energies[middle] / (5.0 * self.r_list[middle])
+        # pt.wavelength_bins(energy_bin_width, self.wvl_start, self.wvl_stop, energy=True)
         self.nominal_wavelength_bins = self.wavelength_bins(width=self.query_header('energy_resolution'),
                                                             start=self.query_header('min_wavelength'),
                                                             stop=self.query_header('max_wavelength'))
