@@ -96,6 +96,10 @@ def safe(func):
 def batch_applier(func, obs, ncpu=np.inf, unique_h5=True):
     if unique_h5:
         obs = {o.h5: o for o in obs}.values()
+
+    if not len(obs):
+        return
+
     ncpu = min(config.n_cpus_available(max=ncpu), len(obs))
     if ncpu == 1:
         for o in obs:
