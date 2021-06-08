@@ -72,7 +72,7 @@ import mkidpipeline.config
 
 DRIZ_PROBLEM_FLAGS = tuple()  # currently no pixel flags make drizzler explode
 # but there are plenty one wouldn't want by default in the output
-PROBLEM_FLAGS = ('pixcal.hot', 'pixcal.cold', 'pixcal.unstable', 'beammap.noDacTone', 'wavecal.bad',
+PROBLEM_FLAGS = ('pixcal.hot', 'pixcal.cold', 'pixcal.dead', 'beammap.noDacTone', 'wavecal.bad',
                  'wavecal.failed_validation', 'wavecal.failed_convergence', 'wavecal.not_monotonic',
                  'wavecal.not_enough_histogram_fits', 'wavecal.no_histograms',
                  'wavecal.not_attempted')

@@ -86,41 +86,28 @@ if __name__ == "__main__":
         # build, meta -> wave
         errors = outputs.validate(return_errors=True)
         if errors:
-            getLogger('mkidpipeline').critical('Validation failed, please these issues fix before continuing.\n\t'
-                                               '\n\t'.join(errors))
+            getLogger('mkidpipeline').critical('Validation failed. Errors: \n\t'+'\n\t'.join(errors))
             sys.exit(0)
-        # 0
+        #0
         steps.buildhdf.buildtables(outputs.input_timeranges)
-        # 1
-        if 'metadata' in config.config.flow:
-            pipe.batch_apply_metadata(outputs)
-        # 2
-        if 'wavecal' in config.config.flow:
-            steps.wavecal.fetch(outputs.wavecals)
-            # TODO sort out why this is necessary for Pools to work despite __getstate__
-            steps.wavecal._loaded_solutions = {}
-        if 'lincal' in config.config.flow:
-            pipe.batch_applier(steps.lincal.apply, outputs.to_lincal)
-        # 3
-        getLogger('mkidpipeline').setLevel('DEBUG')
-        if 'wavecal' in config.config.flow:
-            pipe.batch_applier(steps.wavecal.apply, outputs.to_wavecal)
-        # 4
-        if 'pixcal' in config.config.flow:
-            pipe.batch_applier(steps.pixcal.apply, outputs.to_pixcal)
-        if 'cosmiccal' in config.config.flow:
-            pipe.batch_applier(steps.cosmiccal.apply, outputs.to_cosmiccal)
-
-        if 'flatcal' in config.config.flow:
-            # 5
-            steps.flatcal.fetch(list(outputs.flatcals)[:1])
-            # 6
-            pipe.batch_applier(steps.flatcal.apply, list(outputs.to_flatcal)[:1])
-
-        if 'wcscal' in config.config.flow:
-            steps.wcscal.fetch(outputs.wcscals)
-        # 7
-        steps.output.generate(outputs)
-        # 8
-        if 'speccal' in config.config.flow:
-            steps.speccal.fetch(outputs.speccals)
+        #1
+        pipe.batch_apply_metadata(outputs)
+        #2
+        steps.wavecal.fetch(outputs.wavecals)
+        # steps.wavecal._loaded_solutions = {}
+        # pipe.batch_applier(steps.lincal.apply, outputs.to_lincal)
+        #3
+        pipe.batch_applier(steps.wavecal.apply, outputs.to_wavecal)
+        # pipe.batch_apply_wavecals(outputs.to_wavecal)
+        #4
+        pipe.batch_applier(steps.pixcal.apply, outputs.to_pixcal)
+        # pipe.batch_applier(steps.cosmiccal.apply, outputs.to_cosmiccal)
+        #5
+        # steps.flatcal.fetch(outputs.flatcals)
+        #6
+        # pipe.batch_applier(steps.flatcal.apply, outputs.to_flatcal)
+        # steps.wcscal.fetch(outputs.wcscals)
+        #7
+        # steps.output.generate(outputs)
+        #8
+        # steps.speccal.fetch(outputs.speccals)
