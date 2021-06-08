@@ -76,7 +76,7 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
     reference_cold_mask = np.zeros_like(raw_image, dtype=bool)
     hot_mask = np.zeros_like(raw_image, dtype=bool)
     cold_mask = np.zeros_like(raw_image, dtype=bool)
-    cold_mask[dead_mask] = True
+    reference_cold_mask[dead_mask] = True
     if raw_image[np.isfinite(raw_image)].sum() <= 0:
         getLogger(__name__).warning('Entire image consists of pixels with 0 counts')
         cold_mask = np.ones_like(raw_image, dtype=bool)
@@ -164,7 +164,7 @@ def median(image, box_size=5, n_sigma=5.0, max_iter=5):
     hot_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
     reference_cold_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
     cold_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
-    cold_mask[dead_mask] = True
+    reference_cold_mask[dead_mask] = True
 
     # Initialise some arrays with NaNs in case they don't get filled out during the iteration
     median_filter_image = np.zeros_like(raw_image)
@@ -236,7 +236,7 @@ def laplacian(image, box_size=5, n_sigma=5.0, max_iter=5):
     hot_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
     reference_cold_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
     cold_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
-    cold_mask[dead_mask] = True
+    reference_cold_mask[dead_mask] = True
 
     # In the case that *all* the pixels are dead, return a bad_mask where all the pixels are flagged as DEAD
     if raw_image[np.isfinite(raw_image)].sum() <= 0:
