@@ -1,4 +1,3 @@
-#!/bin/env python3
 """
 Author: Isabel Lipartito        Date:Dec 4, 2017
 Opens a twilight flat h5 and breaks it into INTTIME (5 second suggested) blocks.
@@ -19,22 +18,17 @@ Edited by: Sarah Steiger    Date: October 31, 2019
 """
 import os
 import multiprocessing as mp
-import scipy.constants as c
 import time
-import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-import tables
-from PyPDF2 import PdfFileMerger, PdfFileReader
-import astropy.units as u
 
 from matplotlib.backends.backend_pdf import PdfPages
+
 from mkidpipeline.steps import wavecal
 from mkidpipeline.photontable import Photontable
 from mkidcore.corelog import getLogger
 import mkidpipeline.config
 from mkidpipeline.config import H5Subset
-from mkidcore.utils import query
 from mkidcore.pixelflags import FlagSet, PROBLEM_FLAGS
 
 
@@ -82,7 +76,6 @@ class FlatCalibrator:
         self.wvl_stop = self.cfg.instrument.maximum_wavelength
 
         self.wavelengths = None
-        self.r_list = None
         self.solution_name = solution_name
 
         self.save_plots = self.cfg.flatcal.plots.lower() == 'all'
@@ -249,59 +242,45 @@ class WhiteCalibrator(FlatCalibrator):
         """
         super().__init__(config)
         self.h5s = h5s
-        self.energies = None
-        self.energy_bin_width = None
         self.solution_name = solution_name
 
-    def load_data(self):
-        getLogger(__name__).info('Loading calibration data from {}'.format(self.h5s))
+    def make_spectral_cube(self):
+
+        exposure_time = self.h5s.duration
+        if self.cfg.flatcal.chunk_time > exposure_time:
+            getLogger(__name__).warning('Chunk time is longer than the exposure. Using a single chunk')
+            time_edges = np.array([self.h5s.start, self.h5s.start + self.h5s.duration])
+        elif self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks > exposure_time:
+            nchunks = int(exposure_time / self.cfg.flatcal.chunk_time)
+            time_edges = self.h5s.start+np.arange(nchunks+1)*self.cfg.flatcal.chunk_time
+            getLogger(__name__).warning(f'Number of {self.cfg.flatcal.chunk_time} s chunks requested longer than the '
+                                        f'exposure. Using first full {nchunks} chunks.')
+        else:
+            time_edges = np.self.h5s.start + np.arange(self.cfg.flatcal.nchunks + 1) * self.cfg.flatcal.chunk_time
+
         pt = Photontable(self.h5s.timerange.h5)
         if not pt.wavelength_calibrated:
             raise RuntimeError('Photon data is not wavelength calibrated.')
-        r, _ = wavecal.Solution(pt.query_header('wavecal')).find_resolving_powers(cache=True)
-        self.r_list = np.nanmedian(r, axis=0)
 
         # define wavelengths to use
-        #TODO what is this mess?
-        self.energies = [c.h * c.c / (i * 10e-9 * c.e) for i in self.wavelengths]
-        middle = len(self.wavelengths) // 2
-        self.energy_bin_width = self.energies[middle] / (5.0 * self.r_list[middle])
-        edges = pt.wavelength_bins(self.energy_bin_width, self.wvl_start, self.wvl_stop, energy=True)
-        self.wavelengths = (edges[: -1] + np.diff(edges)).flatten()
+        edges = pt.nominal_wavelength_bins
+        self.wavelengths = edges[: -1] + np.diff(edges)  # wavelength bin centers
 
-    def make_spectral_cube(self):
-        n_wvls = len(self.wavelengths)
-        n_times = self.cfg.flatcal.nchunks
-        x, y = self.cfg.beammap.ncols, self.cfg.beammap.nrows
-        exposure_time = self.h5s.duration
-        if self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks > exposure_time:
-            n_times = int(exposure_time / self.cfg.flatcal.chunk_time)
-            getLogger(__name__).info('Number of chunks * chunk time is longer than the laser exposure. Using full'
-                                     'length of exposure ({} chunks)'.format(n_times))
-        cps_cube_list = np.zeros([n_times, x, y, n_wvls])
-        mask = np.zeros([x, y, n_wvls])
-        int_times = np.zeros([x, y, n_wvls])
+        if not pt.query_header('pixcal'):
+            getLogger(__name__).warning('H5 File not hot pixel masked, will skew flat weights')
 
-        delta_list = self.wavelengths / self.r_list / 2
-        pt = self.h5s.photontable
-        for i, wvl in enumerate(self.wavelengths):
-            if not pt.query_header('pixcal'):
-                getLogger(__name__).warning('H5 File not hot pixel masked, could skew flat weights')
+        cps_cube_list = []
+        for wstart, wstop in zip(edges[:-1], edges[1:]):
+            hdul = pt.get_fits(rate=True, bin_edges=time_edges, wave_start=wstart, wave_stop=wstop, cube_type='time')
+            cps_cube_list.append(np.moveaxis(hdul['SCIENCE'].data, 2, 0))  # moveaxis for code compatibility
 
-            mask[:, :, i] = pt.flagged(PROBLEM_FLAGS)
-            wvl_start = wvl - delta_list[i]
-            wvl_stop = wvl + delta_list[i]
-
-            hdul = pt.get_fits(duration=self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks, rate=True,
-                               bin_width=self.cfg.flatcal.chunk_time, wave_start=wvl_start, wave_stop=wvl_stop,
-                               cube_type='time')
-
-            getLogger(__name__).info(f'Loaded {wvl} nm spectral cube')
-            int_times[:, :, i] = self.cfg.flatcal.chunk_time
-            cps_cube_list[:, :, :, i] = np.moveaxis(hdul['SCIENCE'].data, 2, 0)
-        self.spectral_cube = cps_cube_list
-        self.eff_int_times = int_times
-        self.mask = mask
+        getLogger(__name__).info(f'Loaded spectral cubes')
+        self.spectral_cube = np.array(cps_cube_list)  # n_times, x, y, n_wvls
+        # TODO if the rest of the algorithm doesn't take good care of this then including it here for future expansion
+        #  is silly and it should be considered for removal
+        self.eff_int_times = np.full(self.spectral_cube.shape[1:], fill_value=time_edges[1]-time_edges[0])
+        # TODO is this broadcast really necessary?
+        self.mask = pt.flagged(PROBLEM_FLAGS)[..., None]*np.ones(self.wavelengths.size)
 
 
 class LaserCalibrator(FlatCalibrator):
@@ -347,7 +326,7 @@ class LaserCalibrator(FlatCalibrator):
                                 bin_width=self.cfg.flatcal.chunk_time, wave_start=wvl_start, wave_stop=wvl_stop,
                                 cube_type='time')
 
-            getLogger(__name__).info(f'Loaded {wvl} nm spectral cube')
+            getLogger(__name__).info(f'Loaded {wvl:.1f} nm spectral cube')
             int_times[:, :, w_mask] = self.cfg.flatcal.chunk_time
             cps_cube_list[:, :, :, w_mask] = np.moveaxis(hdul['SCIENCE'].data, 2, 0)
         self.spectral_cube = cps_cube_list
