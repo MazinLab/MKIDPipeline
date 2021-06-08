@@ -174,8 +174,9 @@ def median_filter_nan(input_array, size=5, *nkwarg, **kwarg):
 
     JvE 12/28/12
     """
-    return scipy.ndimage.filters.generic_filter(input_array, lambda x: np.median(x[~np.isnan(x)]), size,
-                                                *nkwarg, **kwarg)
+    return scipy.ndimage.filters.generic_filter(input_array,
+                                                lambda x: np.median(x[~np.isnan(x)]) if len(x[~np.isnan(x)]) > 0
+                                                else np.nan, size, *nkwarg, **kwarg)
 
 
 
@@ -186,8 +187,9 @@ def mean_filter_nan(input_array, size=3, *nkwarg, **kwarg):
     See median_filter_nan for details.
     JvE 1/4/13
     """
-    return scipy.ndimage.filters.generic_filter(input_array, lambda x: np.mean(x[~np.isnan(x)]), size,
-                                                *nkwarg, **kwarg)
+    return scipy.ndimage.filters.generic_filter(input_array,
+                                                lambda x: np.mean(x[~np.isnan(x)]) if len(x[~np.isnan(x)]) > 0
+                                                else np.nan, size,*nkwarg, **kwarg)
 
 
 def find_nearest_finite(im, i, j, n=10):
