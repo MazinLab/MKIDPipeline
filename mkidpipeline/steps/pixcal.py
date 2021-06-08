@@ -36,8 +36,8 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                                       ' will be flagged as hot/cold'))
 
 
-TEST_CFGS= (StepConfig(method='median', step=30), StepConfig(method='cpscut', step=30),
-            StepConfig(method='laplacian', step=30), StepConfig(method='threshold', step=30))
+TEST_CFGS= (StepConfig(method='median', step=30), StepConfig(method='laplacian', step=30),
+            StepConfig(method='threshold', step=30))
 
 FLAGS = FlagSet.define(('hot', 1, 'Hot pixel'),
                        ('cold', 2, 'Cold pixel'),
@@ -83,7 +83,7 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
 
     if raw_image[np.isfinite(raw_image)].sum() <= 0:
         getLogger(__name__).warning('Entire image consists of pixels with 0 counts')
-        cold_mask = np.ones_like(raw_image, dtype=bool)
+        dead_mask = np.ones_like(raw_image, dtype=bool)
         iteration = -1
     else:
         for iteration in range(max_iter):
@@ -105,11 +105,9 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
             # If the threshold is *lower* than the background, then set it equal to the background level instead
             # (a pixel below the background level is unlikely to be hot!)
             # TODO move above to better documentation location
-
-            threshold = np.maximum((max_ratio * median_filter_image - (max_ratio - 1) * median_bkgd), median_bkgd)
-            getLogger(__name__).debug(f'Hot Pixel Masking Parameters:\n'
-                                      f'hot flux threshold is {threshold[0][0]}\n'
-                                      f'median background is {median_bkgd}')
+            threshold = max_ratio * median_filter_image - (max_ratio - 1) * median_bkgd
+            idx = np.where(threshold < median_bkgd)
+            threshold[idx] = median_bkgd
             hot_difference_image = raw_image - threshold
             cold_difference_image = raw_image - median_filter_image
 
@@ -177,7 +175,7 @@ def median(image, box_size=5, n_sigma=5.0, max_iter=5):
 
     if raw_image[np.isfinite(raw_image)].sum() <= 0:
         getLogger(__name__).warning('Entire image consists of pixels with 0 counts')
-        cold_mask = np.ones_like(raw_image, dtype=bool)
+        dead_mask = np.ones_like(raw_image, dtype=bool)
         iteration = -1
     else:
         for iteration in range(max_iter):
@@ -245,7 +243,7 @@ def laplacian(image, box_size=5, n_sigma=5.0, max_iter=5):
     # In the case that *all* the pixels are dead, return a bad_mask where all the pixels are flagged as DEAD
     if raw_image[np.isfinite(raw_image)].sum() <= 0:
         getLogger(__name__).warning('Entire image consists of pixels with 0 counts')
-        cold_mask = np.ones_like(raw_image, dtype=bool)
+        dead_mask = np.ones_like(raw_image, dtype=bool)
         iteration = -1
     else:
         for iteration in range(max_iter):
