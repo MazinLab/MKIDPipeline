@@ -680,7 +680,6 @@ class Photontable:
             getLogger(__name__).info(f"Derotate off. Using PA at time: {single_pa_time}")
             sample_times[:] = single_pa_time
 
-
         ref_pixels = []
         try:
             for t in sample_times:
@@ -799,8 +798,10 @@ class Photontable:
         if cube_type is time or wave a spectral or temporal cube will be returned
 
         bin_type is for computing bins off bin_width: is width in energy or wavelength anything other than
-        'energy' will be treated as wavelength requested. if cube_type is 'time' bin_width/edges are in seconds and
-        one of the two is required. bin_type is ignored.
+        'energy' will be treated as wavelength requested.
+        if cube_type is 'time' bin_width/edges are in seconds and one of the two is required. bin_type is ignored.
+
+        if the bin_width does not evenly divide the interval (e.g. duration is 55 and width is 10) then
 
         Temporal bin_edges will take precedence over start and duration
 
@@ -834,7 +835,7 @@ class Photontable:
 
         if cube_type == 'time':
             ycol = 'time'
-            if not bin_edges:
+            if bin_edges is None:
                 t0 = 0 if start is None else time_nfo['relstart']
                 itime = self.duration if duration is None else duration
                 try:
@@ -844,7 +845,7 @@ class Photontable:
 
             start = bin_edges[0]
             duration = bin_edges[-1] - bin_edges[0]
-            bin_edges = (bin_edges * 1e6)  # .astype(int)
+            bin_edges *= 1e6
 
         elif cube_type == 'wave':
             ycol = 'wavelength'
@@ -917,21 +918,27 @@ class Photontable:
 
         # Build primary and image headers
         header = mkidcore.metadata.build_header(md, unknown_keys='warn')
-        wcs = self.get_wcs(cube_type=cube_type, bins=bin_edges, single_pa_time=time_nfo['start'])
+        wcs = self.get_wcs(cube_type=cube_type, bins=bin_edges/1e6 if cube_type == 'time' else None,
+                           single_pa_time=time_nfo['start'])
         if wcs:
             header.update(wcs[0].to_header())
         hdr = header.copy()
         hdr.extend(ext_cards, unique=True)
 
         # Build HDU List
+
+        if cube_type is None:
+            bin_hdu = []
+        else:
+            tmp = bin_edges/1e6 if cube_type == 'time' else bin_edges
+            bin_hdu = [fits.TableHDU.from_columns(np.recarray(shape=bin_edges.shape, buf=tmp,
+                                                  dtype=np.dtype([('edges', bin_edges.dtype)])), name='CUBE_EDGES')]
+            bin_hdu[0].header.append(fits.Card('UNIT', 's' if cube_type is 'time' else 'nm', comment='Bin unit'))
+
         hdul = fits.HDUList([fits.PrimaryHDU(header=header),
                              fits.ImageHDU(data=data / duration if rate else data, header=hdr, name='SCIENCE'),
-                             fits.ImageHDU(data=np.sqrt(data), header=hdr, name='VARIANCE'),
-                             fits.TableHDU.from_columns(np.recarray(shape=bin_edges.shape, buf=bin_edges,
-                                                                    dtype=np.dtype([('edges', bin_edges.dtype)])),
-                                                        name='CUBE_EDGES')] + pixcal_hdu)
+                             fits.ImageHDU(data=np.sqrt(data), header=hdr, name='VARIANCE')] + bin_hdu + pixcal_hdu)
 
-        hdul['CUBE_EDGES'].header.append(fits.Card('UNIT', 'us' if cube_type is 'time' else 'nm', comment='Bin unit'))
         getLogger(__name__).debug(f'FITS generated in {time.time()-tic:.0f} s')
         return hdul
 
