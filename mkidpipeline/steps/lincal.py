@@ -19,7 +19,7 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
 HEADER_KEYS = ('LINCAL.DT', 'LINCAL.TAU')
 
 
-PROBLEM_FLAGS = ('pixcal.hot', 'pixcal.cold', 'pixcal.unstable', 'beammap.noDacTone', 'wavecal.bad',
+PROBLEM_FLAGS = ('pixcal.hot', 'pixcal.cold', 'pixcal.dead', 'beammap.noDacTone', 'wavecal.bad',
                  'wavecal.failed_validation', 'wavecal.failed_convergence', 'wavecal.not_monotonic',
                  'wavecal.not_enough_histogram_fits', 'wavecal.no_histograms',
                  'wavecal.not_attempted')
