@@ -14,6 +14,7 @@ from mkidcore.pixelflags import FlagSet
 def _calc_stdev(x):
     return np.nanstd(x) * _stddev_bias_corr((~np.isnan(x)).sum())
 
+
 def _stddev_bias_corr(n):
     if n == 1:
         corr = 1.0
@@ -23,6 +24,7 @@ def _stddev_bias_corr(n):
         lut_ndx = max(min(n - 2, len(lut) - 1), 0)
         corr = lut[lut_ndx]
     return 1.0 / corr
+
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!pixcal_cfg'
@@ -38,7 +40,9 @@ TEST_CFGS= (StepConfig(method='median', step=30), StepConfig(method='cpscut', st
             StepConfig(method='laplacian', step=30), StepConfig(method='threshold', step=30))
 
 FLAGS = FlagSet.define(('hot', 1, 'Hot pixel'),
-                       ('cold', 2, 'Cold pixel'))
+                       ('cold', 2, 'Cold pixel'),
+                       ('dead', 3, 'Dead pixel'))
+
 
 def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
     """
@@ -76,7 +80,7 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
     reference_cold_mask = np.zeros_like(raw_image, dtype=bool)
     hot_mask = np.zeros_like(raw_image, dtype=bool)
     cold_mask = np.zeros_like(raw_image, dtype=bool)
-    reference_cold_mask[dead_mask] = True
+
     if raw_image[np.isfinite(raw_image)].sum() <= 0:
         getLogger(__name__).warning('Entire image consists of pixels with 0 counts')
         cold_mask = np.ones_like(raw_image, dtype=bool)
@@ -87,7 +91,6 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
             nan_fixed_image = smoothing.replace_nan(raw_image, mode='mean', box_size=box_size)
             assert np.all(np.isfinite(nan_fixed_image))
             median_filter_image = spfilters.median_filter(nan_fixed_image, box_size, mode='mirror')
-
             median_bkgd = np.nanmedian(raw_image)
 
             # Estimate the background std. dev.
@@ -104,9 +107,9 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
             # TODO move above to better documentation location
 
             threshold = np.maximum((max_ratio * median_filter_image - (max_ratio - 1) * median_bkgd), median_bkgd)
-            getLogger(__name__).debug('Hot Pixel Masking Parameters:'
-                                      'hot flux threshold is {}'
-                                      'median background is {}'.format(threshold[0][0], median_bkgd))
+            getLogger(__name__).debug(f'Hot Pixel Masking Parameters:\n'
+                                      f'hot flux threshold is {threshold[0][0]}\n'
+                                      f'median background is {median_bkgd}')
             hot_difference_image = raw_image - threshold
             cold_difference_image = raw_image - median_filter_image
 
@@ -124,15 +127,17 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
             raw_image[hot_mask] = np.nan
             raw_image[cold_mask] = np.nan
             if iteration == max_iter:
-                getLogger(__name__).info('Reached max number of iterations ({}) - Increase max iterations to ensure'
+                getLogger(__name__).info(f'Reached max number of iterations ({max_iter}) - Increase max iterations to ensure'
                                          ' all hot pixels are masked or check your data for excessive'
-                                         ' outliers'.format(max_iter))
+                                         ' outliers')
         # make sure a pixel is not simultaneously hot and cold
         assert ~(hot_mask & cold_mask).any()
-    getLogger(__name__).info(f'Masked {len(hot_mask[hot_mask != False])} hot pixels and'
-                             f' {len(hot_mask[cold_mask != False])} cold pixels')
-    return {'hot': hot_mask, 'cold': cold_mask, 'masked_image': raw_image, 'input_image': image,
+    getLogger(__name__).info(f'Masked {len(hot_mask[hot_mask != False])} hot pixels,'
+                             f' {len(cold_mask[cold_mask != False])} cold pixels'
+                             f' and {len(dead_mask[dead_mask!=False])} dead pixels')
+    return {'hot': hot_mask, 'cold': cold_mask, 'dead': dead_mask, 'masked_image': raw_image, 'input_image': image,
             'num_iter': iteration + 1}
+
 
 def median(image, box_size=5, n_sigma=5.0, max_iter=5):
     """
@@ -164,7 +169,6 @@ def median(image, box_size=5, n_sigma=5.0, max_iter=5):
     hot_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
     reference_cold_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
     cold_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
-    reference_cold_mask[dead_mask] = True
 
     # Initialise some arrays with NaNs in case they don't get filled out during the iteration
     median_filter_image = np.zeros_like(raw_image)
@@ -206,8 +210,9 @@ def median(image, box_size=5, n_sigma=5.0, max_iter=5):
         assert ~(hot_mask & cold_mask).any()
     getLogger(__name__).info(f'Masked {len(hot_mask[hot_mask != False])} hot pixels and'
                              f' {len(hot_mask[cold_mask != False])} cold pixels')
-    return {'hot': hot_mask, 'cold': cold_mask, 'masked_image': raw_image, 'input_image': image,
+    return {'hot': hot_mask, 'cold': cold_mask, 'dead': dead_mask, 'masked_image': raw_image, 'input_image': image,
             'num_iter': iteration + 1}
+
 
 def laplacian(image, box_size=5, n_sigma=5.0, max_iter=5):
     """
@@ -236,7 +241,6 @@ def laplacian(image, box_size=5, n_sigma=5.0, max_iter=5):
     hot_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
     reference_cold_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
     cold_mask = np.zeros(shape=np.shape(raw_image), dtype=bool)
-    reference_cold_mask[dead_mask] = True
 
     # In the case that *all* the pixels are dead, return a bad_mask where all the pixels are flagged as DEAD
     if raw_image[np.isfinite(raw_image)].sum() <= 0:
@@ -271,8 +275,9 @@ def laplacian(image, box_size=5, n_sigma=5.0, max_iter=5):
         assert ~(hot_mask & cold_mask).any()
     getLogger(__name__).info(f'Masked {len(hot_mask[hot_mask != False])} hot pixels and'
                              f' {len(hot_mask[cold_mask != False])} cold pixels')
-    return {'hot': hot_mask, 'cold': cold_mask, 'masked_image': raw_image, 'input_image': image,
+    return {'hot': hot_mask, 'cold': cold_mask, 'dead': dead_mask, 'masked_image': raw_image, 'input_image': image,
             'num_iter': iteration + 1}
+
 
 def _compute_mask(obs, method, step, startt, stopt, methodkw, weight, n_sigma):
     try:
@@ -282,12 +287,13 @@ def _compute_mask(obs, method, step, startt, stopt, methodkw, weight, n_sigma):
 
     # Generate a stack of bad pixel mask, one for each time step
     img = obs.get_fits(start=startt, duration=stopt-startt, weight=weight, rate=False, cube_type='time', bin_width=step)
-    masks = np.zeros(img['SCIENCE'].data.shape+(2,), dtype=bool)
+    masks = np.zeros(img['SCIENCE'].data.shape+(3,), dtype=bool)
     for i, (sl, each_time) in enumerate(zip(np.rollaxis(img['SCIENCE'].data, -1), img['CUBE_EDGES'].data.edges[:-1])):
         getLogger(__name__).info(f'Processing time slice: {each_time} - {each_time + step} s')
         result = func(sl, n_sigma=n_sigma, **methodkw)
         masks[:, :, i, 0] = result['hot']
         masks[:, :, i, 1] = result['cold']
+        masks[:, :, i, 2] = result['dead']
 
     # check for any pixels that switched from one to the other
     mask = masks.all(axis=2)  # all hot, all cold
@@ -297,6 +303,7 @@ def _compute_mask(obs, method, step, startt, stopt, methodkw, weight, n_sigma):
     meta.update(methodkw)
 
     return mask, meta
+
 
 def fetch(o, startt, stopt, config=None):
     obs = Photontable(o) if isinstance(o,str) else o
@@ -317,6 +324,7 @@ def fetch(o, startt, stopt, config=None):
 
     return _compute_mask(obs, method, step, startt, stopt, methodkw, cfg.pixcal.use_weight, cfg.pixcal.n_sigma)
 
+
 def apply(o, config=None):
     config = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(pixcal=StepConfig()), cfg=config, copy=True)
     if o.photontable.query_header('pixcal') and not config.pixcal.remake:
@@ -335,6 +343,7 @@ def apply(o, config=None):
     f = obs.flags
     obs.flag(f.bitmask('pixcal.hot') * mask[:, :, 0])
     obs.flag(f.bitmask('pixcal.cold') * mask[:, :, 1])
+    obs.flag(f.bitmask('pixcal.dead') * mask[:, :, 2])
     obs.update_header('pixcal', True)
     for k, v in meta.items():
         obs.update_header(f'PIXCAL.{k}', v)
