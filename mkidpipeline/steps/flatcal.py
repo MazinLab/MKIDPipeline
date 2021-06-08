@@ -31,6 +31,8 @@ import mkidpipeline.config
 from mkidpipeline.config import H5Subset
 from mkidcore.pixelflags import FlagSet, PROBLEM_FLAGS
 
+_loaded_solutions = {}
+
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!flatcal_cfg'
@@ -94,6 +96,8 @@ class FlatCalibrator:
         self.coeff_array = np.zeros((self.cfg.beammap.ncols, self.cfg.beammap.nrows))
         self.mask = None
         self.h5s = None
+        self.darks = None
+
 
     def load_data(self):
         pass
@@ -243,6 +247,7 @@ class WhiteCalibrator(FlatCalibrator):
         super().__init__(config)
         self.h5s = h5s
         self.solution_name = solution_name
+        self.darks = darks
 
     def make_spectral_cube(self):
 
