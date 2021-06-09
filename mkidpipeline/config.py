@@ -883,17 +883,16 @@ class MKIDDitherDescription(DataBase):
                     endt, startt, pos = [], [], []
 
             elif isinstance(self.data, (int, float)):  # by timestamp
-                getLogger(__name__).info(f'Searching for dither containing time {self.data}')
+                getLogger(__name__).info(f'Searching for dither containing time {self.data}...')
                 try:
                     startt, endt, pos = mkidcore.utils.get_ditherdata_for_time(dither_path, self.data)
-                    getLogger(__name__).info(f'Dither associated ')
+                    getLogger(__name__).info(f'... found. Dither associated.')
                 except ValueError:
                     self._key_errors['data'] += [f'Unable to find a dither at time {self.data}']
-                    getLogger(__name__).warning(f'No dither found for {self.name} @ {self.data} '
-                                                f'in {dither_path}')
+                    getLogger(__name__).warning(f'No dither found for {self.name} @ {self.data} in {dither_path}')
                     endt, startt, pos = [], [], []
             else:
-                self._key_errors['data'] += [f'data is not a timestamp, list of MKIDObservations, or dither logfile']
+                self._key_errors['data'] += [f'data is neither a timestamp, MKIDObservation list, nor dither logfile']
                 self.obs = []
                 return
 
@@ -1234,7 +1233,7 @@ class MKIDOutput(DataBase):
             cube_type = 'wave'
             step = self.wavestep
         kwargs = dict(start=self.start_offset, duration=self.duration, weight=self.use_weights,
-                      wave_start=self.min_wave, wave_stop=self.max_wave, rate=self.unit == 'photons/s',
+                      wave_start=self.min_wave, wave_stop=self.max_wave, rate=self.units == 'photons/s',
                       cube_type=cube_type, bin_width=step, exclude_flags=mkidcore.pixelflags.PROBLEM_FLAGS)
         return mkidcore.config.ConfigThing.registerfromkvlist(kwargs.items())
 
