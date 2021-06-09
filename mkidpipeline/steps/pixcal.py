@@ -88,7 +88,9 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
     else:
         for iteration in range(max_iter):
             getLogger(__name__).info(f'Performing iteration: {iteration + 1}')
-            nan_fixed_image = smoothing.replace_nan(raw_image, mode='mean', box_size=box_size)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=RuntimeWarning)
+                nan_fixed_image = smoothing.replace_nan(raw_image, mode='mean', box_size=box_size)
             assert np.all(np.isfinite(nan_fixed_image))
             median_filter_image = spfilters.median_filter(nan_fixed_image, box_size, mode='mirror')
             median_bkgd = np.nanmedian(raw_image)
@@ -182,7 +184,9 @@ def median(image, box_size=5, n_sigma=5.0, max_iter=5):
             getLogger(__name__).info(f'Performing iteration: {iteration + 1}')
             # Remove all the NaNs in an image and calculate a median filtered image
             # each pixel takes the median of itself and the surrounding box_size x box_size box.
-            nan_fixed_image = smoothing.replace_nan(raw_image, mode='mean', box_size=box_size)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=RuntimeWarning)
+                nan_fixed_image = smoothing.replace_nan(raw_image, mode='mean', box_size=box_size)
             assert np.all(np.isfinite(nan_fixed_image))
             median_filter_image = spfilters.median_filter(nan_fixed_image, box_size, mode='mirror')
             func = lambda x: np.nanstd(x) * _stddev_bias_corr((~np.isnan(x)).sum())
@@ -250,7 +254,9 @@ def laplacian(image, box_size=5, n_sigma=5.0, max_iter=5):
             getLogger(__name__).info(f'Performing iteration: {iteration + 1}')
             # Remove all the NaNs in an image and calculate a median filtered image
             # each pixel takes the median of itself and the surrounding box_size x box_size box.
-            nan_fixed_image = smoothing.replace_nan(raw_image, mode='mean', box_size=box_size)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=RuntimeWarning)
+                nan_fixed_image = smoothing.replace_nan(raw_image, mode='mean', box_size=box_size)
             assert np.all(np.isfinite(nan_fixed_image))
             laplacian_filter_image = spfilters.laplace(nan_fixed_image)
             hot_threshold = -(np.std(laplacian_filter_image) + n_sigma * np.std(laplacian_filter_image))
