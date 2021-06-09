@@ -9,6 +9,7 @@ from progressbar import ProgressBar
 
 from mkidcore.corelog import getLogger
 import mkidpipeline.config
+from mkidpipeline.photontable import Photontable
 
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
@@ -48,23 +49,42 @@ def calculate_weights(time_stamps, dt=1000, tau=0.000001):
 def apply(o: mkidpipeline.config.MKIDTimerange, config=None):
     cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(lincal=StepConfig()), cfg=config, copy=True)
 
-    of = o.photontable
+    of = Photontable(o.h5, mode='w', in_memory=False)
     if of.query_header('lincal'):
         getLogger(__name__).info("H5 {} is already linearity calibrated".format(of.filename))
         return
 
     tic = time.time()
-    of.enablewrite()
-    bar = ProgressBar().start()
-    for resid in of.resonators(exclude=PROBLEM_FLAGS):
-        #TODO as written this performes the same query twice, look at flatcal to improve performance
-        photons = of.query(resid=resid, column='time')
-        weights = calculate_weights(photons, cfg.lincal.dt, of.query_header('dead_time')*1e-6)
-        of.multiply_column_weight(resid, weights, 'weight', flush=False)
-        bar.update()
+    bar = ProgressBar(max_value=np.count_nonzero(~of.flagged(PROBLEM_FLAGS, all_flags=False)))
+    # for resid in bar(of.resonators(exclude=PROBLEM_FLAGS)):
+    #     # TODO as written this performes the same query twice, look at flatcal to improve performance
+    #     photons = of.query(resid=resid, column='time')
+    #     weights = calculate_weights(photons, cfg.lincal.dt, of.query_header('dead_time')*1e-6)
+    #     of.multiply_column_weight(resid, weights, 'weight', flush=False)
+
+    of.photonTable.autoindex = False
+    dead_time = of.query_header('dead_time') * 1e-6
+    for resid in bar(of.resonators(exclude=PROBLEM_FLAGS)):
+        indices = of.photonTable.get_where_list('resID==resid')
+        if not indices.size:
+            continue
+
+        if (np.diff(indices) == 1).all():
+            # times = of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='time')
+            # old = of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='weight')
+            photons = of.photonTable.read(start=indices[0], stop=indices[-1] + 1)
+            new = calculate_weights(photons['time'], cfg.lincal.dt, dead_time) * photons['weight']
+            of.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=new, colname='weight')
+        else:
+            getLogger(__name__).warning('Using modify_coordinates, this is very slow')
+            photons = of.photonTable.read_coordinates(indices)
+            photons['weight'] *= calculate_weights(photons['time'], cfg.lincal.dt, dead_time)
+            of.photonTable.modify_coordinates(indices, photons)
+
+    of.photonTable.autoindex = True
+    of.photonTable.reindex_dirty()
     of.photonTable.flush()
-    bar.finish()
     of.update_header('lincal', True)
-    of.update_header(f'LINCAL.DT', cfg.lincal.dt)
+    of.update_header(f'lincal.DT', cfg.lincal.dt)
     getLogger(__name__).info(f'Lincal applied to {of.filename} in {time.time() - tic:.2f}s')
-    of.disablewrite()
+    del of
