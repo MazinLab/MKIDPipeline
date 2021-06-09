@@ -98,7 +98,6 @@ class FlatCalibrator:
         self.h5s = None
         self.darks = None
 
-
     def load_data(self):
         pass
 

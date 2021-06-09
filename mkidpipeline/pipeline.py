@@ -2,11 +2,8 @@ from importlib import import_module
 import pkgutil
 import multiprocessing as mp
 import time
-from collections import defaultdict
 import functools
 import numpy as np
-import mkidcore.instruments
-import mkidcore.objects
 import mkidcore.config
 from mkidcore.pixelflags import FlagSet, BEAMMAP_FLAGS
 from mkidcore.config import getLogger
@@ -18,10 +15,9 @@ from mkidpipeline.steps import wavecal
 import mkidpipeline.steps.buildhdf
 import mkidpipeline.steps.movies
 import mkidpipeline.steps.drizzler
-from mkidpipeline.samples import SAMPLEDATA
 
 
-log = getLogger('mkidpipeline')
+log = getLogger(__name__)
 
 PIPELINE_STEPS = {}
 for info in pkgutil.iter_modules(mkidpipeline.steps.__path__):
@@ -60,24 +56,6 @@ def generate_default_config(instrument='MEC'):
             getLogger(__name__).warning(f'Pipeline step mkidpipeline.steps.{name} does not '
                                         f'support automatic configuration discovery.')
     return cfg
-
-
-def generate_sample_data():
-    return SAMPLEDATA['default']
-
-
-def generate_sample_output():
-    i = defaultdict(lambda: 0)
-
-    def namer(name='Thing'):
-        ret = f"{name}{i[name]}"
-        i[name] = i[name] + 1
-        return ret
-
-    data = [config.MKIDOutput(name=namer('out'), data='dither0', min_wave='850 nm', max_wave='1375 nm',
-                              kind='image')]
-
-    return data
 
 
 def safe(func):

@@ -1,4 +1,5 @@
 
+import mkidpipeline.samples
 import mkidpipeline.config as config
 import mkidpipeline.pipeline as pipe
 import mkidcore.corelog
@@ -7,12 +8,12 @@ import pkg_resources as pkg
 mkidcore.corelog.getLogger('mkidcore', setup=True,
                            configfile=pkg.resource_filename('mkidpipeline', './utils/logging.yaml'))
 
-data = pipe.generate_sample_data()
+data = mkidpipeline.samples.get_sample_data('default')
 config.dump_dataconfig(data)
 d = config.MKIDObservingDataset('data.yaml')
 
 pcfg = config.configure_pipeline('pipe.yaml')
-data = pipe.generate_sample_data()
+data = mkidpipeline.samples.get_sample_data('default')
 config.dump_dataconfig(data)
 d = config.MKIDObservingDataset('data.yaml')
 
