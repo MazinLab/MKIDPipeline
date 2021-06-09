@@ -387,7 +387,7 @@ class Photontable:
         if len(indices) != len(weights):
             raise ValueError('weights length does not match length of photon list for resID!')
 
-        new = self.query(resid=resid, field=column)[column] * np.asarray(weights)
+        new = self.query(resid=resid, column=column) * np.asarray(weights)
         self.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=new, colname=column)
         if flush:
             self.photonTable.flush()
@@ -1038,7 +1038,7 @@ class Photontable:
             excl, sel = excludemask[pix], selectmask[pix]
             if excl or (select and not sel):
                 continue
-            yield pix, resid if pixel else resid
+            yield (pix, resid) if pixel else resid
 
 # def mask_timestamps(self, timestamps, inter=interval(), otherListsToFilter=[]):
 #     """
