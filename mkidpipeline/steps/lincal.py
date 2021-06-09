@@ -54,26 +54,32 @@ def apply(o: mkidpipeline.config.MKIDTimerange, config=None):
         getLogger(__name__).info("H5 {} is already linearity calibrated".format(of.filename))
         return
 
+    of.photonTable.autoindex = False
     tic = time.time()
     bar = ProgressBar(max_value=np.count_nonzero(~of.flagged(PROBLEM_FLAGS, all_flags=False)))
-    # for resid in bar(of.resonators(exclude=PROBLEM_FLAGS)):
-    #     # TODO as written this performes the same query twice, look at flatcal to improve performance
-    #     photons = of.query(resid=resid, column='time')
-    #     weights = calculate_weights(photons, cfg.lincal.dt, of.query_header('dead_time')*1e-6)
-    #     of.multiply_column_weight(resid, weights, 'weight', flush=False)
 
-    of.photonTable.autoindex = False
     dead_time = of.query_header('dead_time') * 1e-6
     for resid in bar(of.resonators(exclude=PROBLEM_FLAGS)):
         indices = of.photonTable.get_where_list('resID==resid')
         if not indices.size:
             continue
 
+        # 14s more
+        # 12 % (1500 of 11551) |  ##                 | Elapsed Time: 0:04:37 ETA:   2:19:18
+        # photons = of.query(resid=resid, column='time')#2rw gw m
+        # weights = calculate_weights(photons, cfg.lincal.dt, of.query_header('dead_time')*1e-6)
+        # of.multiply_column_weight(resid, weights, 'weight', flush=False)
+
         if (np.diff(indices) == 1).all():
-            # times = of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='time')
-            # old = of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='weight')
-            photons = of.photonTable.read(start=indices[0], stop=indices[-1] + 1)
-            new = calculate_weights(photons['time'], cfg.lincal.dt, dead_time) * photons['weight']
+            # 12 % (1500 of 11551) |  ##                 | Elapsed Time: 0:08:12 ETA:   5:48:36
+            # photons = of.photonTable.read(start=indices[0], stop=indices[-1] + 1)
+            # new = calculate_weights(photons['time'], cfg.lincal.dt, dead_time) * photons['weight']
+
+            # 12% (1500 of 11551) |##                 | Elapsed Time: 0:04:22 ETA:   2:13:28
+            # NB reading this way takes only 53% of the time as above
+            times = of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='time')
+            new = of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='weight')
+            new *= calculate_weights(times, cfg.lincal.dt, dead_time)
             of.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=new, colname='weight')
         else:
             getLogger(__name__).warning('Using modify_coordinates, this is very slow')
@@ -85,6 +91,6 @@ def apply(o: mkidpipeline.config.MKIDTimerange, config=None):
     of.photonTable.reindex_dirty()
     of.photonTable.flush()
     of.update_header('lincal', True)
-    of.update_header(f'lincal.DT', cfg.lincal.dt)
+    of.update_header(f'lincal.dt', cfg.lincal.dt)
     getLogger(__name__).info(f'Lincal applied to {of.filename} in {time.time() - tic:.2f}s')
     del of
