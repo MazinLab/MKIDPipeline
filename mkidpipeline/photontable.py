@@ -180,7 +180,7 @@ class Photontable:
         wavelength = tables.Float32Col(pos=2)
         weight = tables.Float32Col(pos=3)
 
-    def __init__(self, file_name, mode='read', verbose=False):
+    def __init__(self, file_name, mode='read', verbose=False, in_memory=False):
         """
         Create Photontable object and load in specified HDF5 file.
 
@@ -209,6 +209,7 @@ class Photontable:
         self.nXPix = None
         self.nYPix = None
         self._mdcache = None
+        self.in_memory = in_memory
         self._load_file(file_name)
 
     def __del__(self):
@@ -228,7 +229,8 @@ class Photontable:
         self.filename = file
         getLogger(__name__).debug("Loading {} in {} mode.".format(self.filename, self.mode))
         try:
-            self.file = tables.open_file(self.filename, mode='a' if self.mode == 'write' else 'r')
+            kwargs = {'driver': 'H5FD_CORE'} if self.in_memory else {}
+            self.file = tables.open_file(self.filename, mode='a' if self.mode == 'write' else 'r', **kwargs)
         except (IOError, OSError):
             raise
 
