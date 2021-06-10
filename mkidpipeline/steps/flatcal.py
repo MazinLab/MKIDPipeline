@@ -291,7 +291,7 @@ class LaserCalibrator(FlatCalibrator):
     def __init__(self, h5s,  wavesol, solution_name='flat_solution.npz', config=None, darks=None):
         super().__init__(config)
         self.h5s = h5s
-        self.wavelengths = np.array(h5s.keys(), dtype=float)
+        self.wavelengths = np.array([key.value for key in h5s.keys()], dtype=float)
         self.darks = darks
         self.solution_name = solution_name
         r, _ = wavecal.Solution(wavesol).find_resolving_powers(cache=True)
@@ -301,7 +301,7 @@ class LaserCalibrator(FlatCalibrator):
         n_wvls = len(self.wavelengths)
         n_times = self.cfg.flatcal.nchunks
         x, y = self.cfg.beammap.ncols, self.cfg.beammap.nrows
-        exposure_times = np.array([x.duration for x in self.h5s])
+        exposure_times = np.array([x.duration for x in self.h5s.values()])
         if np.any(self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks > exposure_times):
             n_times = int((exposure_times / self.cfg.flatcal.chunk_time).max())
             getLogger(__name__).info('Number of chunks * chunk time is longer than the laser exposure. Using full'
