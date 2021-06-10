@@ -646,7 +646,7 @@ class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
         else:
             if isinstance(self.data, str):
                 raise UnassociatedError(f'Must associate wavecal {self.data} prior to calling')
-            for tr in self.data.input_timeranges:
+            for tr in self.data.data:
                 stop = tr.start + self.wavecal_offset + min(self.wavecal_duration, tr.duration - self.wavecal_offset)
                 o = MKIDObservation(name=f'{self.name}_{tr.name}', start=tr.start + self.wavecal_offset,
                                     stop=stop, dark=tr.dark, wavecal=self.data, **tr.extra())
