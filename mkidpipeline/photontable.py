@@ -411,13 +411,27 @@ class Photontable:
         self.mode = 'read'
         self._load_file(self.filename)
 
-    def attach_new_table(self, group, group_descr, table, table_descr, header, data):
-        group = self.photonTable.create_group("/", group, group_descr)
+    def attach_new_table(self, group, group_descr, table, table_descr, header, data, force=False):
+        if self.mode != 'write':
+            raise Exception("Must open file in write mode to do this!")
+        try:
+            g = self.file.get_node(f'/{group}')
+        except tables.NoSuchNodeError:
+            g = self.file.create_group("/", group, group_descr)
+        try:
+            t = self.file.get_node(f'/{group}/{table}')
+            if force:
+                t._f_remove()
+            else:
+                raise ValueError('Table already exists')
+        except tables.exceptions.NoSuchNodeError:
+            pass
+
         filt = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=True, bitshuffle=False, fletcher32=False)
-        table = self.photonTable.create_table(group, name=table, description=header, title=table_descr,
-                                              expectedrows=len(data), filters=filt, chunkshape=None)
-        table.append(data)
-        table.flush()
+        t = self.file.create_table(g, name=table, description=table_descr, title=header, expectedrows=len(data),
+                                   filters=filt, chunkshape=None)
+        t.append(data)
+        t.flush()
 
     def detailed_str(self):
         t = self.photonTable.read()
