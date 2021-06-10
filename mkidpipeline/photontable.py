@@ -464,7 +464,7 @@ class Photontable:
         """Return a tuple of two arrays corresponding to the x & y pixel positions of the given photons"""
         flatbeam = self.beamImage.flatten()
         beamsorted = np.argsort(flatbeam)
-        ind = np.searchsorted(flatbeam[beamsorted], photons["ResID"])
+        ind = np.searchsorted(flatbeam[beamsorted], photons["resID"])
         return np.unravel_index(beamsorted[ind], self.beamImage.shape)
 
     def flagged(self, flags, pixel=(slice(None), slice(None)), allow_unknown_flags=True, all_flags=False,
