@@ -305,7 +305,10 @@ class LaserCalibrator(FlatCalibrator):
         if np.any(self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks > exposure_times):
             n_times = int((exposure_times / self.cfg.flatcal.chunk_time).max())
             getLogger(__name__).info('Number of chunks * chunk time is longer than the laser exposure. Using full'
-                                     'length of exposure ({} chunks)'.format(n_times))
+                                     f' length of exposure with {n_times} chunks')
+            flat_duration = exposure_times
+        else:
+            flat_duration = np.full(n_wvls, self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks)
         cps_cube_list = np.zeros([n_times, x, y, n_wvls])
         mask = np.zeros([x, y, n_wvls])
         int_times = np.zeros([x, y, n_wvls])
@@ -317,20 +320,19 @@ class LaserCalibrator(FlatCalibrator):
         for wvl, h5 in self.h5s.items():
             obs = h5.photontable
             if not obs.query_header('pixcal') and not self.cfg.flatcal.use_wavecal:
-                getLogger(__name__).warning('H5 File not hot pixel masked, could skew flat weights')
+                getLogger(__name__).warning('H5 File not hot pixel masked, this could skew the calculated flat weights')
 
-            w_mask = self.wavelengths == wvl
+            w_mask = np.where(self.wavelengths == wvl.value)[0][0]
 
             mask[:, :, w_mask] = obs.flagged(PROBLEM_FLAGS)
             if self.cfg.flatcal.use_wavecal:
-                wvl_start = wvl - delta_list[w_mask]
-                wvl_stop = wvl + delta_list[w_mask]
+                wvl_start = wvl.value - delta_list[w_mask]
+                wvl_stop = wvl.value + delta_list[w_mask]
 
-            hdul = obs.get_fits(duration=self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks, rate=True,
-                                bin_width=self.cfg.flatcal.chunk_time, wave_start=wvl_start, wave_stop=wvl_stop,
-                                cube_type='time')
+            hdul = obs.get_fits(duration=flat_duration[w_mask], rate=True, bin_width=self.cfg.flatcal.chunk_time,
+                                wave_start=wvl_start, wave_stop=wvl_stop, cube_type='time')
 
-            getLogger(__name__).info(f'Loaded {wvl:.1f} nm spectral cube')
+            getLogger(__name__).info(f'Loaded {wvl.value:.1f} nm spectral cube')
             int_times[:, :, w_mask] = self.cfg.flatcal.chunk_time
             cps_cube_list[:, :, :, w_mask] = np.moveaxis(hdul['SCIENCE'].data, 2, 0)
         self.spectral_cube = cps_cube_list
