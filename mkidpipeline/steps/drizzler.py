@@ -208,6 +208,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, single_
     Dictionary of reformated photon data for a single obsfile
 
     """
+    getLogger(__name__).debug(f'Fetching data from {file}')
     obsfile = Photontable(file)
     duration = obsfile.duration
 
@@ -228,13 +229,13 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, single_
     x, y = obsfile.xy(photons)
 
     # ob.get_wcs returns all wcs solutions (including those after intt), so just pass then remove post facto()
-    wcs = obsfile.get_wcs(derotate=derotate, wcs_timestep=wcs_timestep, single_pa_time=single_pa_time).to_header()  # 1545626973
+    wcs = obsfile.get_wcs(derotate=derotate, wcs_timestep=wcs_timestep, single_pa_time=single_pa_time)#.to_header()  # 1545626973
     nwcs = int(np.ceil(intt / wcs_timestep))
     wcs = wcs[:nwcs]
     del obsfile
 
-    return {'file': file, 'timestamps': photons["Time"], 'xPhotonPixels': x, 'yPhotonPixels': y,
-            'wavelengths': photons["Wavelength"], 'weight': weights, 'obs_wcs_seq': wcs, 'duration': duration}
+    return {'file': file, 'timestamps': photons["time"], 'xPhotonPixels': x, 'yPhotonPixels': y,
+            'wavelengths': photons["wavelength"], 'weight': weights, 'obs_wcs_seq': wcs, 'duration': duration}
 
 
 def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfile='drizzler_tmp_{}.pkl',
@@ -393,7 +394,7 @@ class Canvas:
         """
 
         self.wcs = wcs.WCS(naxis=2)
-        self.wcs.wcs.crpix = np.array([self.nPixRA / 2., self.nPixDec / 2.])
+        self.wcs.wcs.crpix = np.array([self.nPixRA / 2, self.nPixDec / 2])
         self.wcs.wcs.crval = [self.centerRA, self.centerDec]
         self.wcs.wcs.ctype = ["RA--TAN", "DEC-TAN"]
         self.wcs.pixel_shape = (self.nPixRA, self.nPixDec)
@@ -919,7 +920,7 @@ def align_hdu_conex(hdus, mode):
 
 
 def form(dither, mode='spatial', derotate=True, wave_start=None, wave_stop=None, start=0., duration=60., pixfrac=.5, nwvlbins=1,
-         wcs_timestep=1., bin_width=1., usecache=True, ncpu=1, exclude_flags=PROBLEM_FLAGS, whitelight=False,
+         wcs_timestep=1., bin_width=1., usecache=True, ncpu=None, exclude_flags=PROBLEM_FLAGS, whitelight=False,
          align_start_pa=False, debug_dither_plot=False, save_steps=False, output_file='', weight=False):
     """
     Takes in a MKIDDitherDescription object and drizzles the dithers onto a common sky grid.
@@ -1006,8 +1007,10 @@ def form(dither, mode='spatial', derotate=True, wave_start=None, wave_stop=None,
         dither.ra = 0
         dither.dec = 0
 
+    getLogger(__name__).debug('Parsing Params')
     drizzle_params = DrizzleParams(dither, used_inttime, wcs_timestep, pixfrac)
 
+    getLogger(__name__).debug('Loading data')
     dithers_data = load_data(dither, wave_start, wave_stop, start, used_inttime, drizzle_params.wcs_timestep,
                              derotate=derotate, usecache=usecache, ncpu=ncpu, exclude_flags=exclude_flags,
                              align_start_pa=align_start_pa)
@@ -1018,8 +1021,10 @@ def form(dither, mode='spatial', derotate=True, wave_start=None, wave_stop=None,
         return None
 
     if debug_dither_plot:
+        getLogger(__name__).debug('Generating debug image')
         debug_dither_image(dithers_data, drizzle_params)
 
+    getLogger(__name__).debug('Initializing drizzler core')
     if mode is 'list':
         driz = ListDrizzler(dithers_data, drizzle_params)
     elif mode in ('spatial', 'stack'):
@@ -1028,6 +1033,7 @@ def form(dither, mode='spatial', derotate=True, wave_start=None, wave_stop=None,
         driz = TemporalDrizzler(dithers_data, drizzle_params, nwvlbins=nwvlbins, exp_timestep=bin_width,
                                 wvlMin=wave_start, wvlMax=wave_stop)
 
+    getLogger(__name__).debug('Drizzling...')
     driz.run(weight=weight)
     drizzle_data = driz if mode is 'list' else DrizzledData(driz, mode, drizzle_params=drizzle_params)
 
