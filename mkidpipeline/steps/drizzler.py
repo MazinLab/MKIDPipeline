@@ -66,6 +66,7 @@ import argparse
 import mkidcore.corelog
 import mkidcore.pixelflags
 import mkidcore.corelog as pipelinelog
+import mkidcore.metadata
 from mkidpipeline.photontable import Photontable
 from mkidpipeline.utils.array_operations import get_device_orientation
 import mkidpipeline.config
@@ -126,26 +127,11 @@ class DrizzleParams:
         self.dither = dither
         self.used_inttime = used_inttime
         self.pixfrac = pixfrac
-        self.coords = None
-        self.get_coords(simbad_lookup=simbad)
+        # Get the SkyCoord type coordinates to use for center of sky grid that is drizzled onto
+        self.coords = mkidcore.metadata.skycoord_from_metadata(self.dither.header, force_simbad=simbad)
         self.nPixRA = None
         self.nPixDec = None
         self.wcs_timestep = wcs_timestep if wcs_timestep else self.non_blurring_timestep()
-
-    def get_coords(self, simbad_lookup=False):
-        """
-        Get the SkyCoord type coordinates to use for center of sky grid that is drizzled onto
-
-        :param simbad_lookup: use dither.target to get the coordinates
-        """
-        if simbad_lookup:
-            self.coords = SkyCoord.from_name(self.dither.target)
-            getLogger(__name__).info(f'Using coordinates {self.coords} for {self.dither.target} from '
-                                     f'Simbad for canvas wcs')
-        else:
-            self.coords = SkyCoord(self.dither.ra, self.dither.dec, unit=('hourangle', 'deg'))
-            getLogger(__name__).info(f'Using user coordinates {self.coords} for {self.dither.target} from '
-                                     f'data for canvas wcs')
 
     def dither_pixel_vector(self, center=(0, 0)):
         """
@@ -166,8 +152,9 @@ class DrizzleParams:
         # get the field rotation rate at the start of each dither
         dith_start_times = np.array([o.start for o in self.dither.obs])
 
-        site = astropy.coordinates.EarthLocation.of_site(self.dither.observatory)
-        apo = Observer.at_site(self.dither.observatory)
+        telescop = self.dither.obs[0].header.get('TELESCOP') or mkidcore.metadata.DEFAULT_CARDSET['TELESCOP'].value
+        site = astropy.coordinates.EarthLocation.of_site(telescop)
+        apo = Observer.at_site(telescop)
 
         altaz = apo.altaz(astropy.time.Time(val=dith_start_times, format='unix'), self.coords)
         earthrate = 2 * np.pi / astropy.units.sday.to(astropy.units.second)
@@ -186,19 +173,9 @@ class DrizzleParams:
         dith_angle = np.arctan(allowable_pixel_smear / dith_dists)
         max_timestep = min(dith_angle / abs(dith_start_rot_rates))
 
-        getLogger(__name__).debug("Maximum non-blurring time step calculated to be {}".format(max_timestep))
+        getLogger(__name__).debug("Maximum non-blurring time step calculated to be {:.1f} s".format(max_timestep))
 
         return max_timestep
-
-
-def metadata_config_check(filename, conf_wcs):
-    """ Checks a photontable metadata and data.yml agree on the wcs params """
-    ob = Photontable(filename)
-    md = ob.metadata()
-    for attribute in ['dither_home', 'dither_ref', 'platescale', 'device_orientation']:
-        if getattr(md, attribute) != getattr(conf_wcs, attribute):
-            getLogger(__name__).warning(f'{attribute} is different in config and '
-                                        f'obsfile metadata. metadata should be reapplied')
 
 
 def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, single_pa_time=None, exclude_flags=()):
@@ -213,9 +190,9 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, single_
         Lower bound on photon wavelengths (or phases) for photontable.query
     stopw : float
         Upper bound on photon wavelengths (or phases) for photontable.query
-    startt : float
+    start : float
         Startime for photontable.query
-    intt : float
+    duration : float
         Effective integration time for photontable.query
     derotate : bool
         see photontable.get_wcs
@@ -312,7 +289,12 @@ def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfi
 
         single_pa_time = Photontable(filenames[0]).start_time if not derotate and align_start_pa else None
 
-        metadata_config_check(filenames[0], dither.wcscal)
+        # md = Photontable(filenames[0]).metadata()
+        # req = ('M_CONEXY, M_CONEXY', 'M_DEVANG', 'M_CXREFX', 'M_CXREFY', 'M_PLTSCL')
+        # for attribute in ['dither_home', 'dither_ref', 'platescale', 'device_orientation']:
+        #     if getattr(md, attribute) != getattr(dither.wcscal, attribute):
+        #         getLogger(__name__).warning(f'{attribute} is different in config and '
+        #                                     f'obsfile metadata. metadata should be reapplied')
 
         ncpu = min(mkidpipeline.config.n_cpus_available(), ncpu)
         if ncpu == 1:
@@ -440,7 +422,7 @@ class ListDrizzler(Canvas):
         self.stackedim = np.zeros((len(drizzle_params.dither.obs) * (len(self.wcs_times) - 1), self.ypix, self.xpix))
         self.stacked_wcs = []
 
-    def run(self):
+    def run(self, weight=True):
         tic = time.clock()
         for ix, dither_photons in enumerate(self.dithers_data):
             getLogger(__name__).debug('Assigning RA/Decs for dither %s', ix)
@@ -534,7 +516,7 @@ class TemporalDrizzler(Canvas):
         self.counts = None
         self.expmap = None
 
-    def run(self):
+    def run(self, weight=True):
         tic = time.clock()
 
         nexp_time = len(self.timebins) - 1
@@ -560,7 +542,7 @@ class TemporalDrizzler(Canvas):
                         'sky grid ref and dither ref do not match (crpix varies between dithers)!')
                     raise RuntimeError('sky grid ref and dither ref do not match (crpix varies between dithers)!')
 
-                counts = self.makeTess(dither_photons, (wcs_times_ms[t], wcs_times_ms[t + 1]))
+                counts = self.makeTess(dither_photons, (wcs_times_ms[t], wcs_times_ms[t + 1]), applyweights=weight)
                 cps = counts / (self.wcs_times[t + 1] - self.wcs_times[t])  # scale this frame by its exposure time
 
                 # get expsure bin of current wcs time
@@ -677,7 +659,7 @@ class SpatialDrizzler(Canvas):
         self.stacked_wcs = []
         self.intermediate_file = save_file
 
-    def run(self):
+    def run(self, weight=True):
         for ix, dither_photons in enumerate(self.dithers_data):
             tic = time.clock()
             for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):
@@ -690,7 +672,8 @@ class SpatialDrizzler(Canvas):
                         'sky grid ref and dither ref do not match (crpix varies between dithers)!')
                     raise RuntimeError('sky grid ref and dither ref do not match (crpix varies between dithers)!')
 
-                counts = self.makeImage(dither_photons, (self.wcs_times_ms[t], self.wcs_times_ms[t + 1]))
+                counts = self.makeImage(dither_photons, (self.wcs_times_ms[t], self.wcs_times_ms[t + 1]),
+                                        applyweights=weight)
                 cps = counts / (self.wcs_times[t + 1] - self.wcs_times[t])  # scale this frame by its exposure time
 
                 self.stackedim[ix * len(dither_photons['obs_wcs_seq']) + t] = counts
@@ -868,8 +851,8 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0, 0), zo
     iteration = 0
     while update:
 
-        drizzle = form(dither=dither, mode='spatial', wvlMin=wvlMin,
-                       wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=1, derotate=None, usecache=False)
+        drizzle = form(dither=dither, mode='spatial', wave_start=wvlMin,
+                       wave_stop=wvlMax, start=startt, duration=intt, pixfrac=1, derotate=None, usecache=False)
 
         image = drizzle.data
         fig, ax = plt.subplots()
@@ -934,9 +917,9 @@ def align_hdu_conex(hdus, mode):
     return getattr(np, mode)(stack, axis=0)
 
 
-def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt=0., intt=60., pixfrac=.5, nwvlbins=1,
-         wcs_timestep=1., exp_timestep=1., usecache=True, ncpu=1, exclude_flags=PROBLEM_FLAGS, whitelight=False,
-         align_start_pa=False, debug_dither_plot=False, save_steps=False, output_file=''):
+def form(dither, mode='spatial', derotate=True, wave_start=None, wave_stop=None, start=0., duration=60., pixfrac=.5, nwvlbins=1,
+         wcs_timestep=1., bin_width=1., usecache=True, ncpu=1, exclude_flags=PROBLEM_FLAGS, whitelight=False,
+         align_start_pa=False, debug_dither_plot=False, save_steps=False, output_file='', weight=False):
     """
     Takes in a MKIDDitherDescription object and drizzles the dithers onto a common sky grid.
 
@@ -949,21 +932,21 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
     derotate : bool
         True means all dithers (and integrations within) are rotated to their orientation on the sky during their observation
         False aligns all dithers and integrations to the orientation at the beginning of the observation
-    wvlMin : float or None
+    wave_start : float or None
         Lower bound on the photons used in the drizzle. See photontable.query()
-    wvlMax : float or None
+    wave_stop : float or None
         Upper bound on the photons used in the drizzle. See photontable.query()
-    startt : float or None
+    start : float or None
         Starttime for photons used in each dither. See photontable.query()
-    intt : float or None
-        startt + int = upper bound on the photons used in each dither. See photontable.query()
+    duration : float or None
+        start + int = upper bound on the photons used in each dither. See photontable.query()
     pixfrac : float (0<= pixfrac <=1)
         pixfrac parameter used in drizzle algorithm. See stsci.drizzle()
     nwvlbins : int
         Number of bins to group photon data by wavelength for all dithers when using mode == 'temporal'
-    wcs_timestep : float (0<= wcs_timestep <=intt)
+    wcs_timestep : float (0<= wcs_timestep <= duration)
         Time between different wcs parameters (eg orientations). 0 will use the calculated non-blurring min
-    exp_timestep : float (0<= exp_timestep <=intt)
+    bin_width : float (0<= exp_timestep <= duration)
         Duration of the time bins in the output cube when using mode == 'temporal'
     usecache : bool
         True means the output of load_data() is stored and reloaded for subsequent runs of form
@@ -988,7 +971,7 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
     There are 4 output modes: stack, spatial, temporal, list (not implemented yet). stack does no drizzling and just
     appends time integrated MKID images on oneanother with associated wcs solutions at that time. spatial drizzles all
     the selected times and wavelengths onto a single map. temporal bins the selected times and wavelengths into a 4D
-    hypercube (2 spatial, 1 wavelength, 1 time) The number of time bins is ndither * intt/exp_timestep. list will be
+    hypercube (2 spatial, 1 wavelength, 1 time) The number of time bins is ndither * duration/exp_timestep. list will be
     assigning an RA and dec to each photon
 
     exp_timestep vs wcs_timestep. Both parameters are independent -- several wcs solutions (orientations) can contribute
@@ -1003,12 +986,14 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
         raise ValueError('mode must be: stack|spatial|temporal|list')
 
     # ensure the user input is shorter than the dither or that wcs are just calculated for the requested timespan
-    if intt > dither.inttime:
-        getLogger(__name__).info('Used integration time is set by dither duration to be {}s'.format(dither.inttime))
-    if dither.inttime > intt:
-        getLogger(__name__).info('Used integration time is set by user defined integration time to be {}s'.format(intt))
-
-    used_inttime = min(intt, dither.inttime)
+    dither_inttime = min(dither.inttime)
+    if duration > dither_inttime:
+        getLogger(__name__).info(f'User integration time of {duration:.1f} too long, '
+                                 f'using shortest dither dwell time ({dither_inttime:.1f} s)')
+        used_inttime = dither_inttime
+    elif dither_inttime >= duration:
+        getLogger(__name__).info(f'Using user specified integration time of {duration:.1f} s')
+        used_inttime = duration
 
     if whitelight:
         getLogger(__name__).warning('Changing some of the wcs params to white light mode')
@@ -1018,7 +1003,7 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
 
     drizzle_params = DrizzleParams(dither, used_inttime, wcs_timestep, pixfrac)
 
-    dithers_data = load_data(dither, wvlMin, wvlMax, startt, used_inttime, drizzle_params.wcs_timestep,
+    dithers_data = load_data(dither, wave_start, wave_stop, start, used_inttime, drizzle_params.wcs_timestep,
                              derotate=derotate, usecache=usecache, ncpu=ncpu, exclude_flags=exclude_flags,
                              align_start_pa=align_start_pa)
     total_photons = sum([len(dither_data['timestamps']) for dither_data in dithers_data])
@@ -1035,10 +1020,10 @@ def form(dither, mode='spatial', derotate=True, wvlMin=None, wvlMax=None, startt
     elif mode in ('spatial', 'stack'):
         driz = SpatialDrizzler(dithers_data, drizzle_params, stack=mode == 'stack', save_file=intermediate_file)
     else:
-        driz = TemporalDrizzler(dithers_data, drizzle_params, nwvlbins=nwvlbins, exp_timestep=exp_timestep,
-                                wvlMin=wvlMin, wvlMax=wvlMax)
+        driz = TemporalDrizzler(dithers_data, drizzle_params, nwvlbins=nwvlbins, exp_timestep=bin_width,
+                                wvlMin=wave_start, wvlMax=wave_stop)
 
-    driz.run()
+    driz.run(weight=weight)
     drizzle_data = driz if mode is 'list' else DrizzledData(driz, mode, drizzle_params=drizzle_params)
 
     if output_file:
@@ -1090,8 +1075,8 @@ if __name__ == '__main__':
     fitsname = '{}_{}.fits'.format(cfg.dither.name, 'todo')
 
     # main function of drizzler
-    scidata = form(dither, mode='spatial', wvlMin=wvlMin,
-                   wvlMax=wvlMax, startt=startt, intt=intt, pixfrac=pixfrac,
+    scidata = form(dither, mode='spatial', wave_start=wvlMin,
+                   wave_stop=wvlMax, start=startt, duration=intt, pixfrac=pixfrac,
                    derotate=True)
 
     scidata.write(fitsname)
