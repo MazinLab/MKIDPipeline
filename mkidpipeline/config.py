@@ -1561,14 +1561,19 @@ def inspect_database(detailed=False):
         print(f'{f}')
 
 
-def n_cpus_available(max=np.inf):
+def n_cpus_available(max=1):
     """Returns n threads -4 modulo pipelinesettings"""
     global config
+    if max is None:
+        try:
+            max = int(config.ncpu)
+        except Exception:
+            max = 1
     mcpu = min(mp.cpu_count() * 2 - 4, max)
-    try:
-        mcpu = int(min(config.ncpu, mcpu))
-    except Exception:
-        pass
+    # try:
+    #     mcpu = int(min(config.ncpu, mcpu))
+    # except Exception:
+    #     pass
     return mcpu
 
 

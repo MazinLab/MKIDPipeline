@@ -90,7 +90,8 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('align_start_pa', False, 'TODO'),
                      ('whitelight', True, 'TODO'),
                      ('save_steps', False, 'Save intermediate fits files where possible (only some modes)'),
-                     ('usecache', False, 'Cache photontable for subsequent runs'))
+                     ('usecache', False, 'Cache photontable for subsequent runs'),
+                     ('ncpu', 1, 'Number of CPUs to use'))
 
 
 def _increment_id(self):
@@ -117,6 +118,7 @@ def _increment_id(self):
 
     # Increment the id
     self.uniqid += 1
+
 
 stdrizzle.Drizzle.increment_id = _increment_id
 
@@ -296,7 +298,6 @@ def load_data(dither, wvlMin, wvlMax, startt, used_inttime, wcs_timestep, tempfi
         #         getLogger(__name__).warning(f'{attribute} is different in config and '
         #                                     f'obsfile metadata. metadata should be reapplied')
 
-        ncpu = min(mkidpipeline.config.n_cpus_available(), ncpu)
         if ncpu == 1:
             dithers_data = []
             for file, offset, duration in zip(filenames, offsets, durations):
@@ -978,6 +979,10 @@ def form(dither, mode='spatial', derotate=True, wave_start=None, wave_stop=None,
     to one effective exposure (taking an image of the zenith), and you can have one wcs object for lots of exposures
     (doing binned SSD on a target that barely rotates).
     """
+    dcfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(drizzler=StepConfig()), ncpu=ncpu, cfg=None,
+                                                     copy=True)
+
+    ncpu = mkidpipeline.config.n_cpus_available(max=dcfg.get('drizzler.ncpu', inherit=True))
 
     out_root = os.path.dirname('./' if not output_file else output_file)
     intermediate_file = os.path.join(out_root, 'drizstep_') if save_steps else ''
