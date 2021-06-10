@@ -87,8 +87,17 @@ if __name__ == "__main__":
         # build, meta -> wave
         errors = outputs.validate(return_errors=True)
         if errors:
-            getLogger('mkidpipeline').critical('Validation failed, please these issues fix before continuing.\n\t'
-                                               '\n\t'.join(errors))
+            def format_errors(errors):
+                if isinstance(errors, str):
+                    return errors
+                elif isinstance(errors, dict):
+                    return '\n\t'.join([f"{k}:\n\t"+format_errors(v).replace('\n\t', '\n\t\t') for k, v in errors.items()])
+                else:
+                    return '\n\t'.join(errors)
+            getLogger('mkidpipeline').critical(f'Validation failed, please these issues fix before continuing.\n'
+                                               f'=============================================================\n'
+                                               f'{format_errors(errors)}\n'
+                                               f'=============================================================\n')
             sys.exit(0)
         # 0
         steps.buildhdf.buildtables(outputs.input_timeranges)

@@ -287,11 +287,7 @@ class DataBase:
         #             pass
 
     def _vet(self):
-        def joiner(x):
-            return ', '.join(x)
-
-        errors = [f'{k}:{joiner(v)}' for k, v in self._key_errors.items()]
-        return f"{type(self).__name__}: {errors}" if errors else ''
+        return self._key_errors.copy()
 
     def extra(self):
         return {k: getattr(self, k) for k in self.extra_keys}
@@ -1003,7 +999,7 @@ class MKIDObservingDataset:
                     missing['speccal'].add(o.speccal)
         except:
             getLogger(__name__).error('Failure during name/data association', exc_info=True)
-        self.missing = missing
+        self.missing_cal_defs = missing
 
     def __iter__(self):
         getLogger(__name__).warning('Iterating on a dataset excludes nested definitions')
@@ -1026,13 +1022,16 @@ class MKIDObservingDataset:
                     getLogger(__name__).debug(f'Skipping nested search of unassociated "{r.data}" for {attr}')
 
     def validate(self, return_errors=False, error=False):
-        errors = []
+        errors = {}
         for x in self:
             issues = x._vet()
             if issues:
-                errors.append(issues)
-        for k in self.missing:
-            errors += [f'Missing {k}: {v}' for v in self.missing[k]]
+                name = f'{x.name} ({repr(x)})' if x.name in errors else x.name
+                errors[name] = issues
+
+        if self.missing_cal_defs:
+            errors['missing calibrations'] = [f'{k}(s): {v}' for k, v in self.missing_cal_defs.items()]
+
         if return_errors:
             return errors
         if error and errors:
@@ -1225,7 +1224,7 @@ class MKIDOutput(DataBase):
     @property
     def output_settings_dict(self):
         """returns a dict of kwargs from the various output settings"""
-        cube_type = None
+        step, cube_type = None, None
         if self.kind == 'tcube':
             cube_type = 'time'
             step = self.timestep
@@ -1297,24 +1296,27 @@ class MKIDOutputCollection:
     def validate(self, error=False, return_errors=False):
         """ Return True if everything is good and all is associated, if error=True raise an exception instead of
         returning false"""
-        errors = []
+        errors = {}
         for x in self:
             issues = x._vet()
             if issues:
-                errors.append(issues)
+                name = f'{x.name} ({repr(x)})' if x.name in errors else x.name
+                errors[name] = issues
 
         if self.dataset is not None:
-            errors += self.dataset.validate(return_errors=True)
+            e = self.dataset.validate(return_errors=True)
+            if e:
+                errors[f'{self.name}.dataset'] = e
 
-        for o in set(self.to_wavecal):
-            if isinstance(o.wavecal, str):
-                errors.append(f'wavecal {o.wavecal} missing for {o.name} ')
-        for o in set(self.to_flatcal):
-            if isinstance(o.flatcal, str):
-                errors.append(f'flatcal {o.flatcal} missing for {o.name} ')
-        for o in set(self.to_speccal):
-            if isinstance(o.wavecal, str):
-                errors.append(f'speccal {o.speccal} missing for {o.name} ')
+        e = [f'{o.wavecal} missing for {o.name} ' for o in set(self.to_wavecal) if isinstance(o.wavecal, str)]
+        if e:
+            errors[f'{self.name} wavecal'] = e
+        e = [f'{o.flatcal} missing for {o.name} ' for o in set(self.to_flatcal) if isinstance(o.flatcal, str)]
+        if e:
+            errors[f'{self.name} flatcal'] = e
+        e = [f'{o.speccal} missing for {o.name} ' for o in set(self.to_speccal) if isinstance(o.speccal, str)]
+        if e:
+            errors[f'{self.name} speccal'] = e
 
         if return_errors:
             return errors
