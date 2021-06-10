@@ -26,20 +26,27 @@ def generate(outputs: config.MKIDOutputCollection):
                 filename = o.filename
 
             for i, obs in enumerate(o.data.obs):
-                obs.photontable.get_fits(**o.output_settings_dict).writeto(filename.format(i+1))
-                getLogger(__name__).info(f'Generated fits file for {obs}')
+                file = filename.format(i+1)
+                if os.path.exists(file):
+                    getLogger(__name__).info(f'Output {file} for {o.name} already exists. Skipping')
+                    continue
+                obs.photontable.get_fits(**o.output_settings_dict).writeto(file)
+                getLogger(__name__).info(f'Output {file} for {o.name} generated')
 
         if o.wants_movie:
             mkidpipeline.steps.movies.make_movie(o, **o.output_settings_dict)
+
         if o.wants_drizzled:
             config = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(drizzler=mkidpipeline.steps.drizzler.StepConfig()),
                                                                copy=True)
-
-            drizzler.form(o.data, mode=o.kind, wvlMin=o.min_wave, wvlMax=o.max_wave,
-                                nwvlbins=config.drizzler.n_wave, pixfrac=config.drizzler.pixfrac,
-                                wcs_timestep=config.drizzler.wcs_timestep, exp_timestep=o.exp_timestep,
-                                exclude_flags=mkidcore.pixelflags.PROBLEM_FLAGS,
-                                usecache=config.drizzler.usecache, ncpu=config.get('drizzler.ncpu'),
-                                derotate=config.drizzler.derotate, align_start_pa=config.drizzler.align_start_pa,
-                                whitelight=config.drizzler.whitelight, save_steps=config.drizzler.save_steps,
-                                output_file=o.filename)
+            kwargs = o.output_settings_dict
+            kwargs['mode'] = o.kind
+            kwargs['output_file'] = o.filename
+            for k in ('cube_type', 'rate'):
+                kwargs.pop(k)
+            drizzler.form(o.data, nwvlbins=config.drizzler.n_wave, pixfrac=config.drizzler.pixfrac,
+                          wcs_timestep=config.drizzler.wcs_timestep, usecache=config.drizzler.usecache,
+                          ncpu=config.get('drizzler.ncpu'), derotate=config.drizzler.derotate,
+                          align_start_pa=config.drizzler.align_start_pa, whitelight=config.drizzler.whitelight,
+                          save_steps=config.drizzler.save_steps, debug_dither_plot=config.drizzler.plots == 'all',
+                          **kwargs)
