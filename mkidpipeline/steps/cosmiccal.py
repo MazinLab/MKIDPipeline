@@ -23,15 +23,15 @@ import mkidpipeline.config
 from mkidpipeline.photontable import Photontable
 import tables
 
-NP_CR_IMPACT_TYPE = np.dtype([('count', np.uint8), ('start', np.uint64), ('stop', np.uint64), ('rate', np.float),
-                              ('average', np.float), ('peak', np.uint32)])
+NP_CR_IMPACT_TYPE = np.dtype([('count', np.uint8), ('start', np.uint64), ('stop', np.uint64), ('rate', np.float32),
+                              ('average', np.float32), ('peak', np.uint32)])
 
 
 class CRImpact(tables.IsDescription):
     count = tables.UInt8Col()
     start = tables.UInt64Col()
     stop = tables.UInt64Col()
-    rate = tables.UInt32Col()
+    rate = tables.Float32Col()
     peak = tables.UInt32Col()
     average = tables.Float32Col()
 
@@ -83,7 +83,7 @@ class CosmicCleaner:
         getLogger(__name__).debug(f"Making CR cosmic info for {self.obs.filename}")
         self.generate_cosmic_info()
         end = datetime.utcnow().timestamp()
-        getLogger(__name__).info(f"Cosmic ray cleaning of {self.obs.filename} took {end - start} s")
+        getLogger(__name__).info(f"Cosmic ray identification of {self.obs.filename} took {end - start:.0f} s")
 
     def make_timestream(self):
         """
