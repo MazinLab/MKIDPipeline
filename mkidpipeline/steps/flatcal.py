@@ -515,7 +515,7 @@ def fetch(dataset, config=None, ncpu=None, remake=False):
     if not flattners:
         return solutions
 
-    poolsize = mkidpipeline.config.n_cpus_available(max=min(fcfg.ncpu, len(flattners)))
+    poolsize = mkidpipeline.config.n_cpus_available(max=min(fcfg.cfg.get('flatcal.ncpu', inherit=True), len(flattners)))
     if poolsize == 1:
         for f in flattners:
             f.run()

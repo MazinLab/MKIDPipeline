@@ -86,7 +86,7 @@ class Configuration(object):
         self.max_count_rate = max_count_rate
 
         # parse arguments
-        self.ncpu = mkidpipeline.config.n_cpus_available(max=ncpu)
+        self.ncpu = ncpu
         self.out_directory = outdir
         self.wavelengths = [w.value for w in wavelengths]
         self.h5_file_names = {wave: h5 for wave, h5 in zip(self.wavelengths, h5s)}
@@ -598,7 +598,7 @@ class Calibrator(object):
     def _parallel(self, method, pixels=None, wavelengths=None, verbose=False):
         # configure number of processes
         n_data = pixels.shape[1]
-        cpu_count = mkidpipeline.config.n_cpus_available(max=self.cfg.ncpu)
+        cpu_count = self.cfg.ncpu
         log.info("Using {} additional cores".format(cpu_count))
         # setup chunks (at least 2 chunks per process per feedline on MEC)
         chunk_size = max(1, int(self.cfg.beammap.residmap.size / (2 * 10 * (cpu_count - 1 * bool(verbose)))))

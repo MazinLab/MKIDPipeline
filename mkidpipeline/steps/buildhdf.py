@@ -308,7 +308,10 @@ def buildtables(timeranges, config=None, ncpu=None, remake=None, **kwargs):
 
     builders = [HDFBuilder(c, force=remake, **kwargs) for c in b2h_configs]
 
-    if ncpu == 1:
+    if not builders:
+        return
+
+    if ncpu == 1 or len(builders) == 1:
         for b in builders:
             try:
                 b.run()
@@ -316,8 +319,7 @@ def buildtables(timeranges, config=None, ncpu=None, remake=None, **kwargs):
                 getLogger(__name__).error('Insufficient memory to process {}'.format(b.h5file))
         return timeranges
 
-
-    pool = mp.Pool(mkidpipeline.config.n_cpus_available(ncpu))
+    pool = mp.Pool(mkidpipeline.config.n_cpus_available(max=cfg.get('buildhdf.ncpu', inherit=True)))
     pool.map(_runbuilder, builders)
     pool.close()
     pool.join()

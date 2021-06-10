@@ -71,7 +71,7 @@ def safe(func):
     return wrapper_decorator
 
 
-def batch_applier(func, obs, ncpu=np.inf, unique_h5=True):
+def batch_applier(func, obs, ncpu=None, unique_h5=True):
     if unique_h5:
         obs = {o.h5: o for o in obs}.values()
 
@@ -106,7 +106,6 @@ def batch_apply_metadata(dset):
 
 def batch_apply_wavecals(dset, ncpu=None):
     wavecal.clear_solution_cache()
-    ncpu = ncpu if ncpu is not None else config.n_cpus_available(config.config.wavecal.ncpu)
     batch_applier(mkidpipeline.steps.wavecal.apply, dset.wavecalable, ncpu=ncpu)
 
 
