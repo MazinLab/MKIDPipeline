@@ -125,7 +125,8 @@ def PipelineConfigFactory(step_defaults: dict = None, cfg=None, ncpu=None, copy=
         cfg = cfg.copy()
     if step_defaults:
         for name, defaults in step_defaults.items():
-            cfg.register(name, defaults, update=False)
+            cfg.register(name, defaults, update=False) #TODO the will add in ncpu 1 for steps that set it, overriding
+            # the inherited default
     if ncpu is not None:
         config.update('ncpu', ncpu)
     return cfg
@@ -907,7 +908,7 @@ class MKIDDitherDescription(DataBase):
             endt = [endt[i] for i in self.use]
             pos = [pos[i] for i in self.use]
 
-            self.obs = [MKIDObservation(name=f'{self.name}_{i}/{n}', start=b, stop=e, wavecal=self.wavecal,
+            self.obs = [MKIDObservation(name=f'{self.name}_{i+1}/{n}', start=b, stop=e, wavecal=self.wavecal,
                                         flatcal=self.flatcal, wcscal=self.wcscal, speccal=self.speccal,
                                         header=dict(M_CONEXX=p[0], M_CONEXY=p[1]), **self.extra())
                         for i, b, e, p in zip(self.use, startt, endt, pos)]
