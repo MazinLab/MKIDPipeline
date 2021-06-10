@@ -18,8 +18,7 @@ def generate(outputs: config.MKIDOutputCollection):
         # TODO make into a batch process
         getLogger(__name__).info('Generating {}'.format(o.name))
         if o.wants_image:
-
-            # if we are putting out more than one image we need to give them uniqe file names
+            # if we are putting out more than one image we need to give them unique file names
             if len(o.data.obs) > 1:
                 f, ext = os.path.splitext(o.filename)
                 filename = f'{f}.{{}}of{len(o.data.obs)+1}{ext}'

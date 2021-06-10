@@ -305,14 +305,14 @@ class Photontable:
         if startw is None:
             qminw = None
         else:
-            v = u.Quantity(startw, u.nm).value
-            qminw = None if v <= self.nominal_wavelength_bins[0] / 10 else v
+            startw = u.Quantity(startw, u.nm).value
+            qminw = None if startw <= self.nominal_wavelength_bins[0] / 10 else startw
 
         if stopw is None:
             qmaxw = None
         else:
-            v = u.Quantity(stopw, u.nm).value
-            qmaxw = None if v >= self.nominal_wavelength_bins[-1] * 10 else v
+            stopw = u.Quantity(stopw, u.nm).value
+            qmaxw = None if stopw >= self.nominal_wavelength_bins[-1] * 10 else stopw
 
         return dict(start=start, stop=stop, relstart=relstart, relstop=relstop, duration=relstop - relstart,
                     qstart=qstart, qstop=qstop, minw=startw, maxw=stopw, qminw=qminw, qmaxw=qmaxw)
@@ -925,8 +925,8 @@ class Photontable:
                      fits.Card('flatcal', md.pop('flatcal'), comment='Flatcal applied to data'),
                      fits.Card('h5minwav', md.pop('min_wavelength'), comment='Min wavelength in h5 file'),
                      fits.Card('h5maxwav', md.pop('max_wavelength'), comment='Max wavelength in h5 file'),
-                     fits.Card('MINWAVE', wave_start, comment='Lower wavelength cut'),
-                     fits.Card('MAXWAVE', wave_stop, comment='Upper wavelength cut'),
+                     fits.Card('MINWAVE', time_nfo['minw'], comment='Lower wavelength cut'),
+                     fits.Card('MAXWAVE', time_nfo['maxw'], comment='Upper wavelength cut'),
                      fits.Card('eresol', md.pop('energy_resolution'), comment='Nominal energy resolution'),
                      fits.Card('deadtime', md.pop('dead_time'), comment='Firmware dead-time (us)'),
                      fits.Card('UNIT', 'photons/s' if rate else 'photons', comment='Count unit'),

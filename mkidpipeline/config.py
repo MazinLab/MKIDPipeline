@@ -481,6 +481,14 @@ class MKIDObservation(MKIDTimerange):
         return np.array([self._metadata['M_CONEXX'], self._metadata['M_CONEXY']])
 
     @property
+    def skycoord(self):
+        try:
+            return mkidcore.metadata.skycoord_from_metadata(self.header)
+        except KeyError as e:
+            getLogger(__name__).debug(f'No coordinates available for {self.name}: {e}')
+        return None
+
+    @property
     def input_timeranges(self):
         """Return all of the MKIDTimeranges(NB this, by definition includes subclasses) go in to making the obs"""
         for tr in super().input_timeranges:
@@ -780,7 +788,7 @@ class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
             yield
         else:
             for o in self.data.obs:
-                yield self.data
+                yield o
 
     def associate(self, **kwargs):
         if isinstance(self.data, str):
@@ -1234,7 +1242,7 @@ class MKIDOutput(DataBase):
         kwargs = dict(start=self.start_offset, duration=self.duration, weight=self.use_weights,
                       wave_start=self.min_wave, wave_stop=self.max_wave, rate=self.units == 'photons/s',
                       cube_type=cube_type, bin_width=step, exclude_flags=mkidcore.pixelflags.PROBLEM_FLAGS)
-        return mkidcore.config.ConfigThing.registerfromkvlist(kwargs.items())
+        return mkidcore.config.ConfigThing().registerfromkvlist(kwargs.items(), namespace='')
 
     @property
     def wants_image(self):
