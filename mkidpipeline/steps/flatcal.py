@@ -298,17 +298,20 @@ class LaserCalibrator(FlatCalibrator):
 
     def make_spectral_cube(self):
         n_wvls = len(self.wavelengths)
-        n_times = self.cfg.flatcal.nchunks
+        nchunks = self.cfg.flatcal.nchunks
         x, y = self.cfg.beammap.ncols, self.cfg.beammap.nrows
         exposure_times = np.array([x.duration for x in self.h5s.values()])
-        if np.any(self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks > exposure_times):
-            n_times = int((exposure_times / self.cfg.flatcal.chunk_time).max())
-            getLogger(__name__).info('Number of chunks * chunk time is longer than the laser exposure. Using full'
-                                     f' length of exposure with {n_times} chunks')
+        if np.any(self.cfg.flatcal.chunk_time > exposure_times):
+            getLogger(__name__).warning('Chunk time is longer than the exposure. Using a single chunk')
+            flat_duration = exposure_times
+        elif np.any(self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks > exposure_times):
+            nchunks = int((exposure_times / self.cfg.flatcal.chunk_time).max())
+            getLogger(__name__).warning(f'Number of {self.cfg.flatcal.chunk_time} s chunks requested is longer than the '
+                                        f'exposure. Using first full {nchunks} chunks.')
             flat_duration = exposure_times
         else:
             flat_duration = np.full(n_wvls, self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks)
-        cps_cube_list = np.zeros([n_times, x, y, n_wvls])
+        cps_cube_list = np.zeros([nchunks, x, y, n_wvls])
         mask = np.zeros([x, y, n_wvls])
         int_times = np.zeros([x, y, n_wvls])
 
