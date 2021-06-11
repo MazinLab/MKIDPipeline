@@ -58,6 +58,9 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
 
         return ret
 
+TEST_CFGS= (StepConfig(chunk_time=30, nchunks=10, trim_chunks=0, use_wavecal=True),
+            StepConfig(chunk_time=30, nchunks=10, trim_chunks=0, use_wavecal=False),
+            StepConfig(chunk_time=10, nchunks=5, trim_chunks=1, use_wavecal=True))
 
 FLAGS = FlagSet.define(
     ('inf_weight', 1, 'Spurious infinite weight was calculated - weight set to 1.0'),
