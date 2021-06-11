@@ -106,12 +106,12 @@ class FlatCalibrator:
 
     def load_flat_spectra(self):
         self.make_spectral_cube()
-        dark_frame = self.get_dark_frame()
+        dark_frames = self.get_dark_frames()
         for icube, cube in enumerate(self.spectral_cube):
             dark_subtracted_cube = np.zeros_like(cube)
             for iwvl, wvl in enumerate(cube[0, 0, :]):
-                dark_subtracted_cube[:, :, iwvl] = np.subtract(cube[:, :, iwvl], dark_frame)
-            # mask out hot and cold pixels
+                dark_subtracted_cube[:, :, iwvl] = np.subtract(cube[:, :, iwvl], dark_frames[:, :, iwvl])
+            # mask out any pixels with PROBLEM_FLAGS
             masked_cube = np.ma.masked_array(dark_subtracted_cube, mask=self.mask).data
             self.spectral_cube[icube] = masked_cube
         self.spectral_cube = np.array(self.spectral_cube)
@@ -210,26 +210,22 @@ class FlatCalibrator:
                                                 self.cfg.flatcal.power, w=1 / self.flat_weight_err[fittable] ** 2)
         getLogger(__name__).info('Calculated Flat coefficients')
 
-    def get_dark_frame(self):
+    def get_dark_frames(self):
         """
-        takes however many dark files that are specified in the pipe.yml and computes the counts/pixel/sec for the sum
-        of all the dark obs. This creates a stitched together long dark obs from all of the smaller obs given. This
-        is useful for legacy data where there may not be a specified dark observation but parts of observations where
-        the filter wheel was closed.
 
-        :return: expected dark counts for each pixel over a flat observation
+        :return:
         """
-        if not self.darks:
-            return np.zeros_like(self.spectral_cube[0][:, :, 0])
-
+        if all([dark is None for dark in self.darks]):
+            return np.zeros_like(self.spectral_cube[0])
         getLogger(__name__).info('Loading dark frames for Laser flat')
-        frames = []
-        itime = 0
-        for dark in self.darks:
-            im = dark.photontable.get_fits(start=dark.start, duration=dark.duration, rate=False)['SCIENCE']
-            frames.append(im.data)
-            itime += im.header['EXPTIME']
-        return np.sum(frames, axis=2) / itime
+        frames = np.zeros_like(self.spectral_cube[0])
+        for i, dark in enumerate(self.darks):
+            if dark is not None:
+                im = dark.photontable.get_fits(start=dark.start, duration=dark.duration, rate=True)['SCIENCE']
+                frames[:,:,i] = im.data
+            else:
+                pass
+        return frames
 
 
 class WhiteCalibrator(FlatCalibrator):
@@ -503,11 +499,11 @@ def fetch(dataset, config=None, ncpu=None, remake=False):
     for sd in set(sd for sd in solution_descriptors if sd.id not in solutions):
         if sd.method == 'laser':
             flattner = LaserCalibrator(h5s=sd.h5s, config=fcfg, solution_name=sd.path,
-                                       darks=[o.dark for o in sd.obs if o.dark is not None],
+                                       darks=[o.dark for o in sd.obs],
                                        wavesol=sd.data.path)
         else:
             flattner = WhiteCalibrator(H5Subset(sd.data), config=fcfg, solution_name=sd.path,
-                                       darks=[o.dark for o in sd.obs if o.dark is not None])
+                                       darks=[o.dark for o in sd.obs])
 
         solutions[sd.id] = sd.path
         flattners.append(flattner)
