@@ -34,9 +34,9 @@ SAMPLEDATA = {'default': (
                                   ),
     # Flatcals
     config.MKIDFlatcalDescription(name=_namer('flatcal'),
-                                  data=config.MKIDObservation(name='950 nm', start=1602040900, duration=50.0,
-                                                              dark=config.MKIDTimerange(name=_namer(), start=1602046500,
-                                                                                        duration=10),
+                                  comment='Open dark that is being used for testing of white light flats while none are'
+                                          ' available - should NOT be used as an actual flat calibration!',
+                                  data=config.MKIDObservation(name='open_dark', start=1576498833, duration=30.0,
                                                               wavecal='wavecal0')),
     config.MKIDFlatcalDescription(name=_namer('flatcal'), wavecal_duration=50.0, wavecal_offset=2.1, data='wavecal0'),
     # Speccal
