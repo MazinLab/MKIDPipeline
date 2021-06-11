@@ -119,7 +119,7 @@ class DrizzleParams:
         self.used_inttime = inttime
         self.pixfrac = pixfrac
         # Get the SkyCoord type coordinates to use for center of sky grid that is drizzled onto
-        self.coords = mkidcore.metadata.skycoord_from_metadata(dither.obs[0].metadata, force_simbad=simbad)
+        self.coords = mkidcore.metadata.skycoord_from_metadata(dither.obs[0].metadata_at(), force_simbad=simbad)
         self.telescope = dither.obs[0].header.get('TELESCOP') or mkidcore.metadata.DEFAULT_CARDSET['TELESCOP'].value
         self.canvas_shape = (None, None)
         self.dith_start_times = np.array([o.start for o in dither.obs])

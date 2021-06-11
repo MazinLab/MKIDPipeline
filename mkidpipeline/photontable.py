@@ -716,8 +716,8 @@ class Photontable:
                 # we want to inherit defaults for ref values
                 head = mkidcore.metadata.build_header(md, unknown_keys='ignore')
                 ref_pixels.append(compute_wcs_ref_pixel((md['M_CONEXX'], md['M_CONEXY']),
-                                                        (head['M_PREFX'], head['M_PREFY']),
-                                                        (head['M_CXREFX'], head['M_CXREFY'])))
+                                                        reference_pixel=(head['M_PREFX'], head['M_PREFY']),
+                                                        reference=(head['M_CXREFX'], head['M_CXREFY'])))
         except KeyError:
             getLogger(__name__).warning('Insufficient data to build a WCS solution, conex info missing')
             return None
