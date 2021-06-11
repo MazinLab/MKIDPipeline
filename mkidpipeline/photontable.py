@@ -48,6 +48,11 @@ import warnings
 # tables.parameters.LIMBOUNDS_MAX_SIZE *=10
 # tables.parameters.SORTEDLR_MAX_SLOTS *= 10
 
+# tables.parameters.CHUNK_CACHE_SIZE = 32*1024**2
+# tables.parameters.MAX_BLOSC_THREADS = 8
+# tables.parameters.MAX_NUMEXPR_THREADS = 8
+# tables.parameters.IO_BUFFER_SIZE = 32*1024**2   # Don't exceed L3 cache size (16MiB)
+
 
 class ThreadsafeFileRegistry(tables.file._FileRegistry):
     lock = mp.RLock()
@@ -662,8 +667,14 @@ class Photontable:
         filtered = self.flagged(disallowed, self.xy(photons))
         return photons[np.invert(filtered)]
 
-    def get_wcs(self, derotate=True, wcs_timestep=None, cube_type=None, single_pa_time=None, bins=None):
+    def get_wcs(self, sample_times=None, derotate=True, wcs_timestep=None, cube_type=None, single_pa_time=None,
+                bins=None):
         """
+        sample_times or wcs_timestep required, sample_times takes precedence. single_pa_time is a pa time to override
+        all the timesteps (a single wcs will be returned)
+
+        bins are the cube bins and is required if cube_type is not None
+
         Parameters
         ----------
         derotate : bool
@@ -690,11 +701,13 @@ class Photontable:
         :param bins:
         """
 
-        # sample_times upper boundary is limited to the user defined end time
-        sample_times = np.arange(self.start_time, self.stop_time, wcs_timestep)
-        if single_pa_time:
+        if single_pa_time is not None:
             getLogger(__name__).info(f"Derotate off. Using PA at time: {single_pa_time}")
-            sample_times[:] = single_pa_time
+            derotate = False
+            sample_times = np.array([single_pa_time])
+        else:
+            if sample_times is None:
+                sample_times = np.arange(self.start_time, self.stop_time, wcs_timestep)
 
         ref_pixels = []
         try:
@@ -709,20 +722,18 @@ class Photontable:
             getLogger(__name__).warning('Insufficient data to build a WCS solution, conex info missing')
             return None
 
+        cubeaxis = {}
+        if cube_type in ('wave', 'time'):
+            cubeaxis = {'CTYPE3': 'TIME' if cube_type is 'time' else 'WAVE',
+                        'CUNIT3': 's' if cube_type is 'time' else 'nm',
+                        'CDELT3': bins[1] - bins[0], 'CRPIX3': 1, 'CRVAL3': bins[0], 'NAXIS3': bins.size}
+
         # we want to inherit defaults for ref values
         header = mkidcore.metadata.build_header(self.metadata(self.start_time), unknown_keys='warn')
         wcs_solns = mkidcore.metadata.build_wcs(header, astropy.time.Time(val=sample_times, format='unix'), ref_pixels,
-                                                derotate=derotate and not single_pa_time,
-                                                naxis=3 if cube_type in ('wave', 'time') else 2)
-
-        if cube_type in ('wave', 'time') and wcs_solns:
-            for obs_wcs in wcs_solns:
-                obs_wcs.wcs.crpix[-1] = 1
-                obs_wcs.wcs.crval[-1] = bins[0]
-                obs_wcs.wcs.ctype[-1] = "WAVE" if cube_type == 'wave' else "TIME"
-                obs_wcs.naxis3 = obs_wcs._naxis3 = bins.size
-                obs_wcs.wcs.cdelt[-1] = bins[1] - bins[0]
-                obs_wcs.wcs.cunit[-1] = "nm" if cube_type == 'wave' else "s"
+                                                self.beamImage.shape, derotate=derotate, cubeaxis=cubeaxis)
+        if single_pa_time is not None:
+            wcs_solns = wcs_solns[0]
 
         return wcs_solns
 
@@ -934,10 +945,13 @@ class Photontable:
 
         # Build primary and image headers
         header = mkidcore.metadata.build_header(md, unknown_keys='warn')
-        wcs = self.get_wcs(cube_type=cube_type, bins=bin_edges/1e6 if cube_type == 'time' else None,
-                           single_pa_time=time_nfo['start'])
+
+        bins=None
+        if cube_type is not None:
+            bins = bin_edges / 1e6 if cube_type == 'time' else bin_edges
+        wcs = self.get_wcs(cube_type=cube_type, bins=bins, single_pa_time=time_nfo['start'])
         if wcs:
-            header.update(wcs[0].to_header())
+            header.update(wcs.to_header())
         hdr = header.copy()
         hdr.extend(ext_cards, unique=True)
 
