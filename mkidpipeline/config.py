@@ -1010,6 +1010,9 @@ class MKIDObservingDataset:
             getLogger(__name__).error('Failure during name/data association', exc_info=True)
         self.missing_cal_defs = missing
 
+    def __getitem__(self, item):
+        return self.datadict[item]
+
     def __iter__(self):
         getLogger(__name__).warning('Iterating on a dataset excludes nested definitions')
         for o in self.meta:
