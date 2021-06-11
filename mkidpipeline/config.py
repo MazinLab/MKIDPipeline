@@ -432,11 +432,24 @@ class MKIDTimerange(DataBase):
         metadata = mkidcore.metadata.observing_metadata_for_timerange(self.start, self.duration, data)
 
         for k, v in self._metadata.items():
-            metadata[k] = v  # override
+            metadata[k.upper()] = v  # override
 
         mkidcore.metadata.validate_metadata_dict(metadata, warn='required', error=False)
 
         return metadata
+
+    def metadata_at(self, time='start'):
+        if time == 'start':
+            time = self.start
+        md = self.metadata
+        ret = {}
+        for k, v in md.items():
+            try:
+                ret[k] = v.get(time) if isinstance(v, mkidcore.metadata.MetadataSeries) else v
+            except ValueError:
+                pass
+        return ret
+
 
 
 class MKIDObservation(MKIDTimerange):
@@ -463,7 +476,7 @@ class MKIDObservation(MKIDTimerange):
         d = super()._metadata
         try:
             wcsd = dict(M_PLTSCL=self.wcscal.platescale,
-                        M_CXREFX=self.wcscal.dither_ref[0],
+                        M_CXREFX=self.wcscal.dither_ref[0], #TODO update to new names here and in wcscal
                         M_CXREFY=self.wcscal.dither_ref[1],
                         M_PREFX=self.wcscal.dither_home[0],
                         M_PREFY=self.wcscal.dither_home[1],
