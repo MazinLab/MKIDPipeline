@@ -152,7 +152,9 @@ class FlatCalibrator:
             wvl_averages = np.zeros_like(self.wavelengths)
             wvl_weights = np.ones_like(cube)
             for iWvl in range(self.wavelengths.size):
-                wvl_averages[iWvl] = np.nanmean(cube[:, :, iWvl])
+                masked_cube = np.copy(cube[:, :, iWvl])
+                masked_cube[self.mask[:, :, iWvl] == 1] = np.nan
+                wvl_averages[iWvl] = np.nanmean(masked_cube)
                 wvl_averages_array = np.full(np.shape(cube[:, :, iWvl]), wvl_averages[iWvl])
                 wvl_weights[:, :, iWvl] = wvl_averages_array / cube[:, :, iWvl]
             wvl_weights[(wvl_weights == np.inf) | (wvl_weights == 0)] = np.nan
@@ -166,7 +168,7 @@ class FlatCalibrator:
             # deltaWeight=weight/sqrt(RawCounts)
             # but 'cube' is in units cps, not raw counts so multiply by effIntTime before sqrt
 
-            delta_weights[iCube, :, :, :] = flat_weights / np.sqrt(self.eff_int_times * cube)
+            delta_weights[iCube, :, :, :] = flat_weights[iCube, :, :, :] / np.sqrt(self.eff_int_times * cube)
 
         weights_mask = np.isnan(flat_weights)
         self.flat_weights = np.ma.array(flat_weights, mask=weights_mask, fill_value=1.).data
@@ -224,8 +226,9 @@ class FlatCalibrator:
         frames = np.zeros_like(self.spectral_cube[0])
         for i, dark in enumerate(self.darks):
             if dark is not None:
-                im = dark.photontable.get_fits(start=dark.start, duration=dark.duration, rate=True)['SCIENCE']
-                frames[:,:,i] = im.data
+                im = dark.photontable.get_fits(start=dark.start, duration=dark.duration, cube_type='time',
+                                               rate=True, bin_width=dark.duration)['SCIENCE']
+                frames[:,:,i] = im.data[:,:,0]
             else:
                 pass
         return frames
@@ -256,7 +259,7 @@ class WhiteCalibrator(FlatCalibrator):
         elif self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks > exposure_time:
             nchunks = int(exposure_time / self.cfg.flatcal.chunk_time)
             time_edges = self.h5s.start+np.arange(nchunks+1)*self.cfg.flatcal.chunk_time
-            getLogger(__name__).warning(f'Number of {self.cfg.flatcal.chunk_time} s chunks requested longer than the '
+            getLogger(__name__).warning(f'Number of {self.cfg.flatcal.chunk_time} s chunks requested is longer than the '
                                         f'exposure. Using first full {nchunks} chunks.')
         else:
             time_edges = np.self.h5s.start + np.arange(self.cfg.flatcal.nchunks + 1) * self.cfg.flatcal.chunk_time
