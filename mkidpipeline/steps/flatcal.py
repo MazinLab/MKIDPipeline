@@ -90,9 +90,7 @@ class FlatCalibrator:
 
         self.spectral_cube = None
         self.eff_int_times = None
-        self.spectral_cube_in_counts = None
         self.delta_weights = None
-        self.combined_image = None
         self.flat_weights = None
         self.flat_weight_err = None
         self.flat_flags = None
@@ -120,7 +118,6 @@ class FlatCalibrator:
         self.spectral_cube = np.array(self.spectral_cube)
         self.eff_int_times = np.array(self.eff_int_times)
         # count cubes is the counts over the integration time
-        self.spectral_cube_in_counts = self.eff_int_times * self.spectral_cube
 
     def run(self):
         getLogger(__name__).info("Loading Data")
@@ -177,29 +174,20 @@ class FlatCalibrator:
 
         # sort weights and rearrange spectral cubes the same way
         if self.cfg.flatcal.trim_chunks and n_cubes > 1:
-            sorted_idxs = np.ma.argsort(self.flat_weights, axis=0)
-            identity_idxs = np.ma.indices(np.shape(self.flat_weights))
-            sorted_weights = self.flat_weights[
-                sorted_idxs, identity_idxs[1], identity_idxs[2], identity_idxs[3]]
-            spectral_cube_in_counts = self.spectral_cube_in_counts[
-                sorted_idxs, identity_idxs[1], identity_idxs[2], identity_idxs[3]]
-            weight_err = self.delta_weights[
-                sorted_idxs, identity_idxs[1], identity_idxs[2], identity_idxs[3]]
+            sort_idxs = np.ma.argsort(self.flat_weights, axis=0)
+            i_idxs = np.ma.indices(np.shape(self.flat_weights))
+            sorted_weights = self.flat_weights[sort_idxs, i_idxs[1], i_idxs[2], i_idxs[3]]
+            weight_err = self.delta_weights[sort_idxs, i_idxs[1], i_idxs[2], i_idxs[3]]
             sl = self.cfg.flatcal.trim_chunks
             weights_to_use = sorted_weights[sl:-sl, :, :, :]
-            cubes_to_use = spectral_cube_in_counts[sl:-sl, :, :, :]
             weight_err_to_use = weight_err[sl:-sl, :, :, :]
-            self.combined_image = np.ma.sum(cubes_to_use, axis=0)
             self.flat_weights, averaging_weights = np.ma.average(weights_to_use, axis=0,
                                                                  weights=weight_err_to_use ** -2.,
                                                                  returned=True)
-            self.spectral_cube_in_counts = np.ma.sum(cubes_to_use, axis=0)
         else:
-            self.combined_image = np.ma.sum(self.spectral_cube_in_counts, axis=0)
             self.flat_weights, averaging_weights = np.ma.average(self.flat_weights, axis=0,
                                                                  weights=self.delta_weights ** -2.,
                                                                  returned=True)
-            self.spectral_cube_in_counts = np.ma.sum(self.spectral_cube_in_counts, axis=0)
 
         # Uncertainty in weighted average is sqrt(1/sum(averagingWeights)), normalize weights at each wavelength bin
         self.flat_weight_err = np.sqrt(averaging_weights ** -1.)
@@ -279,7 +267,6 @@ class WhiteCalibrator(FlatCalibrator):
         for wstart, wstop in zip(edges[:-1], edges[1:]):
             hdul = pt.get_fits(rate=True, bin_edges=time_edges, wave_start=wstart, wave_stop=wstop, cube_type='time')
             cps_cube_list.append(np.moveaxis(hdul['SCIENCE'].data, 2, 0))  # moveaxis for code compatibility
-
         getLogger(__name__).info(f'Loaded spectral cubes')
         self.spectral_cube = np.array(cps_cube_list)  # n_times, x, y, n_wvls
         # TODO if the rest of the algorithm doesn't take good care of this then including it here for future expansion
