@@ -34,9 +34,12 @@ def generate(outputs: config.MKIDOutputCollection):
                 getLogger(__name__).info(f'Output {file} for {o.name} generated')
 
         if o.wants_movie:
-            mkidpipeline.steps.movies.make_movie(o, **o.output_settings_dict)
+            mkidpipeline.steps.movies.fetch(o, **o.output_settings_dict)
 
         if o.wants_drizzled:
+            if os.path.exists(o.filename):
+                getLogger(__name__).info(f'Output {o.filename} for {o.name} already exists. Skipping')
+                continue
             config = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(drizzler=mkidpipeline.steps.drizzler.StepConfig()),
                                                                copy=True)
             kwargs = o.output_settings_dict

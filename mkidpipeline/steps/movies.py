@@ -222,7 +222,7 @@ def fetch(out, **kwargs):
 
     ob = out.data
     if isinstance(ob, mkidpipeline.config.MKIDDitherDescription):
-        ob = ob.obs_for_time(ob.start + out.start_offset)
+        ob = ob.obs_for_time(ob.obs[0].start + out.start_offset)
 
     file = ob.h5
     outcfg = out.output_settings_dict
