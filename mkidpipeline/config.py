@@ -1250,7 +1250,7 @@ class MKIDOutput(DataBase):
     def output_settings_dict(self):
         """returns a dict of kwargs from the various output settings"""
         step, cube_type = None, None
-        if self.kind == 'tcube':
+        if self.kind in ('tcube', 'movie'):
             cube_type = 'time'
             step = self.timestep
         elif self.kind == 'scube':

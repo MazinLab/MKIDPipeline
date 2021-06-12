@@ -963,7 +963,7 @@ class Photontable:
             tmp = bin_edges/1e6 if cube_type == 'time' else bin_edges
             bin_hdu = [fits.TableHDU.from_columns(np.recarray(shape=bin_edges.shape, buf=tmp,
                                                   dtype=np.dtype([('edges', bin_edges.dtype)])), name='CUBE_EDGES')]
-            bin_hdu[0].header.append(fits.Card('UNIT', 's' if cube_type is 'time' else 'nm', comment='Bin unit'))
+            bin_hdu[0].header.append(fits.Card('UNIT', 's' if cube_type == 'time' else 'nm', comment='Bin unit'))
 
         hdul = fits.HDUList([fits.PrimaryHDU(header=header),
                              fits.ImageHDU(data=data / duration if rate else data, header=hdr, name='SCIENCE'),

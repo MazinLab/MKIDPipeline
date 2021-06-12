@@ -22,19 +22,25 @@ STRETCHES = {'asinh': AsinhStretch, 'linear': LinearStretch, 'log': LogStretch, 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!movies_cfg'
     REQUIRED_KEYS = (('type', 'simple', 'simple|upramp|both'),
-                     ('inpaint', False, 'Inpaint?'),
                      ('colormap', 'viridis', 'Colormap to use'),
                      ('rate_cut', None, 'Count (rate) cutoff, None=none'),
                      ('axes', True, 'Show the axes'),
                      ('wcs', True, 'Use the WCS solution'),
+                     ('dpi', None, 'Image writer DPI'),
                      ('mask_bad', True, 'Mask bad pixels'),
                      ('fps', 24, 'framerate'),
+                     ('smoothing.n', None, 'Smooth over N frames'),
+                     ('smoothing.sigma', None, '>n-sigma outliers will be smoothed'),
+                     ('smoothing.power', None, 'Power for Savitgy-Golay filter'),
+                     ('inpaint_below', 0, 'Counts below limit will be inpainted (0=off)'),
                      ('stretch.name', 'linear',
                       'linear | asinh | log | power[power=5] | powerdist | sinh | sqrt | squared'),
                      ('stretch.args', tuple(), 'see matplotlib docs'),
                      ('stretch.kwargs', dict(), 'see matplotlib docs'),
                      ('title', True, 'Display the title at the top of the animation'))
 
+    def __init__(self, *args,**kwargs):
+        super(StepConfig, self).__init__(*args,**kwargs)
 
 def _fetch_data(file, timestep, start=0, stop=np.inf, min_wave=None, max_wave=None, use_weights=False, cps=True,
                 exclude_flags=None):
@@ -65,24 +71,23 @@ def _fetch_data(file, timestep, start=0, stop=np.inf, min_wave=None, max_wave=No
     # fetch what is needed from the fits
     try:
         cps = hdul['SCIENCE'].header['UNIT'] == 'photons/s'
-        exp_time = hdul['BIN_EDGES'].data * u.Quantity(f"1 {hdul['BIN_EDGES'].header['UNIT']}").to('s').value
+        exp_time = hdul['CUBE_EDGES'].data.edges * u.Quantity(f"1 {hdul['CUBE_EDGES'].header['UNIT']}").to('s').value
         frames = hdul['SCIENCE'].data * (exp_time if cps else 1)
         time_mask = (exp_time >= start) & (exp_time <= stop)
+        frames = np.rollaxis(frames, -1)
+        assert time_mask.size == frames.shape[0] + 1
     except KeyError:
         getLogger(__name__).error('FITS data in invalid format')
         raise IOError('Invalid data format')
 
-    assert time_mask.size == frames.shape[0] + 1
-
     return frames[time_mask[1:] & time_mask[:-1]], exp_time[time_mask], hdul
 
 
-def _process(frames, time, region=None, smooth_sigma=None, n_frames_smooth=6, smooth_power=3,
-             inpaint=False, inpaint_limit=np.inf):
+def _process(frames, time, region=None, smooth_sigma=None, n_frames_smooth=6, smooth_power=3, inpaint_below=0):
     """ Apply smoothing, region selection, inpainting and compute the cumsum of the frames"""
 
     if not smooth_sigma:
-        smooth_mask = np.ones_like(time, dtype=True)
+        smooth_mask = np.ones(frames.shape[0], dtype=bool)
     else:
         from scipy.signal import savgol_filter
         curve = np.median(np.median(frames, axis=1), axis=1)
@@ -110,11 +115,11 @@ def _process(frames, time, region=None, smooth_sigma=None, n_frames_smooth=6, sm
     tmp[smooth_mask] = 0
     tmp = np.cumsum(tmp)
     itime = (time[1:] - time[0] - np.cumsum(tmp))[smooth_mask]  # bin integration time
-    times = (time[:-1] + time[0:])[smooth_mask] / 2  # bin midpoint
+    times = (time[1:] + time[:-1])[smooth_mask] / 2  # bin midpoint
 
-    if inpaint:
+    if inpaint_below > 0:
         getLogger(__name__).info('Inpainting requested')
-        inpainted = np.array([restoration.inpaint.inpaint_biharmonic(frame, frame < inpaint_limit, multichannel=False)
+        inpainted = np.array([restoration.inpaint.inpaint_biharmonic(frame, frame < inpaint_below, multichannel=False)
                               for frame in frames])
         getLogger(__name__).info('Completed inpainting!')
         frames = inpainted
@@ -136,8 +141,8 @@ def _save_frames(frames, movie_duration, units, suptitle='', movie_type='simple'
 
     fps = frames.shape[0] / movie_duration
 
-    if mask:
-        frames[mask[np.newaxis, :, :]] = np.nan
+    if mask is not None:
+        frames[:, mask > 0] = np.nan
 
     # Create the writer
     writerkey = 'ffmpeg' if 'mp4' in outfile else 'imagemagick'
@@ -154,7 +159,8 @@ def _save_frames(frames, movie_duration, units, suptitle='', movie_type='simple'
         getLogger(__name__).warning(f"Invalid colormap ({colormap}), using 'hot'.")
         cmap = plt.get_cmap('hot')
 
-    fig, axs = plt.subplots(1, 2 if movie_type == 'both' else 1, constrained_layout=True, projection=wcs)
+    fig, axs = plt.subplots(1, 2 if movie_type == 'both' else 1, constrained_layout=True,
+                            subplot_kw={'projection': wcs[:, :, 0]}) #need to slice off the temporal wcs
     if suptitle:
         plt.suptitle(suptitle)
 
@@ -174,25 +180,26 @@ def _save_frames(frames, movie_duration, units, suptitle='', movie_type='simple'
         stack /= np.arange(frames.shape[0]) + 1
 
     nframes = frames.shape[0]
+    frame_max = np.nanmax(frames)
+    stack_max = np.nanmax(stack)
+    cbmaxs = (int(np.ceil(frame_max)), int(np.ceil(stack_max)))
     if movie_type == 'both':
         image_names = ('Frame', 'Integration')
-
-        cbmaxs = (int(frames.max()), int(stack.max()))
-        norms = (ImageNormalize(vmin=-10, vmax=frames.max() + 5, stretch=stretch),
-                 ImageNormalize(vmin=-10, vmax=stack.max() + 5, stretch=stretch))
+        norms = (ImageNormalize(vmin=-10, vmax=frame_max + 5, stretch=stretch),
+                 ImageNormalize(vmin=-10, vmax=stack_max + 5, stretch=stretch))
         frame_data = np.stack((frames, stack), axis=1)
     elif movie_type == 'upramp':
         image_names = ('Integration',)
-        cbmaxs = (int(stack.max()),)
-        norms = (ImageNormalize(vmin=-10, vmax=stack.max() + 5, stretch=stretch),)
+        cbmaxs = cbmaxs[1:]
+        norms = (ImageNormalize(vmin=-10, vmax=stack_max + 5, stretch=stretch),)
         frame_data = stack
     else:
         image_names = ('Frame',)
-        cbmaxs = (int(frames.max()),)
-        norms = (ImageNormalize(vmin=-10, vmax=frames.max() + 5, stretch=stretch),)
+        cbmaxs = cbmaxs[:1]
+        norms = (ImageNormalize(vmin=-10, vmax=frame_max + 5, stretch=stretch),)
         frame_data = frames
 
-    with writer.saving(fig, outfile, frames[0].shape[1] * 2, dpi=dpi):
+    with writer.saving(fig, outfile, dpi):#, frames[0].shape[1] * 2): #TODO
 
         img = []
         for ax, frame_im, name, cbmax, norm in zip(axs, frame_data[0], image_names, cbmaxs, norms):
@@ -231,32 +238,37 @@ def fetch(out, **kwargs):
     if movietype not in ('.mp4', '.gif'):
         raise ValueError('Only mp4 and gif movies are supported')
 
-    frames, times, hdul = _fetch_data(file, outcfg.bin_width, start=outcfg.start, stop=outcfg.stop,
-                                      min_wave=outcfg.min_wave, max_wave=outcfg.min_wave,
-                                      use_weights=out.use_weights, cps=outcfg.rate,
-                                      exclude_flags=outcfg.exclude_flags)
+    frames, times, hdul = _fetch_data(file, outcfg.bin_width, start=outcfg.start, stop=outcfg.start+outcfg.duration,
+                                      min_wave=outcfg.wave_start, max_wave=outcfg.wave_stop, use_weights=outcfg.weight,
+                                      cps=outcfg.rate, exclude_flags=outcfg.exclude_flags)
 
     suptitle = f"{out.name}: {np.diff(times[:2])[0]} s/frame, {hdul['SCIENCE'].header['EXPTIME']} s total"
-    wavestr = f" {out.min_wave} - {out.max_wave:.0f} nm" if np.isinf(out.min_wave) | np.isinf(out.min_wave) else ''
 
-    description = f't0={times[0]:.0f} dt={out.timestep:.1f}s{wavestr}'
+    wavestr = ''
+    if np.isinf(outcfg.wave_start) | np.isinf(outcfg.wave_stop):
+        wavestr = f" {outcfg.wave_start} - {outcfg.max_wave:.0f} nm"
+
+    description = f't0={times[0]:.0f} dt={outcfg.bin_width:.1f}s{wavestr}'
 
     if not frames.size:
         getLogger(__name__).warning(f'No frames in {outcfg.start}-{outcfg.stop} for {file}')
         return
 
-    frames, times, itimes = _process(frames, times, region=out.region,
-                                     smooth_sigma=config.movies.smoothing.sigma,
+    try:
+        region = out.region
+    except AttributeError:
+        region=None
+
+    frames, times, itimes = _process(frames, times, region=region, smooth_sigma=config.movies.smoothing.sigma,
                                      n_frames_smooth=config.movies.smoothing.n,
                                      smooth_power=config.movies.smoothing.power,
-                                     inpaint=config.movies.inpainting,
-                                     inpaint_limit=config.movies.inpaint_limit)
+                                     inpaint_below=config.movies.inpaint_below)
 
     if not frames.size:
         getLogger(__name__).warning(f'No frames in {outcfg.start}-{outcfg.stop} for {file}')
         return
     try:
-        STRETCHES[config.movies.stretch.name](*config.movies.stretch.args, **config.movies.stretch.kwargs)
+        stretch = STRETCHES[config.movies.stretch.name](*config.movies.stretch.args, **config.movies.stretch.kwargs)
     except Exception:
         getLogger(__name__).warning(f"Error parsing stretch args stretch: {config.movies.stretch.name}. "
                                     f"Defaulting to linear.")
@@ -265,8 +277,8 @@ def fetch(out, **kwargs):
     _save_frames(frames, out.movie_runtime, hdul['SCIENCE'].header['UNIT'], suptitle=suptitle, stretch=stretch,
                  description=description, mask=hdul['BAD'].data if config.movies.mask_bad else None,
                  outfile=out.filename, movie_type=out.movie_type,
-                 wcs=WCS(hdul['SCIENCE'].header) if config.movies.usewcs else None,
-                 colormap=config.movies.colormap, showaxes=config.movies.show_axes, dpi=config.movies.dpi,
+                 wcs=WCS(hdul['SCIENCE'].header) if config.movies.wcs else None,
+                 colormap=config.movies.colormap, showaxes=config.movies.axes, dpi=config.movies.dpi,
                  bad_color='black', interpolation='none')
 
 
