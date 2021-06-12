@@ -248,7 +248,7 @@ def load_data(dither, wvlMin, wvlMax, startt, wcs_timestep, derotate=True, align
 
     offsets = [o.start - int(o.start) for o in dither.obs]
     durations = [o.duration for o in dither.obs]
-
+    #TODO should we really be getting more that used_inttime
     single_pa_time = Photontable(filenames[0]).start_time if not derotate and align_start_pa else None
 
     if ncpu == 1:
@@ -262,7 +262,7 @@ def load_data(dither, wvlMin, wvlMax, startt, wcs_timestep, derotate=True, align
         processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt + offsett, dur, derotate, wcs_timestep,
                                                single_pa_time, exclude_flags)) for file, offsett, dur in
                      zip(filenames, offsets, durations)]
-        # dithers_data = [res.get() for res in processes]
+        dithers_data = [res.get() for res in processes]
         # args = [(file, wvlMin, wvlMax, startt + offsett, dur, derotate,
         #          wcs_timestep, single_pa_time, exclude_flags) or file, offsett, dur in
         #              zip(filenames, offsets, durations)]
@@ -496,9 +496,10 @@ class TemporalDrizzler(Canvas):
         self.wvlbins = np.linspace(wvlMin, wvlMax, self.nwvlbins + 1)
         self.wvlbins[0] = wvlMin  # linspace(0,inf) -> [nan,inf] which throws off the binning
 
-        inttime = drizzle_params.used_inttime
-        self.wcs_times = np.append(np.arange(0, inttime, drizzle_params.wcs_timestep), inttime)
-        self.timebins = np.append(np.arange(0, inttime, exp_timestep), inttime) * 1e6  # timestamps are in microseconds
+        self.wcs_times = np.append(np.arange(0, drizzle_params.used_inttime, drizzle_params.wcs_timestep),
+                                   drizzle_params.used_inttime)
+        self.timebins = np.append(np.arange(0, drizzle_params.used_inttime, exp_timestep),
+                                  drizzle_params.used_inttime) * 1e6  # timestamps are in microseconds
 
         self.cps = None
         self.counts = None
@@ -637,11 +638,11 @@ class SpatialDrizzler(Canvas):
         self.driz = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=drizzle_params.pixfrac, wt_scl='')
         self.wcs_timestep = drizzle_params.wcs_timestep
         self.drizzle_params = drizzle_params
-        inttime = drizzle_params.used_inttime
 
         # if inttime is say 100 and wcs_timestep is say 60 then this yeilds [0,60,100]
         # meaning the positions don't have constant integration time
-        self.wcs_times = np.append(np.arange(0, inttime, self.wcs_timestep), inttime)
+        self.wcs_times = np.append(np.arange(0, self.drizzle_params.used_inttime, self.wcs_timestep),
+                                   self.drizzle_params.used_inttime)
         self.stackedim = np.zeros((drizzle_params.n_dithers * (len(self.wcs_times) - 1),) + self.shape[::-1])
         self.stacked_wcs = []
         self.intermediate_file = save_file
@@ -961,6 +962,8 @@ def form(dither, mode='spatial', derotate=True, wave_start=None, wave_stop=None,
                     getLogger(__name__).info(f'Using cached data {pkl_save}')
             except IOError:
                 pass
+
+    #TODO we need to filter the query by time and remove the selection later!
 
     if dithers_data is None:
         dithers_data = load_data(dither, wave_start, wave_stop, start, drizzle_params.wcs_timestep, derotate=derotate,
