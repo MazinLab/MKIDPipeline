@@ -928,18 +928,18 @@ class Photontable:
                                                  name='FLAG_NAMES')]
 
         # Deal with non Primary HDU keys
-        ext_cards = [fits.Card('craycal', md.pop('cosmiccal'), comment='Cosmic ray data calculated'),
-                     fits.Card('pixcal', md.pop('pixcal'), comment='Pixel masking step performed'),
-                     fits.Card('lincal', md.pop('lincal'), comment='Linearity (dead time) corrected data'),
-                     fits.Card('speccal', md.pop('speccal'), comment='Speccal applied to data'),
-                     fits.Card('wavecal', md.pop('wavecal'), comment='Wavecal applied to data'),
-                     fits.Card('flatcal', md.pop('flatcal'), comment='Flatcal applied to data'),
-                     fits.Card('h5minwav', md.pop('min_wavelength'), comment='Min wavelength in h5 file'),
-                     fits.Card('h5maxwav', md.pop('max_wavelength'), comment='Max wavelength in h5 file'),
+        ext_cards = [fits.Card('CRAYCAL', md.pop('cosmiccal'), comment='Cosmic ray data calculated'),
+                     fits.Card('PIXCAL', md.pop('pixcal'), comment='Pixel masking step performed'),
+                     fits.Card('LINCAL', md.pop('lincal'), comment='Linearity (dead time) corrected data'),
+                     fits.Card('SPECCAL', md.pop('speccal'), comment='Speccal applied to data'),
+                     fits.Card('WAVECAL', md.pop('wavecal'), comment='Wavecal applied to data'),
+                     fits.Card('FLATCAL', md.pop('flatcal'), comment='Flatcal applied to data'),
+                     fits.Card('H5MINWAV', md.pop('min_wavelength'), comment='Min wavelength in h5 file'),
+                     fits.Card('H5MAXWAV', md.pop('max_wavelength'), comment='Max wavelength in h5 file'),
                      fits.Card('MINWAVE', time_nfo['minw'], comment='Lower wavelength cut'),
                      fits.Card('MAXWAVE', time_nfo['maxw'], comment='Upper wavelength cut'),
-                     fits.Card('eresol', md.pop('energy_resolution'), comment='Nominal energy resolution'),
-                     fits.Card('deadtime', md.pop('dead_time'), comment='Firmware dead-time (us)'),
+                     fits.Card('ERESOL', md.pop('energy_resolution'), comment='Nominal energy resolution'),
+                     fits.Card('DEADTIME', md.pop('dead_time'), comment='Firmware dead-time (us)'),
                      fits.Card('UNIT', 'photons/s' if rate else 'photons', comment='Count unit'),
                      fits.Card('EXFLAG', excluded, comment='Bitmask of excluded flags')]
 
