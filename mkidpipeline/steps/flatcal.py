@@ -65,8 +65,8 @@ TEST_CFGS= (StepConfig(chunk_time=30, nchunks=10, trim_chunks=0, use_wavecal=Tru
 FLAGS = FlagSet.define(
     ('inf_weight', 1, 'Spurious infinite weight was calculated - weight set to 1.0'),
     ('zero_weight', 2, 'Spurious zero weight was calculated - weight set to 1.0'),
-    ('below_range', 4, 'Derived wavelength is below formal validity range of calibration'),
-    ('above_range', 8, 'Derived wavelength is above formal validity range of calibration'),
+    ('nan_weight', 4, 'Derived wavelength is below formal validity range of calibration'),
+    ('negative_weight', 8, 'Derived wavelength is above formal validity range of calibration'),
 )
 
 UNFLATABLE = tuple()  # todo flags that can't be flatcaled
@@ -146,6 +146,7 @@ class FlatCalibrator:
         flat_weights = np.zeros_like(self.spectral_cube)
         delta_weights = np.zeros_like(self.spectral_cube)
         weight_mask = np.zeros_like(self.spectral_cube)
+        self.flat_flags = np.zeros((len(self.spectral_cube[0]), len(self.spectral_cube[1]),4))
         for iCube, cube in enumerate(self.spectral_cube):
             wvl_averages = np.zeros_like(self.wavelengths)
             wvl_weights = np.ones_like(cube)
@@ -157,6 +158,10 @@ class FlatCalibrator:
                 wvl_weights[:, :, iWvl] = wvl_averages_array / cube[:, :, iWvl]
             mask = np.array(np.logical_or(np.abs(wvl_weights) == np.inf, cube <= 0, np.isnan(wvl_weights)),
                             dtype=float)
+            self.flat_flags[:, :, 0] = np.logical_or(self.flat_flags[:, :, 0], np.abs(wvl_weights) == np.inf)
+            self.flat_flags[:, :, 1] = np.logical_or(self.flat_flags[:, :, 1], wvl_weights == 0)
+            self.flat_flags[:, :, 2] = np.logical_or(self.flat_flags[:, :, 2], np.isnan(wvl_weights))
+            self.flat_flags[:, :, 3] = np.logical_or(self.flat_flags[:, :, 3], wvl_weights < 0)
             self.mask = np.array(np.logical_or(self.mask, mask), dtype=float)
             flat_weights[iCube, :, :, :] = wvl_weights
             weight_mask[iCube] = mask
@@ -364,6 +369,7 @@ class FlatSolution(object):
             self.name = solution_name  # use the default or specified name for saving
             self.npz = None  # no npz file so all the properties should be set
 
+
     def save(self, save_name=None):
         """Save the solution to a file. The directory is given by the configuration."""
         if save_name is None:
@@ -378,6 +384,7 @@ class FlatSolution(object):
                  flat_weight_err=self.flat_weight_err, configuration=self.cfg, beam_map=self.beam_map)
         self._file_path = save_path  # new file_path for the solution
 
+
     def load(self, file_path, overload=True, file_mode='c'):
         """
         Load a solution from a file, optionally overloading previously defined attributes.
@@ -390,7 +397,7 @@ class FlatSolution(object):
         npz_file = np.load(file_path, allow_pickle=True, encoding='bytes', mmap_mode=file_mode)
         for key in keys:
             if key not in list(npz_file.keys()):
-                raise AttributeError('{} missing from {}, solution malformed'.format(key, file_path))
+                raise AttributeError(f'{key} missing from {file_path}, solution malformed')
         self.npz = npz_file
         if overload:  # properties grab from self.npz if set to none
             for attr in keys:
@@ -399,6 +406,7 @@ class FlatSolution(object):
         self.name = os.path.splitext(os.path.basename(file_path))[0]  # new name for saving
         getLogger(__name__).info("Complete")
 
+
     def get(self, pixel=None, res_id=None):
         if not pixel and not res_id:
             raise ValueError('Need to specify either resID or pixel coordinates')
@@ -406,6 +414,20 @@ class FlatSolution(object):
             if res == res_id or pix == pixel:  # in case of non unique resIDs
                 coeffs = self.coeff_array[pixel[0], pixel[1]]
                 return np.poly1d(coeffs)
+
+
+    def get_flag_map(self, name):
+        if name == 'inf_weight':
+            return self.flat_flags[:,:,0].astype(bool)
+        elif name == 'zero_weight':
+            return self.flat_flags[:, :, 1].astype(bool)
+        elif name == 'nan_weight':
+            return self.flat_flags[:, :, 2].astype(bool)
+        elif name == 'negative_weight':
+            return self.flat_flags[:, :, 3].astype(bool)
+        else:
+            raise AttributeError(f'{name} is not a valid flat flag name')
+
 
     def generate_summary_plot(self, save_plot=False):
         """ Writes a summary plot of the Flat Fielding """
