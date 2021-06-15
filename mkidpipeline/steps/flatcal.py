@@ -94,7 +94,7 @@ class FlatCalibrator:
         self.flat_weights = None
         self.flat_weight_err = None
         self.flat_flags = None
-        self.coeff_array = np.zeros((self.cfg.beammap.ncols, self.cfg.beammap.nrows))
+        self.coeff_array = np.zeros((self.cfg.beammap.ncols, self.cfg.beammap.nrows, self.cfg.flatcal.power + 1))
         self.mask = None
         self.h5s = None
         self.darks = None
@@ -145,6 +145,7 @@ class FlatCalibrator:
         """
         flat_weights = np.zeros_like(self.spectral_cube)
         delta_weights = np.zeros_like(self.spectral_cube)
+        weight_mask = np.zeros_like(self.spectral_cube)
         for iCube, cube in enumerate(self.spectral_cube):
             wvl_averages = np.zeros_like(self.wavelengths)
             wvl_weights = np.ones_like(cube)
@@ -154,9 +155,11 @@ class FlatCalibrator:
                 wvl_averages[iWvl] = np.nanmean(masked_cube)
                 wvl_averages_array = np.full(np.shape(cube[:, :, iWvl]), wvl_averages[iWvl])
                 wvl_weights[:, :, iWvl] = wvl_averages_array / cube[:, :, iWvl]
-            wvl_weights[(wvl_weights == np.inf) | (wvl_weights == 0)] = np.nan
+            mask = np.array(np.logical_or(np.abs(wvl_weights) == np.inf, cube <= 0, np.isnan(wvl_weights)),
+                            dtype=float)
+            self.mask = np.array(np.logical_or(self.mask, mask), dtype=float)
             flat_weights[iCube, :, :, :] = wvl_weights
-
+            weight_mask[iCube] = mask
             # To get uncertainty in weight:
             # Assuming negligible uncertainty in medians compared to single pixel spectra,
             # then deltaWeight=weight*deltaSpectrum/Spectrum
@@ -165,12 +168,10 @@ class FlatCalibrator:
             # deltaWeight=weight/sqrt(RawCounts)
             # but 'cube' is in units cps, not raw counts so multiply by effIntTime before sqrt
 
-            delta_weights[iCube, :, :, :] = flat_weights[iCube, :, :, :] / np.sqrt(self.eff_int_times * cube)
-
-        weights_mask = np.isnan(flat_weights)
-        self.flat_weights = np.ma.array(flat_weights, mask=weights_mask, fill_value=1.).data
+            delta_weights[iCube, :, :, :] = wvl_weights / np.sqrt(self.eff_int_times * cube)
+        self.flat_weights = np.ma.filled(np.ma.array(flat_weights, mask=weight_mask), 1.0)
         n_cubes = self.flat_weights.shape[0]
-        self.delta_weights = np.ma.array(delta_weights, mask=weights_mask).data
+        self.delta_weights = np.ma.filled(np.ma.array(delta_weights, mask=weight_mask), 1.0)
 
         # sort weights and rearrange spectral cubes the same way
         if self.cfg.flatcal.trim_chunks and n_cubes > 1:
@@ -193,14 +194,20 @@ class FlatCalibrator:
         self.flat_weight_err = np.sqrt(averaging_weights ** -1.)
         self.flat_flags = self.flat_weights.mask
         wvl_weight_avg = np.ma.mean(np.reshape(self.flat_weights, (-1, self.wavelengths.size)), axis=0)
-        self.flat_weights = np.divide(self.flat_weights.data, wvl_weight_avg)
+        self.flat_weights = np.divide(self.flat_weights.data, wvl_weight_avg.data)
 
     def calculate_coefficients(self):
-        for (x, y) in np.ndenumerate(Photontable(self.h5s).beamImage):
-            fittable = (self.flat_weights[x, y] != 0) & \
-                       np.isfinite(self.flat_weights[x, y] + self.flat_weight_err[x, y])
-            self.coeff_array[x, y] = np.polyfit(self.wavelengths[fittable], self.flat_weights[fittable],
-                                                self.cfg.flatcal.power, w=1 / self.flat_weight_err[fittable] ** 2)
+        if type(self.h5s) == dict:
+            beam_image = Photontable([o for o in self.h5s.values()][0].h5).beamImage
+        else:
+            beam_image = Photontable(self.h5s.h5).beamImage
+        for (x, y), resID in np.ndenumerate(beam_image):
+            fittable = ~self.mask[x, y].astype(bool)
+            if not np.any(fittable):
+                pass
+            else:
+                self.coeff_array[x, y] = np.polyfit(self.wavelengths[fittable], self.flat_weights[x,y][fittable],
+                                                self.cfg.flatcal.power, w=1 / self.flat_weight_err[x,y][fittable] ** 2)
         getLogger(__name__).info('Calculated Flat coefficients')
 
     def get_dark_frames(self):
@@ -214,8 +221,10 @@ class FlatCalibrator:
         frames = np.zeros_like(self.spectral_cube[0])
         for i, dark in enumerate(self.darks):
             if dark is not None:
+                # TODO dark frames need more thought, when should they be queried on wavelength? are they even wavecaled?
                 im = dark.photontable.get_fits(start=dark.start, duration=dark.duration, cube_type='time',
-                                               rate=True, bin_width=dark.duration)['SCIENCE']
+                                               rate=True, bin_width=dark.duration, wave_start=self.wvl_start,
+                                               wave_stop=self.wvl_stop)['SCIENCE']
                 frames[:,:,i] = im.data[:,:,0]
             else:
                 pass
