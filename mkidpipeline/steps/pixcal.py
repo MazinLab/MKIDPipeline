@@ -41,7 +41,7 @@ TEST_CFGS= (StepConfig(method='median', step=30), StepConfig(method='laplacian',
 
 FLAGS = FlagSet.define(('hot', 1, 'Hot pixel'),
                        ('cold', 2, 'Cold pixel'),
-                       ('dead', 3, 'Dead pixel'))
+                       ('dead', 4, 'Dead pixel'))
 
 
 def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
