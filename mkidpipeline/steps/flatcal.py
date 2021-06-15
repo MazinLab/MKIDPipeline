@@ -146,7 +146,8 @@ class FlatCalibrator:
         flat_weights = np.zeros_like(self.spectral_cube)
         delta_weights = np.zeros_like(self.spectral_cube)
         weight_mask = np.zeros_like(self.spectral_cube)
-        self.flat_flags = np.zeros((len(self.spectral_cube[0]), len(self.spectral_cube[1]),4))
+        self.flat_flags = np.zeros((np.shape(self.spectral_cube)[1], np.shape(self.spectral_cube)[2],
+                                    np.shape(self.spectral_cube)[3], 4))
         for iCube, cube in enumerate(self.spectral_cube):
             wvl_averages = np.zeros_like(self.wavelengths)
             wvl_weights = np.ones_like(cube)
@@ -156,12 +157,12 @@ class FlatCalibrator:
                 wvl_averages[iWvl] = np.nanmean(masked_cube)
                 wvl_averages_array = np.full(np.shape(cube[:, :, iWvl]), wvl_averages[iWvl])
                 wvl_weights[:, :, iWvl] = wvl_averages_array / cube[:, :, iWvl]
-            mask = np.array(np.logical_or(np.abs(wvl_weights) == np.inf, cube <= 0, np.isnan(wvl_weights)),
+            mask = np.array(np.logical_or(np.abs(wvl_weights) == np.inf, wvl_weights <= 0, np.isnan(wvl_weights)),
                             dtype=float)
-            self.flat_flags[:, :, 0] = np.logical_or(self.flat_flags[:, :, 0], np.abs(wvl_weights) == np.inf)
-            self.flat_flags[:, :, 1] = np.logical_or(self.flat_flags[:, :, 1], wvl_weights == 0)
-            self.flat_flags[:, :, 2] = np.logical_or(self.flat_flags[:, :, 2], np.isnan(wvl_weights))
-            self.flat_flags[:, :, 3] = np.logical_or(self.flat_flags[:, :, 3], wvl_weights < 0)
+            self.flat_flags[:, :, :, 0] = np.logical_or(self.flat_flags[:, :, :, 0], np.abs(wvl_weights) == np.inf)
+            self.flat_flags[:, :, :, 1] = np.logical_or(self.flat_flags[:, :, :, 1], wvl_weights == 0)
+            self.flat_flags[:, :, :, 2] = np.logical_or(self.flat_flags[:, :, :, 2], np.isnan(wvl_weights))
+            self.flat_flags[:, :, :, 3] = np.logical_or(self.flat_flags[:, :, :, 3], wvl_weights < 0)
             self.mask = np.array(np.logical_or(self.mask, mask), dtype=float)
             flat_weights[iCube, :, :, :] = wvl_weights
             weight_mask[iCube] = mask
@@ -211,6 +212,7 @@ class FlatCalibrator:
             if not np.any(fittable):
                 pass
             else:
+                # TODO will raise RankWarning, find out why and if it can be ignored
                 self.coeff_array[x, y] = np.polyfit(self.wavelengths[fittable], self.flat_weights[x,y][fittable],
                                                 self.cfg.flatcal.power, w=1 / self.flat_weight_err[x,y][fittable] ** 2)
         getLogger(__name__).info('Calculated Flat coefficients')
@@ -418,13 +420,25 @@ class FlatSolution(object):
 
     def get_flag_map(self, name):
         if name == 'inf_weight':
-            return self.flat_flags[:,:,0].astype(bool)
+            w = self.flat_flags[:,:,:,0].astype(bool)
+            for i in range(np.shape(w)[-1]):
+                mask = np.logical_or(mask, w[:,:,i])
+            return mask
         elif name == 'zero_weight':
-            return self.flat_flags[:, :, 1].astype(bool)
+            w = self.flat_flags[:,:,:,1].astype(bool)
+            for i in range(np.shape(w)[-1]):
+                mask = np.logical_or(mask, w[:, :, i])
+            return mask
         elif name == 'nan_weight':
-            return self.flat_flags[:, :, 2].astype(bool)
+            w = self.flat_flags[:,:,:,2].astype(bool)
+            for i in range(np.shape(w)[-1]):
+                mask = np.logical_or(mask, w[:, :, i])
+            return mask
         elif name == 'negative_weight':
-            return self.flat_flags[:, :, 3].astype(bool)
+            w = self.flat_flags[:,:,:,3].astype(bool)
+            for i in range(np.shape(w)[-1]):
+                mask = np.logical_or(mask, w[:,:,i])
+            return mask
         else:
             raise AttributeError(f'{name} is not a valid flat flag name')
 
@@ -581,7 +595,6 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
     to_clear = of.flags.bitmask([f'flatcal.{name}' for name, _, _ in FLAGS], unknown='ignore')
     of.unflag(to_clear)
     for name, bit, _ in FLAGS:
-        # TODO instrument FlatSoln (e.g. w/ get_flag_map) so there is a way to get a 2b boolean map of each set flag
         of.flag(calsoln.get_flag_map(name) * of.flags.bitmask([f'flatcal.{name}'], unknown='warn'))
 
     for pixel, resID in of.resonators(exclude=UNFLATABLE, pixel=True):
