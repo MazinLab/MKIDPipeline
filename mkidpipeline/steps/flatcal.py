@@ -375,9 +375,9 @@ class FlatSolution(object):
     def save(self, save_name=None):
         """Save the solution to a file. The directory is given by the configuration."""
         if save_name is None:
-            save_path = os.path.join(self.cfg.out_directory, self.name)
+            save_path = os.path.join(self.cfg.paths.database, self.name)
         else:
-            save_path = os.path.join(self.cfg.out_directory, save_name)
+            save_path = os.path.join(self.cfg.paths.database, save_name)
         if not save_path.endswith('.npz'):
             save_path += '.npz'
 
@@ -421,21 +421,25 @@ class FlatSolution(object):
     def get_flag_map(self, name):
         if name == 'inf_weight':
             w = self.flat_flags[:,:,:,0].astype(bool)
+            mask = np.zeros_like(w[:,:,0])
             for i in range(np.shape(w)[-1]):
-                mask = np.logical_or(mask, w[:,:,i])
+                mask = np.logical_or(mask, w[:, :, i])
             return mask
         elif name == 'zero_weight':
             w = self.flat_flags[:,:,:,1].astype(bool)
+            mask = np.zeros_like(w[:, :, 0])
             for i in range(np.shape(w)[-1]):
                 mask = np.logical_or(mask, w[:, :, i])
             return mask
         elif name == 'nan_weight':
             w = self.flat_flags[:,:,:,2].astype(bool)
+            mask = np.zeros_like(w[:, :, 0])
             for i in range(np.shape(w)[-1]):
                 mask = np.logical_or(mask, w[:, :, i])
             return mask
         elif name == 'negative_weight':
             w = self.flat_flags[:,:,:,3].astype(bool)
+            mask = np.zeros_like(w[:, :, 0])
             for i in range(np.shape(w)[-1]):
                 mask = np.logical_or(mask, w[:,:,i])
             return mask
