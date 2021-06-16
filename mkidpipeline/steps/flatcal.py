@@ -65,8 +65,8 @@ TEST_CFGS= (StepConfig(chunk_time=30, nchunks=10, trim_chunks=0, use_wavecal=Tru
 FLAGS = FlagSet.define(
     ('inf_weight', 1, 'Spurious infinite weight was calculated - weight set to 1.0'),
     ('zero_weight', 2, 'Spurious zero weight was calculated - weight set to 1.0'),
-    ('nan_weight', 4, 'Derived wavelength is below formal validity range of calibration'),
-    ('negative_weight', 8, 'Derived wavelength is above formal validity range of calibration'),
+    ('nan_weight', 3, 'Derived wavelength is below formal validity range of calibration'),
+    ('negative_weight', 4, 'Derived wavelength is above formal validity range of calibration'),
 )
 
 UNFLATABLE = tuple()  # todo flags that can't be flatcaled
@@ -146,8 +146,7 @@ class FlatCalibrator:
         flat_weights = np.zeros_like(self.spectral_cube)
         delta_weights = np.zeros_like(self.spectral_cube)
         weight_mask = np.zeros_like(self.spectral_cube)
-        self.flat_flags = np.zeros((np.shape(self.spectral_cube)[1], np.shape(self.spectral_cube)[2],
-                                    np.shape(self.spectral_cube)[3], 4))
+        self.flat_flags = np.zeros((np.shape(self.spectral_cube)[1:], 4))
         for iCube, cube in enumerate(self.spectral_cube):
             wvl_averages = np.zeros_like(self.wavelengths)
             wvl_weights = np.ones_like(cube)
@@ -157,13 +156,15 @@ class FlatCalibrator:
                 wvl_averages[iWvl] = np.nanmean(masked_cube)
                 wvl_averages_array = np.full(np.shape(cube[:, :, iWvl]), wvl_averages[iWvl])
                 wvl_weights[:, :, iWvl] = wvl_averages_array / cube[:, :, iWvl]
-            mask = np.array(np.logical_or(np.abs(wvl_weights) == np.inf, wvl_weights <= 0, np.isnan(wvl_weights)),
-                            dtype=float)
+            mask = np.array((np.abs(wvl_weights) == np.inf).astype(int) | (wvl_weights <= 0).astype(int) |
+                            np.isnan(wvl_weights).astype(int))
             self.flat_flags[:, :, :, 0] = np.logical_or(self.flat_flags[:, :, :, 0], np.abs(wvl_weights) == np.inf)
             self.flat_flags[:, :, :, 1] = np.logical_or(self.flat_flags[:, :, :, 1], wvl_weights == 0)
             self.flat_flags[:, :, :, 2] = np.logical_or(self.flat_flags[:, :, :, 2], np.isnan(wvl_weights))
             self.flat_flags[:, :, :, 3] = np.logical_or(self.flat_flags[:, :, :, 3], wvl_weights < 0)
-            self.mask = np.array(np.logical_or(self.mask, mask), dtype=float)
+
+            self.mask |= mask
+            self.mask = self.mask.astype(bool)
             flat_weights[iCube, :, :, :] = wvl_weights
             weight_mask[iCube] = mask
             # To get uncertainty in weight:
@@ -401,6 +402,12 @@ class FlatSolution(object):
             if key not in list(npz_file.keys()):
                 raise AttributeError(f'{key} missing from {file_path}, solution malformed')
         self.npz = npz_file
+        self.coeff_array = self.npz['coeff_array']
+        self.cfg = self.npz['configuration']
+        self.beam_map = self.npz['beam_map']
+        self.flat_weights = self.npz['flat_weights']
+        self.flat_weight_err = self.npz['flat_weight_err']
+        self.wavelengths = self.npz['wavelengths']
         if overload:  # properties grab from self.npz if set to none
             for attr in keys:
                 setattr(self, attr, None)
