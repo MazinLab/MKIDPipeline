@@ -137,11 +137,11 @@ class FlatCalibrator:
         """
         flat_weights = np.zeros_like(self.spectral_cube)
         delta_weights = np.zeros_like(self.spectral_cube)
-        weight_mask = np.zeros_like(self.spectral_cube)
-
+        weight_mask = np.zeros_like(self.spectral_cube, dtype=bool)
         self.flat_flags = np.zeros(self.spectral_cube.shape[1:], dtype=int)
         for iCube, cube in enumerate(self.spectral_cube):
-            masked_cube = cube[self.mask]*np.nan
+            masked_cube = np.copy(cube)
+            masked_cube[self.mask] = np.nan
             wvl_averages_array = np.nanmean(masked_cube.reshape(-1, masked_cube.shape[-1]), axis=0)
             wvl_weights = wvl_averages_array / cube
             self.flat_flags |= ((np.isinf(wvl_weights) << FLAGS.flags['inf_weight'].bit) |
@@ -304,7 +304,7 @@ class LaserCalibrator(FlatCalibrator):
         else:
             flat_duration = np.full(n_wvls, self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks)
         cps_cube_list = np.zeros([nchunks, x, y, n_wvls])
-        mask = np.zeros([x, y, n_wvls])
+        mask = np.zeros([x, y, n_wvls], dtype=bool)
         int_times = np.zeros([x, y, n_wvls])
 
         if self.cfg.flatcal.use_wavecal:
@@ -317,18 +317,18 @@ class LaserCalibrator(FlatCalibrator):
                 getLogger(__name__).warning('H5 File not hot pixel masked, this could skew the calculated flat weights')
 
             w_mask = self.wavelengths == wvl.value
-
-            mask[:, :, w_mask] = obs.flagged(PROBLEM_FLAGS)
+            w_idx = np.nonzero(w_mask)[0][0]
+            mask[:, :, w_idx] = obs.flagged(PROBLEM_FLAGS)
             if self.cfg.flatcal.use_wavecal:
-                wvl_start = wvl.value - delta_list[w_mask]
-                wvl_stop = wvl.value + delta_list[w_mask]
+                wvl_start = wvl.value - delta_list[w_idx]
+                wvl_stop = wvl.value + delta_list[w_idx]
 
-            hdul = obs.get_fits(duration=flat_duration[w_mask], rate=True, bin_width=self.cfg.flatcal.chunk_time,
+            hdul = obs.get_fits(duration=flat_duration[w_idx], rate=True, bin_width=self.cfg.flatcal.chunk_time,
                                 wave_start=wvl_start, wave_stop=wvl_stop, cube_type='time')
 
             getLogger(__name__).info(f'Loaded {wvl.value:.1f} nm spectral cube')
-            int_times[:, :, w_mask] = self.cfg.flatcal.chunk_time
-            cps_cube_list[:, :, :, w_mask] = np.moveaxis(hdul['SCIENCE'].data, 2, 0)
+            int_times[:, :, w_idx] = self.cfg.flatcal.chunk_time
+            cps_cube_list[:, :, :, w_idx] = np.moveaxis(hdul['SCIENCE'].data, 2, 0)
         self.spectral_cube = cps_cube_list
         self.eff_int_times = int_times
         self.mask = mask
