@@ -58,15 +58,16 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
 
         return ret
 
-TEST_CFGS= (StepConfig(chunk_time=30, nchunks=10, trim_chunks=0, use_wavecal=True),
-            StepConfig(chunk_time=30, nchunks=10, trim_chunks=0, use_wavecal=False),
-            StepConfig(chunk_time=10, nchunks=5, trim_chunks=1, use_wavecal=True))
+
+TEST_CFGS = (StepConfig(chunk_time=30, nchunks=10, trim_chunks=0, use_wavecal=True),
+             StepConfig(chunk_time=30, nchunks=10, trim_chunks=0, use_wavecal=False),
+             StepConfig(chunk_time=10, nchunks=5, trim_chunks=1, use_wavecal=True))
 
 FLAGS = FlagSet.define(
-    ('inf_weight', 1, 'Spurious infinite weight was calculated - weight set to 1.0'),
-    ('zero_weight', 2, 'Spurious zero weight was calculated - weight set to 1.0'),
-    ('nan_weight', 3, 'Derived wavelength is below formal validity range of calibration'),
-    ('negative_weight', 4, 'Derived wavelength is above formal validity range of calibration'),
+    ('inf_weight', 0, 'Spurious infinite weight was calculated - weight set to 1.0'),
+    ('zero_weight', 1, 'Spurious zero weight was calculated - weight set to 1.0'),
+    ('nan_weight', 2, 'Derived wavelength is below formal validity range of calibration'),
+    ('negative_weight', 3, 'Derived wavelength is above formal validity range of calibration'),
 )
 
 UNFLATABLE = tuple()  # todo flags that can't be flatcaled
@@ -99,9 +100,6 @@ class FlatCalibrator:
         self.h5s = None
         self.darks = None
 
-    def load_data(self):
-        pass
-
     def make_spectral_cube(self):
         pass
 
@@ -109,19 +107,13 @@ class FlatCalibrator:
         self.make_spectral_cube()
         dark_frames = self.get_dark_frames()
         for icube, cube in enumerate(self.spectral_cube):
-            dark_subtracted_cube = np.zeros_like(cube)
-            for iwvl, wvl in enumerate(cube[0, 0, :]):
-                dark_subtracted_cube[:, :, iwvl] = np.subtract(cube[:, :, iwvl], dark_frames[:, :, iwvl])
             # mask out any pixels with PROBLEM_FLAGS
-            masked_cube = np.ma.masked_array(dark_subtracted_cube, mask=self.mask).data
-            self.spectral_cube[icube] = masked_cube
+            self.spectral_cube[icube] = np.ma.masked_array(cube-dark_frames, mask=self.mask).data
         self.spectral_cube = np.array(self.spectral_cube)
         self.eff_int_times = np.array(self.eff_int_times)
         # count cubes is the counts over the integration time
 
     def run(self):
-        getLogger(__name__).info("Loading Data")
-        self.load_data()
         getLogger(__name__).info("Loading flat spectra")
         self.load_flat_spectra()
         getLogger(__name__).info("Calculating weights")
@@ -146,27 +138,19 @@ class FlatCalibrator:
         flat_weights = np.zeros_like(self.spectral_cube)
         delta_weights = np.zeros_like(self.spectral_cube)
         weight_mask = np.zeros_like(self.spectral_cube)
-        self.flat_flags = np.zeros((np.shape(self.spectral_cube)[1:], 4))
-        for iCube, cube in enumerate(self.spectral_cube):
-            wvl_averages = np.zeros_like(self.wavelengths)
-            wvl_weights = np.ones_like(cube)
-            for iWvl in range(self.wavelengths.size):
-                masked_cube = np.copy(cube[:, :, iWvl])
-                masked_cube[self.mask[:, :, iWvl] == 1] = np.nan
-                wvl_averages[iWvl] = np.nanmean(masked_cube)
-                wvl_averages_array = np.full(np.shape(cube[:, :, iWvl]), wvl_averages[iWvl])
-                wvl_weights[:, :, iWvl] = wvl_averages_array / cube[:, :, iWvl]
-            mask = np.array((np.abs(wvl_weights) == np.inf).astype(int) | (wvl_weights <= 0).astype(int) |
-                            np.isnan(wvl_weights).astype(int))
-            self.flat_flags[:, :, :, 0] = np.logical_or(self.flat_flags[:, :, :, 0], np.abs(wvl_weights) == np.inf)
-            self.flat_flags[:, :, :, 1] = np.logical_or(self.flat_flags[:, :, :, 1], wvl_weights == 0)
-            self.flat_flags[:, :, :, 2] = np.logical_or(self.flat_flags[:, :, :, 2], np.isnan(wvl_weights))
-            self.flat_flags[:, :, :, 3] = np.logical_or(self.flat_flags[:, :, :, 3], wvl_weights < 0)
 
-            self.mask |= mask
-            self.mask = self.mask.astype(bool)
-            flat_weights[iCube, :, :, :] = wvl_weights
-            weight_mask[iCube] = mask
+        self.flat_flags = np.zeros(self.spectral_cube.shape[1:], dtype=int)
+        for iCube, cube in enumerate(self.spectral_cube):
+            masked_cube = cube[self.mask]*np.nan
+            wvl_averages_array = np.nanmean(masked_cube.reshape(-1, masked_cube.shape[-1]), axis=0)
+            wvl_weights = wvl_averages_array / cube
+            self.flat_flags |= ((np.isinf(wvl_weights) << FLAGS.flags['inf_weight'].bit) |
+                                ((wvl_weights == 0) << FLAGS.flags['zero_weight'].bit) |
+                                ((wvl_weights < 0) << FLAGS.flags['negative_weight'].bit) |
+                                (np.isnan(wvl_weights) << FLAGS.flags['nan_weight'].bit))
+            weight_mask[iCube] = (~np.isfinite(wvl_weights)) | (wvl_weights <= 0)
+            self.mask |= weight_mask[iCube]
+            flat_weights[iCube] = wvl_weights
             # To get uncertainty in weight:
             # Assuming negligible uncertainty in medians compared to single pixel spectra,
             # then deltaWeight=weight*deltaSpectrum/Spectrum
@@ -175,7 +159,7 @@ class FlatCalibrator:
             # deltaWeight=weight/sqrt(RawCounts)
             # but 'cube' is in units cps, not raw counts so multiply by effIntTime before sqrt
 
-            delta_weights[iCube, :, :, :] = wvl_weights / np.sqrt(self.eff_int_times * cube)
+            delta_weights[iCube] = wvl_weights / np.sqrt(self.eff_int_times * cube)
         self.flat_weights = np.ma.filled(np.ma.array(flat_weights, mask=weight_mask), 1.0)
         n_cubes = self.flat_weights.shape[0]
         self.delta_weights = np.ma.filled(np.ma.array(delta_weights, mask=weight_mask), 1.0)
@@ -183,12 +167,12 @@ class FlatCalibrator:
         # sort weights and rearrange spectral cubes the same way
         if self.cfg.flatcal.trim_chunks and n_cubes > 1:
             sort_idxs = np.ma.argsort(self.flat_weights, axis=0)
-            i_idxs = np.ma.indices(np.shape(self.flat_weights))
+            i_idxs = np.ma.indices(self.flat_weights.shape)
             sorted_weights = self.flat_weights[sort_idxs, i_idxs[1], i_idxs[2], i_idxs[3]]
             weight_err = self.delta_weights[sort_idxs, i_idxs[1], i_idxs[2], i_idxs[3]]
             sl = self.cfg.flatcal.trim_chunks
-            weights_to_use = sorted_weights[sl:-sl, :, :, :]
-            weight_err_to_use = weight_err[sl:-sl, :, :, :]
+            weights_to_use = sorted_weights[sl:-sl]
+            weight_err_to_use = weight_err[sl:-sl]
             self.flat_weights, averaging_weights = np.ma.average(weights_to_use, axis=0,
                                                                  weights=weight_err_to_use ** -2.,
                                                                  returned=True)
@@ -209,13 +193,14 @@ class FlatCalibrator:
         else:
             beam_image = Photontable(self.h5s.h5).beamImage
         for (x, y), resID in np.ndenumerate(beam_image):
-            fittable = ~self.mask[x, y].astype(bool)
-            if not np.any(fittable):
+            fittable = ~self.mask[x, y]
+            if not fittable.any():
                 pass
             else:
                 # TODO will raise RankWarning, find out why and if it can be ignored
-                self.coeff_array[x, y] = np.polyfit(self.wavelengths[fittable], self.flat_weights[x,y][fittable],
-                                                self.cfg.flatcal.power, w=1 / self.flat_weight_err[x,y][fittable] ** 2)
+                self.coeff_array[x, y] = np.polyfit(self.wavelengths[fittable], self.flat_weights[x, y][fittable],
+                                                    self.cfg.flatcal.power,
+                                                    w=1 / self.flat_weight_err[x, y][fittable] ** 2)
         getLogger(__name__).info('Calculated Flat coefficients')
 
     def get_dark_frames(self):
@@ -233,7 +218,7 @@ class FlatCalibrator:
                 im = dark.photontable.get_fits(start=dark.start, duration=dark.duration, cube_type='time',
                                                rate=True, bin_width=dark.duration, wave_start=self.wvl_start,
                                                wave_stop=self.wvl_stop)['SCIENCE']
-                frames[:,:,i] = im.data[:,:,0]
+                frames[:, :, i] = im.data[:, :, 0]
             else:
                 pass
         return frames
@@ -256,16 +241,16 @@ class WhiteCalibrator(FlatCalibrator):
         self.darks = darks
 
     def make_spectral_cube(self):
-
         exposure_time = self.h5s.duration
         if self.cfg.flatcal.chunk_time > exposure_time:
             getLogger(__name__).warning('Chunk time is longer than the exposure. Using a single chunk')
             time_edges = np.array([self.h5s.start, self.h5s.start + self.h5s.duration])
         elif self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks > exposure_time:
             nchunks = int(exposure_time / self.cfg.flatcal.chunk_time)
-            time_edges = self.h5s.start+np.arange(nchunks+1)*self.cfg.flatcal.chunk_time
-            getLogger(__name__).warning(f'Number of {self.cfg.flatcal.chunk_time} s chunks requested is longer than the '
-                                        f'exposure. Using first full {nchunks} chunks.')
+            time_edges = self.h5s.start + np.arange(nchunks + 1) * self.cfg.flatcal.chunk_time
+            getLogger(__name__).warning(
+                f'Number of {self.cfg.flatcal.chunk_time} s chunks requested is longer than the '
+                f'exposure. Using first full {nchunks} chunks.')
         else:
             time_edges = np.self.h5s.start + np.arange(self.cfg.flatcal.nchunks + 1) * self.cfg.flatcal.chunk_time
 
@@ -288,13 +273,12 @@ class WhiteCalibrator(FlatCalibrator):
         self.spectral_cube = np.array(cps_cube_list)  # n_times, x, y, n_wvls
         # TODO if the rest of the algorithm doesn't take good care of this then including it here for future expansion
         #  is silly and it should be considered for removal
-        self.eff_int_times = np.full(self.spectral_cube.shape[1:], fill_value=time_edges[1]-time_edges[0])
-        # TODO is this broadcast really necessary?
-        self.mask = pt.flagged(PROBLEM_FLAGS)[..., None]*np.ones(self.wavelengths.size)
+        self.eff_int_times = np.full(self.spectral_cube.shape[1:], fill_value=time_edges[1] - time_edges[0])
+        self.mask = pt.flagged(PROBLEM_FLAGS)[..., None] * np.ones(self.wavelengths.size, dtype=bool)
 
 
 class LaserCalibrator(FlatCalibrator):
-    def __init__(self, h5s,  wavesol, solution_name='flat_solution.npz', config=None, darks=None):
+    def __init__(self, h5s, wavesol, solution_name='flat_solution.npz', config=None, darks=None):
         super().__init__(config)
         self.h5s = h5s
         self.wavelengths = np.array([key.value for key in h5s.keys()], dtype=float)
@@ -313,8 +297,9 @@ class LaserCalibrator(FlatCalibrator):
             flat_duration = exposure_times
         elif np.any(self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks > exposure_times):
             nchunks = int((exposure_times / self.cfg.flatcal.chunk_time).max())
-            getLogger(__name__).warning(f'Number of {self.cfg.flatcal.chunk_time} s chunks requested is longer than the '
-                                        f'exposure. Using first full {nchunks} chunks.')
+            getLogger(__name__).warning(
+                f'Number of {self.cfg.flatcal.chunk_time} s chunks requested is longer than the '
+                f'exposure. Using first full {nchunks} chunks.')
             flat_duration = exposure_times
         else:
             flat_duration = np.full(n_wvls, self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks)
@@ -331,7 +316,7 @@ class LaserCalibrator(FlatCalibrator):
             if not obs.query_header('pixcal') and not self.cfg.flatcal.use_wavecal:
                 getLogger(__name__).warning('H5 File not hot pixel masked, this could skew the calculated flat weights')
 
-            w_mask = np.where(self.wavelengths == wvl.value)[0][0]
+            w_mask = self.wavelengths == wvl.value
 
             mask[:, :, w_mask] = obs.flagged(PROBLEM_FLAGS)
             if self.cfg.flatcal.use_wavecal:
@@ -372,7 +357,6 @@ class FlatSolution(object):
             self.name = solution_name  # use the default or specified name for saving
             self.npz = None  # no npz file so all the properties should be set
 
-
     def save(self, save_name=None):
         """Save the solution to a file. The directory is given by the configuration."""
         if save_name is None:
@@ -386,7 +370,6 @@ class FlatSolution(object):
         np.savez(save_path, coeff_array=self.coeff_array, flat_weights=self.flat_weights, wavelengths=self.wavelengths,
                  flat_weight_err=self.flat_weight_err, configuration=self.cfg, beam_map=self.beam_map)
         self._file_path = save_path  # new file_path for the solution
-
 
     def load(self, file_path, overload=True, file_mode='c'):
         """
@@ -415,7 +398,6 @@ class FlatSolution(object):
         self.name = os.path.splitext(os.path.basename(file_path))[0]  # new name for saving
         getLogger(__name__).info("Complete")
 
-
     def get(self, pixel=None, res_id=None):
         if not pixel and not res_id:
             raise ValueError('Need to specify either resID or pixel coordinates')
@@ -423,36 +405,6 @@ class FlatSolution(object):
             if res == res_id or pix == pixel:  # in case of non unique resIDs
                 coeffs = self.coeff_array[pixel[0], pixel[1]]
                 return np.poly1d(coeffs)
-
-
-    def get_flag_map(self, name):
-        if name == 'inf_weight':
-            w = self.flat_flags[:,:,:,0].astype(bool)
-            mask = np.zeros_like(w[:,:,0])
-            for i in range(np.shape(w)[-1]):
-                mask = np.logical_or(mask, w[:, :, i])
-            return mask
-        elif name == 'zero_weight':
-            w = self.flat_flags[:,:,:,1].astype(bool)
-            mask = np.zeros_like(w[:, :, 0])
-            for i in range(np.shape(w)[-1]):
-                mask = np.logical_or(mask, w[:, :, i])
-            return mask
-        elif name == 'nan_weight':
-            w = self.flat_flags[:,:,:,2].astype(bool)
-            mask = np.zeros_like(w[:, :, 0])
-            for i in range(np.shape(w)[-1]):
-                mask = np.logical_or(mask, w[:, :, i])
-            return mask
-        elif name == 'negative_weight':
-            w = self.flat_flags[:,:,:,3].astype(bool)
-            mask = np.zeros_like(w[:, :, 0])
-            for i in range(np.shape(w)[-1]):
-                mask = np.logical_or(mask, w[:,:,i])
-            return mask
-        else:
-            raise AttributeError(f'{name} is not a valid flat flag name')
-
 
     def generate_summary_plot(self, save_plot=False):
         """ Writes a summary plot of the Flat Fielding """
@@ -603,10 +555,11 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
     getLogger(__name__).info(f'Applying {calsoln} to {o}')
 
     # Set flags for pixels that have them
-    to_clear = of.flags.bitmask([f'flatcal.{name}' for name, _, _ in FLAGS], unknown='ignore')
+    to_clear = of.flags.bitmask([f'flatcal.{flag.name}' for flag in FLAGS], unknown='ignore')
     of.unflag(to_clear)
-    for name, bit, _ in FLAGS:
-        of.flag(calsoln.get_flag_map(name) * of.flags.bitmask([f'flatcal.{name}'], unknown='warn'))
+    for flag in FLAGS:
+        mask = (calsoln.flat_flags & flag.bitmask).sum(2) > 0
+        of.flag(mask * of.flags.bitmask([f'flatcal.{flag.name}'], unknown='warn'))
 
     for pixel, resID in of.resonators(exclude=UNFLATABLE, pixel=True):
         soln = calsoln.get(pixel=pixel, res_id=resID)
