@@ -243,15 +243,15 @@ class WhiteCalibrator(FlatCalibrator):
         exposure_time = self.h5s.duration
         if self.cfg.flatcal.chunk_time > exposure_time:
             getLogger(__name__).warning('Chunk time is longer than the exposure. Using a single chunk')
-            time_edges = np.array([self.h5s.start, self.h5s.start + self.h5s.duration])
+            time_edges = np.array([0, self.h5s.duration], dtype=float)
         elif self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks > exposure_time:
             nchunks = int(exposure_time / self.cfg.flatcal.chunk_time)
-            time_edges = self.h5s.start + np.arange(nchunks + 1) * self.cfg.flatcal.chunk_time
+            time_edges = np.arange(nchunks + 1, dtype=float) * self.cfg.flatcal.chunk_time
             getLogger(__name__).warning(
                 f'Number of {self.cfg.flatcal.chunk_time} s chunks requested is longer than the '
                 f'exposure. Using first full {nchunks} chunks.')
         else:
-            time_edges = np.self.h5s.start + np.arange(self.cfg.flatcal.nchunks + 1) * self.cfg.flatcal.chunk_time
+            time_edges = np.arange(self.cfg.flatcal.nchunks + 1, dtype=float) * self.cfg.flatcal.chunk_time
 
         pt = Photontable(self.h5s.timerange.h5)
         if not pt.wavelength_calibrated:
@@ -259,17 +259,18 @@ class WhiteCalibrator(FlatCalibrator):
 
         # define wavelengths to use
         edges = pt.nominal_wavelength_bins
-        self.wavelengths = edges[: -1] + np.diff(edges)  # wavelength bin centers
+        self.wavelengths = edges[: -1] + np.diff(edges) / 2 # wavelength bin centers
 
         if not pt.query_header('pixcal'):
             getLogger(__name__).warning('H5 File not hot pixel masked, will skew flat weights')
 
-        cps_cube_list = []
-        for wstart, wstop in zip(edges[:-1], edges[1:]):
+        cps_cube_list = np.zeros((len(time_edges) - 1, self.cfg.beammap.ncols, self.cfg.beammap.nrows,
+                                  len(self.wavelengths)))
+        for i, (wstart, wstop) in enumerate(zip(edges[:-1], edges[1:])):
             hdul = pt.get_fits(rate=True, bin_edges=time_edges, wave_start=wstart, wave_stop=wstop, cube_type='time')
-            cps_cube_list.append(np.moveaxis(hdul['SCIENCE'].data, 2, 0))  # moveaxis for code compatibility
+            cps_cube_list[:,:,:,i] = np.moveaxis(hdul['SCIENCE'].data, 2, 0)  # moveaxis for code compatibility
         getLogger(__name__).info(f'Loaded spectral cubes')
-        self.spectral_cube = np.array(cps_cube_list)  # n_times, x, y, n_wvls
+        self.spectral_cube = cps_cube_list  # n_times, x, y, n_wvls
         # TODO if the rest of the algorithm doesn't take good care of this then including it here for future expansion
         #  is silly and it should be considered for removal
         self.eff_int_times = np.full(self.spectral_cube.shape[1:], fill_value=time_edges[1] - time_edges[0])
@@ -303,7 +304,6 @@ class LaserCalibrator(FlatCalibrator):
         else:
             flat_duration = np.full(n_wvls, self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks)
         cps_cube_list = np.zeros([nchunks, x, y, n_wvls])
-        mask = np.zeros([x, y, n_wvls], dtype=bool)
         int_times = np.zeros([x, y, n_wvls])
 
         if self.cfg.flatcal.use_wavecal:
@@ -311,18 +311,17 @@ class LaserCalibrator(FlatCalibrator):
         wvl_start, wvl_stop = None, None
 
         for wvl, h5 in self.h5s.items():
-            obs = h5.photontable
-            if not obs.query_header('pixcal') and not self.cfg.flatcal.use_wavecal:
+            pt = h5.photontable
+            if not pt.query_header('pixcal') and not self.cfg.flatcal.use_wavecal:
                 getLogger(__name__).warning('H5 File not hot pixel masked, this could skew the calculated flat weights')
 
             w_mask = self.wavelengths == wvl.value
             w_idx = np.nonzero(w_mask)[0][0]
-            mask[:, :, w_idx] = obs.flagged(PROBLEM_FLAGS)
             if self.cfg.flatcal.use_wavecal:
                 wvl_start = wvl.value - delta_list[w_idx]
                 wvl_stop = wvl.value + delta_list[w_idx]
 
-            hdul = obs.get_fits(duration=flat_duration[w_idx], rate=True, bin_width=self.cfg.flatcal.chunk_time,
+            hdul = pt.get_fits(duration=flat_duration[w_idx], rate=True, bin_width=self.cfg.flatcal.chunk_time,
                                 wave_start=wvl_start, wave_stop=wvl_stop, cube_type='time')
 
             getLogger(__name__).info(f'Loaded {wvl.value:.1f} nm spectral cube')
@@ -330,7 +329,7 @@ class LaserCalibrator(FlatCalibrator):
             cps_cube_list[:, :, :, w_idx] = np.moveaxis(hdul['SCIENCE'].data, 2, 0)
         self.spectral_cube = cps_cube_list
         self.eff_int_times = int_times
-        self.mask = mask
+        self.mask = pt.flagged(PROBLEM_FLAGS)[..., None] * np.ones(self.wavelengths.size, dtype=bool)
 
 
 class FlatSolution(object):
@@ -435,12 +434,12 @@ class FlatSolution(object):
         axes[1].scatter(wavelengths, array_averaged_weights)
         axes[1].set_title('Mean Weight vs. Wavelength', fontsize=8)
         axes[1].set_ylabel('Mean Weight', fontsize=8)
-        axes[1].set_xlabel(r'$\lambda$ ($\AA$)', fontsize=8)
+        axes[1].set_xlabel(r'$\lambda$ ($nm$)', fontsize=8)
 
         axes[2].scatter(wavelengths, array_std)
         axes[2].set_title('Std of Weight vs. Wavelength', fontsize=8)
         axes[2].set_ylabel('Standard Deviation', fontsize=8)
-        axes[2].set_xlabel(r'$\lambda$ ($\AA$)', fontsize=8)
+        axes[2].set_xlabel(r'$\lambda$ ($nm$)', fontsize=8)
 
         axes[0].tick_params(labelsize=8)
         axes[1].tick_params(labelsize=8)
