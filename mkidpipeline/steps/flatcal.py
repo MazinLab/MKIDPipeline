@@ -21,16 +21,16 @@ import multiprocessing as mp
 import time
 import matplotlib.pyplot as plt
 import numpy as np
-
+from matplotlib import gridspec
 from matplotlib.backends.backend_pdf import PdfPages
-
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 from mkidpipeline.steps import wavecal
 from mkidpipeline.photontable import Photontable
 from mkidcore.corelog import getLogger
 import mkidpipeline.config
 from mkidpipeline.config import H5Subset
 from mkidcore.pixelflags import FlagSet, PROBLEM_FLAGS
-
+import matplotlib as mpl
 _loaded_solutions = {}
 
 
@@ -120,11 +120,11 @@ class FlatCalibrator:
         self.calculate_weights()
         self.calculate_coefficients()
         sol = FlatSolution(configuration=self.cfg, flat_weights=self.flat_weights, flat_weight_err=self.flat_weight_err,
-                           flat_flags=self.flat_flags, coeff_array=self.coeff_array)
+                           flat_flags=self.flat_flags, coeff_array=self.coeff_array, wavelengths=self.wavelengths)
         sol.save(save_name=self.solution_name)
         if self.summary_plot:
             getLogger(__name__).info('Making a summary plot')
-            sol.generate_summary_plot(save_plot=self.save_plots)
+            sol.plot_summary(save_plot=self.save_plots)
         getLogger(__name__).info('Done')
 
     def calculate_weights(self):
@@ -140,7 +140,7 @@ class FlatCalibrator:
         weight_mask = np.zeros_like(self.spectral_cube, dtype=bool)
         self.flat_flags = np.zeros(self.spectral_cube.shape[1:], dtype=int)
         for iCube, cube in enumerate(self.spectral_cube):
-            masked_cube = np.copy(cube)
+            masked_cube = cube.copy()
             masked_cube[self.mask] = np.nan
             wvl_averages_array = np.nanmean(masked_cube.reshape(-1, masked_cube.shape[-1]), axis=0)
             wvl_weights = wvl_averages_array / cube
@@ -183,7 +183,6 @@ class FlatCalibrator:
 
         # Uncertainty in weighted average is sqrt(1/sum(averagingWeights)), normalize weights at each wavelength bin
         self.flat_weight_err = np.sqrt(averaging_weights ** -1.)
-        self.flat_flags = self.flat_weights.mask
         wvl_weight_avg = np.ma.mean(np.reshape(self.flat_weights, (-1, self.wavelengths.size)), axis=0)
         self.flat_weights = np.divide(self.flat_weights.data, wvl_weight_avg.data)
 
@@ -357,6 +356,7 @@ class FlatSolution(object):
             self.name = solution_name  # use the default or specified name for saving
             self.npz = None  # no npz file so all the properties should be set
 
+
     def save(self, save_name=None):
         """Save the solution to a file. The directory is given by the configuration."""
         if save_name is None:
@@ -368,8 +368,10 @@ class FlatSolution(object):
 
         getLogger(__name__).info("Saving solution to {}".format(save_path))
         np.savez(save_path, coeff_array=self.coeff_array, flat_weights=self.flat_weights, wavelengths=self.wavelengths,
-                 flat_weight_err=self.flat_weight_err, configuration=self.cfg, beam_map=self.beam_map)
+                 flat_weight_err=self.flat_weight_err, flat_flags=self.flat_flags, configuration=self.cfg,
+                 beam_map=self.beam_map)
         self._file_path = save_path  # new file_path for the solution
+
 
     def load(self, file_path, overload=True, file_mode='c'):
         """
@@ -379,7 +381,7 @@ class FlatSolution(object):
 
         """
         getLogger(__name__).info("Loading solution from {}".format(file_path))
-        keys = ('coeff_array', 'configuration', 'beam_map', 'flat_weights', 'flat_weight_err', 'wavelengths')
+        keys = ('coeff_array', 'configuration', 'beam_map', 'flat_weights', 'flat_flags', 'flat_weight_err', 'wavelengths')
         npz_file = np.load(file_path, allow_pickle=True, encoding='bytes', mmap_mode=file_mode)
         for key in keys:
             if key not in list(npz_file.keys()):
@@ -391,12 +393,14 @@ class FlatSolution(object):
         self.flat_weights = self.npz['flat_weights']
         self.flat_weight_err = self.npz['flat_weight_err']
         self.wavelengths = self.npz['wavelengths']
+        self.flat_flags = self.npz['flat_flags']
         if overload:  # properties grab from self.npz if set to none
             for attr in keys:
                 setattr(self, attr, None)
         self._file_path = file_path  # new file_path for the solution
         self.name = os.path.splitext(os.path.basename(file_path))[0]  # new name for saving
         getLogger(__name__).info("Complete")
+
 
     def get(self, pixel=None, res_id=None):
         if not pixel and not res_id:
@@ -406,58 +410,49 @@ class FlatSolution(object):
                 coeffs = self.coeff_array[pixel[0], pixel[1]]
                 return np.poly1d(coeffs)
 
-    def generate_summary_plot(self, save_plot=False):
+
+    def plot_summary(self, save_plot=False):
         """ Writes a summary plot of the Flat Fielding """
         weight_array = self.flat_weights
         wavelengths = self.wavelengths
-
-        mean_weight_array = np.nanmean(weight_array)
-        weight_array[weight_array == 0] = np.nan
-        std_weight_array = np.nanstd(weight_array, axis=2)
-        mean_weight_array[mean_weight_array == 0] = np.nan
+        weight_array[self.flat_flags] = np.nan
+        mean_weight_array = np.nanmean(weight_array, axis=2)
 
         array_averaged_weights = np.nanmean(weight_array, axis=(0, 1))
+        array_std = np.nanstd(weight_array, axis=(0, 1))
 
-        class Dummy(object):
-            def __enter__(self):
-                return None
+        figure = plt.figure()
 
-            def __exit__(self, exc_type, exc_value, traceback):
-                return False
+        gs = gridspec.GridSpec(2, 4)
+        axes = np.array([figure.add_subplot(gs[:, 0:2]), figure.add_subplot(gs[0, 2:]),
+                              figure.add_subplot(gs[1, 2:])])
 
-            def savefig(self):
-                pass
+        axes[0].set_title('Mean Flat Weight', fontsize=8)
+        max = np.nanmean(mean_weight_array) + 1 * np.nanstd(mean_weight_array)
+        mean_weight_array[np.isnan(mean_weight_array)] = 0
+        im = axes[0].imshow(mean_weight_array.T, cmap=plt.get_cmap('viridis'), vmin=0.0, vmax=max)
 
-        with PdfPages(self.save_name.split('.npz')[0] + '_summary.pdf') if save_plot else Dummy() as pdf:
+        axes[1].scatter(wavelengths, array_averaged_weights)
+        axes[1].set_title('Mean Weight vs. Wavelength', fontsize=8)
+        axes[1].set_ylabel('Mean Weight', fontsize=8)
+        axes[1].set_xlabel(r'$\lambda$ ($\AA$)', fontsize=8)
 
-            fig, ax = plt.subplot_mosaic(
-                """
-                AB
-                CD
-                """
-            )
-            ax[0].set_title('Mean Flat weight across the array')
-            max = np.nanmean(mean_weight_array) + 1 * np.nanstd(mean_weight_array)
-            mean_weight_array[np.isnan(mean_weight_array)] = 0
-            ax[0].imshow(mean_weight_array.T, cmap=plt.get_cmap('viridis'), vmin=0.0, vmax=max)
-            plt.colorbar()
+        axes[2].scatter(wavelengths, array_std)
+        axes[2].set_title('Std of Weight vs. Wavelength', fontsize=8)
+        axes[2].set_ylabel('Standard Deviation', fontsize=8)
+        axes[2].set_xlabel(r'$\lambda$ ($\AA$)', fontsize=8)
 
-            ax[1].scatter(wavelengths, array_averaged_weights)
-            ax[1].set_title('Mean Weight Versus Wavelength')
-            ax[1].set_ylabel('Mean Weight')
-            ax[1].set_xlabel(r'$\lambda$ ($\AA$)')
-
-            ax[2].scatter(wavelengths, std_weight_array)
-            ax[2].set_title('Standard Deviation of Weight Versus Wavelength')
-            ax[2].set_ylabel('Standard Deviation')
-            ax[2].set_xlabel(r'$\lambda$ ($\AA$)')
-
-            for x in weight_array:
-                for weights in x:
-                    ax[3].scatter(wavelengths, weights)
-            pdf.savefig(fig)
-
-        if not save_plot:
+        axes[0].tick_params(labelsize=8)
+        axes[1].tick_params(labelsize=8)
+        axes[2].tick_params(labelsize=8)
+        divider = make_axes_locatable(axes[0])
+        cax = divider.append_axes('bottom', size='5%', pad=0.3)
+        cbar = figure.colorbar(im, cax=cax, orientation='horizontal')
+        cbar.ax.tick_params(labelsize='small')
+        plt.subplots_adjust(wspace=0.8, hspace=0.8)
+        if save_plot:
+            plt.savefig(self._file_path.split('.npz')[0] + '.pdf')
+        else:
             plt.show()
 
 
