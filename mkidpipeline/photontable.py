@@ -118,10 +118,15 @@ class SharedTable(object):
         self.data = np.frombuffer(self._X, dtype=PhotonNumpyType).reshape(self._shape)
 
 
-def load_shareable_photonlist(file):
-    # TODO Add arguments to pass through a query
+def load_shareable_photonlist(file, query=None):
     tic = time.time()
     f = Photontable(file)
+
+    if query is not None:
+        d = f.query(**query)
+        table = SharedTable(d.shape)
+        table.data = d
+    else:
     table = SharedTable(f.photonTable.shape)
     f.photonTable.read(out=table.data)
     ram = table.data.size * table.data.itemsize / 1024 / 1024 / 1024.0
@@ -218,13 +223,11 @@ class Photontable:
         self._load_file(file_name)
 
     def __del__(self):
-        """
-        Closes the obs file and any cal files that are open
-        """
+        """ Closes the obs file """
         try:
             self.file.close()
         except:
-            pass
+            getLogger(__name__).warning('Error on file close', exc_info=True)
 
     def __str__(self):
         return 'Photontable: ' + self.filename
@@ -796,9 +799,6 @@ class Photontable:
                             :param bin_edges:
                             :param bin_type:
         """
-        if (bin_edges or bin_width) and weight and self.query_header('flatcal'):
-            # TODO is this even accurate anymore
-            raise ValueError('Using flat cal, so flat cal bins must be used')
 
         photons = self.query(pixel=pixel, start=start, intt=duration, startw=wave_start, stopw=wave_stop)
 
