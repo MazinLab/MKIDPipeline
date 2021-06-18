@@ -174,7 +174,7 @@ class H5Subset:
 
     @property
     def photontable(self):
-        from photontable import Photontable
+        from mkidpipeline.photontable import Photontable
         return Photontable(self.timerange.h5)
 
     @property
