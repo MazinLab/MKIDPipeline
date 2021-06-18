@@ -6,8 +6,8 @@ import numpy as np
 import multiprocessing as mp
 import time
 from distutils.spawn import find_executable
-from six.moves.configparser import ConfigParser
 import progressbar as pb
+import scipy
 
 import astropy.constants
 import matplotlib
@@ -68,7 +68,7 @@ FLAGS = FlagSet.define(
 )
 
 
-class Configuration(object):
+class Configuration:
     """Configuration class for the wavelength calibration analysis."""
     yaml_tag = u'!wavecalconfig'
 
@@ -132,19 +132,6 @@ class Configuration(object):
                    '{} is not a subclass of wavecal_models.XErrorsModel'.format(model)
 
         # self.wavelengths, self.start_times = zip(*sorted(zip(self.wavelengths, self.start_times)))
-
-    #
-    # @classmethod
-    # def to_yaml(cls, representer, node):
-    #     d = node.__dict__.copy()
-    #     d.pop('config')
-    #     return representer.represent_mapping(cls.yaml_tag, d)
-    #
-    # @classmethod
-    # def from_yaml(cls, loader, node):
-    #     #TODO I don't know why I used extract_from_node here and dict(loader.construct_pairs(node)) elsewhere
-    #     d = mkidcore.config.extract_from_node(loader, 'configuration_path', node)
-    #     return cls(d['configuration_path'])
 
     def hdf_exist(self):
         """Check if all hdf5 files specified exist."""
@@ -1369,7 +1356,7 @@ class Solution(object):
         resolving_powers = resolving_powers[sorted_indices, :]
         res_ids = res_ids[sorted_indices]
 
-        return resolving_powers, res_ids
+        return resolving_powers, res_ids  #np.full((res_ids.size, len(wavelengths)), np.nan)
 
     def responses(self, pixel=None, res_id=None, wavelengths=None):
         """
@@ -2714,7 +2701,15 @@ def apply(o):
         getLogger(__name__).debug('Wavelength updated in {:.2f}s'.format(time.time() - tic2))
 
     obs.update_header('wavecal', solution.name)
-    #TODO R and error for each wavelength and any other info to header
+    powers, _ = solution.find_resolving_powers()
+    np.array()
+    RType = np.dtype([('r', np.float32), ('r_err', np.float32), ('wave', np.float32)], align=True)
+    resdata = np.zeros(len(solution.cfg.wavelengths), dtype=RType)
+    resdata['r'] = np.median(powers, axis=0)
+    resdata['r_err'] = scipy.stats.median_abs_deviation(powers, axis=0)
+    resdata['wave'] = np.asarray(solution.cfg.wavelengths)
+    obs.update_header('wavecal.resolution', resdata)
+
     obs.photonTable.reindex_dirty()  # recompute "dirty" wavelength index
     obs.photonTable.autoindex = True  # turn on auto-indexing
     del obs
