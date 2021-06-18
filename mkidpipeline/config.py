@@ -475,15 +475,11 @@ class MKIDObservation(MKIDTimerange):
     def _metadata(self):
         d = super()._metadata
         try:
-            wcsd = dict(M_PLTSCL=self.wcscal.platescale,
-                        M_CXREFX=self.wcscal.dither_ref[0], #TODO update to new names here and in wcscal
-                        M_CXREFY=self.wcscal.dither_ref[1],
-                        M_PREFX=self.wcscal.dither_home[0],
-                        M_PREFY=self.wcscal.dither_home[1],
-                        M_DEVANG=config.instrument.device_orientation_deg)
+            d.update(dict(M_PLTSCL=self.wcscal.platescale, M_DEVANG=config.instrument.device_orientation_deg,
+                          M_CXREFX=self.wcscal.conex_ref[0], M_CXREFY=self.wcscal.conex_ref[1],
+                          M_PREFX=self.wcscal.pixel_ref[0], M_PREFY=self.wcscal.pixel_ref[1]))
         except AttributeError:
-            wcsd = {}
-        d.update(wcsd)
+            pass
         return d
 
     @property
@@ -735,19 +731,18 @@ class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
     name - required
 
     Either:
-    data - The name of nn MKIDObservation from which to extract platescale dirter_ref, and dither_home.
-        Presently unsupported
-    Or   (the platescale in mas, though note that TODO is the authoratative def. on units)
-    dither_ref - 2 tuple (dither controller position for dither_hope)
-    dither_home - 2 tuple (pixel position of optical axis at dither_ref)
+    data - The name of nn MKIDObservation from which to extract platescale conex_ref, and pixel_ref.
+            (presently unsupported) OR  the platescale in mas
+    conex_ref - 2 tuple (dither controller position for pixel_ref)
+    pixel_ref - 2 tuple (pixel position of optical axis at conex_ref)
     """
     yaml_tag = '!MKIDWCSCalDescription'
     KEYS = (
         Key(name='name', default=None, comment='A name', dtype=str),
         Key('data', None, 'MKIDObservation, MKIDDither, or platescale (e.g. 10 mas)', None),
-        Key('dither_home', None, 'The pixel position of the target centroid when on '
-                                 'axis and the conex is at dither_home', tuple),
-        Key('dither_ref', None, 'The conex (x,y) position, [0, 1.0], when the target is at dither_ref ', tuple),
+        Key('pixel_ref', None, 'The pixel position of the target centroid when on '
+                               'axis and the conex is at conex_ref', tuple),
+        Key('conex_ref', None, 'The conex (x,y) position, [0, 1.0], when the target is at pixel_ref ', tuple),
     )
     REQUIRED = ('name', 'data',)
     STEPNAME = 'wcscal'
@@ -761,33 +756,33 @@ class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
             except Exception:
                 self._key_errors['platescale'] += ['must be a valid angular unit e.g. "10 mas"']
         elif isinstance(self.data, (MKIDObservation, MKIDDitherDescription)):
-            if self.dither_home is None:
-                self._key_errors['dither_ref'] += ['must be an (x,y) position for the central source at dither_home']
-            if self.dither_ref is None:
-                self._key_errors['dither_home'] += ['must be a conex (x,y) position when the target is at dither_ref']
+            if self.pixel_ref is None:
+                self._key_errors['pixel_ref'] += ['must be an (x,y) position for the central source at conex_ref']
+            if self.conex_ref is None:
+                self._key_errors['conex_ref'] += ['must be a conex (x,y) position when the target is at pixel_ref']
         else:
             self._key_errors['data'] += ['MKIDObservation, MKIDDither, or platescale (e.g. 10 mas)']
 
-        if self.dither_ref is not None:
+        if self.conex_ref is not None:
             try:
-                assert (len(self.dither_ref) == 2 and
-                        -1.0 <= self.dither_ref[0] < 1.0 and
-                        -1.0 <= self.dither_ref[1] < 1.0)
+                assert (len(self.conex_ref) == 2 and
+                        -1.0 <= self.conex_ref[0] < 1.0 and
+                        -1.0 <= self.conex_ref[1] < 1.0)
             except Exception:
-                self._key_errors['dither_ref'] += ['must be a valid conex position (x,y), x & y in [0,1.0]']
+                self._key_errors['conex_ref'] += ['must be a valid conex position (x,y), x & y in [0,1.0]']
 
-        if self.dither_home is not None:
+        if self.pixel_ref is not None:
             try:
-                assert len(self.dither_home) == 2
+                assert len(self.pixel_ref) == 2
                 if config is None or config.beammap is None:
-                    getLogger(__name__).debug(f'Beammap not configured not checking dither_home validity')
+                    getLogger(__name__).debug(f'Beammap not configured not checking pixel_ref validity')
                 else:
-                    assert (0 <= self.dither_home[0] < config.beammap.ncols and
-                            0 <= self.dither_home[1] < config.beammap.nrows)
+                    assert (0 <= self.pixel_ref[0] < config.beammap.ncols and
+                            0 <= self.pixel_ref[1] < config.beammap.nrows)
             except (TypeError, AssertionError):
-                getLogger(__name__).debug(f'Dither home {self.dither_home} not in beammap '
+                getLogger(__name__).debug(f'Dither home {self.pixel_ref} not in beammap '
                                           f'domain {config.beammap.ncols},{config.beammap.nrows}')
-                self._key_errors['dither_home'] += ['must be a valid pixel (x,y) position']
+                self._key_errors['pixel_ref'] += ['must be a valid pixel (x,y) position']
 
     @property
     def platescale(self):
@@ -1100,7 +1095,7 @@ class MKIDObservingDataset:
 
     @property
     def all_observations(self):
-        " TODO this isn't exhaustive due to possible nesting"
+        # TODO this isn't exhaustive due to possible nesting
         for o in self.meta:
             if isinstance(o, MKIDObservation):
                 yield o
