@@ -17,16 +17,10 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
     REQUIRED_KEYS = (('dt', 1000, 'time range over which to calculate the weights (us)'),)
 
 
-HEADER_KEYS = ('LINCAL.DT', 'LINCAL.TAU')
+PROBLEM_FLAGS = ('pixcal.hot', 'pixcal.cold', 'pixcal.dead', 'beammap.noDacTone', 'wavecal.bad')
 
 
-PROBLEM_FLAGS = ('pixcal.hot', 'pixcal.cold', 'pixcal.dead', 'beammap.noDacTone', 'wavecal.bad',
-                 'wavecal.failed_validation', 'wavecal.failed_convergence', 'wavecal.not_monotonic',
-                 'wavecal.not_enough_histogram_fits', 'wavecal.no_histograms',
-                 'wavecal.not_attempted')
-
-
-def calculate_weights(time_stamps, dt=1000, tau=0.000001):
+def calculate_weights(times, dt=1000, tau=0.000001):
     """
     Function for calculating the linearity weighting for all of the photons in an h5 file
     :param time_stamps: array of timestamps
@@ -35,14 +29,8 @@ def calculate_weights(time_stamps, dt=1000, tau=0.000001):
     :param pixel: pixel location to calculate the weights for
     :return: numpy ndarray of the linearity weights for each photon
     """
-    # TODO convert away from a for loop scipy.ndimage.general_filter?
-    weights = np.zeros(len(time_stamps))
-    for i, t in enumerate(time_stamps):
-        min_t = t - dt
-        max_t = t + dt
-        int_t = 2 * dt
-        num_phots = np.sum(time_stamps[(min_t < time_stamps) & (time_stamps < max_t)])
-        weights[i] = (1 - num_phots * (tau/int_t))**(-1.0)
+    nphot = np.array([times[((t - dt) < times) & (times < (t + dt))].sum() for t in times])
+    weights = 1/(1 - nphot * tau/2/dt)
     return weights
 
 
