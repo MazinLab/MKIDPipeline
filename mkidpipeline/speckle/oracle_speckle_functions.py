@@ -19,178 +19,6 @@ from statsmodels.base.model import GenericLikelihoodModel
 from mkidpipeline.photontable import Photontable
 from mkidpipeline.speckle.generate_photons import genphotonlist
 
-
-
-
-def plotROC(Ic, Is, Ir, Ttot, tau=0.1, deadtime=10):
-    print("[Ic, Is, Ir, Ttot, tau, deadTime]: "+str([Ic, Is, Ir, Ttot, tau, deadtime]))
-    ts_total, ts_star, pInds = genphotonlist(Ic, Is, Ir, Ttot, tau, deadtime, return_IDs=True)
-    dt_total = (ts_total[1:] - ts_total[:-1])*10.**-6.
-    dt_star = (ts_star[1:] - ts_star[:-1])*10.**-6.
-    deadtime*=10.**-6.
-
-    res = optimize_IcIsIr(dt_total, guessParams=[Ic,Is,Ir], deadtime=deadtime)
-    print(res.summary())
-    a=MRlogL(res.params, dt_total, deadtime)
-
-    I1_list = np.arange(-3.*res.bse[0], 3.*res.bse[0], res.bse[0]/10.) + res.params[0]
-    I2_list = np.arange(-3.*res.bse[1], 3.*res.bse[1], res.bse[1]/10.) + res.params[1]
-    Ir_list = np.arange(-res.params[2], 5.*res.bse[2], res.bse[2]/10.) + res.params[2]
-    I1_list=np.asarray(I1_list)[np.asarray(I1_list)>=0]
-    I2_list=np.asarray(I2_list)[np.asarray(I2_list)>=0]
-    Ir_list=np.asarray(Ir_list)[np.asarray(Ir_list)>=0]
-
-    print("Gathering lnL data for all photons...")
-    lnLMap=np.zeros([len(I1_list),len(I2_list),len(Ir_list)])
-    for i, I_i in enumerate(I1_list):
-        for j, I_j in enumerate(I2_list):
-            for k, I_k in enumerate(Ir_list):
-                lnLMap[i,j,k]=MRlogL([I_i,I_j,I_k], dt_total, deadtime)
-    lnLMap-=np.amax(lnLMap)
-    lnLMap=np.exp(lnLMap)
-    cumPDF_total = integrate.trapz(lnLMap,I1_list,axis=0)
-    cumPDF_total = integrate.trapz(cumPDF_total,I2_list,axis=0)
-    probDens_total=np.copy(cumPDF_total)
-    cumPDF_total = integrate.cumtrapz(cumPDF_total,Ir_list)
-    cumPDF_total/=cumPDF_total[-1]
-
-    print("Gathering lnL data for only star photons...")
-    lnLMap_star=np.zeros([len(I1_list),len(I2_list),len(Ir_list)])
-    for i, I_i in enumerate(I1_list):
-        for j, I_j in enumerate(I2_list):
-            for k, I_k in enumerate(Ir_list):
-                lnLMap_star[i,j,k]=MRlogL([I_i,I_j,I_k], dt_star, deadtime)
-    lnLMap_star-=np.amax(lnLMap_star)
-    lnLMap_star=np.exp(lnLMap_star)
-    cumPDF_star = integrate.trapz(lnLMap_star,I1_list,axis=0)
-    cumPDF_star = integrate.trapz(cumPDF_star,I2_list,axis=0)
-    probDens_star=np.copy(cumPDF_star)
-    cumPDF_star = integrate.cumtrapz(cumPDF_star,Ir_list)
-    cumPDF_star/=cumPDF_star[-1]
-
-
-    plt.figure()
-    plt.plot(Ir_list, probDens_total, label='total')
-    plt.plot(Ir_list, probDens_star, label='star only')
-    plt.title("prob density")
-    plt.ylabel("Prob")
-    plt.xlabel("Ir")
-    plt.legend()
-
-    plt.figure()
-    plt.plot(Ir_list[1:], cumPDF_total, label='total')
-    plt.plot(Ir_list[1:], cumPDF_star, label='star only')
-    plt.title("Cumulative prob dist")
-    plt.ylabel("Prob")
-    plt.xlabel("Ir")
-    plt.legend()
-
-    plt.figure()
-    plt.plot(1.-cumPDF_star, 1.-cumPDF_total)
-    plt.plot([0,1],[0,1],'k--')
-    plt.title("ROC curve: Ic, Is, Ir, Ttot, tau, = "+str([Ic, Is, Ir, Ttot, tau]))
-    plt.ylabel("True Pos Rate")
-    plt.xlabel("False Pos Rate")
-    plt.legend()
-
-    plt.show()
-
-
-def optimize_IcIsIr2(dt, guessParams=[-1,-1,-1], deadtime=1.e-5, method='Newton-CG', prior=[np.nan]*3, prior_sig=[np.nan]*3,
-                     forceIp2zero=False, **kwargs):
-    """
-    Uses scipy.optimize.minimize
-    """
-    if prior is None: prior=[np.nan]*3
-    prior=np.append(prior, [np.nan]*(3-len(prior)))
-    if prior_sig is None: prior_sig=[np.nan]*3
-    prior_sig=np.append(prior_sig, [np.nan]*(3-len(prior_sig)))
-
-    #Provide a reasonable guess everywhere that guessParams<0
-    #If a prior is given then make that the guess
-    #equally distributes the average flux amongst params<0
-    #ie. guess=[-1, 30, -1] and I_avg=330 then guess-->[150,30,150].
-    guessParams=np.asarray(guessParams)
-    assert len(guessParams)==3, "Must provide a guess for I1, I2, Ir. Choose -1 for automatic guess."
-
-    if np.any(prior==None): prior[prior==None]=np.nan
-    guessParams[np.isfinite(prior)]=prior[np.isfinite(prior)]
-    if forceIp2zero: guessParams[-1] = 0
-    if np.any(guessParams<0):
-        I_avg=(len(dt))/np.sum(dt)
-        I_guess = (I_avg-np.sum(guessParams[guessParams>=0])) /np.sum(guessParams<0)
-        guessParams[guessParams<0]=max(I_guess,0)
-
-    loglike = lambda p: _posterior(p, dt=dt, deadtime=deadtime, prior=prior, prior_sig=prior_sig)
-    score = lambda p: _posterior_jacobian(p, dt=dt, deadtime=deadtime, prior=prior, prior_sig=prior_sig)
-    hess = lambda p: _posterior_hessian(p, dt=dt, deadtime=deadtime, prior=prior, prior_sig=prior_sig)
-
-    ip_bound = [0,0] if forceIp2zero else [0, np.inf]
-    res = minimize(loglike, guessParams, method='trust-constr',bounds=[[1.e-15,np.inf], [1.e-15, np.inf], ip_bound], jac=score, hess=hess, **kwargs)
-    return res
-
-def optimize_IcIsIr(dt, guessParams=[-1,-1,-1], deadtime=1.e-5, method='nm', prior=[np.nan]*3, prior_sig=[np.nan]*3, **kwargs):
-    """
-    This function optimizes the loglikelihood for the bin-free SSD analysis.
-    It returns the model fit for the most likely I1, I2, Ir.
-
-
-    INPUTS:
-        dt - Float, [seconds], list of photon inter-arrival times
-        params - Floats, [1/seconds], list of initial guess for I1, I2, Ir
-                                    if the guess is <0 then equally distribute the total flux amongst all params with a guess <0
-        deadtime - float, [seconds], MKID deadtime after photon event
-        method - optimization method. 'nm'=Nelder-Mead, 'ncg'=Newton-conjugate gradient, etc...
-        paramsFixed - booleans, fix param_i during optimization to the initial guess
-
-        **kwargs - additional kwargs to GenericLikelihoodModel.fit()
-                   www.statsmodels.org/stable/dev/generated/statsmodels.base.model.LikelihoodModel.fit.html
-
-    OUTPUTS:
-        GenericLikelihoodModelResults Object
-        See www.statsmodels.org/stable/dev/generated/statsmodels.base.model.GenericLikelihoodModelResults.html
-    """
-
-    if prior is None:
-        prior = [np.nan]*3
-    prior = np.append(prior, [np.nan]*(3-len(prior)))
-    if prior_sig is None:
-        prior_sig = [np.nan]*3
-    prior_sig = np.append(prior_sig, [np.nan]*(3-len(prior_sig)))
-
-    #Provide a reasonable guess everywhere that guessParams<0
-    #If a prior is given then make that the guess
-    #equally distributes the average flux amongst params<0
-    #ie. guess=[-1, 30, -1] and I_avg=330 then guess-->[150,30,150].
-    guessParams = np.asarray(guessParams)
-    assert len(guessParams) == 3, "Must provide a guess for I1, I2, Ir. Choose -1 for automatic guess."
-
-    if np.any(prior == None):
-        prior[prior == None] = np.nan
-    guessParams[np.isfinite(prior)] = prior[np.isfinite(prior)]
-    if np.any(guessParams < 0):
-        I_avg = (len(dt))/np.sum(dt)
-        I_guess = (I_avg-np.sum(guessParams[guessParams >= 0])) /np.sum(guessParams < 0)
-        guessParams[guessParams < 0] = max(I_guess, 0)
-
-    #Define some functions
-    loglike = partial(posterior, dt=dt, deadtime=deadtime, prior=prior, prior_sig=prior_sig)
-    score = partial(posterior_jacobian, dt=dt, deadtime=deadtime, prior=prior, prior_sig=prior_sig)
-    hess = partial(posterior_hessian, dt=dt, deadtime=deadtime, prior=prior, prior_sig=prior_sig)
-
-    #Setup model
-    endog = np.asarray(dt, dtype=[('dt','float64')])
-    names = np.asarray(['Ic','Is','Ir'])
-    exog=np.ones(len(endog), dtype={'names': names,'formats': ['float64']*len(names)})
-    model = GenericLikelihoodModel(endog, exog=exog, loglike=loglike, score=score, hessian=hess)
-    try: kwargs['disp']
-    except KeyError: kwargs['disp'] = False   #change default disp kwarg to false
-
-    #fit model
-    return model.fit(guessParams, method=method, **kwargs)
-
-
-
 def MRlogL(params, dt, deadtime=1.e-5):
     """
     Given an array of photon interarrival times, calculate the Log likelihood that
@@ -415,7 +243,41 @@ def posterior_jacobian(params, dt, deadtime=1.e-5, prior=None, prior_sig=None):
 
     return jac
 
+def blurredMR(n, Ic, Is):
+    """
+    Depricated.
 
+    Calculates the probability of getting a bin with n counts given Ic & Is.
+    n, Ic, Is must have the same units.
+
+    Does the same thing as binMR_like, but slower.
+
+    INPUTS:
+        n - array of the number of counts you want to know the probability of encountering. numpy array, can have length = 1. Units are the same as Ic & Is
+        Ic - the constant part of the speckle pattern [counts/time]. User needs to keep track of the bin size.
+        Is - the random part of the speckle pattern [units] - same as Ic
+    OUTPUTS:
+        p - array of probabilities
+
+    EXAMPLE:
+        n = np.arange(8)
+        Ic,Is = 4.,6.
+        p = blurredMR(n,Ic,Is)
+        plt.plot(n,p)
+        #plot the probability distribution of the blurredMR vs n
+
+        n = 5
+        p = blurredMR(n,Ic,Is)
+        #returns the probability of getting a bin with n counts
+
+    """
+
+    n = n.astype(int)
+    p = np.zeros(len(n))
+    for ii in range(len(n)):  # TODO: change hyp1f1 to laguerre polynomial. It's way faster.
+        p[ii] = 1 / (Is + 1) * (1 + 1 / Is) ** (-n[ii]) * np.exp(-Ic / Is) * hyp1f1(float(n[ii]) + 1, 1,
+                                                                                    Ic / (Is ** 2 + Is))
+    return p
 
 def _posterior_jacobian(params, dt, deadtime=1.e-5, prior=None, prior_sig=None):
     return -posterior_jacobian(params, dt, deadtime=deadtime, prior=prior, prior_sig=prior_sig)
@@ -677,79 +539,62 @@ def getPixelPhotonList(filename, xCoord, yCoord, **kwargs):
     del obs  # make sure to close files nicely
     return times
 
+def getLightCurve(photonTimeStamps, startTime=None, stopTime=None, effExpTime=.01):
+    """
+    Takes a 1d array of arrival times and bins it up with the given effective exposure
+    time to make a light curve.
+
+    INPUTS:
+        photonTimeStamps - 1d numpy array with units of seconds
+        startTime -     ignore the photonTimeStamps before startTime. [seconds]
+        stopTime -      ignore the photonTimeStamps after stopTime. [seconds]
+        effExpTime -    bin size of the light curver. [seconds]
+    OUTPUTS:
+        lightCurveIntensityCounts - array with units of counts/bin. Float.
+        lightCurveIntensity - array with units of counts/sec. Float.
+        lightCurveTimes - array with times corresponding to the bin
+                            centers of the light curve. Float.
+    """
+    if startTime is None:
+        startTime = photonTimeStamps[0]
+    if stopTime is None:
+        stopTime = photonTimeStamps[-1]
+    histBinEdges = np.arange(startTime, stopTime, effExpTime)
+
+    hist, _ = np.histogram(photonTimeStamps, bins=histBinEdges)  # if histBinEdges has N elements, hist has N-1
+    lightCurveIntensityCounts = hist  # units are photon counts
+    lightCurveIntensity = 1. * hist / effExpTime  # units are counts/sec
+    lightCurveTimes = histBinEdges[:-1] + 1.0 * effExpTime / 2
+
+    return lightCurveIntensityCounts, lightCurveIntensity, lightCurveTimes
+    # [lightCurveIntensityCounts] = counts
+    # [lightCurveIntensity] = counts/sec
 
 
+def histogramLC(lightCurve):
+    """
+    makes a histogram of the light curve intensities
 
-if __name__ == "__main__":
+    INPUTS:
+        lightCurve - 1d array specifying number of photons in each bin
+    OUTPUTS:
+        intensityHist - 1d array containing the histogram. It's normalized, so the area under the curve is 1.
+        bins - 1d array specifying the bins (0 photon, 1 photon, etc.)
+    """
+    # Nbins=30  #smallest number of bins to show
 
+    Nbins = int(np.amax(lightCurve))
 
-    print("Getting photon list: ")
-    Ic, Is, Ir, Ttot, tau, deadTime = [30., 300., 0., 30., .1, 10.]
-    print("[Ic, Is, Ir, Ttot, tau, deadTime]: "+str([Ic, Is, Ir, Ttot, tau, deadTime]))
-    print("\t...", end="", flush=True)
-    ts = genphotonlist(Ic, Is, Ir, Ttot, tau, deadTime)
-    print("Done.\n")
+    if Nbins == 0:
+        intensityHist = np.zeros(30)
+        bins = np.arange(30)
+        # print('LightCurve was zero for entire time-series.')
+        return intensityHist, bins
 
-    #dt = ts[1:] - ts[:-1]
-    #dt=dt[np.where(dt<1.e6)]/10.**6     #remove negative values and convert into seconds
+    # count the number of times each count rate occurs in the timestream
+    intensityHist, _ = np.histogram(lightCurve, bins=Nbins, range=[0, Nbins])
 
+    intensityHist = intensityHist / float(len(lightCurve))
+    bins = np.arange(Nbins)
 
-
-    #fn = '/home/abwalter/peg32/1507175503.h5'
-    #print("From: ",fn)
-    #print("\t...",end="", flush=True)
-    #ts=get_pixel_photonlist(filename=fn, xCoord=30, yCoord=81,wave_start=100, wave_stop=900)
-    #Ttot=3.
-    #print("Done.\n")
-
-    print("=====================================")
-    print("Optimizing with Scipy...")
-    res = maxMRlogL(ts)
-    print(res.message)
-    print("Number of Iterations: "+str(res.nit))
-    print("Max LogLikelihood: "+str(-res.fun))         # We minimized negative log likelihood
-    print("[Ic, Is]: "+str(res.x))
-    #raise IOError
-    print("Estimating Cov Matrix...")
-    dt = ts[1:] - ts[:-1]
-    dt = dt[np.where(dt < 1.e6)]/10.**6
-    Ic_mle, Is_mle = res.x
-    print(np.sqrt(MRlogL_opgCov(dt, Ic_mle, Is_mle)))
-    print(np.sqrt(MRlogL_hessianCov(dt, Ic_mle, Is_mle)))
-    print(np.sqrt(MRlogL_sandwichCov(dt, Ic_mle, Is_mle)))
-    print("=====================================\n")
-
-
-    print("Optimizing with StatModels...")
-    m = MR_SpeckleModel(ts, deadtime=deadTime, inttime=Ttot)
-    res = m.fit()
-    print(res.summary())
-    #print(res.params)
-    #print(res.bse)
-
-    print("\n#photons: "+str(len(ts)))
-    countRate = len(ts)/Ttot
-    print('photons/s: '+str(countRate))
-    print('photons/s (deadtime corrected): '+str(countRate/(1.-countRate*deadTime*10.**-6.)))
-    print('MLE Ic+Is: '+str(np.sum(res.params)))
-
-
-    I = 1./dt
-    plt.hist(I, 10000, range=(0, 25000))
-    #plt.show()
-    u_I = np.average(I,weights=dt)
-    #var_I = np.var(I)
-    var_I = np.average((I-u_I)**2., weights=dt)
-    print(u_I)
-    print(var_I)
-    print(Is+Ic)
-    print(Is**2.+2.*Ic*Is+Ic+Is)
-    Ic_stat = np.sqrt(u_I**2 - var_I + u_I)
-    Is_stat = u_I - Ic_stat
-    print('Stat Ic, Is: '+str(Ic_stat)+', '+str(Is_stat))
-
-    print("Mapping...")
-    Ic_list = np.arange(0., 200., 1.)
-    Is_list = np.arange(100., 400., 1.)
-    plotLogLMap(ts, Ic_list, Is_list, deadtime=deadTime, inttime=Ttot)
-    plt.show()
+    return intensityHist, bins

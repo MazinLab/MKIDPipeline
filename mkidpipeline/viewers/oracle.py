@@ -28,14 +28,13 @@ import sys, os
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import pyqtSignal
-from photontable import Photontable
+from mkidpipeline.photontable import Photontable
 import mkidpipeline.utils.binparse as binparse
 from mkidpipeline.steps.pixcal import flux_threshold as hft
 from scipy import optimize
 import os.path
-
-import mkidpipeline.speckle.binned_rician as binnedRE
-import mkidpipeline.speckle.binfree_rician as binfree
+from mkidpipeline.speckle.oracle_speckle_functions import MRlogL, MRlogL_Hessian, MRlogL_Jacobian, blurredMR,\
+    histogramLC, getLightCurve
 from mkidcore.objects import Beammap
 import time
 import datetime
@@ -62,8 +61,8 @@ def ssd_worker(args):
 
         # get the bin-free fit of Ic, Is Ip
         p0 = np.ones(3) / dt.mean() / 3.
-        Ic, Is, Ip = optimize.minimize(binfree.MRlogL, p0, (dt, deadtime), method='Newton-CG',
-                                       jac=binfree.MRlogL_Jacobian, hess=binfree.MRlogL_Hessian).x
+        Ic, Is, Ip = optimize.minimize(MRlogL, p0, (dt, deadtime), method='Newton-CG',
+                                       jac=MRlogL_Jacobian, hess=MRlogL_Hessian).x
         ssd_param_list.append([Ic, Is, Ip])
 
     print('ssd_worker finished', multiprocessing.current_process())
@@ -245,11 +244,11 @@ class timeStream(subWindow):
 
         self.eff_exp_time = self.spinbox_eff_exp_time.value() / 1000
         if type(self.a).__name__ == 'Photontable':
-            self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(
+            self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = getLightCurve(
                 self.photonList['time'] / 1e6, self.spinbox_startTime.value(),
                 self.spinbox_startTime.value() + self.spinbox_integrationTime.value(), self.eff_exp_time)
         else:
-            self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(
+            self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = getLightCurve(
                 self.photonList['time'] / 1e6, 0, self.spinbox_integrationTime.value(), self.eff_exp_time)
 
         self.ax.plot(self.lightCurveTimes, self.lightCurveIntensity, color=self.lineColor)
@@ -286,15 +285,15 @@ class intensityHistogram(subWindow):
         self.eff_exp_time = self.spinbox_eff_exp_time.value() / 1000
 
         if type(self.a).__name__ == 'Photontable':
-            self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(ts,
+            self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = getLightCurve(ts,
                                                                                                                     self.spinbox_startTime.value(),
                                                                                                                     self.spinbox_startTime.value() + self.spinbox_integrationTime.value(),
                                                                                                                     self.eff_exp_time)
         else:
-            self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = binnedRE.getLightCurve(
+            self.lightCurveIntensityCounts, self.lightCurveIntensity, self.lightCurveTimes = getLightCurve(
                 self.photonList['time'] / 1e6, 0, self.spinbox_integrationTime.value(), self.eff_exp_time)
 
-        self.intensityHist, self.bins = binnedRE.histogramLC(self.lightCurveIntensityCounts)
+        self.intensityHist, self.bins = histogramLC(self.lightCurveIntensityCounts)
 
         Nbins = max(30, len(self.bins))
 
@@ -318,8 +317,8 @@ class intensityHistogram(subWindow):
             # get the bin-free fit of Ic, Is Ip
             I = 1 / np.mean(dt)
             p0 = I * np.ones(3) / 3.
-            p1 = optimize.minimize(binfree.MRlogL, p0, (dt, deadtime),
-                                   method='Newton-CG', jac=binfree.MRlogL_Jacobian, hess=binfree.MRlogL_Hessian).x
+            p1 = optimize.minimize(MRlogL, p0, (dt, deadtime),
+                                   method='Newton-CG', jac=MRlogL_Jacobian, hess=MRlogL_Hessian).x
 
             try:
                 IIc = np.sqrt(mu ** 2 - var + mu)
@@ -327,7 +326,7 @@ class intensityHistogram(subWindow):
                 pass
             else:
                 IIs = mu - IIc
-                self.ax.plot(np.arange(Nbins, step=sstep), binnedRE.blurredMR(np.arange(Nbins, step=sstep), IIc, IIs),
+                self.ax.plot(np.arange(Nbins, step=sstep), blurredMR(np.arange(Nbins, step=sstep), IIc, IIs),
                              '.-b', label=r'blurred MR from $\sigma$ and $\mu$. Ic,Is = {:.2f}, {:.2f}'.format(
                         IIc / self.eff_exp_time, IIs / self.eff_exp_time))
 
