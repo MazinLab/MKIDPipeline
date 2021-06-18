@@ -850,6 +850,9 @@ class Photontable:
             flag definitions see 'h5FileFlags' in Headers/pipelineFlags.py
         :param wave_start:
         """
+        # TODO copy below is a patch fix, this function changes the value of bin_edges (if given) globally without
+        bin_edges = bin_edges.copy()
+
         if cube_type:
             cube_type = cube_type.lower()
         bin_type = bin_type.lower()
@@ -965,7 +968,7 @@ class Photontable:
                                                   dtype=np.dtype([('edges', bin_edges.dtype)])), name='CUBE_EDGES')]
             bin_hdu[0].header.append(fits.Card('UNIT', 's' if cube_type == 'time' else 'nm', comment='Bin unit'))
 
-        torate = 1 / duration if cube_type != 'time' else 1 / np.diff(bin_edges/1e6)
+        torate = 1 / duration if cube_type != 'time' else 1 / np.diff(bins)
         hdul = fits.HDUList([fits.PrimaryHDU(header=header),
                              fits.ImageHDU(data=data * torate if rate else data, header=hdr, name='SCIENCE'),
                              fits.ImageHDU(data=np.sqrt(data), header=hdr, name='VARIANCE')] + bin_hdu + pixcal_hdu)
