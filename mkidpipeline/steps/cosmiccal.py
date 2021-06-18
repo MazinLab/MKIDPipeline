@@ -6,10 +6,6 @@ to be removed plus some metadata, such as the cutout times before and after the 
 event, the method used for peak finding (more on that in the code itself), a set of data for
 creating a histogram of bincounts, and more as needed. This docstring will be edited as code
 is updated and refined.
-TODO: Integrate into pipeline
-TODO: Create performance report, such as number of CR events, amount of time removed, time intervals removed, etc.
-
-TODO: Finalize best way to incorporate as pipeline step (flag photons, list of CR timestamps, new col in h5?)
 """
 import numpy as np
 from scipy.stats import poisson
@@ -181,7 +177,7 @@ class CosmicCleaner:
         cosmicbunches = [self.cosmictimes[i] for i in overlaps]
         cvals = np.array([[np.mean(i), i[0]-50, i[-1]+100, len(i)] for i in cosmicbunches])
 
-        # TODO both the original and the refactor seems guaranteed to goo past the end of the array:
+        # TODO both the original and the refactor seems guaranteed to go past the end of the array:
         #  max(i)+d (which might be >1)-1
         other_ndx = np.arange(len(overlaps), dtype=int) + cvals[:, 3].astype(int)-1
         delidx, = ((cvals[other_ndx, 0] != cvals[:, 0]) & (cvals[:, 3] > 1)).nonzero()
@@ -269,7 +265,6 @@ def apply(o: mkidpipeline.config.MKIDTimerange, config=None, ncpu=None):
     cc.obs.enablewrite()
     for k, v in md.items():
         cc.obs.update_header(f'cosmiccal.{k}', v)
-        #TODO some info on stats, but generate dynamically in photontable
 
     cc.obs.attach_new_table('cosmics', 'Cosmic Ray Info', 'impacts', CRImpact, "Cosmic-Ray Hits", impacts)
     cc.obs.disablewrite()
