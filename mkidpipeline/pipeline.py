@@ -94,9 +94,12 @@ def batch_build_hdf(dset, ncpu=None):
 
 def batch_apply_metadata(dset):
     """Function associates things not known at hdf build time (e.g. that aren't in the bin files)"""
-    # TODO add a testing check that there aren't multiple observations backed by the same h5, that could result in
-    #  metadata oddness
-    for tr in dset.input_timeranges:
+    timeranges = dset.input_timeranges
+    data = {tr.h: tr for tr in timeranges}
+    if len(data) != len(timeranges):
+        getLogger(__name__).warning(f'Timeranges are not all backed by unique h5 files, {len(timeranges)-len(data)}'
+                                    "will be superseded by another timerange's metadata.")
+    for tr in data.values():
         o = tr.photontable
         o.enablewrite()
         o.attach_observing_metadata(tr.metadata)
