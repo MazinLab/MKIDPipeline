@@ -3,6 +3,7 @@ import time
 import multiprocessing as mp
 import functools
 import numpy as np
+from scipy.interpolate import InterpolatedUnivariateSpline
 
 import mkidcore.metadata
 from mkidcore.binfile.mkidbin import PhotonCType, PhotonNumpyType
@@ -127,8 +128,8 @@ def load_shareable_photonlist(file, query=None):
         table = SharedTable(d.shape)
         table.data = d
     else:
-    table = SharedTable(f.photonTable.shape)
-    f.photonTable.read(out=table.data)
+        table = SharedTable(f.photonTable.shape)
+        f.photonTable.read(out=table.data)
     ram = table.data.size * table.data.itemsize / 1024 / 1024 / 1024.0
     msg = 'Created a shared table with {size} rows from {file} in {time:.2f} s, using {ram:.2f} GB'
     getLogger(__name__).info(msg.format(file=file, size=f.photonTable.shape[0], time=time.time() - tic, ram=ram))
@@ -232,6 +233,24 @@ class Photontable:
     def __str__(self):
         return 'Photontable: ' + self.filename
 
+    def nyquist_wavelengths(self):
+        try:
+            resdata = self.query_header('wavecal.resolution')
+        except KeyError:
+            getLogger(__name__).warning('No wavecal, returning nominal values')
+            return self.wavelength_bins(width=self.query_header('energy_resolution'),
+                                        start=self.query_header('min_wavelength'),
+                                        stop=self.query_header('max_wavelength'))
+
+        dl = InterpolatedUnivariateSpline(resdata['wave'], resdata['wave'] / resdata['r'], w=1 / resdata['r_err'])
+        min = resdata['wave'][0] - dl(resdata['wave'][0]) / 2
+        max = resdata['wave'][-1] - dl(resdata['wave'][-1]) / 2
+        wave = [min]
+        while wave[-1] <= max:
+            wave.append(wave[-1] + dl(wave[-1]) / 2)
+        wave.append(wave[-1] + dl(wave[-1]) / 2)
+        return np.array(wave)
+
     def _load_file(self, file):
         """ Opens file and loads obs file attributes and beammap """
         self.filename = file
@@ -243,14 +262,7 @@ class Photontable:
             raise
 
         # get important cal params
-        #TODO if we are wavelength calibrated we should use something more akin to:
-        # self.energies = [c.h * c.c / (i * 10e-9 * c.e) for i in self.wavelengths]
-        # middle = len(self.wavelengths) // 2
-        # energy_bin_width = self.energies[middle] / (5.0 * self.r_list[middle])
-        # pt.wavelength_bins(energy_bin_width, self.wvl_start, self.wvl_stop, energy=True)
-        self.nominal_wavelength_bins = self.wavelength_bins(width=self.query_header('energy_resolution'),
-                                                            start=self.query_header('min_wavelength'),
-                                                            stop=self.query_header('max_wavelength'))
+        self.nominal_wavelength_bins = self.nyquist_wavelengths()
 
         # get the beam image
         self.beamImage = self.file.get_node('/beammap/map').read()
