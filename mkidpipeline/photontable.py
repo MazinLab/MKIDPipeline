@@ -850,8 +850,8 @@ class Photontable:
             flag definitions see 'h5FileFlags' in Headers/pipelineFlags.py
         :param wave_start:
         """
-        # TODO copy below is a patch fix, this function changes the value of bin_edges (if given) globally without
-        bin_edges = bin_edges.copy()
+        if type(bin_edges) == np.ndarray:
+            bin_edges = bin_edges.copy()
 
         if cube_type:
             cube_type = cube_type.lower()
