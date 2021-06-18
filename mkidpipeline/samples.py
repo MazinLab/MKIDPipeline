@@ -12,7 +12,7 @@ def _namer(name='Thing'):
 
 
 SAMPLEDATA = {'default': (
-    config.MKIDObservation(name=_namer('star'), start=1602048875, duration=10, wavecal='wavecal0',
+    config.MKIDObservation(name=_namer('HIP109427'), start=1602048875, duration=10, wavecal='wavecal0',
                            dark=config.MKIDTimerange(name=_namer(), start=1602046500, duration=10),
                            flatcal='flatcal0', wcscal='wcscal0', speccal='speccal0'),
     # a wavecal
