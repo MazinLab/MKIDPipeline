@@ -444,6 +444,8 @@ class FlatSolution(object):
         axes[0].tick_params(labelsize=8)
         axes[1].tick_params(labelsize=8)
         axes[2].tick_params(labelsize=8)
+        axes[1].yaxis.set_major_formatter(plt.FormatStrFormatter('%.2f'))
+        axes[2].yaxis.set_major_formatter(plt.FormatStrFormatter('%.2f'))
         divider = make_axes_locatable(axes[0])
         cax = divider.append_axes('bottom', size='5%', pad=0.3)
         cbar = figure.colorbar(im, cax=cax, orientation='horizontal')
