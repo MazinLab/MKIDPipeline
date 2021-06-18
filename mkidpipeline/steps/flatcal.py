@@ -190,7 +190,7 @@ class FlatCalibrator:
         if type(self.h5s) == dict:
             beam_image = Photontable([o for o in self.h5s.values()][0].h5).beamImage
         else:
-            beam_image = Photontable(self.h5s.h5).beamImage
+            beam_image = self.h5s.photontable.beamImage
         for (x, y), resID in np.ndenumerate(beam_image):
             fittable = ~self.mask[x, y]
             if not fittable.any():
@@ -240,12 +240,11 @@ class WhiteCalibrator(FlatCalibrator):
         self.darks = darks
 
     def make_spectral_cube(self):
-        exposure_time = self.h5s.duration
-        if self.cfg.flatcal.chunk_time > exposure_time:
+        if self.cfg.flatcal.chunk_time > self.h5s.duration:
             getLogger(__name__).warning('Chunk time is longer than the exposure. Using a single chunk')
             time_edges = np.array([0, self.h5s.duration], dtype=float)
-        elif self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks > exposure_time:
-            nchunks = int(exposure_time / self.cfg.flatcal.chunk_time)
+        elif self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks > self.h5s.duration:
+            nchunks = int(self.h5s.duration / self.cfg.flatcal.chunk_time)
             time_edges = np.arange(nchunks + 1, dtype=float) * self.cfg.flatcal.chunk_time
             getLogger(__name__).warning(
                 f'Number of {self.cfg.flatcal.chunk_time} s chunks requested is longer than the '
@@ -258,16 +257,17 @@ class WhiteCalibrator(FlatCalibrator):
             raise RuntimeError('Photon data is not wavelength calibrated.')
 
         # define wavelengths to use
-        edges = pt.nominal_wavelength_bins
-        self.wavelengths = edges[: -1] + np.diff(edges) / 2 # wavelength bin centers
+        wvl_edges = pt.nominal_wavelength_bins
+        self.wavelengths = wvl_edges[: -1] + np.diff(wvl_edges) / 2 # wavelength bin centers
 
         if not pt.query_header('pixcal'):
             getLogger(__name__).warning('H5 File not hot pixel masked, will skew flat weights')
 
         cps_cube_list = np.zeros((len(time_edges) - 1, self.cfg.beammap.ncols, self.cfg.beammap.nrows,
                                   len(self.wavelengths)))
-        for i, (wstart, wstop) in enumerate(zip(edges[:-1], edges[1:])):
-            hdul = pt.get_fits(rate=True, bin_edges=time_edges, wave_start=wstart, wave_stop=wstop, cube_type='time')
+        for i, (wstart, wstop) in enumerate(zip(wvl_edges[:-1], wvl_edges[1:])):
+            hdul = pt.get_fits(duration=self.h5s.duration, rate=True, bin_edges=time_edges, wave_start=wstart,
+                               wave_stop=wstop, cube_type='time')
             cps_cube_list[:,:,:,i] = np.moveaxis(hdul['SCIENCE'].data, 2, 0)  # moveaxis for code compatibility
         getLogger(__name__).info(f'Loaded spectral cubes')
         self.spectral_cube = cps_cube_list  # n_times, x, y, n_wvls
