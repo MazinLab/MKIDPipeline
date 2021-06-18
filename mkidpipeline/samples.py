@@ -47,7 +47,7 @@ SAMPLEDATA = {'default': (
                                   aperture=('15h22m32.3', '30.32 deg', '200 mas')),
 
     # WCS cal
-    config.MKIDWCSCalDescription(name=_namer('wcscal'), dither_home=[107, 46], dither_ref=[-0.16, -0.4], #TODO UPDATE to MEC KEYS
+    config.MKIDWCSCalDescription(name=_namer('wcscal'), pixel_ref=[107, 46], conex_ref=[-0.16, -0.4],
                                  data='10.40 mas'),
     config.MKIDWCSCalDescription(name=_namer('wcscal'),
                                  comment='ob wcscals may be used to manually determine '
@@ -57,7 +57,7 @@ SAMPLEDATA = {'default': (
                                                              duration=10, wavecal='wavecal0',
                                                              dark=config.MKIDTimerange(name=_namer(), start=1602046500,
                                                                                        duration=10)),
-                                 dither_home=(107, 46), dither_ref=(-0.16, -0.4)),  #TODO UPDATE to MEC KEYS
+                                 pixel_ref=(107, 46), conex_ref=(-0.16, -0.4)),
     # Dithers
     config.MKIDDitherDescription(name=_namer('dither'), data=1602047815, wavecal='wavecal0',
                                  header=dict(OBJECT="HIP 109427"),
