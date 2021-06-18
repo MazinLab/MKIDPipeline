@@ -137,7 +137,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
     headerContents['UNIXSTR'] = cfg.starttime
     headerContents['UNIXEND'] = cfg.starttime + cfg.inttime
     headerContents['EXPTIME'] = cfg.inttime
-    headerContents['M_BMAP'] = cfg.beamfile  #TODO eventually a uuid
+    headerContents['M_BMAP'] = cfg.beamfile
     headerContents['max_wavelength'] = mkidpipeline.config.config.instrument.maximum_wavelength
     headerContents['min_wavelength'] = mkidpipeline.config.config.instrument.minimum_wavelength
     headerContents['energy_resolution'] = mkidpipeline.config.config.instrument.energy_bin_width_ev

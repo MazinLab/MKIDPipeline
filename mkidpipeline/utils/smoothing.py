@@ -7,6 +7,7 @@ import scipy.integrate
 import astropy
 import warnings
 
+
 def smooth(x, window_len=11, window='hanning'):
     """
     From the scipy.org Cookbook (SignalSmooth)
@@ -45,9 +46,10 @@ def smooth(x, window_len=11, window='hanning'):
         raise ValueError("Window is one of 'flat', 'hanning', 'hamming', 'bartlett', 'blackman'")
 
     s = np.r_[x[window_len - 1:0:-1], x, x[-1:-window_len:-1]]
-    w = np.ones(window_len, 'd') if window == 'flat' else  ast.literal_eval('np.' + window + '(window_len)')
+    w = np.ones(window_len, 'd') if window == 'flat' else ast.literal_eval('np.' + window + '(window_len)')
     y = np.convolve(w / w.sum(), s, mode='valid')
     return y[int((window_len / 2) - 1):-int((window_len / 2))]
+
 
 def gaussian_convolution(x, y, x_en_min=0.005, x_en_max=6.0, x_de=0.001, flux_units="lambda", r=8, nsig_gauss=1,
                          plots=False):
@@ -71,17 +73,14 @@ def gaussian_convolution(x, y, x_en_min=0.005, x_en_max=6.0, x_de=0.001, flux_un
     # =======================  define some Constants     ============================
     c = con.c * 100  # cm/s
     h = con.h  # erg*s
-    k = 1.3806488E-16  # erg/K
     heV = h / con.e
 
     # ================  Convert to F_nu and put x-axis in frequency  ===================
     if flux_units == 'lambda':
-        x_en = heV * (c * 1.0E8) / x
-        x_nu = x_en / heV
+        x_nu = heV * (c * 1.0E8) / x / heV
         y_nu = y * x ** 2 * 3.34E4  # convert Flambda to Fnu(Jy)
     elif flux_units == 'nu':
         x_nu = x
-        x_en = x_nu * heV
         y_nu = y
     else:
         raise ValueError("flux_units must be either 'nu' or 'lambda'")
@@ -113,7 +112,8 @@ def gaussian_convolution(x, y, x_en_min=0.005, x_en_max=6.0, x_de=0.001, flux_un
         plt.show()
 
     # ====== Integrate curve to get total flux, required to ensure flux conservation later =======
-    original_total_flux = scipy.integrate.simps(y_nu_grid[window_size:-window_size], x=x_nu_grid[window_size:-window_size])
+    original_total_flux = scipy.integrate.simps(y_nu_grid[window_size:-window_size],
+                                                x=x_nu_grid[window_size:-window_size])
 
     # ================================    convolve    ==================================
     conv_y = np.convolve(y_nu_grid, gauss_y, 'valid')
@@ -160,7 +160,7 @@ def median_filter_nan(input_array, size=5, *nkwarg, **kwarg):
     Arguments/return values are same as for scipy median_filter.
     INPUTS:
         input_array : array-like, input array to filter (can be n-dimensional)
-        size : scalar or tuple, optional, size of edge(s) of n-dimensional moving box. If 
+        size : scalar or tuple, optional, size of edge(s) of n-dimensional moving box. If
                 scalar, then same value is used for all dimensions.
     output_arrayS:
         NaN-resistant median filtered version of input_array.
@@ -176,7 +176,6 @@ def median_filter_nan(input_array, size=5, *nkwarg, **kwarg):
     JvE 12/28/12
     """
     return scipy.ndimage.filters.generic_filter(input_array, np.nanmedian, size, *nkwarg, **kwarg)
-
 
 
 def mean_filter_nan(input_array, size=3, *nkwarg, **kwarg):
@@ -239,6 +238,7 @@ def find_nearest_finite(im, i, j, n=10):
     # to figure out right now. Should ignore NaN values automatically
     # nearest = np.unravel_index((np.argpartition(distsq,min(n,ngood)-1,axis=None))[0:min(n,ngood)], imShape)
     return nearest
+
 
 def nearest_n_robust_sigma_filter(input_array, n=24):
     """
