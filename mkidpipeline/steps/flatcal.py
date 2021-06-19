@@ -65,10 +65,8 @@ TEST_CFGS = (StepConfig(chunk_time=30, nchunks=10, trim_chunks=0, use_wavecal=Tr
 
 
 FLAGS = FlagSet.define(
-    ('inf_weight', 0, 'Spurious infinite weight was calculated - weight set to 1.0'),
-    ('zero_weight', 1, 'Spurious zero weight was calculated - weight set to 1.0'),
-    ('nan_weight', 2, 'Derived wavelength is below formal validity range of calibration'),
-    ('negative_weight', 3, 'Derived wavelength is above formal validity range of calibration'),
+    ('bad', 0, 'either all or less than the power of the fit polynomial number of flat weights are invalid '),
+    ('not_all_weights_valid', 1, 'at least one of the wavelenght weights is invalid')
 )
 
 
@@ -105,18 +103,6 @@ class FlatCalibrator:
         self.h5s = None
         self.darks = None
 
-    def make_spectral_cube(self):
-        pass
-
-    def load_flat_spectra(self):
-        self.make_spectral_cube()
-        dark_frames = self.get_dark_frames()
-        for icube, cube in enumerate(self.spectral_cube):
-            # mask out any pixels with PROBLEM_FLAGS
-            self.spectral_cube[icube] = np.ma.masked_array(cube-dark_frames, mask=self.mask).data
-        self.spectral_cube = np.array(self.spectral_cube)
-        self.eff_int_times = np.array(self.eff_int_times)
-        # count cubes is the counts over the integration time
 
     def run(self):
         getLogger(__name__).info("Loading flat spectra")
@@ -133,6 +119,22 @@ class FlatCalibrator:
             sol.plot_summary(save_plot=self.summary_plot)
         getLogger(__name__).info('Done')
 
+
+    def make_spectral_cube(self):
+        pass
+
+
+    def load_flat_spectra(self):
+        self.make_spectral_cube()
+        dark_frames = self.get_dark_frames()
+        for icube, cube in enumerate(self.spectral_cube):
+            # mask out any pixels with PROBLEM_FLAGS
+            self.spectral_cube[icube] = np.ma.filled(np.ma.masked_array(cube-dark_frames, mask=self.mask),
+                                                     fill_value=np.nan)
+        self.spectral_cube = np.array(self.spectral_cube)
+        # count cubes is the counts over the integration time
+
+
     def calculate_weights(self):
         """
         Finds the weights by calculating the counts/(average counts) for each wavelength and for each time chunk. The
@@ -144,16 +146,11 @@ class FlatCalibrator:
         flat_weights = np.zeros_like(self.spectral_cube)
         delta_weights = np.zeros_like(self.spectral_cube)
         weight_mask = np.zeros_like(self.spectral_cube, dtype=bool)
-        self.flat_flags = np.zeros(self.spectral_cube.shape[1:], dtype=int)
+        self.flat_flags = np.zeros(self.spectral_cube.shape[1:3], dtype=int)
+        wvl_averages_array = np.nanmean(self.spectral_cube, axis=(1,2))
+        #TODO get rid of for loop if possible
         for iCube, cube in enumerate(self.spectral_cube):
-            masked_cube = cube.copy()
-            masked_cube[self.mask] = np.nan
-            wvl_averages_array = np.nanmean(masked_cube.reshape(-1, masked_cube.shape[-1]), axis=0)
-            wvl_weights = wvl_averages_array / cube
-            self.flat_flags |= ((np.isinf(wvl_weights) << FLAGS.flags['inf_weight'].bit) |
-                                ((wvl_weights == 0) << FLAGS.flags['zero_weight'].bit) |
-                                ((wvl_weights < 0) << FLAGS.flags['negative_weight'].bit) |
-                                (np.isnan(wvl_weights) << FLAGS.flags['nan_weight'].bit))
+            wvl_weights = wvl_averages_array[iCube] / cube
             weight_mask[iCube] = (~np.isfinite(wvl_weights)) | (wvl_weights <= 0)
             self.mask |= weight_mask[iCube]
             flat_weights[iCube] = wvl_weights
@@ -191,6 +188,8 @@ class FlatCalibrator:
         self.flat_weight_err = np.sqrt(averaging_weights ** -1.)
         wvl_weight_avg = np.ma.mean(np.reshape(self.flat_weights, (-1, self.wavelengths.size)), axis=0)
         self.flat_weights = np.divide(self.flat_weights.data, wvl_weight_avg.data)
+        self.flat_flags |= ((np.all(self.mask, axis=2) << FLAGS.flags['bad'].bit) |
+                            (np.any(self.mask, axis=2) << FLAGS.flags['not_all_weights_valid'].bit))
 
     def calculate_coefficients(self):
         if type(self.h5s) == dict:
@@ -199,13 +198,13 @@ class FlatCalibrator:
             beam_image = self.h5s.photontable.beamImage
         for (x, y), resID in np.ndenumerate(beam_image):
             fittable = ~self.mask[x, y]
-            if not fittable.any():
-                pass
+            if not fittable.any() or (len(fittable[fittable == True]) <= self.cfg.flatcal.power):
+                self.flat_flags[x, y] |= FLAGS.flags['bad'].bit
             else:
-                # TODO will raise RankWarning, find out why and if it can be ignored
                 self.coeff_array[x, y] = np.polyfit(self.wavelengths[fittable], self.flat_weights[x, y][fittable],
-                                                    self.cfg.flatcal.power,
-                                                    w=1 / self.flat_weight_err[x, y][fittable] ** 2)
+                                                self.cfg.flatcal.power,
+                                                w=1 / self.flat_weight_err[x, y][fittable] ** 2)
+
         getLogger(__name__).info('Calculated Flat coefficients')
 
     def get_dark_frames(self):
