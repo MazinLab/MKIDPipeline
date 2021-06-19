@@ -125,11 +125,12 @@ class FlatCalibrator:
         self.calculate_weights()
         self.calculate_coefficients()
         sol = FlatSolution(configuration=self.cfg, flat_weights=self.flat_weights, flat_weight_err=self.flat_weight_err,
-                           flat_flags=self.flat_flags, coeff_array=self.coeff_array, wavelengths=self.wavelengths)
+                           flat_flags=self.flat_flags, coeff_array=self.coeff_array, wavelengths=self.wavelengths,
+                           beammap=self.cfg.beammap.residmap)
         sol.save(save_name=self.solution_name)
         if self.summary_plot:
             getLogger(__name__).info('Making a summary plot')
-            sol.plot_summary(save_plot=self.save_plots)
+            sol.plot_summary(save_plot=self.summary_plot)
         getLogger(__name__).info('Done')
 
     def calculate_weights(self):
@@ -336,11 +337,11 @@ class LaserCalibrator(FlatCalibrator):
 class FlatSolution(object):
     yaml_tag = '!fsoln'
 
-    def __init__(self, file_path=None, configuration=None, beam_map=None, flat_weights=None, coeff_array=None,
+    def __init__(self, file_path=None, configuration=None, beammap=None, flat_weights=None, coeff_array=None,
                  wavelengths=None, flat_weight_err=None, flat_flags=None, solution_name='flat_solution'):
         self.cfg = configuration
         self.file_path = file_path
-        self.beam_map = beam_map
+        self.beammap = beammap
         self.flat_weights = flat_weights
         self.wavelengths = wavelengths
         self.save_name = solution_name
@@ -369,7 +370,7 @@ class FlatSolution(object):
         getLogger(__name__).info("Saving solution to {}".format(save_path))
         np.savez(save_path, coeff_array=self.coeff_array, flat_weights=self.flat_weights, wavelengths=self.wavelengths,
                  flat_weight_err=self.flat_weight_err, flat_flags=self.flat_flags, configuration=self.cfg,
-                 beam_map=self.beam_map)
+                 beammap=self.beammap)
         self._file_path = save_path  # new file_path for the solution
 
 
@@ -381,7 +382,7 @@ class FlatSolution(object):
 
         """
         getLogger(__name__).info("Loading solution from {}".format(file_path))
-        keys = ('coeff_array', 'configuration', 'beam_map', 'flat_weights', 'flat_flags', 'flat_weight_err', 'wavelengths')
+        keys = ('coeff_array', 'configuration', 'beammap', 'flat_weights', 'flat_flags', 'flat_weight_err', 'wavelengths')
         npz_file = np.load(file_path, allow_pickle=True, encoding='bytes', mmap_mode=file_mode)
         for key in keys:
             if key not in list(npz_file.keys()):
@@ -389,7 +390,7 @@ class FlatSolution(object):
         self.npz = npz_file
         self.coeff_array = self.npz['coeff_array']
         self.cfg = self.npz['configuration']
-        self.beam_map = self.npz['beam_map']
+        self.beammap = self.npz['beammap']
         self.flat_weights = self.npz['flat_weights']
         self.flat_weight_err = self.npz['flat_weight_err']
         self.wavelengths = self.npz['wavelengths']
@@ -405,13 +406,13 @@ class FlatSolution(object):
     def get(self, pixel=None, res_id=None):
         if not pixel and not res_id:
             raise ValueError('Need to specify either resID or pixel coordinates')
-        for pix, res in self.cfg.beammap:
+        for pix, res in np.ndenumerate(self.beammap):
             if res == res_id or pix == pixel:  # in case of non unique resIDs
                 coeffs = self.coeff_array[pixel[0], pixel[1]]
                 return np.poly1d(coeffs)
 
 
-    def plot_summary(self, save_plot=False):
+    def plot_summary(self, save_plot=True):
         """ Writes a summary plot of the Flat Fielding """
         weight_array = self.flat_weights
         wavelengths = self.wavelengths
@@ -453,11 +454,13 @@ class FlatSolution(object):
         cbar.ax.tick_params(labelsize='small')
         plt.subplots_adjust(wspace=0.8, hspace=0.8)
         if save_plot:
-            plt.savefig(self._file_path.split('.npz')[0] + '.pdf')
+            save_path = self._file_path.split('.npz')[0] + '.pdf'
+            getLogger(__name__).info(f'Saving flatcal summary plot to {save_path}')
+            plt.savefig(save_path)
         else:
             plt.show()
 
-
+        # TODO add debugging plot that shows selected polyfits
 def _run(flattner):
     getLogger(__name__).debug('Calling run on {}'.format(flattner))
     flattner.run()
@@ -539,12 +542,12 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
         return
 
     of = o.photontable
-    fcf = of.query_header('flatcal')
-    if fcf:
-        if fcf != o.flatcal.path:
-            getLogger(__name__).warning(f'{o} is already calibrated with a different flat ({fcf}).')
+    fcfg = of.query_header('flatcal')
+    if fcfg:
+        if fcfg != o.flatcal.path:
+            getLogger(__name__).warning(f'{o.name} is already calibrated with a different flat ({fcfg}).')
         else:
-            getLogger(__name__).info(f"{o} is already flat calibrated.")
+            getLogger(__name__).info(f"{o.name} is already flat calibrated.")
         return
 
     tic = time.time()
@@ -553,18 +556,19 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
 
     # Set flags for pixels that have them
     to_clear = of.flags.bitmask([f'flatcal.{flag.name}' for flag in FLAGS], unknown='ignore')
+    of.enablewrite()
     of.unflag(to_clear)
     for flag in FLAGS:
         mask = (calsoln.flat_flags & flag.bitmask).sum(2) > 0
         of.flag(mask * of.flags.bitmask([f'flatcal.{flag.name}'], unknown='warn'))
-
-    for pixel, resID in of.resonators(exclude=UNFLATABLE, pixel=True):
-        soln = calsoln.get(pixel=pixel, res_id=resID)
+    of.disablewrite()
+    for pixel, resid in of.resonators(exclude=PROBLEM_FLAGS, pixel=True):
+        soln = calsoln.get(pixel=pixel, res_id=resid)
         if not soln:
-            getLogger(__name__).warning('No flat calibration for good pixel {}'.format(resID))
+            getLogger(__name__).warning('No flat calibration for good pixel {}'.format(resid))
             continue
 
-        indices = of.photonTable.get_where_list('resID==resID')
+        indices = of.photonTable.get_where_list('resID==resid')
         if not indices.size:
             continue
 
