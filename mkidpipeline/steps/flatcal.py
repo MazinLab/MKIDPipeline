@@ -95,7 +95,7 @@ class FlatCalibrator:
             getLogger(__name__).warning("Comanded to save debug plots, this will add ~30 min to runtime.")
 
         self.spectral_cube = None
-        self.eff_int_times = None
+        self.int_time = None
         self.delta_weights = None
         self.flat_weights = None
         self.flat_weight_err = None
@@ -164,10 +164,10 @@ class FlatCalibrator:
             # deltaWeight=weight/sqrt(RawCounts)
             # but 'cube' is in units cps, not raw counts so multiply by effIntTime before sqrt
 
-            delta_weights[iCube] = wvl_weights / np.sqrt(self.eff_int_times * cube)
-        self.flat_weights = np.ma.filled(np.ma.array(flat_weights, mask=weight_mask), 1.0)
+            delta_weights[iCube] = wvl_weights / np.sqrt(self.int_time * cube)
+        self.flat_weights = np.ma.filled(np.ma.array(flat_weights, mask=weight_mask), 0.0)
         n_cubes = self.flat_weights.shape[0]
-        self.delta_weights = np.ma.filled(np.ma.array(delta_weights, mask=weight_mask), 1.0)
+        self.delta_weights = np.ma.filled(np.ma.array(delta_weights, mask=weight_mask), np.inf)
 
         # sort weights and rearrange spectral cubes the same way
         if self.cfg.flatcal.trim_chunks and n_cubes > 1:
@@ -276,9 +276,7 @@ class WhiteCalibrator(FlatCalibrator):
             cps_cube_list[:,:,:,i] = np.moveaxis(hdul['SCIENCE'].data, 2, 0)  # moveaxis for code compatibility
         getLogger(__name__).info(f'Loaded spectral cubes')
         self.spectral_cube = cps_cube_list  # n_times, x, y, n_wvls
-        # TODO if the rest of the algorithm doesn't take good care of this then including it here for future expansion
-        #  is silly and it should be considered for removal
-        self.eff_int_times = np.full(self.spectral_cube.shape[1:], fill_value=time_edges[1] - time_edges[0])
+        self.int_time = time_edges[1] - time_edges[0]
         self.mask = pt.flagged(PROBLEM_FLAGS)[..., None] * np.ones(self.wavelengths.size, dtype=bool)
 
 
@@ -309,7 +307,6 @@ class LaserCalibrator(FlatCalibrator):
         else:
             flat_duration = np.full(n_wvls, self.cfg.flatcal.chunk_time * self.cfg.flatcal.nchunks)
         cps_cube_list = np.zeros([nchunks, x, y, n_wvls])
-        int_times = np.zeros([x, y, n_wvls])
 
         if self.cfg.flatcal.use_wavecal:
             delta_list = self.wavelengths / self.r_list / 2
@@ -330,10 +327,9 @@ class LaserCalibrator(FlatCalibrator):
                                 wave_start=wvl_start, wave_stop=wvl_stop, cube_type='time')
 
             getLogger(__name__).info(f'Loaded {wvl.value:.1f} nm spectral cube')
-            int_times[:, :, w_idx] = self.cfg.flatcal.chunk_time
             cps_cube_list[:, :, :, w_idx] = np.moveaxis(hdul['SCIENCE'].data, 2, 0)
         self.spectral_cube = cps_cube_list
-        self.eff_int_times = int_times
+        self.int_time = self.cfg.flatcal.chunk_time
         self.mask = pt.flagged(PROBLEM_FLAGS)[..., None] * np.ones(self.wavelengths.size, dtype=bool)
 
 
