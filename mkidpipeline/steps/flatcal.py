@@ -22,15 +22,14 @@ import time
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import gridspec
-from matplotlib.backends.backend_pdf import PdfPages
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from mkidpipeline.steps import wavecal
 from mkidpipeline.photontable import Photontable
 from mkidcore.corelog import getLogger
 import mkidpipeline.config
 from mkidpipeline.config import H5Subset
-from mkidcore.pixelflags import FlagSet, PROBLEM_FLAGS
-import matplotlib as mpl
+from mkidcore.pixelflags import FlagSet
+import warnings
 _loaded_solutions = {}
 
 
@@ -61,7 +60,9 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
 
 TEST_CFGS = (StepConfig(chunk_time=30, nchunks=10, trim_chunks=0, use_wavecal=True),
              StepConfig(chunk_time=30, nchunks=10, trim_chunks=0, use_wavecal=False),
-             StepConfig(chunk_time=10, nchunks=5, trim_chunks=1, use_wavecal=True))
+             StepConfig(chunk_time=10, nchunks=5, trim_chunks=1, use_wavecal=True),
+             StepConfig(chunk_time=10, nchunks=5, trim_chunks=3, use_wavecal=True))
+
 
 FLAGS = FlagSet.define(
     ('inf_weight', 0, 'Spurious infinite weight was calculated - weight set to 1.0'),
@@ -70,7 +71,11 @@ FLAGS = FlagSet.define(
     ('negative_weight', 3, 'Derived wavelength is above formal validity range of calibration'),
 )
 
-UNFLATABLE = tuple()  # todo flags that can't be flatcaled
+
+PROBLEM_FLAGS = ('pixcal.hot', 'pixcal.cold', 'pixcal.dead', 'beammap.noDacTone', 'wavecal.bad',
+                 'wavecal.failed_validation', 'wavecal.failed_convergence', 'wavecal.not_monotonic',
+                 'wavecal.not_enough_histogram_fits', 'wavecal.no_histograms',
+                 'wavecal.not_attempted')
 
 
 class FlatCalibrator:
