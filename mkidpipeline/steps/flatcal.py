@@ -115,6 +115,9 @@ class FlatCalibrator:
         if self.summary_plot:
             getLogger(__name__).info('Making a summary plot')
             sol.plot_summary(save_plot=self.summary_plot)
+        if self.save_plots:
+            getLogger(__name__).info('Making flat weight debug plot')
+            sol.debug_plot(plot_fraction=0.1, save_plot=True)
         getLogger(__name__).info('Done')
 
 
@@ -457,7 +460,19 @@ class FlatSolution(object):
         else:
             plt.show()
 
-        # TODO add debugging plot that shows selected polyfits
+    def debug_plot(self, plot_fraction=0.1, save_plot=False):
+        for (x, y), resID in np.ndenumerate(self.beammap):
+            if (x*y) % (1/plot_fraction) == 0:
+                plt.scatter(self.wavelengths, self.flat_weights[x,y])
+                soln = self.get(pixel=(x,y), res_id=resID)
+                plt.plot(self.wavelengths, soln(self.wavelengths))
+            else:
+                pass
+        if save_plot:
+            save_path = self.file_path
+            plt.savefig(save_path)
+
+
 def _run(flattner):
     getLogger(__name__).debug('Calling run on {}'.format(flattner))
     flattner.run()
