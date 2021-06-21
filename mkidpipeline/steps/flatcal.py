@@ -473,6 +473,7 @@ class FlatSolution(object):
             save_path = self._file_path.split('.npz')[0] + '.pdf'
             getLogger(__name__).info(f'Saving flatcal summary plot to {save_path}')
             plt.savefig(save_path)
+            plt.clf()
         else:
             plt.show()
 
@@ -485,8 +486,10 @@ class FlatSolution(object):
             else:
                 pass
         if save_plot:
-            save_path = self.file_path
+            save_path = self._file_path.split('.npz')[0] + '_debug.pdf'
+            getLogger(__name__).info(f'Saving flatcal debug plot to {save_path}')
             plt.savefig(save_path)
+            plt.clf()
 
 
 def _run(flattner):
