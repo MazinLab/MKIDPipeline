@@ -165,9 +165,9 @@ class FlatCalibrator:
             # but 'cube' is in units cps, not raw counts so multiply by effIntTime before sqrt
 
             delta_weights[iCube] = wvl_weights / np.sqrt(self.int_time * cube)
-        self.flat_weights = np.ma.filled(np.ma.array(flat_weights, mask=weight_mask), 0.0)
+        self.flat_weights = np.ma.filled(np.ma.array(flat_weights, mask=weight_mask), 1.0)
         n_cubes = self.flat_weights.shape[0]
-        self.delta_weights = np.ma.filled(np.ma.array(delta_weights, mask=weight_mask), np.inf)
+        self.delta_weights = np.ma.filled(np.ma.array(delta_weights, mask=weight_mask), 1.0)
 
         # sort weights and rearrange spectral cubes the same way
         if self.cfg.flatcal.trim_chunks and n_cubes > 1:
