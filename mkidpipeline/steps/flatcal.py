@@ -66,7 +66,7 @@ TEST_CFGS = (StepConfig(chunk_time=30, nchunks=10, trim_chunks=0, use_wavecal=Tr
 
 FLAGS = FlagSet.define(
     ('bad', 0, 'either all or less than the power of the fit polynomial number of flat weights are invalid '),
-    ('not_all_weights_valid', 1, 'at least one of the wavelenght weights is invalid')
+    ('not_all_weights_valid', 1, 'at least one of the wavelength weights is invalid')
 )
 
 
