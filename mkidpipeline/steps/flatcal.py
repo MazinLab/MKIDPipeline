@@ -148,6 +148,7 @@ class FlatCalibrator:
         delta_weights = np.zeros_like(self.spectral_cube)
         weight_mask = np.zeros_like(self.spectral_cube, dtype=bool)
         self.flat_flags = np.zeros(self.spectral_cube.shape[1:3], dtype=int)
+        self.spectral_cube[self.spectral_cube == 0] = np.nan
         wvl_averages_array = np.nanmean(self.spectral_cube, axis=(1,2))
         #TODO get rid of for loop if possible
         for iCube, cube in enumerate(self.spectral_cube):
@@ -198,7 +199,7 @@ class FlatCalibrator:
         else:
             beam_image = self.h5s.photontable.beamImage
         for (x, y), resID in np.ndenumerate(beam_image):
-            fittable = ~self.mask[x, y]
+            fittable = ~self.mask.astype(bool)[x, y]
             if not fittable.any() or (len(fittable[fittable == True]) <= self.cfg.flatcal.power):
                 self.flat_flags[x, y] |= FLAGS.flags['bad'].bit
             else:
@@ -296,6 +297,7 @@ class LaserCalibrator(FlatCalibrator):
         nchunks = self.cfg.flatcal.nchunks
         x, y = self.cfg.beammap.ncols, self.cfg.beammap.nrows
         exposure_times = np.array([x.duration for x in self.h5s.values()])
+        self.mask = np.zeros((x, y, n_wvls), dtype=int)
         if np.any(self.cfg.flatcal.chunk_time > exposure_times):
             getLogger(__name__).warning('Chunk time is longer than the exposure. Using a single chunk')
             flat_duration = exposure_times
@@ -329,9 +331,10 @@ class LaserCalibrator(FlatCalibrator):
 
             getLogger(__name__).info(f'Loaded {wvl.value:.1f} nm spectral cube')
             cps_cube_list[:, :, :, w_idx] = np.moveaxis(hdul['SCIENCE'].data, 2, 0)
+            self.mask[:, :, w_idx] = pt.flagged(PROBLEM_FLAGS)
         self.spectral_cube = cps_cube_list
         self.int_time = self.cfg.flatcal.chunk_time
-        self.mask = pt.flagged(PROBLEM_FLAGS)[..., None] * np.ones(self.wavelengths.size, dtype=bool)
+        # self.mask = pt.flagged(PROBLEM_FLAGS)[..., None] * np.ones(self.wavelengths.size, dtype=bool)
 
 
 class FlatSolution(object):
