@@ -70,10 +70,8 @@ FLAGS = FlagSet.define(
 )
 
 
-PROBLEM_FLAGS = ('pixcal.hot', 'pixcal.cold', 'pixcal.dead', 'beammap.noDacTone', 'wavecal.bad',
-                 'wavecal.failed_validation', 'wavecal.failed_convergence', 'wavecal.not_monotonic',
-                 'wavecal.not_enough_histogram_fits', 'wavecal.no_histograms',
-                 'wavecal.not_attempted')
+PROBLEM_FLAGS = ('pixcal.dead', 'beammap.noDacTone', 'wavecal.bad', 'wavecal.failed_convergence',
+                 'wavecal.no_histograms', 'wavecal.not_attempted', 'flatcal.bad')
 
 
 class FlatCalibrator:
