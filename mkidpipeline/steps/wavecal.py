@@ -2702,7 +2702,6 @@ def apply(o):
 
     obs.update_header('wavecal', solution.name)
     powers, _ = solution.find_resolving_powers()
-    np.array()
     RType = np.dtype([('r', np.float32), ('r_err', np.float32), ('wave', np.float32)], align=True)
     resdata = np.zeros(len(solution.cfg.wavelengths), dtype=RType)
     resdata['r'] = np.median(powers, axis=0)

@@ -95,7 +95,7 @@ def batch_build_hdf(dset, ncpu=None):
 def batch_apply_metadata(dset):
     """Function associates things not known at hdf build time (e.g. that aren't in the bin files)"""
     timeranges = dset.input_timeranges
-    data = {tr.h: tr for tr in timeranges}
+    data = {tr.h5: tr for tr in timeranges}
     if len(data) != len(timeranges):
         getLogger(__name__).warning(f'Timeranges are not all backed by unique h5 files, {len(timeranges)-len(data)}'
                                     "will be superseded by another timerange's metadata.")
