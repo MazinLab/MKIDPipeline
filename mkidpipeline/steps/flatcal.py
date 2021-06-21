@@ -209,7 +209,7 @@ class FlatCalibrator:
 
         getLogger(__name__).info('Calculated Flat coefficients')
 
-    def get_dark_frames(self):
+    def get_dark_frames(self, enforce_wavecal=True):
         """
 
         :return:
@@ -220,11 +220,24 @@ class FlatCalibrator:
         frames = np.zeros_like(self.spectral_cube[0])
         for i, dark in enumerate(self.darks):
             if dark is not None:
-                # TODO dark frames need more thought, when should they be queried on wavelength? are they even wavecaled?
-                im = dark.photontable.get_fits(start=dark.start, duration=dark.duration, cube_type='time',
-                                               rate=True, bin_width=dark.duration, wave_start=self.wvl_start,
-                                               wave_stop=self.wvl_stop)['SCIENCE']
-                frames[:, :, i] = im.data[:, :, 0]
+                wcf = dark.photontable.query_header('wavecal')
+                if wcf:
+                    im = dark.photontable.get_fits(start=dark.start, duration=dark.duration, cube_type='time',
+                                                   rate=True, bin_width=dark.duration, wave_start=self.wvl_start,
+                                                   wave_stop=self.wvl_stop)['SCIENCE']
+                    frames[:, :, i] = im.data[:, :, 0]
+                elif not enforce_wavecal:
+                    getLogger(__name__).info(f'Not using a wavelength calibrated dark for {self.wavelengths[i]} nm flat '
+                                             f'- if you would like the wavelength range of the dark to match that of '
+                                             f'the wavelength flat please apply a wavecal to your dark frame.')
+                    im = dark.photontable.get_fits(start=dark.start, duration=dark.duration, cube_type='time',
+                                                   rate=True, bin_width=dark.duration)['SCIENCE']
+                    frames[:, :, i] = im.data[:, :, 0]
+                else:
+                    assert enforce_wavecal is True and not wcf
+                    getLogger(__name__).info(f'No wavecal solution is applied for the {self.wavelengths[i]} nm dark and '
+                                             f'enforce_wavecal is True - dark will not be applied')
+                    pass
             else:
                 pass
         return frames
