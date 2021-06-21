@@ -37,10 +37,12 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                       'linear | asinh | log | power[power=5] | powerdist | sinh | sqrt | squared'),
                      ('stretch.args', tuple(), 'see matplotlib docs'),
                      ('stretch.kwargs', dict(), 'see matplotlib docs'),
-                     ('title', True, 'Display the title at the top of the animation'))
+                     ('title', True, 'Display the title at the top of the animation'),
+                     ('movie_format', 'gif', 'The format of the movie. Imagemagik if gif else ffmpeg'))
 
     def __init__(self, *args,**kwargs):
         super(StepConfig, self).__init__(*args,**kwargs)
+
 
 def _fetch_data(file, timestep, start=0, stop=np.inf, min_wave=None, max_wave=None, use_weights=False, cps=True,
                 exclude_flags=None):
@@ -129,7 +131,7 @@ def _process(frames, time, region=None, smooth_sigma=None, n_frames_smooth=6, sm
 
 def _save_frames(frames, movie_duration, units, suptitle='', movie_type='simple', outfile='file.mp4', wcs=None,
                  mask=None, showaxes=True, description='', colormap='viridis', interpolation='none', dpi=None,
-                 bad_color='black', stretch='linear'):
+                 bad_color='black', stretch='linear', format='gif'):
     """
     RA is assumed along x and Dec along y
     movie_type = simple|upramp|both
@@ -145,7 +147,7 @@ def _save_frames(frames, movie_duration, units, suptitle='', movie_type='simple'
         frames[:, mask > 0] = np.nan
 
     # Create the writer
-    writerkey = 'ffmpeg' if 'mp4' in outfile else 'imagemagick'
+    writerkey = 'ffmpeg' if 'gif' not in format else 'imagemagick'
     metadata = dict(title=suptitle, artist=__name__, genre='Astronomy', comment=description)
     writer = manimation.writers[writerkey](fps=fps, metadata=metadata, bitrate=-1)
 
@@ -279,7 +281,7 @@ def fetch(out, **kwargs):
                  outfile=out.filename, movie_type=out.movie_type,
                  wcs=WCS(hdul['SCIENCE'].header) if config.movies.wcs else None,
                  colormap=config.movies.colormap, showaxes=config.movies.axes, dpi=config.movies.dpi,
-                 bad_color='black', interpolation='none')
+                 bad_color='black', interpolation='none', format=out.movie_format)
 
 
 def test_writers(out='garbage.gif'):

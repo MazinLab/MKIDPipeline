@@ -51,6 +51,9 @@ def generate_default_config(instrument='MEC'):
     cfg = config.PipeConfig(instrument=instrument)
     for name, step in PIPELINE_STEPS.items():
         try:
+            if step.StepConfig is None:
+                getLogger(__name__).debug(f'Pipeline step mkidpipeline.steps.{name} has no global settings.')
+                continue
             cfg.register(name, step.StepConfig(), update=True)
         except AttributeError:
             getLogger(__name__).warning(f'Pipeline step mkidpipeline.steps.{name} does not '

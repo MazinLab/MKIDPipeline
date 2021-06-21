@@ -1113,6 +1113,7 @@ class Solution(object):
 
     @classmethod
     def from_yaml(cls, constructor, node):
+        dict(constructor.construct_pairs(node))['file']
         return load_solution(mkidcore.config.extract_from_node(constructor, 'file', node)['file'])
 
     def __str__(self):
@@ -2703,7 +2704,8 @@ def apply(o):
     obs.update_header('wavecal', solution.name)
     powers, _ = solution.find_resolving_powers()
     RType = np.dtype([('r', np.float32), ('r_err', np.float32), ('wave', np.float32)], align=True)
-    resdata = np.zeros(len(solution.cfg.wavelengths), dtype=RType)
+    resdata = np.zeros(len(solution.cfg.wavelengths),
+                       dtype=np.dtype([('r', np.float32), ('r_err', np.float32), ('wave', np.float32)], align=True))
     resdata['r'] = np.median(powers, axis=0)
     resdata['r_err'] = scipy.stats.median_abs_deviation(powers, axis=0)
     resdata['wave'] = np.asarray(solution.cfg.wavelengths)
