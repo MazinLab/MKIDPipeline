@@ -11,9 +11,10 @@ import mkidpipeline.config as config
 from mkidpipeline.steps import movies, drizzler
 import mkidpipeline.steps.movies
 
+StepConfig = None
+
 
 def generate(outputs: config.MKIDOutputCollection):
-
     for o in outputs:
         # TODO make into a batch process
         getLogger(__name__).info('Generating {}'.format(o.name))

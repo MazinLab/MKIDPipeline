@@ -310,8 +310,9 @@ class DataBase:
         store = {}
         for k in keys:
             if type(d[k]) not in representer.yaml_representers:
-                getLogger(__name__).debug(f'{node.name} ({cls.__name__}.{k}) is a {type(d[k])} and '
-                                          f'will be cast to string ({str(d[k])}) for yaml representation ')
+                if not isinstance(d[k], u.Quantity):
+                    getLogger(__name__).debug(f'{node.name} ({cls.__name__}.{k}) is a {type(d[k])} and '
+                                              f'will be cast to string ({str(d[k])}) for yaml representation ')
                 store[k] = str(d[k])
             else:
                 # getLogger(__name__).debug(f'{node.name} ({cls.__name__}.{k}) is a {type(d[k])} and '
@@ -839,7 +840,8 @@ class MKIDDitherDescription(DataBase):
             dither_path = config.paths.data
         except AttributeError:
             dither_path = ''
-            getLogger(__name__).warning('Pipeline config.paths.data not configured')
+            getLogger(__name__).debug('Pipeline config.paths.data not configured, '
+                                      'dither discovery will use working directory')
 
         def check_use(maxn):
             if self.use is None or not self.use:
