@@ -15,7 +15,7 @@ SAMPLEDATA = {'default': (
     config.MKIDObservation(name=_namer('HIP109427'), start=1602048875, duration=10, wavecal='wavecal0',
                            dark=config.MKIDTimerange(name=_namer(), start=1602046500, duration=10),
                            flatcal='flatcal0', wcscal='wcscal0', speccal='speccal0'),
-    # a wavecal
+    # wavecals
     config.MKIDWavecalDescription(name=_namer('wavecal'),
                                   data=(config.MKIDTimerange(name='850 nm', start=1602040820, duration=60,
                                                              dark=config.MKIDTimerange(name=_namer(), start=1602046500,
@@ -31,6 +31,14 @@ SAMPLEDATA = {'default': (
                                                              dark=config.MKIDTimerange(name=_namer(), start=1602046500,
                                                                                        duration=10)),
                                         config.MKIDTimerange(name='13750 AA', start=1602041110, duration=60))
+                                  ),
+    config.MKIDWavecalDescription(name=_namer('wavecal'),
+                                  data=(config.MKIDTimerange(name='850 nm', start=1621333295, duration=60,
+                                                             header=dict(laser='on', other='fits_key')),
+                                        config.MKIDTimerange(name='950 nm', start=1621333385, duration=60),
+                                        config.MKIDTimerange(name='1.1 um', start=1621333505, duration=60),
+                                        config.MKIDTimerange(name='1.25 um', start=1621333580, duration=60),
+                                        config.MKIDTimerange(name='13750 AA', start=1621333770, duration=60))
                                   ),
     # Flatcals
     config.MKIDFlatcalDescription(name=_namer('flatcal'),
