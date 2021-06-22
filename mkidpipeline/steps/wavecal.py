@@ -2674,32 +2674,33 @@ def apply(o):
     obs.photonTable.autoindex = False  # Don't reindex every time we change column
 
     tic = time.time()
-    for pixel, resid in obs.resonators(pixel=True):
-        if not solution.has_good_calibration_solution(res_id=resid):
-            continue
+    with obs.needed_ram():
+        for pixel, resid in obs.resonators(pixel=True):
+            if not solution.has_good_calibration_solution(res_id=resid):
+                continue
 
-        indices = obs.photonTable.get_where_list('resID==resid')
-        if not indices.size:
-            continue
+            indices = obs.photonTable.get_where_list('resID==resid')
+            if not indices.size:
+                continue
 
-        flags = obs.flags
-        obs.unflag(flags.bitmask([f for f in flags.names if f.startswith('wavecal')], unknown='ignore'), pixel=pixel)
-        obs.flag(flags.bitmask([f'wavecal.{f}' for f in solution.get_flag(res_id=resid)], unknown='warn'),
-                 pixel=pixel)
+            flags = obs.flags
+            obs.unflag(flags.bitmask([f for f in flags.names if f.startswith('wavecal')], unknown='ignore'), pixel=pixel)
+            obs.flag(flags.bitmask([f'wavecal.{f}' for f in solution.get_flag(res_id=resid)], unknown='warn'),
+                     pixel=pixel)
 
-        calibration = solution.calibration_function(res_id=resid, wavelength_units=True)
+            calibration = solution.calibration_function(res_id=resid, wavelength_units=True)
 
-        if (np.diff(indices) == 1).all():  # This takes ~475s for ALL photons combined on a 70Mphot file.
-            phase = obs.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='wavelength')
-            obs.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=calibration(phase),
-                                          colname='wavelength')
-        else:  # This takes 3.5s on a 70Mphot file!!!
-            getLogger(__name__).warning('Using modify_coordinates, this is very slow')
-            phase = obs.photonTable.read_coordinates(indices)
-            phase['wavelength'] = calibration(phase['wavelength'])
-            obs.photonTable.modify_coordinates(indices, phase)
-        tic2 = time.time()
-        getLogger(__name__).debug('Wavelength updated in {:.2f}s'.format(time.time() - tic2))
+            if (np.diff(indices) == 1).all():  # This takes ~475s for ALL photons combined on a 70Mphot file.
+                phase = obs.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='wavelength')
+                obs.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=calibration(phase),
+                                              colname='wavelength')
+            else:  # This takes 3.5s on a 70Mphot file!!!
+                getLogger(__name__).warning('Using modify_coordinates, this is very slow')
+                phase = obs.photonTable.read_coordinates(indices)
+                phase['wavelength'] = calibration(phase['wavelength'])
+                obs.photonTable.modify_coordinates(indices, phase)
+            tic2 = time.time()
+            getLogger(__name__).debug('Wavelength updated in {:.2f}s'.format(time.time() - tic2))
 
     obs.update_header('wavecal', solution.name)
     powers, _ = solution.find_resolving_powers()
