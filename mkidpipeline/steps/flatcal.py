@@ -593,9 +593,9 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
         mask = (calsoln.flat_flags & flag.bitmask).sum(2) > 0
         of.flag(mask * of.flags.bitmask([f'flatcal.{flag.name}'], unknown='warn'))
     of.disablewrite()
-    flattable_resonators = len(of.resonators(exclude=PROBLEM_FLAGS, pixel=True))
+    flattable_resonators = sum(1 for _ in of.resonators(exclude=PROBLEM_FLAGS, pixel=True))
     getLogger(__name__).info(f'Applying flat weights to unflagged resonators:'
-                             f' {flattable_resonators/(calsoln.beammap.nrows*calsoln.beammap.ncols)}'
+                             f' {(flattable_resonators/calsoln.beammap.size) * 100}'
                              f' % of total resonators')
     for pixel, resid in of.resonators(exclude=PROBLEM_FLAGS, pixel=True):
         soln = calsoln.get(pixel=pixel, res_id=resid)
