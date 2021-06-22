@@ -239,7 +239,7 @@ class Photontable:
         try:
             resdata = self.query_header('wavecal.resolution')
         except KeyError:
-            getLogger(__name__).warning('No wavecal, returning nominal values')
+            getLogger(__name__).debug('No wavecal, returning nominal values')
             return self.wavelength_bins(width=self.query_header('energy_resolution'),
                                         start=self.query_header('min_wavelength'),
                                         stop=self.query_header('max_wavelength'))
