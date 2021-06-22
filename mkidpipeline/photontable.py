@@ -4,6 +4,7 @@ import multiprocessing as mp
 import functools
 import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
+from contextlib import contextmanager
 
 import mkidcore.metadata
 from mkidcore.binfile.mkidbin import PhotonCType, PhotonNumpyType
@@ -11,6 +12,7 @@ from mkidcore.corelog import getLogger
 from mkidcore.pixelflags import FlagSet
 import mkidcore.pixelflags as pixelflags
 from mkidcore.instruments import compute_wcs_ref_pixel
+import mkidpipeline.memory as pipeline_ram
 
 import SharedArray
 
@@ -1085,6 +1087,19 @@ class Photontable:
             if excl or (select and not sel):
                 continue
             yield (pix, resid) if pixel else resid
+
+    @contextmanager
+    def needed_ram(self, query_size='full', timeout=None):
+        # Code to acquire resource, e.g.:
+        ram_reservation = len(self.photonTable)*self.photonTable.dtype.itemsize*3.75  #emprical fudge
+        resource = pipeline_ram.lock_ram(ram_reservation, timeout=timeout, id=self.filename)
+        try:
+            yield resource
+        finally:
+            # Code to release resource, e.g.:
+            pipeline_ram.unlock_ram(resource)
+
+
 
 # def mask_timestamps(self, timestamps, inter=interval(), otherListsToFilter=[]):
 #     """

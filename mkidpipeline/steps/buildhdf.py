@@ -19,6 +19,7 @@ import mkidpipeline.config
 
 
 PHOTON_BIN_SIZE_BYTES = 8
+MIN_FREE_RAM_GB = 16
 
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
@@ -53,7 +54,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
         return (mem.free + mem.cached) / 1024 ** 3
 
     ram_est_gb = estimate_ram_gb(cfg.datadir, cfg.starttime, cfg.inttime) + 2  # add some headroom
-    if free_ram_gb() < ram_est_gb:
+    if free_ram_gb() < max(ram_est_gb, MIN_FREE_RAM_GB):
         msg = 'Insufficient free RAM to build {}, {:.1f} vs. {:.1f} GB.'
         getLogger(__name__).warning(msg.format(cfg.h5file, free_ram_gb(), ram_est_gb))
         if wait_for_ram:
