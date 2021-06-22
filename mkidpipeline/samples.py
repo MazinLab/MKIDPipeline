@@ -99,8 +99,11 @@ def get_sample_data(dataset='default'):
 
 def get_sample_output(dataset='default'):
     data = [config.MKIDOutput(name=_namer('out'), data='dither0', min_wave='950 nm', max_wave='1375 nm', kind=k,
-                              duration=10.0) for k in ('stack', 'spatial', 'temporal', 'list', 'image'
-                                                       'tcube', 'scube', 'movie')]
+                              duration=10.0) for k in ('stack', 'spatial', 'temporal', 'list', 'image',
+                                                       'tcube', 'scube')]
+
     data.append(config.MKIDOutput(name=_namer('out'), data='dither0', min_wave='950 nm', max_wave='1375 nm',
-                                  kind='movie', duration=10.0, movie_format='mp4'))
+                                  kind='movie', duration=10.0, movie_format='gif', movie_runtime=3))
+    data.append(config.MKIDOutput(name=_namer('out'), data='dither0', min_wave='950 nm', max_wave='1375 nm',
+                                  kind='movie', duration=10.0, movie_format='mp4', movie_runtime=3))
     return data
