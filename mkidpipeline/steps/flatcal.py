@@ -590,7 +590,7 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
     of.enablewrite()
     of.unflag(to_clear)
     for flag in FLAGS:
-        mask = (calsoln.flat_flags & flag.bitmask).sum(2) > 0
+        mask = (calsoln.flat_flags & flag.bitmask) > 0
         of.flag(mask * of.flags.bitmask([f'flatcal.{flag.name}'], unknown='warn'))
     of.disablewrite()
     flattable_resonators = sum(1 for _ in of.resonators(exclude=PROBLEM_FLAGS, pixel=True))
