@@ -1352,15 +1352,15 @@ class MKIDOutputCollection:
 
     @property
     def wavecals(self):
-        return [o.wavecal for o in self.to_wavecal if o.wavecal]
+        return set([o.wavecal for o in self.to_wavecal if o.wavecal])
 
     @property
     def flatcals(self):
-        return [o.flatcal for o in self.to_flatcal if o.flatcal]
+        return set([o.flatcal for o in self.to_flatcal if o.flatcal])
 
     @property
     def speccals(self):
-        return [o.speccal for o in self.to_speccal if o.speccal]
+        return set([o.speccal for o in self.to_speccal if o.speccal])
 
     @property
     def wcscals(self):
