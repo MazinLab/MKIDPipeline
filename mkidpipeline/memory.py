@@ -9,7 +9,10 @@ from logging import getLogger
 
 allocated = mp.Value('d', 0.0)
 CHECK_INTERVAL = .5
-MINFREE = 64*1024**3
+
+PIPELINE_MAX_RAM = min(29*1024**3, psutil.virtual_memory().total)
+PIPELINE_MAX_RAM_GB = PIPELINE_MAX_RAM/1024**3
+
 
 print(f"======MEMORY PID={os.getpid()}======", allocated)
 
@@ -24,28 +27,35 @@ print(f"======MEMORY PID={os.getpid()}======", allocated)
 
 def get_free_ram():
     mem = psutil.virtual_memory()
-    return mem.free + mem.cached - MINFREE
+    return mem.free + mem.cached
+
+
+def free_ram_gb():
+    return get_free_ram()/1024**3
 
 
 def reserve_ram(amount, id='', timeout=None):
     global allocated  # global across all processes
     elapsed = 0
-    total = psutil.virtual_memory().total - MINFREE
 
     allocated.get_lock().acquire()
-    available = min(get_free_ram(), total-allocated.value)
+    available = min(get_free_ram(), PIPELINE_MAX_RAM-allocated.value)
 
     while amount > available:
         allocated.get_lock().release()
         if timeout and elapsed > timeout:
             raise TimeoutError('Insufficient RAM available within timeout')
-        if int(elapsed)%300 == 0:
-            getLogger(__name__).debug(f'Waiting for {amount / 1024 ** 3:.1f} GB'+f' (for {id})' if id else '')
+        if int(elapsed)%120 == 0:
+            getLogger(__name__).debug(f'Waiting for {amount / 1024 ** 3:.1f} GB'+(f' (for {id})' if id else '') +
+                                      f' Presently '
+                                      f'{free_ram_gb():.1f}/{PIPELINE_MAX_RAM_GB:.1f}/'
+                                      f'{available/1024**3:.1f}/{allocated.value/1024**3:.1f} GB '
+                                      f'(OSfree/Pipetotal/Pipeavailable/allocated)')
         time.sleep(CHECK_INTERVAL)
         elapsed += CHECK_INTERVAL
 
         allocated.get_lock().acquire()
-        available = min(get_free_ram(), total - allocated.value)
+        available = min(get_free_ram(), PIPELINE_MAX_RAM - allocated.value)
 
     allocated.value += amount
     getLogger(__name__).debug(f'Reserved {amount / 1024 ** 3:.1f} GB, '
@@ -70,8 +80,9 @@ class Manager(AbstractContextManager):
         self._allocated = defaultdict(list)
 
     def __setstate__(self, state):
-        # don't preserve info across processes!
-        self.__init__()
+        # don't ram locks across processes
+        self.__init__(state['id'])
+        getLogger(__name__).warning('in Manager.setstate for {self.id}')
 
     def __call__(self, amount):
         self.required[threading.get_ident()] = amount
@@ -95,9 +106,13 @@ class Manager(AbstractContextManager):
         """
         tid = threading.get_ident()
         done_with = self._allocated[tid].pop()
-        with self._lock:
+        if self._lock.acquire(timeout=1):
             largest_required = self.required_allocation
-        release_ram(max(done_with-largest_required, 0), id=f'{self.id} (tid={tid})')
+            release_ram(max(done_with - largest_required, 0), id=f'{self.id} (tid={tid})')
+            self._lock.release()
+        else:
+            getLogger(__name__).error(f'Unable to acquire lock to release ram pid={os.getpid()} tid={tid}')
+
 
     @property
     def required_allocation(self):
