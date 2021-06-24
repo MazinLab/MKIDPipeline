@@ -566,7 +566,6 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
     Weights are multiplied in and replaced; NOT reversible
     """
 
-    # cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(flatcal=StepConfig()), cfg=config, copy=True)
 
     if o.flatcal is None:
         getLogger(__name__).info(f"No flatcal specified for {o}, nothing to do")
@@ -592,35 +591,35 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
     for flag in FLAGS:
         mask = (calsoln.flat_flags & flag.bitmask) > 0
         of.flag(mask * of.flags.bitmask([f'flatcal.{flag.name}'], unknown='warn'))
-    of.disablewrite()
-    flattable_resonators = sum(1 for _ in of.resonators(exclude=PROBLEM_FLAGS, pixel=True))
-    getLogger(__name__).info(f'Applying flat weights to unflagged resonators:'
-                             f' {(flattable_resonators/calsoln.beammap.size) * 100}'
-                             f' % of total resonators')
-    for pixel, resid in of.resonators(exclude=PROBLEM_FLAGS, pixel=True):
-        soln = calsoln.get(pixel=pixel, res_id=resid)
-        if not soln:
-            getLogger(__name__).warning('No flat calibration for good pixel {}'.format(resid))
-            continue
 
-        indices = of.photonTable.get_where_list('resID==resid')
-        if not indices.size:
-            continue
+    n_todo = len(list(of.resonators(exclude=PROBLEM_FLAGS)))
+    getLogger(__name__).info(f'Applying flat weights to {n_todo} unflagged pixels ('
+                             f'{100*n_todo/calsoln.beammap.size} % of pixels).')
+    with of.needed_ram():
+        for pixel, resid in of.resonators(exclude=PROBLEM_FLAGS, pixel=True):
+            soln = calsoln.get(pixel=pixel, res_id=resid)
+            if not soln:
+                getLogger(__name__).warning('No flat calibration for good pixel {}'.format(resid))
+                continue
 
-        tic2 = time.time()
+            indices = of.photonTable.get_where_list('resID==resid')
+            if not indices.size:
+                continue
 
-        if (np.diff(indices) == 1).all():  # This takes ~300s for ALL photons combined on a 70Mphot file.
-            wave = of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='wavelength')
-            weights = soln(wave) * of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='weight')
-            weights = weights.clip(0)  # enforce positive weights only
-            of.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=weights, colname='weight')
-        else:  # This takes 3.5s per pixel on a 70 Mphot file!!!
-            # raise NotImplementedError('This code path is impractically slow at present.')
-            getLogger(__name__).debug('Using modify_coordinates')
-            rows = of.photonTable.read_coordinates(indices)
-            rows['weight'] *= soln(rows['wavelength'])
-            of.photonTable.modify_coordinates(indices, rows)
-            getLogger(__name__).debug('Flat weights updated in {:.2f}s'.format(time.time() - tic2))
+            tic2 = time.time()
+
+            if (np.diff(indices) == 1).all():  # This takes ~300s for ALL photons combined on a 70Mphot file.
+                wave = of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='wavelength')
+                weights = soln(wave) * of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='weight')
+                weights = weights.clip(0)  # enforce positive weights only
+                of.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=weights, colname='weight')
+            else:  # This takes 3.5s per pixel on a 70 Mphot file!!!
+                # raise NotImplementedError('This code path is impractically slow at present.')
+                getLogger(__name__).debug('Using modify_coordinates')
+                rows = of.photonTable.read_coordinates(indices)
+                rows['weight'] *= soln(rows['wavelength'])
+                of.photonTable.modify_coordinates(indices, rows)
+                getLogger(__name__).debug('Flat weights updated in {:.2f}s'.format(time.time() - tic2))
 
     of.update_header('flatcal', calsoln.file_path)
     of.update_header('FLATCAL.ID', calsoln.id)  # TODO ensure is pulled over from definition/is consistent
