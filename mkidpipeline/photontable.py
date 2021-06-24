@@ -214,7 +214,7 @@ class Photontable:
         self.mode = 'write' if mode.lower() in ('write', 'w', 'a', 'append') else 'read'
         self.verbose = verbose
         self.photonTable = None
-        self.filename = None
+        self.filename = file_name
         self.header = None
         self.nominal_wavelength_bins = None
         self.beamImage = None
@@ -223,7 +223,8 @@ class Photontable:
         self.nYPix = None
         self._mdcache = None
         self.in_memory = in_memory
-        self._load_file(file_name)
+        self.ram_manager = pipeline_ram.Manager(self.filename)
+        self._load_file()
 
     def __del__(self):
         """ Closes the obs file """
@@ -253,9 +254,8 @@ class Photontable:
         wave.append(wave[-1] + dl(wave[-1]) / 2)
         return np.array(wave)
 
-    def _load_file(self, file):
+    def _load_file(self):
         """ Opens file and loads obs file attributes and beammap """
-        self.filename = file
         getLogger(__name__).debug("Loading {} in {} mode.".format(self.filename, self.mode))
         try:
             kwargs = {'driver': 'H5FD_CORE'} if self.in_memory else {}
@@ -422,7 +422,7 @@ class Photontable:
             return
         self.file.close()
         self.mode = 'write'
-        self._load_file(self.filename)
+        self._load_file()
 
     def disablewrite(self):
         """USE CARE IN A THREADED ENVIRONMENT"""
@@ -431,7 +431,7 @@ class Photontable:
         self.photonTable.flush()
         self.file.close()
         self.mode = 'read'
-        self._load_file(self.filename)
+        self._load_file()
 
     def attach_new_table(self, group, group_descr, table, table_descr, header, data, force=False):
         if self.mode != 'write':
@@ -1088,108 +1088,6 @@ class Photontable:
                 continue
             yield (pix, resid) if pixel else resid
 
-    @contextmanager
-    def needed_ram(self, query_size='full', timeout=None):
-        # Code to acquire resource, e.g.:
-        ram_reservation = len(self.photonTable)*self.photonTable.dtype.itemsize*3.75  #emprical fudge
-        resource = pipeline_ram.lock_ram(ram_reservation, timeout=timeout, id=self.filename)
-        try:
-            yield resource
-        finally:
-            # Code to release resource, e.g.:
-            pipeline_ram.unlock_ram(resource)
-
-
-
-# def mask_timestamps(self, timestamps, inter=interval(), otherListsToFilter=[]):
-#     """
-#     Masks out timestamps that fall in an given interval
-#     inter is an interval of time values to mask out
-#     otherListsToFilter is a list of parallel arrays to timestamps that should be masked in the same way
-#     returns a dict with keys 'timestamps','otherLists'
-#     """
-#     # first special case:  inter masks out everything so return zero-length
-#     # numpy arrays
-#     raise NotImplementedError('Out of date, update for cosmics')
-#     if inter == self.intervalAll:
-#         filteredTimestamps = np.arange(0)
-#         otherLists = [np.arange(0) for list in otherListsToFilter]
-#     else:
-#         if inter == interval() or len(timestamps) == 0:
-#             # nothing excluded or nothing to exclude
-#             # so return all unpacked values
-#             filteredTimestamps = timestamps
-#             otherLists = otherListsToFilter
-#         else:
-#             # there is a non-trivial set of times to mask.
-#             slices = calculate_slices(inter, timestamps)
-#             filteredTimestamps = repack_array(timestamps, slices)
-#             otherLists = []
-#             for eachList in otherListsToFilter:
-#                 filteredList = repack_array(eachList, slices)
-#                 otherLists.append(filteredList)
-#     # return the values filled in above
-#     return {'timestamps': filteredTimestamps, 'otherLists': otherLists}
-
-# def calculate_slices(inter, timestamps):
-#     """
-#     Hopefully a quicker version of  the original calculate_slices. JvE 3/8/2013
-#
-#     Returns a list of strings, with format i0:i1 for a python array slice
-#     inter is the interval of values in timestamps to mask out.
-#     The resulting list of strings indicate elements that are not masked out
-#
-#     inter must be a single pyinterval 'interval' object (can be multi-component)
-#     timestamps is a 1D array of timestamps (MUST be an *ordered* array).
-#
-#     If inter is a multi-component interval, the components must be unioned and sorted
-#     (which is the default behaviour when intervals are defined, and is probably
-#     always the case, so shouldn't be a problem).
-#     """
-#     timerange = interval([timestamps[0], timestamps[-1]])
-#     slices = []
-#     slce = "0:"  # Start at the beginning of the timestamps array....
-#     imax = 0  # Will prevent error if inter is an empty interval
-#     for eachComponent in inter.components:
-#         # Check if eachComponent of the interval overlaps the timerange of the
-#         # timestamps - if not, skip to the next component.
-#
-#         if eachComponent & timerange == interval(): continue
-#         # [
-#         # Possibly a bit faster to do this and avoid interval package, but not fully tested:
-#         # if eachComponent[0][1] < timestamps[0] or eachComponent[0][0] > timestamps[-1]: continue
-#         # ]
-#
-#         imin = np.searchsorted(timestamps, eachComponent[0][0], side='left')  # Find nearest timestamp to lower bound
-#         imax = np.searchsorted(timestamps, eachComponent[0][1], side='right')  # Nearest timestamp to upper bound
-#         # As long as we're not about to create a wasteful '0:0' slice, go ahead
-#         # and finish the new slice and append it to the list
-#         if imin != 0:
-#             slce += str(imin)
-#             slices.append(slce)
-#         slce = str(imax) + ":"
-#     # Finish the last slice at the end of the timestamps array if we're not already there:
-#     if imax != len(timestamps):
-#         slce += str(len(timestamps))
-#         slices.append(slce)
-#     return slices
-
-
-# def repack_array(array, slices):
-#     """
-#     returns a copy of array that includes only the element defined by slices
-#     """
-#     nIncluded = 0
-#     for slce in slices:
-#         s0 = int(slce.split(":")[0])
-#         s1 = int(slce.split(":")[1])
-#         nIncluded += s1 - s0
-#     retval = np.zeros(nIncluded)
-#     iPt = 0;
-#     for slce in slices:
-#         s0 = int(slce.split(":")[0])
-#         s1 = int(slce.split(":")[1])
-#         iPtNew = iPt + s1 - s0
-#         retval[iPt:iPtNew] = array[s0:s1]
-#         iPt = iPtNew
-#     return retval
+    def needed_ram(self):
+        amount = len(self.photonTable) * self.photonTable.dtype.itemsize * 3.75
+        return self.ram_manager(amount)

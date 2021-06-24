@@ -6,8 +6,6 @@ import psutil
 import multiprocessing as mp
 from datetime import datetime
 from glob import glob
-import warnings
-from io import StringIO
 from mkidcore.corelog import getLogger
 from mkidcore.config import yaml, yaml_object
 import mkidcore.utils
@@ -16,10 +14,10 @@ from mkidcore.objects import Beammap
 
 from mkidpipeline.photontable import Photontable
 import mkidpipeline.config
+import mkidpipeline.memory
 
 
 PHOTON_BIN_SIZE_BYTES = 8
-MIN_FREE_RAM_GB = 16
 
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
@@ -54,7 +52,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
         return (mem.free + mem.cached) / 1024 ** 3
 
     ram_est_gb = estimate_ram_gb(cfg.datadir, cfg.starttime, cfg.inttime) + 2  # add some headroom
-    if free_ram_gb() < max(ram_est_gb, MIN_FREE_RAM_GB):
+    if free_ram_gb() < max(ram_est_gb, mkidpipeline.memory.MINFREE/1024**3):
         msg = 'Insufficient free RAM to build {}, {:.1f} vs. {:.1f} GB.'
         getLogger(__name__).warning(msg.format(cfg.h5file, free_ram_gb(), ram_est_gb))
         if wait_for_ram:
@@ -224,15 +222,16 @@ class HDFBuilder(object):
                 getLogger(__name__).info('Remaking {} forced'.format(self.cfg.h5file))
                 done = False
             else:
+                done = False
                 try:
-                    done = Photontable(self.cfg.h5file).duration >= self.cfg.inttime
+                    pt = Photontable(self.cfg.h5file)
+                    pt.photonTable[0]
+                    done = pt.duration >= self.cfg.inttime
                     if not done:
-                        getLogger(__name__).info(('{} does not contain full duration, '
-                                                  'will remove and rebuild').format(self.cfg.h5file))
-                except:
-                    done = False
-                    getLogger(__name__).info(('{} presumed corrupt,'
-                                              ' will remove and rebuild').format(self.cfg.h5file), exc_info=True)
+                        getLogger(__name__).info(f'{self.cfg.h5file} does not contain full duration, '
+                                                 f'will remove and rebuild')
+                except Exception as e:
+                    getLogger(__name__).info(f'{self.cfg.h5file} presumed corrupt ({e}), will remove and rebuild')
             if not done:
                 try:
                     os.remove(self.cfg.h5file)
