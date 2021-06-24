@@ -252,6 +252,10 @@ def apply(o: mkidpipeline.config.MKIDTimerange, config=None, ncpu=None):
     cc = CosmicCleaner(o.h5, **methodkw)
     cc.determine_cosmic_intervals()
 
+    if o.photontable.query_header('cosmiccal'):
+        getLogger(__name__).info('{} already has an attached CR impact table'.format(o.h5))
+        return
+
     impacts = np.zeros(len(cc.interval_starts), dtype=NP_CR_IMPACT_TYPE)
     impacts['start'] = cc.interval_starts
     impacts['stop'] = cc.interval_stops
@@ -267,5 +271,6 @@ def apply(o: mkidpipeline.config.MKIDTimerange, config=None, ncpu=None):
         cc.obs.update_header(f'cosmiccal.{k}', v)
 
     cc.obs.attach_new_table('cosmics', 'Cosmic Ray Info', 'impacts', CRImpact, "Cosmic-Ray Hits", impacts)
+    cc.obs.update_header(f'cosmiccal', True)
     cc.obs.disablewrite()
     getLogger(__name__).info(f'Cosmiccal applied to {o.name}')
