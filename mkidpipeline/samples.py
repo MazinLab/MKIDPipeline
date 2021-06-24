@@ -77,17 +77,19 @@ SAMPLEDATA = {'default': (
     config.MKIDDitherDescription(name=_namer('dither'), flatcal='', speccal='', wcscal='', wavecal='',
                                  header=dict(OBJECT='HIP 109427'),
                                  data=(config.MKIDObservation(name=_namer('HIP109427_'), start=1602047815,
-                                                              duration=10, wavecal='wavecal0',
+                                                              duration=10, wavecal='wavecal0', wcscal='wcscal0',
                                                               header=dict(M_CONEXX=.2, M_CONEXY=.3,
                                                                           OBJECT='HIP 109427'),
                                                               dark=config.MKIDTimerange(name=_namer(), start=1602046500,
                                                                                         duration=10)),
                                        config.MKIDObservation(name=_namer('HIP109427_'), start=1602047825, duration=10,
-                                                              wavecal='wavecal0', header=dict(M_CONEXX=.1, M_CONEXY=.1),
-                                                              wcscal='wcscal0'),
+                                                              wavecal='wavecal0', wcscal='wcscal0',
+                                                              header=dict(M_CONEXX=.1, M_CONEXY=.1,
+                                                                          OBJECT='HIP 109427')),
                                        config.MKIDObservation(name=_namer('HIP109427_'), start=1602047835,
                                                               duration=10, wavecal='wavecal0', wcscal='wcscal0',
-                                                              header=dict(M_CONEXX=-.1, M_CONEXY=-.1))
+                                                              header=dict(M_CONEXX=-.1, M_CONEXY=-.1,
+                                                                          OBJECT='HIP 109427'))
                                        )
                                  )
 )}
