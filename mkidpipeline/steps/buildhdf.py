@@ -14,7 +14,7 @@ from mkidcore.objects import Beammap
 
 from mkidpipeline.photontable import Photontable
 import mkidpipeline.config
-import mkidpipeline.memory
+from mkidpipeline.memory import PIPELINE_MAX_RAM_GB, free_ram_gb
 
 
 PHOTON_BIN_SIZE_BYTES = 8
@@ -47,12 +47,12 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
     if cfg.starttime < 1518222559:
         raise ValueError('Data prior to 1518222559 not supported without added fixtimestamps')
 
-    def free_ram_gb():
-        mem = psutil.virtual_memory()
-        return (mem.free + mem.cached) / 1024 ** 3
-
     ram_est_gb = estimate_ram_gb(cfg.datadir, cfg.starttime, cfg.inttime) + 2  # add some headroom
-    if free_ram_gb() < max(ram_est_gb, mkidpipeline.memory.MINFREE/1024**3):
+    if PIPELINE_MAX_RAM_GB<ram_est_gb:
+        getLogger(__name__).error(f'Pipeline limited to {PIPELINE_MAX_RAM_GB:.0f} GB RAM '
+                                  f'need ~{ram_est_gb:.0f} to build file. Aborting')
+        return
+    if free_ram_gb() < ram_est_gb:
         msg = 'Insufficient free RAM to build {}, {:.1f} vs. {:.1f} GB.'
         getLogger(__name__).warning(msg.format(cfg.h5file, free_ram_gb(), ram_est_gb))
         if wait_for_ram:
