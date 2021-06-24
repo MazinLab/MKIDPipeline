@@ -629,5 +629,5 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
 
     of.update_header('flatcal', calsoln.file_path)
     of.update_header('FLATCAL.ID', calsoln.id)  # TODO ensure is pulled over from definition/is consistent
-    of.update_header('FLATCAL.TYPE', calsoln.method)
+    of.update_header('FLATCAL.METHOD', calsoln.method)
     getLogger(__name__).info('Flatcal applied in {:.2f}s'.format(time.time() - tic))
