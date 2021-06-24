@@ -587,7 +587,6 @@ class MKIDWavecalDescription(DataBase, CalDefinitionMixin):
     def __str__(self):
         start = min(x.start for x in self.data)
         stop = min(x.stop for x in self.data)
-        date = datetime.utcfromtimestamp(start).strftime('%Y-%m-%d-%H%M_')
         return f'{self.name} (MKIDWavecalDescription): {start}-{stop}\n' + '\n '.join(str(x) for x in self.data)
 
     @property
