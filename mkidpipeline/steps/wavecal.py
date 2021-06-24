@@ -2704,11 +2704,10 @@ def apply(o):
 
     obs.update_header('wavecal', solution.name)
     powers, _ = solution.find_resolving_powers()
-    RType = np.dtype([('r', np.float32), ('r_err', np.float32), ('wave', np.float32)], align=True)
     resdata = np.zeros(len(solution.cfg.wavelengths),
                        dtype=np.dtype([('r', np.float32), ('r_err', np.float32), ('wave', np.float32)], align=True))
-    resdata['r'] = np.median(powers, axis=0)
-    resdata['r_err'] = scipy.stats.median_abs_deviation(powers, axis=0)
+    resdata['r'] = np.nanmedian(powers, axis=0)
+    resdata['r_err'] = scipy.stats.median_abs_deviation(powers, axis=0, nan_policy='omit')
     resdata['wave'] = np.asarray(solution.cfg.wavelengths)
     obs.update_header('wavecal.resolution', resdata)
 
