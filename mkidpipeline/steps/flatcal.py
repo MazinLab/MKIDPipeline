@@ -396,7 +396,7 @@ class FlatSolution(object):
         can take a while.
 
         """
-        getLogger(__name__).info("Loading solution from {}".format(file_path))
+        getLogger(__name__).debug("Loading solution from {}".format(file_path))
         keys = ('coeff_array', 'configuration', 'beammap', 'flat_weights', 'flat_flags', 'flat_weight_err', 'wavelengths')
         npz_file = np.load(file_path, allow_pickle=True, encoding='bytes', mmap_mode=file_mode)
         for key in keys:

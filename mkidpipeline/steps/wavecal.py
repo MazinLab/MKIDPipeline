@@ -1177,7 +1177,7 @@ class Solution(object):
         file_mode defaults to copy on write. For valid options see
         https://docs.scipy.org/doc/numpy/reference/generated/numpy.memmap.html#numpy.memmap
         """
-        log.info("Loading solution from {}".format(file_path))
+        log.debug("Loading solution from {}".format(file_path))
         keys = ('fit_array', 'configuration', 'beam_map', 'beam_map_flags')
         npz_file = np.load(file_path, allow_pickle=True, encoding='bytes', mmap_mode=file_mode)
         for key in keys:

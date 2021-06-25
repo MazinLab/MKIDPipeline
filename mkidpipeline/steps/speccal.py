@@ -396,7 +396,7 @@ class ResponseCurve:
         """
         loads in a response curve from a saved npz file and sets relevant attributes
         """
-        getLogger(__name__).info("Loading solution from {}".format(file_path))
+        getLogger(__name__).debug("Loading solution from {}".format(file_path))
         keys = ('curve', 'configuration')
         npz_file = np.load(file_path, allow_pickle=True, encoding='bytes', mmap_mode=file_mode)
         for key in keys:

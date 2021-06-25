@@ -13,6 +13,7 @@ import mkidpipeline.config as config
 import mkidpipeline.steps as steps
 import mkidpipeline.samples
 
+
 def parse():
     # read in command line arguments
     parser = argparse.ArgumentParser(description='MKID Pipeline CLI')
@@ -33,17 +34,17 @@ def parse():
 
 
 def init_pipeline():
-        defstr = lambda x: f"{x}_default.yaml" if os.path.exists(f"{x}.yaml") else f"{x}.yaml"
-        default_pipe_config = pipe.generate_default_config()
-        with open(defstr('pipe'), 'w') as f:
-            config.yaml.dump(default_pipe_config, f)
+    defstr = lambda x: f"{x}_default.yaml" if os.path.exists(f"{x}.yaml") else f"{x}.yaml"
+    default_pipe_config = pipe.generate_default_config()
+    with open(defstr('pipe'), 'w') as f:
+        config.yaml.dump(default_pipe_config, f)
 
-        sample_data = mkidpipeline.samples.get_sample_data()
-        config.dump_dataconfig(sample_data, defstr('data'))
+    sample_data = mkidpipeline.samples.get_sample_data()
+    config.dump_dataconfig(sample_data, defstr('data'))
 
-        sample_out = mkidpipeline.samples.get_sample_output()
-        with open(defstr('out'), 'w') as f:
-            config.yaml.dump(sample_out, f)
+    sample_out = mkidpipeline.samples.get_sample_output()
+    with open(defstr('out'), 'w') as f:
+        config.yaml.dump(sample_out, f)
 
 
 def run_step(stepname, dataset):
@@ -69,6 +70,8 @@ if __name__ == "__main__":
         getLogger('mkidpipe').setLevel('DEBUG')
         getLogger('mkidpipeline').setLevel('DEBUG')
         getLogger('mkidcore').setLevel('DEBUG')
+    getLogger('mkidpipeline.steps.buildhdf').setLevel('INFO')
+    getLogger('mkidpipeline.steps.wavecal').setLevel('INFO')
 
     if args.init:
         init_pipeline()
@@ -81,7 +84,7 @@ if __name__ == "__main__":
     if args.make_paths:
         config.make_paths(output_collection=outputs)
 
-        config.report_vetting(outputs)
+    config.report_vetting(outputs)
     if args.vet:
         sys.exit(0)
 
@@ -99,19 +102,9 @@ if __name__ == "__main__":
         # build, meta, [lin, wave, pix, cr, flat] -> image / movie
         # build, meta, [lin], wave, [pix, cr] -> flat
         # build, meta -> wave
-        errors = outputs.validate(return_errors=True)
-        if errors:
-            def format_errors(errors: dict):
-                if isinstance(errors, str):
-                    return errors
-                elif isinstance(errors, dict):
-                    return '\n'.join([f"{k}:\n\t"+format_errors(v).replace('\n\t', '\n\t\t') for k, v in errors.items()])
-                else:
-                    return '\n\t'.join(errors)
-            getLogger('mkidpipeline').critical(f'Validation failed, please these issues fix before continuing.\n'
-                                               f'=============================================================\n'
-                                               f'{format_errors(errors)}\n'
-                                               f'=============================================================\n')
+        issue_report = outputs.validation_summary(null_success=True)
+        if issue_report:
+            getLogger('mkidpipeline').critical(issue_report)
             sys.exit(0)
         # 0
         steps.buildhdf.buildtables(outputs.input_timeranges)
@@ -123,17 +116,15 @@ if __name__ == "__main__":
             steps.wavecal.fetch(outputs.wavecals)
             # TODO sort out why this is necessary for Pools to work despite __getstate__
             steps.wavecal._loaded_solutions = {}
-        if 'lincal' in config.config.flow:
-            pipe.batch_applier(steps.lincal.apply, outputs.to_lincal)
-        # 3
-        getLogger('mkidpipeline').setLevel('DEBUG')
-        if 'wavecal' in config.config.flow:
+            getLogger('mkidpipeline').setLevel('DEBUG')
             pipe.batch_applier(steps.wavecal.apply, outputs.to_wavecal)
         # 4
         if 'pixcal' in config.config.flow:
             pipe.batch_applier(steps.pixcal.apply, outputs.to_pixcal)
+        if 'lincal' in config.config.flow:
+            pipe.batch_applier(steps.lincal.apply, outputs.to_lincal)
         if 'cosmiccal' in config.config.flow:
-            pipe.batch_applier(steps.cosmiccal.apply, outputs.to_cosmiccal)
+            pipe.batch_applier(steps.cosmiccal.apply, list(outputs.to_cosmiccal)[:1])
 
         if 'flatcal' in config.config.flow:
             # 5
