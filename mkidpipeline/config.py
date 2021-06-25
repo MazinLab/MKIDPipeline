@@ -1318,6 +1318,24 @@ class MKIDOutputCollection:
     def __str__(self):
         return f'MKIDOutputCollection: {self.file}'
 
+    def validation_summary(self, null_success=False):
+        errors = self.validate(return_errors=True)
+        if not errors:
+            return '' if null_success else 'Validation Successful, no issues identified'
+
+        def format_errors(errors: dict):
+            if isinstance(errors, str):
+                return errors
+            elif isinstance(errors, dict):
+                return '\n'.join([f"{k}:\n\t"+format_errors(v).replace('\n\t', '\n\t\t') for k, v in errors.items()])
+            else:
+                return '\n\t'.join(errors)
+
+        return (f'Validation failed, please these issues fix before continuing.\n'
+                f'=============================================================\n'
+                f'{format_errors(errors)}\n'
+                f'=============================================================\n')
+
     def validate(self, error=False, return_errors=False):
         """ Return True if everything is good and all is associated, if error=True raise an exception instead of
         returning false"""
