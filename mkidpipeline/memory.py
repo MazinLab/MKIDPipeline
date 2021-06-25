@@ -10,7 +10,7 @@ from logging import getLogger
 allocated = mp.Value('d', 0.0)
 CHECK_INTERVAL = .5
 
-PIPELINE_MAX_RAM = min(29*1024**3, psutil.virtual_memory().total)
+PIPELINE_MAX_RAM = min(192 * 1024**3, psutil.virtual_memory().total)
 PIPELINE_MAX_RAM_GB = PIPELINE_MAX_RAM/1024**3
 
 
@@ -35,6 +35,11 @@ def free_ram_gb():
 
 
 def reserve_ram(amount, id='', timeout=None):
+    if amount <0:
+        raise ValueError('Reservation amount must be >=0')
+    if amount == 0:
+        return 0
+
     global allocated  # global across all processes
     elapsed = 0
 
@@ -43,7 +48,7 @@ def reserve_ram(amount, id='', timeout=None):
 
     while amount > available:
         allocated.get_lock().release()
-        if timeout and elapsed > timeout:
+        if timeout is not None and elapsed > timeout:
             raise TimeoutError('Insufficient RAM available within timeout')
         if int(elapsed)%120 == 0:
             getLogger(__name__).debug(f'Waiting for {amount / 1024 ** 3:.1f} GB'+(f' (for {id})' if id else '') +
@@ -58,12 +63,15 @@ def reserve_ram(amount, id='', timeout=None):
         available = min(get_free_ram(), PIPELINE_MAX_RAM - allocated.value)
 
     allocated.value += amount
-    getLogger(__name__).debug(f'Reserved {amount / 1024 ** 3:.1f} GB, '
+    getLogger(__name__).debug(f'Reserved {amount / 1024 ** 3:.1f} GB for {id} '
                               f'total reserved {allocated.value / 1024 ** 3:.1f} GB')
     allocated.get_lock().release()
+    return amount
 
 
 def release_ram(amount, id=''):
+    if amount<=0:
+        return
     global allocated
     with allocated.get_lock():
         allocated.value -= amount
