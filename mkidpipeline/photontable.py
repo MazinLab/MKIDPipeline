@@ -213,6 +213,7 @@ class Photontable:
         """
         self.mode = 'write' if mode.lower() in ('write', 'w', 'a', 'append') else 'read'
         self.verbose = verbose
+        self.file = None
         self.photonTable = None
         self.filename = file_name
         self.header = None
@@ -228,8 +229,12 @@ class Photontable:
 
     def __del__(self):
         """ Closes the obs file """
+        if self.file is None:
+            return
         try:
             self.file.close()
+            del self.file
+            self.file = None
         except:
             getLogger(__name__).warning('Error on file close', exc_info=True)
 
@@ -1089,5 +1094,5 @@ class Photontable:
             yield (pix, resid) if pixel else resid
 
     def needed_ram(self):
-        amount = len(self.photonTable) * self.photonTable.dtype.itemsize * 3.75
+        amount = len(self.photonTable) * self.photonTable.dtype.itemsize * 3 # 25
         return self.ram_manager(amount)

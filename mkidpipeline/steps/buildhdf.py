@@ -2,7 +2,6 @@ import os
 import tables
 import time
 import numpy as np
-import psutil
 import multiprocessing as mp
 from datetime import datetime
 from glob import glob
@@ -14,7 +13,7 @@ from mkidcore.objects import Beammap
 
 from mkidpipeline.photontable import Photontable
 import mkidpipeline.config
-from mkidpipeline.memory import PIPELINE_MAX_RAM_GB, free_ram_gb
+from mkidpipeline.memory import PIPELINE_MAX_RAM_GB, free_ram_gb, reserve_ram, release_ram
 
 
 PHOTON_BIN_SIZE_BYTES = 8
@@ -35,38 +34,14 @@ def estimate_ram_gb(directory, start, inttime):
              range(int(start - 1), int(np.ceil(start) + inttime + 1))]
     files = filter(os.path.exists, files)
     n_max_photons = int(np.ceil(sum([os.stat(f).st_size for f in files]) / PHOTON_BIN_SIZE_BYTES))
-    return n_max_photons * PHOTON_BIN_SIZE_BYTES / 1024 ** 3
+    return 4.75 * n_max_photons * PHOTON_BIN_SIZE_BYTES / 1024 ** 3  #4.75 is empirical fudge
 
 
-def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250, shuffle=True, bitshuffle=False,
-                   wait_for_ram=3600, ndx_shuffle=True, ndx_bitshuffle=False):
-    """wait_for_ram speficies the number of seconds to wait for sufficient ram"""
+def _build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250, shuffle=True, bitshuffle=False,
+                    ndx_shuffle=True, ndx_bitshuffle=False):
+
     from mkidcore.binfile.mkidbin import extract
     from mkidpipeline.pipeline import PIPELINE_FLAGS, BEAMMAP_FLAGS    #here to prevent circular imports!
-
-    if cfg.starttime < 1518222559:
-        raise ValueError('Data prior to 1518222559 not supported without added fixtimestamps')
-
-    ram_est_gb = estimate_ram_gb(cfg.datadir, cfg.starttime, cfg.inttime) + 2  # add some headroom
-    if PIPELINE_MAX_RAM_GB<ram_est_gb:
-        getLogger(__name__).error(f'Pipeline limited to {PIPELINE_MAX_RAM_GB:.0f} GB RAM '
-                                  f'need ~{ram_est_gb:.0f} to build file. Aborting')
-        return
-    if free_ram_gb() < ram_est_gb:
-        msg = 'Insufficient free RAM to build {}, {:.1f} vs. {:.1f} GB.'
-        getLogger(__name__).warning(msg.format(cfg.h5file, free_ram_gb(), ram_est_gb))
-        if wait_for_ram:
-            getLogger(__name__).info('Waiting up to {} s for enough RAM'.format(wait_for_ram))
-            while wait_for_ram and free_ram_gb() < ram_est_gb:
-                sleeptime = np.random.uniform(1, 2)
-                time.sleep(sleeptime)
-                wait_for_ram -= sleeptime
-                if wait_for_ram % 30:
-                    getLogger(__name__).info('Still waiting (up to {} s) for enough RAM'.format(wait_for_ram))
-    if free_ram_gb() < ram_est_gb:
-        getLogger(__name__).error('Aborting build due to insufficient RAM.')
-        return
-
     getLogger(__name__).debug('Starting build of {}'.format(cfg.h5file))
 
     photons = extract(cfg.datadir, cfg.starttime, cfg.inttime, cfg.beamfile, cfg.x, cfg.y,
@@ -88,6 +63,7 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
     table = h5file.create_table(group, name='photontable', description=Photontable.PhotonDescription, title="Photon Datatable",
                                 expectedrows=len(photons), filters=filter, chunkshape=chunkshape)
     table.append(photons)
+    del photons
 
     getLogger(__name__).debug('Table populated for {}'.format(cfg.h5file))
     if index:
@@ -148,7 +124,34 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
         setattr(h5file.root.photons.photontable.attrs, k, v)
 
     h5file.close()
+    del h5file
     getLogger(__name__).debug('Done with {}'.format(cfg.h5file))
+
+
+def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250, shuffle=True, bitshuffle=False,
+                   wait_for_ram=300, ndx_shuffle=True, ndx_bitshuffle=False):
+    """wait_for_ram speficies the number of seconds to wait for sufficient ram"""
+
+    if cfg.starttime < 1518222559:
+        raise ValueError('Data prior to 1518222559 not supported without added fixtimestamps')
+
+    ram_est_gb = estimate_ram_gb(cfg.datadir, cfg.starttime, cfg.inttime)
+    if PIPELINE_MAX_RAM_GB<ram_est_gb:
+        getLogger(__name__).error(f'Pipeline limited to {PIPELINE_MAX_RAM_GB:.0f} GB RAM '
+                                  f'need ~{ram_est_gb:.0f} to build file. Aborting')
+        return
+    try:
+        reserved = reserve_ram(ram_est_gb*1024**3, timeout=wait_for_ram, id=cfg.h5file)
+        _build_pytables(cfg, index=index, timesort=timesort, chunkshape=chunkshape, shuffle=shuffle,
+                        bitshuffle=bitshuffle, ndx_shuffle=ndx_shuffle, ndx_bitshuffle=ndx_bitshuffle)
+    except TimeoutError:
+        reserved = 0
+        getLogger(__name__).error(f'Aborting build of {cfg.h5file} due to insufficient RAM '
+                                  f'(req. {ram_est_gb:.1f}, free  {free_ram_gb():.1f} GB) after {wait_for_ram} s.')
+        return
+
+    finally:
+        release_ram(reserved)
 
 
 @yaml_object(yaml)
@@ -225,7 +228,7 @@ class HDFBuilder(object):
                 done = False
                 try:
                     pt = Photontable(self.cfg.h5file)
-                    pt.photonTable[0]
+                    pt.photonTable[0],pt.photonTable[-1]
                     done = pt.duration >= self.cfg.inttime
                     if not done:
                         getLogger(__name__).info(f'{self.cfg.h5file} does not contain full duration, '
