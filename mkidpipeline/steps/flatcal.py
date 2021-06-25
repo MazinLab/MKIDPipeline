@@ -109,7 +109,7 @@ class FlatCalibrator:
         self.calculate_coefficients()
         sol = FlatSolution(configuration=self.cfg, flat_weights=self.flat_weights, flat_weight_err=self.flat_weight_err,
                            flat_flags=self.flat_flags, coeff_array=self.coeff_array, wavelengths=self.wavelengths,
-                           beammap=self.cfg.beammap.residmap, id=self.id, method=self.method)
+                           beammap=self.cfg.beammap.residmap)
         sol.save(save_name=self.solution_name)
         if self.summary_plot:
             getLogger(__name__).info('Making a summary plot')
@@ -249,7 +249,7 @@ class WhiteCalibrator(FlatCalibrator):
     and in wavelength-sliced images.
     """
 
-    def __init__(self, h5s, config=None, solution_name='flat_solution.npz', darks=None, id=None, method=None):
+    def __init__(self, h5s, config=None, solution_name='flat_solution.npz', darks=None):
         """
         Reads in the param file and opens appropriate flat file.  Sets wavelength binning parameters.
         """
@@ -257,8 +257,6 @@ class WhiteCalibrator(FlatCalibrator):
         self.h5s = h5s
         self.solution_name = solution_name
         self.darks = darks
-        self.id = id
-        self.method = method
 
     def make_spectral_cube(self):
         if self.cfg.flatcal.chunk_time > self.h5s.duration:
@@ -297,7 +295,7 @@ class WhiteCalibrator(FlatCalibrator):
 
 
 class LaserCalibrator(FlatCalibrator):
-    def __init__(self, h5s, wavesol, solution_name='flat_solution.npz', config=None, darks=None, id=None, method=None):
+    def __init__(self, h5s, wavesol, solution_name='flat_solution.npz', config=None, darks=None):
         super().__init__(config)
         self.h5s = h5s
         self.wavelengths = np.array([key.value for key in h5s.keys()], dtype=float)
@@ -305,8 +303,6 @@ class LaserCalibrator(FlatCalibrator):
         self.solution_name = solution_name
         r, _ = wavecal.Solution(wavesol).find_resolving_powers(cache=True)
         self.r_list = np.nanmedian(r, axis=0)
-        self.id = id
-        self.method = method
 
     def make_spectral_cube(self):
         n_wvls = len(self.wavelengths)
@@ -357,8 +353,7 @@ class FlatSolution(object):
     yaml_tag = '!fsoln'
 
     def __init__(self, file_path=None, configuration=None, beammap=None, flat_weights=None, coeff_array=None,
-                 wavelengths=None, flat_weight_err=None, flat_flags=None, solution_name='flat_solution', id=None,
-                 method=None):
+                 wavelengths=None, flat_weight_err=None, flat_flags=None, solution_name='flat_solution'):
         self.cfg = configuration
         self.file_path = file_path
         self.beammap = beammap
@@ -368,8 +363,6 @@ class FlatSolution(object):
         self.flat_flags = flat_flags
         self.flat_weight_err = flat_weight_err
         self.coeff_array = coeff_array
-        self.id = id
-        self.method = method
         self._file_path = os.path.abspath(file_path) if file_path is not None else file_path
         # if we've specified a file load it without overloading previously set arguments
         if self._file_path is not None:
@@ -539,11 +532,11 @@ def fetch(dataset, config=None, ncpu=None, remake=False):
     flattners = []
     for sd in set(sd for sd in solution_descriptors if sd.id not in solutions):
         if sd.method == 'laser':
-            flattner = LaserCalibrator(h5s=sd.h5s, config=fcfg, solution_name=sd.path, id=sd.id, method=sd.method,
+            flattner = LaserCalibrator(h5s=sd.h5s, config=fcfg, solution_name=sd.path,
                                        darks=[o.dark for o in sd.obs],
                                        wavesol=sd.data.path)
         else:
-            flattner = WhiteCalibrator(H5Subset(sd.data), config=fcfg, solution_name=sd.path,id=sd.id, method=sd.method,
+            flattner = WhiteCalibrator(H5Subset(sd.data), config=fcfg, solution_name=sd.path,
                                        darks=[o.dark for o in sd.obs])
 
         solutions[sd.id] = sd.path
@@ -628,6 +621,6 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
                 getLogger(__name__).debug('Flat weights updated in {:.2f}s'.format(time.time() - tic2))
 
     of.update_header('flatcal', calsoln.file_path)
-    of.update_header('FLATCAL.ID', calsoln.id)  # TODO ensure is pulled over from definition/is consistent
-    of.update_header('FLATCAL.METHOD', calsoln.method)
+    of.update_header('FLATCAL.ID', o.flatcal.id)
+    of.update_header('FLATCAL.METHOD', o.flatcal.method)
     getLogger(__name__).info('Flatcal applied in {:.2f}s'.format(time.time() - tic))
