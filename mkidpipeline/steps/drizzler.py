@@ -560,7 +560,7 @@ class TemporalDrizzler(Canvas):
         self.header_4d()
         self.counts = self.cps * expmap
 
-    def make_tesseract(self, dither_photons, timespan, applyweights=False, maxCountsCut=False):
+    def make_tesseract(self, dither_photons, timespan, applyweights=False, max_counts_cut=None):
         """
         Creates a fourcube (tesseract) for the duration of the wcs timestep range or finer sampled if exp_timestep is
         shorter
@@ -568,7 +568,7 @@ class TemporalDrizzler(Canvas):
         :param dither_photons:
         :param timespan:
         :param applyweights:
-        :param maxCountsCut:
+        :param max_counts_cut:
         :return:
         """
 
@@ -589,9 +589,9 @@ class TemporalDrizzler(Canvas):
         bins = np.array([timebins, self.wvlbins, range(self.shape[1] + 1), range(self.shape[0] + 1)])
         hypercube, _ = np.histogramdd(sample.T, bins, weights=weights)
 
-        if maxCountsCut:
+        if max_counts_cut:
             getLogger(__name__).debug("Applying max pixel count cut")
-            hypercube *= np.int_(hypercube < maxCountsCut)
+            hypercube *= np.int_(hypercube < max_counts_cut)
 
         # hypercube /= (timespan[1] - timespan[0])*1e-6
 
@@ -687,7 +687,7 @@ class SpatialDrizzler(Canvas):
             self.cps = self.driz.outsci
             self.counts = self.driz.outwht * self.cps * np.mean(self.wcs_times)
 
-    def make_image(self, dither_photons, timespan, applyweights=True, maxCountsCut=10000):
+    def make_image(self, dither_photons, timespan, applyweights=True, max_counts_cut=None):
         # TODO mixing pixels and radians per variable names
 
         timespan_ind = np.where((dither_photons['timestamps'] >= timespan[0]*1e6) &
@@ -699,9 +699,9 @@ class SpatialDrizzler(Canvas):
                                          dither_photons['photon_pixels'][1][timespan_ind], weights=weights,
                                          bins=[range(self.shape[1] + 1), range(self.shape[0] + 1)], normed=False)
 
-        if maxCountsCut:
+        if max_counts_cut:
             getLogger(__name__).info("Applying max pixel count cut")
-            thisImage *= thisImage < maxCountsCut
+            thisImage *= thisImage < max_counts_cut
 
         return thisImage
 
