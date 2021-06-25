@@ -56,5 +56,5 @@ formatters:
   brief:
     format: '%(message)s'
   default:
-    format: '%(asctime)s %(name)s:%(levelname)-8s (%(funcName)s:%(lineno)d[pid=%(process)d]) %(message)s'
+    format: '%(asctime)s %(name)-28s:%(levelname)-8s (%(funcName)s:%(lineno)d[pid=%(process)d]) %(message)s'
     datefmt: '%Y-%m-%d %H:%M:%S'
