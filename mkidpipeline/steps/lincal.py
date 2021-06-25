@@ -5,7 +5,7 @@ Implementation of a linearity correction to account for photons that may arrive 
 """
 import time
 import numpy as np
-from progressbar import ProgressBar
+from progressbar import ProgressBar, NullBar
 
 from mkidcore.corelog import getLogger
 import mkidpipeline.config
@@ -44,10 +44,19 @@ def apply(o: mkidpipeline.config.MKIDTimerange, config=None):
 
     of.photonTable.autoindex = False
     tic = time.time()
-    bar = ProgressBar(max_value=np.count_nonzero(~of.flagged(PROBLEM_FLAGS, all_flags=False)))
 
+    n_to_do = np.count_nonzero(~of.flagged(PROBLEM_FLAGS, all_flags=False))
+    lastpct = 0
+
+    if cfg.get('lincal.ncpu') > 1:
+        bar = NullBar()
+    else:
+        bar = ProgressBar(max_value=n_to_do)
+
+
+    #Not ram intensive ~250MB peak
     dead_time = of.query_header('dead_time') * 1e-6
-    for resid in bar(of.resonators(exclude=PROBLEM_FLAGS)):
+    for done, resid in bar(enumerate(of.resonators(exclude=PROBLEM_FLAGS))):
         indices = of.photonTable.get_where_list('resID==resid')
         if not indices.size:
             continue
@@ -74,6 +83,11 @@ def apply(o: mkidpipeline.config.MKIDTimerange, config=None):
             photons = of.photonTable.read_coordinates(indices)
             photons['weight'] *= calculate_weights(photons['time'], cfg.lincal.dt, dead_time)
             of.photonTable.modify_coordinates(indices, photons)
+
+        pct = np.round(done/n_to_do, 2)
+        if pct and lastpct != pct and pct % .1 == 0:
+            lastpct = pct
+            getLogger(__name__).info(f'Lincal of {o} {pct*100:.0f} % complete')
 
     of.photonTable.autoindex = True
     of.photonTable.reindex_dirty()
