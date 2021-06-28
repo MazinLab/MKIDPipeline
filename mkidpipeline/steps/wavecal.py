@@ -28,6 +28,24 @@ log = pipelinelog.getLogger('mkidpipeline.steps.wavecal', setup=False)
 
 import mkidpipeline.utils.wavecal_models as wm
 
+"""
+The wavecal step uses a series of laser exposures to calculate the relationship between the phase response of an MKID 
+pixel, and the wavelength of the incident photon that caused that response. This is done by first generating phase
+histograms for each of the lasers on a pixel by pixel basis. The resulting histograms are then fit
+(`Calibrator.fit_histograms`) using the specified histogram_models in the pipe.yaml to determine their central phase
+values. These histogram centers are then plotted as a function of wavelength. These phases as a function of
+wavelength are finally fit (`Calibrator.fit_calibrations`) using `histogram_fit_attempts` number of attempts (from
+the pipe.yaml) to determine the wavelength calibration solution for each pixel. The models used for the calibration
+solution are specified with the `calibration_models` parameter. 
+
+The total solution array is saved as an '.npz' file for later application. The energy resolution of each pixel at each
+laser wavelength is also stored along with the mean energy resolutions at each wavelength across the whole array. 
+ 
+The wavecal application reads in the saved '.npz' file and uses the calibration fit for each pixel to convert the phase 
+from each incident photon to a wavelength. After this value is determined, the phase in the table is overwritten with 
+the new wavelength value.  
+"""
+
 
 PLANK_CONSTANT_EVS = astropy.constants.h.to('eV s').value
 SPEED_OF_LIGHT_NMS = astropy.constants.c.to('nm/s').value
