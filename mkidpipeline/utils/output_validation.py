@@ -51,7 +51,17 @@ def dimensions(o):
     :param o:
     :return:
     """
-    return None
+    hdul = fits.open(o.filename)
+    if o.wants_image:
+        if hdul[1].shape == (140,146):
+            getLogger(__name__).info(f'output {o.name} has appropriate dimensions for type {o.kind}')
+        else:
+            getLogger(__name__).warning(f'output {o.name} has inappropriate dimensions for type {o.kind}')
+    if o.wants_drizzled:
+        if hdul[1].shape == (1000, 1000):
+            getLogger(__name__).info(f'output {o.name} has appropriate dimensions for type {o.kind}')
+        else:
+            getLogger(__name__).warning(f'output {o.name} has inappropriate dimensions for type {o.kind}')
 
 
 def calibration_steps(o):
@@ -60,12 +70,28 @@ def calibration_steps(o):
     :param o:
     :return:
     """
-    return None
+    hdul = fits.open(o.filename)
+    hdr = hdul[1].header
+    if o.flatcal:
+        if 'M_FLTCAL' not in hdr:
+            getLogger(__name__).warning(f'M_FLTCAL not in fits header')
+        elif hdr['M_FLTCAL'] == 'none':
+            getLogger(__name__).warning(f'M_FLTCAL has no associated flatcal UUID and one is expected')
+    if o.data.wavecal:
+        if 'M_WAVCAL' not in hdr:
+            getLogger(__name__).warning(f'M_WAVCAL not in fits header')
+        elif hdr['M_WAVCAL'] == 'none':
+            getLogger(__name__).warning(f'M_WAVCAL has no associated wavecal UUID and one is expected')
+    if o.data.wavecal:
+        if 'M_WCSCAL' not in hdr:
+            getLogger(__name__).warning(f'M_WCSCAL not in fits header')
+        elif hdr['M_WCSCAL'] == 'none':
+            getLogger(__name__).warning(f'M_WCSCAL has no associated wcscal UUID and one is expected')
 
 
 def wcs(o):
     """
-    validate the wcs solution makes ense for the object
+    validate the wcs solution makes sense for the object
     :param o:
     :return:
     """
