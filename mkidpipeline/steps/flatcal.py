@@ -1,21 +1,3 @@
-"""
-Author: Isabel Lipartito        Date:Dec 4, 2017
-Opens a twilight flat h5 and breaks it into INTTIME (5 second suggested) blocks.
-For each block, this program makes the spectrum of each pixel.
-Then takes the median of each energy over all pixels
-A factor is then calculated for each energy in each pixel of its
-twilight count rate / median count rate
-The factors are written out in an h5 file for each block (You'll get EXPTIME/INTTIME number of files)
-Plotting options:
-Entire array: both wavelength slices and masked wavelength slices
-Per pixel:  plots of weights vs wavelength next to twilight spectrum OR
-            plots of weights vs wavelength, twilight spectrum, next to wavecal solution
-            (has _WavelengthCompare_ in the name)
-
-
-
-Edited by: Sarah Steiger    Date: October 31, 2019
-"""
 import os
 import multiprocessing as mp
 import time
@@ -32,6 +14,41 @@ from mkidcore.pixelflags import FlagSet
 import warnings
 _loaded_solutions = {}
 
+"""
+Flatcal has two modes, a Laser Flat (`LaserCalibrator`) and a While Light Flat (`WhiteCalibrator`). The Laser Flat uses 
+the same laser exposures as the wavecal to determine what the wavelength dependent response is of each pixel. This can 
+be done by either trusting that the laser frames are monochromatic, and not imposing any wavelength cut in the pipeline 
+(`use_wavecal` in the pipe.yaml = False), or by using the wavecal solution to only look at photons within a window 
+around the laser wavelength as determined by the energy resolution at that wavelength ('use_wavecal` = True). The latter 
+is recommended, especially if there is a significant out of band background that needs to be accounted for.
+
+The White Light Flat by contrast looks at a single white (polychromatic) flat exposure. This could be a twilight flat, 
+a dome flat, or any other exposure where you expect the flux on the array to be uniform at every wavelength. In this 
+case the data MUST be wavecaled and the wavelength bins are determined by the energy resolution of the detector at each 
+wavelength (as is the case with the Laser Flat when `use_wavecal` = True).
+
+The Flatcal can also break up each exposure used to determine the flat into a series of `nchunks` time chunks of 
+duration `chunk_time`. If `trim_chunks` is greater than 0 then only (nchunk - 2*trim_chunks) number of time cubes will
+be used in the determination of the flat weights. This is to exclude chunks of time where there may have been 
+contamination of the flat.
+
+The Flatcal determines the flat weights by first generating a spectral cube for the exposure 
+(`FlatCalibrator.make_spectral_cube`). This cube will have dimensions (nchunks, nx_pixels, ny_pixels, n_wavelengths). 
+If a dark is specified in the data.yaml then it is also subtracted off from the spectral cube at this point. The flat 
+weights are then calculated for each time chunk at each wavelength (`FlatCalibrator.calculate_weights`) by dividing the 
+flux in each pixel by the average flux for that wavelength across the whole array (excluding bad pixels as determined by 
+the PROBLEM_FLAGS). If `trim_chunks` > 0 then the flat weights are sorted along the time axis and the trim_chunks number 
+of time slices are removed from each end. The remaining time chunks can then be averaged together to get the final flat 
+weight per wavelength for each pixel in the array. 
+
+These flat weights as a function of wavelength are then fit by a polynomial of order `power` in 
+`FlatCalibrator.calculate_coefficients`. These coefficients are saved as an '.npz' file to be applied later along with 
+the `flat_weights` themselves and various other parameters to assist with application and plotting.
+
+The Flatcal application uses the fit coefficients to determine the appropriate weight for each photon depending on 
+the incident pixel of the photon and its wavelength. This weight is multiplied into the `SpecWeight` column of the 
+photontable. 
+"""
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!flatcal_cfg'
