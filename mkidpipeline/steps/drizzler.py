@@ -342,7 +342,12 @@ class TemporalDrizzler(Canvas):
                          canvas_shape=drizzle_params.canvas_shape)
 
         self.drizzle_params = drizzle_params
-        self.nwvlbins = nwvlbins
+        if nwvlbins is None:
+            self.nwvlbins = 1
+            getLogger(__name__).info('Number of wavelength bins or Temporal Drizzler not specified - setting number of '
+                                     'wavelength bins to 1')
+        else:
+            self.nwvlbins = nwvlbins
         self.pixfrac = drizzle_params.pixfrac
         self.wvlbins = np.linspace(wvlMin, wvlMax, self.nwvlbins + 1)
         self.wvlbins[0] = wvlMin  # linspace(0,inf) -> [nan,inf] which throws off the binning
@@ -438,7 +443,7 @@ class TemporalDrizzler(Canvas):
         else:  # otherwise just sample ever wcs_timestep (and sum later)
             timebins = timespan
 
-        bins = np.array([timebins, self.wvlbins, range(self.shape[1] + 1), range(self.shape[0] + 1)])
+        bins = np.array([timebins, self.wvlbins.value, range(self.shape[1] + 1), range(self.shape[0] + 1)])
         hypercube, _ = np.histogramdd(sample.T, bins, weights=weights)
 
         if max_counts_cut:
