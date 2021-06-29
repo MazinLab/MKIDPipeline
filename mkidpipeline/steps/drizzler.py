@@ -387,7 +387,7 @@ class TemporalDrizzler(Canvas):
                                                  '(crpix varies between dithers)!')
                     raise RuntimeError('sky grid ref and dither ref do not match (crpix varies between dithers)!')
 
-                counts = self.make_cube(dither_photons, (self.wcs_times[t], self.wcs_times[t + 1]),
+                counts = self.make_cube(dither_photons, (self.wcs_times[t]*1e6, self.wcs_times[t + 1]*1e6),
                                              applyweights=weight)
                 cps = counts / (self.wcs_times[t + 1] - self.wcs_times[t])  # scale this frame by its exposure time
 
