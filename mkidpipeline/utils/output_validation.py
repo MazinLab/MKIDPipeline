@@ -35,7 +35,7 @@ def fits_keys(o):
     data = [{k.strip().lower().replace(' ', '_').replace('?', ''): v.strip() for k, v in zip(data[0], l)} for l in
             data[1:]]
     hdul = fits.open(o.filename)
-    hdr = hdul[1].header
+    hdr = hdul[0].header
     mec_keys = [k['fits_card'] for k in data]
     res = all(key in mec_keys for key in hdr)
     if res:
@@ -71,7 +71,7 @@ def calibration_steps(o):
     :return:
     """
     hdul = fits.open(o.filename)
-    hdr = hdul[1].header
+    hdr = hdul[0].header
     if o.flatcal:
         if 'M_FLTCAL' not in hdr:
             getLogger(__name__).warning(f'M_FLTCAL not in fits header')
