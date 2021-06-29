@@ -655,11 +655,12 @@ class Calibrator(object):
                 progress_worker.join()
             log.info("{} cores released".format(cpu_count))
         except KeyboardInterrupt:
+            raise KeyboardInterrupt
+        finally:
             log.debug('cleaning up workers')
             self._clean_up(input_queue, output_queue, progress_queue, workers,
                            progress_worker, events, n_data, cpu_count, verbose)
             log.debug('cleaned up')
-            raise KeyboardInterrupt
 
     def _remove_tail_riding_photons(self, photon_list):
         indices = np.argsort(photon_list['time'])
@@ -2702,16 +2703,16 @@ def apply(o):
             tic2 = time.time()
             getLogger(__name__).debug('Wavelength updated in {:.2f}s'.format(time.time() - tic2))
 
-    obs.update_header('wavecal', solution.name)
-    powers, _ = solution.find_resolving_powers()
-    resdata = np.zeros(len(solution.cfg.wavelengths),
-                       dtype=np.dtype([('r', np.float32), ('r_err', np.float32), ('wave', np.float32)], align=True))
-    resdata['r'] = np.nanmedian(powers, axis=0)
-    resdata['r_err'] = scipy.stats.median_abs_deviation(powers, axis=0, nan_policy='omit')
-    resdata['wave'] = np.asarray(solution.cfg.wavelengths)
-    obs.update_header('wavecal.resolution', resdata)
+        obs.update_header('wavecal', solution.name)
+        powers, _ = solution.find_resolving_powers()
+        resdata = np.zeros(len(solution.cfg.wavelengths),
+                           dtype=np.dtype([('r', np.float32), ('r_err', np.float32), ('wave', np.float32)], align=True))
+        resdata['r'] = np.nanmedian(powers, axis=0)
+        resdata['r_err'] = scipy.stats.median_abs_deviation(powers, axis=0, nan_policy='omit')
+        resdata['wave'] = np.asarray(solution.cfg.wavelengths)
+        obs.update_header('wavecal.resolution', resdata)
 
-    obs.photonTable.reindex_dirty()  # recompute "dirty" wavelength index
-    obs.photonTable.autoindex = True  # turn on auto-indexing
-    del obs
+        obs.photonTable.reindex_dirty()  # recompute "dirty" wavelength index
+        obs.photonTable.autoindex = True  # turn on auto-indexing
+        del obs
     getLogger(__name__).info('Wavecal applied in {:.2f}s'.format(time.time() - tic))

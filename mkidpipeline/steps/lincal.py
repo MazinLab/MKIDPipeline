@@ -20,7 +20,7 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
 PROBLEM_FLAGS = ('pixcal.hot', 'pixcal.cold', 'pixcal.dead', 'beammap.noDacTone', 'wavecal.bad')
 
 
-def calculate_weights(times, dt=1000, tau=0.000001):
+def calculate_weights(times, dt=1000, tau=0.000010):
     """
     Function for calculating the linearity weighting for all of the photons in an h5 file
     :param time_stamps: array of timestamps
@@ -42,6 +42,15 @@ def apply(o: mkidpipeline.config.MKIDTimerange, config=None):
         getLogger(__name__).info("H5 {} is already linearity calibrated".format(of.filename))
         return
 
+    from scipy.stats import poisson
+    #The true weight of a photon is given my how many photons arrived in the deadtime interval (which we don't know)
+    # e.g. if 2 then 2, 3 then 3 .... The probability that that number is say 3 is
+    #  PoissonCDF(3, .05)-PoissonCDF(2, .05) where .05 would be the average event rate in the interval, here the
+    # deadtime*max_count_rate. An upper bound on this is simply 2*(1-poisson.cdf(1, 0.05))
+    maximum_effect = 2*(1-poisson.cdf(1, cfg.instrument.dead_time_us*cfg.instrument.maximum_count_rate*1e-6))
+    getLogger(__name__).info(f'Linearity correction will not exceed {maximum_effect:.1e} and will take ~'
+                             f'{2.6e-5*len(of.photonTable)/60:.0f} minutes. Consider setting lincal: False in your '
+                             f'output configuration.')
     of.photonTable.autoindex = False
     tic = time.time()
 
@@ -55,7 +64,7 @@ def apply(o: mkidpipeline.config.MKIDTimerange, config=None):
 
 
     #Not ram intensive ~250MB peak
-    dead_time = of.query_header('dead_time') * 1e-6
+
     for done, resid in bar(enumerate(of.resonators(exclude=PROBLEM_FLAGS))):
         indices = of.photonTable.get_where_list('resID==resid')
         if not indices.size:
