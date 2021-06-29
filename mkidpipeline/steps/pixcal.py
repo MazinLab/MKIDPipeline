@@ -10,6 +10,28 @@ from mkidpipeline.utils import smoothing
 import mkidpipeline.config
 from mkidcore.pixelflags import FlagSet
 
+"""
+The pixcal applies the pixcal.hot, pixcal.cold and pixcal.dead flags to hot, cold, and dead pixels respectively so that 
+they can be removed from future calibration and analysis if desired. hot, cold, and dead pixels are defined differently 
+depending on the pixel calibration `method` specified in the pipe.yaml.
+
+`threshold`: Compares the ratio of flux in each pixel to the median of the flux in an enclosing box. If the ratio 
+is too high (i.e. the flux is too tightly distributed compared to a Gaussian PSF of the expected FWHM) then the pixel is
+flagged as `hot`. If there is too little flux compared to median background level then the pixel is flagged as `cold`. 
+If the pixel has identically 0 counts then it is flagged as `dead`.
+
+`median`: Passes a `box_size` by `box_size` moving box over the entire array and checks if the pixel at the center of 
+that window has counts higher than the median plus `n_sigma` times the standard deviation of the pixels in that window. 
+If so, then that pixel is flagged as `hot`. Conversely, if that pixel has counts lower than the median minus `n_sigma` 
+times the standard deviation of the pixels in that window, the pixel is flagged as `cold`. If the pixel has identically 
+0 counts then it is flagged as `dead`
+
+`laplacian`: runs a Laplace filter over the entire array and checks if the filtered pixels have counts higher than 
+`n_sigma` times the standard deviation above the filtered image. If so, then that pixel is flagged as `hot`. Conversely, 
+if that pixel has counts lower than `n_sigma` times the standard deviation of the filtered image, the pixel is flagged 
+as `cold`. If the pixel has identically 0 counts then it is flagged as `dead`
+"""
+
 
 def _calc_stdev(x):
     return np.nanstd(x) * _stddev_bias_corr((~np.isnan(x)).sum())
@@ -259,8 +281,9 @@ def laplacian(image, box_size=5, n_sigma=5.0, max_iter=5):
                 nan_fixed_image = smoothing.replace_nan(raw_image, mode='mean', box_size=box_size)
             assert np.all(np.isfinite(nan_fixed_image))
             laplacian_filter_image = spfilters.laplace(nan_fixed_image)
-            hot_threshold = -(np.std(laplacian_filter_image) + n_sigma * np.std(laplacian_filter_image))
-            cold_threshold = -(np.std(laplacian_filter_image) - n_sigma * np.std(laplacian_filter_image))
+            # TODO check below
+            hot_threshold = -(laplacian_filter_image + n_sigma * np.std(laplacian_filter_image))
+            cold_threshold = -(laplacian_filter_image - n_sigma * np.std(laplacian_filter_image))
 
             hot_mask = (laplacian_filter_image < hot_threshold) | reference_hot_mask
             cold_mask = (laplacian_filter_image > cold_threshold) | reference_cold_mask
