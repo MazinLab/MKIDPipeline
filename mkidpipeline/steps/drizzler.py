@@ -342,10 +342,15 @@ class TemporalDrizzler(Canvas):
                          canvas_shape=drizzle_params.canvas_shape)
 
         self.drizzle_params = drizzle_params
-        self.nwvlbins = nwvlbins
+        if nwvlbins is None:
+            self.nwvlbins = 1
+            getLogger(__name__).info('Number of wavelength bins or Temporal Drizzler not specified - setting number of '
+                                     'wavelength bins to 1')
+        else:
+            self.nwvlbins = nwvlbins
         self.pixfrac = drizzle_params.pixfrac
-        self.wvlbins = np.linspace(wvlMin, wvlMax, self.nwvlbins + 1)
-        self.wvlbins[0] = wvlMin  # linspace(0,inf) -> [nan,inf] which throws off the binning
+        self.wvlbins = np.linspace(wvlMin.to(u.nm).value, wvlMax.to(u.nm).value, self.nwvlbins + 1)
+        self.wvlbins[0] = wvlMin.to(u.nm).value  # linspace(0,inf) -> [nan,inf] which throws off the binning
 
         self.wcs_times = np.append(np.arange(0, drizzle_params.inttime, drizzle_params.wcs_timestep),
                                    drizzle_params.inttime)
