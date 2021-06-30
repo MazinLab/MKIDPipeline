@@ -204,6 +204,56 @@ class Canvas:
         getLogger(__name__).debug(self.wcs)
 
 
+    def canvas_header(self):
+        for md in self.metadata:
+            for entry in md:
+                if isinstance(md[entry], MetadataSeries):
+                    # TODO actually figure out what to do with various bits of metadata, how are series handled? How
+                    #  are the metadata values from each frame combined?Currently series are set to empty strings and
+                    #  metadata from first frame is taken
+                    md[entry] = ''
+        self.header = mkidcore.metadata.build_header(self.metadata[0], unknown_keys='warn')
+
+
+    def header_additions(self, header):
+        for key, val, comment in zip(self.header_keys, self.header_vals, self.header_comments):
+            self.header[key] = (val, comment)
+        return self.header
+
+
+    def write(self, filename, overwrite=True, compress=False, dashboard_orient=False):
+        if self.stack:
+            if dashboard_orient:
+                getLogger(__name__).info('Transposing image stack to match dashboard orientation')
+                getLogger(__name__).warning('Has not been verified')
+                self.data = np.transpose(self.data, (0, 2, 1))
+                for w in self.wcs:
+                    w.wcs.pc = w.wcs.pc.T
+
+            fits_header = [w.to_header() for w in self.wcs]
+            for hdr in fits_header:
+                self.header_additions(hdr)
+
+            hdus = [fits.PrimaryHDU()] + [fits.ImageHDU(data=d, header=h) for d, h in zip(self.counts, fits_header)]
+            hdul = fits.HDUList(hdus)
+
+        else:
+            fits_header = self.wcs.to_header()
+            fits_header = self.header_additions(fits_header)
+
+            hdul = fits.HDUList([fits.PrimaryHDU(header=fits_header),
+                                 fits.ImageHDU(name='cps', data=self.cps, header=fits_header),
+                                 fits.ImageHDU(name='variance', data=self.counts, header=fits_header)])
+
+        if compress:
+            filename = filename + '.gz'
+
+        assert filename[-5:] == '.fits', 'Please enter valid filename'
+
+        hdul.writeto(filename, overwrite=overwrite)
+        getLogger(__name__).info('FITS file {} saved'.format(filename))
+
+
 class ListDrizzler(Canvas):
     """ Assign photons an RA and Dec. """
 
