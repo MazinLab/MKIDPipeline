@@ -247,14 +247,15 @@ def apply(o: mkidpipeline.config.MKIDTimerange, config=None, ncpu=None):
     cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(cosmiccal=StepConfig()), cfg=config, ncpu=ncpu,
                                                     copy=True)
 
+    if o.photontable.query_header('cosmiccal'):
+        getLogger(__name__).info('{} already has an attached CR impact table'.format(o.h5))
+        return
+
     exclude = [k[0] for k in StepConfig.REQUIRED_KEYS]
     methodkw = {k: cfg.cosmiccal.get(k) for k in cfg.cosmiccal.keys() if k not in exclude}
     cc = CosmicCleaner(o.h5, **methodkw)
     cc.determine_cosmic_intervals()
 
-    if o.photontable.query_header('cosmiccal'):
-        getLogger(__name__).info('{} already has an attached CR impact table'.format(o.h5))
-        return
 
     impacts = np.zeros(len(cc.interval_starts), dtype=NP_CR_IMPACT_TYPE)
     impacts['start'] = cc.interval_starts
