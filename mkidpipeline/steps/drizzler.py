@@ -99,6 +99,7 @@ class DrizzleParams:
 
         self.wcs_timestep = wcs_timestep or self.non_blurring_timestep()
 
+
     def non_blurring_timestep(self, allowable_pixel_smear=1, center=(0, 0)):
         """
         [1] Smart, W. M. 1962, Spherical Astronomy, (Cambridge: Cambridge University Press), p. 55
@@ -127,63 +128,13 @@ class DrizzleParams:
         return max_timestep
 
 
-class DrizzledData:
-    def __init__(self, driz, stack, drizzle_params):
-        self.cps = driz.cps
-        self.counts = driz.counts
-        self.wcs = driz.wcs
-        self.expmap = driz.expmap
-        self.stack = stack
-        self.header_keys = ['WCSTIME', 'PIXFRAC']
-        self.header_vals = [drizzle_params.wcs_timestep, drizzle_params.pixfrac]
-        self.header_comments = ['[s] Time between calculated wcs (different PAs)', '']
-
-    def header_additions(self, header):
-        for key, val, comment in zip(self.header_keys, self.header_vals, self.header_comments):
-            header[key] = (val, comment)
-        return header
-
-    def write(self, filename, overwrite=True, compress=False, dashboard_orient=False):
-        if self.stack:
-            if dashboard_orient:
-                getLogger(__name__).info('Transposing image stack to match dashboard orientation')
-                getLogger(__name__).warning('Has not been verified')
-                self.data = np.transpose(self.data, (0, 2, 1))
-                for w in self.wcs:
-                    w.wcs.pc = w.wcs.pc.T
-
-            fits_header = [w.to_header() for w in self.wcs]
-            for hdr in fits_header:
-                self.header_additions(hdr)
-
-            hdus = [fits.PrimaryHDU()] + [fits.ImageHDU(data=d, header=h) for d, h in zip(self.counts, fits_header)]
-            hdul = fits.HDUList(hdus)
-
-        else:
-            fits_header = self.wcs.to_header()
-            fits_header = self.header_additions(fits_header)
-
-            hdul = fits.HDUList([fits.PrimaryHDU(header=fits_header),
-                                 fits.ImageHDU(name='cps', data=self.cps, header=fits_header),
-                                 fits.ImageHDU(name='variance', data=self.counts, header=fits_header)])
-
-        if compress:
-            filename = filename + '.gz'
-
-        assert filename[-5:] == '.fits', 'Please enter valid filename'
-
-        hdul.writeto(filename, overwrite=overwrite)
-        getLogger(__name__).info('FITS file {} saved'.format(filename))
-
-
 class Canvas:
-    def __init__(self, dithers_data, image_shape, platescale_deg, coords, canvas_shape=(None, None),
-                 force_square_grid=True):
+    def __init__(self, dithers_data, drizzle_params, header=None, canvas_shape=(None, None), force_square_grid=True):
         """
         Class common to SpatialDrizzler, TemporalDrizzler and ListDrizzler. It generates the canvas that is
         drizzled onto
 
-        TODO determine appropirate value from area coverage of dataset and oversampling, even longerterm there
+        TODO determine appropriate value from area coverage of dataset and oversampling, even longerterm there
          the oversampling should be selected to optimize total phase coverage to extract the most resolution at a
          desired minimum S/N
 
@@ -194,10 +145,14 @@ class Canvas:
         """
         self.canvas_shape = canvas_shape
         self.dithers_data = dithers_data
-
-        self.shape = image_shape
-        self.vPlateScale = platescale_deg
-        self.center = coords
+        self.metadata = [data['metadata'] for data in dithers_data]
+        self.shape = drizzle_params.image_shape
+        self.vPlateScale = drizzle_params.platescale
+        self.center = drizzle_params.coords
+        self.header = header
+        self.header_keys = ['WCSTIME', 'PIXFRAC']
+        self.header_vals = [drizzle_params.wcs_timestep, drizzle_params.pixfrac]
+        self.header_comments = ['[s] Time between calculated wcs (different PAs)', '']
 
         if canvas_shape[0] is None or canvas_shape[1] is None:
             dith_pix_min = np.zeros((len(dithers_data), 2))
@@ -230,7 +185,6 @@ class Canvas:
             getLogger(__name__).warning(f'Canvas grid {self.canvas_shape} exceeds maximum nominal extent of dithers '
                                         f'({max(self.shape) * len(dithers_data)})')
 
-        self.get_canvas_wcs()
 
     def get_canvas_wcs(self):
         self.wcs = wcs.WCS(naxis=2)
@@ -254,8 +208,7 @@ class ListDrizzler(Canvas):
     """ Assign photons an RA and Dec. """
 
     def __init__(self, dithers_data, drizzle_params):
-        super().__init__(dithers_data, drizzle_params.image_shape, drizzle_params.platescale, drizzle_params.coords,
-                         canvas_shape=drizzle_params.canvas_shape)
+        super().__init__(dithers_data, drizzle_params=drizzle_params, canvas_shape=drizzle_params.canvas_shape)
 
         self.driz = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=drizzle_params.pixfrac, wt_scl='')
         self.wcs_timestep = drizzle_params.wcs_timestep
@@ -286,6 +239,7 @@ class ListDrizzler(Canvas):
                 dither_photons['RA'], dither_photons['Dec'] = sky_grid[dither_photons['photon_pixels']].T
 
         getLogger(__name__).debug(f'Assigning of RA/Decs completed in {time.clock() - tic:1f} s')
+
 
     def write(self, file=None, chunkshape=None, shuffle=True, bitshuffle=False):
         """
@@ -338,8 +292,7 @@ class TemporalDrizzler(Canvas):
     """
 
     def __init__(self, dithers_data, drizzle_params, nwvlbins=1, exp_timestep=1, wvlMin=0, wvlMax=np.inf):
-        super().__init__(dithers_data, drizzle_params.image_shape, drizzle_params.platescale, drizzle_params.coords,
-                         canvas_shape=drizzle_params.canvas_shape)
+        super().__init__(dithers_data, drizzle_params=drizzle_params, canvas_shape=drizzle_params.canvas_shape)
 
         self.drizzle_params = drizzle_params
         if nwvlbins is None:
@@ -477,16 +430,11 @@ class TemporalDrizzler(Canvas):
         self.wcs = w4d
         getLogger(__name__).debug('4D wcs {}'.format(w4d))
 
-    def write(self, file):
-        d = DrizzledData(self, False, drizzle_params=self.drizzle_params)
-        d.write(file)
-
 
 class SpatialDrizzler(Canvas):
     """ Generate a spatially dithered fits image from a set dithered dataset """
     def __init__(self, dithers_data, drizzle_params, stack=False, save_file=''):
-        super().__init__(dithers_data, drizzle_params.image_shape, drizzle_params.platescale, drizzle_params.coords,
-                         canvas_shape=drizzle_params.canvas_shape)
+        super().__init__(dithers_data, drizzle_params=drizzle_params, canvas_shape=drizzle_params.canvas_shape)
 
         self.cps = None
         self.counts = None
@@ -561,10 +509,6 @@ class SpatialDrizzler(Canvas):
             thisImage *= thisImage < max_counts_cut
 
         return thisImage
-
-    def write(self, file):
-        d = DrizzledData(self, self.stack, drizzle_params=self.drizzle_params)
-        d.write(file)
 
 
 def debug_dither_image(dithers_data, drizzle_params, weight=True):
