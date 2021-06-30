@@ -47,7 +47,7 @@ def apply(o: mkidpipeline.config.MKIDTimerange, config=None):
     # e.g. if 2 then 2, 3 then 3 .... The probability that that number is say 3 is
     #  PoissonCDF(3, .05)-PoissonCDF(2, .05) where .05 would be the average event rate in the interval, here the
     # deadtime*max_count_rate. An upper bound on this is simply 2*(1-poisson.cdf(1, 0.05))
-    maximum_effect = 2*(1-poisson.cdf(1, cfg.instrument.dead_time_us*cfg.instrument.maximum_count_rate*1e-6))
+    maximum_effect = 2*(1-poisson.cdf(1, cfg.instrument.deadtime_us*cfg.instrument.maximum_count_rate*1e-6))
     getLogger(__name__).info(f'Linearity correction will not exceed {maximum_effect:.1e} and will take ~'
                              f'{2.6e-5*len(of.photonTable)/60:.0f} minutes. Consider setting lincal: False in your '
                              f'output configuration.')
@@ -85,12 +85,12 @@ def apply(o: mkidpipeline.config.MKIDTimerange, config=None):
             # NB reading this way takes only 53% of the time as above
             times = of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='time')
             new = of.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='weight')
-            new *= calculate_weights(times, cfg.lincal.dt, dead_time)
+            new *= calculate_weights(times, cfg.lincal.dt, cfg.instrument.deadtime_us)
             of.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=new, colname='weight')
         else:
             getLogger(__name__).warning('Using modify_coordinates, this is very slow')
             photons = of.photonTable.read_coordinates(indices)
-            photons['weight'] *= calculate_weights(photons['time'], cfg.lincal.dt, dead_time)
+            photons['weight'] *= calculate_weights(photons['time'], cfg.lincal.dt, cfg.instrument.deadtime_us)
             of.photonTable.modify_coordinates(indices, photons)
 
         pct = np.round(done/n_to_do, 2)
