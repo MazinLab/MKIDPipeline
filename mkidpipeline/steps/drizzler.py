@@ -36,7 +36,7 @@ import hashlib
 from glob import glob
 import getpass
 import scipy.ndimage as ndimage
-
+from mkidcore.metadata import MetadataSeries
 import astropy
 from astropy.utils.data import Conf
 from astropy.io import fits
@@ -184,9 +184,11 @@ class Canvas:
         if max(self.canvas_shape) > max(self.shape) * len(dithers_data):
             getLogger(__name__).warning(f'Canvas grid {self.canvas_shape} exceeds maximum nominal extent of dithers '
                                         f'({max(self.shape) * len(dithers_data)})')
+        self.canvas_header()
+        self.canvas_wcs()
 
 
-    def get_canvas_wcs(self):
+    def canvas_wcs(self):
         self.wcs = wcs.WCS(naxis=2)
         self.wcs.wcs.crpix = np.array(self.canvas_shape)/2
         self.wcs.wcs.crval = [self.center.ra.deg, self.center.dec.deg]
@@ -690,7 +692,7 @@ def align_hdu_conex(hdus, mode):
     return getattr(np, mode)(stack, axis=0)
 
 
-def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, single_pa_time=None, exclude_flags=()):
+def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, md, single_pa_time=None, exclude_flags=()):
     """
     Genereate the reduced, reformated photonlists
 
@@ -755,7 +757,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, single_
     #     pass
 
     return {'file': file, 'timestamps': photons["time"], 'wavelengths': photons["wavelength"],
-            'weight': photons['weight'], 'photon_pixels': xy, 'obs_wcs_seq': wcs, 'duration': intt}
+            'weight': photons['weight'], 'photon_pixels': xy, 'obs_wcs_seq': wcs, 'duration': intt, 'metadata': md}
 
 
 def load_data(dither, wvlMin, wvlMax, startt, duration, wcs_timestep, derotate=True, align_start_pa=False, ncpu=1,
@@ -776,6 +778,7 @@ def load_data(dither, wvlMin, wvlMax, startt, duration, wcs_timestep, derotate=T
 
     begin = time.time()
     filenames = [o.h5 for o in dither.obs]
+    meta = [o.metadata for o in dither.obs]
     if not filenames:
         getLogger(__name__).info('No obsfiles found')
 
@@ -784,15 +787,15 @@ def load_data(dither, wvlMin, wvlMax, startt, duration, wcs_timestep, derotate=T
 
     if ncpu < 2:
         dithers_data = []
-        for file, offset in zip(filenames, offsets):
-            data = mp_worker(file, wvlMin, wvlMax, startt + offset, duration, derotate, wcs_timestep,
+        for file, offset, md in zip(filenames, offsets, meta):
+            data = mp_worker(file, wvlMin, wvlMax, startt + offset, duration, derotate, wcs_timestep, md,
                              single_pa_time, exclude_flags)
             dithers_data.append(data)
     else:
         p = mp.Pool(ncpu)
-        processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt + offsett, dur, derotate, wcs_timestep,
-                                               single_pa_time, exclude_flags)) for file, offsett, dur in
-                     zip(filenames, offsets)]
+        processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt + offsett, dur, derotate, wcs_timestep, md,
+                                               single_pa_time, exclude_flags)) for file, offsett, dur, md in
+                     zip(filenames, offsets, meta)]
         dithers_data = [res.get() for res in processes]
         # args = [(file, wvlMin, wvlMax, startt + offsett, dur, derotate,
         #          wcs_timestep, single_pa_time, exclude_flags) or file, offsett, dur in
