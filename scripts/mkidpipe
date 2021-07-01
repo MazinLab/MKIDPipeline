@@ -83,9 +83,16 @@ if __name__ == "__main__":
 
     if args.make_paths:
         config.make_paths(output_collection=outputs)
+    missing_paths = config.verify_paths(output_collection=outputs, return_missing=True)
+    if missing_paths:
+        getLogger('mkidpipeline').critical(f'Required paths missing:\n\t'+'\n\t'.join(missing_paths))
 
-    config.report_vetting(outputs)
     if args.vet:
+        issue_report = outputs.validation_summary(null_success=True)
+        if issue_report:
+            getLogger('mkidpipeline').critical(issue_report)
+        else:
+            getLogger('mkidpipeline').info('Validation of output and data successful! Done')
         sys.exit(0)
 
     if args.info:
@@ -102,6 +109,7 @@ if __name__ == "__main__":
         # build, meta, [lin, wave, pix, cr, flat] -> image / movie
         # build, meta, [lin], wave, [pix, cr] -> flat
         # build, meta -> wave
+
         issue_report = outputs.validation_summary(null_success=True)
         if issue_report:
             getLogger('mkidpipeline').critical(issue_report)
