@@ -21,6 +21,8 @@ log = getLogger(__name__)
 
 PIPELINE_STEPS = {}
 for info in pkgutil.iter_modules(mkidpipeline.steps.__path__):
+    if info.name == 'sample':
+        continue
     mod = import_module(f"mkidpipeline.steps.{info.name}")
     globals()[info.name] = mod
     PIPELINE_STEPS[info.name] = mod

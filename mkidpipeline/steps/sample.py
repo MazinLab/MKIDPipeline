@@ -1,12 +1,11 @@
 import mkidpipeline.config
 from mkidcore.pixelflags import FlagSet
 
+
 class StepConfig(mkidpipeline.config.BaseStepConfig):
-    yaml_tag = u'!<your_step>_cfg'
-    REQUIRED_KEYS = (('parameter1', 'default value of whatever type for parameter 1', 'comment about parameter1, if'
-                                                                                      ' it has a set of allowed values'
-                                                                                      ' then list those here'),
-                     ('parameter2', 'default value of whatever type for parameter 1', 'comment about parameter2')
+    yaml_tag = u'!samplestep_cfg'
+    REQUIRED_KEYS = (('parameter1', 2, 'comment about parameter1, list allowed values here'),
+                     ('parameter2', 'string val', 'comment about parameter2')
                      )
 
     def _vet_errors(self):
@@ -17,11 +16,12 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
         """
         return ret
 
+
 FLAGS = FlagSet.define(('flag1', 1, 'description of flag1'),
                        ('flag2', 2, 'description of flag2'),
                        ('flag3', 3, 'description of flag3'))
 
-PROBLEM_FLAGS = tuple() # Here is where you will define flags set by other pipeline steps that make a pixel incompatible
+PROBLEM_FLAGS = tuple()  # Here is where you will define flags set by other pipeline steps that make a pixel incompatible
 # with your step e.g. 'beammap.noDacTone'
 
 """
