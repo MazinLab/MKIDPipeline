@@ -9,6 +9,7 @@ import astropy.units as u
 from astropy.coordinates import SkyCoord
 import ruamel.yaml.comments
 from collections import defaultdict
+import pathlib
 
 from typing import Set
 
@@ -145,21 +146,28 @@ def update_paths(d):
         config.update(f'paths.{k}', v)
 
 
-def make_paths(config=None, output_collection=None):
+def get_paths(config=None, output_collection=None):
     if config is None:
         config = globals()['config']
-
     output_dirs = [] if output_collection is None else [os.path.dirname(o.filename) for o in output_collection]
-    paths = set([config.paths.out, config.paths.database, config.paths.tmp] + list(output_dirs))
+    return set([config.paths.out, config.paths.database, config.paths.tmp] + list(output_dirs))
+
+
+def verify_paths(config=None, output_collection=None, return_missing=False):
+    paths = get_paths(config=config, output_collection=output_collection)
+    missing = list(filter(lambda p: p and not os.path.exists(p), paths))
+    return missing if return_missing else not bool(missing)
+
+
+def make_paths(config=None, output_collection=None):
+    paths = get_paths(config=config, output_collection=output_collection)
 
     for p in filter(os.path.exists, paths):
         getLogger(__name__).info(f'"{p}" exists, and will be used.')
 
-    for p in filter(lambda p: not os.path.exists(p), paths):
-        if not p:
-            continue
+    for p in filter(lambda p: p and not os.path.exists(p), paths):
         getLogger(__name__).info(f'Creating "{p}"')
-        os.makedirs(p, exist_ok=True)
+        pathlib.Path(p).mkdir(parents=True, exist_ok=True)
 
 
 class H5Subset:
@@ -1559,32 +1567,6 @@ class MKIDOutputCollection:
                 yield out.data
             if out.data.speccal and isinstance(out.data.speccal.data, MKIDDitherDescription):
                 yield out.data.speccal.data
-
-
-def report_vetting(data):
-    if isinstance(data, MKIDOutputCollection):
-        for x in data:
-            issues = x._vet()
-            if issues:
-                print(issues)
-
-        if data.dataset is not None:
-            for x in data.dataset:
-                issues = x._vet()
-                if issues:
-                    print(issues)
-    elif isinstance(data, MKIDObservingDataset):
-        for x in data.dataset:
-            issues = x._vet()
-            if issues:
-                print(issues)
-    else:
-        try:
-            issues = data._vet()
-            if issues:
-                print(issues)
-        except AttributeError:
-            raise TypeError('Object must offer a _vet() method if not a dataset or output collection')
 
 
 def inspect_database(detailed=False):
