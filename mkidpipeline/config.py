@@ -1297,9 +1297,6 @@ class MKIDOutput(DataBase):
             return file
         else:
             full_path = os.path.join(config.paths.out, self.data if isinstance(self.data, str) else self.data.name)
-            if not os.path.exists(full_path):
-                getLogger(__name__).info(f'generating output path {full_path} for output {file}')
-                os.mkdir(full_path)
             return os.path.join(full_path, file)
 
 
