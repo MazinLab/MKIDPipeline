@@ -86,6 +86,7 @@ if __name__ == "__main__":
     missing_paths = config.verify_paths(output_collection=outputs, return_missing=True)
     if missing_paths:
         getLogger('mkidpipeline').critical(f'Required paths missing:\n\t'+'\n\t'.join(missing_paths))
+        sys.exit(1)
 
     if args.vet:
         issue_report = outputs.validation_summary(null_success=True)
