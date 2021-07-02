@@ -153,6 +153,7 @@ class Canvas:
         self.header_keys = ['WCSTIME', 'PIXFRAC']
         self.header_vals = [drizzle_params.wcs_timestep, drizzle_params.pixfrac]
         self.header_comments = ['[s] Time between calculated wcs (different PAs)', '']
+        self.stack = None
 
         if canvas_shape[0] is None or canvas_shape[1] is None:
             dith_pix_min = np.zeros((len(dithers_data), 2))
