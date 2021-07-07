@@ -248,13 +248,11 @@ class Canvas:
         self.header = mkidcore.metadata.build_header(meta, unknown_keys='warn')
 
     def write(self, filename, overwrite=True, compress=False, dashboard_orient=False):
-        if self.stack:
-            if dashboard_orient:
-                getLogger(__name__).info('Transposing image stack to match dashboard orientation')
-                getLogger(__name__).warning('Has not been verified')
-                self.data = np.transpose(self.data, (0, 2, 1))
-                for w in self.wcs:
-                    w.wcs.pc = w.wcs.pc.T
+        if self.stack and dashboard_orient:
+            getLogger(__name__).info('Transposing image stack to match dashboard orientation')
+            getLogger(__name__).warning('Has not been verified')
+            self.data = np.transpose(self.data, (0, 2, 1))
+            self.wcs.pc = self.wcs.pc.T
 
         science_header = self.wcs.to_header()
         science_header['WCSTIME'] = (self.drizzle_params.wcs_timestep, '')
@@ -516,8 +514,8 @@ class SpatialDrizzler(Canvas):
         # meaning the positions don't have constant integration time
         self.wcs_times = np.append(np.arange(0, self.drizzle_params.inttime, self.wcs_timestep),
                                    self.drizzle_params.inttime)
-        self.stackedim = np.zeros((drizzle_params.n_dithers * (len(self.wcs_times) - 1),) + self.shape[::-1])
-        self.stacked_wcs = []
+        self.stacked_counts = np.zeros(self.shape[::-1])
+        self.stacked_cps = np.zeros(self.shape[::-1])
         self.intermediate_file = save_file
 
     def run(self, weight=True):
@@ -537,9 +535,8 @@ class SpatialDrizzler(Canvas):
                                         applyweights=weight)
                 cps = counts / (self.wcs_times[t + 1] - self.wcs_times[t])  # scale this frame by its exposure time
 
-                self.stackedim[ix * len(dither_photons['obs_wcs_seq']) + t] = counts
-                self.stacked_wcs.append(inwcs)
-
+                self.stacked_counts += counts
+                self.stacked_cps += cps
                 getLogger(__name__).debug(f'Image load done in {time.clock() - tic:.0f} s.')
 
                 getLogger(__name__).warning('Bad pix identified using zero counts. Needs to be properly coded')
@@ -553,8 +550,8 @@ class SpatialDrizzler(Canvas):
                 self.driz.write(self.intermediate_file + f'drizzler_step_{str(ix).zfill(3)}.fits')
 
         if self.stack:
-            self.counts = self.stackedim
-            self.wcs = self.stacked_wcs
+            self.counts = self.stacked_counts
+            self.cps = self.stacked_cps
         else:
             self.cps = self.driz.outsci
             self.counts = self.driz.outwht * self.cps * np.mean(self.wcs_times)
@@ -958,7 +955,7 @@ def form(dither, mode='spatial', derotate=True, wave_start=None, wave_stop=None,
     if mode is 'list':
         driz = ListDrizzler(dithers_data, drizzle_params)
     elif mode in ('spatial', 'stack'):
-        driz = SpatialDrizzler(dithers_data, drizzle_params, stack=mode == 'stack', save_file=intermediate_file)
+        driz = SpatialDrizzler(dithers_data, drizzle_params, stack = mode == 'stack', save_file=intermediate_file)
     else:
         driz = TemporalDrizzler(dithers_data, drizzle_params, nwvlbins=nwvlbins, exp_timestep=bin_width,
                                 wvlMin=wave_start, wvlMax=wave_stop)
