@@ -965,12 +965,12 @@ def form(dither, mode='spatial', derotate=True, wave_start=None, wave_stop=None,
 
     getLogger(__name__).debug('Drizzling...')
     driz.run(weight=weight)
-    if output_file and mode is not 'list':
-        getLogger(__name__).debug('Writing fits...')
-        driz.write(output_file)
-    elif output_file and mode is 'list':
+    if mode == 'list':
         getLogger(__name__).debug('Writing List Drizzler Tables...')
         driz.write_list(file = output_file)
+    elif output_file and mode != 'list':
+        getLogger(__name__).debug('Writing fits...')
+        driz.write(output_file)
     getLogger(__name__).info('Finished')
     return driz
 
