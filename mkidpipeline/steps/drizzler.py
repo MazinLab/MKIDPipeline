@@ -305,7 +305,7 @@ class ListDrizzler(Canvas):
 
         getLogger(__name__).debug(f'Assigning of RA/Decs completed in {time.clock() - tic:1f} s')
 
-    def write(self, file=None, chunkshape=None, shuffle=True, bitshuffle=False):
+    def write_list(self, file=None, chunkshape=None, shuffle=True, bitshuffle=False):
         """
         Writes out a photontable with two extra columns RA and Dec
 
@@ -962,9 +962,12 @@ def form(dither, mode='spatial', derotate=True, wave_start=None, wave_stop=None,
 
     getLogger(__name__).debug('Drizzling...')
     driz.run(weight=weight)
-    if output_file:
+    if output_file and mode is not 'list':
         getLogger(__name__).debug('Writing fits...')
         driz.write(output_file)
+    elif output_file and mode is 'list':
+        getLogger(__name__).debug('Writing List Drizzler Tables...')
+        driz.write_list(file = output_file)
     getLogger(__name__).info('Finished')
     return driz
 
