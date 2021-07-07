@@ -145,15 +145,13 @@ class Canvas:
         """
         self.canvas_shape = canvas_shape
         self.dithers_data = dithers_data
-        self.metadata = [data['metadata'] for data in dithers_data]
+        self.drizzle_params = drizzle_params
         self.shape = drizzle_params.image_shape
         self.vPlateScale = drizzle_params.platescale
         self.center = drizzle_params.coords
         self.header = header
-        self.header_keys = ['WCSTIME', 'PIXFRAC']
-        self.header_vals = [drizzle_params.wcs_timestep, drizzle_params.pixfrac]
-        self.header_comments = ['[s] Time between calculated wcs (different PAs)', '']
         self.stack = None
+        self.metadata = self.combine_metadata()
 
         if canvas_shape[0] is None or canvas_shape[1] is None:
             dith_pix_min = np.zeros((len(dithers_data), 2))
@@ -185,8 +183,29 @@ class Canvas:
         if max(self.canvas_shape) > max(self.shape) * len(dithers_data):
             getLogger(__name__).warning(f'Canvas grid {self.canvas_shape} exceeds maximum nominal extent of dithers '
                                         f'({max(self.shape) * len(dithers_data)})')
-        self.canvas_header()
         self.canvas_wcs()
+        self.canvas_header()
+
+    def combine_metadata(self):
+        """
+        combine metadata from all of the h5s in a dither into a single dictionary with a MetadataSeries as the value
+        for each key
+        :return:
+        """
+        combined_meta = self.dithers_data[0]['metadata'].copy()
+        for entry in combined_meta:
+            if not isinstance(combined_meta[entry], MetadataSeries):
+                combined_meta[entry] = MetadataSeries(times=[self.dithers_data[0]['metadata']['UNIXSTR']],
+                                                      values=[combined_meta[entry]])
+        meta = [data['metadata'] for data in self.dithers_data[1:]]
+        for md in meta:
+            for entry in md:
+                if not isinstance(md[entry], MetadataSeries):
+                    assert isinstance(combined_meta[entry], MetadataSeries)
+                    combined_meta[entry].add(md['UNIXSTR'], md[entry])
+                else:
+                    combined_meta[entry] += md[entry]
+        return combined_meta
 
     def canvas_wcs(self):
         self.wcs = wcs.WCS(naxis=2)
@@ -206,19 +225,27 @@ class Canvas:
         getLogger(__name__).debug(self.wcs)
 
     def canvas_header(self):
-        for md in self.metadata:
-            for entry in md:
-                if isinstance(md[entry], MetadataSeries):
-                    # TODO actually figure out what to do with various bits of metadata, how are series handled? How
-                    #  are the metadata values from each frame combined?Currently series are set to empty strings and
-                    #  metadata from first frame is taken
-                    md[entry] = ''
-        self.header = mkidcore.metadata.build_header(self.metadata[0], unknown_keys='warn')
-
-    def header_additions(self, header):
-        for key, val, comment in zip(self.header_keys, self.header_vals, self.header_comments):
-            self.header[key] = (val, comment)
-        return self.header
+        """
+        Creates the header for the drizzled data. Uses combined metadata and adds the necessary drizzler keys and wcs
+        solution keys
+        :return:
+        """
+        meta = self.metadata.copy()
+        for key, series in self.metadata.items():
+            if not len(series.values):
+                meta.pop(key)
+                continue
+            elif all(elem == series.values[0] for elem in series.values):
+                val = series.values[0]
+            else:
+                try:
+                    val = np.mean(series.values)
+                except TypeError:
+                    getLogger(__name__).info(f'Cannot find mean value for key {key}, using value at the start of the'
+                                             f' dither')
+                    val = series.values[0]
+            meta[key] = val
+        self.header = mkidcore.metadata.build_header(meta, unknown_keys='warn')
 
     def write(self, filename, overwrite=True, compress=False, dashboard_orient=False):
         if self.stack:
@@ -229,20 +256,12 @@ class Canvas:
                 for w in self.wcs:
                     w.wcs.pc = w.wcs.pc.T
 
-            fits_header = [w.to_header() for w in self.wcs]
-            for hdr in fits_header:
-                self.header_additions(hdr)
-
-            hdus = [fits.PrimaryHDU()] + [fits.ImageHDU(data=d, header=h) for d, h in zip(self.counts, fits_header)]
-            hdul = fits.HDUList(hdus)
-
-        else:
-            fits_header = self.wcs.to_header()
-            fits_header = self.header_additions(fits_header)
-
-            hdul = fits.HDUList([fits.PrimaryHDU(header=fits_header),
-                                 fits.ImageHDU(name='cps', data=self.cps, header=fits_header),
-                                 fits.ImageHDU(name='variance', data=self.counts, header=fits_header)])
+        science_header = self.wcs.to_header()
+        science_header['WCSTIME'] = (self.drizzle_params.wcs_timestep, '')
+        science_header['PIXFRAC'] = (self.drizzle_params.pixfrac, '')
+        hdul = fits.HDUList([fits.PrimaryHDU(header=self.header),
+                             fits.ImageHDU(name='cps', data=self.cps, header=science_header),
+                             fits.ImageHDU(name='variance', data=self.counts, header=science_header)])
 
         if compress:
             filename = filename + '.gz'
@@ -266,7 +285,6 @@ class ListDrizzler(Canvas):
         # meaning the positions don't have constant integration time
         self.wcs_times = np.append(np.arange(0, drizzle_params.inttime, self.wcs_timestep), drizzle_params.inttime)
         self.stackedim = np.zeros((drizzle_params.n_dithers * (len(self.wcs_times) - 1),) + self.shape[::-1])
-        self.stacked_wcs = []
 
     def run(self, weight=True):
         tic = time.clock()
