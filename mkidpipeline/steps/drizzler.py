@@ -75,7 +75,7 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('n_wave', None, 'number of equal width wavelength bins in the temporally drizzled cube'),
                      ('derotate', False, 'TODO'),
                      ('align_start_pa', False, 'TODO'),
-                     ('whitelight', True, 'TODO'),
+                     ('whitelight', False, 'TODO'),
                      ('save_steps', False, 'Save intermediate fits files where possible (only some modes)'),
                      ('usecache', False, 'Cache photontable for subsequent runs'),
                      ('ncpu', 1, 'Number of CPUs to use'),
@@ -953,10 +953,13 @@ def form(dither, mode='spatial', derotate=True, wave_start=None, wave_stop=None,
 
     getLogger(__name__).debug('Initializing drizzler core')
     if mode is 'list':
+        getLogger(__name__).debug('Running ListDrizzler')
         driz = ListDrizzler(dithers_data, drizzle_params)
     elif mode in ('spatial', 'stack'):
+        getLogger(__name__).debug('Running SpatialDrizzler')
         driz = SpatialDrizzler(dithers_data, drizzle_params, stack = mode == 'stack', save_file=intermediate_file)
     else:
+        getLogger(__name__).debug('Running TemporalDrizzler')
         driz = TemporalDrizzler(dithers_data, drizzle_params, nwvlbins=nwvlbins, exp_timestep=bin_width,
                                 wvlMin=wave_start, wvlMax=wave_stop)
 
