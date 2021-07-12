@@ -1351,20 +1351,21 @@ class MKIDOutputCollection:
                 name = f'{x.name} ({repr(x)})' if x.name in errors else x.name
                 errors[name] = issues
 
+        name = os.path.basename(self.file)
         if self.dataset is not None:
             e = self.dataset.validate(return_errors=True)
             if e:
-                errors[f'{self.name}.dataset'] = e
+                errors[f'{name}.dataset ({os.path.basename(self.dataset.yml)})'] = e
 
         e = [f'{o.wavecal} missing for {o.name} ' for o in set(self.to_wavecal) if isinstance(o.wavecal, str)]
         if e:
-            errors[f'{self.name} wavecal'] = e
+            errors[f'{name} wavecal'] = e
         e = [f'{o.flatcal} missing for {o.name} ' for o in set(self.to_flatcal) if isinstance(o.flatcal, str)]
         if e:
-            errors[f'{self.name} flatcal'] = e
+            errors[f'{name} flatcal'] = e
         e = [f'{o.speccal} missing for {o.name} ' for o in set(self.to_speccal) if isinstance(o.speccal, str)]
         if e:
-            errors[f'{self.name} speccal'] = e
+            errors[f'{name} speccal'] = e
 
         if return_errors:
             return errors
