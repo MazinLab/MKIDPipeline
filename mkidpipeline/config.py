@@ -1287,7 +1287,7 @@ class MKIDOutput(DataBase):
         if hasattr(self, '_filename'):
             file = self._filename
         else:
-            if self.kind in ('stack', 'spatial', 'temporal', 'image'):
+            if self.kind in ('stack', 'spatial', 'temporal', 'image', 'scube', 'scube'):
                 ext = 'fits'
             else:
                 ext = 'gif' if self.kind == 'movie' else 'h5'
