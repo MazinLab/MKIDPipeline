@@ -38,6 +38,13 @@ class UnassociatedError(RuntimeError):
 
 
 def dump_dataconfig(data, file):
+    """
+    writes data to the yaml file
+    :param data: tuple containing all of the data. Can be of type MKIDObservation, MKIDWavecalDescription,
+    MKIDFlatcalDescription, MKIDSpeccalDescription, MKIDWCSCalDescription, or MKIDDitherDescription
+    :param file: yaml file to which to write the data
+    :return:
+    """
     with open(file, 'w') as f:
         mkidcore.config.yaml.dump(data, f)
     # patch bug in yaml export
@@ -55,6 +62,9 @@ def dump_dataconfig(data, file):
 # required keys specify items that the resulting object is required to have, not that use
 # user is required to pass, they are
 class BaseStepConfig(mkidcore.config.ConfigThing):
+    """
+    registers and verifies the fields of the pipeline config related to a apecific calibration step
+    """
     REQUIRED_KEYS = tuple()
 
     def __init__(self, *args, **kwargs):
@@ -64,6 +74,10 @@ class BaseStepConfig(mkidcore.config.ConfigThing):
 
     @classmethod
     def from_yaml(cls, loader, node):
+        """
+        wrapper for mkidcore.config.ConfigThing.from_yaml. Verifies attributes and errors in the mkidpipeline
+        config
+        """
         ret = super().from_yaml(loader, node)
         errors = ret._verify_attribues() + ret._vet_errors()
 
@@ -72,10 +86,12 @@ class BaseStepConfig(mkidcore.config.ConfigThing):
         return ret
 
     def _verify_attribues(self):
+        """returns a list missing keys from the pipeline config"""
         missing = [key for key, default, comment in self.REQUIRED_KEYS if key not in self]
         return ['Missing required keys: ' + ', '.join(missing)] if missing else []
 
     def _vet_errors(self):
+        """returns a list of errors found in the pipeline config"""
         return []
 
 
@@ -83,6 +99,7 @@ _pathroot = os.path.join('/work', os.environ.get('USER', ''))
 
 
 class PipeConfig(BaseStepConfig):
+    """ Generates the fields of the pipeline config not related to a specific step """
     yaml_tag = u'!pipe_cfg'
     REQUIRED_KEYS = (('ncpu', 1, 'number of cpus'),
                      ('verbosity', 0, 'level of verbosity'),
@@ -134,19 +151,21 @@ def PipelineConfigFactory(step_defaults: dict = None, cfg=None, ncpu=None, copy=
 
 
 def configure_pipeline(pipeline_config):
-    """ Load a pipeline config, configuring the pipeline. Any existing configuration will be replaced"""
+    """ Load a pipeline config, configuring the pipeline. Any existing configuration will be replaced """
     global config
     config = mkidcore.config.load(pipeline_config, namespace=None)
     return config
 
 
 def update_paths(d):
+    """ updates the path fields in the pipeline config """
     global config
     for k, v in d.items():
         config.update(f'paths.{k}', v)
 
 
 def get_paths(config=None, output_collection=None):
+    """ returns a set of all the required paths from the pipeline config """
     if config is None:
         config = globals()['config']
     output_dirs = [] if output_collection is None else [os.path.dirname(o.filename) for o in output_collection]
@@ -154,12 +173,17 @@ def get_paths(config=None, output_collection=None):
 
 
 def verify_paths(config=None, output_collection=None, return_missing=False):
+    """
+    If return_missing=True returns a list o all the missing paths from the pipeline config. If return_missing=False
+    then returns True if there are paths missing and False if all paths are present
+    """
     paths = get_paths(config=config, output_collection=output_collection)
     missing = list(filter(lambda p: p and not os.path.exists(p), paths))
     return missing if return_missing else not bool(missing)
 
 
 def make_paths(config=None, output_collection=None):
+    """ creates all paths output from get_paths that do not already exist """
     paths = get_paths(config=config, output_collection=output_collection)
 
     for p in filter(os.path.exists, paths):
@@ -172,7 +196,7 @@ def make_paths(config=None, output_collection=None):
 
 class H5Subset:
     def __init__(self, timerange, duration=None, start=None, relative=False):
-        """if relative the start is taken as an offset relative to the timerange"""
+        """ if relative the start is taken as an offset relative to the timerange """
         self.timerange = timerange
         self.h5start = int(timerange.start)
         if relative and start is not None:
