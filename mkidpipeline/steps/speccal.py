@@ -23,9 +23,7 @@ import astropy.coordinates as coord
 from specutils import Spectrum1D
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-
 from mkidcore.corelog import getLogger
-from mkidcore import pixelflags
 import mkidcore.config
 import mkidpipeline.config
 from mkidpipeline.utils.resampling import rebin
@@ -233,9 +231,9 @@ class SpectralCalibrator:
             for wvl in range(len(self.wvl_bin_edges) - 1):
                 getLogger(__name__).info('using wavelength range {} - {}'.format(self.wvl_bin_edges[wvl] / 10,
                                                                                  self.wvl_bin_edges[wvl + 1] / 10))
-                drizzled = form_drizzle(self.data, mode='spatial', wvlMin=self.wvl_bin_edges[wvl] / 10,
-                                        wvlMax=self.wvl_bin_edges[wvl + 1] / 10, pixfrac=0.5, wcs_timestep=1,
-                                        exp_timestep=1, exclude_flags=PROBLEM_FLAGS, usecache=False,
+                drizzled = form_drizzle(self.data, mode='spatial', wave_start=self.wvl_bin_edges[wvl] / 10,
+                                        wave_stop=self.wvl_bin_edges[wvl + 1] / 10, pixfrac=0.5, wcs_timestep=1,
+                                        exclude_flags=PROBLEM_FLAGS, usecache=False,
                                         ncpu=self.ncpu, derotate=not self.use_satellite_spots, align_start_pa=False,
                                         whitelight=False, debug_dither_plot=False)
                 getLogger(__name__).info(('finished image {}/ {}'.format(wvl + 1.0, len(self.wvl_bin_edges) - 1)))
@@ -312,8 +310,8 @@ class SpectralCalibrator:
         else:
             getLogger(__name__).info('Standard Spectrum spans whole energy range - no need to perform blackbody fit')
             # Gaussian convolution to smooth std spectrum to MKIDs median resolution
-            std_stop = (c.h * c.c) / (self.std[0][0] * 10 ** (-10) * c.e)
-            std_start = (c.h * c.c) / (self.std[0][-1] * 10 ** (-10) * c.e)
+            std_stop = (c.h * c.c) / (self.std[0][0] * 1e-10 * c.e)
+            std_start = (c.h * c.c) / (self.std[0][-1] * 1e-10 * c.e)
             new_x, new_y = gaussian_convolution(x, y, x_en_min=std_start, x_en_max=std_stop, flux_units="lambda", r=r,
                                                 plots=False)
         return new_x, new_y
@@ -477,7 +475,7 @@ def fetch_spectra_SDSS(object_name, save_dir, coords):
     spec = SDSS.get_spectra(matches=result)
     data = spec[0][1].data
     lamb = 10 ** data['loglam'] * u.AA
-    flux = data['flux'] * 10 ** -17 * u.Unit('erg cm-2 s-1 AA-1')
+    flux = data['flux'] * 1e-17 * u.Unit('erg cm-2 s-1 AA-1')
     spectrum = Spectrum1D(spectral_axis=lamb, flux=flux)
     res = np.array([spectrum.spectral_axis, spectrum.flux])
     res = res.T
@@ -524,8 +522,7 @@ def get_coords(object_name, ra, dec):
     return coords
 
 
-def satellite_spot_contrast(lam, ref_contrast=2.72e-3,
-                            ref_wvl=1.55 * 10 ** 4):  # 2.72e-3 number from Currie et. al. 2018b
+def satellite_spot_contrast(lam, ref_contrast=2.72e-3, ref_wvl=1.55*1e4):  # 2.72e-3 number from Currie et. al. 2018b
     """
 
     :param lam:
