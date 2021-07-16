@@ -195,6 +195,10 @@ def make_paths(config=None, output_collection=None):
 
 
 class H5Subset:
+    """
+    defines a set of new h5 files that are of the same or shorter duration than a set of existing h5 files. For example
+    one can define a set fo h5 files that begin one second after the currently exiting h5s.
+    """
     def __init__(self, timerange, duration=None, start=None, relative=False):
         """ if relative the start is taken as an offset relative to the timerange """
         self.timerange = timerange
@@ -206,11 +210,17 @@ class H5Subset:
 
     @property
     def photontable(self):
+        """
+        Convenience method for a photontable, file must exist, creates a new photon table on every call,
+
+        Not for use in multithreaded/pool situation where enablewrite may be called
+        """
         from mkidpipeline.photontable import Photontable
         return Photontable(self.timerange.h5)
 
     @property
     def first_second(self):
+        """ convenience method for finding the first second of the new h5 files """
         return self.start - self.h5start
 
     def __str__(self):
@@ -218,6 +228,7 @@ class H5Subset:
 
 
 class Key:
+    """ defines a key with a name, default value, comment, and data type """
     def __init__(self, name='', default=None, comment='', dtype=None):
         self.name = str(name)
         self.default = default
@@ -226,6 +237,7 @@ class Key:
 
 
 class DataBase:
+    """ Class to handle all MKID data. verifies and sets all required keys """
     KEYS = tuple()
     REQUIRED = tuple()  # May set individual elements to tuples of keys if they are alternates e.g. stop/duration
     EXPLICIT_ALLOW = tuple()  # Set to names that are allowed keys and are also used as properties
@@ -320,9 +332,11 @@ class DataBase:
         #             pass
 
     def _vet(self):
+        """ returns a copy of all of the key errors """
         return self._key_errors.copy()
 
     def extra(self):
+        """ returns a dictionary of the extra keys (keys not included in KEYS)"""
         return {k: getattr(self, k) for k in self.extra_keys}
 
     @classmethod
@@ -366,10 +380,16 @@ class DataBase:
 
     @property
     def key_names(self):
+        """ convenience method for returning all of the names fo the KEYS """
         return tuple([k.name for k in self.KEYS])
 
 
 class MKIDTimerange(DataBase):
+    """
+    Basic MKID data type. By definition an MKIDTimerange can specify no calibrations to be applied. Only consists
+    of a start, ether a stop or a duration and optional dark and header fields. A dark, if specified, is itelf an
+    MKIDTimerange
+    """
     yaml_tag = u'!MKIDTimerange'
     KEYS = (
         Key(name='name', default=None, comment='A name', dtype=str),
@@ -397,6 +417,7 @@ class MKIDTimerange(DataBase):
         return hash((self.start, self.stop))
 
     def _vet(self):
+        """ returns key errors corresponding to nonsensical start, stop, and duration values"""
         if self.duration > 43200:
             getLogger(__name__).warning(f'Duration of {self.name} longer than 12h!')
         if self.stop < self.start:
@@ -405,7 +426,7 @@ class MKIDTimerange(DataBase):
 
     @property
     def _metadata(self):
-        """ Return a dict of the metadata unique to self"""
+        """ Return a dict of the metadata unique to self """
         d = dict(UNIXSTR=self.start, UNIXEND=self.stop,
                  M_DARK=f'{self.dark.duration}@{self.dark.start}' if self.dark else 'None')
         for k in self.header:
@@ -419,14 +440,17 @@ class MKIDTimerange(DataBase):
 
     @property
     def date(self):
+        """ returns the UTC start time given a UNIX timestamp """
         return datetime.utcfromtimestamp(self.start)
 
     @property
     def beammap(self):
+        """ returns the beammmap """
         return config.beammap
 
     @property
     def duration(self):
+        """ returns the duration in seconds """
         return self.stop - self.start
 
     @property
@@ -435,12 +459,14 @@ class MKIDTimerange(DataBase):
 
     @property
     def input_timeranges(self):
+        """ yields all of the MKIDTimerange objects including self and any nested dark MKIDTimeranges"""
         yield self.timerange
         if self.dark is not None:
             yield self.dark.timerange
 
     @property
     def h5(self):
+        """ returns the full h5 file path associated with the MKIDTimerange """
         return os.path.join(config.paths.out, '{}.h5'.format(int(self.start)))
 
     @property
@@ -472,6 +498,7 @@ class MKIDTimerange(DataBase):
         return metadata
 
     def metadata_at(self, time='start'):
+        """ returns the metadata values at 'time' """
         if time == 'start':
             time = self.start
         md = self.metadata
