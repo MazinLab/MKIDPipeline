@@ -1143,7 +1143,10 @@ class MKIDObservingDataset:
                     getLogger(__name__).debug(f'Skipping nested search of unassociated "{r.data}" for {attr}')
 
     def validate(self, return_errors=False, error=False):
-        """Ensures that there is no missing or ill-defined data in the data configuration. Returns appropriate errors"""
+        """
+        Ensures that there is no missing or ill-defined data in the data configuration. Returns True if everything is
+        good and all is associated. If error=True raise an exception instead of returning False
+        """
         errors = {}
         for x in self:
             issues = x._vet()
@@ -1393,22 +1396,30 @@ class MKIDOutput(DataBase):
 
     @property
     def wants_image(self):
+        """Returns True if the output type specified is an image ('image', 'tcube', 'scube'), otherwise returns False"""
         return self.kind in ('image', 'tcube', 'scube')
 
     @property
     def wants_drizzled(self):
+        """
+        Returns True if the output type specified is a drizzled output ('stack', 'spatial', 'temporal', 'list'),
+        otherwise returns False
+        """
         return self.kind in ('stack', 'spatial', 'temporal', 'list')
 
     @property
     def wants_movie(self):
+        """Returns True if the output type specified is 'movie, otherwise returns False"""
         return self.kind == 'movie'
 
     @property
     def input_timeranges(self) -> Set[MKIDTimerange]:
+        """Returns a set of all input timeranges"""
         return set(self.data.input_timeranges)
 
     @property
     def duration(self):
+        """Returns the duration of the data associated with the output"""
         try:
             return self._duration
         except AttributeError:
@@ -1418,6 +1429,10 @@ class MKIDOutput(DataBase):
 
     @property
     def filename(self):
+        """
+        Returns the name of the full file path to which the output will be written. If kind is ('stack', 'spatial', 'temporal',
+        'image', 'scube', 'scube') this will be a fits file. if kind is 'movie' it will be a gif and otherwise it will
+        remain an h5 file."""
         global config
         if hasattr(self, '_filename'):
             file = self._filename
@@ -1436,6 +1451,7 @@ class MKIDOutput(DataBase):
 
 
 class MKIDOutputCollection:
+    """Class that manages all of the outputs and relevant dependencies specified in the out configuration"""
     def __init__(self, file, datafile=''):
         self.file = file
         self.meta = mkidcore.config.load(file)
@@ -1459,6 +1475,7 @@ class MKIDOutputCollection:
         return f'MKIDOutputCollection: {self.file}'
 
     def validation_summary(self, null_success=False):
+        """Nicely formats the errors returned by self.validate"""
         errors = self.validate(return_errors=True)
         if not errors:
             return '' if null_success else 'Validation Successful, no issues identified'
@@ -1477,8 +1494,10 @@ class MKIDOutputCollection:
                 f'=============================================================\n')
 
     def validate(self, error=False, return_errors=False):
-        """ Return True if everything is good and all is associated, if error=True raise an exception instead of
-        returning false"""
+        """
+        Ensures that there is no missing or ill-defined data in the data configuration. Returns True if everything is
+        good and all is associated. If error=True raise an exception instead of returning False
+        """
         errors = {}
         for x in self:
             issues = x._vet()
@@ -1510,22 +1529,39 @@ class MKIDOutputCollection:
 
     @property
     def input_timeranges(self) -> Set[MKIDTimerange]:
+        """Returns a set of all input timeranges"""
         return set([r for o in self for r in o.input_timeranges])
 
     @property
     def wavecals(self):
+        """
+        Returns a set of all of the MKIDObservations affiliated with an output that have an associated
+        MKIDWavecalDescription
+        """
         return set([o.wavecal for o in self.to_wavecal if o.wavecal])
 
     @property
     def flatcals(self):
+        """
+        Returns a set of all of the MKIDObservations affiliated with an output that have an associated
+        MKIDFlatcalDescription
+        """
         return set([o.flatcal for o in self.to_flatcal if o.flatcal])
 
     @property
     def speccals(self):
+        """
+        Returns a set of all of the MKIDObservations affiliated with an output that have an associated
+        MKIDSpeccalDescription
+        """
         return set([o.speccal for o in self.to_speccal if o.speccal])
 
     @property
     def wcscals(self):
+        """
+        Returns a set of all of the MKIDObservations affiliated with an output that have an associated
+        MKIDWCSCalDescription. Does not search for nested MKIDWCSCalDescriptions except with the speccal
+        """
         getLogger(__name__).warning('wcscals not searching for nested cals except in speccals')
         for out in self:
             if out.data.wcscal:
