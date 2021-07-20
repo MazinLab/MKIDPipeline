@@ -400,7 +400,7 @@ class MKIDTimerange(DataBase):
         Key('header', None, 'A dictionary of fits header key overrides.', dict)
     )
     REQUIRED = ('name', 'start', ('duration', 'stop'))
-    EXPLICIT_ALLOW = ('duration',)  # if a key is allows AND is a property or method name it must be listed here
+    EXPLICIT_ALLOW = ('duration',)  # if a key is allowed AND is a property or method name it must be listed here
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -1274,7 +1274,7 @@ class MKIDOutput(DataBase):
         Key('wavestep', None, 'Width of wavelength bins in output cubes with a wavelenght axis', float)
     )
     REQUIRED = ('name', 'data', 'kind')
-    EXPLICIT_ALLOW = ('filename',)
+    EXPLICIT_ALLOW = ('filename','duration')
 
     # OPTIONAL = tuple
 
@@ -1331,6 +1331,15 @@ class MKIDOutput(DataBase):
     @property
     def input_timeranges(self) -> Set[MKIDTimerange]:
         return set(self.data.input_timeranges)
+
+    @property
+    def duration(self):
+        try:
+            return self._duration
+        except AttributeError:
+            if isinstance(self.data, str):
+                raise RuntimeError('Must associate dataset to get default duration')
+            return self.data.duration
 
     @property
     def filename(self):
