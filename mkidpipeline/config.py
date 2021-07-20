@@ -86,12 +86,12 @@ class BaseStepConfig(mkidcore.config.ConfigThing):
         return ret
 
     def _verify_attribues(self):
-        """returns a list missing keys from the pipeline config"""
+        """Returns a list missing keys from the pipeline config"""
         missing = [key for key, default, comment in self.REQUIRED_KEYS if key not in self]
         return ['Missing required keys: ' + ', '.join(missing)] if missing else []
 
     def _vet_errors(self):
-        """returns a list of errors found in the pipeline config"""
+        """Returns a list of errors found in the pipeline config"""
         return []
 
 
@@ -165,7 +165,7 @@ def update_paths(d):
 
 
 def get_paths(config=None, output_collection=None):
-    """ returns a set of all the required paths from the pipeline config """
+    """ Returns a set of all the required paths from the pipeline config """
     if config is None:
         config = globals()['config']
     output_dirs = [] if output_collection is None else [os.path.dirname(o.filename) for o in output_collection]
@@ -332,11 +332,11 @@ class DataBase:
         #             pass
 
     def _vet(self):
-        """ returns a copy of all of the key errors """
+        """ Returns a copy of all of the key errors """
         return self._key_errors.copy()
 
     def extra(self):
-        """ returns a dictionary of the extra keys (keys not included in KEYS)"""
+        """ Returns a dictionary of the extra keys (keys not included in KEYS)"""
         return {k: getattr(self, k) for k in self.extra_keys}
 
     @classmethod
@@ -387,7 +387,7 @@ class DataBase:
 class MKIDTimerange(DataBase):
     """
     Basic MKID data type. By definition an MKIDTimerange can specify no calibrations to be applied. Only consists
-    of a start, ether a stop or a duration and optional dark and header fields. A dark, if specified, is itelf an
+    of a start, ether a stop or a duration, and optional dark and header fields. A dark, if specified, is itelf an
     MKIDTimerange
     """
     yaml_tag = u'!MKIDTimerange'
@@ -411,13 +411,13 @@ class MKIDTimerange(DataBase):
         return f'{self.name} ({type(self).__name__}): {self.duration}s @ {self.start}'
 
     def __hash__(self):
-        """Note that this mease that a set of MKIDTimeranges where one has a dark and the other does makes no
+        """Note that this means that a set of MKIDTimeranges where one has a dark and the other does makes no
         promises about which you get, DO NOT add to this to include self.dark without factoring in that sets of
         timeranges would now contain members with identical (start, stop) (i.e. much of the pipeline execution path"""
         return hash((self.start, self.stop))
 
     def _vet(self):
-        """ returns key errors corresponding to nonsensical start, stop, and duration values"""
+        """ Returns key errors corresponding to nonsensical start, stop, and duration values"""
         if self.duration > 43200:
             getLogger(__name__).warning(f'Duration of {self.name} longer than 12h!')
         if self.stop < self.start:
@@ -440,17 +440,17 @@ class MKIDTimerange(DataBase):
 
     @property
     def date(self):
-        """ returns the UTC start time given a UNIX timestamp """
+        """ Returns the UTC start time given a UNIX timestamp """
         return datetime.utcfromtimestamp(self.start)
 
     @property
     def beammap(self):
-        """ returns the beammmap """
+        """ Returns the beammmap """
         return config.beammap
 
     @property
     def duration(self):
-        """ returns the duration in seconds """
+        """ Returns the duration in seconds """
         return self.stop - self.start
 
     @property
@@ -466,7 +466,7 @@ class MKIDTimerange(DataBase):
 
     @property
     def h5(self):
-        """ returns the full h5 file path associated with the MKIDTimerange """
+        """ Returns the full h5 file path associated with the MKIDTimerange """
         return os.path.join(config.paths.out, '{}.h5'.format(int(self.start)))
 
     @property
@@ -485,7 +485,8 @@ class MKIDTimerange(DataBase):
 
     @property
     def metadata(self):
-        """Returns a dict of of KEY:mkidcore.metadata.MetadataSeries|value pairs, likely a subset of all keys"""
+        """Returns a dict of of KEY:mkidcore.metadata.MetadataSeries|value pairs, likely a subset of all keys
+        """
         obslog_files = mkidcore.utils.get_obslogs(config.paths.data, start=self.start)
         data = mkidcore.metadata.load_observing_metadata(files=obslog_files, use_cache=True)
         metadata = mkidcore.metadata.observing_metadata_for_timerange(self.start, self.duration, data)
@@ -498,7 +499,7 @@ class MKIDTimerange(DataBase):
         return metadata
 
     def metadata_at(self, time='start'):
-        """ returns the metadata values at 'time' """
+        """ Returns the metadata values at 'time' """
         if time == 'start':
             time = self.start
         md = self.metadata
@@ -548,10 +549,12 @@ class MKIDObservation(MKIDTimerange):
 
     @property
     def dither_pos(self):
+        """ Returns the (x,y) position of the conex mirror """
         return np.array([self._metadata['M_CONEXX'], self._metadata['M_CONEXY']])
 
     @property
     def skycoord(self):
+        """ Returns and astropy SkyCoord object by querying the metadata """
         try:
             return mkidcore.metadata.skycoord_from_metadata(self.header)
         except KeyError as e:
@@ -588,17 +591,22 @@ class MKIDObservation(MKIDTimerange):
 
 
 class CalDefinitionMixin:
+    """ Supplementary class to DataBase for calibration data descriptions """
+
     @property
     def path(self):
+        """ convenience function for returning the full file path of the calibration data product """
         return os.path.join(config.paths.database, self.id + '.npz')
 
     @property
     def timeranges(self):
+        """ Returns all of the associated MKIDTimeranges """
         for o in self.obs:
             yield o.timerange
 
     @property
     def input_timeranges(self):
+        """Returns all of the MKIDTimeranges involved in the calibration"""
         try:
             x = self.obs
         except AttributeError:
@@ -607,7 +615,7 @@ class CalDefinitionMixin:
             for tr in o.input_timeranges:
                 yield tr
 
-    def id_for_config(self, cfg):
+    def id_for_config(self):
         """
         Compute a cal definition id string for a specified config (must have STEPNAME namespace)
         """
@@ -626,7 +634,7 @@ class CalDefinitionMixin:
 
 
 class MKIDWavecalDescription(DataBase, CalDefinitionMixin):
-    """requires keys name and data"""
+    """Data description for the wavelength calibration data - requires keys name and data"""
     yaml_tag = u'!MKIDWavecalDescription'
     KEYS = (
         Key(name='name', default='', comment='A name', dtype=str),
@@ -650,11 +658,16 @@ class MKIDWavecalDescription(DataBase, CalDefinitionMixin):
 
     @property
     def wavelengths(self):
+        """ Returns the laser wavelengths used as astropy.units.Quantity objects """
         # TODO update this to use metadata when avaialable
         return tuple([astropy.units.Quantity(x.name).to('nm') for x in self.data])
 
     @property
     def darks(self):
+        """
+        Returns a dictionary with keys for each wavelenght laser used and values corresponding to either the
+        MKIDTimerange for the dark to be applied or None
+        """
         return {w: ob.dark for w, ob in zip(self.wavelengths, self.data)}
 
     def associate(self, *args, **kwargs):
@@ -663,6 +676,7 @@ class MKIDWavecalDescription(DataBase, CalDefinitionMixin):
 
 
 class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
+    """Data description for the flat calibration data - requires keys name and data"""
     yaml_tag = u'!MKIDFlatcalDescription'
     KEYS = (
         Key(name='name', default=None, comment='A name', dtype=str),
@@ -707,17 +721,19 @@ class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
 
     @property
     def method(self):
+        """Returns the method specified for the determination of the flatcal solution- either 'laser' or 'white'"""
         return 'white' if isinstance(self.data, MKIDObservation) else 'laser'
 
     @property
     def h5s(self):
-        """Returns MKIDObservations for the wavelengths of the wavecal, will raise errors for whitelight flats"""
+        """Returns MKIDObservations for the wavelengths of the wavecal, will raise errors for white light flats"""
         if self.method != 'laser':
             raise NotImplementedError('h5s only available for laser flats')
         return {w: ob for w, ob in zip(self.data.wavelengths, self.obs)}
 
     @property
     def obs(self):
+        """Returns all of the MKIDObservation objects associated with the flatcal"""
         if isinstance(self.data, MKIDObservation):
             yield self.data
         else:
@@ -730,6 +746,7 @@ class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
                 yield o
 
     def associate(self, **kwargs):
+        """Pulls identifiers for associated datasets needed for MKIDFlatcalDescription"""
         if isinstance(self.data, str):
             self.data = kwargs['wavecal'].get(self.data, self.data)
         else:
@@ -737,6 +754,7 @@ class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
 
 
 class MKIDSpeccalDescription(DataBase, CalDefinitionMixin):
+    """Data description for the spectrophotometric calibration data - requires keys name, data, and aperture"""
     yaml_tag = u'!MKIDSpeccalDescription'
     KEYS = (
         Key(name='name', default=None, comment='A name', dtype=str),
@@ -769,6 +787,7 @@ class MKIDSpeccalDescription(DataBase, CalDefinitionMixin):
 
     @property
     def obs(self):
+        """Returns all of the MKIDObservation objects associated with the speccal"""
         if isinstance(self.data, MKIDObservation):
             yield self.data
         else:
@@ -776,6 +795,7 @@ class MKIDSpeccalDescription(DataBase, CalDefinitionMixin):
                 yield o
 
     def associate(self, **kwargs):
+        """Pulls identifiers for associated datasets needed for MKIDSpeccalDescription"""
         if isinstance(self.data, str):
             self.data = kwargs['dither'].get(self.data, self.data)
         else:
@@ -784,7 +804,7 @@ class MKIDSpeccalDescription(DataBase, CalDefinitionMixin):
 
 class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
     """
-    The MKIDWCSCalDescription defines the coordinate relation between
+    The MKIDWCSCalDescription defines the coordinate relation between detector pixels and on-sky RA/DEC
 
     Keys are
     name - required
@@ -803,7 +823,7 @@ class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
                                'axis and the conex is at conex_ref', tuple),
         Key('conex_ref', None, 'The conex (x,y) position, [0, 1.0], when the target is at pixel_ref ', tuple),
     )
-    REQUIRED = ('name', 'data',)
+    REQUIRED = ('name',)
     STEPNAME = 'wcscal'
 
     def __init__(self, *args, **kwargs):
@@ -845,12 +865,14 @@ class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
 
     @property
     def platescale(self):
+        """Returns the platescale as an astropy.unit.Quantity object (in arcseconds)"""
         if not isinstance(self.data, u.Quantity):
             raise NotImplementedError('WCSCal not created with a defined platescale')
         return self.data.to('arcsec')
 
     @property
     def obs(self):
+        """Returns all of the MKIDObservation objects associated with the wcscal"""
         if isinstance(self.data, u.Quantity):
             return
             yield
@@ -1303,7 +1325,7 @@ class MKIDOutput(DataBase):
 
     @property
     def output_settings_dict(self):
-        """returns a dict of kwargs from the various output settings"""
+        """Returns a dict of kwargs from the various output settings"""
         step, cube_type = None, None
         if self.kind in ('tcube', 'movie', 'temporal'):
             cube_type = 'time'
