@@ -626,7 +626,7 @@ class CalDefinitionMixin:
             for tr in o.input_timeranges:
                 yield tr
 
-    def id_for_config(self):
+    def id_for_config(self, cfg):
         """
         Compute a cal definition id string for a specified config (must have STEPNAME namespace)
         """
