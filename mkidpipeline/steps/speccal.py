@@ -157,10 +157,10 @@ class SpectralCalibrator:
             cfg = mkidcore.config.load(configuration)
             self.save_path = cfg.paths.database
             if len(cfg.speccal.wvl_bin_edges) != 0:
-                self.wvl_bin_edges = cfg.speccal.wvl_bin_edges
+                self.wvl_bin_edges = cfg.speccal.wvl_bin_edges*u.nm
             else:
                 pt = Photontable(self.data.obs[0].h5)
-                self.wvl_bin_edges = pt.nyquist_wavelengths()
+                self.wvl_bin_edges = pt.nyquist_wavelengths()*u.nm
             self.platescale = [v.platescale for v in self.data.wcscal.values()][0]
             self.solution = ResponseCurve(configuration=cfg, curve=self.curve, wvl_bin_edges=self.wvl_bin_edges,
                                           cube=self.cube, solution_name=self.solution_name)
@@ -169,15 +169,15 @@ class SpectralCalibrator:
             self.plots = cfg.speccal.plots
             self.interpolation = cfg.speccal.interpolation
             sol = mkidpipeline.steps.wavecal.Solution(cfg.wave_sol)
-            r, resid = sol.find_resolving_powers()
+            r, resid = sol.find_resolving_powers(cache=True)
             r_list = np.nanmedian(r, axis=0)
-            self.r = np.median(np.nanmedian(r_list, axis=0))
+            self.r = np.median(r_list, axis=0)
         else:
             pt = Photontable(self.data.obs[0].h5)
-            self.wvl_bin_edges = pt.nyquist_wavelengths() * u.nm
+            self.wvl_bin_edges = pt.nyquist_wavelengths()*u.nm
             self.r = pt.query_header('energy_resolution')
-        self.energy_start = (c.h * c.c)/(self.wvl_bin_edges[0].to(u.m) * c.e)
-        self.energy_stop = (c.h * c.c)/(self.wvl_bin_edges[-1].to(u.m) * c.e)
+        self.energy_start = (c.h * c.c)/(self.wvl_bin_edges[0].to(u.m) * c.e).value
+        self.energy_stop = (c.h * c.c)/(self.wvl_bin_edges[-1].to(u.m) * c.e).value
         self.aperture_radius = np.zeros(len(self.wvl_bin_edges) - 1) if self.wvl_bin_edges else None
 
     def run(self, save=True, plot=None):
@@ -204,9 +204,9 @@ class SpectralCalibrator:
          and performing photometry (aperture or psf) on each spectral frame
          """
         getLogger(__name__).info('performing {} photometry on MEC spectrum'.format(self.photometry))
-        if len(self.data.data) == 1:
-            hdul = self.data.data[0].get_fits(weight=True, rate=True, cube_type='wave', bin_edges=self.wvl_bin_edges,
-                                              bin_type='energy')
+        if len(self.data.obs) == 1:
+            hdul = Photontable(self.data.obs[0].h5).get_fits(weight=True, rate=True, cube_type='wave',
+                                                             bin_edges=self.wvl_bin_edges, bin_type='energy')
             cube = np.array(hdul['SCIENCE'].data, dtype=np.double)
         else:
             cube = []
