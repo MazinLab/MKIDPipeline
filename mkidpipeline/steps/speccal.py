@@ -123,20 +123,18 @@ class StandardSpectrum:
 
 
 class SpectralCalibrator:
-    def __init__(self, configuration=None, solution_name='solution.npz', interpolation=None,
-                 data=None, use_satellite_spots=True, obj_pos=None, wvl_bin_edges=None, aperture_radius=None,
-                 wvl_start=950, wvl_stop=1375, save_path=None, platescale=10.4, std_path='', object_name=None,
-                 photometry_type='aperture', summary_plot=True, ncpu=1):
+    def __init__(self, configuration=None, solution_name='solution.npz', interpolation=None, aperture=None,
+                 data=None, use_satellite_spots=True, wvl_bin_edges=None, wvl_start=950, wvl_stop=1375, save_path=None,
+                 platescale=10.4, std_path='', object_name=None, photometry_type='aperture', summary_plot=True, ncpu=1):
 
         self.interpolation = interpolation
         self.use_satellite_spots = use_satellite_spots
-        self.obj_pos = obj_pos
         self.solution_name = solution_name
         self.data = data
+        self.aperture = aperture
         self.wvl_bin_edges = wvl_bin_edges
-        self.aperture_radius = aperture_radius
-        self.wvl_start = wvl_start
-        self.wvl_stop = wvl_stop
+        self.wvl_start = wvl_start * u.nm
+        self.wvl_stop = wvl_stop * u.nm
         self.save_path = save_path
         self.platescale = platescale
         self.std_path = std_path
@@ -182,9 +180,9 @@ class SpectralCalibrator:
         else:
             pass
 
-        self.energy_start = (c.h * c.c) / ((self.wvl_start * 10.0) * 10 ** (-10) * c.e)
-        self.energy_stop = (c.h * c.c) / ((self.wvl_stop * 10.0) * 10 ** (-10) * c.e)
-        self.energy_bin_width = ((self.energy_start + self.energy_stop) / 2) / (np.median(self.r_list) * 5.0)
+        self.energy_start = (c.h * c.c) / (self.wvl_start.to(u.m) * c.e)
+        self.energy_stop = (c.h * c.c) / (self.wvl_stop.to(u.m) * c.e)
+        self.energy_bin_width = ((self.energy_start + self.energy_stop) / 2) / (np.median(self.r_list) * 2.0)
         self.aperture_radius = np.zeros(len(self.wvl_bin_edges) - 1) if self.wvl_bin_edges else None
 
     def run(self, save=True, plot=None):
@@ -243,20 +241,22 @@ class SpectralCalibrator:
                                                      wvl_stop=self.wvl_bin_edges[1:], platescale=self.platescale)
             self.mkid[1] = np.nanmean(fluxes, axis=1)
         else:
-            if self.obj_pos is None:
-                getLogger(__name__).info('No coordinate specified for the object. Performing a PSF fit '
-                                         'to find the location')
-                x, y, flux = astropy_psf_photometry(cube[:, :, 0], 5.0)
-                ind = np.where(flux == flux.max())
-                self.obj_pos = (x.data.data[ind][0], y.data.data[ind][0])
-                getLogger(__name__).info('Found the object at {}'.format(self.obj_pos))
+            try:
+                x, y, r = self.aperture
+            except ValueError:
+                getLogger(__name__).warning('Aperture for the speccal must be in the format (x/RA, y/DEC, r) OR '
+                                            'satellite, instead got {self.aperture}')
             for i in np.arange(n_wvl_bins):
                 frame = cube[:, :, i]
                 if self.interpolation is not None:
                     frame = interpolate_image(frame, method=self.interpolation)
-                rad = get_aperture_radius(wvl_bin_centers[i], self.platescale)
+                if not r:
+                    rad = get_aperture_radius(wvl_bin_centers[i], self.platescale)
+                else:
+                    rad = r
                 self.aperture_radius[i] = rad
-                obj_flux = aper_photometry(frame, self.obj_pos, rad)
+                # TODO if x in ra and dec convert to x,y coordinates
+                obj_flux = aper_photometry(frame, (x, y), rad)
                 self.mkid[1][i] = obj_flux
         return self.mkid
 
@@ -358,7 +358,7 @@ class ResponseCurve:
         self._parse = True
         # load in arguments
         self._file_path = os.path.abspath(file_path) if file_path is not None else file_path
-        self.curve = curve
+        self.curve = curve # TODO should be spline (can call ResponseCurve.curve(xs)) to get flux caliibrated values
         self.cfg = configuration
         self.wvl_bin_edges = wvl_bin_edges
         self.cube = cube
@@ -565,15 +565,32 @@ def fetch(dataset, config=None, ncpu=None, remake=False, **kwargs):
                 scfg.register('wavcal', wavcal, update=True)
             except AttributeError:
                 scfg.register('wavcal', wavcal, update=True)
-            cal = SpectralCalibrator(scfg, solution_name=sf, data=sd.data[0],
-                                     use_satellite_spots=sd.use_satellite_spots, obj_pos=sd.object_position,
-                                     wvl_bin_edges=sd.wvl_bin_edges, aperture_radius=sd.aperture_radius,
-                                     std_path=sd.standard_path, object_name=[x.target for x in sd.data[0].obs],
-                                     ncpu=ncpu if ncpu else 1)
+            cal = SpectralCalibrator(scfg, solution_name=sf, data=sd.data,
+                                     use_satellite_spots=True if sd.aperture=='satellite' else False,
+                                     aperture = sd.aperture if not sd.aperture == 'satellite' else None,
+                                     wvl_bin_edges=scfg.speccal.wvl_bin_edges, std_path=sd.data.spectrum,
+                                     object_name=sd.data.header.OBJECT, ncpu=ncpu if ncpu else 1)
             cal.run(**kwargs)
             # solutions.append(load_solution(sf))  # don't need to reload from file
             solutions.append(cal.solution)  # TODO: solutions.append(load_solution(cal.solution))
     return solutions
 
 
-# Note that there is no apply function as how to apply is hihgly data dependent and in MKIDAnalysis
+def apply(s_cube, wvl_bins=None, config=None, solution=''):
+    config = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(pixcal=StepConfig()), cfg=config, copy=True)
+    flux_calibrated_cube = np.zeros_like(s_cube)
+    soln = ResponseCurve(solution).curve
+    soln_wvl_bins = soln.wvl_bin_edges
+    if not wvl_bins:
+        raise ValueError('wavelength bins for the spectral cube must be specified')
+    if soln_wvl_bins == wvl_bins:
+        for (wvl, x, y), idx in np.ndenumerate(s_cube):
+            flux_calibrated_cube[wvl, x, y] = s_cube[wvl, x, y] * soln(s_cube[wvl, x, y]) # TODO make sure this is correct
+        return flux_calibrated_cube
+    elif len(soln_wvl_bins) > len(wvl_bins):
+        # TODO integrate over solution bins
+        return flux_calibrated_cube
+    else:
+        # TODO throw warning that you are oversampling the energy resolution of the solution
+        #  - might want to make a new solution
+        return flux_calibrated_cube
