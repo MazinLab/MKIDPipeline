@@ -1,6 +1,4 @@
 """
-Author: Sarah Steiger    Date: April 1, 2020
-
 Loads a standard spectrum from and convolves and rebind it ot match the MKID energy resolution and bin size. Then
 generates an MKID spectrum of the object by performing photometry (aperture or PSF) on the MKID image. Finally
 divides the flux values for the standard by the MKID flux values for each bin to get a calibration curve.
@@ -10,7 +8,6 @@ Assumes h5 files are wavelength calibrated, and they should also first be flatca
 """
 import sys
 import os
-import time
 import urllib.request as request
 from urllib.error import URLError
 import shutil
@@ -47,14 +44,14 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!speccal_cfg'
     REQUIRED_KEYS = (('photometry_type', 'aperture', 'aperture | psf'),
                      ('plots', 'summary', 'summary | none'),
-                     ('interpolation', 'linear', ' linear | cubic | nearest')) #TODO
+                     ('interpolation', 'linear', ' linear | cubic | nearest'),
+                     ('wvl_bin_edges', [], 'list of wavelength bin edges to use for determining the solution'
+                                           ' (in Angstroms). Defaults to nyquist sampling the energy resolution')) #TODO
 
 
 class StandardSpectrum:
     """
-    replaces the MKIDStandards class from the ARCONS pipeline for MEC.
     """
-
     def __init__(self, save_path='', std_path=None, object_name=None, object_ra=None, object_dec=None, coords=None):
         self.save_dir = save_path
         self.object_name = object_name
@@ -67,8 +64,9 @@ class StandardSpectrum:
 
     def get(self):
         """
-        function which creates a spectrum directory, populates it with the spectrum file either pulled from the ESO
-        catalog, SDSS catalog, a URL, or a specified path to a .txt file and returns the wavelength and flux column in the appropriate units
+        creates a spectrum directory, populates it with the spectrum file either pulled from the ESO catalog, SDSS
+        catalog, a URL, or a specified path to a .txt file and returns the wavelength and flux column in the
+        appropriate units
         :return: wavelengths (Angstroms), flux (erg/s/cm^2/A)
         """
         self.coords = get_coords(object_name=self.object_name, ra=self.ra, dec=self.dec)
@@ -107,7 +105,7 @@ class StandardSpectrum:
             data[:, 1] = data[:, 1] * 10 ** (-16)
             return data
 
-    def counts_to_ergs(self, a):
+    def photons_to_ergs(self, a):
         """
         converts units of the spectra from counts to ergs
         :return:
@@ -115,7 +113,7 @@ class StandardSpectrum:
         a[:, 1] /= (a[:, 0] * self.k)
         return a
 
-    def ergs_to_counts(self, a):
+    def ergs_to_photons(self, a):
         """
         converts units of the spectra from ergs to counts
         :return:
@@ -162,7 +160,6 @@ class SpectralCalibrator:
             # load in the configuration file
             cfg = mkidcore.config.load(configuration)
             self.save_path = cfg.paths.database
-            self.obj_pos = cfg.obj_pos
             self.wvl_start = cfg.instrument.minimum_wavelength
             self.wvl_stop = cfg.instrument.maximum_wavelength
             self.use_satellite_spots = cfg.use_satellite_spots
@@ -174,8 +171,6 @@ class SpectralCalibrator:
             sol = mkidpipeline.steps.wavecal.Solution(cfg.wavcal)
             r, resid = sol.find_resolving_powers(cache=True)
             self.r_list = np.nanmedian(r, axis=0)
-            if cfg.aperture_radius:
-                self.aperture_radius = np.full(len(self.wvl_bin_edges) - 1, cfg.aperture_radius)
             self.std_path = cfg.standard_path
             self.object_name = cfg.object_name
             self.ra = [x.ra for x in self.data]
@@ -183,8 +178,6 @@ class SpectralCalibrator:
             self.photometry = cfg.spectralcal.photometry_type
             self.contrast = np.zeros(len(self.wvl_bin_edges) - 1)
             self.summary_plot = cfg.spectralcal.summary_plot
-            self.obj_pos = tuple(float(s) for s in cfg.obj_pos.strip("()").split(",")) \
-                if cfg.obj_pos else None
             self.interpolation = cfg.spectralcal.interpolation
         else:
             pass
@@ -258,7 +251,6 @@ class SpectralCalibrator:
                 self.obj_pos = (x.data.data[ind][0], y.data.data[ind][0])
                 getLogger(__name__).info('Found the object at {}'.format(self.obj_pos))
             for i in np.arange(n_wvl_bins):
-                # perform photometry on every wavelength bin
                 frame = cube[:, :, i]
                 if self.interpolation is not None:
                     frame = interpolate_image(frame, method=self.interpolation)
