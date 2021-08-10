@@ -30,6 +30,7 @@ from mkidpipeline.utils.interpolating import interpolate_image
 from mkidpipeline.utils.photometry import get_aperture_radius, aper_photometry, astropy_psf_photometry, \
     mec_measure_satellite_spot_flux
 from mkidpipeline.steps.drizzler import form as form_drizzle
+from mkidpipeline.photontable import Photontable
 
 _loaded_solutions = {}
 
@@ -52,11 +53,11 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
 class StandardSpectrum:
     """
     """
-    def __init__(self, save_path='', std_path=None, object_name=None, object_ra=None, object_dec=None, coords=None):
+    def __init__(self, save_path='', std_path=None, name=None, ra=None, dec=None, coords=None):
         self.save_dir = save_path
-        self.object_name = object_name
-        self.ra = object_ra
-        self.dec = object_dec
+        self.object_name = name
+        self.ra = ra
+        self.dec = dec
         self.std_path = std_path
         self.coords = coords  # SkyCoord object
         self.spectrum_file = None
@@ -102,7 +103,7 @@ class StandardSpectrum:
                     sys.exit()
             data = np.loadtxt(self.spectrum_file)
             # to convert to the appropriate units if ESO spectra
-            data[:, 1] = data[:, 1] * 10 ** (-16)
+            data[:, 1] = data[:, 1] * 1e-16
             return data
 
     def photons_to_ergs(self, a):
@@ -124,24 +125,21 @@ class StandardSpectrum:
 
 class SpectralCalibrator:
     def __init__(self, configuration=None, solution_name='solution.npz', interpolation=None, aperture=None,
-                 data=None, use_satellite_spots=True, wvl_bin_edges=None, wvl_start=950, wvl_stop=1375, save_path=None,
-                 platescale=10.4, std_path='', object_name=None, photometry_type='aperture', summary_plot=True, ncpu=1):
+                 data=None, use_satellite_spots=True, save_path=None, platescale=.0104, std_path='',
+                 photometry_type='aperture', summary_plot=True, ncpu=1):
 
         self.interpolation = interpolation
         self.use_satellite_spots = use_satellite_spots
         self.solution_name = solution_name
         self.data = data
         self.aperture = aperture
-        self.wvl_bin_edges = wvl_bin_edges
-        self.wvl_start = wvl_start * u.nm
-        self.wvl_stop = wvl_stop * u.nm
         self.save_path = save_path
-        self.platescale = platescale
+        self.platescale = platescale * u.arcsec
         self.std_path = std_path
-        self.object_name = object_name
         self.photometry = photometry_type
         self.summary_plot = summary_plot
         self.cfg = configuration
+        self.std_path = self.data.spectrum
         self.ncpu = ncpu
         # various spectra
         self.std = None
@@ -158,31 +156,28 @@ class SpectralCalibrator:
             # load in the configuration file
             cfg = mkidcore.config.load(configuration)
             self.save_path = cfg.paths.database
-            self.wvl_start = cfg.instrument.minimum_wavelength
-            self.wvl_stop = cfg.instrument.maximum_wavelength
-            self.use_satellite_spots = cfg.use_satellite_spots
-            self.wvl_bin_edges = cfg.wvl_bin_edges
-            self.data = cfg.data
-            self.platescale = self.data.wcscal.platescale
+            if len(cfg.speccal.wvl_bin_edges) != 0:
+                self.wvl_bin_edges = cfg.speccal.wvl_bin_edges
+            else:
+                pt = Photontable(self.data.obs[0].h5)
+                self.wvl_bin_edges = pt.nyquist_wavelengths()
+            self.platescale = [v.platescale for v in self.data.wcscal.values()][0]
             self.solution = ResponseCurve(configuration=cfg, curve=self.curve, wvl_bin_edges=self.wvl_bin_edges,
                                           cube=self.cube, solution_name=self.solution_name)
-            sol = mkidpipeline.steps.wavecal.Solution(cfg.wavcal)
-            r, resid = sol.find_resolving_powers(cache=True)
-            self.r_list = np.nanmedian(r, axis=0)
-            self.std_path = cfg.standard_path
-            self.object_name = cfg.object_name
-            self.ra = [x.ra for x in self.data]
-            self.dec = [x.dec for x in self.data]
-            self.photometry = cfg.spectralcal.photometry_type
+            self.photometry = cfg.speccal.photometry_type
             self.contrast = np.zeros(len(self.wvl_bin_edges) - 1)
-            self.summary_plot = cfg.spectralcal.summary_plot
-            self.interpolation = cfg.spectralcal.interpolation
+            self.plots = cfg.speccal.plots
+            self.interpolation = cfg.speccal.interpolation
+            sol = mkidpipeline.steps.wavecal.Solution(cfg.wave_sol)
+            r, resid = sol.find_resolving_powers()
+            r_list = np.nanmedian(r, axis=0)
+            self.r = np.median(np.nanmedian(r_list, axis=0))
         else:
-            pass
-
-        self.energy_start = (c.h * c.c) / (self.wvl_start.to(u.m) * c.e)
-        self.energy_stop = (c.h * c.c) / (self.wvl_stop.to(u.m) * c.e)
-        self.energy_bin_width = ((self.energy_start + self.energy_stop) / 2) / (np.median(self.r_list) * 2.0)
+            pt = Photontable(self.data.obs[0].h5)
+            self.wvl_bin_edges = pt.nyquist_wavelengths() * u.nm
+            self.r = pt.query_header('energy_resolution')
+        self.energy_start = (c.h * c.c)/(self.wvl_bin_edges[0].to(u.m) * c.e)
+        self.energy_stop = (c.h * c.c)/(self.wvl_bin_edges[-1].to(u.m) * c.e)
         self.aperture_radius = np.zeros(len(self.wvl_bin_edges) - 1) if self.wvl_bin_edges else None
 
     def run(self, save=True, plot=None):
@@ -197,7 +192,7 @@ class SpectralCalibrator:
                                           cube=self.cube, solution_name=self.solution_name)
             if save:
                 self.solution.save(save_name=self.solution_name if isinstance(self.solution_name, str) else None)
-            if plot or (plot is None and self.summary_plot):
+            if plot or (plot is None and self.plots is 'summary'):
                 save_name = self.solution_name.rpartition(".")[0] + ".pdf"
                 self.plot_summary(save_name=save_name)
         except KeyboardInterrupt:
@@ -209,10 +204,6 @@ class SpectralCalibrator:
          and performing photometry (aperture or psf) on each spectral frame
          """
         getLogger(__name__).info('performing {} photometry on MEC spectrum'.format(self.photometry))
-        if self.wvl_bin_edges is None:
-            # TODO make sure in angstroms
-            self.wvl_bin_edges = self.data.data[0].wavelength_bins(width=self.energy_bin_width,
-                                                                   start=self.wvl_start, stop=self.wvl_stop)
         if len(self.data.data) == 1:
             hdul = self.data.data[0].get_fits(weight=True, rate=True, cube_type='wave', bin_edges=self.wvl_bin_edges,
                                               bin_type='energy')
@@ -220,10 +211,10 @@ class SpectralCalibrator:
         else:
             cube = []
             for wvl in range(len(self.wvl_bin_edges) - 1):
-                getLogger(__name__).info('using wavelength range {} - {}'.format(self.wvl_bin_edges[wvl] / 10,
-                                                                                 self.wvl_bin_edges[wvl + 1] / 10))
-                drizzled = form_drizzle(self.data, mode='spatial', wave_start=self.wvl_bin_edges[wvl] / 10,
-                                        wave_stop=self.wvl_bin_edges[wvl + 1] / 10, pixfrac=0.5, wcs_timestep=1,
+                getLogger(__name__).info('using wavelength range {} - {}'.format(self.wvl_bin_edges[wvl].to(u.nm).value,
+                                                                                 self.wvl_bin_edges[wvl + 1].to(u.nm).value))
+                drizzled = form_drizzle(self.data, mode='spatial', wave_start=self.wvl_bin_edges[wvl].to(u.nm).value,
+                                        wave_stop=self.wvl_bin_edges[wvl + 1].to(u.nm).value, pixfrac=0.5, wcs_timestep=1,
                                         exclude_flags=PROBLEM_FLAGS, usecache=False,
                                         ncpu=self.ncpu, derotate=not self.use_satellite_spots, align_start_pa=False,
                                         whitelight=False, debug_dither_plot=False)
@@ -262,10 +253,10 @@ class SpectralCalibrator:
 
     def load_standard_spectrum(self):
         standard = StandardSpectrum(save_path=self.save_path, std_path=self.std_path,
-                                    object_name=self.object_name[0], object_ra=self.ra[0],
-                                    object_dec=self.dec[0])
+                                    name=self.data.obs[0].header['OBJECT'], ra=self.data.obs[0].header['RA'],
+                                    dec=self.data.obs[0].header['DEC'])
         std_wvls, std_flux = standard.get()  # standard star object spectrum in ergs/s/Angs/cm^2
-        self.std = np.hstack(std_wvls, std_flux)
+        self.std = np.hstack(std_wvls*u.Angstrom, std_flux*u.erg*(1/u.s)*(1/u.Angstrom)*(1/u.cm**2))
         conv_wvls_rev, conv_flux_rev = self.extend_and_convolve(self.std[0], self.std[1])
         # convolved spectrum comes back sorted backwards, from long wvls to low which screws up rebinning
         self.conv = np.hstack((conv_wvls_rev[::-1], conv_flux_rev[::-1]))
@@ -285,12 +276,11 @@ class SpectralCalibrator:
         BB Fit to extend standard spectrum to 1500 nm and to convolve it with a gaussian kernel corresponding to the
         energy resolution of the detector. If spectrum spans whole MKID range will just convolve with the gaussian
         """
-        r = np.median(np.nanmedian(self.r_list, axis=0))
-        if np.round(x[-1]) < self.wvl_stop:
+        if np.round(x[-1]) < self.wvl_bin_edges[-1]:
             fraction = 1.0 / 3.0
-            nirX = np.arange(int(x[int((1.0 - fraction) * len(x))]), self.wvl_stop)
+            nirX = np.arange(int(x[int((1.0 - fraction) * len(x))]), self.wvl_bin_edges[-1])
             T, nirY = fit_blackbody(x, y, fraction=fraction, new_wvls=nirX)
-            if np.any(x >= self.wvl_stop):
+            if np.any(x >= self.wvl_bin_edges[-1]):
                 self.bb = np.hstack((x, y))
             else:
                 wvls = np.concatenate((x, nirX[nirX > max(x)]))
@@ -298,13 +288,13 @@ class SpectralCalibrator:
                 self.bb = np.hstack((wvls, flux))
             # Gaussian convolution to smooth std spectrum to MKIDs median resolution
             new_x, new_y = gaussian_convolution(self.bb[0], self.bb[1], x_en_min=self.energy_stop,
-                                                x_en_max=self.energy_start, flux_units="lambda", r=r, plots=False)
+                                                x_en_max=self.energy_start, flux_units="lambda", r=self.r, plots=False)
         else:
             getLogger(__name__).info('Standard Spectrum spans whole energy range - no need to perform blackbody fit')
             # Gaussian convolution to smooth std spectrum to MKIDs median resolution
-            std_stop = (c.h * c.c) / (self.std[0][0] * 1e-10 * c.e)
-            std_start = (c.h * c.c) / (self.std[0][-1] * 1e-10 * c.e)
-            new_x, new_y = gaussian_convolution(x, y, x_en_min=std_start, x_en_max=std_stop, flux_units="lambda", r=r,
+            std_stop = (c.h * c.c) / (self.std[0][0].to(u.m) * c.e)
+            std_start = (c.h * c.c) / (self.std[0][-1].to(u.m) * c.e)
+            new_x, new_y = gaussian_convolution(x, y, x_en_min=std_start, x_en_max=std_stop, flux_units="lambda", r=self.r,
                                                 plots=False)
         return new_x, new_y
 
@@ -325,11 +315,11 @@ class SpectralCalibrator:
         axes_list[0].imshow(np.sum(self.cube, axis=0))
         axes_list[0].set_title('MKID Instrument Image of Standard', size=8)
 
-        std_idx = np.where(np.logical_and(self.wvl_start < self.std[0], self.std[0] < self.wvl_stop))
-        conv_idx = np.where(np.logical_and(self.wvl_start < self.conv[0], self.conv[0] < self.wvl_stop))
+        std_idx = np.where(np.logical_and(self.wvl_bin_edges[0] < self.std[0], self.std[0] < self.wvl_bin_edges[-1]))
+        conv_idx = np.where(np.logical_and(self.wvl_bin_edges[0] < self.conv[0], self.conv[0] < self.wvl_bin_edges[-1]))
 
         axes_list[1].step(self.std[0][std_idx], self.std[1][std_idx], where='mid',
-                          label='{} Spectrum'.format(self.object_name[0]))
+                          label='Standard Spectrum')
         if self.bb:
             axes_list[1].step(self.bb[0], self.bb[1], where='mid', label='BB fit')
         axes_list[1].step(self.conv[0][conv_idx], self.conv[1][conv_idx], where='mid', label='Convolved Spectrum')
@@ -562,14 +552,13 @@ def fetch(dataset, config=None, ncpu=None, remake=False, **kwargs):
             else:
                 scfg = cfg.copy()
             try:
-                scfg.register('wavcal', wavcal, update=True)
+                scfg.register('wave_sol', wavcal, update=True)
             except AttributeError:
-                scfg.register('wavcal', wavcal, update=True)
+                scfg.register('wave_sol', wavcal, update=True)
             cal = SpectralCalibrator(scfg, solution_name=sf, data=sd.data,
                                      use_satellite_spots=True if sd.aperture=='satellite' else False,
                                      aperture = sd.aperture if not sd.aperture == 'satellite' else None,
-                                     wvl_bin_edges=scfg.speccal.wvl_bin_edges, std_path=sd.data.spectrum,
-                                     object_name=sd.data.header.OBJECT, ncpu=ncpu if ncpu else 1)
+                                     std_path=sd.data.spectrum, ncpu=ncpu if ncpu else 1)
             cal.run(**kwargs)
             # solutions.append(load_solution(sf))  # don't need to reload from file
             solutions.append(cal.solution)  # TODO: solutions.append(load_solution(cal.solution))
