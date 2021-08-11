@@ -231,8 +231,9 @@ class SpectralCalibrator:
         self.mkid = np.zeros((n_wvl_bins, n_wvl_bins))
         self.mkid[0] = wvl_bin_centers
         if self.use_satellite_spots:
-            fluxes = mec_measure_satellite_spot_flux(self.cube, wvl_start=[wvl.value for wvl in self.wvl_bin_edges[:-1]],
-                                                     wvl_stop=[wvl.value for wvl in self.wvl_bin_edges[1:]],
+            fluxes = mec_measure_satellite_spot_flux(self.cube,
+                                                     wvl_start=[wvl.to(u.Angstrom).value for wvl in self.wvl_bin_edges[:-1]],
+                                                     wvl_stop=[wvl.to(u.Angstrom).value for wvl in self.wvl_bin_edges[1:]],
                                                      platescale=self.platescale.value)
             self.mkid[1] = np.nanmean(fluxes, axis=1)
         else:
@@ -259,8 +260,9 @@ class SpectralCalibrator:
 
     def load_standard_spectrum(self):
         standard = StandardSpectrum(save_path=self.save_path, std_path=self.std_path,
-                                    name=self.data.obs[0].header['OBJECT'], ra=self.data.obs[0].header['RA'],
-                                    dec=self.data.obs[0].header['DEC'])
+                                    name=self.data.obs[0].metadata['OBJECT'],
+                                    ra=self.data.obs[0].metadata['RA'].values[0] if not self.data.obs[0].metadata['RA'].is_empty() else None,
+                                    dec=self.data.obs[0].metadata['DEC'].values[0] if not self.data.obs[0].metadata['DEC'].is_empty() else None)
         std_wvls, std_flux = standard.get()  # standard star object spectrum in ergs/s/Angs/cm^2
         self.std = np.hstack(std_wvls*u.Angstrom, std_flux*u.erg*(1/u.s)*(1/u.Angstrom)*(1/u.cm**2))
         conv_wvls_rev, conv_flux_rev = self.extend_and_convolve(self.std[0], self.std[1])
