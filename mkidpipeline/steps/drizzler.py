@@ -89,7 +89,7 @@ class DrizzleParams:
     def __init__(self, dither, inttime, wcs_timestep=None, pixfrac=1.0, simbad=False):
         self.n_dithers = len(dither.obs)
         self.image_shape = dither.obs[0].beammap.shape
-        self.platescale = [v.platescale.value for v in dither.wcscal.values()][0]
+        self.platescale = [v.platescale.to(u.deg).value for v in dither.wcscal.values()][0]
         self.inttime = inttime
         self.pixfrac = pixfrac
         # Get the SkyCoord type coordinates to use for center of sky grid that is drizzled onto
