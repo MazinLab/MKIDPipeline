@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from mkidcore.corelog import getLogger
 import mkidcore.config
+from astropy.wcs import WCS
 import mkidpipeline.config
 from mkidpipeline.utils.resampling import rebin
 from mkidpipeline.utils.fitting import fit_blackbody
@@ -29,8 +30,9 @@ from mkidpipeline.utils.smoothing import gaussian_convolution
 from mkidpipeline.utils.interpolating import interpolate_image
 from mkidpipeline.utils.photometry import get_aperture_radius, aper_photometry, astropy_psf_photometry, \
     mec_measure_satellite_spot_flux
-from mkidpipeline.steps.drizzler import form as form_drizzle
+from mkidpipeline.steps.drizzler import form
 from mkidpipeline.photontable import Photontable
+from scipy.interpolate import InterpolatedUnivariateSpline
 
 _loaded_solutions = {}
 
@@ -52,6 +54,7 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
 
 class StandardSpectrum:
     """
+    Handles retrieving and storing relevant information about the spectrum which is being used as the standard
     """
     def __init__(self, save_path='', std_path=None, name=None, ra=None, dec=None, coords=None):
         self.save_dir = save_path
@@ -134,7 +137,7 @@ class SpectralCalibrator:
         self.data = data
         self.aperture = aperture
         self.save_path = save_path
-        self.platescale = platescale * u.arcsec
+        self.platescale = platescale*u.arcsec
         self.std_path = std_path
         self.photometry = photometry_type
         self.summary_plot = summary_plot
@@ -147,7 +150,6 @@ class SpectralCalibrator:
         self.bb = None
         self.mkid = None
         self.conv = None
-
         self.curve = None
         self.cube = None
         self.contrast = None
@@ -188,7 +190,7 @@ class SpectralCalibrator:
             self.load_standard_spectrum()
             getLogger(__name__).info("Calculating Spectrophotometric Response Curve")
             self.calculate_response_curve()
-            self.solution = ResponseCurve(configuration=self.cfg, curve=self.curve, wvl_bin_edges=self.wvl_bin_edges,
+            self.solution = ResponseCurve(configuration=self.cfg, curve=self.curve[0], wvl_bin_edges=self.wvl_bin_edges,
                                           cube=self.cube, solution_name=self.solution_name)
             if save:
                 self.solution.save(save_name=self.solution_name if isinstance(self.solution_name, str) else None)
@@ -211,13 +213,14 @@ class SpectralCalibrator:
         else:
             cube = []
             for wvl in range(len(self.wvl_bin_edges) - 1):
-                getLogger(__name__).info('using wavelength range {} - {}'.format(self.wvl_bin_edges[wvl].to(u.nm).value,
-                                                                                 self.wvl_bin_edges[wvl + 1].to(u.nm).value))
-                drizzled = form_drizzle(self.data, mode='spatial', wave_start=self.wvl_bin_edges[wvl].to(u.nm).value,
-                                        wave_stop=self.wvl_bin_edges[wvl + 1].to(u.nm).value, pixfrac=0.5, wcs_timestep=1,
-                                        exclude_flags=PROBLEM_FLAGS, usecache=False,
-                                        ncpu=self.ncpu, derotate=not self.use_satellite_spots, align_start_pa=False,
-                                        whitelight=False, debug_dither_plot=False)
+                getLogger(__name__).info('using wavelength range {} - {}'
+                                         .format(self.wvl_bin_edges[wvl].to(u.nm).value,
+                                                 self.wvl_bin_edges[wvl + 1].to(u.nm).value))
+                drizzled = form(self.data, mode='spatial', wave_start=self.wvl_bin_edges[wvl].to(u.nm).value,
+                                wave_stop=self.wvl_bin_edges[wvl + 1].to(u.nm).value, pixfrac=0.5,
+                                wcs_timestep=1, exclude_flags=PROBLEM_FLAGS, usecache=False,
+                                duration=min([o.duration for o in self.data.obs]), ncpu=self.ncpu,
+                                derotate=not self.use_satellite_spots)
                 getLogger(__name__).info(('finished image {}/ {}'.format(wvl + 1.0, len(self.wvl_bin_edges) - 1)))
                 cube.append(drizzled.cps)
             self.cube = np.array(cube)
@@ -247,6 +250,8 @@ class SpectralCalibrator:
                     rad = r
                 self.aperture_radius[i] = rad
                 # TODO if x in ra and dec convert to x,y coordinates
+                wcs = drizzled.wcs
+                x, y = wcs.all_world2pix(x, y)
                 obj_flux = aper_photometry(frame, (x, y), rad)
                 self.mkid[1][i] = obj_flux
         return self.mkid
@@ -304,7 +309,8 @@ class SpectralCalibrator:
         """
         curve_x = self.rebin_std[0]
         curve_y = self.rebin_std[1] / self.mkid
-        self.curve = np.vstack((curve_x, curve_y))
+        spl = InterpolatedUnivariateSpline(curve_x, curve_y, w=None) #TODO figure out weights
+        self.curve = spl, np.vstack((curve_x, curve_y))
         return self.curve
 
     def plot_summary(self, save_name='summary_plot.pdf'):
@@ -334,7 +340,9 @@ class SpectralCalibrator:
         axes_list[2].set_xlabel('Wavelength (A)')
         axes_list[2].set_ylabel('counts/s/cm^2/A')
 
-        axes_list[3].plot(self.curve[0], self.curve[1])
+        spl, x, y = self.curve
+        axes_list[3].plot(x, y)
+        axes_list[3].plot(x, spl(x))
         axes_list[3].set_title('Response Curve', size=8)
         plt.tight_layout()
         plt.savefig(save_name)
@@ -569,7 +577,7 @@ def apply(s_cube, wvl_bins=None, config=None, solution=''):
     config = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(pixcal=StepConfig()), cfg=config, copy=True)
     flux_calibrated_cube = np.zeros_like(s_cube)
     soln = ResponseCurve(solution).curve
-    soln_wvl_bins = soln.wvl_bin_edges
+    soln_wvl_bins = ResponseCurve(solution).wvl_bin_edges
     if not wvl_bins:
         raise ValueError('wavelength bins for the spectral cube must be specified')
     if soln_wvl_bins == wvl_bins:
