@@ -226,13 +226,14 @@ class SpectralCalibrator:
             self.cube = np.array(cube)
         n_wvl_bins = len(self.wvl_bin_edges) - 1
 
-        wvl_bin_centers = [(a + b) / 2 for a, b in zip(self.wvl_bin_edges, self.wvl_bin_edges[1::])]
+        wvl_bin_centers = [(a.value + b.value) / 2 for a, b in zip(self.wvl_bin_edges, self.wvl_bin_edges[1::])]
 
         self.mkid = np.zeros((n_wvl_bins, n_wvl_bins))
         self.mkid[0] = wvl_bin_centers
         if self.use_satellite_spots:
-            fluxes = mec_measure_satellite_spot_flux(self.cube, wvl_start=self.wvl_bin_edges[:-1],
-                                                     wvl_stop=self.wvl_bin_edges[1:], platescale=self.platescale)
+            fluxes = mec_measure_satellite_spot_flux(self.cube, wvl_start=[wvl.value for wvl in self.wvl_bin_edges[:-1]],
+                                                     wvl_stop=[wvl.value for wvl in self.wvl_bin_edges[1:]],
+                                                     platescale=self.platescale.value)
             self.mkid[1] = np.nanmean(fluxes, axis=1)
         else:
             try:
@@ -268,7 +269,7 @@ class SpectralCalibrator:
 
         # rebin cleaned spectrum to flat cal's wvlBinEdges
         rebin_std_data = rebin(self.conv[0], self.conv[1], self.wvl_bin_edges)
-        wvl_bin_centers = [(a + b) / 2 for a, b in zip(self.wvl_bin_edges, self.wvl_bin_edges[1::])]
+        wvl_bin_centers = [(a.value + b.value) / 2 for a, b in zip(self.wvl_bin_edges, self.wvl_bin_edges[1::])]
 
         if self.use_satellite_spots:
             for i, wvl in enumerate(wvl_bin_centers):
