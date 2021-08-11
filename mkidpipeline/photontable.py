@@ -908,7 +908,7 @@ class Photontable:
         else:
             ycol = None
             bin_edges = self.nominal_wavelength_bins[[0, -1]]
-
+            duration = self.duration
         # Retrieval rate is about 2.27Mphot/s for queries in the 100-200M photon range
         photons = self.query(start=start, intt=duration, startw=wave_start, stopw=wave_stop)
 

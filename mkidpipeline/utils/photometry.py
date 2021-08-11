@@ -28,7 +28,7 @@ def get_aperture_radius(lam, platescale):
     :param lam: wavelength in angstroms
     :return: radius (in pixels)
     """
-    D = 8.2 *(10**10)
+    D = 8.2 * 1e10
     theta_rad = 1.22 * (lam/D)
     a = 4.8481368e-9
     theta_mas = theta_rad * (1/a)
@@ -180,6 +180,7 @@ def mec_measure_satellite_spot_flux(cube, aperradii=None, wvl_start=None, wvl_st
     """
     performs aperture photometry using an adaptation of the racetrack aperture from the polarimetry mode of the
      GPI pipeline (http://docs.planetimager.org/pipeline/usage/tutorial_polphotometry.html)
+
     :param cube: [wvl, xdim, ydim] cube on which to perform photometry
     :param aperradii: radius of the aperture - if 'None' will use the diffraction limited aperture for each wvl
     :param wvl_start: array, start wavelengths
