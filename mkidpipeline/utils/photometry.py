@@ -22,15 +22,17 @@ from astropy.modeling.models import *
 import matplotlib.pyplot as plt
 from scipy.interpolate import griddata
 
+
 def get_aperture_radius(lam, platescale):
     """
     function to get the diffraction limited aperture radius for MEC
     :param lam: wavelength in angstroms
+    :param platescale: platescale in arcseconds/pix
     :return: radius (in pixels)
     """
     D = 8.2 * 1e10
     theta_rad = 1.22 * (lam/D)
-    a = 4.8481368e-9
+    a = 4.8481368e-6
     theta_mas = theta_rad * (1/a)
     r = 0.5 * theta_mas * (1/platescale)
     return r
@@ -176,10 +178,10 @@ def interpolateImage(inputArray, method='linear'):
 
     return interpolatedFrame
 
-def mec_measure_satellite_spot_flux(cube, aperradii=None, wvl_start=None, wvl_stop=None, platescale=10.4, D=8.2):
+def mec_measure_satellite_spot_flux(cube, aperradii=None, wvl_start=None, wvl_stop=None, platescale=0.0104, D=8.2):
     """
     performs aperture photometry using an adaptation of the racetrack aperture from the polarimetry mode of the
-     GPI pipeline (http://docs.planetimager.org/pipeline/usage/tutorial_polphotometry.html)
+    GPI pipeline (http://docs.planetimager.org/pipeline/usage/tutorial_polphotometry.html)
 
     :param cube: [wvl, xdim, ydim] cube on which to perform photometry
     :param aperradii: radius of the aperture - if 'None' will use the diffraction limited aperture for each wvl
@@ -201,11 +203,11 @@ def mec_measure_satellite_spot_flux(cube, aperradii=None, wvl_start=None, wvl_st
         lambdamax = wvl_stop[i]
         landa = lambdamin + (lambdamax - lambdamin)/2.0
         if aperradii is None:
-            aperradii = get_aperture_radius(landa)
+            aperradii = get_aperture_radius(landa, platescale)
         R_spot = np.zeros(3)
-        R_spot[0] = (206265 / platescale) * 15.91 * lambdamin / D
-        R_spot[1] = (206265 / platescale) * 15.91 * landa / D
-        R_spot[2] = (206265 / platescale) * 15.91 * lambdamax / D
+        R_spot[0] = (206265 / platescale) * 15.91 * lambdamin / (D*1e9)
+        R_spot[1] = (206265 / platescale) * 15.91 * landa / (D*1e9)
+        R_spot[2] = (206265 / platescale) * 15.91 * lambdamax / (D*1e9)
         halflength = R_spot[2] - R_spot[1]
 
         ROT_ANG = [42.73, 180-43.96, 180+46.9, -48.26]
