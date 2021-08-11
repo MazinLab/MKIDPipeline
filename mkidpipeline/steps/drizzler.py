@@ -62,7 +62,8 @@ from mkidpipeline.utils.array_operations import get_device_orientation
 import mkidpipeline.config
 
 # currently no pixel flags make drizzler explode but there are plenty one wouldn't want by default in the output
-EXCLUDE = tuple()  # fill with undesired flags
+EXCLUDE = ('pixcal.dead', 'pixcal.hot', 'pixcal.cold', 'beammap.noDacTone', 'wavecal.bad', 'wavecal.failed_convergence',
+           'wavecal.no_histograms', 'wavecal.not_attempted', 'flatcal.bad') # fill with undesired flags
 PROBLEM_FLAGS = tuple()  # fill with flags that will break drizzler
 
 
@@ -88,7 +89,7 @@ class DrizzleParams:
     def __init__(self, dither, inttime, wcs_timestep=None, pixfrac=1.0, simbad=False):
         self.n_dithers = len(dither.obs)
         self.image_shape = dither.obs[0].beammap.shape
-        self.platescale = dither.obs[0].metadata['M_PLTSCL'].to(u.deg).value
+        self.platescale = [v.platescale.value for v in dither.wcscal.values()][0]
         self.inttime = inttime
         self.pixfrac = pixfrac
         # Get the SkyCoord type coordinates to use for center of sky grid that is drizzled onto
@@ -173,7 +174,7 @@ class Canvas:
             buffer = 100
             # if any part of the image falls off the canvas it can cause stsci.drizzle to produce nothing
             # so add a safety perimeter
-            self.canvas_shape = ((2 * (pix_ra_span[1] - pix_ra_span[0]) + self.shape[0] + buffer).astype(int)
+            self.canvas_shape = ((2 * (pix_ra_span[1] - pix_ra_span[0]) + self.shape[0] + buffer).astype(int),
                                  (2 * (pix_dec_span[1] - pix_dec_span[0]) + self.shape[1] + buffer).astype(int))
 
         if force_square_grid:
@@ -813,7 +814,7 @@ def _increment_id(self):
 stdrizzle.Drizzle.increment_id = _increment_id
 
 
-def form(dither, mode='spatial', derotate=True, wave_start=None, wave_stop=None, start=0., duration=60., pixfrac=.5,
+def form(dither, mode='spatial', derotate=True, wave_start=None, wave_stop=None, start=0, duration=None, pixfrac=.5,
          nwvlbins=1, wcs_timestep=1., bin_width=1., usecache=True, ncpu=None, exclude_flags=PROBLEM_FLAGS + EXCLUDE,
          whitelight=False, align_start_pa=False, debug_dither_plot=False, save_steps=False, output_file='',
          weight=False):
