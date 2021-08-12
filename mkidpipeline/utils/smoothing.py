@@ -112,8 +112,8 @@ def gaussian_convolution(x, y, x_en_min=0.005, x_en_max=6.0, x_de=0.001, flux_un
         plt.show()
 
     # ====== Integrate curve to get total flux, required to ensure flux conservation later =======
-    original_total_flux = scipy.integrate.simps(y_nu_grid[window_size:-window_size],
-                                                x=x_nu_grid[window_size:-window_size])
+    original_total_flux = scipy.integrate.simps(y_nu_grid[window_size-1:-window_size],
+                                                x=x_nu_grid[window_size-1:-window_size])
 
     # ================================    convolve    ==================================
     conv_y = np.convolve(y_nu_grid, gauss_y, 'valid')
@@ -123,15 +123,15 @@ def gaussian_convolution(x, y, x_en_min=0.005, x_en_max=6.0, x_de=0.001, flux_un
         plt.show()
 
     # ============ Conserve Flux ==============
-    new_total_flux = scipy.integrate.simps(conv_y, x=x_nu_grid[window_size:-window_size])
+    new_total_flux = scipy.integrate.simps(conv_y, x=x_nu_grid[window_size-1:-window_size])
     conv_y *= (original_total_flux / new_total_flux)
 
     # ==================   Convert back to wavelength space   ==========================
     if flux_units == 'lambda':
-        x_out = c / x_nu_grid[window_size:-window_size] * 1E8
+        x_out = c / x_nu_grid[window_size-1:-window_size] * 1E8
         y_out = conv_y / (x_out ** 2) * 3E-5  # convert Fnu(Jy) to Flambda
     else:
-        x_out = x_nu_grid[window_size:-window_size]
+        x_out = x_nu_grid[window_size-1:-window_size]
         y_out = conv_y
     if plots:
         plt.plot(x_out[x_out < 25000], y_out[x_out < 25000], label="Convolved Spectrum")
