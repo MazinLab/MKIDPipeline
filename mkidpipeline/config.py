@@ -769,7 +769,7 @@ class MKIDSpeccalDescription(DataBase, CalDefinitionMixin):
     yaml_tag = u'!MKIDSpeccalDescription'
     KEYS = (
         Key(name='name', default='', comment='A name', dtype=str),
-        Key('data', None, 'MKIDObservation or MKIDDither', tuple),
+        Key('data', None, 'MKIDObservation or MKIDDither', None),
         Key('aperture', 'satellite', 'A 3-tuple (x/RA, y/Dec, r) or "satellite"', None),
     )
     REQUIRED = ('name', 'data', 'aperture')
@@ -813,7 +813,11 @@ class MKIDSpeccalDescription(DataBase, CalDefinitionMixin):
             self.data.associate(**kwargs)
 
     def __str__(self):
-        return f'{self.name} (MKIDSpeccalDescription):' + '\n '.join(str(x) for x in self.data)
+        try:
+            s = f'{self.name} (MKIDSpeccalDescription):' + '\n '.join(str(x) for x in self.data)
+        except TypeError:
+            s = f'{self.name} (MKIDSpeccalDescription):' + '\n '.join(str(x) for x in self.data.obs)
+        return s
 
 class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
     """
