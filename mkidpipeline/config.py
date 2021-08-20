@@ -812,6 +812,8 @@ class MKIDSpeccalDescription(DataBase, CalDefinitionMixin):
         else:
             self.data.associate(**kwargs)
 
+    def __str__(self):
+        return f'{self.name} (MKIDSpeccalDescription):' + '\n '.join(str(x) for x in self.data)
 
 class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
     """
