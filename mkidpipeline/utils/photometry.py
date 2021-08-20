@@ -229,7 +229,6 @@ def mec_measure_satellite_spot_flux(cube, aperradii=None, wvl_start=None, wvl_st
             new_x, new_y = wcs_rot.dot(np.array([spot_posx[idx], spot_posy[idx]]))
             spot_posx[idx] = new_x + starx
             spot_posy[idx] = new_y + stary
-        print(spot_posx, spot_posy)
         spot_xsep = [spot_posx[0] - starx, spot_posx[1] - starx, spot_posx[2] - starx, spot_posx[3] - starx]
         spot_ysep = [spot_posy[0] - stary, spot_posy[1] - stary, spot_posy[2] - stary, spot_posy[3] - stary]
 
