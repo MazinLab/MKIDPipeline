@@ -240,7 +240,7 @@ def mec_measure_satellite_spot_flux(cube, aperradii=None, wvl_start=None, wvl_st
                                                   aperradii, halflength)
     return flux
 
-def racetrack_aper(img, imgspare, x_guess, y_guess, rotang, aper_radii, halflength):
+def racetrack_aper(img, imgspare, x_guess, y_guess, rotang, aper_radii, halflength, box_size=20):
     """
 
     :param img: 2D numpy array image
@@ -250,6 +250,7 @@ def racetrack_aper(img, imgspare, x_guess, y_guess, rotang, aper_radii, halfleng
     :param rotang: rotation angle of satellite spot
     :param aper_radii: aperture radius (in pixels)
     :param halflength: halflength of the satellite spot
+    :param box_size: size of box to use around each aperture to calculate the background (in pixels)
     :return: background subtracted flux, debug image
     """
     rotang *= -1
@@ -258,7 +259,8 @@ def racetrack_aper(img, imgspare, x_guess, y_guess, rotang, aper_radii, halfleng
     spot_halflen = halflength
     dims = np.shape(img)
 
-    crop_img = img[int(y_guess) - 20:int(y_guess) + 21, int(x_guess) - 20:int(x_guess) + 21]
+    crop_img = img[int(y_guess) - box_size:int(y_guess) + (box_size+1),
+               int(x_guess) - box_size:int(x_guess) + (box_size+1)]
     xpos = x_guess
     ypos = y_guess
     xcoord, ycoord = np.meshgrid(np.arange(dims[0]), np.arange(dims[1]))
@@ -282,7 +284,8 @@ def racetrack_aper(img, imgspare, x_guess, y_guess, rotang, aper_radii, halfleng
     x, y = np.meshgrid(np.arange(np.shape(crop_img)[0]), np.arange(np.shape(crop_img)[0]))
     p = fit_p(p_back_init, x, y, crop_img)
     background = p(x, y)
-    img[int(ypos)-20:int(ypos)+21, int(xpos)-20:int(xpos)+21] -= background
+    img[int(y_guess) - box_size:int(y_guess) + (box_size + 1),
+    int(x_guess) - box_size:int(x_guess) + (box_size + 1)] -= background
     flux = np.sum(img[source])
 
     imgspare[source] = 10000
