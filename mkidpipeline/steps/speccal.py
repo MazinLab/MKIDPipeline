@@ -346,7 +346,7 @@ class SpectralCalibrator:
         if self.bb:
             axes_list[1].step(self.bb[0], self.bb[1], where='mid', label='BB fit')
         axes_list[1].plot(self.conv[0][conv_idx], self.conv[1][conv_idx], label='Convolved Spectrum')
-        axes_list[1].step(self.rebin_std[0], self.rebin_std[1], where='mid',
+        axes_list[1].step(self.rebin_std[0], self.rebin_std[1]/self.contrast, where='mid',
                           label='Rebinned Standard')
         axes_list[1].set_xlabel('Wavelength (A)')
         axes_list[1].set_ylabel('Flux (erg/s/cm^2)')
