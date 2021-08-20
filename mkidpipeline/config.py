@@ -768,8 +768,8 @@ class MKIDSpeccalDescription(DataBase, CalDefinitionMixin):
     """Data description for the spectrophotometric calibration data - requires keys name, data, and aperture"""
     yaml_tag = u'!MKIDSpeccalDescription'
     KEYS = (
-        Key(name='name', default=None, comment='A name', dtype=str),
-        Key('data', None, 'MKIDObservation or MKIDDither', None),
+        Key(name='name', default='', comment='A name', dtype=str),
+        Key('data', None, 'MKIDObservation or MKIDDither', tuple),
         Key('aperture', 'satellite', 'A 3-tuple (x/RA, y/Dec, r) or "satellite"', None),
     )
     REQUIRED = ('name', 'data', 'aperture')
@@ -1230,8 +1230,7 @@ class MKIDObservingDataset:
         or MKIDObservation.
         """
         look_in = (MKIDObservation, MKIDDitherDescription)
-        for x in self._find_nested('speccal', MKIDSpeccalDescription, look_in):
-            yield x
+        return set(self._find_nested('speccal', MKIDSpeccalDescription, look_in))
 
     @property
     def all_observations(self):
