@@ -132,7 +132,6 @@ class SpectralCalibrator:
     def __init__(self, configuration=None, solution_name='solution.npz', interpolation=None, aperture=None,
                  data=None, use_satellite_spots=True, save_path=None, platescale=.0104, std_path='',
                  photometry_type='aperture', summary_plot=True, fit_order=None, ncpu=1):
-
         self.interpolation = interpolation
         self.use_satellite_spots = use_satellite_spots
         self.solution_name = solution_name
@@ -213,11 +212,11 @@ class SpectralCalibrator:
          """
         getLogger(__name__).info('performing {} photometry on MEC spectrum'.format(self.photometry))
         pt = Photontable(self.data.obs[0].h5)
-        self.wcs = pt.get_wcs(wcs_timestep=pt.duration)[0]
+        self.wcs = pt.get_wcs(wcs_timestep=pt.duration, derotate=not self.use_satellite_spots)[0]
         if len(self.data.obs) == 1:
             pt = Photontable(self.data.obs[0].h5)
             hdul = pt.get_fits(weight=True, rate=True, cube_type='wave',
-                                                             bin_edges=self.wvl_bin_edges, bin_type='energy')
+                               bin_edges=self.wvl_bin_edges, bin_type='energy')
             cube = np.array(hdul['SCIENCE'].data, dtype=np.double)
         else:
             cube = []
@@ -240,7 +239,8 @@ class SpectralCalibrator:
         self.mkid = np.zeros((n_wvl_bins, n_wvl_bins))
         self.mkid[0] = wvl_bin_centers
         if self.use_satellite_spots:
-            fluxes = mec_measure_satellite_spot_flux(self.cube,
+            phot_cube = self.cube.copy()
+            fluxes = mec_measure_satellite_spot_flux(phot_cube,
                                                      wvl_start=self.wvl_bin_edges[:-1].to(u.Angstrom).value,
                                                      wvl_stop=self.wvl_bin_edges[1:].to(u.Angstrom).value,
                                                      platescale=self.platescale.value,
