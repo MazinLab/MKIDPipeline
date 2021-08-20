@@ -14,9 +14,7 @@ import scipy.ndimage as ndimage
 from photutils import aperture_photometry
 from photutils import CircularAperture
 from photutils import CircularAnnulus
-from photutils.psf import IterativelySubtractedPSFPhotometry
 from photutils.psf import BasicPSFPhotometry
-from astropy.modeling.functional_models import Gaussian2D
 from astropy.modeling import fitting
 from astropy.modeling.models import *
 import matplotlib.pyplot as plt
@@ -178,15 +176,17 @@ def interpolateImage(inputArray, method='linear'):
 
     return interpolatedFrame
 
-def mec_measure_satellite_spot_flux(cube, aperradii=None, wvl_start=None, wvl_stop=None, platescale=0.0104, D=8.2):
+
+def mec_measure_satellite_spot_flux(cube, aperradii=None, wvl_start=None, wvl_stop=None, wcs=None,
+                                    platescale=0.0104, D=8.2):
     """
     performs aperture photometry using an adaptation of the racetrack aperture from the polarimetry mode of the
     GPI pipeline (http://docs.planetimager.org/pipeline/usage/tutorial_polphotometry.html)
 
     :param cube: [wvl, xdim, ydim] cube on which to perform photometry
     :param aperradii: radius of the aperture - if 'None' will use the diffraction limited aperture for each wvl
-    :param wvl_start: array, start wavelengths
-    :param wvl_stop: array, stop wavelenghts
+    :param wvl_start: array, start wavelengths in angstroms
+    :param wvl_stop: array, stop wavelengths in angstroms
     :param platescale: platescale in arcsec/pix
     :param D: telescope diameter in meters
     :return: background subtracted flux of the satellite spot in counts/sec
@@ -205,27 +205,33 @@ def mec_measure_satellite_spot_flux(cube, aperradii=None, wvl_start=None, wvl_st
         if aperradii is None:
             aperradii = get_aperture_radius(landa, platescale)
         R_spot = np.zeros(3)
-        R_spot[0] = (206265 / platescale) * 15.91 * lambdamin / (D*1e9)
-        R_spot[1] = (206265 / platescale) * 15.91 * landa / (D*1e9)
-        R_spot[2] = (206265 / platescale) * 15.91 * lambdamax / (D*1e9)
+        R_spot[0] = (206265 / platescale) * 15.91 * lambdamin / (D*1e10)
+        R_spot[1] = (206265 / platescale) * 15.91 * landa / (D*1e10)
+        R_spot[2] = (206265 / platescale) * 15.91 * lambdamax / (D*1e10)
         halflength = R_spot[2] - R_spot[1]
 
-        ROT_ANG = [42.73, 180-43.96, 180+46.9, -48.26]
+        wcs_rot = wcs.wcs.pc
+         # ROT_ANG = [42.73, 136, 226.9, 311.7]
+        ROT_ANG=[45, 45, 45, 45]
         ROT_ANG = np.deg2rad(ROT_ANG)
+        xs0 = R_spot[1] * np.cos(ROT_ANG[0])
+        ys0 = R_spot[1] * np.sin(ROT_ANG[0])
+        xs1 = R_spot[1] * np.cos(ROT_ANG[1])
+        ys1 = -R_spot[1] * np.sin(ROT_ANG[1])
+        xs2 = -R_spot[1] * np.cos(ROT_ANG[2])
+        ys2 = -R_spot[1] * np.sin(ROT_ANG[2])
+        xs3 = -R_spot[1] * np.cos(ROT_ANG[3])
+        ys3 = R_spot[1] * np.sin(ROT_ANG[3])
 
-        xs0 = starx + R_spot[1] * np.cos(ROT_ANG[0])
-        ys0 = stary + R_spot[1] * np.sin(ROT_ANG[0])
-        xs1 = starx + R_spot[1] * np.cos(ROT_ANG[1])
-        ys1 = stary + R_spot[1] * np.sin(ROT_ANG[1])
-        xs2 = starx + R_spot[1] * np.cos(ROT_ANG[2])
-        ys2 = stary + R_spot[1] * np.sin(ROT_ANG[2])
-        xs3 = starx + R_spot[1] * np.cos(ROT_ANG[3])
-        ys3 = stary + R_spot[1] * np.sin(ROT_ANG[3])
-
-        spot_posx = [xs0, xs1, xs2, xs3]
-        spot_posy = [ys0, ys1, ys2, ys3]
-        spot_xsep = [xs0 - starx, xs1 - starx, xs2 - starx, xs3 - starx]
-        spot_ysep = [ys0 - stary, ys1 - stary, ys2 - stary, ys3 - stary]
+        spot_posx = np.array([xs0, xs1, xs2, xs3])
+        spot_posy = np.array([ys0, ys1, ys2, ys3])
+        for idx, coord in enumerate(spot_posx):
+            new_x, new_y = wcs_rot.dot(np.array([spot_posx[idx], spot_posy[idx]]))
+            spot_posx[idx] = new_x + starx
+            spot_posy[idx] = new_y + stary
+        print(spot_posx, spot_posy)
+        spot_xsep = [spot_posx[0] - starx, spot_posx[1] - starx, spot_posx[2] - starx, spot_posx[3] - starx]
+        spot_ysep = [spot_posy[0] - stary, spot_posy[1] - stary, spot_posy[2] - stary, spot_posy[3] - stary]
 
         spot_rotang = [np.arctan(spot_ysep[0]/spot_xsep[0]), np.arctan(spot_ysep[1]/spot_xsep[1]),
                                  np.arctan(spot_ysep[2]/spot_xsep[2]) - np.pi, np.pi + np.arctan(spot_ysep[3]/spot_xsep[3])]
