@@ -593,7 +593,7 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
         cal = SpectralCalibrator(scfg, solution_name=sd.path, data=sd.data,
                                  use_satellite_spots=True if sd.aperture == 'satellite' else False,
                                  aperture=sd.aperture if not sd.aperture == 'satellite' else None,
-                                 std_path=sd.data.spectrum, ncpu=ncpu if ncpu else 1)
+                                 std_path=sd.data.spectrum, ncpu=ncpu if ncpu is not None else 1)
         cal.run(**kwargs)
         solutions[sd.id] = cal.solution
         getLogger(__name__).info(f'{sd} made.')
