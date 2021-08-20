@@ -339,19 +339,20 @@ class SpectralCalibrator:
 
         std_idx = np.where(np.logical_and(self.wvl_bin_edges.to(u.nm)[0] < self.std_wvls.to(u.nm), self.std_wvls.to(u.nm)
                                           < self.wvl_bin_edges.to(u.nm)[-1]))
-        conv_idx = np.where(np.logical_and(self.wvl_bin_edges.to(u.nm).value[0] < self.conv[0], self.conv[0]
-                                           < self.wvl_bin_edges.to(u.nm).value[-1]))
+        conv_idx = np.where(np.logical_and(self.wvl_bin_edges.to(u.Angstrom).value[0] < self.conv[0], self.conv[0]
+                                           < self.wvl_bin_edges.to(u.Angstrom).value[-1]))
 
-        axes_list[1].step(self.std_wvls.value[std_idx], self.std_flux.value[std_idx], where='mid',
-                          label='Standard Spectrum')
+        axes_list[1].plot(self.std_wvls.value[std_idx], self.std_flux.value[std_idx], label='Standard Spectrum')
         if self.bb:
             axes_list[1].step(self.bb[0], self.bb[1], where='mid', label='BB fit')
-        axes_list[1].step(self.conv[0][conv_idx], self.conv[1][conv_idx], where='mid', label='Convolved Spectrum')
+        axes_list[1].plot(self.conv[0][conv_idx], self.conv[1][conv_idx], label='Convolved Spectrum')
+        axes_list[1].step(self.rebin_std[0], self.rebin_std[1], where='mid',
+                          label='Rebinned Standard')
         axes_list[1].set_xlabel('Wavelength (A)')
         axes_list[1].set_ylabel('Flux (erg/s/cm^2)')
         axes_list[1].legend(loc='upper right', prop={'size': 6})
 
-        axes_list[2].step(self.rebin_std[0], self.mkid, where='mid',
+        axes_list[2].step(self.mkid[0], self.mkid[1], where='mid',
                           label='MKID Histogram of Object')
         axes_list[2].set_title('Object Histograms', size=8)
         axes_list[2].legend(loc='upper right', prop={'size': 6})
@@ -359,9 +360,15 @@ class SpectralCalibrator:
         axes_list[2].set_ylabel('counts/s/cm^2/A')
 
         spl, curve = self.curve
-        axes_list[3].plot(curve[0], curve[1])
-        axes_list[3].plot(curve[0], spl(curve[0]))
+        print(spl(curve[0]))
+        axes_list[3].step(curve[0], curve[1], label='MKID Spectrum/Reference Spectrum')
+        axes_list[3].plot(curve[0], spl(curve[0]), label='Spline Fit')
         axes_list[3].set_title('Response Curve', size=8)
+
+        axes_list[0].tick_params(labelsize=8)
+        axes_list[1].tick_params(labelsize=8)
+        axes_list[2].tick_params(labelsize=8)
+        axes_list[3].tick_params(labelsize=8)
         plt.tight_layout()
         plt.savefig(save_name)
         return axes_list
