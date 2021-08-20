@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def signal_to_noise(image, num_apertures, center, dist, pa, radius, save_path=None):
+def signal_to_noise(image, num_apertures, center, dist, pa, radius, save_path=None, aper_idx=None, trim=0):
     """
     function to calculate the signal to noise of a target using aperture photometry. This code takes a series of
     apertures in a circle at a constant separation from the host star. The background subtracted flux in the aperture
@@ -17,11 +17,13 @@ def signal_to_noise(image, num_apertures, center, dist, pa, radius, save_path=No
     :param pa: position angle of target of interest (in degrees)
     :param radius: aperture radius (in pixels)
     :param save_path: if not None will save an image of the apertures used to perform the calculation
+    :param trim: number of outlier apertures to trim in determination of the noise (trims from both ends and excludes
+    the signal aperture)
     :return: signal, noise
     """
     aperture_values = np.zeros(num_apertures)
     fig, ax = plt.subplots()
-    ax.imshow(image)
+    im = ax.imshow(image)
     angular_size = 2 * np.arctan(radius / dist)
     for i in range(num_apertures):
         aperture_center = get_aperture_center(pa, i * angular_size, center, dist)
@@ -32,15 +34,21 @@ def signal_to_noise(image, num_apertures, center, dist, pa, radius, save_path=No
                              color='g')
         ax.add_artist(circle1)
         ax.add_artist(circle2)
-    max = np.max(aperture_values)
-    max_idx = np.where(aperture_values == max)
-    signal = max
+    if aper_idx:
+        max_idx = aper_idx
+    else:
+        max = np.max(aperture_values)
+        max_idx = np.where(aperture_values == max)
+    signal = aperture_values[max_idx]
     aperture_values[max_idx] = np.nan
-    aperture_values[max_idx] = np.nan
-    noise = np.nanstd(aperture_values)
+    sorted = np.sort(aperture_values[~np.isnan(aperture_values)])
+    if trim > 0:
+        sorted[:trim] = np.full(trim, np.nan)
+        sorted[-trim:] = np.full(trim, np.nan)
+    noise = np.nanstd(sorted)
     if save_path:
         plt.savefig(save_path + 'sn_debug_image.pdf')
-    return signal, noise
+    return signal, noise, max_idx
 
 
 def get_aperture_center(pa, angular_size, obj_center, dist):
