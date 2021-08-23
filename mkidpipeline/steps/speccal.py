@@ -1,10 +1,28 @@
 """
-Loads a standard spectrum from and convolves and rebind it ot match the MKID energy resolution and bin size. Then
-generates an MKID spectrum of the object by performing photometry (aperture or PSF) on the MKID image. Finally
-divides the flux values for the standard by the MKID flux values for each bin to get a calibration curve.
+The speccal takes in an MKID wavelength cube in arbitrary 'counts' units and converts it to a wavelength cube with the
+same dimensions but in units of ergs/s/cm^2/angstroms.
 
-Assumes h5 files are wavelength calibrated, and they should also first be flatcalibrated and linearity corrected
-(deadtime corrected)
+The speccal first loads a standard spectrum which can be specified by a two column text file in the data.yaml, or it is
+pulled directly from SDSS or ESO databases based on the object name from the fits header. If a spectrum is not defined
+in the data.yaml and the object is not present in either database then the speccal will throw an error. Once the
+standard spectrum is loaded, it is convolved and rebinned to match the energy resolution (wavelength bin size) of the
+MKID detector. If bin edges are specified in the pipe.yaml then those bins will be used, or else bins are used that
+nyquist sample the energy resolution of the detector as is determined by the wavecal.
+
+An MKID spectrum of the object is then found by performing photometry (aperture or PSF) on the MKID image. This
+photometry can be performed at the location of an astrophysical point source, or the satellite spots can be used to get
+the spectrum of an object in the image located behind a coronagraph.
+
+Once the standard and MKID spectra are determined, they can be divided to generate a calibration curve. This calibration
+curve is saved to an npz file in the form of an interpolated univariate spline in the ResponseCurve object. The
+configuration used to generate the solution, the wavelength bin edges used, and the original uncalibrated MKID cube are
+also all saved in the ResponseCurve.
+
+The speccal is applied by calling the 'apply' function on an MKID wavelength cube and will return a calibrated cube of
+the same dimensions.
+
+Speccal assumes that the h5 files are wavelength calibrated, and they should also first be flat calibrated and linearity
+corrected (deadtime corrected).
 """
 import sys
 import os
@@ -129,6 +147,9 @@ class StandardSpectrum:
 
 
 class SpectralCalibrator:
+    """
+
+    """
     def __init__(self, configuration=None, solution_name='solution.npz', interpolation=None, aperture=None,
                  data=None, use_satellite_spots=True, save_path=None, platescale=.0104, std_path='',
                  photometry_type='aperture', summary_plot=True, fit_order=None, ncpu=1):
