@@ -1369,7 +1369,7 @@ class MKIDOutput(DataBase):
         # speccals are just fetched and determined for
         Key('timestep', None, 'Duration of time bins in output cubes with a temporal axis (req. by temporal)',
             float),
-        Key('wavestep', None, 'Width of wavelength bins in output cubes with a wavelenght axis', float)
+        Key('wavestep', None, 'Width of wavelength bins in output cubes with a wavelength axis', str)
     )
     REQUIRED = ('name', 'data', 'kind')
     EXPLICIT_ALLOW = ('filename','duration')
@@ -1409,9 +1409,11 @@ class MKIDOutput(DataBase):
         elif self.kind == 'scube':
             cube_type = 'wave'
             step = self.wavestep
+            bin_type = 'wave' if self.wavestep.unit != 'eV' else 'energy'
         kwargs = dict(start=self.start_offset, duration=self.duration, weight=self.use_weights,
                       wave_start=self.min_wave, wave_stop=self.max_wave, rate=self.units == 'photons/s',
-                      cube_type=cube_type, bin_width=step, exclude_flags=mkidcore.pixelflags.PROBLEM_FLAGS)
+                      bin_type=bin_type, cube_type=cube_type, bin_width=step,
+                      exclude_flags=mkidcore.pixelflags.PROBLEM_FLAGS)
         return mkidcore.config.ConfigThing().registerfromkvlist(kwargs.items(), namespace='')
 
     @property
