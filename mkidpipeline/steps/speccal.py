@@ -51,6 +51,7 @@ from mkidpipeline.utils.photometry import get_aperture_radius, aper_photometry, 
 from mkidpipeline.steps.drizzler import form
 from mkidpipeline.photontable import Photontable
 from scipy.interpolate import InterpolatedUnivariateSpline
+from astropy.io import fits
 
 _loaded_solutions = {}
 
@@ -621,21 +622,34 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
     return solutions
 
 
-def apply(s_cube, wvl_bins=None, config=None, solution=''):
-    config = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(pixcal=StepConfig()), cfg=config, copy=True)
+def apply(fits_file, wvl_bins, solution='', overwrite=False):
+    ff = fits.open(fits_file)
+    hdr = fits.getheader(fits_file, 0)
+    if hdr['isFluxCalibrated'] == 'True':
+        getLogger(__name__).info(f'{fits_file} already flux calibrated, skipping calibration.')
+        flux_calibrated_cube = ff[1].data
+        return flux_calibrated_cube
+    s_cube = ff[1].data
     flux_calibrated_cube = np.zeros_like(s_cube)
-    soln = ResponseCurve(solution).curve
+    soln = ResponseCurve(solution).curve.flatten()[0]
     soln_wvl_bins = ResponseCurve(solution).wvl_bin_edges
     if not wvl_bins:
         raise ValueError('wavelength bins for the spectral cube must be specified')
-    if soln_wvl_bins == wvl_bins:
-        for (wvl, x, y), idx in np.ndenumerate(s_cube):
-            flux_calibrated_cube[wvl, x, y] = s_cube[wvl, x, y] * soln(s_cube[wvl, x, y]) # TODO make sure this is correct
-        return flux_calibrated_cube
-    elif len(soln_wvl_bins) > len(wvl_bins):
+    if len(soln_wvl_bins) > len(wvl_bins):
         # TODO integrate over solution bins
         return flux_calibrated_cube
     else:
-        # TODO throw warning that you are oversampling the energy resolution of the solution
-        #  - might want to make a new solution
+        if len(soln_wvl_bins) > len(wvl_bins):
+            getLogger(__name__).warning(f'Calibrating spectral cube that has a higher resolution than Speccal solution '
+                                        f'was made with - you may want to generate a new speccal solution or decrease '
+                                        f'the resolution of your spectral cube')
+        for (wvl, x, y), idx in np.ndenumerate(s_cube):
+            flux_calibrated_cube[wvl, x, y] = s_cube[wvl, x, y] * soln(s_cube[wvl, x, y]) # TODO make sure this is correct
+        ff[1].data = flux_calibrated_cube
+        fits.setval(fits_file, 'isFluxCalibrated', value='True')
+        if overwrite:
+            ff.writeto(fits_file)
+        else:
+            ff.writeto(fits_file[:-5] + '_calibrated.fits')
+        getLogger(__name__).info(f'Finished calibrating {fits_file}')
         return flux_calibrated_cube
