@@ -52,7 +52,7 @@ from mkidpipeline.steps.drizzler import form
 from mkidpipeline.photontable import Photontable
 from scipy.interpolate import InterpolatedUnivariateSpline
 from astropy.io import fits
-
+import scipy.integrate
 _loaded_solutions = {}
 
 
@@ -405,7 +405,7 @@ class ResponseCurve:
         self._file_path = os.path.abspath(file_path) if file_path is not None else file_path
         self.curve = curve # TODO should be spline (can call ResponseCurve.curve(xs)) to get flux caliibrated values
         self.cfg = configuration
-        self.wvl_bin_edges = wvl_bin_edges
+        self.wvl_bin_edges = wvl_bin_edges*u.Angstrom
         self.cube = cube
         # if we've specified a file load it without overloading previously set arguments
         if self._file_path is not None:
@@ -424,7 +424,7 @@ class ResponseCurve:
         if not save_path.endswith('.npz'):
             save_path += '.npz'
         getLogger(__name__).info("Saving spectrophotometric response curve to {}".format(save_path))
-        np.savez(save_path, curve=self.curve, wvl_bin_edges=self.wvl_bin_edges, cube=self.cube, configuration=self.cfg)
+        np.savez(save_path, curve=self.curve, wvl_bin_edges=self.wvl_bin_edges*u.Angstrom, cube=self.cube, configuration=self.cfg)
         self._file_path = save_path  # new file_path for the solution
 
     def load(self, file_path, file_mode='c'):
@@ -623,6 +623,14 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
 
 
 def apply(fits_file, wvl_bins, solution='', overwrite=False):
+    """
+
+    :param fits_file:
+    :param wvl_bins: in Angstroms!
+    :param solution:
+    :param overwrite:
+    :return:
+    """
     ff = fits.open(fits_file)
     hdr = fits.getheader(fits_file, 0)
     if hdr['isFluxCalibrated'] == 'True':
@@ -635,21 +643,32 @@ def apply(fits_file, wvl_bins, solution='', overwrite=False):
     soln_wvl_bins = ResponseCurve(solution).wvl_bin_edges
     if not wvl_bins:
         raise ValueError('wavelength bins for the spectral cube must be specified')
-    if len(soln_wvl_bins) > len(wvl_bins):
-        # TODO integrate over solution bins
-        return flux_calibrated_cube
-    else:
-        if len(soln_wvl_bins) > len(wvl_bins):
-            getLogger(__name__).warning(f'Calibrating spectral cube that has a higher resolution than Speccal solution '
-                                        f'was made with - you may want to generate a new speccal solution or decrease '
-                                        f'the resolution of your spectral cube')
+    if soln_wvl_bins == wvl_bins:
         for (wvl, x, y), idx in np.ndenumerate(s_cube):
-            flux_calibrated_cube[wvl, x, y] = s_cube[wvl, x, y] * soln(s_cube[wvl, x, y]) # TODO make sure this is correct
-        ff[1].data = flux_calibrated_cube
-        fits.setval(fits_file, 'isFluxCalibrated', value='True')
-        if overwrite:
-            ff.writeto(fits_file)
-        else:
-            ff.writeto(fits_file[:-5] + '_calibrated.fits')
-        getLogger(__name__).info(f'Finished calibrating {fits_file}')
-        return flux_calibrated_cube
+            flux_calibrated_cube[wvl, x, y] = s_cube[wvl, x, y] * soln(wvl_bins[wvl])
+    elif len(soln_wvl_bins) > len(wvl_bins):
+        #TODO what to do when you have multiple resolution elements - integrate (check!)
+        for wvl, cube in enumerate(s_cube):
+            start = soln_wvl_bins[np.max(np.where(soln_wvl_bins <= wvl_bins[wvl]))]
+            stop = soln_wvl_bins[np.min(np.where(soln_wvl_bins >= wvl_bins[wvl]))]
+            spec_weight = scipy.integrate.quad(soln, start, stop)[0]/(stop-start)
+            flux_calibrated_cube[wvl] = s_cube[wvl] * np.full(s_cube[wvl].shape, spec_weight)
+    else:
+        #if speccal solution is lower resolution get weighted average to find specweight for each wvl
+        getLogger(__name__).warning(f'Calibrating spectral cube that has a higher resolution than Speccal solution '
+                                    f'was made with - you may want to generate a new speccal solution or decrease '
+                                    f'the resolution of your spectral cube')
+        for wvl, cube in enumerate(s_cube):
+            start = soln_wvl_bins[np.max(np.where(soln_wvl_bins <= wvl_bins[wvl]))]
+            stop = soln_wvl_bins[np.min(np.where(soln_wvl_bins >= wvl_bins[wvl]))]
+            a = (wvl_bins[wvl]-start)/(stop-start)
+            spec_weight = (1-a)*soln(start) + a*soln(stop)
+            flux_calibrated_cube[wvl] = s_cube[wvl] * np.full(s_cube[wvl].shape, spec_weight)
+    ff[1].data = flux_calibrated_cube
+    fits.setval(fits_file, 'isFluxCalibrated', value='True')
+    if overwrite:
+        ff.writeto(fits_file)
+    else:
+        ff.writeto(fits_file[:-5] + '_calibrated.fits')
+    getLogger(__name__).info(f'Finished calibrating {fits_file}')
+    return flux_calibrated_cube
