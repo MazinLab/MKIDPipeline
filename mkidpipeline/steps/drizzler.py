@@ -353,18 +353,35 @@ class Drizzler(Canvas):
     exp_timestep or ntimebins argument accepted. ntimebins takes priority
     """
 
-    def __init__(self, dithers_data, drizzle_params, wvl_bin_width=0.0*u.nm, time_bin_width=0.0, wvlMin=0.0, wvlMax=np.inf):
+    def __init__(self, dithers_data, drizzle_params, wvl_bin_width=0.0*u.nm, time_bin_width=0.0, wvl_min=700.0*u.nm,
+                 wvl_max=1500*u.nm):
         super().__init__(dithers_data, drizzle_params=drizzle_params, canvas_shape=drizzle_params.canvas_shape)
         self.drizzle_params = drizzle_params
         self.pixfrac = drizzle_params.pixfrac
-        self.wvl_bin_edges = np.arange(wvlMin.to(u.nm).value, wvlMax.to(u.nm).value, wvl_bin_width.to(u.nm).value) if \
-            wvl_bin_width.to(u.nm).value != 0.0 else np.array([wvlMin.to(u.nm).value, wvlMax.to(u.nm).value])
-
+        wvl_span = wvl_max.to(u.nm).value - wvl_min.to(u.nm).value
+        if wvl_bin_width.value !=0 and wvl_span % wvl_bin_width.to(u.nm).value != 0:
+            mod = wvl_span % wvl_bin_width.to(u.nm).value
+            use_max = wvl_max.to(u.nm).value - mod
+            n_steps = (use_max - wvl_min.to(u.nm).value)/wvl_bin_width.to(u.nm).value
+            getLogger(__name__).warning(f'Specified wavelength range not evenly divisible by wavestep, using {n_steps} '
+                                        f'wavelength steps of size {wvl_bin_width}')
+            self.wvl_bin_edges = np.arange(wvl_min.to(u.nm).value, use_max, wvl_bin_width.to(u.nm).value)
+        else:
+            self.wvl_bin_edges = np.arange(wvl_min.to(u.nm).value, wvl_max.to(u.nm).value, wvl_bin_width.to(u.nm).value) if \
+                wvl_bin_width.to(u.nm).value != 0.0 else np.array([wvl_min.to(u.nm).value, wvl_max.to(u.nm).value])
+        if time_bin_width != 0 and drizzle_params.inttime % time_bin_width != 0:
+            mod = drizzle_params.inttime % time_bin_width
+            inttime = drizzle_params.inttime - mod
+            n_steps = inttime/time_bin_width
+            getLogger(__name__).warning(f'Specified duration not evenly divisible by timestep, using {n_steps} '
+                                        f'time steps of length {time_bin_width}s for each dither position ')
+            self.timebins = np.append(np.arange(0, inttime, time_bin_width), inttime) * 1e6
+        else:
+            self.timebins = np.append(np.arange(0, drizzle_params.inttime,
+                                                time_bin_width if time_bin_width!=0 else drizzle_params.inttime),
+                                      drizzle_params.inttime) * 1e6  # timestamps are in microseconds
         self.wcs_times = np.append(np.arange(0, drizzle_params.inttime, drizzle_params.wcs_timestep),
                                    drizzle_params.inttime)
-        self.timebins = np.append(np.arange(0, drizzle_params.inttime,
-                                            time_bin_width if time_bin_width!=0 else drizzle_params.inttime),
-                                  drizzle_params.inttime) * 1e6  # timestamps are in microseconds
         self.cps = None
         self.counts = None
         self.expmap = None
@@ -573,13 +590,13 @@ def debug_dither_image(dithers_data, drizzle_params, weight=True):
     plt.show(block=True)
 
 
-def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0, 0), zoom=2.):
+def get_star_offset(dither, wvl_min, wvl_max, startt, intt, start_guess=(0, 0), zoom=2.):
     """
     Get the rotation_center offset parameter for a dither
 
     :param dither:
-    :param wvlMin:
-    :param wvlMax:
+    :param wvl_min:
+    :param wvl_max:
     :param startt:
     :param intt:
     :param start_guess:
@@ -598,8 +615,8 @@ def get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=(0, 0), zo
     iteration = 0
     while True:
 
-        drizzle = mkidpipeline.steps.drizzler.form(dither=dither, wave_start=wvlMin,
-                                                   wave_stop=wvlMax, start=startt, duration=intt, pixfrac=1,
+        drizzle = mkidpipeline.steps.drizzler.form(dither=dither, wave_start=wvl_min,
+                                                   wave_stop=wvl_max, start=startt, duration=intt, pixfrac=1,
                                                    derotate=False, usecache=True)
 
         image = drizzle.data
@@ -697,7 +714,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, md, sin
             'weight': photons['weight'], 'photon_pixels': xy, 'obs_wcs_seq': wcs, 'duration': intt, 'metadata': md}
 
 
-def load_data(dither, wvlMin, wvlMax, startt, duration, wcs_timestep, derotate=True, align_start_pa=False, ncpu=1,
+def load_data(dither, wvl_min, wvl_max, startt, duration, wcs_timestep, derotate=True, align_start_pa=False, ncpu=1,
               exclude_flags=()):
     """
     Load the photons either by querying the obsfiles in parrallel or loading from pkl if it exists. The wcs
@@ -715,17 +732,17 @@ def load_data(dither, wvlMin, wvlMax, startt, duration, wcs_timestep, derotate=T
     if ncpu < 2:
         dithers_data = []
         for file, offset, md in zip(filenames, offsets, meta):
-            data = mp_worker(file, wvlMin, wvlMax, startt + offset, duration, derotate, wcs_timestep, md,
+            data = mp_worker(file, wvl_min, wvl_max, startt + offset, duration, derotate, wcs_timestep, md,
                              single_pa_time, exclude_flags)
             dithers_data.append(data)
     else:
         #TODO result of mp_worker too big, causes issues with multiprocessing when pickling
         p = mp.Pool(ncpu)
-        # processes = [p.apply_async(mp_worker, (file, wvlMin, wvlMax, startt + offsett, duration, derotate, wcs_timestep, md,
+        # processes = [p.apply_async(mp_worker, (file, wvl_min, wvl_max, startt + offsett, duration, derotate, wcs_timestep, md,
         #                                        single_pa_time, exclude_flags)) for file, offsett, md in
         #              zip(filenames, offsets, meta)]
         # dithers_data = [res.get() for res in processes]
-        args = [(file, wvlMin, wvlMax, startt + offsett, duration, derotate, wcs_timestep, md,
+        args = [(file, wvl_min, wvl_max, startt + offsett, duration, derotate, wcs_timestep, md,
                  single_pa_time, exclude_flags) for file, offsett, md in zip(filenames, offsets, meta)]
         dithers_data = p.starmap(mp_worker, args)
 
@@ -910,7 +927,7 @@ def form(dither, mode='drizzler', derotate=True, wave_start=None, wave_stop=None
     else:
         getLogger(__name__).debug('Running Drizzler')
         driz = Drizzler(dithers_data, drizzle_params, wvl_bin_width=wvl_bin_width, time_bin_width=time_bin_width,
-                        wvlMin=wave_start, wvlMax=wave_stop)
+                        wvl_min=wave_start, wvl_max=wave_stop)
 
     getLogger(__name__).debug('Drizzling...')
     driz.run(weight=weight)
@@ -927,8 +944,8 @@ def form(dither, mode='drizzler', derotate=True, wave_start=None, wave_stop=None
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Photon Drizzling Utility')
     parser.add_argument('cfg', type=str, help='The configuration file')
-    parser.add_argument('-wl', type=float, dest='wvlMin', help='minimum wavelength', default=850)
-    parser.add_argument('-wh', type=float, dest='wvlMax', help='maximum wavelength', default=1100)
+    parser.add_argument('-wl', type=float, dest='wvl_min', help='minimum wavelength', default=850)
+    parser.add_argument('-wh', type=float, dest='wvl_max', help='maximum wavelength', default=1100)
     parser.add_argument('-t0', type=int, dest='startt', help='start time', default=0)
     parser.add_argument('-it', type=float, dest='intt', help='end time', default=60)
     parser.add_argument('-p', action='store_true', dest='plot', help='Plot the result', default=False)
@@ -952,20 +969,20 @@ if __name__ == '__main__':
     cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(drizzler=StepConfig()),
                                                     cfg=mkidpipeline.config.configure_pipeline(args.cfg), copy=False)
 
-    wvlMin = args.wvlMin
-    wvlMax = args.wvlMax
+    wvl_min = args.wvl_min
+    wvl_max = args.wvl_max
     startt = args.startt
     intt = args.intt
     pixfrac = cfg.drizzler.pixfrac
     dither = cfg.dither  # TODO this is wrong and needs to be pulled from a data definition
 
     if args.gso and isinstance(args.gso, list):
-        rotation_origin = get_star_offset(dither, wvlMin, wvlMax, startt, intt, start_guess=np.array(args.gso))
+        rotation_origin = get_star_offset(dither, wvl_min, wvl_max, startt, intt, start_guess=np.array(args.gso))
 
     fitsname = '{}_{}.fits'.format(cfg.dither.name, 'todo')
 
     # main function of drizzler
-    scidata = form(dither, wave_start=wvlMin, wave_stop=wvlMax, start=startt, duration=intt, pixfrac=pixfrac,
+    scidata = form(dither, wave_start=wvl_min, wave_stop=wvl_max, start=startt, duration=intt, pixfrac=pixfrac,
                    derotate=True)
 
     scidata.write(fitsname)
