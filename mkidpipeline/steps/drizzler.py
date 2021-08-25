@@ -365,7 +365,6 @@ class Drizzler(Canvas):
         self.timebins = np.append(np.arange(0, drizzle_params.inttime,
                                             time_bin_width if time_bin_width!=0 else drizzle_params.inttime),
                                   drizzle_params.inttime) * 1e6  # timestamps are in microseconds
-        print(self.timebins)
         self.cps = None
         self.counts = None
         self.expmap = None
@@ -880,7 +879,6 @@ def form(dither, mode='drizzler', derotate=True, wave_start=None, wave_stop=None
         getLogger(__name__).debug('Writing List Drizzler Tables...')
         driz.write_list(file = output_file)
     elif output_file and mode != 'list':
-        print(output_file)
         getLogger(__name__).debug('Writing fits...')
         driz.write(output_file[:-3] + '.fits')
     getLogger(__name__).info('Finished')

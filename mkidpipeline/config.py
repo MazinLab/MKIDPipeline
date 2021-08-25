@@ -1337,9 +1337,8 @@ class MKIDOutput(DataBase):
     taking precedence. startt and stopt may be included as well and are RELATIVE to the start of the file.
 
     image - uses photontable.get_fits to the a simple image of the data, applies to a single h5
-    stack - uses drizzler.SpatialDrizzler
-    spatial - uses drizzler.SpatialDrizzler
-    temporal - uses drizzler.TemporalDrizzler
+    stack - uses drizzler.Drizzler
+    drizzle- uses drizzler.Drizzler
     list - drizzler.ListDrizzler to assign photons an RA and Dec
     movie - uses movie.make_movie to make an animation
 
@@ -1348,7 +1347,7 @@ class MKIDOutput(DataBase):
     KEYS = (
         Key(name='name', default='', comment='A name', dtype=str),
         Key('data', '', 'An data name', str),
-        Key('kind', 'image', "stack|spatial|temporal|list|image|movie|tcube|scube", str),
+        Key('kind', 'image', "stack|drizzle|list|image|movie|tcube|scube", str),
 
         Key('exclude_flags', None, 'A list of pixel flag names to exclude', None),
         Key('min_wave', float('-inf'), 'Wavelength start for wavelength sensitive outputs', str),
@@ -1379,7 +1378,7 @@ class MKIDOutput(DataBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.kind = self.kind.lower()
-        opt = ('stack', 'spatial', 'temporal', 'drizzle', 'list', 'image', 'movie', 'tcube', 'scube')
+        opt = ('stack', 'drizzle', 'list', 'image', 'movie', 'tcube', 'scube')
         if self.kind not in opt:
             self._key_errors['kind'] += [f"Must be one of: {opt}"]
         if self.kind == 'movie':
@@ -1427,7 +1426,7 @@ class MKIDOutput(DataBase):
     @property
     def wants_drizzled(self):
         """
-        Returns True if the output type specified is a drizzled output ('stack', 'spatial', 'temporal', 'list'),
+        Returns True if the output type specified is a drizzled output ('stack', 'drizzle', 'list'),
         otherwise returns False
         """
         return self.kind in ('stack', 'drizzle', 'list')
@@ -1455,14 +1454,14 @@ class MKIDOutput(DataBase):
     @property
     def filename(self):
         """
-        Returns the name of the full file path to which the output will be written. If kind is ('stack', 'spatial', 'temporal',
+        Returns the name of the full file path to which the output will be written. If kind is ('stack', 'drizzle',
         'image', 'scube', 'scube') this will be a fits file. if kind is 'movie' it will be a gif and otherwise it will
         remain an h5 file."""
         global config
         if hasattr(self, '_filename'):
             file = self._filename
         else:
-            if self.kind in ('stack', 'spatial', 'temporal', 'image', 'scube', 'scube'):
+            if self.kind in ('stack', 'drizzle', 'image', 'scube', 'scube'):
                 ext = 'fits'
             else:
                 ext = 'gif' if self.kind == 'movie' else 'h5'
