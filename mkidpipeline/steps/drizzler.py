@@ -373,16 +373,17 @@ class Drizzler(Canvas):
         tic = time.clock()
 
         nexp_time = len(self.timebins) - 1
+        nwvls = len(self.wvl_bin_edges) - 1
         ndithers = len(self.dithers_data)
 
         # use exp_timestep for final spacing
         # TODO this looks like it might be backwards from docs in ra/dec of canvas shape
-        self.cps = np.zeros((nexp_time * ndithers, len(self.wvl_bin_edges) - 1) + self.canvas_shape[::-1])
-        expmap = np.zeros((nexp_time * ndithers, len(self.wvl_bin_edges) - 1) + self.canvas_shape[::-1])
+        self.cps = np.zeros((nexp_time * ndithers, nwvls) + self.canvas_shape[::-1])
+        expmap = np.zeros((nexp_time * ndithers, nwvls) + self.canvas_shape[::-1])
         for ix, dither_photons in enumerate(self.dithers_data):  # iterate over dithers
 
-            dithhyper = np.zeros((nexp_time, len(self.wvl_bin_edges) - 1) + self.canvas_shape[::-1], dtype=np.float32)
-            dithexp = np.zeros((nexp_time, len(self.wvl_bin_edges) - 1) + self.canvas_shape[::-1], dtype=np.float32)
+            dithhyper = np.zeros((nexp_time, nwvls) + self.canvas_shape[::-1], dtype=np.float32)
+            dithexp = np.zeros((nexp_time, nwvls) + self.canvas_shape[::-1], dtype=np.float32)
 
             for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):  # iterate through each of the wcs time spacing
 
@@ -408,22 +409,24 @@ class Drizzler(Canvas):
                     for iw in range(len(self.wvl_bin_edges) - 1):  # iterate over tess wavelengths
 
                         # create a new drizzle object for each time (and wavelength) frame
-                        # TODO if the timestep is 0 and wavelength step is 0 use one drizzle object?
                         drizhyper = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=self.pixfrac, wt_scl='')
                         inwht = np.int_(np.logical_not(cps[ia, iw] == 0))
-
                         drizhyper.add_image(cps[ia, iw], inwcs, inwht=inwht)  # in_units='cps' shouldn't have any affect
                         # for a single drizzle
                         dithhyper[ie + ia, iw] += drizhyper.outsci  # sum all those tess' in the same exposure bin (ie)
                         dithexp[ie + ia, iw] += drizhyper.outwht * (self.wcs_times[t + 1] - self.wcs_times[t]) / (
                                 len(self.wcs_times) - 1)
-
             self.cps[ix * nexp_time: (ix + 1) * nexp_time] = dithhyper
             expmap[ix * nexp_time: (ix + 1) * nexp_time] = dithexp
 
         getLogger(__name__).debug(f'Image load done in {time.clock() - tic:.1f} s')
-
-        self.header_4d()
+        if nexp_time == 1:
+            self.cps = np.sum(self.cps, axis=0)
+            expmap = np.sum(expmap, axis=0)
+        if nwvls == 1:
+            self.cps = np.squeeze(self.cps)
+            expmap = expmap[0,:,:] if nexp_time == 1 else expmap[:,0,:,:]
+        self.generate_header(wave=nwvls!=1, time=nexp_time!=1)
         self.counts = self.cps * expmap
 
     def make_cube(self, dither_photons, timespan, applyweights=False, max_counts_cut=None):
@@ -463,7 +466,7 @@ class Drizzler(Canvas):
 
         return hypercube
 
-    def header_4d(self):
+    def generate_header(self, wave=True, time=True):
         """
         Add to the extra elements to the header
 
@@ -472,21 +475,57 @@ class Drizzler(Canvas):
 
         :return:
         """
-        w4d = wcs.WCS(naxis=4)
-        w4d.wcs.crpix = [self.wcs.wcs.crpix[0], self.wcs.wcs.crpix[1], 1, 1]
-        w4d.wcs.crval = [self.wcs.wcs.crval[0], self.wcs.wcs.crval[1], self.wvl_bin_edges[0] / 1e9,
-                         self.timebins[0] / 1e6]
-        w4d.wcs.ctype = [self.wcs.wcs.ctype[0], self.wcs.wcs.ctype[1], "WAVE", "TIME"]
-        w4d.pixel_shape = (self.wcs.pixel_shape[0], self.wcs.pixel_shape[1], len(self.wvl_bin_edges) - 1 ,
-                           len(self.timebins) - 1)
-        w4d.wcs.pc = np.eye(4)
-        w4d.wcs.cdelt = [self.wcs.wcs.cdelt[0], self.wcs.wcs.cdelt[1],
-                         (self.wvl_bin_edges[1] - self.wvl_bin_edges[0]) / 1e9,
-                         (self.timebins[1] - self.timebins[0]) / 1e6]
-        w4d.wcs.cunit = [self.wcs.wcs.cunit[0], self.wcs.wcs.cunit[1], "m", "s"]
+        if wave and time:
+            w = wcs.WCS(naxis=4)
+            w.wcs.crpix = [self.wcs.wcs.crpix[0], self.wcs.wcs.crpix[1], 1, 1]
+            w.wcs.crval = [self.wcs.wcs.crval[0], self.wcs.wcs.crval[1], self.wvl_bin_edges[0] / 1e9,
+                             self.timebins[0] / 1e6]
+            w.wcs.ctype = [self.wcs.wcs.ctype[0], self.wcs.wcs.ctype[1], "WAVE", "TIME"]
+            w.pixel_shape = (self.wcs.pixel_shape[0], self.wcs.pixel_shape[1], len(self.wvl_bin_edges) - 1 ,
+                               len(self.timebins) - 1)
+            w.wcs.pc = np.eye(4)
+            w.wcs.cdelt = [self.wcs.wcs.cdelt[0], self.wcs.wcs.cdelt[1],
+                             (self.wvl_bin_edges[1] - self.wvl_bin_edges[0]) / 1e9,
+                             (self.timebins[1] - self.timebins[0]) / 1e6]
+            w.wcs.cunit = [self.wcs.wcs.cunit[0], self.wcs.wcs.cunit[1], "m", "s"]
 
-        self.wcs = w4d
-        getLogger(__name__).debug('4D wcs {}'.format(w4d))
+            self.wcs = w
+            getLogger(__name__).debug('4D wcs {}'.format(w))
+        elif (wave and not time) or (time and not wave):
+            if wave:
+                type = "WAVE"
+                val =  self.wvl_bin_edges[0] / 1e9
+                shape = len(self.wvl_bin_edges) - 1
+                delt = (self.wvl_bin_edges[1] - self.wvl_bin_edges[0]) / 1e9
+                unit = "m"
+            if time:
+                type = "TIME"
+                val = self.timebins[0] / 1e6
+                shape = len(self.timebins) - 1
+                delt = (self.timebins[1] - self.timebins[0]) / 1e6
+                unit = "s"
+            w = wcs.WCS(naxis=3)
+            w.wcs.crpix = [self.wcs.wcs.crpix[0], self.wcs.wcs.crpix[1], 1]
+            w.wcs.crval = [self.wcs.wcs.crval[0], self.wcs.wcs.crval[1],val]
+            w.wcs.ctype = [self.wcs.wcs.ctype[0], self.wcs.wcs.ctype[1], type]
+            w.pixel_shape = (self.wcs.pixel_shape[0], self.wcs.pixel_shape[1], shape)
+            w.wcs.pc = np.eye(3)
+            w.wcs.cdelt = [self.wcs.wcs.cdelt[0], self.wcs.wcs.cdelt[1], delt]
+            w.wcs.cunit = [self.wcs.wcs.cunit[0], self.wcs.wcs.cunit[1], unit]
+            self.wcs = w
+            getLogger(__name__).debug('3D wcs {}'.format(w))
+        else:
+            w = wcs.WCS(naxis=2)
+            w.wcs.crpix = [self.wcs.wcs.crpix[0], self.wcs.wcs.crpix[1]]
+            w.wcs.crval = [self.wcs.wcs.crval[0], self.wcs.wcs.crval[1]]
+            w.wcs.ctype = [self.wcs.wcs.ctype[0], self.wcs.wcs.ctype[1]]
+            w.pixel_shape = (self.wcs.pixel_shape[0], self.wcs.pixel_shape[1])
+            w.wcs.pc = np.eye(2)
+            w.wcs.cdelt = [self.wcs.wcs.cdelt[0], self.wcs.wcs.cdelt[1]]
+            w.wcs.cunit = [self.wcs.wcs.cunit[0], self.wcs.wcs.cunit[1]]
+            self.wcs = w
+            getLogger(__name__).debug('4D wcs {}'.format(w))
+
 
 
 def debug_dither_image(dithers_data, drizzle_params, weight=True):
@@ -880,7 +919,7 @@ def form(dither, mode='drizzler', derotate=True, wave_start=None, wave_stop=None
         driz.write_list(file = output_file)
     elif output_file and mode != 'list':
         getLogger(__name__).debug('Writing fits...')
-        driz.write(output_file[:-3] + '.fits')
+        driz.write(output_file)
     getLogger(__name__).info('Finished')
     return driz
 
