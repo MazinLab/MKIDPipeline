@@ -1379,7 +1379,7 @@ class MKIDOutput(DataBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.kind = self.kind.lower()
-        opt = ('stack', 'spatial', 'temporal', 'list', 'image', 'movie', 'tcube', 'scube')
+        opt = ('stack', 'spatial', 'temporal', 'drizzle', 'list', 'image', 'movie', 'tcube', 'scube')
         if self.kind not in opt:
             self._key_errors['kind'] += [f"Must be one of: {opt}"]
         if self.kind == 'movie':
@@ -1403,16 +1403,19 @@ class MKIDOutput(DataBase):
     def output_settings_dict(self):
         """Returns a dict of kwargs from the various output settings"""
         step, cube_type = None, None
-        if self.kind in ('tcube', 'movie', 'temporal'):
+        wave_step = self.wavestep
+        time_step = self.timestep
+        if self.kind in ('tcube', 'movie'):
             cube_type = 'time'
-            step = self.timestep
+            bin_type = 'time'
         elif self.kind == 'scube':
             cube_type = 'wave'
-            step = self.wavestep
             bin_type = 'wave' if self.wavestep.unit != 'eV' else 'energy'
+        else:
+            bin_type = 'energy'
         kwargs = dict(start=self.start_offset, duration=self.duration, weight=self.use_weights,
                       wave_start=self.min_wave, wave_stop=self.max_wave, rate=self.units == 'photons/s',
-                      bin_type=bin_type, cube_type=cube_type, bin_width=step,
+                      bin_type=bin_type, cube_type=cube_type, wvl_bin_width=wave_step, time_bin_width=time_step,
                       exclude_flags=mkidcore.pixelflags.PROBLEM_FLAGS)
         return mkidcore.config.ConfigThing().registerfromkvlist(kwargs.items(), namespace='')
 
@@ -1427,7 +1430,7 @@ class MKIDOutput(DataBase):
         Returns True if the output type specified is a drizzled output ('stack', 'spatial', 'temporal', 'list'),
         otherwise returns False
         """
-        return self.kind in ('stack', 'spatial', 'temporal', 'list')
+        return self.kind in ('stack', 'drizzle', 'list')
 
     @property
     def wants_movie(self):
