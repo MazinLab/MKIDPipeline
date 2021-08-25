@@ -31,7 +31,13 @@ def generate(outputs: config.MKIDOutputCollection):
                 if os.path.exists(file):
                     getLogger(__name__).info(f'Output {file} for {o.name} already exists. Skipping')
                     continue
-                obs.photontable.get_fits(**o.output_settings_dict).writeto(file)
+                kwargs = o.output_settings_dict
+                for k in ('wvl_bin_width', 'time_bin_width'):
+                    if k > 0:
+                        bin_width = k
+                    kwargs.pop(k)
+                kwargs['bin_width'] = k
+                obs.photontable.get_fits(**kwargs).writeto(file)
                 getLogger(__name__).info(f'Output {file} for {o.name} generated')
 
         if o.wants_movie:
@@ -46,9 +52,9 @@ def generate(outputs: config.MKIDOutputCollection):
             kwargs = o.output_settings_dict
             kwargs['mode'] = o.kind
             kwargs['output_file'] = o.filename
-            for k in ('cube_type', 'rate'):
+            for k in ('cube_type', 'rate', 'bin_type'):
                 kwargs.pop(k)
-            drizzler.form(o.data, nwvlbins=config.drizzler.n_wave, pixfrac=config.drizzler.pixfrac,
+            drizzler.form(o.data, pixfrac=config.drizzler.pixfrac,
                           wcs_timestep=config.drizzler.wcs_timestep, usecache=config.drizzler.usecache,
                           ncpu=config.get('drizzler.ncpu'), derotate=config.drizzler.derotate,
                           align_start_pa=config.drizzler.align_start_pa, whitelight=config.drizzler.whitelight,
