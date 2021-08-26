@@ -746,8 +746,8 @@ class Photontable:
 
         cubeaxis = {}
         if cube_type in ('wave', 'time'):
-            cubeaxis = {'CTYPE3': 'TIME' if cube_type is 'time' else 'WAVE',
-                        'CUNIT3': 's' if cube_type is 'time' else 'nm',
+            cubeaxis = {'CTYPE3': 'TIME' if cube_type == 'time' else 'WAVE',
+                        'CUNIT3': 's' if cube_type == 'time' else 'nm',
                         'CDELT3': bins[1] - bins[0], 'CRPIX3': 1, 'CRVAL3': bins[0], 'NAXIS3': bins.size}
 
         # we want to inherit defaults for ref values
@@ -929,7 +929,7 @@ class Photontable:
             if self.flagged(exclude_flags, pixel):
                 continue
             data[pixel] = hist[xe == resID]
-
+        data = np.moveaxis(data, -1, 0)
         toc2 = time.time()
         getLogger(__name__).debug(f'Histogram completed in {toc2 - tic:.2f} s, reformatting in {toc2 - toc:.2f}')
 
