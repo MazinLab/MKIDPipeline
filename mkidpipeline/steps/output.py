@@ -33,10 +33,13 @@ def generate(outputs: config.MKIDOutputCollection):
                     continue
                 kwargs = o.output_settings_dict
                 for k in ('wvl_bin_width', 'time_bin_width'):
-                    if k > 0:
-                        bin_width = k
+                    try:
+                        val = kwargs[k].value
+                    except AttributeError:
+                        val = kwargs[k]
+                    if val > 0:
+                        kwargs['bin_width'] = val
                     kwargs.pop(k)
-                kwargs['bin_width'] = k
                 obs.photontable.get_fits(**kwargs).writeto(file)
                 getLogger(__name__).info(f'Output {file} for {o.name} generated')
 
