@@ -117,7 +117,8 @@ class PipeConfig(BaseStepConfig):
 
     def __init__(self, *args, defaults: dict = None, instrument='MEC', **kwargs):
         super().__init__(*args, **kwargs)
-        self.register('beammap', Beammap(specifier=instrument), update=True)
+        if self.beammap is None:
+            self.register('beammap', Beammap(specifier=instrument), update=True)
         self.register('instrument', InstrumentInfo(instrument), update=True)
         if defaults is not None:
             for k, v in defaults.items():
