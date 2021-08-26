@@ -10,6 +10,7 @@ from mkidcore.config import getLogger
 import mkidpipeline.config as config
 from mkidpipeline.steps import movies, drizzler
 import mkidpipeline.steps.movies
+import astropy.units as u
 
 StepConfig = None
 
@@ -22,7 +23,7 @@ def generate(outputs: config.MKIDOutputCollection):
             # if we are putting out more than one image we need to give them unique file names
             if len(o.data.obs) > 1:
                 f, ext = os.path.splitext(o.filename)
-                filename = f'{f}.{{}}of{len(o.data.obs)+1}{ext}'
+                filename = f'{f}.{{}}of{len(o.data.obs)}{ext}'
             else:
                 filename = o.filename
 
@@ -32,9 +33,11 @@ def generate(outputs: config.MKIDOutputCollection):
                     getLogger(__name__).info(f'Output {file} for {o.name} already exists. Skipping')
                     continue
                 kwargs = o.output_settings_dict
+                kwargs['wave_start'] = kwargs['wave_start'].to(u.nm).value
+                kwargs['wave_stop'] = kwargs['wave_stop'].to(u.nm).value
                 for k in ('wvl_bin_width', 'time_bin_width'):
                     try:
-                        val = kwargs[k].value
+                        val = kwargs[k].to(u.nm).value
                     except AttributeError:
                         val = kwargs[k]
                     if val > 0:
