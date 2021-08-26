@@ -905,7 +905,6 @@ class Photontable:
                                                  energy = bin_type == 'energy')
             elif not bin_edges and not bin_width:
                 bin_edges = self.nominal_wavelength_bins
-            bin_edges = bin_edges.to(u.nm).value
         else:
             ycol = None
             bin_edges = self.nominal_wavelength_bins[[0, -1]]
