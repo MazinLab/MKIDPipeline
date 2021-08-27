@@ -1,7 +1,11 @@
 """
-Author: Sarah Steiger   Data: March 25, 2020
+To preserve the phase response of each pixel to an incident photon, a dead time is enforced on each pixel immediately
+following a photon event. This prevents a subsequent photon from falling on the decay tail of the previous one, but also
+causes a non-linear response at high count rates.
 
-Implementation of a linearity correction to account for photons that may arrive during the dead time of the detector.
+The lincal corrects for this by calculating a weight for each photon based on the instantaneous count rate. This weight
+is multiplied into the 'weight' column of the photontable.
+
 """
 import time
 import numpy as np
