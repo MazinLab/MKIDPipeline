@@ -8,16 +8,9 @@ to find a maximum likelihood estimate of Ic, Is in the presence of an incoherent
 
 For example usage, see if __name__ == "__main__":
 """
-
-import matplotlib.pyplot as plt
 import numpy as np
-from functools import partial
-from scipy import integrate
 from scipy.optimize import minimize
-from statsmodels.base.model import GenericLikelihoodModel
-
 from mkidpipeline.photontable import Photontable
-from mkidpipeline.speckle.generate_photons import genphotonlist
 
 def MRlogL(params, dt, deadtime=1.e-5):
     """
