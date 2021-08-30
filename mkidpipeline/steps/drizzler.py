@@ -413,7 +413,7 @@ class Drizzler(Canvas):
                                                  '(crpix varies between dithers)!')
                     raise RuntimeError('sky grid ref and dither ref do not match (crpix varies between dithers)!')
 
-                counts = self.make_cube(dither_photons, (self.wcs_times[t] * 1e6, self.wcs_times[t + 1] * 1e6),
+                counts = self.make_cube(dither_photons, (self.wcs_times[t], self.wcs_times[t + 1]),
                                         applyweights=weight)
                 cps = counts / (self.wcs_times[t + 1] - self.wcs_times[t])  # scale this frame by its exposure time
 
@@ -423,8 +423,7 @@ class Drizzler(Canvas):
                                range(len(self.timebins) - 1)])[0][0]
 
                 for ia in range(len(counts)):  # iterate over tess angles
-                    for iw in range(len(self.wvl_bin_edges) - 1):  # iterate over tess wavelengths
-
+                    for iw in range(nwvls):  # iterate over tess wavelengths
                         # create a new drizzle object for each time (and wavelength) frame
                         drizhyper = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=self.pixfrac, wt_scl='')
                         inwht = np.int_(np.logical_not(cps[ia, iw] == 0))
@@ -461,7 +460,8 @@ class Drizzler(Canvas):
         weights = dither_photons['weight'] if applyweights else None
         timespan_mask = ((dither_photons['timestamps'] >= timespan[0] * 1e6) &
                          (dither_photons['timestamps'] <= timespan[1] * 1e6))
-
+        if weights is not None:
+            weights = weights[timespan_mask]
         sample = np.vstack((dither_photons['timestamps'][timespan_mask],
                             dither_photons['wavelengths'][timespan_mask],
                             dither_photons['photon_pixels'][0][timespan_mask],
@@ -471,7 +471,7 @@ class Drizzler(Canvas):
             timebins = self.timebins[(self.timebins >= timespan[0]) & (self.timebins <= timespan[1])]
         else:  # otherwise just sample ever wcs_timestep (and sum later)
             timebins = timespan
-
+        timebins = [t * 1e6 for t in timebins]
         bins = np.array([timebins, self.wvl_bin_edges, range(self.shape[1] + 1), range(self.shape[0] + 1)])
         hypercube, _ = np.histogramdd(sample.T, bins, weights=weights)
 
