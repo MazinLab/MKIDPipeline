@@ -422,7 +422,6 @@ class Drizzler(Canvas):
                     getLogger(__name__).critical('sky grid ref and dither ref do not match '
                                                  '(crpix varies between dithers)!')
                     raise RuntimeError('sky grid ref and dither ref do not match (crpix varies between dithers)!')
-
                 counts = self.make_cube(dither_photons, (self.wcs_times[t], self.wcs_times[t + 1]),
                                         applyweights=weight)
                 cps = counts / (self.wcs_times[t + 1] - self.wcs_times[t])  # scale this frame by its exposure time
@@ -431,7 +430,6 @@ class Drizzler(Canvas):
                 wcs_time = self.wcs_times[t]
                 ie = np.where([(wcs_time >= self.timebins[i]) & (wcs_time < self.timebins[i + 1]) for i in
                                range(len(self.timebins) - 1)])[0][0]
-
                 for ia in range(len(counts)):  # iterate over tess angles
                     for iw in range(nwvls):  # iterate over tess wavelengths
                         # create a new drizzle object for each time (and wavelength) frame
@@ -563,9 +561,9 @@ def debug_dither_image(dithers_data, drizzle_params, weight=True):
     driz.run(weight=weight)
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 6))
-    axes[0].imshow(driz.driz.outsci, cmap='viridis', origin='lower', norm=LogNorm())
+    axes[0].imshow(driz.cps, cmap='viridis', origin='lower', norm=LogNorm())
 
-    output_image = np.zeros_like(driz.driz.outsci)
+    output_image = np.zeros_like(driz.cps)
     canvas_wcs = driz.wcs
     shape = driz.shape
     del driz
