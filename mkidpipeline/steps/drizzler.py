@@ -684,40 +684,31 @@ def align_hdu_conex(hdus, mode):
 
 def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, md, single_pa_time=None, exclude_flags=()):
     getLogger(__name__).debug(f'Fetching data from {file}')
-    obsfile = Photontable(file)
-
-    # obsfile.require(('pixcal', 'wavecal'))
-    photons = obsfile.query(startw=startw, stopw=stopw, start=startt, intt=intt)
+    pt = Photontable(file)
+    photons = pt.query(startw=startw, stopw=stopw, start=startt, intt=intt)
     num_unfiltered = len(photons)
     if not len(photons):
         getLogger(__name__).warning(f'No photons found using wavelength range {startw}-{stopw} nm and time range '
-                                    f'{startt}-{intt} s. Is the obsfile not wavelength calibrated causing a mismatch '
+                                    f'{startt}-{intt} s. Is the photontable not wavelength calibrated causing a mismatch '
                                     f'in the units?')
     else:
         getLogger(__name__).info("Fetched {} photons from dither {}".format(len(photons), file))
 
     exclude_flags += EXCLUDE
-    photons = obsfile.filter_photons_by_flags(photons, disallowed=exclude_flags)
+    photons = pt.filter_photons_by_flags(photons, disallowed=exclude_flags)
     getLogger(__name__).info(f"Removed {num_unfiltered - len(photons)} photons "
                              f"from {num_unfiltered} total from bad pix")
-    xy = obsfile.xy(photons)
+    xy = pt.xy(photons)
 
     # ob.get_wcs returns all wcs solutions (including those after intt), so just pass then remove post facto()
-    wcs = obsfile.get_wcs(derotate=derotate, wcs_timestep=wcs_timestep, single_pa_time=single_pa_time)
+    wcs = pt.get_wcs(derotate=derotate, wcs_timestep=wcs_timestep, single_pa_time=single_pa_time)
     try:
         nwcs = int(np.ceil(intt / wcs_timestep))
         wcs = wcs[:nwcs]
     except IndexError:
         pass
 
-    del obsfile
-
-    # for debugging help
-    # try:
-    #     pickle.dumps(wcs)
-    # except Exception:
-    #     pass
-
+    del pt
     return {'file': file, 'timestamps': photons["time"], 'wavelengths': photons["wavelength"],
             'weight': photons['weight'], 'photon_pixels': xy, 'obs_wcs_seq': wcs, 'duration': intt, 'metadata': md}
 
@@ -725,14 +716,14 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, md, sin
 def load_data(dither, wvl_min, wvl_max, startt, duration, wcs_timestep, derotate=True, align_start_pa=False, ncpu=1,
               exclude_flags=()):
     """
-    Load the photons either by querying the obsfiles in parrallel or loading from pkl if it exists. The wcs
+    Load the photons either by querying the photontables in parrallel or loading from pkl if it exists. The wcs
     solutions are added to this photon data dictionary but will likely be integrated into photontable.py directly
     """
     begin = time.time()
     filenames = [o.h5 for o in dither.obs]
     meta = [o.metadata for o in dither.obs]
     if not filenames:
-        getLogger(__name__).info('No obsfiles found')
+        getLogger(__name__).info('No photontables found')
 
     offsets = [o.start - int(o.start) for o in dither.obs]
     single_pa_time = Photontable(filenames[0]).start_time if not derotate and align_start_pa else None
@@ -827,7 +818,7 @@ def form(dither, mode='drizzler', derotate=True, wave_start=None, wave_stop=None
     usecache : bool
         True means the output of load_data() is stored and reloaded for subsequent runs of form
     ncpu : int
-        Number of cpu used when loading and reformatting the dither obsfiles
+        Number of cpu used when loading and reformatting the dither photontables
     flags : int
         Bitmask containing the various flags on each pixel from previous steps
     whitelight : bool
