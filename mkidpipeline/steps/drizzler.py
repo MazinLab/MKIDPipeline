@@ -737,13 +737,10 @@ def load_data(dither, wvl_min, wvl_max, startt, duration, wcs_timestep, derotate
     else:
         #TODO result of mp_worker too big, causes issues with multiprocessing when pickling
         p = mp.Pool(ncpu)
-        # processes = [p.apply_async(mp_worker, (file, wvl_min, wvl_max, startt + offsett, duration, derotate, wcs_timestep, md,
-        #                                        single_pa_time, exclude_flags)) for file, offsett, md in
-        #              zip(filenames, offsets, meta)]
-        # dithers_data = [res.get() for res in processes]
-        args = [(file, wvl_min, wvl_max, startt + offsett, duration, derotate, wcs_timestep, md,
-                 single_pa_time, exclude_flags) for file, offsett, md in zip(filenames, offsets, meta)]
-        dithers_data = p.starmap(mp_worker, args)
+        processes = [p.apply_async(mp_worker, (file, wvl_min, wvl_max, startt + offsett, duration, derotate, wcs_timestep, md,
+                                               single_pa_time, exclude_flags)) for file, offsett, md in
+                     zip(filenames, offsets, meta)]
+        dithers_data = [res.get() for res in processes]
 
     dithers_data.sort(key=lambda k: filenames.index(k['file']))
 
