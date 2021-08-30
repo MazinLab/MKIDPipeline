@@ -103,7 +103,7 @@ def get_sample_output(dataset='default'):
     data = [config.MKIDOutput(name=_namer('out'), data='dither0', min_wave='950 nm', max_wave='1375 nm', kind=k,
                               duration=10.0) for k in ('stack', 'spatial', 'image', 'tcube', 'scube')] #TODO add 'list' back in once supported
     data.append(config.MKIDOutput(name=_namer('out'), data='dither0', min_wave='950 nm', max_wave='1375 nm',
-                                  kind='temporal', duration=10.0, timestep=1.0))
+                                  kind='drizzle', duration=10.0, timestep=1.0, wavestep= '0.0 nm'))
     data.append(config.MKIDOutput(name=_namer('out'), data='dither0', min_wave='950 nm', max_wave='1375 nm',
                                   kind='movie', duration=10.0, movie_format='gif', movie_runtime=3))
     data.append(config.MKIDOutput(name=_namer('out'), data='dither0', min_wave='950 nm', max_wave='1375 nm',
