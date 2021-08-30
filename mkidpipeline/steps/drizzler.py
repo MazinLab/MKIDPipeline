@@ -384,7 +384,7 @@ class Drizzler(Canvas):
             n_steps = inttime/time_bin_width
             getLogger(__name__).warning(f'Specified duration not evenly divisible by timestep, using {n_steps} '
                                         f'time steps of length {time_bin_width}s for each dither position ')
-            self.timebins = np.append(np.arange(0, inttime, time_bin_width), inttime) * 1e6
+            self.timebins = np.append(np.arange(0, inttime, time_bin_width), inttime)
         else:
             self.timebins = np.append(np.arange(0, drizzle_params.inttime,
                                                 time_bin_width if time_bin_width!=0 else drizzle_params.inttime),
@@ -427,7 +427,7 @@ class Drizzler(Canvas):
                 cps = counts / (self.wcs_times[t + 1] - self.wcs_times[t])  # scale this frame by its exposure time
 
                 # get exposure bin of current wcs time
-                wcs_time = self.wcs_times[t] * 1e6
+                wcs_time = self.wcs_times[t]
                 ie = np.where([(wcs_time >= self.timebins[i]) & (wcs_time < self.timebins[i + 1]) for i in
                                range(len(self.timebins) - 1)])[0][0]
 
@@ -460,7 +460,7 @@ class Drizzler(Canvas):
         shorter
 
         :param dither_photons:
-        :param timespan:
+        :param timespan: in seconds
         :param applyweights:
         :param max_counts_cut:
         :return:
