@@ -359,7 +359,12 @@ class Drizzler(Canvas):
         self.drizzle_params = drizzle_params
         self.pixfrac = drizzle_params.pixfrac
         wvl_span = wvl_max.to(u.nm).value - wvl_min.to(u.nm).value
-        if wvl_bin_width.value !=0 and wvl_span % wvl_bin_width.to(u.nm).value != 0:
+        #get wavelength bins to use
+        if wvl_bin_width.to(u.nm).value > wvl_span:
+            getLogger(__name__).info('Wavestep larger than entire wavelength range - using whole wavelength range '
+                                     'instead')
+            self.wvl_bin_edges = np.array([wvl_min.to(u.nm).value, wvl_max.to(u.nm).value])
+        elif wvl_bin_width.value !=0 and wvl_span % wvl_bin_width.to(u.nm).value != 0:
             mod = wvl_span % wvl_bin_width.to(u.nm).value
             use_max = wvl_max.to(u.nm).value - mod
             n_steps = (use_max - wvl_min.to(u.nm).value)/wvl_bin_width.to(u.nm).value
@@ -369,7 +374,11 @@ class Drizzler(Canvas):
         else:
             self.wvl_bin_edges = np.arange(wvl_min.to(u.nm).value, wvl_max.to(u.nm).value, wvl_bin_width.to(u.nm).value) if \
                 wvl_bin_width.to(u.nm).value != 0.0 else np.array([wvl_min.to(u.nm).value, wvl_max.to(u.nm).value])
-        if time_bin_width != 0 and drizzle_params.inttime % time_bin_width != 0:
+        #get time bins to use
+        if time_bin_width > drizzle_params.inttime:
+            getLogger(__name__).info('Timestep larger than entire duration - using whole duration instead')
+            self.timebins = np.array([0, drizzle_params.inttime])
+        elif time_bin_width != 0 and drizzle_params.inttime % time_bin_width != 0:
             mod = drizzle_params.inttime % time_bin_width
             inttime = drizzle_params.inttime - mod
             n_steps = inttime/time_bin_width
