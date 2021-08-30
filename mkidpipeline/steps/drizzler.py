@@ -388,9 +388,9 @@ class Drizzler(Canvas):
         else:
             self.timebins = np.append(np.arange(0, drizzle_params.inttime,
                                                 time_bin_width if time_bin_width!=0 else drizzle_params.inttime),
-                                      drizzle_params.inttime) * 1e6  # timestamps are in microseconds
-        self.wcs_times = np.append(np.arange(0, drizzle_params.inttime, drizzle_params.wcs_timestep),
-                                   drizzle_params.inttime)
+                                      drizzle_params.inttime)
+        self.wcs_times = np.append(np.arange(0, self.timebins[-1], drizzle_params.wcs_timestep),
+                                   self.timebins[-1])
         self.cps = None
         self.counts = None
         self.expmap = None
@@ -412,7 +412,8 @@ class Drizzler(Canvas):
             dithexp = np.zeros((nexp_time, nwvls) + self.canvas_shape[::-1], dtype=np.float32)
 
             for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):  # iterate through each of the wcs time spacing
-
+                if (t + 1) > len(self.wcs_times):
+                    continue
                 # inwcs = wcs.WCS(header=inwcs)
                 inwcs.pixel_shape = self.shape
 
