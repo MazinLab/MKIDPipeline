@@ -14,7 +14,7 @@ import matplotlib
 from matplotlib import gridspec
 from matplotlib.widgets import Button, Slider
 from matplotlib import cm, lines, pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
+# from matplotlib.backends.backend_pdf import PdfPages
 from mpl_toolkits.axes_grid1 import axes_size, make_axes_locatable
 
 import mkidcore.corelog as pipelinelog
@@ -2479,6 +2479,7 @@ class Solution(object):
                 figures.append(figure)
         # save the plots
         if save_name is not None:
+            from matplotlib.backends.backend_pdf import PdfPages
             file_path = os.path.join(self.cfg.out_directory, save_name)
             with PdfPages(file_path) as pdf:
                 for figure in figures:
