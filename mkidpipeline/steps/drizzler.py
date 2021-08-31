@@ -505,14 +505,14 @@ class Drizzler(Canvas):
             w = wcs.WCS(naxis=4)
             w.wcs.crpix = [self.wcs.wcs.crpix[0], self.wcs.wcs.crpix[1], 1, 1]
             w.wcs.crval = [self.wcs.wcs.crval[0], self.wcs.wcs.crval[1], self.wvl_bin_edges[0] / 1e9,
-                             self.timebins[0] / 1e6]
+                             self.timebins[0]]
             w.wcs.ctype = [self.wcs.wcs.ctype[0], self.wcs.wcs.ctype[1], "WAVE", "TIME"]
             w.pixel_shape = (self.wcs.pixel_shape[0], self.wcs.pixel_shape[1], len(self.wvl_bin_edges) - 1 ,
                                len(self.timebins) - 1)
             w.wcs.pc = np.eye(4)
             w.wcs.cdelt = [self.wcs.wcs.cdelt[0], self.wcs.wcs.cdelt[1],
                              (self.wvl_bin_edges[1] - self.wvl_bin_edges[0]) / 1e9,
-                             (self.timebins[1] - self.timebins[0]) / 1e6]
+                             (self.timebins[1] - self.timebins[0])]
             w.wcs.cunit = [self.wcs.wcs.cunit[0], self.wcs.wcs.cunit[1], "m", "s"]
 
             self.wcs = w
@@ -526,9 +526,9 @@ class Drizzler(Canvas):
                 unit = "m"
             if time:
                 type = "TIME"
-                val = self.timebins[0] / 1e6
+                val = self.timebins[0]
                 shape = len(self.timebins) - 1
-                delt = (self.timebins[1] - self.timebins[0]) / 1e6
+                delt = (self.timebins[1] - self.timebins[0])
                 unit = "s"
             w = wcs.WCS(naxis=3)
             w.wcs.crpix = [self.wcs.wcs.crpix[0], self.wcs.wcs.crpix[1], 1]
@@ -557,7 +557,7 @@ class Drizzler(Canvas):
 def debug_dither_image(dithers_data, drizzle_params, weight=True):
     """ Plot the location of frames with simple boxes for calibration/debugging purposes. """
 
-    drizzle_params.canvas_shape = 1000, 1000  # hand set to large number to ensure all frames are captured
+    drizzle_params.canvas_shape = 500, 500  # hand set to large number to ensure all frames are captured
     driz = Drizzler(dithers_data, drizzle_params)
     driz.run(weight=weight)
 
