@@ -358,6 +358,7 @@ class Drizzler(Canvas):
         super().__init__(dithers_data, drizzle_params=drizzle_params, canvas_shape=drizzle_params.canvas_shape)
         self.drizzle_params = drizzle_params
         self.pixfrac = drizzle_params.pixfrac
+        self.time_bin_width = time_bin_width
         wvl_span = wvl_max.to(u.nm).value - wvl_min.to(u.nm).value
         #get wavelength bins to use
         if wvl_bin_width.to(u.nm).value > wvl_span:
@@ -375,7 +376,7 @@ class Drizzler(Canvas):
             self.wvl_bin_edges = np.arange(wvl_min.to(u.nm).value, wvl_max.to(u.nm).value, wvl_bin_width.to(u.nm).value) if \
                 wvl_bin_width.to(u.nm).value != 0.0 else np.array([wvl_min.to(u.nm).value, wvl_max.to(u.nm).value])
         #get time bins to use
-        if time_bin_width > drizzle_params.inttime:
+        if time_bin_width >= (drizzle_params.inttime * len(self.dithers_data)):
             getLogger(__name__).info('Timestep larger than entire duration - using whole duration instead')
             self.timebins = np.array([0, drizzle_params.inttime])
         elif time_bin_width != 0 and drizzle_params.inttime % time_bin_width != 0:
@@ -444,7 +445,7 @@ class Drizzler(Canvas):
             expmap[ix * nexp_time: (ix + 1) * nexp_time] = dithexp
 
         getLogger(__name__).debug(f'Image load done in {time.clock() - tic:.1f} s')
-        if nexp_time == 1:
+        if nexp_time == 1 and self.time_bin_width == 0:
             self.cps = np.sum(self.cps, axis=0)
             expmap = np.sum(expmap, axis=0)
         if nwvls == 1:
