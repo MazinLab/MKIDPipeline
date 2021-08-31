@@ -108,7 +108,7 @@ class Configuration:
         self.out_directory = outdir
         self.wavelengths = [w.value for w in wavelengths]
         self.h5_file_names = {wave: h5 for wave, h5 in zip(self.wavelengths, h5s)}
-        self.darks = {} if darks is None else darks
+        self.darks = {} if darks is None else {w.value: d for w, d in zip(darks.keys(), darks.values())}
 
         # Things with defaults
         self.histogram_model_names = list(histogram_model_names)
@@ -286,7 +286,7 @@ class Calibrator(object):
         except KeyError:
             try:
                 file = self.cfg.darks[wavelength].h5 if background else self.cfg.h5_file_names[wavelength]
-            except (KeyError, TypeError):
+            except (KeyError, TypeError, AttributeError):
                 file = None
             self._obsfiles[key] = photontable.Photontable(file) if file else None
         return self._obsfiles[key]
@@ -319,11 +319,12 @@ class Calibrator(object):
                     # load the data
                     bkgd_phase_list = None
                     if self._shared_tables is None:
-                        photon_list = self.fetch_obsfile(wavelength).query(pixel=tuple(pixel))
+                        pt = self.fetch_obsfile(wavelength)
+                        photon_list = pt.query(pixel=tuple(pixel))
                         # create background phase list if specified
                         bg = self.fetch_obsfile(wavelength, background=True)
                         if bg is not None:
-                            bkgd_phase_list = bg.query(pixel=pixel, column='wavelength')
+                            bkgd_phase_list = bg.query(pixel=tuple(pixel), column='wavelength')
                             bkgd_phase_list = bkgd_phase_list[bkgd_phase_list < 0]
                     else:
                         table_data, bg = self._shared_tables[wavelength].data
@@ -367,7 +368,7 @@ class Calibrator(object):
                                    "after the negative phase only cut")
                         log.debug(message.format(pixel[0], pixel[1], wavelength))
                         continue
-                    norm = photon_list.duration/bg.duration if bg else None
+                    norm = pt.duration/bg.duration if bg else None
                     # make histogram
                     centers, counts, variance = self._histogram(phase_list, bkgd_phase_list, norm)
                     # assign x, y and variance data to the fit model
@@ -705,14 +706,17 @@ class Calibrator(object):
             # find background counts and subtract them off
             centers = (x0[:-1] + x0[1:]) / 2.0
             update += 1
-            bkgd_counts = np.histogram(bkgd_phase_list, bins=bin_edges, weights=np.full(len(bkgd_phase_list), norm))[0] \
-                if bkgd_phase_list else 0
-            if (counts-bkgd_counts).max() >= 400:
-                break
+            if bkgd_phase_list is not None:
+                bkgd_counts = np.histogram(bkgd_phase_list, bins=bin_edges, weights=np.full(len(bkgd_phase_list), norm))[0]
+                bkgd_counts = np.array([int(count) for count in bkgd_counts])
+            else:
+                bkgd_counts = None
+            # if (counts-bkgd_counts).max() >= 400:
+            #     break
         # gaussian mle for the variance of poisson distributed data
         # https://doi.org/10.1016/S0168-9002(00)00756-7
         variance = np.sqrt(counts ** 2 + 0.25) - 0.5
-        if bkgd_counts:
+        if bkgd_counts is not None:
             counts -= bkgd_counts
             variance += np.sqrt(bkgd_counts ** 2 + 0.25) - 0.5
         return centers, counts, variance
