@@ -71,7 +71,6 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
     def _vet_errors(self):
         return []
 
-
 FLAGS = FlagSet.define(
           ('bad', 0, 'The calibration failed. See other flags for details'),
           ('failed_validation', 1, 'The calibration failed the model-defined criteria for a good fit'),
@@ -710,6 +709,8 @@ class Calibrator(object):
                 bkgd_counts = np.array([int(count) for count in bkgd_counts])
             else:
                 bkgd_counts = None
+            if (counts - bkgd_counts).max() >= 400:
+                break
             update += 1
         # gaussian mle for the variance of poisson distributed data
         # https://doi.org/10.1016/S0168-9002(00)00756-7
