@@ -709,7 +709,7 @@ class Calibrator(object):
                 bkgd_counts = np.array([int(count) for count in bkgd_counts])
             else:
                 bkgd_counts = None
-            if (counts - bkgd_counts).max() >= 400:
+            if counts.max() >= 400:
                 break
             update += 1
         # gaussian mle for the variance of poisson distributed data
