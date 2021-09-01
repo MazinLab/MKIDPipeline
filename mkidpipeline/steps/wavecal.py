@@ -370,7 +370,7 @@ class Calibrator(object):
                         continue
                     norm = pt.duration/bg.duration if bg else None
                     # make histogram
-                    centers, counts, variance = self._histogram(phase_list, bkgd_phase_list, norm)
+                    centers, counts, variance = self._histogram(phase_list, bkgd_phase_list=bkgd_phase_list, norm=norm)
                     # assign x, y and variance data to the fit model
                     model.x, model.y = centers, counts
                     # gaussian mle for the variance of poisson distributed data
@@ -705,14 +705,12 @@ class Calibrator(object):
             counts, x0 = np.histogram(phase_list, bins=bin_edges)
             # find background counts and subtract them off
             centers = (x0[:-1] + x0[1:]) / 2.0
-            update += 1
             if bkgd_phase_list is not None:
                 bkgd_counts = np.histogram(bkgd_phase_list, bins=bin_edges, weights=np.full(len(bkgd_phase_list), norm))[0]
                 bkgd_counts = np.array([int(count) for count in bkgd_counts])
             else:
                 bkgd_counts = None
-            # if (counts-bkgd_counts).max() >= 400:
-            #     break
+            update += 1
         # gaussian mle for the variance of poisson distributed data
         # https://doi.org/10.1016/S0168-9002(00)00756-7
         variance = np.sqrt(counts ** 2 + 0.25) - 0.5
