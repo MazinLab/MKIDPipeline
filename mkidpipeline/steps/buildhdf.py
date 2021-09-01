@@ -238,8 +238,8 @@ def _runbuilder(b):
 
 def buildfromarray(array, config=None):
     cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(buildhdf=StepConfig()), cfg=config, copy=True)
-    b = HDFBuilder(beammap=cfg.beammap, outdir=cfg.paths.out, starttime=array['time'].min(),
-                   inttime=array['time'].max()-array['time'].min(), force=True)
+    b = HDFBuilder(beammap=cfg.beammap, outdir=cfg.paths.out, starttime=array['time'].min()/1e6,
+                   inttime=(array['time'].max()-array['time'].min())/1e6, force=True)
     b.run(data=array)
 
 
