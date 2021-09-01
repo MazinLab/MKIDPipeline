@@ -1369,7 +1369,7 @@ class MKIDOutput(DataBase):
         # speccals are just fetched and determined for
         Key('timestep', None, 'Duration of time bins in output cubes with a temporal axis (req. by temporal)',
             float),
-        Key('wavestep', None, 'Width of wavelength bins in output cubes with a wavelength axis', str)
+        Key('wavestep', '0.0 nm', 'Width of wavelength bins in output cubes with a wavelength axis', str)
     )
     REQUIRED = ('name', 'data', 'kind')
     EXPLICIT_ALLOW = ('filename','duration')
@@ -1434,7 +1434,7 @@ class MKIDOutput(DataBase):
 
     @property
     def wants_movie(self):
-        """Returns True if the output type specified is 'movie, otherwise returns False"""
+        """Returns True if the output type specified is 'movie', otherwise returns False"""
         return self.kind == 'movie'
 
     @property
