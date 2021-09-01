@@ -13,6 +13,9 @@ channels:
 envs_dirs:
   - /home/<yourusername>/.conda/envs
   - /opt/anaconda3/envs
+pkg_dirs:
+  - /home/<yourusername>/.conda/pkgs
+  - /opt/anaconda3/pkgs
 pip_interop_enabled: true
 #=============
 
@@ -25,7 +28,7 @@ git checkout <a branch, probably develop or master>
 cd ~
 #if the following command gives issues try running: conda clean -a
 mamba env create --name pipeline -f src/mkidpipeline/condaenv.yml
-mamba activate pipeline
+conda activate pipeline
 pip install -e git+https://github.com/mazinlab/mkidcore.git@<whatever branch goes with mkidp>#egg=mkidcore
 pip install -e src/mkidpipeline
 ```
