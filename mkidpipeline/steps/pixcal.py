@@ -1,3 +1,25 @@
+"""
+The pixcal applies the pixcal.hot, pixcal.cold and pixcal.dead flags to hot, cold, and dead pixels respectively so that
+they can be removed from future calibration and analysis if desired. hot, cold, and dead pixels are defined differently
+depending on the pixel calibration `method` specified in the pipe.yaml.
+
+`threshold`: Compares the ratio of flux in each pixel to the median of the flux in an enclosing box. If the ratio
+is too high (i.e. the flux is too tightly distributed compared to a Gaussian PSF of the expected FWHM) then the pixel is
+flagged as `hot`. If there is too little flux compared to median background level then the pixel is flagged as `cold`.
+If the pixel has identically 0 counts then it is flagged as `dead`.
+
+`median`: Passes a `box_size` by `box_size` moving box over the entire array and checks if the pixel at the center of
+that window has counts higher than the median plus `n_sigma` times the standard deviation of the pixels in that window.
+If so, then that pixel is flagged as `hot`. Conversely, if that pixel has counts lower than the median minus `n_sigma`
+times the standard deviation of the pixels in that window, the pixel is flagged as `cold`. If the pixel has identically
+0 counts then it is flagged as `dead`
+
+`laplacian`: runs a Laplace filter over the entire array and checks if the filtered pixels have counts higher than
+`n_sigma` times the standard deviation above the filtered image. If so, then that pixel is flagged as `hot`. Conversely,
+if that pixel has counts lower than `n_sigma` times the standard deviation of the filtered image, the pixel is flagged
+as `cold`. If the pixel has identically 0 counts then it is flagged as `dead`
+"""
+
 import warnings
 import numpy as np
 import scipy.ndimage.filters as spfilters
@@ -9,29 +31,7 @@ from mkidpipeline.utils import fitting
 from mkidpipeline.utils import smoothing
 import mkidpipeline.config
 from mkidcore.pixelflags import FlagSet
-
-"""
-The pixcal applies the pixcal.hot, pixcal.cold and pixcal.dead flags to hot, cold, and dead pixels respectively so that 
-they can be removed from future calibration and analysis if desired. hot, cold, and dead pixels are defined differently 
-depending on the pixel calibration `method` specified in the pipe.yaml.
-
-`threshold`: Compares the ratio of flux in each pixel to the median of the flux in an enclosing box. If the ratio 
-is too high (i.e. the flux is too tightly distributed compared to a Gaussian PSF of the expected FWHM) then the pixel is
-flagged as `hot`. If there is too little flux compared to median background level then the pixel is flagged as `cold`. 
-If the pixel has identically 0 counts then it is flagged as `dead`.
-
-`median`: Passes a `box_size` by `box_size` moving box over the entire array and checks if the pixel at the center of 
-that window has counts higher than the median plus `n_sigma` times the standard deviation of the pixels in that window. 
-If so, then that pixel is flagged as `hot`. Conversely, if that pixel has counts lower than the median minus `n_sigma` 
-times the standard deviation of the pixels in that window, the pixel is flagged as `cold`. If the pixel has identically 
-0 counts then it is flagged as `dead`
-
-`laplacian`: runs a Laplace filter over the entire array and checks if the filtered pixels have counts higher than 
-`n_sigma` times the standard deviation above the filtered image. If so, then that pixel is flagged as `hot`. Conversely, 
-if that pixel has counts lower than `n_sigma` times the standard deviation of the filtered image, the pixel is flagged 
-as `cold`. If the pixel has identically 0 counts then it is flagged as `dead`
-"""
-
+import matplotlib.pyplot as plt
 
 def _calc_stdev(x):
     return np.nanstd(x) * _stddev_bias_corr((~np.isnan(x)).sum())
@@ -63,7 +63,8 @@ TEST_CFGS= (StepConfig(method='median', step=30), StepConfig(method='laplacian',
 
 FLAGS = FlagSet.define(('hot', 1, 'Hot pixel'),
                        ('cold', 2, 'Cold pixel'),
-                       ('dead', 3, 'Dead pixel'))
+                       ('dead', 3, 'Dead pixel'),
+                       ('unstable', 4, 'unstable pixel'))
 
 
 def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
@@ -87,7 +88,6 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
     """
 
     raw_image = np.copy(image)
-
     # Approximate peak/median ratio for an ideal (Gaussian) PSF sampled at
     # pixel locations corresponding to the median kernel used with the real data.
     gauss_array = fitting.gaussian_psf(fwhm, box_size)
@@ -155,8 +155,8 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
         # make sure a pixel is not simultaneously hot and cold
         assert ~(hot_mask & cold_mask).any()
     getLogger(__name__).info(f'Masked {len(hot_mask[hot_mask != False])} hot pixels,'
-                             f' {len(cold_mask[cold_mask != False])} cold pixels'
-                             f' and {len(dead_mask[dead_mask!=False])} dead pixels')
+                             f' {len(cold_mask[cold_mask != False])} cold pixels,'
+                             f' {len(dead_mask[dead_mask!=False])} dead pixels')
     return {'hot': hot_mask, 'cold': cold_mask, 'dead': dead_mask, 'masked_image': raw_image, 'input_image': image,
             'num_iter': iteration + 1}
 
@@ -306,26 +306,24 @@ def laplacian(image, box_size=5, n_sigma=5.0, max_iter=5):
             'num_iter': iteration + 1}
 
 
-def _compute_mask(obs, method, step, startt, stopt, methodkw, weight, n_sigma):
+def _compute_mask(pt, method, step, startt, stopt, methodkw, weight, n_sigma):
     try:
         func = globals()[method]
     except KeyError:
         raise ValueError(f'"{method} is an unsupported pixel masking method')
 
     # Generate a stack of bad pixel mask, one for each time step
-    img = obs.get_fits(start=startt, duration=stopt-startt, weight=weight, rate=False, cube_type='time', bin_width=step)
-    masks = np.zeros(img['SCIENCE'].data.shape+(3,), dtype=bool)
-    for i, (sl, each_time) in enumerate(zip(np.rollaxis(img['SCIENCE'].data, -1), img['CUBE_EDGES'].data.edges[:-1])):
+    img = pt.get_fits(start=startt, duration=stopt-startt, weight=weight, rate=False, cube_type='time', bin_width=step)
+    masks = np.zeros(img['SCIENCE'].data.shape+(4,), dtype=bool)
+    for i, (sl, each_time) in enumerate(zip(img['SCIENCE'].data, img['CUBE_EDGES'].data.edges[:-1])):
         getLogger(__name__).info(f'Processing time slice: {each_time} - {each_time + step} s')
         result = func(sl, n_sigma=n_sigma, **methodkw)
-        masks[:, :, i, 0] = result['hot']
-        masks[:, :, i, 1] = result['cold']
-        masks[:, :, i, 2] = result['dead']
-
-    # check for any pixels that switched from one to the other
-    mask = masks.all(axis=2)  # all hot, all cold
-    mask = np.dstack([mask, (masks.any(axis=2) & ~mask).any(axis=2)])  # and with any hot, any cold
-
+        masks[i, :, :, 0] = result['hot']
+        masks[i, :, :, 1] = result['cold']
+        masks[i, :, :, 2] = result['dead']
+    mask = masks.all(axis=0) # all hot, all cold, or all dead
+    plt.imshow(mask[:,:,2])
+    mask[:,:,3] = (masks.any(axis=0) & ~mask).any(axis=2)  # and with any hot, any cold
     meta = dict(method=method, step=step)  # TODO flesh this out with pixcal fits keys
     meta.update(methodkw)
 
@@ -333,15 +331,14 @@ def _compute_mask(obs, method, step, startt, stopt, methodkw, weight, n_sigma):
 
 
 def fetch(o, startt, stopt, config=None):
-    obs = Photontable(o) if isinstance(o,str) else o
+    pt = Photontable(o) if isinstance(o,str) else o
 
     cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(pixcal=StepConfig()), cfg=config, copy=True)
 
     step = min(stopt-startt, cfg.pixcal.step)
     method = cfg.pixcal.method
-
     if cfg.pixcal.step > stopt-startt:
-        getLogger(__name__).warning(f'Step time longer than data time by {(step-(stopt-startt))*1000:.0f} ms, '
+        getLogger(__name__).info(f'Step time longer than data time by {(float(step)-(stopt-startt))*1000:.2f} ms, '
                                     f'using full exposure.')
 
     # This is how method keywords are fetched is propagated
@@ -349,7 +346,7 @@ def fetch(o, startt, stopt, config=None):
     methodkw = {k: mkidpipeline.config.config.pixcal.get(k) for k in mkidpipeline.config.config.pixcal.keys() if
                 k not in exclude}
 
-    return _compute_mask(obs, method, step, startt, stopt, methodkw, cfg.pixcal.use_weight, cfg.pixcal.n_sigma)
+    return _compute_mask(pt, method, step, startt, stopt, methodkw, cfg.pixcal.use_weight, cfg.pixcal.n_sigma)
 
 
 def apply(o, config=None):
@@ -358,21 +355,18 @@ def apply(o, config=None):
         getLogger(__name__).info('{} is already pixel calibrated'.format(o.h5))
         return
 
-    obs = Photontable(o.h5)
-    mask, meta = fetch(obs, o.start, o.stop, config=config)
-
+    pt = Photontable(o.h5)
+    mask, meta = fetch(pt, o.start, o.stop, config=config)
     if mask is None:
         return
-
     tic = time.time()
     getLogger(__name__).info(f'Applying pixel mask to {o}')
-    obs.enablewrite()
-    f = obs.flags
-    obs.flag(f.bitmask('pixcal.hot') * mask[:, :, 0])
-    obs.flag(f.bitmask('pixcal.cold') * mask[:, :, 1])
-    obs.flag(f.bitmask('pixcal.dead') * mask[:, :, 2])
-    obs.update_header('pixcal', True)
-    for k, v in meta.items():
-        obs.update_header(f'PIXCAL.{k}', v)
-    obs.disablewrite()
+    pt.enablewrite()
+    f = pt.flags
+    pt.flag(f.bitmask('pixcal.hot') * mask[:, :, 0])
+    pt.flag(f.bitmask('pixcal.cold') * mask[:, :, 1])
+    pt.flag(f.bitmask('pixcal.dead') * mask[:, :, 2])
+    pt.flag(f.bitmask('pixcal.unstable') * mask[:, :, 3])
+    pt.update_header('pixcal', True)
+    pt.disablewrite()
     getLogger(__name__).info(f'Mask applied in {time.time() - tic:.3f}s')
