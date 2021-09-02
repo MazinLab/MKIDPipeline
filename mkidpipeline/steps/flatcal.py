@@ -440,7 +440,7 @@ class FlatSolution(object):
             raise ValueError('Need to specify either resID or pixel coordinates')
         for pix, res in np.ndenumerate(self.beammap):
             if res == res_id or pix == pixel:  # in case of non unique resIDs
-                coeffs = self.coeff_array[pixel[0], pixel[1]]
+                coeffs = self.coeff_array[pix[0], pix[1]]
                 return np.poly1d(coeffs)
 
 
@@ -615,7 +615,7 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
         for pixel, resid in of.resonators(exclude=PROBLEM_FLAGS, pixel=True):
             soln = calsoln.get(pixel=pixel, res_id=resid)
             if not soln:
-                getLogger(__name__).warning('No flat calibration for good pixel {}'.format(resid))
+                getLogger(__name__).debug('No flat calibration for good pixel {}'.format(resid))
                 continue
 
             indices = of.photonTable.get_where_list('resID==resid')
