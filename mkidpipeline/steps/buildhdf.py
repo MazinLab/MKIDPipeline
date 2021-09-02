@@ -173,7 +173,7 @@ class HDFBuilder(object):
                     getLogger(__name__).info(f'{self.h5file} presumed corrupt ({e}), will remove and rebuild')
             if not done:
                 try:
-                    os.remove(self.cfg.h5file)
+                    os.remove(self.h5file)
                     getLogger(__name__).info('Deleted {}'.format(self.h5file))
                 except FileNotFoundError:
                     pass
@@ -229,11 +229,11 @@ class HDFBuilder(object):
 
 
 def _runbuilder(b):
-    getLogger(__name__).debug('Calling run on {}'.format(b.cfg.h5file))
+    getLogger(__name__).debug('Calling run on {}'.format(b.h5file))
     try:
         b.run()
     except Exception as e:
-        getLogger(__name__).critical('Caught exception during run of {}'.format(b.cfg.h5file), exc_info=True)
+        getLogger(__name__).critical('Caught exception during run of {}'.format(b.h5file), exc_info=True)
 
 
 def buildfromarray(array, config=None):
