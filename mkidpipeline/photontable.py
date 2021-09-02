@@ -989,7 +989,8 @@ class Photontable:
 
         torate = 1 / duration if cube_type != 'time' else 1 / np.diff(bins)
         hdul = fits.HDUList([fits.PrimaryHDU(header=header),
-                             fits.ImageHDU(data=data * torate if rate else data, header=hdr, name='SCIENCE'),
+                             fits.ImageHDU(data=[data[i] * torate[i] for i in range(len(torate))] if rate else data,
+                                           header=hdr, name='SCIENCE'),
                              fits.ImageHDU(data=np.sqrt(data), header=hdr, name='VARIANCE')] + bin_hdu + pixcal_hdu)
 
         getLogger(__name__).debug(f'FITS generated in {time.time()-tic:.0f} s')
