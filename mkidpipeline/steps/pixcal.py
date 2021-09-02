@@ -32,6 +32,7 @@ from mkidpipeline.utils import smoothing
 import mkidpipeline.config
 from mkidcore.pixelflags import FlagSet
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 
 def _calc_stdev(x):
     return np.nanstd(x) * _stddev_bias_corr((~np.isnan(x)).sum())
@@ -55,7 +56,9 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('use_weight', True, 'Use photon weights'),
                      ('remake', False, 'Remake the calibration even if it exists'),
                      ('n_sigma', 5.0, 'number of standard deviations above/below the expected value for which a pixel'
-                                      ' will be flagged as hot/cold'))
+                                      ' will be flagged as hot/cold'),
+                     ('plots', 'none', 'none|last|all')
+                     )
 
 
 TEST_CFGS= (StepConfig(method='median', step=30), StepConfig(method='laplacian', step=30),
@@ -63,8 +66,7 @@ TEST_CFGS= (StepConfig(method='median', step=30), StepConfig(method='laplacian',
 
 FLAGS = FlagSet.define(('hot', 1, 'Hot pixel'),
                        ('cold', 2, 'Cold pixel'),
-                       ('dead', 3, 'Dead pixel'),
-                       ('unstable', 4, 'unstable pixel'))
+                       ('dead', 3, 'Dead pixel'))
 
 
 def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
@@ -306,6 +308,30 @@ def laplacian(image, box_size=5, n_sigma=5.0, max_iter=5):
             'num_iter': iteration + 1}
 
 
+def plot_summary(masks, save_name=None):
+    hot = masks[: ,: ,0]
+    cold = masks[:, :, 1]
+    dead = masks[:, :, 2]
+    figure = plt.figure()
+    gs = gridspec.GridSpec(2, 2)
+    axes_list = np.array([figure.add_subplot(gs[0, 0]), figure.add_subplot(gs[0, 1]),
+                          figure.add_subplot(gs[1, 0]), figure.add_subplot(gs[1, 1])])
+    axes_list[0].imshow(hot)
+    axes_list[0].set_title('Hot Mask')
+    axes_list[1].imshow(cold)
+    axes_list[1].set_title('Cold Mask')
+    axes_list[2].imshow(dead)
+    axes_list[2].set_title('Dead Mask')
+    axes_list[0].tick_params(labelsize=8)
+    axes_list[1].tick_params(labelsize=8)
+    axes_list[2].tick_params(labelsize=8)
+    axes_list[3].tick_params(labelsize=8)
+    plt.tight_layout()
+    if save_name is not None:
+        plt.savefig(save_name)
+    return axes_list
+    
+
 def _compute_mask(pt, method, step, startt, stopt, methodkw, weight, n_sigma):
     try:
         func = globals()[method]
@@ -314,7 +340,7 @@ def _compute_mask(pt, method, step, startt, stopt, methodkw, weight, n_sigma):
 
     # Generate a stack of bad pixel mask, one for each time step
     img = pt.get_fits(start=startt, duration=stopt-startt, weight=weight, rate=False, cube_type='time', bin_width=step)
-    masks = np.zeros(img['SCIENCE'].data.shape+(4,), dtype=bool)
+    masks = np.zeros(img['SCIENCE'].data.shape+(3,), dtype=bool)
     for i, (sl, each_time) in enumerate(zip(img['SCIENCE'].data, img['CUBE_EDGES'].data.edges[:-1])):
         getLogger(__name__).info(f'Processing time slice: {each_time} - {each_time + step} s')
         result = func(sl, n_sigma=n_sigma, **methodkw)
@@ -322,8 +348,6 @@ def _compute_mask(pt, method, step, startt, stopt, methodkw, weight, n_sigma):
         masks[i, :, :, 1] = result['cold']
         masks[i, :, :, 2] = result['dead']
     mask = masks.all(axis=0) # all hot, all cold, or all dead
-    plt.imshow(mask[:,:,2])
-    mask[:,:,3] = (masks.any(axis=0) & ~mask).any(axis=2)  # and with any hot, any cold
     meta = dict(method=method, step=step)  # TODO flesh this out with pixcal fits keys
     meta.update(methodkw)
 
@@ -366,7 +390,12 @@ def apply(o, config=None):
     pt.flag(f.bitmask('pixcal.hot') * mask[:, :, 0])
     pt.flag(f.bitmask('pixcal.cold') * mask[:, :, 1])
     pt.flag(f.bitmask('pixcal.dead') * mask[:, :, 2])
-    pt.flag(f.bitmask('pixcal.unstable') * mask[:, :, 3])
     pt.update_header('pixcal', True)
     pt.disablewrite()
+    if config.pixcal.plots == 'last':
+        plot_summary(mask, save_name=config.paths.database + str(o.h5)[:-3] + '.pdf')
+    elif config.pixcal.plots =='all':
+        plot_summary(mask, save_name=config.paths.database + str(o.h5)[:-3] + '_pixcal.pdf')
+    else:
+        pass
     getLogger(__name__).info(f'Mask applied in {time.time() - tic:.3f}s')
