@@ -359,7 +359,7 @@ class LaserCalibrator(FlatCalibrator):
                                 wave_start=wvl_start, wave_stop=wvl_stop, cube_type='time')
 
             getLogger(__name__).info(f'Loaded {wvl.value:.1f} nm spectral cube')
-            cps_cube_list[:, :, :, w_idx] = np.moveaxis(hdul['SCIENCE'].data, 2, 0)
+            cps_cube_list[:, :, :, w_idx] = hdul['SCIENCE'].data
             self.mask[:, :, w_idx] = pt.flagged(PROBLEM_FLAGS)
         self.spectral_cube = cps_cube_list
         self.int_time = self.cfg.flatcal.chunk_time
