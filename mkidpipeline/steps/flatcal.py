@@ -612,12 +612,13 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
     getLogger(__name__).info(f'Applying flat weights to {n_todo} unflagged pixels ('
                              f'{100*n_todo/calsoln.beammap.size} % of pixels).')
     with of.needed_ram():
+        counter = 0
         for pixel, resid in of.resonators(exclude=PROBLEM_FLAGS, pixel=True):
             soln = calsoln.get(pixel=pixel, res_id=resid)
             if not soln:
+                counter += 1
                 getLogger(__name__).debug('No flat calibration for good pixel {}'.format(resid))
                 continue
-
             indices = of.photonTable.get_where_list('resID==resid')
             if not indices.size:
                 continue
@@ -636,7 +637,9 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
                 rows['weight'] *= soln(rows['wavelength'])
                 of.photonTable.modify_coordinates(indices, rows)
                 getLogger(__name__).debug('Flat weights updated in {:.2f}s'.format(time.time() - tic2))
-
+    getLogger(__name__).info(f'No flat calibration for '
+                             f'{(counter / len(list(of.resonators(exclude=PROBLEM_FLAGS, pixel=True)))) * 100:.2f}%'
+                             f'good pixels ')
     of.update_header('flatcal', calsoln.name)
     of.update_header('M_FLTCAL', o.flatcal.id)
     of.update_header('FLATCAL.METHOD', o.flatcal.method)
