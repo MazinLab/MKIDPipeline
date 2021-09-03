@@ -322,10 +322,16 @@ def plot_summary(masks, save_name=None):
     axes_list[1].set_title('Cold Mask')
     axes_list[2].imshow(dead)
     axes_list[2].set_title('Dead Mask')
+    axes_list[3].set_axis_off()
+    rows = ('Hot', 'Cold', 'Dead')
+    columns = ('Number (pixels)', 'Percent (%)')
+    data = np.array([[len(hot[hot==True]), round((len(hot[hot==True])/len(hot.flatten())) *100, 2)],
+                     [len(cold[cold==True]), round((len(cold[cold==True])/len(cold.flatten())) * 100, 2)],
+                     [len(dead[dead==True]), round((len(dead[dead==True])/len(dead.flatten())) * 100, 2)]])
+    plt.table(rowLabels=rows, colLabels=columns, loc=axes_list[3], cellText=data)
     axes_list[0].tick_params(labelsize=8)
     axes_list[1].tick_params(labelsize=8)
     axes_list[2].tick_params(labelsize=8)
-    axes_list[3].tick_params(labelsize=8)
     plt.tight_layout()
     if save_name is not None:
         plt.savefig(save_name)
@@ -393,9 +399,9 @@ def apply(o, config=None):
     pt.update_header('pixcal', True)
     pt.disablewrite()
     if config.pixcal.plots == 'last':
-        plot_summary(mask, save_name=config.paths.database + "/" + str(o.start) + '.pdf')
+        plot_summary(mask, save_name=config.paths.database + "/" + str(round(o.start)) + '.pdf')
     elif config.pixcal.plots =='all':
-        plot_summary(mask, save_name=config.paths.database + "/" + str(o.start) + '_pixcal.pdf')
+        plot_summary(mask, save_name=config.paths.database + "/" + str(round(o.start)) + '_pixcal.pdf')
     else:
         pass
     getLogger(__name__).info(f'Mask applied in {time.time() - tic:.3f}s')
