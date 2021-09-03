@@ -598,7 +598,7 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
 
     tic = time.time()
     calsoln = FlatSolution(o.flatcal.path)
-    getLogger(__name__).info(f'Applying {calsoln} to {o}')
+    getLogger(__name__).info(f'Applying {calsoln.name} to {o}')
 
     # Set flags for pixels that have them
     to_clear = of.flags.bitmask([f'flatcal.{flag.name}' for flag in FLAGS], unknown='ignore')
@@ -610,7 +610,7 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
 
     n_todo = len(list(of.resonators(exclude=PROBLEM_FLAGS)))
     getLogger(__name__).info(f'Applying flat weights to {n_todo} unflagged pixels ('
-                             f'{100*n_todo/calsoln.beammap.size} % of pixels).')
+                             f'{100*(n_todo/calsoln.beammap.size):.2f} % of pixels).')
     with of.needed_ram():
         counter = 0
         for pixel, resid in of.resonators(exclude=PROBLEM_FLAGS, pixel=True):
@@ -638,7 +638,7 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
                 of.photonTable.modify_coordinates(indices, rows)
                 getLogger(__name__).debug('Flat weights updated in {:.2f}s'.format(time.time() - tic2))
     getLogger(__name__).info(f'No flat calibration for '
-                             f'{(counter / len(list(of.resonators(exclude=PROBLEM_FLAGS, pixel=True)))) * 100:.2f}%'
+                             f'{(counter / len(list(of.resonators(exclude=PROBLEM_FLAGS, pixel=True)))) * 100:.2f} % '
                              f'good pixels ')
     of.update_header('flatcal', calsoln.name)
     of.update_header('M_FLTCAL', o.flatcal.id)
