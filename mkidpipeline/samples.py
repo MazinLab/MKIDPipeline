@@ -50,8 +50,8 @@ SAMPLEDATA = {'default': (
     # Speccal
     config.MKIDSpeccalDescription(name=_namer('speccal'),
                                   data=config.MKIDObservation(name=_namer('star'), start=1602049166, duration=10,
-                                                              wavecal='wavecal0', spectrum='qualified/path/or/relative/'
-                                                                                           'todatabase/refspec.file'),
+                                                              wavecal='wavecal0',
+                                                              spectrum=pkg_resources.resource_filename('mkidpipeline', 'sample_spectrum.txt')),
                                   aperture=('15h22m32.3', '30.32 deg', '200 mas')),
 
     # WCS cal
