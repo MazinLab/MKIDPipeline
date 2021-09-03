@@ -393,9 +393,9 @@ def apply(o, config=None):
     pt.update_header('pixcal', True)
     pt.disablewrite()
     if config.pixcal.plots == 'last':
-        plot_summary(mask, save_name=config.paths.database + str(o.start) + '.pdf')
+        plot_summary(mask, save_name=config.paths.database + "/" + str(o.start) + '.pdf')
     elif config.pixcal.plots =='all':
-        plot_summary(mask, save_name=config.paths.database + str(o.start) + '_pixcal.pdf')
+        plot_summary(mask, save_name=config.paths.database + "/" + str(o.start) + '_pixcal.pdf')
     else:
         pass
     getLogger(__name__).info(f'Mask applied in {time.time() - tic:.3f}s')
