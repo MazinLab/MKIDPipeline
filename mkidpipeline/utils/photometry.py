@@ -308,7 +308,7 @@ def PHEONIX_to_txt(flux_fits, wave_fits, save_file, normalization_band, normaliz
     flux_hdu = fits.open(flux_fits)
     wav_hdu = fits.open(wave_fits)
     # fluxes in flux_hdu have units erg/cm^2/s/cm
-    orig_fluxes = flux_hdu[0].data * 10e-8
+    orig_fluxes = flux_hdu[0].data * 1e-8
     # now in erg/cm^2/s/A
     orig_wavs = wav_hdu[0].data
     if output_wvls is None:
