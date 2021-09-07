@@ -304,7 +304,7 @@ class WhiteCalibrator(FlatCalibrator):
         for i, (wstart, wstop) in enumerate(zip(wvl_edges[:-1], wvl_edges[1:])):
             hdul = pt.get_fits(duration=self.h5s.duration, rate=True, bin_edges=time_edges, wave_start=wstart,
                                wave_stop=wstop, cube_type='time')
-            cps_cube_list[:,:,:,i] = np.moveaxis(hdul['SCIENCE'].data, 2, 0)  # moveaxis for code compatibility
+            cps_cube_list[:,:,:,i] = hdul['SCIENCE'].data  # moveaxis for code compatibility
         getLogger(__name__).info(f'Loaded spectral cubes')
         self.spectral_cube = cps_cube_list  # n_times, x, y, n_wvls
         self.int_time = time_edges[1] - time_edges[0]
