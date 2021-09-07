@@ -396,12 +396,13 @@ def apply(o, config=None):
     pt.flag(f.bitmask('pixcal.hot') * mask[:, :, 0])
     pt.flag(f.bitmask('pixcal.cold') * mask[:, :, 1])
     pt.flag(f.bitmask('pixcal.dead') * mask[:, :, 2])
+    pt.attach_observing_metadata(meta)
     pt.update_header('pixcal', True)
     pt.disablewrite()
     if config.pixcal.plots == 'last':
-        plot_summary(mask, save_name=config.paths.database + "/" + str(round(o.start)) + '.pdf')
+        plot_summary(mask, save_name=config.paths.database + "/last_pixcal_masks.pdf")
     elif config.pixcal.plots =='all':
-        plot_summary(mask, save_name=config.paths.database + "/" + str(round(o.start)) + '_pixcal.pdf')
+        plot_summary(mask, save_name=config.paths.database + "/" + str(round(o.start)) + "_pixcal_masks.pdf")
     else:
         pass
     getLogger(__name__).info(f'Mask applied in {time.time() - tic:.3f}s')
