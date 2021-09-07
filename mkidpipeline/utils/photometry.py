@@ -19,7 +19,7 @@ from astropy.modeling import fitting
 from astropy.modeling.models import *
 import matplotlib.pyplot as plt
 from scipy.interpolate import griddata
-
+from astropy.io import fits
 
 def get_aperture_radius(lam, platescale):
     """
@@ -290,3 +290,47 @@ def racetrack_aper(img, imgspare, x_guess, y_guess, rotang, aper_radii, halfleng
     imgspare[source] = 10000
     return flux, imgspare
 
+def PHEONIX_to_txt(flux_fits, wave_fits, save_file, normalization_band, normalization_flux, output_wvls=None):
+    """
+    Converts the outputs of the PHEONIX stellar model library (https://phoenix.astro.physik.uni-goettingen.de/) to a
+    two column array (and saves the output as a two column text file) that is compatible with the speccal step of the
+    mkidpipeline
+    :param flux_fits: file path to the flux output of the PHEONIX models
+    :param wave_fits: file path to the wavelength output of the PHEONIX models
+    :param save_file: file path to save output two column spectrum txt file
+    :param normalization_band: array, stop and start wavelength of band to use for normalization (in Angstroms)
+    :param normalization_flux: integrated flux value over the normalization band (erg/s/cm^2/A)
+    :param output_wvls: array, start and stop wavelength to use for output spectrum. Defaults to whole range of PHEONIX
+    spectrum
+    :return: two column array where first dimension is the spectrum wavelengths in angstroms and the second is the flux
+    values in erg/cm^2/s/A
+    """
+    flux_hdu = fits.open(flux_fits)
+    wav_hdu = fits.open(wave_fits)
+    # fluxes in flux_hdu have units erg/cm^2/s/cm
+    orig_fluxes = flux_hdu[0].data * 10e-8
+    # now in erg/cm^2/s/A
+    orig_wavs = wav_hdu[0].data
+    if output_wvls is None:
+        output_wvls = np.array([orig_wavs[0],orig_wavs[-1]])
+    wav_idxs = np.where(np.logical_and(output_wvls[0] < orig_wavs, orig_wavs < output_wvls[1]))
+    w = orig_wavs[wav_idxs]
+    crop_fluxes = orig_fluxes[wav_idxs]
+
+    # determine numerator and denominator for normalization factor (dividing flux densities at 1.25 um)
+    i = np.where(np.logical_and(orig_wavs>normalization_band[0], orig_wavs<normalization_band[-1]))
+    denom = np.mean(orig_fluxes[i])
+    num = normalization_flux
+    f = np.zeros_like(crop_fluxes)
+    for i, flux in enumerate(crop_fluxes):
+        a = num / denom
+        corrected_flux = flux * a
+        f[i] = corrected_flux
+    #save data to a two column text file
+    data = np.array([w, f])
+    data = data.T
+    datafile_path = save_file
+    with open(datafile_path, 'w+') as datafile_id:
+        np.savetxt(datafile_id, data)
+    # return the data
+    return data
