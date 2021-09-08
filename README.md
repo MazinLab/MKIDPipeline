@@ -52,7 +52,15 @@ the other two are in mkidpipeline.config. Data and output yaml files can be vett
 
 To build and reduce this dataset open pipe.yaml and make sure you are happy with the default paths, these are sensible if you are working on GLADoS. On dark you'll want to change the `darkdata` folder to `data`. If the various output paths don't exist they will be created, though permissions issues could cause unexpected results. Using a shared database location might save you some time and is strongly encouraged at least across all of your pipeline runs (consider collaborating even with other users)! Outputs will be placed into a generated directory structure under `out` and WILL clobber existing files with the same name.
 
-See `mkidpipe --help` for more options.
+To generate all necessary directories as specified in the pipe.yaml, run
+
+`mkidpipe --make-dir`
+
+To run the full calibration pipeline and generate specified outputs, use 
+
+`mkidpipe --make-outputs` in the directory containing the three yaml files.
+
+See `mkidpipe --help` for more options, including how to run a single step or specify yaml files in different directories.
 
 After a while (~TODO hours with the defaults) you should have some outputs to look at. To really get going you'll now need to use observing logs to figure out what your data.yaml and out.yaml should contain you want to work with. Look for good seeing conditions and note the times of the nearest laser cals.
 
