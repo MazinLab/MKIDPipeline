@@ -1465,7 +1465,7 @@ class MKIDOutput(DataBase):
             if self.kind in ('stack', 'drizzle', 'image', 'scube', 'tcube'):
                 ext = 'fits'
             else:
-                ext = 'gif' if self.kind == 'movie' else 'h5'
+                ext = self.movie_format if self.kind == 'movie' else 'h5'
             file = f'{self.name}_{self.kind}.{ext}'
 
         if os.pathsep in file:
