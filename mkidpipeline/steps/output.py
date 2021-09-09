@@ -17,6 +17,9 @@ StepConfig = None
 
 def generate(outputs: config.MKIDOutputCollection):
     for o in outputs:
+        if os.path.exists(o.filename):
+            getLogger(__name__).info(f'Output {o.filename} for {o.name} already exists. Skipping')
+            continue
         # TODO make into a batch process
         getLogger(__name__).info('Generating {}'.format(o.name))
         if o.wants_image:
@@ -52,9 +55,6 @@ def generate(outputs: config.MKIDOutputCollection):
             mkidpipeline.steps.movies.fetch(o, **o.output_settings_dict)
 
         if o.wants_drizzled:
-            if os.path.exists(o.filename):
-                getLogger(__name__).info(f'Output {o.filename} for {o.name} already exists. Skipping')
-                continue
             config = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(drizzler=mkidpipeline.steps.drizzler.StepConfig()),
                                                                copy=True)
             kwargs = o.output_settings_dict
