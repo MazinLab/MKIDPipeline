@@ -103,7 +103,7 @@ class PipeConfig(BaseStepConfig):
     yaml_tag = u'!pipe_cfg'
     REQUIRED_KEYS = (('ncpu', 1, 'number of cpus'),
                      ('verbosity', 0, 'level of verbosity'),
-                     ('flow', ('metadata', 'wavecal', 'pixcal', 'flatcal', 'cosmiccal', 'photcal'),
+                     ('flow', ('metadata', 'wavecal', 'pixcal', 'flatcal', 'cosmiccal', 'speccal'),
                       'Calibration steps to apply'),
                      ('paths.data', '/darkdata/ScienceData/Subaru/',
                       'bin file parent folder, must contain YYYYMMDD/*.bin and YYYYMMDD/logs/'),
