@@ -247,7 +247,7 @@ class SpectralCalibrator:
                 getLogger(__name__).info('using wavelength range {} - {}'
                                          .format(self.wvl_bin_edges[wvl].to(u.nm).value,
                                                  self.wvl_bin_edges[wvl + 1].to(u.nm).value))
-                drizzled = form(self.data, mode='spatial', wave_start=self.wvl_bin_edges[wvl].to(u.nm).value,
+                drizzled = form(self.data, mode='drizzle', wave_start=self.wvl_bin_edges[wvl].to(u.nm).value,
                                 wave_stop=self.wvl_bin_edges[wvl + 1].to(u.nm).value, pixfrac=0.5,
                                 wcs_timestep=1, exclude_flags=PROBLEM_FLAGS, usecache=False,
                                 duration=min([o.duration for o in self.data.obs]), ncpu=self.ncpu,
