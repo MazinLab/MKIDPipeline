@@ -47,6 +47,8 @@ def generate(outputs: config.MKIDOutputCollection):
                 getLogger(__name__).info(f'Output {file} for {o.name} generated')
 
         if o.wants_movie:
+            if o.output_settings_dict['time_bin_width'] == 0.0:
+                raise ValueError(f'need to specify a timestep for {o.name} of output type {o.kind}')
             mkidpipeline.steps.movies.fetch(o, **o.output_settings_dict)
 
         if o.wants_drizzled:
