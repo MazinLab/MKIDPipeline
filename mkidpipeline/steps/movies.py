@@ -76,7 +76,6 @@ def _fetch_data(file, timestep, start=0, stop=np.inf, min_wave=None, max_wave=No
         exp_time = hdul['CUBE_EDGES'].data.edges * u.Quantity(f"1 {hdul['CUBE_EDGES'].header['UNIT']}").to('s').value
         frames = hdul['SCIENCE'].data * (exp_time if cps else 1)
         time_mask = (exp_time >= start) & (exp_time <= stop)
-        frames = np.rollaxis(frames, -1)
         assert time_mask.size == frames.shape[0] + 1
     except KeyError:
         getLogger(__name__).error('FITS data in invalid format')
@@ -137,7 +136,6 @@ def _save_frames(frames, movie_duration, units, suptitle='', movie_type='simple'
     movie_type = simple|upramp|both
     units must have '/s' in it if data is in per second form
     """
-
     origin = 'lower'
     movie_type = movie_type.lower()
 
@@ -167,8 +165,13 @@ def _save_frames(frames, movie_duration, units, suptitle='', movie_type='simple'
         plt.suptitle(suptitle)
 
     if showaxes:
-        for ax in axs:
-            plt.sca(ax)
+        if movie_type == 'both':
+            for ax in axs:
+                plt.sca(ax)
+                plt.xlabel('RA' if wcs else 'pixel')
+                plt.ylabel('Dec' if wcs else 'pixel')
+        else:
+            plt.sca(axs)
             plt.xlabel('RA' if wcs else 'pixel')
             plt.ylabel('Dec' if wcs else 'pixel')
     else:
@@ -202,26 +205,38 @@ def _save_frames(frames, movie_duration, units, suptitle='', movie_type='simple'
         frame_data = frames
 
     with writer.saving(fig, outfile, dpi):#, frames[0].shape[1] * 2): #TODO
-
         img = []
-        for ax, frame_im, name, cbmax, norm in zip(axs, frame_data[0], image_names, cbmaxs, norms):
-            img.append(ax.imshow(frame_im, cmap=cmap, norm=norm, interpolation=interpolation, origin=origin))
-            img[-1].cmap.set_bad(bad_color)
-            ax.set_title(name)
-            cbar = fig.colorbar(frame_im, ax=ax, location='bottom', shrink=0.7, ticks=[0, cbmax])
-            cbar.set_label(units)
-            # ticks = cbar.get_ticks()
-            # cbar.set_ticks(ticks)
-            # cbar.set_ticklabels(list(map('{:.0f}'.format, ticks)))  #TODO
+        if movie_type == 'both':
+            for ax, frame_im, name, cbmax, norm in zip(axs, frame_data[0], image_names, cbmaxs, norms):
+                img.append(ax.imshow(frame_im, cmap=cmap, norm=norm, interpolation=interpolation, origin=origin))
+                img[-1].cmap.set_bad(bad_color)
+                ax.set_title(name)
+                cbar = fig.colorbar(img[-1], ax=ax, location='bottom', shrink=0.9, pad=0.2, ticks=[0, cbmax])
+                cbar.set_label(units)
+                # ticks = cbar.get_ticks()
+                # cbar.set_ticks(ticks)
+                # cbar.set_ticklabels(list(map('{:.0f}'.format, ticks)))  #TODO
+        else:
+            for frame_im, name, cbmax, norm in zip(frame_data, image_names, cbmaxs, norms):
+                img.append(axs.imshow(frame_im, cmap=cmap, norm=norm, interpolation=interpolation, origin=origin))
+                img[-1].cmap.set_bad(bad_color)
+                axs.set_title(name)
+                for im in img:
+                    cbar = fig.colorbar(im, ax=axs, location='bottom', shrink=0.9, pad=0.2, ticks=[0, cbmax])
+                cbar.set_label(units)
 
-        plt.tight_layout()
+        # plt.tight_layout(pad=1.0)
         writer.grab_frame()
 
         for i, frame_im in enumerate(frame_data[1:]):
             if not (i + 1 % 10):
                 getLogger(__name__).debug(f"Frame {i + 1} of {nframes}")
-            for im, data in zip(img, frame_im):
-                im.set_data(data)
+            try:
+                for im, data in zip(img, frame_im):
+                    im.set_data(data)
+            except TypeError:
+                for im in zip(img):
+                    im[0].set_data(frame_im)
             writer.grab_frame()
 
 
@@ -240,7 +255,7 @@ def fetch(out, **kwargs):
     if movietype not in ('.mp4', '.gif'):
         raise ValueError('Only mp4 and gif movies are supported')
 
-    frames, times, hdul = _fetch_data(file, outcfg.bin_width, start=outcfg.start, stop=outcfg.start+outcfg.duration,
+    frames, times, hdul = _fetch_data(file, outcfg.time_bin_width, start=outcfg.start, stop=outcfg.start+outcfg.duration,
                                       min_wave=outcfg.wave_start, max_wave=outcfg.wave_stop, use_weights=outcfg.weight,
                                       cps=outcfg.rate, exclude_flags=outcfg.exclude_flags)
 
@@ -250,7 +265,7 @@ def fetch(out, **kwargs):
     if np.isinf(outcfg.wave_start) | np.isinf(outcfg.wave_stop):
         wavestr = f" {outcfg.wave_start} - {outcfg.max_wave:.0f} nm"
 
-    description = f't0={times[0]:.0f} dt={outcfg.bin_width:.1f}s{wavestr}'
+    description = f't0={times[0]:.0f} dt={outcfg.time_bin_width:.1f}s{wavestr}'
 
     if not frames.size:
         getLogger(__name__).warning(f'No frames in {outcfg.start}-{outcfg.stop} for {file}')
