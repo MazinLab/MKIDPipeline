@@ -781,7 +781,7 @@ stdrizzle.Drizzle.increment_id = _increment_id
 
 
 def form(dither, mode='drizzler', derotate=True, wave_start=None, wave_stop=None, start=0, duration=None, pixfrac=.5,
-         wvl_bin_width=0.0, time_bin_width=0.0, wcs_timestep=1., usecache=True, ncpu=None,
+         wvl_bin_width=0.0*u.nm, time_bin_width=0.0, wcs_timestep=1., usecache=True, ncpu=None,
          exclude_flags=PROBLEM_FLAGS + EXCLUDE, whitelight=False, align_start_pa=False, debug_dither_plot=False,
          save_steps=False, output_file='',
          weight=False):
