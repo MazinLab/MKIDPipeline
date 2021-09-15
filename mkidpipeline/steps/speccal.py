@@ -643,7 +643,7 @@ def apply(fits_file, wvl_bins, solution='', overwrite=False):
     """
     ff = fits.open(fits_file)
     hdr = fits.getheader(fits_file, 0)
-    if hdr['M_SPECAL'] is not None:
+    if hdr['E_SPECAL'] is not None:
         getLogger(__name__).info(f'{fits_file} already flux calibrated, skipping calibration.')
         flux_calibrated_cube = ff[1].data
         return flux_calibrated_cube
@@ -682,7 +682,7 @@ def apply(fits_file, wvl_bins, solution='', overwrite=False):
         for wvl, cube in enumerate(s_cube):
             flux_calibrated_cube[wvl] = s_cube[wvl] * np.full(s_cube[wvl].shape, curve(wvl_bin_centers[wvl]))
     ff[1].data = flux_calibrated_cube
-    fits.setval(fits_file, 'M_SPECAL', value=str(soln.name))
+    fits.setval(fits_file, 'E_SPECAL', value=str(soln.name))
     if overwrite:
         ff.writeto(fits_file)
     else:

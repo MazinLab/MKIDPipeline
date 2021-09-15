@@ -641,6 +641,6 @@ def apply(o: mkidpipeline.config.MKIDObservation, config=None):
                              f'{(counter / len(list(of.resonators(exclude=PROBLEM_FLAGS, pixel=True)))) * 100:.2f} % '
                              f'good pixels ')
     of.update_header('flatcal', calsoln.name)
-    of.update_header('M_FLTCAL', o.flatcal.id)
+    of.update_header('E_FLTCAL', o.flatcal.id)
     of.update_header('FLATCAL.METHOD', o.flatcal.method)
     getLogger(__name__).info('Flatcal applied in {:.2f}s'.format(time.time() - tic))

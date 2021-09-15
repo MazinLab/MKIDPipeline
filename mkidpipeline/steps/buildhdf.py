@@ -116,7 +116,7 @@ def _build_pytables(filename, bmap, instrument, datadir, starttime, inttime, inc
     headerContents['UNIXSTR'] = starttime
     headerContents['UNIXEND'] = starttime + inttime
     headerContents['EXPTIME'] = inttime
-    headerContents['M_BMAP'] = bmap.file
+    headerContents['E_BMAP'] = bmap.file
     headerContents['max_wavelength'] = instrument.maximum_wavelength
     headerContents['min_wavelength'] = instrument.minimum_wavelength
     headerContents['energy_resolution'] = instrument.energy_bin_width_ev
