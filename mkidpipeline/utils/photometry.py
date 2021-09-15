@@ -20,6 +20,7 @@ from astropy.modeling.models import *
 import matplotlib.pyplot as plt
 from scipy.interpolate import griddata
 from astropy.io import fits
+from photutils.psf import IterativelySubtractedPSFPhotometry
 
 def get_aperture_radius(lam, platescale):
     """
@@ -334,3 +335,33 @@ def PHEONIX_to_txt(flux_fits, wave_fits, save_file, normalization_band, normaliz
         np.savetxt(datafile_id, data)
     # return the data
     return data
+
+def fit_sources(image, sigma_psf, guesses=None):
+    """
+
+    :param image:
+    :param sigma_psf:
+    :param guesses:
+    :return:
+    """
+    image[image == 0] = np.nan
+    bkgrms = MADStdBackgroundRMS()
+    std = bkgrms(image)
+    iraffind = IRAFStarFinder(threshold = 2.0 * std, fwhm = sigma_psf * gaussian_sigma_to_fwhm, minsep_fwhm = 0.01, #threshold=3.5
+                              roundhi = 5.0, roundlo = -5.0, sharplo = 0.0, sharphi = 2.0)
+    daogroup = DAOGroup(2.0 * sigma_psf * gaussian_sigma_to_fwhm)
+    mmm_bkg = MMMBackground()
+    fitter = LevMarLSQFitter()
+    psf_model = IntegratedGaussianPRF(sigma=sigma_psf)
+    photometry = IterativelySubtractedPSFPhotometry(finder=iraffind, group_maker = daogroup, bkg_estimator = mmm_bkg,
+                                                    psf_model = psf_model, fitter = fitter, niters = 3,
+                                                    fitshape = (11, 11), aperture_radius=2.0)
+    if guesses is not None:
+        x0 = [guess[0] for guess in guesses]
+        y0 = [guess[1] for guess in guesses]
+        pos = Table(names=['x_0', 'y_0'], data=[x0, y0])
+        result_tab = photometry(image=image, init_guesses=pos)
+    else:
+        result_tab = photometry(image=image)
+    residual_image = photometry.get_residual_image()
+    return result_tab, residual_image
