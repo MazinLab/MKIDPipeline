@@ -2733,7 +2733,7 @@ def apply(o):
         resdata['r_err'] = scipy.stats.median_abs_deviation(powers, axis=0, nan_policy='omit')
         resdata['wave'] = np.asarray(solution.cfg.wavelengths)
         obs.update_header('wavecal.resolution', resdata)
-        obs.update_header('M_WAVCAL', o.wavecal.id)
+        obs.update_header('E_WAVCAL', o.wavecal.id)
 
         obs.photonTable.reindex_dirty()  # recompute "dirty" wavelength index
         obs.photonTable.autoindex = True  # turn on auto-indexing

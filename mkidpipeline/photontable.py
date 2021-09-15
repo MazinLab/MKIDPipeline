@@ -737,9 +737,9 @@ class Photontable:
                 md = self.metadata(t)
                 # we want to inherit defaults for ref values
                 head = mkidcore.metadata.build_header(md, unknown_keys='ignore')
-                ref_pixels.append(compute_wcs_ref_pixel((md['M_CONEXX'], md['M_CONEXY']),
-                                                        reference_pixel=(head['M_PREFX'], head['M_PREFY']),
-                                                        reference=(head['M_CXREFX'], head['M_CXREFY'])))
+                ref_pixels.append(compute_wcs_ref_pixel((md['E_CONEXX'], md['E_CONEXY']),
+                                                        reference_pixel=(head['E_PREFX'], head['E_PREFY']),
+                                                        reference=(head['E_CXREFX'], head['E_CXREFY'])))
         except KeyError:
             getLogger(__name__).warning('Insufficient data to build a WCS solution, conex info missing')
             return None
@@ -934,7 +934,7 @@ class Photontable:
 
         md = self.metadata(timestamp=start)
 
-        md['M_H5FILE'] = self.filename
+        md['E_H5FILE'] = self.filename
         md['UNIXSTR'] = time_nfo['start']
         md['UNIXEND'] = time_nfo['stop']
         md['EXPTIME'] = time_nfo['duration']

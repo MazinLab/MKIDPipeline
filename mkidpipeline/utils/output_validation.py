@@ -73,20 +73,20 @@ def calibration_steps(o):
     hdul = fits.open(o.filename)
     hdr = hdul[0].header
     if o.flatcal:
-        if 'M_FLTCAL' not in hdr:
-            getLogger(__name__).warning(f'M_FLTCAL not in fits header')
-        elif hdr['M_FLTCAL'] == 'none':
-            getLogger(__name__).warning(f'M_FLTCAL has no associated flatcal UUID and one is expected')
+        if 'E_FLTCAL' not in hdr:
+            getLogger(__name__).warning(f'E_FLTCAL not in fits header')
+        elif hdr['E_FLTCAL'] == 'none':
+            getLogger(__name__).warning(f'E_FLTCAL has no associated flatcal UUID and one is expected')
     if o.data.wavecal:
-        if 'M_WAVCAL' not in hdr:
-            getLogger(__name__).warning(f'M_WAVCAL not in fits header')
-        elif hdr['M_WAVCAL'] == 'none':
-            getLogger(__name__).warning(f'M_WAVCAL has no associated wavecal UUID and one is expected')
+        if 'E_WAVCAL' not in hdr:
+            getLogger(__name__).warning(f'E_WAVCAL not in fits header')
+        elif hdr['E_WAVCAL'] == 'none':
+            getLogger(__name__).warning(f'E_WAVCAL has no associated wavecal UUID and one is expected')
     if o.data.wavecal:
-        if 'M_WCSCAL' not in hdr:
-            getLogger(__name__).warning(f'M_WCSCAL not in fits header')
-        elif hdr['M_WCSCAL'] == 'none':
-            getLogger(__name__).warning(f'M_WCSCAL has no associated wcscal UUID and one is expected')
+        if 'E_WCSCAL' not in hdr:
+            getLogger(__name__).warning(f'E_WCSCAL not in fits header')
+        elif hdr['E_WCSCAL'] == 'none':
+            getLogger(__name__).warning(f'E_WCSCAL has no associated wcscal UUID and one is expected')
 
 
 def wcs(o):

@@ -95,25 +95,25 @@ def calibration_steps(o):
     hdul = fits.open(o.filename)
     hdr = hdul[0].header
     if o.flatcal:
-        if 'M_FLTCAL' not in hdr:
-            logging.warning(f'M_FLTCAL not in fits header')
-        elif hdr['M_FLTCAL'] == 'none':
-            logging.warning(f'M_FLTCAL has no associated flatcal UUID and one is expected')
+        if 'E_FLTCAL' not in hdr:
+            logging.warning(f'E_FLTCAL not in fits header')
+        elif hdr['E_FLTCAL'] == 'none':
+            logging.warning(f'E_FLTCAL has no associated flatcal UUID and one is expected')
     if o.data.wavecal:
-        if 'M_WAVCAL' not in hdr:
-            logging.warning(f'M_WAVCAL not in fits header')
-        elif hdr['M_WAVCAL'] == 'none':
-            logging.warning(f'M_WAVCAL has no associated wavecal UUID and one is expected')
+        if 'E_WAVCAL' not in hdr:
+            logging.warning(f'E_WAVCAL not in fits header')
+        elif hdr['E_WAVCAL'] == 'none':
+            logging.warning(f'E_WAVCAL has no associated wavecal UUID and one is expected')
     if o.data.wavecal:
-        if 'M_WCSCAL' not in hdr:
-            logging.warning(f'M_WCSCAL not in fits header')
-        elif hdr['M_WCSCAL'] == 'none':
-            logging.warning(f'M_WCSCAL has no associated wcscal UUID and one is expected')
+        if 'E_WCSCAL' not in hdr:
+            logging.warning(f'E_WCSCAL not in fits header')
+        elif hdr['E_WCSCAL'] == 'none':
+            logging.warning(f'E_WCSCAL has no associated wcscal UUID and one is expected')
     if o.data.speccal:
-        if 'M_SPECAL' not in hdr:
-            logging.warning(f'M_SPECAL not in fits header')
-        elif hdr['M_SPECAL'] == 'none':
-            logging.warning(f'M_SPECAL has no associated speccal UUID and one is expected')
+        if 'E_SPECAL' not in hdr:
+            logging.warning(f'E_SPECAL not in fits header')
+        elif hdr['E_SPECAL'] == 'none':
+            logging.warning(f'E_SPECAL has no associated speccal UUID and one is expected')
 
 
 def wcs(o):

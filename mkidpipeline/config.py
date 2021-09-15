@@ -560,7 +560,7 @@ class MKIDObservation(MKIDTimerange):
     @property
     def dither_pos(self):
         """Returns the (x,y) position of the CONEX mirror when the data was taken"""
-        return np.array([self._metadata['M_CONEXX'], self._metadata['M_CONEXY']])
+        return np.array([self._metadata['E_CONEXX'], self._metadata['E_CONEXY']])
 
     @property
     def skycoord(self):
