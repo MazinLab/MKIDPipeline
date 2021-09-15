@@ -6,7 +6,14 @@ from scipy.interpolate import griddata
 import scipy.integrate
 import astropy
 import warnings
+from astropy.convolution import convolve
+from astropy.convolution import Gaussian2DKernel
 
+
+def astropy_convolve(image, x_stddev=1.0):
+    kernel = Gaussian2DKernel(x_stddev=x_stddev)
+    astropy_conv = convolve(image, kernel)
+    return astropy_conv
 
 def smooth(x, window_len=11, window='hanning'):
     """
