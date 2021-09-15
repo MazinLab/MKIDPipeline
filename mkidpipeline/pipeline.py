@@ -109,7 +109,6 @@ def batch_apply_metadata(dset):
         o.enablewrite()
         o.attach_observing_metadata(tr.metadata)
         o.disablewrite()
-        del o
 
 
 def batch_apply_wavecals(dset, ncpu=None):

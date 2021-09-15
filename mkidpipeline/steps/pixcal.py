@@ -74,6 +74,16 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
     Compares the ratio of flux in each pixel to the median of the flux in an enclosing box. If the ratio is too high
      -- i.e. the flux is too tightly distributed compared to a Gaussian PSF of the expected FWHM -- then the pixel is
       flagged as HOT.
+
+    Calculate difference between flux in each pixel and max_ratio * the median in the enclosing box.
+    Also calculate the error that would exist in a measurement of a pixel that *was* at the peak of a real PSF
+    Condition for flagging is:
+           (flux - background)/(box median - background) > max_ratio.
+    Or:
+           flux > max_ratio*median - background*(max_ratio-1)
+    If the threshold is *lower* than the background, then set it equal to the background level instead
+    (a pixel below the background level is unlikely to be hot!)
+
     :param image: 2D image array of photons (in counts)
     :param fwhm: estimated full-width-half-max of the PSF (in pixels)
     :param box_size: in pixels
@@ -122,15 +132,6 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
             # Estimate the background std. dev.
             std_filter_image = smoothing.nearest_n_robust_sigma_filter(raw_image, n=box_size ** 2 - 1)
 
-            # Calculate difference between flux in each pixel and max_ratio * the median in the enclosing box.
-            # Also calculate the error that would exist in a measurement of a pixel that *was* at the peak of a real PSF
-            # Condition for flagging is:
-            #        (flux - background)/(box median - background) > max_ratio.
-            # Or:
-            #        flux > max_ratio*median - background*(max_ratio-1)
-            # If the threshold is *lower* than the background, then set it equal to the background level instead
-            # (a pixel below the background level is unlikely to be hot!)
-            # TODO move above to better documentation location
             threshold = max_ratio * median_filter_image - (max_ratio - 1) * median_bkgd
             idx = np.where(threshold < median_bkgd)
             threshold[idx] = median_bkgd
@@ -291,7 +292,8 @@ def laplacian(image, box_size=5, n_sigma=5.0, max_iter=5):
             cold_mask = (laplacian_filter_image > cold_threshold) | reference_cold_mask
 
             # If no change between between this and the last iteration then stop iterating
-            if np.all(hot_mask == reference_hot_mask) and np.all(cold_mask == reference_cold_mask): break
+            if np.all(hot_mask == reference_hot_mask) and np.all(cold_mask == reference_cold_mask):
+                break
 
             # Otherwise update 'reference_hot_mask' and set all detected bad pixels to NaN for the next iteration
             reference_hot_mask = np.copy(hot_mask)
@@ -336,7 +338,7 @@ def plot_summary(masks, save_name=None):
     if save_name is not None:
         plt.savefig(save_name)
     return axes_list
-    
+
 
 def _compute_mask(pt, method, step, startt, stopt, methodkw, weight, n_sigma):
     try:
@@ -354,8 +356,9 @@ def _compute_mask(pt, method, step, startt, stopt, methodkw, weight, n_sigma):
         masks[i, :, :, 1] = result['cold']
         masks[i, :, :, 2] = result['dead']
     mask = masks.all(axis=0) # all hot, all cold, or all dead
-    meta = dict(method=method, step=step)  # TODO flesh this out with pixcal fits keys
-    meta.update(methodkw)
+    meta = {'pixcal.method':method, 'pixcal.step':step}
+    for k in methodkw:
+        meta[f'pixcal.m_{k}']=methodkw[k]
 
     return mask, meta
 

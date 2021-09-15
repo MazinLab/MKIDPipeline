@@ -172,7 +172,7 @@ class FlatCalibrator:
             weight_mask[iCube] = (~np.isfinite(wvl_weights)) | (wvl_weights <= 0)
             self.mask |= weight_mask[iCube]
             flat_weights[iCube] = wvl_weights
-            # To get uncertainty in weight:
+            # Note to get uncertainty in weight:
             # Assuming negligible uncertainty in medians compared to single pixel spectra,
             # then deltaWeight=weight*deltaSpectrum/Spectrum
             # deltaWeight=weight*deltaRawCounts/RawCounts

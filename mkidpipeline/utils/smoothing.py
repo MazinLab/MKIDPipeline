@@ -31,7 +31,6 @@ def smooth(x, window_len=11, window='hanning'):
         np.hanning, np.hamming, np.bartlett, np.blackman, np.convolve
         scipy.signal.lfilter
 
-    TODO: the window parameter could be the window itself if an array instead of a string
     """
     if x.ndim != 1:
         raise ValueError("smooth only accepts 1 dimension arrays.")
@@ -88,7 +87,7 @@ def gaussian_convolution(x, y, x_en_min=0.005, x_en_max=6.0, x_de=0.001, flux_un
     # ============  regrid to a constant energy spacing for convolution  ===============
     x_nu_grid = np.arange(x_en_min, x_en_max, x_de) / heV  # make new x-axis gridding in constant freq bins
     y_nu_grid = griddata(x_nu, y_nu, x_nu_grid, 'linear', fill_value=0)
-    x_nu_grid = x_nu_grid[1:-1]  # remove weird effects with first and last values #TODO figure out why this is happening
+    x_nu_grid = x_nu_grid[1:-1]  # remove weird effects with first and last values
     y_nu_grid = y_nu_grid[1:-1]
     if plots:
         plt.plot(x_nu_grid, y_nu_grid, label="Spectrum in energy space")

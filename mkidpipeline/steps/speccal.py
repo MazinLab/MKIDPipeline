@@ -71,7 +71,15 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('wvl_bin_edges', [], 'list of wavelength bin edges to use for determining the solution'
                                            ' (in Angstroms). Defaults to nyquist sampling the energy resolution'),
                      ('fit_order', 1, 'order of the univariate spline to fit the soectrophotometric repsonse curve -'
-                                      'must be shorter than the length of the wvl_bin_edges if specified')) #TODO
+                                      'must be shorter than the length of the wvl_bin_edges if specified'))
+    def _verify_attribues(self):
+        """Returns a list missing keys from the pipeline config"""
+        errors = super(StepConfig, self)._verify_attribues()
+        if 'fit_order' in self and 'wvl_bin_edges' in self:
+            n_edge = len(self.wvl_bin_edges)
+            if n_edge and self.fit_order>=n_edge:
+                errors.append('Speccal fit order must be less than the number of bin edges')
+        return errors
 
 
 class StandardSpectrum:
