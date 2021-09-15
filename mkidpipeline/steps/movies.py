@@ -204,7 +204,7 @@ def _save_frames(frames, movie_duration, units, suptitle='', movie_type='simple'
         norms = (ImageNormalize(vmin=-10, vmax=frame_max + 5, stretch=stretch),)
         frame_data = frames
 
-    with writer.saving(fig, outfile, dpi):#, frames[0].shape[1] * 2): #TODO
+    with writer.saving(fig, outfile, dpi):#, frames[0].shape[1] * 2):
         img = []
         if movie_type == 'both':
             for ax, frame_im, name, cbmax, norm in zip(axs, frame_data[0], image_names, cbmaxs, norms):
@@ -215,7 +215,7 @@ def _save_frames(frames, movie_duration, units, suptitle='', movie_type='simple'
                 cbar.set_label(units)
                 # ticks = cbar.get_ticks()
                 # cbar.set_ticks(ticks)
-                # cbar.set_ticklabels(list(map('{:.0f}'.format, ticks)))  #TODO
+                # cbar.set_ticklabels(list(map('{:.0f}'.format, ticks)))
         else:
             for frame_im, name, cbmax, norm in zip(frame_data, image_names, cbmaxs, norms):
                 img.append(axs.imshow(frame_im, cmap=cmap, norm=norm, interpolation=interpolation, origin=origin))

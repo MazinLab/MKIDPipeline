@@ -20,7 +20,6 @@ def generate(outputs: config.MKIDOutputCollection):
         if os.path.exists(o.filename):
             getLogger(__name__).info(f'Output {o.filename} for {o.name} already exists. Skipping')
             continue
-        # TODO make into a batch process
         getLogger(__name__).info('Generating {}'.format(o.name))
         if o.wants_image:
             # if we are putting out more than one image we need to give them unique file names

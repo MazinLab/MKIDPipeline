@@ -161,42 +161,26 @@ class CosmicCleaner:
         Generates the timestamps in microseconds to be removed from the obsFile. Removes doubles for clarity.
         """
         #TODO replace this with array math
-        # This is ~ 1.4GB for the first file I tested it on and it computes the max a huge number of times!
-        overlaps = [abs(i - self.cosmictimes) <= np.max(self.removalRange) for i in self.cosmictimes]
 
-        # An array version is like this but you need to figure out if cosmicbunches are overlaps[i] or overlaps[:, i]
+        # This is ~ 1.4GB for the first file I tested it on
+        mrr = np.max(self.removalRange)
+        overlaps = [np.abs(i - self.cosmictimes) <= mrr for i in self.cosmictimes]
+
+        # An array version is like this but cosmicbunches would either be overlaps[i] or overlaps[:, i]
         # overlaps = (self.cosmictimes-self.cosmictimes[:, None]) <= np.max(self.removalRange)
-
-        # cosmicbunches = [self.cosmictimes[i] for i in overlaps]
-        # cvals = np.array([[np.mean(i),
-        #                    (i[0]-50, i[-1]+100),  #this forces this to be an object array which is less efficient
-        #                    len(i)] #,
-        #                    # tuple(i)]  # TODO this value isn't even referenced
-        #                   for i in cosmicbunches])
 
         cosmicbunches = [self.cosmictimes[i] for i in overlaps]
         cvals = np.array([[np.mean(i), i[0]-50, i[-1]+100, len(i)] for i in cosmicbunches])
 
-        # TODO both the original and the refactor seems guaranteed to go past the end of the array:
-        #  max(i)+d (which might be >1)-1
+        # TODO This seems guaranteed to go past the end of the array:   max(i)+d (which might be >1)-1
         other_ndx = np.arange(len(overlaps), dtype=int) + cvals[:, 3].astype(int)-1
         delidx, = ((cvals[other_ndx, 0] != cvals[:, 0]) & (cvals[:, 3] > 1)).nonzero()
-        # delidx = []
-        # for i, cval in enumerate(cvals):
-        #     t, d = cval[0], cval[3]
-        #     if d > 1 and t != cvals[i+d-1][0]:
-        #         delidx.append(i)
 
         cvals = np.delete(cvals, delidx, axis=0)
 
         self.interval_starts = cvals[:, 1]
         self.interval_stops = cvals[:, 2]
         self.interval_event_count = cvals[:, 3]
-
-        # TODO this is 98GB of masks for 230M photons/877MB of photon times!!!!!
-        # masks = [((i[0] <= self.timestream[0]) & (self.timestream[0] <= i[1])) for i in cvals[:, 1]]
-        # self.interval_event_avg = [self.timestream[1, i].sum() for i in masks]  #VERY SLOW
-        # self.interval_event_peak = [self.timestream[1, i].max() for i in masks]
 
         self.interval_event_avg = []
         self.interval_event_peak = []

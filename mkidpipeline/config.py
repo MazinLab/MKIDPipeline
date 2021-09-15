@@ -144,8 +144,9 @@ def PipelineConfigFactory(step_defaults: dict = None, cfg=None, ncpu=None, copy=
         cfg = cfg.copy()
     if step_defaults:
         for name, defaults in step_defaults.items():
-            cfg.register(name, defaults, update=False) #TODO the will add in ncpu 1 for steps that set it, overriding
+            # NB this will add in NCPU for steps that set it in their defaults, overriding
             # the inherited default
+            cfg.register(name, defaults, update=False)
     if ncpu is not None:
         config.update('ncpu', ncpu)
     return cfg
@@ -1141,7 +1142,6 @@ class MKIDObservingDataset:
     def __iter__(self):
         getLogger(__name__).warning('Iterating on a dataset excludes nested definitions')
         for o in self.meta:
-            # TODO this isn't exhaustive as nested things might not referent top things
             yield o
 
     def _find_nested(self, attr, kind, look_in):
@@ -1242,8 +1242,9 @@ class MKIDObservingDataset:
         """
         Returns a set of all of the MKIDObservations that are associated with each MKIDFlatcalDescription,
         MKIDWCSCalDescription, MKIDSpeccalDescription, or MKIDDitherDescription.
+
+        Note that nested definitions are not included
         """
-        # TODO this isn't exhaustive due to possible nesting
         for o in self.meta:
             if isinstance(o, MKIDObservation):
                 yield o
@@ -1489,7 +1490,7 @@ class MKIDOutputCollection:
                 except KeyError:
                     getLogger(__name__).error(f'Unable to find data description for "{o.data}"')
                 except ValueError:
-                    getLogger(__name__).error(f'Data description for {o.data} if not of the type required for '
+                    getLogger(__name__).error(f'Data description for {o.data} is not of the type required for '
                                               f'output {o.name}')
 
     def __iter__(self) -> MKIDOutput:

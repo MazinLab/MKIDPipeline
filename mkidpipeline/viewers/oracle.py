@@ -33,7 +33,7 @@ import mkidpipeline.utils.binparse as binparse
 from mkidpipeline.steps.pixcal import flux_threshold as hft
 from scipy import optimize
 import os.path
-from mkidpipeline.speckle.oracle_speckle_functions import MRlogL, MRlogL_Hessian, MRlogL_Jacobian, blurredMR,\
+from utils.oracle_helpers import MRlogL, MRlogL_Hessian, MRlogL_Jacobian, blurredMR,\
     histogramLC, getLightCurve
 from mkidcore.objects import Beammap
 import time

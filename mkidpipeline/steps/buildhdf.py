@@ -173,7 +173,7 @@ class HDFBuilder(object):
                     getLogger(__name__).info(f'{self.h5file} presumed corrupt ({e}), will remove and rebuild')
             if not done:
                 try:
-                    os.remove(self.cfg.h5file)
+                    os.remove(self.h5file)
                     getLogger(__name__).info('Deleted {}'.format(self.h5file))
                 except FileNotFoundError:
                     pass
