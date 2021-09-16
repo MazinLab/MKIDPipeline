@@ -10,12 +10,12 @@ from Cython.Build import cythonize
 #pip install -e git+http://github.com/mazinlab/mkidpipeline.git@develop#egg=mkidpipeline
 
 
-gen_photon_list_extension = Extension(
-    name="mkidpipeline.speckle.photonstats_utils",
-    sources=['mkidpipeline/speckle/photonstats_utils.pyx'],
-    include_dirs=[numpy.get_include()],
-    extra_compile_args=["-std=c99", "-O3", '-pthread']
-)
+# example_extension = Extension(
+#     name="mkidpipeline.some.module",
+#     sources=['mkidpipeline/some/module.pyx'],
+#     include_dirs=[numpy.get_include()],
+#     extra_compile_args=["-std=c99", "-O3", '-pthread']
+# )
 
 
 def compile_and_install_software():
@@ -53,7 +53,7 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/MazinLab/MKIDPipeline",
     packages=setuptools.find_packages(),
-    ext_modules=cythonize([gen_photon_list_extension]),
+    ext_modules=cythonize([]),
     classifiers=(
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
