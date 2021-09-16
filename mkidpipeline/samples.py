@@ -78,17 +78,17 @@ SAMPLEDATA = {'default': (
                                  header=dict(OBJECT='HIP 109427'),
                                  data=(config.MKIDObservation(name=_namer('HIP109427_'), start=1602047815,
                                                               duration=10, wavecal='wavecal0', wcscal='wcscal0',
-                                                              header=dict(M_CONEXX=.1, M_CONEXY=-.4,
+                                                              header=dict(E_CONEXX=.1, E_CONEXY=-.4,
                                                                           OBJECT='HIP 109427'),
                                                               dark=config.MKIDTimerange(name=_namer(), start=1602046500,
                                                                                         duration=10)),
                                        config.MKIDObservation(name=_namer('HIP109427_'), start=1602047843, duration=10,
                                                               wavecal='wavecal0', wcscal='wcscal0',
-                                                              header=dict(M_CONEXX=.1, M_CONEXY=-.28,
+                                                              header=dict(E_CONEXX=.1, E_CONEXY=-.28,
                                                                           OBJECT='HIP 109427')),
                                        config.MKIDObservation(name=_namer('HIP109427_'), start=1602047869,
                                                               duration=10, wavecal='wavecal0', wcscal='wcscal0',
-                                                              header=dict(M_CONEXX=.1, M_CONEXY=-.16,
+                                                              header=dict(E_CONEXX=.1, E_CONEXY=-.16,
                                                                           OBJECT='HIP 109427'))
                                        )
                                  )
