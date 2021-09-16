@@ -438,7 +438,7 @@ class MKIDTimerange(DataBase):
     def _metadata(self):
         """Return a dict of the metadata unique to self"""
         d = dict(UNIXSTR=self.start, UNIXEND=self.stop,
-                 M_DARK=f'{self.dark.duration}@{self.dark.start}' if self.dark else 'None')
+                 E_DARK=f'{self.dark.duration}@{self.dark.start}' if self.dark else 'None')
         for k in self.header:
             if k in mkidcore.metadata.MEC_KEY_INFO:
                 d[k] = self.header[k]
@@ -546,9 +546,9 @@ class MKIDObservation(MKIDTimerange):
         """Updates the metadata to include necessary keywords for the WCScal"""
         d = super()._metadata
         try:
-            d.update(dict(M_PLTSCL=self.wcscal.platescale, M_DEVANG=config.instrument.device_orientation_deg,
-                          M_CXREFX=self.wcscal.conex_ref[0], M_CXREFY=self.wcscal.conex_ref[1],
-                          M_PREFX=self.wcscal.pixel_ref[0], M_PREFY=self.wcscal.pixel_ref[1]))
+            d.update(dict(E_PLTSCL=self.wcscal.platescale, E_DEVANG=config.instrument.device_orientation_deg,
+                          E_CXREFX=self.wcscal.conex_ref[0], E_CXREFY=self.wcscal.conex_ref[1],
+                          E_PREFX=self.wcscal.pixel_ref[0], E_PREFY=self.wcscal.pixel_ref[1]))
         except AttributeError:
             pass
         return d
@@ -1022,7 +1022,7 @@ class MKIDDitherDescription(DataBase):
 
             self.obs = [MKIDObservation(name=f'{self.name}_{i+1}/{n}', start=b, stop=e, wavecal=self.wavecal,
                                         flatcal=self.flatcal, wcscal=self.wcscal, speccal=self.speccal,
-                                        header=dict(M_CONEXX=p[0], M_CONEXY=p[1]), **self.extra())
+                                        header=dict(E_CONEXX=p[0], E_CONEXY=p[1]), **self.extra())
                         for i, b, e, p in zip(self.use, startt, endt, pos)]
             for o in self.obs:
                 o.header.update(self.header)
