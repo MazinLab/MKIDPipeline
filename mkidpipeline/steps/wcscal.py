@@ -10,8 +10,7 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('interpolate', 'True', 'whether to inerpolate the image before PSF fitting. Recommended if an '
                                              'MKIDObservation is used or data is noisy'),
                      ('sigma_psf', 2.0, 'standard deviation of the point spread functions to fit in the image '),
-                     ('pa', [], 'position angles of the sources in the image (degrees)'),
-                     ('sep', [], 'separations of the sources in the image (arcseconds)'))
+                     ('source_loc', [], 'locations of the sources in the image in (RA, DEC)'))
 
 
 HEADER_KEYS = tuple()
@@ -86,8 +85,59 @@ def closest_node(node, nodes):
     dist_2 = np.sum((nodes - node)**2, axis=1)
     return np.argmin(dist_2)
 
-def calculate_wcs_solution(image, source_locs=None, sigma_psf=2.0, convolve=False):
+def difference(a, b):
+    diff = np.sqrt((a[0] - b[0])**2 + (a[1] - b[1])**2)
+    return diff
 
+def angle(a, b):
+    theta = np.arctan((a[0] - b[0])/(a[1] - b[1]))
+    return theta
+
+def dict_dist_compare(coord_dict):
+    result = []
+    for key1, val1 in coord_dict.items():
+        for key2, val2 in coord_dict.items():
+            if key1==key2:
+                pass
+            else:
+                result.append(difference(key1, key2)/difference(val1, val2))
+        return result
+
+def dict_theta_compare(coord_dict):
+    result = []
+    for key1, val1 in coord_dict.items():
+        for key2, val2 in coord_dict.items():
+            if key1==key2:
+                pass
+            else:
+                true_theta = angle(key1, key2)
+                measured_theta = angle(val1, val2)
+                result.append(true_theta - measured_theta)
+        return result
+
+def get_platescale(coord_dict):
+    pltscl = []
+    dict_copy = coord_dict.copy()
+    for key, value in coord_dict.items():
+        pltscl += dict_dist_compare(dict_copy)
+        dict_copy.pop(key)
+    return np.mean(pltscl) # TODO errors
+
+def get_rotation_angle(coord_dict):
+    angles = []
+    dict_copy = coord_dict.copy()
+    for key, value in coord_dict.items():
+        angles += dict_theta_compare(dict_copy)
+        dict_copy.pop(key)
+    return np.mean(angles) # TODO errors
+
+def resolve_units(coords):
+    # TODO write
+    return coords
+
+def calculate_wcs_solution(image, source_locs=None, sigma_psf=2.0, convolve=False):
+    #TODO get source_locs in consistent units no matter what is given by user
+    source_locs = resolve_units(source_locs)
     if convolve:
         im = astropy_convolve(image)
     else:
@@ -102,8 +152,9 @@ def calculate_wcs_solution(image, source_locs=None, sigma_psf=2.0, convolve=Fals
     use_coord = [fit_coords[idx] for idx in use_idxs]
     for i, key in enumerate(coord_dict.keys()):
         coord_dict[key] = use_coord[i]
-    print(coord_dict)
-    return sources
+    pltscl = get_platescale(coord_dict)
+    rot_angle = get_rotation_angle(coord_dict)
+    return pltscl, rot_angle
 
 
 def fetch(data):
