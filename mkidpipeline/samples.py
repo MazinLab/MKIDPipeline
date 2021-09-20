@@ -61,11 +61,13 @@ SAMPLEDATA = {'default': (
                                  comment='ob wcscals may be used to manually determine '
                                          'WCS parameters. They are not yet supported for '
                                          'automatic WCS parameter computation',
-                                 data=config.MKIDObservation(name=_namer('star'), start=1602047935,
-                                                             duration=10, wavecal='wavecal0',
+                                 data=config.MKIDObservation(name=_namer('Sigma Ori'), start=1631279400,
+                                                             duration=20, wavecal='wavecal0',
                                                              dark=config.MKIDTimerange(name=_namer(), start=1602046500,
                                                                                        duration=10)),
-                                 pixel_ref=(107, 46), conex_ref=(-0.16, -0.4)),
+                                 pixel_ref=(107, 46), conex_ref=(0.0, 0.0),
+                                 source_locs=[['22h10m11.98527s', '+06d11m52.3017s'],
+                                              ['22h11m11.98527s', '+06d11m52.3017s']]),
     # Dithers
     config.MKIDDitherDescription(name=_namer('dither'), data=1602047815, wavecal='wavecal0',
                                  header=dict(OBJECT="HIP 109427"),
