@@ -841,6 +841,7 @@ class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
         Key('pixel_ref', None, 'The pixel position of the target centroid when on '
                                'axis and the conex is at conex_ref', tuple),
         Key('conex_ref', None, 'The conex (x,y) position, [0, 1.0], when the target is at pixel_ref ', tuple),
+        Key('source_locs', None, 'The RA/DEC coordinates of the sources in the image ', list)
     )
     REQUIRED = ('name',)
     STEPNAME = 'wcscal'
@@ -858,6 +859,8 @@ class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
                 self._key_errors['pixel_ref'] += ['must be an (x,y) position for the central source at conex_ref']
             if self.conex_ref is None:
                 self._key_errors['conex_ref'] += ['must be a conex (x,y) position when the target is at pixel_ref']
+            if self.source_locs is None:
+                self._key_errors['source_locs'] += ['must specify source_locations in the image']
         else:
             self._key_errors['data'] += ['MKIDObservation, MKIDDither, or platescale (e.g. 10 mas)']
 
