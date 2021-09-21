@@ -304,7 +304,7 @@ class Photontable:
 
             qstart = int(relstart * self.TICKS_PER_SEC)
 
-            if start <= 0 or start > self.duration:
+            if start <= 0 or relstart > self.duration:
                 raise TypeError
 
         except TypeError:
