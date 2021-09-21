@@ -5,10 +5,10 @@ from mkidpipeline.utils.smoothing import astropy_convolve
 from mkidpipeline.utils.photometry import fit_sources
 from astropy.coordinates import SkyCoord
 import astropy.units as u
-import mkidpipeline.config as config
 from mkidpipeline.photontable import Photontable
 from mkidpipeline.steps.drizzler import form
-from astropy import wcs
+from mkidcore.corelog import getLogger
+from mkidpipeline.config import MKIDDitherDescription, MKIDObservation
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!wcscal_cfg'
@@ -68,12 +68,15 @@ class ClickCoords:
         return self.coords
 
 
-def crop_image(image): #TODO move to utils
+def crop_image(image):
     """
     crops out buffer of pixels with 0 counts from an image
     :param image: 2D image array to be cropped
     :return: cropped 2D image array.
     """
+    if np.all(image == 0):
+        getLogger(__name__).warning('Entire image is empty. Check WCS data input.')
+        exit()
     live_idxs = np.argwhere(image != 0)
     center_x, center_y = int(image.shape[0]/2), int(image.shape[1]/2)
     min_x, min_y = min(live_idxs[:,0]), min(live_idxs[0,:])
@@ -112,8 +115,6 @@ def dist_compare(coord_dict, frame='icrs'):
             if key1==key2:
                 pass
             else:
-                print(coord_dict)
-                print('KEYS ARE' + str(key1[0]) +',' + str(key1[1]))
                 coord1 = SkyCoord(key1[0], key1[1], frame=frame)
                 coord2 = SkyCoord(key2[0], key2[1], frame=frame)
                 result.append(coord1.separation(coord2).to(u.arcsecond).value/difference(val1, val2))
@@ -174,22 +175,29 @@ def calculate_wcs_solution(image, source_locs=None, sigma_psf=2.0, interpolate=F
     return pltscl, rot_angle
 
 
-def run_wcscal(data, source_locs, sigma_psf=None, wave_start=950, wave_stop=1375, ncpu=None, interpolate=True, frame='icrs'):
-    if isinstance(data, config.MKIDDitherDescription):
-        drizzled = form(data, mode='drizzle', wave_start=wave_start, wave_stop=wave_stop, pixfrac=0.5,
-                        wcs_timestep=1, exclude_flags=PROBLEM_FLAGS, usecache=False,
-                        duration=min([o.duration for o in data.obs]), ncpu=ncpu, derotate=True)
-        image = drizzled.counts
+def run_wcscal(data, source_locs, sigma_psf=None, wave_start=950*u.nm, wave_stop=1375*u.nm, ncpu=None, interpolate=True,
+               frame='icrs'):
+    if isinstance(data, MKIDDitherDescription):
+        #TODO metadata is getting messed up for performing the dither
+        getLogger(__name__).info('Using MKIDDitherDescription to find WCS Solution: Drizzling...')
+        drizzled = form(data, mode='drizzle', wave_start=wave_start, wave_stop=wave_stop,
+                        pixfrac=0.5, usecache=False, duration=min([o.duration for o in data.obs]),
+                        ncpu=1 if ncpu is None else ncpu, derotate=True)
+        image = drizzled.cps
     else:
-        hdul = Photontable(data.h5).get_fits()
+        getLogger(__name__).info('Using MKIDObservation to find WCS Solution: Generating fits file...')
+        hdul = Photontable(data.h5).get_fits(wave_start=wave_start.to(u.nm).value,
+                                             wave_stop=wave_stop.to(u.nm).value)
         image = hdul[1].data
+
     source_locs = [(s[0], s[1]) for s in source_locs]
     platescale, rotation_angle = calculate_wcs_solution(image, source_locs, sigma_psf=sigma_psf, interpolate=interpolate,
                                                         frame=frame)
     return platescale, rotation_angle
 
 
-def fetch(solution_descriptors, config=None, ncpu=None):
+def apply(outputs, config=None, ncpu=None):
+    solution_descriptors = outputs.wcscals
     try:
         solution_descriptors = solution_descriptors.wcscals
     except AttributeError:
@@ -197,9 +205,26 @@ def fetch(solution_descriptors, config=None, ncpu=None):
 
     wcscfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(wcscal=StepConfig()), cfg=config, ncpu=ncpu,
                                                        copy=True)
-    for sd in set(sd for sd in solution_descriptors):
-        print(sd.source_locs)
-        pltscl, rot_ang = run_wcscal(sd.data, sd.source_locs, sigma_psf=wcscfg.wcscal.sigma_psf, wave_start=950, wave_stop=1375,
-                                     ncpu=ncpu if ncpu is not None else 1, interpolate=wcscfg.wcscal.interpolate,
-                                     frame=wcscfg.wcscal.frame)
-        print(pltscl, rot_ang)
+    for sd in solution_descriptors:
+        if isinstance(sd.data, MKIDObservation) or isinstance(sd.data, MKIDDitherDescription):
+            for o in sd.data.obs:
+                pt = o.photontable
+                pt.enablewrite()
+                pt.update_header('E_PLTSCL', wcscfg.instrument.nominal_platescale_mas)
+                pt.update_header('E_DEVANG', 0 * u.deg)
+                pt.disablewrite()
+            pltscl, rot_ang = run_wcscal(sd.data, sd.source_locs, sigma_psf=wcscfg.wcscal.sigma_psf, wave_start=950*u.nm,
+                                         wave_stop=1375*u.nm, ncpu=ncpu if ncpu is not None else 1,
+                                         interpolate=wcscfg.wcscal.interpolate, frame=wcscfg.wcscal.frame)
+        #TODO pltscl neeeds to be in mas/pix
+        else:
+            pltscl = sd.data
+            rot_ang = wcscfg.instrument.device_orientation_deg
+        for o in outputs.to_wcscal:
+            pt = o.photontable
+            pt.enablewrite()
+            pt.update_header('E_PLTSCL', pltscl)
+            pt.update_header('E_DEVANG', rot_ang)
+            pt.disablewrite()
+
+
