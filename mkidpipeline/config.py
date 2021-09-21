@@ -1591,14 +1591,7 @@ class MKIDOutputCollection:
         Returns a set of all of the MKIDObservations affiliated with an output that have an associated
         MKIDWCSCalDescription. Does not search for nested MKIDWCSCalDescriptions except with the speccal
         """
-        getLogger(__name__).warning('wcscals not searching for nested cals except in speccals')
-        for out in self:
-            if out.data.wcscal:
-                yield out.data.wcscal
-            if out.data.speccal:
-                for o in out.data.speccal.obs:
-                    if o.wcscal:
-                        yield o.wcscal
+        return set([o.wcscal for o in self.to_wcscal if o.wcscal])
 
     @property
     def to_lincal(self):
@@ -1640,7 +1633,7 @@ class MKIDOutputCollection:
                                 yield y
                         if x.wcscal:
                             for y in x.wcscal.obs:
-                                yield
+                                yield y
                                 if y.flatcal:
                                     for z in y.flatcal.obs:
                                         yield z
@@ -1759,12 +1752,29 @@ class MKIDOutputCollection:
                     yield o
 
     @property
+    def to_wcscal(self):
+        def input_observations(obs):
+            for o in obs:
+                if o.speccal:
+                    for x in o.speccal.obs:
+                        if x.wcscal:
+                            yield x
+        for out in self:
+            for o in out.data.obs:
+                if o.wcscal:
+                    yield o
+            for o in input_observations(out.data.obs):
+                yield o
+
+    @property
     def to_drizzle(self):
         for out in self:
             if isinstance(out.data, MKIDDitherDescription):
                 yield out.data
             if out.data.speccal and isinstance(out.data.speccal.data, MKIDDitherDescription):
                 yield out.data.speccal.data
+            if out.data.wcscal and isinstance(out.data.wcscal.data, MKIDDitherDescription):
+                yield out.data.wcscal.data
 
 
 def inspect_database(detailed=False):
