@@ -285,7 +285,7 @@ class SpectralCalibrator:
                 getLogger(__name__).warning('Aperture for the speccal must be in the format (x/RA, y/DEC, r) OR '
                                             'satellite, instead got {self.aperture}')
             for i in np.arange(n_wvl_bins):
-                frame = cube[:, :, i]
+                frame = cube[i, :, :]
                 if self.interpolation is not None:
                     frame = interpolate_image(frame, method=self.interpolation)
                 if not r:
