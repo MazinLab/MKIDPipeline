@@ -278,6 +278,7 @@ class SpectralCalibrator:
                                                      wcs=self.wcs)
             self.mkid[1] = np.nanmean(fluxes, axis=1)
         else:
+            cube = self.cube.copy()
             try:
                 x, y, r = self.aperture
             except ValueError:
