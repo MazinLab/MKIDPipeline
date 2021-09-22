@@ -660,6 +660,10 @@ def apply(fits_file, wvl_bins, solution='', overwrite=False):
     soln_wvl_bins = soln.wvl_bin_edges
     soln_wvl_centers = np.array([(soln_wvl_bins[i]+soln_wvl_bins[i+1])/2 for i in range(len(soln_wvl_bins) -1)])
     wvl_bin_centers = np.array([(wvl_bins[i]+wvl_bins[i+1])/2 for i in range(len(wvl_bins) -1)])
+    if min(wvl_bin_centers) < min(soln_wvl_centers) or max(wvl_bin_centers) > max(soln_wvl_centers):
+        getLogger(__name__).warning(f'Spectral cube wavelengths {wvl_bin_centers} exceed the bounds of the wavelengths '
+                                    f'used to make the calibration {soln_wvl_centers}. Will not calibrate points outside'
+                                    f'of {soln_wvl_centers[0]} - {soln_wvl_centers[-1]}')
     if not wvl_bins:
         raise ValueError('wavelength bins for the spectral cube must be specified')
     if np.all(soln_wvl_centers == wvl_bin_centers):
