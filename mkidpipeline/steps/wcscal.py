@@ -11,7 +11,7 @@ from mkidpipeline.config import MKIDDitherDescription, MKIDObservation
 from mkidcore.instruments import CONEX2PIXEL
 from astropy import wcs
 from drizzle import drizzle as stdrizzle
-
+from scipy import ndimage
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!wcscal_cfg'
@@ -31,6 +31,10 @@ PROBLEM_FLAGS = ('pixcal.hot', 'pixcal.cold', 'pixcal.dead', 'beammap.noDacTone'
                  'wavecal.not_attempted')
 
 class ClickCoords:
+    """
+    Class for choosing approximate location in the image for each point source to use for the wcscal. Associates the
+    (RA/DEC)coordinates given using the source_loc keyword in the data.yaml with an approximate (x, y) pixel value.
+    """
     def __init__(self, image, source_locs):
         self.coords = []
         self.image = image
@@ -90,6 +94,14 @@ def crop_image(image):
 
 
 def get_pixel_space_wcs(conex_pos=None, pix_ref=None, conex_ref=None, shape=None):
+    """
+    Calculate a WCS solution to use for drizzling that is only dependent on detector coordinates
+    :param conex_pos: position of the conex
+    :param pix_ref: reference pixel for image center
+    :param conex_ref: conex position where pix_ref was found
+    :param shape: image shape
+    :return:
+    """
     delta_y, delta_x = CONEX2PIXEL(conex_pos[0], conex_pos[1]) - CONEX2PIXEL(conex_ref[0], conex_ref[1])
     new_x = pix_ref[0] + delta_x
     new_y = pix_ref[1] + delta_y
@@ -104,6 +116,14 @@ def get_pixel_space_wcs(conex_pos=None, pix_ref=None, conex_ref=None, shape=None
     return w
 
 def pixspace_drizzle(data, pixfrac=0.5, conex_ref=None, pix_ref=None):
+    """
+    Implementation of the STScI drizzle package using only detector coordinates
+    :param data: MKIDDitherDescription
+    :param pixfrac:
+    :param conex_ref: conex reference position
+    :param pix_ref: reference pixel location at conex_ref
+    :return: drizzled output image
+    """
     ref_wcs = get_pixel_space_wcs(conex_pos=conex_ref, pix_ref=pix_ref, conex_ref=conex_ref, shape=(140, 146))
     driz = stdrizzle.Drizzle(outwcs=ref_wcs, pixfrac=pixfrac, wt_scl='')
     for o in data.obs:
@@ -220,6 +240,16 @@ def get_rotation_angle(coord_dict, frame='icrs'):
 
 
 def calculate_wcs_solution(image, source_locs=None, sigma_psf=2.0, interpolate=False, frame='icrs'):
+    """
+    calculates the wcs solution
+    :param image: 2D image array
+    :param source_locs: on-sky coordinates of objects in the image to be sued for the WCS cal. Need to be in a format
+    compatible with frame
+    :param sigma_psf: width of the Gaussian PSF to use for the PSF fitting
+    :param interpolate: If True will perform a gaussian interpolation of the image before doing the PSF fits
+    :param frame: see astropy.SkyCoord - coordinate system of source_locs
+    :return:
+    """
     if interpolate:
         im = astropy_convolve(image)
     else:
@@ -239,8 +269,22 @@ def calculate_wcs_solution(image, source_locs=None, sigma_psf=2.0, interpolate=F
     return pltscl, rot_angle
 
 
-def run_wcscal(data, source_locs, sigma_psf=None, wave_start=950*u.nm, wave_stop=1375*u.nm, ncpu=None, interpolate=True,
+def run_wcscal(data, source_locs, sigma_psf=None, wave_start=950*u.nm, wave_stop=1375*u.nm, interpolate=True,
                frame='icrs', conex_ref=None, pix_ref=None):
+    """
+    main function for running the WCSCal
+    :param data: MKIDDitherDescription or MKIDObservation
+    :param source_locs: on-sky coordinates of objects in the image to be sued for the WCS cal. Need to be in a format
+    compatible with frame
+    :param sigma_psf: width of the Gaussian PSF to use for the PSF fitting
+    :param wave_start: start wavelenth to use for generating the image (u.Quantity)
+    :param wave_stop: stop wavelength to use for generating the image (u.Quantity)
+    :param interpolate: If True will perform a gaussian interpolation of the image before doing the PSF fits
+    :param frame: see astropy.SkyCoord - coordinate system of source_locs
+    :param conex_ref: reference position of the conex
+    :param pix_ref: reference pixel coordinate while conex is at conex_ref
+    :return: platescale (in mas/pixel) and rotation angle (in degrees)
+    """
     if isinstance(data, MKIDDitherDescription):
         getLogger(__name__).info('Using MKIDDitherDescription to find WCS Solution: Drizzling...')
         drizzled = pixspace_drizzle(data, conex_ref=conex_ref, pix_ref=pix_ref)
@@ -269,9 +313,8 @@ def apply(outputs, config=None, ncpu=None):
     for sd in solution_descriptors:
         if isinstance(sd.data, MKIDObservation) or isinstance(sd.data, MKIDDitherDescription):
             pltscl, rot_ang = run_wcscal(sd.data, sd.source_locs, sigma_psf=wcscfg.wcscal.sigma_psf, wave_start=950*u.nm,
-                                         wave_stop=1375*u.nm, ncpu=ncpu if ncpu is not None else 1,
-                                         interpolate=wcscfg.wcscal.interpolate, frame=wcscfg.wcscal.frame,
-                                         conex_ref=sd.conex_ref, pix_ref=sd.pixel_ref)
+                                         wave_stop=1375*u.nm,interpolate=wcscfg.wcscal.interpolate,
+                                         frame=wcscfg.wcscal.frame, conex_ref=sd.conex_ref, pix_ref=sd.pixel_ref)
         else:
             pltscl = sd.data
             rot_ang = wcscfg.instrument.device_orientation_deg
