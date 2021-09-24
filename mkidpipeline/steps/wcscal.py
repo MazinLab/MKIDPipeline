@@ -6,9 +6,12 @@ from mkidpipeline.utils.photometry import fit_sources
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 from mkidpipeline.photontable import Photontable
-from mkidpipeline.steps.drizzler import form
 from mkidcore.corelog import getLogger
 from mkidpipeline.config import MKIDDitherDescription, MKIDObservation
+from mkidcore.instruments import CONEX2PIXEL
+from astropy import wcs
+from drizzle import drizzle as stdrizzle
+from scipy import ndimage
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!wcscal_cfg'
@@ -28,6 +31,10 @@ PROBLEM_FLAGS = ('pixcal.hot', 'pixcal.cold', 'pixcal.dead', 'beammap.noDacTone'
                  'wavecal.not_attempted')
 
 class ClickCoords:
+    """
+    Class for choosing approximate location in the image for each point source to use for the wcscal. Associates the
+    (RA/DEC)coordinates given using the source_loc keyword in the data.yaml with an approximate (x, y) pixel value.
+    """
     def __init__(self, image, source_locs):
         self.coords = []
         self.image = image
@@ -86,6 +93,48 @@ def crop_image(image):
     return image[center_x - use_x:center_x + use_x, center_y - use_y:center_y + use_y]
 
 
+def get_pixel_space_wcs(conex_pos=None, pix_ref=None, conex_ref=None, shape=None):
+    """
+    Calculate a WCS solution to use for drizzling that is only dependent on detector coordinates
+    :param conex_pos: position of the conex
+    :param pix_ref: reference pixel for image center
+    :param conex_ref: conex position where pix_ref was found
+    :param shape: image shape
+    :return:
+    """
+    delta_y, delta_x = CONEX2PIXEL(conex_pos[0], conex_pos[1]) - CONEX2PIXEL(conex_ref[0], conex_ref[1])
+    new_x = pix_ref[0] + delta_x
+    new_y = pix_ref[1] + delta_y
+    w = wcs.WCS(naxis=2)
+    w.wcs.crpix = [new_x, new_y]
+    w.wcs.crval = [int(shape[1]/2), int(shape[0]/2)]
+    w.wcs.ctype = ['LINEAR', 'LINEAR']
+    w.pixel_shape = shape
+    w.wcs.pc = np.eye(2)
+    w.wcs.cdelt = [1, 1]
+    w.wcs.cunit = ['pixel', 'pixel']
+    return w
+
+def pixspace_drizzle(data, pixfrac=0.5, conex_ref=None, pix_ref=None):
+    """
+    Implementation of the STScI drizzle package using only detector coordinates
+    :param data: MKIDDitherDescription
+    :param pixfrac:
+    :param conex_ref: conex reference position
+    :param pix_ref: reference pixel location at conex_ref
+    :return: drizzled output image
+    """
+    ref_wcs = get_pixel_space_wcs(conex_pos=conex_ref, pix_ref=pix_ref, conex_ref=conex_ref, shape=(140, 146))
+    driz = stdrizzle.Drizzle(outwcs=ref_wcs, pixfrac=pixfrac, wt_scl='')
+    for o in data.obs:
+        hdul = o.photontable.get_fits()
+        image = hdul[1].data
+        wcs = get_pixel_space_wcs(conex_pos=(o.header['E_CONEXX'], o.header['E_CONEXY']), pix_ref=pix_ref,
+                                  conex_ref=conex_ref, shape=image.shape)
+        driz.add_image(image.T, wcs)
+    return driz.outsci
+
+
 def select_sources(image, source_locs):
     cc = ClickCoords(image, source_locs=source_locs)
     coords = cc.get_coords()
@@ -99,16 +148,34 @@ def closest_node(node, nodes):
 
 
 def difference(a, b):
+    """
+    finds the distance between two points a and b
+    :param a: coordinate 1
+    :param b: coordinate 2
+    :return:
+    """
     diff = np.sqrt((a[0] - b[0])**2 + (a[1] - b[1])**2)
     return diff
 
 
 def angle(a, b):
+    """
+    finds the angle between two coordinates a and b
+    :param a: coordinate 1
+    :param b: coordinate 2
+    :return:
+    """
     theta = np.arctan((a[0] - b[0])/(a[1] - b[1]))
     return theta
 
 
 def dist_compare(coord_dict, frame='icrs'):
+    """
+    find the separations between an arbitrary number of objects in an image
+    :param coord_dict: dictionary of coordinates with keys of (RA, DEC) (in units specified by 'frame') and values (x, y)
+    :param frame: see astropy SkyCoord
+    :return:
+    """
     result = []
     for key1, val1 in coord_dict.items():
         for key2, val2 in coord_dict.items():
@@ -117,11 +184,17 @@ def dist_compare(coord_dict, frame='icrs'):
             else:
                 coord1 = SkyCoord(key1[0], key1[1], frame=frame)
                 coord2 = SkyCoord(key2[0], key2[1], frame=frame)
-                result.append(coord1.separation(coord2).to(u.arcsecond).value/difference(val1, val2))
+                result.append(coord1.separation(coord2).to(u.mas).value/difference(val1, val2))
         return result
 
 
 def theta_compare(coord_dict, frame='icrs'):
+    """
+    find the angle offset between an arbitrary number of objects in an image and their true position angle
+    :param coord_dict: dictionary of coordinates with keys of (RA, DEC) (in units specified by 'frame') and values (x, y)
+    :param frame: see astropy SkyCoord
+    :return: list of rotation angle offsets
+    """
     result = []
     for key1, val1 in coord_dict.items():
         for key2, val2 in coord_dict.items():
@@ -137,6 +210,12 @@ def theta_compare(coord_dict, frame='icrs'):
 
 
 def get_platescale(coord_dict, frame='icrs'):
+    """
+    calculates the platescale given an arbitrary number of points in an image
+    :param coord_dict: dictionary of coordinates with keys of (RA, DEC) (in units specified by 'frame') and values (x, y)
+    :param frame: see astropy SkyCoord
+    :return: mean platescale value
+    """
     pltscl = []
     dict_copy = coord_dict.copy()
     for key, value in coord_dict.items():
@@ -146,6 +225,12 @@ def get_platescale(coord_dict, frame='icrs'):
 
 
 def get_rotation_angle(coord_dict, frame='icrs'):
+    """
+    calculates the rotation angle given an arbitrary amount of points in an image
+    :param coord_dict: dictionary of coordinates with keys of (RA, DEC) (in units specified by 'frame') and values (x, y)
+    :param frame: see astropy SkyCoord
+    :return: mean rotation angle value
+    """
     angles = []
     dict_copy = coord_dict.copy()
     for key, value in coord_dict.items():
@@ -155,6 +240,16 @@ def get_rotation_angle(coord_dict, frame='icrs'):
 
 
 def calculate_wcs_solution(image, source_locs=None, sigma_psf=2.0, interpolate=False, frame='icrs'):
+    """
+    calculates the wcs solution
+    :param image: 2D image array
+    :param source_locs: on-sky coordinates of objects in the image to be sued for the WCS cal. Need to be in a format
+    compatible with frame
+    :param sigma_psf: width of the Gaussian PSF to use for the PSF fitting
+    :param interpolate: If True will perform a gaussian interpolation of the image before doing the PSF fits
+    :param frame: see astropy.SkyCoord - coordinate system of source_locs
+    :return:
+    """
     if interpolate:
         im = astropy_convolve(image)
     else:
@@ -171,19 +266,29 @@ def calculate_wcs_solution(image, source_locs=None, sigma_psf=2.0, interpolate=F
         coord_dict[key] = use_coord[i]
     pltscl = get_platescale(coord_dict, frame=frame)
     rot_angle = get_rotation_angle(coord_dict, frame=frame)
-
     return pltscl, rot_angle
 
 
-def run_wcscal(data, source_locs, sigma_psf=None, wave_start=950*u.nm, wave_stop=1375*u.nm, ncpu=None, interpolate=True,
-               frame='icrs'):
+def run_wcscal(data, source_locs, sigma_psf=None, wave_start=950*u.nm, wave_stop=1375*u.nm, interpolate=True,
+               frame='icrs', conex_ref=None, pix_ref=None):
+    """
+    main function for running the WCSCal
+    :param data: MKIDDitherDescription or MKIDObservation
+    :param source_locs: on-sky coordinates of objects in the image to be sued for the WCS cal. Need to be in a format
+    compatible with frame
+    :param sigma_psf: width of the Gaussian PSF to use for the PSF fitting
+    :param wave_start: start wavelenth to use for generating the image (u.Quantity)
+    :param wave_stop: stop wavelength to use for generating the image (u.Quantity)
+    :param interpolate: If True will perform a gaussian interpolation of the image before doing the PSF fits
+    :param frame: see astropy.SkyCoord - coordinate system of source_locs
+    :param conex_ref: reference position of the conex
+    :param pix_ref: reference pixel coordinate while conex is at conex_ref
+    :return: platescale (in mas/pixel) and rotation angle (in degrees)
+    """
     if isinstance(data, MKIDDitherDescription):
-        #TODO metadata is getting messed up for performing the dither
         getLogger(__name__).info('Using MKIDDitherDescription to find WCS Solution: Drizzling...')
-        drizzled = form(data, mode='drizzle', wave_start=wave_start, wave_stop=wave_stop,
-                        pixfrac=0.5, usecache=False, duration=min([o.duration for o in data.obs]),
-                        ncpu=1 if ncpu is None else ncpu, derotate=True)
-        image = drizzled.cps
+        drizzled = pixspace_drizzle(data, conex_ref=conex_ref, pix_ref=pix_ref)
+        image = drizzled
     else:
         getLogger(__name__).info('Using MKIDObservation to find WCS Solution: Generating fits file...')
         hdul = Photontable(data.h5).get_fits(wave_start=wave_start.to(u.nm).value,
@@ -207,20 +312,15 @@ def apply(outputs, config=None, ncpu=None):
                                                        copy=True)
     for sd in solution_descriptors:
         if isinstance(sd.data, MKIDObservation) or isinstance(sd.data, MKIDDitherDescription):
-            for o in sd.data.obs:
-                pt = o.photontable
-                pt.enablewrite()
-                pt.update_header('E_PLTSCL', wcscfg.instrument.nominal_platescale_mas)
-                pt.update_header('E_DEVANG', 0 * u.deg)
-                pt.disablewrite()
             pltscl, rot_ang = run_wcscal(sd.data, sd.source_locs, sigma_psf=wcscfg.wcscal.sigma_psf, wave_start=950*u.nm,
-                                         wave_stop=1375*u.nm, ncpu=ncpu if ncpu is not None else 1,
-                                         interpolate=wcscfg.wcscal.interpolate, frame=wcscfg.wcscal.frame)
-        #TODO pltscl neeeds to be in mas/pix
+                                         wave_stop=1375*u.nm,interpolate=wcscfg.wcscal.interpolate,
+                                         frame=wcscfg.wcscal.frame, conex_ref=sd.conex_ref, pix_ref=sd.pixel_ref)
         else:
             pltscl = sd.data
             rot_ang = wcscfg.instrument.device_orientation_deg
-        for o in outputs.to_wcscal:
+        for o in set(outputs.to_wcscal):
+            getLogger(__name__).info(f'Updating header for {o.name} with platescale {pltscl:.2f} mas/pixel and rotation '
+                                     f'angle {rot_ang:.2f} degrees')
             pt = o.photontable
             pt.enablewrite()
             pt.update_header('E_PLTSCL', pltscl)
