@@ -439,7 +439,7 @@ class ResponseCurve:
         if not save_path.endswith('.npz'):
             save_path += '.npz'
         getLogger(__name__).info("Saving spectrophotometric response curve to {}".format(save_path))
-        np.savez(save_path, curve=self.curve, wvl_bin_edges=self.wvl_bin_edges*u.Angstrom, cube=self.cube, configuration=self.cfg)
+        np.savez(save_path, curve=self.curve, wvl_bin_edges=self.wvl_bin_edges.to(u.Angstrom), cube=self.cube, configuration=self.cfg)
         self._file_path = save_path  # new file_path for the solution
 
     def load(self, file_path, file_mode='c'):
