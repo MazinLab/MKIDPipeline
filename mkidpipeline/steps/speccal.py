@@ -357,7 +357,12 @@ class SpectralCalibrator:
         """
         curve_x = self.rebin_std[0]
         curve_y = self.rebin_std[1] / self.mkid[1]
-        spl = InterpolatedUnivariateSpline(curve_x, curve_y, w=None, k=self.fit_order) #TODO figure out weights
+        if len(curve_x) == 1:
+            curve_x = [self.wvl_bin_edges.to(u.Angstrom).value[0], self.wvl_bin_edges.to(u.Angstrom).value[1]]
+            curve_y = [curve_y[0] for i in range(2)]
+            spl = InterpolatedUnivariateSpline(curve_x, curve_y, w=None, k=1) #TODO figure out weights
+        else:
+            spl = InterpolatedUnivariateSpline(curve_x, curve_y, w=None, k=self.fit_order) #TODO figure out weights
         self.curve = spl, np.vstack((curve_x, curve_y))
         return self.curve
 
