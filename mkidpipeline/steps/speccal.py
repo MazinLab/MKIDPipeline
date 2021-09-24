@@ -267,7 +267,7 @@ class SpectralCalibrator:
 
         wvl_bin_centers = [(a.value + b.value) / 2 for a, b in zip(self.wvl_bin_edges, self.wvl_bin_edges[1::])]
 
-        self.mkid = np.zeros((n_wvl_bins, n_wvl_bins))
+        self.mkid = np.zeros((2, n_wvl_bins))
         self.mkid[0] = wvl_bin_centers
         if self.use_satellite_spots:
             phot_cube = self.cube.copy()
