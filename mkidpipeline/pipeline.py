@@ -102,7 +102,7 @@ def batch_apply_metadata(dset):
     timeranges = dset.input_timeranges
     data = {tr.h5: tr for tr in timeranges}
     if len(data) != len(timeranges):
-        getLogger(__name__).warning(f'Timeranges are not all backed by unique h5 files, {len(timeranges)-len(data)}'
+        getLogger(__name__).warning(f'Timeranges are not all backed by unique h5 files, {len(timeranges)-len(data)} '
                                     "will be superseded by another timerange's metadata.")
     for tr in data.values():
         o = tr.photontable
