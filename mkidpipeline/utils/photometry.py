@@ -347,7 +347,7 @@ def fit_sources(image, sigma_psf, guesses=None):
     image[image == 0] = np.nan
     bkgrms = MADStdBackgroundRMS()
     std = bkgrms(image)
-    iraffind = IRAFStarFinder(threshold = 2.0 * std, fwhm = sigma_psf * gaussian_sigma_to_fwhm, minsep_fwhm = 0.01, #threshold=3.5
+    iraffind = IRAFStarFinder(threshold = 5.0 * std, fwhm = sigma_psf * gaussian_sigma_to_fwhm, minsep_fwhm = 0.01, #threshold=3.5
                               roundhi = 5.0, roundlo = -5.0, sharplo = 0.0, sharphi = 2.0)
     daogroup = DAOGroup(2.0 * sigma_psf * gaussian_sigma_to_fwhm)
     mmm_bkg = MMMBackground()
