@@ -17,7 +17,11 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('interpolate', 'True', 'whether to inerpolate the image before PSF fitting. Recommended if an '
                                              'MKIDObservation is used or data is noisy'),
                      ('sigma_psf', 2.0, 'standard deviation of the point spread functions to fit in the image '),
-                     ('frame', 'icrs', 'same as SkyCoord frame kwarg'))
+                     ('frame', 'icrs', 'same as SkyCoord frame kwarg'),
+                     ('param_guesses', '[1e-6, 1e-6, 50, 50, 45]', 'intitial guesses for hte wcs solution'
+                                                                   ' [platescale in x, platescale in y, '
+                                                                   'pixels per conex move in x, '
+                                                                   'pixels per conex move in y, device angle]'))
 
 
 HEADER_KEYS = tuple()
@@ -31,15 +35,15 @@ PROBLEM_FLAGS = ('pixcal.hot', 'pixcal.cold', 'pixcal.dead', 'beammap.noDacTone'
 class ClickCoords:
     """
     Class for choosing approximate location in the image for each point source to use for the wcscal. Associates the
-    (RA/DEC)coordinates given using the source_loc keyword in the data.yaml with an approximate (x, y) pixel value.
+    (RA/DEC) coordinates given using the source_loc keyword in the data.yaml with an approximate (x, y) pixel value.
     """
-    def __init__(self, image, source_locs):
+    def __init__(self, image, source_locs, fig=None):
         self.coords = []
         self.image = image
         self.n_sources = len(source_locs)
         self.source_locs = source_locs
         self.counter = 0
-        self.fig = plt.figure()
+        self.fig = plt.figure() if fig is None else fig
         self.cid = None
 
     def push_to_start(self):
@@ -50,8 +54,6 @@ class ClickCoords:
 
     def get_coords(self):
         self.push_to_start()
-        plt.clf()
-        plt.imshow(self.image)
         plt.title(f'Select Location of Source at {self.source_locs[self.counter]}')
         plt.draw()
         self.cid = self.fig.canvas.mpl_connect('button_press_event', self.__onclick__)
@@ -64,12 +66,14 @@ class ClickCoords:
         self.counter += 1
         if self.counter == self.n_sources:
             self.fig.canvas.mpl_disconnect(self.cid)
-            plt.close()
-        plt.clf()
-        plt.imshow(self.image)
-        plt.scatter(*zip(*self.coords), c='red', marker='o', s=10)
-        plt.title(f'Select Locations of Source at {self.source_locs[self.counter]}')
-        plt.draw()
+            plt.close(self.fig)
+        try:
+            plt.imshow(self.image)
+            plt.scatter(*zip(*self.coords), c='red', marker='o', s=10)
+            plt.title(f'Select Locations of Source at {self.source_locs[self.counter]}')
+            plt.draw()
+        except IndexError:
+            pass
         return self.coords
 
 
@@ -99,8 +103,10 @@ def select_sources(image, source_locs):
     :param source_locs: (RA, DEC) coordinates of the sources in the image to select
     :return: list of (x, y) pixel coordinates for each source_loc
     """
-    cc = ClickCoords(image, source_locs=source_locs)
+    fig = plt.figure()
+    cc = ClickCoords(image, source_locs=source_locs, fig=fig)
     coords = cc.get_coords()
+    plt.close("all")
     return coords
 
 
@@ -134,7 +140,8 @@ def generate_equations(x, *args):
     return equations
 
 
-def solve_system_of_equations(coords, conex_positions, telescope_angle, ra, dec, frame='icrs'):
+def solve_system_of_equations(coords, conex_positions, telescope_angle, ra, dec, frame='icrs',
+                              guesses=np.array([1, 1, 1, 1, 1])):
     """
     Solves the system of equations to generate the wcs solution
     :param coords: dictionary where the keys are the on-sky coordinates of each object and the values are the MKID
@@ -151,7 +158,7 @@ def solve_system_of_equations(coords, conex_positions, telescope_angle, ra, dec,
     for i, c in enumerate(coords):
         pix_coords.append([i for i in c.values()])
         sky_coords.append([i for i in c.keys()])
-    res = root(generate_equations, np.array([1e-6, 1e-6, 10, 10, 10]),
+    res = root(generate_equations, guesses,
                args=(conex_positions, pix_coords, sky_coords, telescope_angle, ra, dec, frame), method='lm')
     pltscl_x, pltscl_y, dp_dconx, dp_dcony, devang = res.x
     getLogger(__name__).info('\n Calculated WCS Solution: \n'
@@ -164,7 +171,7 @@ def solve_system_of_equations(coords, conex_positions, telescope_angle, ra, dec,
 
 
 def calculate_wcs_solution(images, source_locs=None, sigma_psf=2.0, interpolate=False, conex_positions=None,
-                           telescope_angle = 0, ra=None, dec=None, frame='icrs'):
+                           telescope_angle = 0, ra=None, dec=None, guesses=None,frame='icrs'):
     """
     calculates the parameters needed to form a WCS solution
     :param images: list of the images or each different pointing, conex position, or rotation angle.
@@ -189,18 +196,18 @@ def calculate_wcs_solution(images, source_locs=None, sigma_psf=2.0, interpolate=
         coord_dict = {k: None for k in source_locs}
         selected_coords = select_sources(im, source_locs=source_locs)
         sources, residuals = fit_sources(im, sigma_psf=sigma_psf)#, guesses=selected_coords)
-        fit_coords = [(sources['x_0'][i], sources['y_0'][i]) for i in range(len(sources))]
+        fit_coords = [(sources['x_fit'][i], sources['y_fit'][i]) for i in range(len(sources))]
         use_idxs = [closest_node(selected_coords[i], fit_coords) for i in range(len(selected_coords))]
         use_coord = [fit_coords[idx] for idx in use_idxs]
         for i, key in enumerate(coord_dict.keys()):
             coord_dict[key] = use_coord[i]
         coords.append(coord_dict)
-    res = solve_system_of_equations(coords, conex_positions, telescope_angle, ra, dec, frame=frame)
+    res = solve_system_of_equations(coords, conex_positions, telescope_angle, ra, dec, frame=frame, guesses=guesses)
     return res
 
 
 def run_wcscal(data, source_locs, sigma_psf=None, wave_start=950*u.nm, wave_stop=1375*u.nm, interpolate=True,
-               frame='icrs'):
+               guesses=None, frame='icrs'):
     """
     main function for running the WCSCal
     :param data: MKIDDitherDescription or MKIDObservation
@@ -229,7 +236,7 @@ def run_wcscal(data, source_locs, sigma_psf=None, wave_start=950*u.nm, wave_stop
             if len(ra) == 0 or len(dec) == 0:
                 try:
                     skycood = SkyCoord.from_name(o.header['OBJECT'])
-                    ra, dec = skycood.ra.value, skycood.dec.value
+                    ra, dec = skycood.ra.to(u.deg).value, skycood.dec.to(u.deg).value
                 except AttributeError:
                     getLogger(__name__).warning('either RA and DEC or OBJECT must be specified in the metadata!')
     else:
@@ -238,8 +245,8 @@ def run_wcscal(data, source_locs, sigma_psf=None, wave_start=950*u.nm, wave_stop
                                              wave_stop=wave_stop.to(u.nm).value)
         images = [hdul[1].data]
         conex_positions = [(data.header['E_CONEXX'], data.header['E_CONEXY'])]
-        ra = data.metadata['RA'].values
-        dec = data.metadata['DEC'].values
+        ra = data.metadata['RA'].to(u.deg).values
+        dec = data.metadata['DEC'].to(u.deg).values
         if len(ra) == 0 or len(dec) == 0:
             try:
                 skycood = SkyCoord.from_name(data.header['OBJECT'])
@@ -247,11 +254,9 @@ def run_wcscal(data, source_locs, sigma_psf=None, wave_start=950*u.nm, wave_stop
             except AttributeError:
                 getLogger(__name__).warning('either RA and DEC or OBJECT must be specified in the metadata!')
     source_locs = [(s[0], s[1]) for s in source_locs]
-    pltscl_x, pltscl_y, dp_dconx, dp_dcony, devang = calculate_wcs_solution(images, source_locs,
-                                                                            sigma_psf=sigma_psf,
-                                                                            interpolate=interpolate,
-                                                                            conex_positions=conex_positions,
-                                                                            frame=frame, ra=ra, dec=dec)
+    pltscl_x, pltscl_y, dp_dconx, dp_dcony, devang = \
+        calculate_wcs_solution(images, source_locs, sigma_psf=sigma_psf,interpolate=interpolate,
+                               conex_positions=conex_positions, frame=frame, guesses=guesses, ra=ra, dec=dec)
     return pltscl_x, pltscl_y, dp_dconx, dp_dcony, devang
 
 
@@ -266,19 +271,13 @@ def apply(outputs, config=None, ncpu=None):
                                                        copy=True)
     for sd in solution_descriptors:
         if isinstance(sd.data, MKIDObservation) or isinstance(sd.data, MKIDDitherDescription):
-            pltsclx, pltscly, dp_dconx, dp_dcony, devang = run_wcscal(sd.data, sd.source_locs,
-                                                                      sigma_psf=wcscfg.wcscal.sigma_psf,
-                                                                      wave_start=950*u.nm, wave_stop=1375*u.nm,
-                                                                      interpolate=wcscfg.wcscal.interpolate,
-                                                                      frame=wcscfg.wcscal.frame)
-            acceptable_diff = 0.1*np.max(pltsclx, pltscly)
-            if abs(pltsclx - pltscly) < acceptable_diff:
-                #TODO errors
-                pltscl = np.mean((pltsclx, pltscly))
-            else:
-                getLogger(__name__).critical('Platescale values in x and y differ by more than the acceptable '
-                                             'threshold (10%). It is likely that your WCS dataset isn`t well '
-                                             'constraining all of the fit parameters. A better dataset is required.')
+            pltsclx, pltscly, dp_dconx, dp_dcony, devang= \
+                run_wcscal(sd.data, sd.source_locs, sigma_psf=wcscfg.wcscal.sigma_psf, wave_start=950*u.nm,
+                           wave_stop=1375*u.nm, interpolate=wcscfg.wcscal.interpolate, frame=wcscfg.wcscal.frame,
+                           guesses=np.array(wcscfg.wcscal.param_guesses))
+            if abs(pltscly-pltsclx) > 0.1*(max(pltsclx, pltscly)):
+                getLogger(__name__).critical('Platescale in x and y directions differ by more than 10%! Check WCS '
+                                             'dataset as it is likely some parameters are underconstrained')
         else:
             pltscl = sd.data
             devang = wcscfg.instrument.device_orientation_deg
@@ -287,7 +286,7 @@ def apply(outputs, config=None, ncpu=None):
                                      f'angle {devang:.2f} degrees')
             pt = o.photontable
             pt.enablewrite()
-            #TODO update/add other fits keys
+            #TODO update/add other fits keys (platescale error, conex sloper etc.)
             pt.update_header('E_PLTSCL', pltscl)
             pt.update_header('E_DEVANG', devang)
             pt.disablewrite()
