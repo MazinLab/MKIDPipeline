@@ -909,6 +909,16 @@ class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
         elif isinstance(self.data, (MKIDObservation, MKIDDitherDescription)):
             self.data.associate(**kwargs)
 
+    def __str__(self):
+        try:
+            s = f'{self.name} (MKIDWCSCalDescription):' + '\n '.join(str(x) for x in self.data)
+        except TypeError:
+            try:
+                s = f'{self.name} (MKIDWCSCalDescription):' + '\n '.join(str(x) for x in self.data.obs)
+            except AttributeError:
+                s = f'{self.name} (MKIDWCSCalDescription):' + '\n '.join(str(self.data))
+        return s
+
 
 class MKIDDitherDescription(DataBase):
     """Data description for dithered data - requires keys name, data, wavecal, flatcal, and wcscal"""
