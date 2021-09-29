@@ -139,7 +139,8 @@ if __name__ == "__main__":
             pipe.batch_applier(steps.flatcal.apply, list(outputs.to_flatcal))
 
         if 'wcscal' in config.config.flow:
-            steps.wcscal.apply(outputs)
+            steps.wcscal.fetch(outputs.wcscals)
+            pipe.batch_applier(steps.wcscal.apply, list(outputs.to_wcscal))
         # 7
         steps.output.generate(outputs)
         # 8
