@@ -9,6 +9,8 @@ from mkidpipeline.photontable import Photontable
 from mkidcore.corelog import getLogger
 from mkidpipeline.config import MKIDDitherDescription, MKIDObservation
 from scipy.optimize import root
+from astropy.io import fits
+import os
 
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
@@ -225,11 +227,13 @@ def run_wcscal(data, source_locs, sigma_psf=None, wave_start=950*u.nm, wave_stop
     if isinstance(data, MKIDDitherDescription):
         conex_positions = []
         images = []
+        hdus = []
         getLogger(__name__).info('Using MKIDDitherDescription to find WCS Solution')
         for o in data.obs:
             hdul = Photontable(o.h5).get_fits(wave_start=wave_start.to(u.nm).value,
                                               wave_stop=wave_stop.to(u.nm).value)
             images.append(hdul[1].data)
+            hdus.append(hdul[1].header)
             conex_positions.append((o.header['E_CONEXX'], o.header['E_CONEXY']))
             ra = o.metadata['RA'].values
             dec = o.metadata['DEC'].values
@@ -257,11 +261,10 @@ def run_wcscal(data, source_locs, sigma_psf=None, wave_start=950*u.nm, wave_stop
     pltscl_x, pltscl_y, dp_dconx, dp_dcony, devang = \
         calculate_wcs_solution(images, source_locs, sigma_psf=sigma_psf,interpolate=interpolate,
                                conex_positions=conex_positions, frame=frame, guesses=guesses, ra=ra, dec=dec)
-    return pltscl_x, pltscl_y, dp_dconx, dp_dcony, devang
+    return pltscl_x, pltscl_y, dp_dconx, dp_dcony, devang, images, hdus
 
 
-def apply(outputs, config=None, ncpu=None):
-    solution_descriptors = outputs.wcscals
+def fetch(solution_descriptors, config=None, ncpu=None):
     try:
         solution_descriptors = solution_descriptors.wcscals
     except AttributeError:
@@ -270,23 +273,46 @@ def apply(outputs, config=None, ncpu=None):
     wcscfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(wcscal=StepConfig()), cfg=config, ncpu=ncpu,
                                                        copy=True)
     for sd in solution_descriptors:
+        if os.path.exists(sd.path[:-4] + '.fits'):
+            continue
         if isinstance(sd.data, MKIDObservation) or isinstance(sd.data, MKIDDitherDescription):
-            pltsclx, pltscly, dp_dconx, dp_dcony, devang= \
+            pltsclx, pltscly, dp_dconx, dp_dcony, devang, images , hdus = \
                 run_wcscal(sd.data, sd.source_locs, sigma_psf=wcscfg.wcscal.sigma_psf, wave_start=950*u.nm,
                            wave_stop=1375*u.nm, interpolate=wcscfg.wcscal.interpolate, frame=wcscfg.wcscal.frame,
                            guesses=np.array(wcscfg.wcscal.param_guesses))
             if abs(pltscly-pltsclx) > 0.1*(max(pltsclx, pltscly)):
                 getLogger(__name__).critical('Platescale in x and y directions differ by more than 10%! Check WCS '
                                              'dataset as it is likely some parameters are underconstrained')
+                pltscl = np.mean((pltsclx.value, pltscly.value))
+            else:
+                pltscl = np.mean((pltsclx.value, pltscly.value))
+                #TODO flesh out
+            hdr = sd.data.obs[0].photontable.get_fits()[0].header
+            hdul = fits.HDUList([fits.PrimaryHDU(header=hdr)])
+            for i, im in enumerate(images):
+                im[np.isnan(im)] = 0
+                hdul.append(fits.ImageHDU(data=im, header=hdus[i], name='SCIENCE'))
+                hdul[i+1].header['PLTSCL'] = (pltscl, 'platescale in mas/pixel')
+                hdul[i+1].header['DPIXDCXX'] =  (dp_dconx, 'pixel move per conex move in x')
+                hdul[i+1].header['DPIXDCXY'] = (dp_dcony, 'pixel move per conex move in y')
+                hdul[i+1].header['DEVANG'] = (devang, 'device angle in degrees')
+            hdul.writeto(sd.path[:-4] + '.fits')
         else:
             pltscl = sd.data
             devang = wcscfg.instrument.device_orientation_deg
-        for o in set(outputs.to_wcscal):
-            getLogger(__name__).info(f'Updating header for {o.name} with platescale {pltscl:.2f} mas/pixel and rotation '
-                                     f'angle {devang:.2f} degrees')
-            pt = o.photontable
-            pt.enablewrite()
-            #TODO update/add other fits keys (platescale error, conex sloper etc.)
-            pt.update_header('E_PLTSCL', pltscl)
-            pt.update_header('E_DEVANG', devang)
-            pt.disablewrite()
+            hdul = fits.HDUList([fits.PrimaryHDU(), fits.ImageHDU(data=np.ones((140, 146)))])
+            hdul[1].header['PLTSCL'] = (pltscl.value, 'platescale in mas/pixel')
+            hdul[1].header['DEVANG'] = (devang.value, 'device angle in degrees')
+            hdul.writeto(sd.path[:-4] + '.fits')
+
+def apply(o):
+    sol_path = o.wcscal.path[:-4] + '.fits'
+    getLogger(__name__).info(f'Applying {sol_path} to {o.h5}')
+    sol_hdul = fits.open(sol_path)
+    pltscl = sol_hdul[1].header['PLTSCL']
+    devang = sol_hdul[1].header['DEVANG']
+    pt = o.photontable
+    pt.enablewrite()
+    pt.update_header('E_PLTSCL', pltscl)
+    pt.update_header('E_DEVANG', devang)
+    pt.disablewrite()
