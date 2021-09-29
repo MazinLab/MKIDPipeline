@@ -283,27 +283,30 @@ def fetch(solution_descriptors, config=None, ncpu=None):
             if abs(pltscly-pltsclx) > 0.1*(max(pltsclx, pltscly)):
                 getLogger(__name__).critical('Platescale in x and y directions differ by more than 10%! Check WCS '
                                              'dataset as it is likely some parameters are underconstrained')
-                pltscl = np.mean((pltsclx.value, pltscly.value))
+                pltscl = np.mean((pltsclx.to(u.arcsec).value, pltscly.to(u.arcsec).value))
             else:
-                pltscl = np.mean((pltsclx.value, pltscly.value))
-                #TODO flesh out
+                pltscl = np.mean((pltsclx.to(u.arcsec).value, pltscly.to(u.arcsec).value))
             hdr = sd.data.obs[0].photontable.get_fits()[0].header
             hdul = fits.HDUList([fits.PrimaryHDU(header=hdr)])
+            im_stack = np.zeros((len(images), images[0].shape[0], images[0].shape[1]))
             for i, im in enumerate(images):
                 im[np.isnan(im)] = 0
+                im_stack[i,:,:] = im
                 hdul.append(fits.ImageHDU(data=im, header=hdus[i], name='SCIENCE'))
-                hdul[i+1].header['PLTSCL'] = (pltscl, 'platescale in mas/pixel')
-                hdul[i+1].header['DPIXDCXX'] =  (dp_dconx, 'pixel move per conex move in x')
-                hdul[i+1].header['DPIXDCXY'] = (dp_dcony, 'pixel move per conex move in y')
-                hdul[i+1].header['DEVANG'] = (devang, 'device angle in degrees')
+                hdul[i + 1].header['PLTSCL'] = (pltscl, 'platescale in arcsec/pixel')
+                hdul[i + 1].header['DPIXDCXX'] = (dp_dconx, 'pixel move per conex move in x')
+                hdul[i + 1].header['DPIXDCXY'] = (dp_dcony, 'pixel move per conex move in y')
+                hdul[i + 1].header['DEVANG'] = (devang, 'device angle in degrees')
+            hdul[1].data = im_stack
             hdul.writeto(sd.path[:-4] + '.fits')
         else:
             pltscl = sd.data
             devang = wcscfg.instrument.device_orientation_deg
             hdul = fits.HDUList([fits.PrimaryHDU(), fits.ImageHDU(data=np.ones((140, 146)))])
-            hdul[1].header['PLTSCL'] = (pltscl.value, 'platescale in mas/pixel')
+            hdul[1].header['PLTSCL'] = (pltscl.to(u.arcsec).value, 'platescale in arcsec/pixel')
             hdul[1].header['DEVANG'] = (devang.value, 'device angle in degrees')
             hdul.writeto(sd.path[:-4] + '.fits')
+
 
 def apply(o):
     sol_path = o.wcscal.path[:-4] + '.fits'
