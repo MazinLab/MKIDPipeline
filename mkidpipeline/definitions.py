@@ -3,17 +3,179 @@ import os
 from collections import defaultdict
 from datetime import datetime
 from typing import Set
-
+import ruamel.yaml
 import astropy.units
 import numpy as np
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 
+import mkidcore.config
 import mkidcore.utils
-from .config import DataBase, Key, config, UnassociatedError
-from corelog import getLogger
+import mkidpipeline.config as mkpc
+from mkidcore.corelog import getLogger
 from mkidcore.legacy import parse_dither as parse_legacy_dither
 from mkidcore.utils import derangify
+
+
+class UnassociatedError(RuntimeError):
+    pass
+
+
+class Key:
+    """Class that defines a Key which consists of a name, default value, comment, and data type"""
+    def __init__(self, name='', default=None, comment='', dtype=None):
+        self.name = str(name)
+        self.default = default
+        self.comment = str(comment)
+        self.dtype = dtype
+
+
+class DataBase:
+    """Superclass to handle all MKID data. Verifies and sets all required keys"""
+    KEYS = tuple()
+    REQUIRED = tuple()  # May set individual elements to tuples of keys if they are alternates e.g. stop/duration
+    EXPLICIT_ALLOW = tuple()  # Set to names that are allowed keys and are also used as properties
+
+    def __init__(self, *args, **kwargs):
+        from collections import defaultdict
+        self._key_errors = defaultdict(list)
+        self._keys = {k.name: k for k in self.KEYS}
+        self.extra_keys = []
+
+        # Check disallowed
+        for k in kwargs:
+            if getattr(self, k, None) is not None and k not in self.EXPLICIT_ALLOW or k.startswith('_'):
+                self._key_errors[k] += ['Not an allowed key']
+
+        self.name = kwargs.get('name', f'Unnamed !{self.yaml_tag}')  # yaml_tag defined by subclass
+        self.extra_keys = [k for k in kwargs if k not in self.key_names]
+
+        # Check for the existence of all required keys (or key sets)
+        for key_set in self.REQUIRED:
+            if isinstance(key_set, str):
+                key_set = (key_set,)
+            found = 0
+            for k in key_set:
+                found += int(k in kwargs)
+            if len(key_set) == 1:
+                key_set = key_set[0]
+            if not found:
+                self._key_errors[key_set] += ['missing']
+            elif found > 1:
+                if not found:
+                    self._key_errors[key_set] += ['multiple specified']
+
+        # Process keys
+        for k, v in kwargs.items():
+            if k in self._keys:
+                required_type = self._keys[k].dtype
+                try:
+                    required_type[0]
+                except TypeError:
+                    required_type = (required_type,)
+
+                if tuple in required_type and isinstance(v, list):
+                    v = tuple(v)
+                if float in required_type and v is not None:  # and isinstance(v, str) and v.endswith('inf'):
+                    try:
+                        v = float(v)
+                    except (ValueError, TypeError):
+                        pass
+                if required_type[0] is not None and not isinstance(v, required_type):
+                    self._key_errors[k] += [f' {v} not an instance of {tuple(map(lambda x: x.__name__, required_type))}']
+
+            if isinstance(v, str):
+                try:
+                    v = u.Quantity(v)
+                except (TypeError, ValueError):
+                    if v.startswith('_'):
+                        raise ValueError(f'Keys may not start with an underscore: "{v}". Check {self.name}')
+            try:
+                setattr(self, k, v)
+            except AttributeError:
+                try:
+                    setattr(self, '_' + k, v)
+                    getLogger(__name__).debug(f'Storing {k} as _{k} for use by subclass')
+                except AttributeError:
+                    pass
+
+        # Set defaults
+        for key in (key for key in self.KEYS if key.name not in kwargs and key.name not in self.EXPLICIT_ALLOW):
+            try:
+                if key.default is None and key.dtype is not None:
+                    default = key.dtype[0]() if isinstance(key.dtype, tuple) else key.dtype()
+                else:
+                    default = key.default
+            except Exception:
+                default = None
+                getLogger(__name__).debug(f'Unable to create default instance of {key.dtype} for '
+                                          f'{key.name}, using None')
+            try:
+                setattr(self, key.name, default)
+            except Exception:
+                getLogger(__name__).debug(f'Key {key.name} is shadowed by property, prepending _')
+                setattr(self, '_' + key.name, default)
+
+        # # Check types
+        # for k:
+        #     if key.dtype is not None:
+        #         try:
+        #             if not isinstance(getattr(self, key.name), key.dtype):
+        #                 self._key_errors[key.name] += [f'not an instance of {key.dtype}']
+        #         except AttributeError:
+        #             pass
+
+    def _vet(self):
+        """Returns a copy of all of the key errors"""
+        return self._key_errors.copy()
+
+    def extra(self):
+        """Returns a dictionary of the extra keys (keys not included in KEYS)"""
+        return {k: getattr(self, k) for k in self.extra_keys}
+
+    @classmethod
+    def from_yaml(cls, loader, node):
+        return cls(**dict(loader.construct_pairs(node, deep=True)))
+
+    @classmethod
+    def to_yaml(cls, representer, node, use_underscore=tuple()):
+        d = node.__dict__.copy()
+        for k in use_underscore:
+            d[k] = d.pop(f"_{k}", d[k])
+        # We want to write out all the keys needed to recreate the definition
+        #  keys that are explicitly allowed are used in __init__ to support dual definition (e.g. stop/duration)
+        #  we exclude th to prevent redundancy
+        #  we want to include any user defined keys
+        keys = [k for k in node._keys if k not in cls.EXPLICIT_ALLOW] + d.pop('extra_keys')
+        store = {}
+        for k in keys:
+            if type(d[k]) not in representer.yaml_representers:
+                if not isinstance(d[k], u.Quantity):
+                    getLogger(__name__).debug(f'{node.name} ({cls.__name__}.{k}) is a {type(d[k])} and '
+                                              f'will be cast to string ({str(d[k])}) for yaml representation ')
+                store[k] = str(d[k])
+            else:
+                # getLogger(__name__).debug(f'{node.name} ({cls.__name__}.{k}) is a {type(d[k])} and '
+                #                           f'will be stored as ({d[k]}) for yaml representation ')
+                store[k] = d[k]
+        if 'header' in store:
+            cm = ruamel.yaml.comments.CommentedMap(store['header'])
+            for k in store['header']:
+                try:
+                    descr = mkidcore.metadata.MEC_KEY_INFO[k].description
+                except KeyError:
+                    descr = '!UNKNOWN MEC HEADER KEY!'
+                cm.yaml_add_eol_comment(descr, key=k)
+            store['header'] = cm
+        cm = ruamel.yaml.comments.CommentedMap(store)
+        for k in store:
+            cm.yaml_add_eol_comment(node._keys[k].comment if k in node._keys else 'User added key', key=k)
+        return representer.represent_mapping(cls.yaml_tag, cm)
+
+    @property
+    def key_names(self):
+        """Convenience method for returning all of the names fo the KEYS"""
+        return tuple([k.name for k in self.KEYS])
 
 
 class MKIDTimerange(DataBase):
@@ -82,7 +244,7 @@ class MKIDTimerange(DataBase):
     @property
     def beammap(self):
         """Returns the beammmap"""
-        return config.beammap
+        return mkpc.config.beammap
 
     @property
     def duration(self):
@@ -103,7 +265,7 @@ class MKIDTimerange(DataBase):
     @property
     def h5(self):
         """Returns the full h5 file path associated with the MKIDTimerange"""
-        return os.path.join(config.paths.out, '{}.h5'.format(int(self.start)))
+        return os.path.join(mkpc.config.paths.out, '{}.h5'.format(int(self.start)))
 
     @property
     def photontable(self):
@@ -122,7 +284,7 @@ class MKIDTimerange(DataBase):
     @property
     def metadata(self):
         """Returns a dict of of KEY:mkidcore.metadata.MetadataSeries|value pairs, likely a subset of all keys"""
-        obslog_files = mkidcore.utils.get_obslogs(config.paths.data, start=self.start)
+        obslog_files = mkidcore.utils.get_obslogs(mkpc.config.paths.data, start=self.start)
         data = mkidcore.metadata.load_observing_metadata(files=obslog_files, use_cache=True)
         metadata = mkidcore.metadata.observing_metadata_for_timerange(self.start, self.duration, data)
 
@@ -171,7 +333,7 @@ class MKIDObservation(MKIDTimerange):
         """Updates the metadata to include necessary keywords for the WCScal"""
         d = super()._metadata
         try:
-            d.update(dict(E_PLTSCL=self.wcscal.platescale, E_DEVANG=config.instrument.device_orientation_deg,
+            d.update(dict(E_PLTSCL=self.wcscal.platescale, E_DEVANG=mkpc.config.instrument.device_orientation_deg,
                           E_CXREFX=self.wcscal.conex_ref[0], E_CXREFY=self.wcscal.conex_ref[1],
                           E_PREFX=self.wcscal.pixel_ref[0], E_PREFY=self.wcscal.pixel_ref[1]))
         except AttributeError:
@@ -231,7 +393,7 @@ class CalDefinitionMixin:
     @property
     def path(self):
         """Convenience function for returning the full file path of the calibration data product"""
-        return os.path.join(config.paths.database, self.id + '.npz')
+        return os.path.join(mkpc.config.paths.database, self.id + '.npz')
 
     @property
     def timeranges(self):
@@ -258,7 +420,7 @@ class CalDefinitionMixin:
         Compute a cal definition id string for a specified config (must have STEPNAME namespace)
         """
         id = str(self.name) + '_' + hashlib.md5(str(self).encode()).hexdigest()[-8:]
-        cfg = config.get(self.STEPNAME)
+        cfg = mkpc.config.get(self.STEPNAME)
         config_hash = hashlib.md5(str(cfg).encode()).hexdigest()
         return f'{id}_{config_hash[-8:]}.{self.STEPNAME}'
 
@@ -501,14 +663,14 @@ class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
         if self.pixel_ref is not None:
             try:
                 assert len(self.pixel_ref) == 2
-                if config is None or config.beammap is None:
+                if mkpc.config is None or mkpc.config.beammap is None:
                     getLogger(__name__).debug(f'Beammap not configured not checking pixel_ref validity')
                 else:
-                    assert (0 <= self.pixel_ref[0] < config.beammap.ncols and
-                            0 <= self.pixel_ref[1] < config.beammap.nrows)
+                    assert (0 <= self.pixel_ref[0] < mkpc.config.beammap.ncols and
+                            0 <= self.pixel_ref[1] < mkpc.config.beammap.nrows)
             except (TypeError, AssertionError):
                 getLogger(__name__).debug(f'Dither home {self.pixel_ref} not in beammap '
-                                          f'domain {config.beammap.ncols},{config.beammap.nrows}')
+                                          f'domain {mkpc.config.beammap.ncols},{mkpc.config.beammap.nrows}')
                 self._key_errors['pixel_ref'] += ['must be a valid pixel (x,y) position']
 
     @property
@@ -577,10 +739,10 @@ class MKIDDitherDescription(DataBase):
         super().__init__(*args, **kwargs)
 
         try:
-            dither_path = config.paths.data
+            dither_path = mkpc.config.paths.data
         except AttributeError:
             dither_path = ''
-            getLogger(__name__).debug('Pipeline config.paths.data not configured, '
+            getLogger(__name__).debug('Pipeline mkpc.config.paths.data not configured, '
                                       'dither discovery will use working directory')
 
         def check_use(maxn):
@@ -1111,7 +1273,7 @@ class MKIDOutput(DataBase):
         if os.pathsep in file:
             return file
         else:
-            full_path = os.path.join(config.paths.out, self.data if isinstance(self.data, str) else self.data.name)
+            full_path = os.path.join(mkpc.config.paths.out, self.data if isinstance(self.data, str) else self.data.name)
             return os.path.join(full_path, file)
 
 
@@ -1411,3 +1573,13 @@ class MKIDOutputCollection:
                 yield out.data.speccal.data
             if out.data.wcscal and isinstance(out.data.wcscal.data, MKIDDitherDescription):
                 yield out.data.wcscal.data
+
+
+mkidcore.config.yaml.register_class(MKIDTimerange)
+mkidcore.config.yaml.register_class(MKIDObservation)
+mkidcore.config.yaml.register_class(MKIDWavecalDescription)
+mkidcore.config.yaml.register_class(MKIDFlatcalDescription)
+mkidcore.config.yaml.register_class(MKIDSpeccalDescription)
+mkidcore.config.yaml.register_class(MKIDWCSCalDescription)
+mkidcore.config.yaml.register_class(MKIDDitherDescription)
+mkidcore.config.yaml.register_class(MKIDOutput)
