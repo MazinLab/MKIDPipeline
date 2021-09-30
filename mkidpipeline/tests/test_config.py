@@ -6,7 +6,7 @@ import mkidcore.corelog
 import pkg_resources as pkg
 
 mkidcore.corelog.getLogger('mkidcore', setup=True,
-                           configfile=pkg.resource_filename('mkidpipeline', './utils/logging.yaml'))
+                           configfile=pkg.resource_filename('mkidpipeline', './config/logging.yaml'))
 
 data = mkidpipeline.samples.get_sample_data('default')
 config.dump_dataconfig(data)

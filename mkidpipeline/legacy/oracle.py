@@ -22,19 +22,16 @@ matplotlib.use('Qt5Agg')
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
-
-
 import sys, os
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import pyqtSignal
 from mkidpipeline.photontable import Photontable
 import mkidpipeline.utils.binparse as binparse
-from mkidpipeline.steps.pixcal import flux_threshold as hft
+from mkidpipeline.steps.pixcal import threshold as hft
 from scipy import optimize
-import os.path
-from utils.oracle_helpers import MRlogL, MRlogL_Hessian, MRlogL_Jacobian, blurredMR,\
-    histogramLC, getLightCurve
+
+from .oracle_helpers import MRlogL, MRlogL_Hessian, MRlogL_Jacobian, blurredMR, histogramLC, getLightCurve
 from mkidcore.objects import Beammap
 import time
 import datetime

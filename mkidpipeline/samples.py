@@ -51,7 +51,7 @@ SAMPLEDATA = {'default': (
     config.MKIDSpeccalDescription(name=_namer('speccal'),
                                   data=config.MKIDObservation(name=_namer('star'), start=1602049166, duration=10,
                                                               wavecal='wavecal0',
-                                                              spectrum=pkg_resources.resource_filename('mkidpipeline', 'sample_spectrum.txt')),
+                                                              spectrum=pkg_resources.resource_filename('mkidpipeline', 'data/sample_spectrum.txt')),
                                   aperture=('15h22m32.3', '30.32 deg', '200 mas')),
 
     # WCS cal
@@ -73,7 +73,7 @@ SAMPLEDATA = {'default': (
                                  header=dict(OBJECT="HIP 109427"),
                                  flatcal='flatcal0', speccal='speccal0', use='0,2,4-9', wcscal='wcscal0'),
     config.MKIDDitherDescription(name=_namer('dither'),
-                                 data=pkg_resources.resource_filename('mkidpipeline', 'dither_sample.log'),
+                                 data=pkg_resources.resource_filename('mkidpipeline', 'data/dither_sample.log'),
                                  wavecal='wavecal0', flatcal='flatcal0', speccal='speccal0', use=(1,),
                                  wcscal='wcscal0'),
     config.MKIDDitherDescription(name=_namer('dither'), flatcal='', speccal='', wcscal='', wavecal='',

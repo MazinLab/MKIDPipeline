@@ -12,7 +12,7 @@ from mkidcore.instruments import InstrumentInfo
 
 from mkidpipeline.photontable import Photontable
 import mkidpipeline.config
-from mkidpipeline.memory import PIPELINE_MAX_RAM_GB, free_ram_gb, reserve_ram, release_ram
+from mkidpipeline.utils.memory import PIPELINE_MAX_RAM_GB, free_ram_gb, reserve_ram, release_ram
 
 
 PHOTON_BIN_SIZE_BYTES = 8
