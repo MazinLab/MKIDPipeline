@@ -4,7 +4,6 @@ import multiprocessing as mp
 import functools
 import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
-from contextlib import contextmanager
 
 import mkidcore.metadata
 from mkidcore.binfile.mkidbin import PhotonCType, PhotonNumpyType
@@ -12,7 +11,7 @@ from mkidcore.corelog import getLogger
 from mkidcore.pixelflags import FlagSet
 import mkidcore.pixelflags as pixelflags
 from mkidcore.instruments import compute_wcs_ref_pixel
-import mkidpipeline.memory as pipeline_ram
+import mkidpipeline.utils.memory as pipeline_ram
 
 import SharedArray
 

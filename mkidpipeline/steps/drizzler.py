@@ -30,34 +30,29 @@ import matplotlib.pylab as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.colors import LogNorm
 import pickle
-import pkg_resources as pkg
 import hashlib
 from glob import glob
 import getpass
 import scipy.ndimage as ndimage
 from mkidcore.metadata import MetadataSeries
 import astropy
-from astropy.utils.data import Conf
 from astropy.io import fits
 from astropy import wcs
-from astropy.coordinates import EarthLocation, SkyCoord
+from astropy.coordinates import EarthLocation
 import astropy.units as u
 from astroplan import Observer
 
 import tables
 import shutil
 from drizzle import drizzle as stdrizzle
-import argparse
 
 import mkidcore.corelog
 import mkidcore.pixelflags
-import mkidcore.corelog as pipelinelog
 import mkidcore.metadata
 from mkidcore.corelog import getLogger
 from mkidcore.instruments import CONEX2PIXEL
 
 from mkidpipeline.photontable import Photontable
-from mkidpipeline.utils.array_operations import get_device_orientation
 import mkidpipeline.config
 
 # currently no pixel flags make drizzler explode but there are plenty one wouldn't want by default in the output
@@ -936,69 +931,3 @@ def form(dither, mode='drizzler', derotate=True, wave_start=None, wave_stop=None
         driz.write(output_file)
     getLogger(__name__).info('Finished')
     return driz
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Photon Drizzling Utility')
-    parser.add_argument('cfg', type=str, help='The configuration file')
-    parser.add_argument('-wl', type=float, dest='wvl_min', help='minimum wavelength', default=850)
-    parser.add_argument('-wh', type=float, dest='wvl_max', help='maximum wavelength', default=1100)
-    parser.add_argument('-t0', type=int, dest='startt', help='start time', default=0)
-    parser.add_argument('-it', type=float, dest='intt', help='end time', default=60)
-    parser.add_argument('-p', action='store_true', dest='plot', help='Plot the result', default=False)
-    parser.add_argument('--get-offset', nargs=2, type=int, dest='gso', help='Runs get_star_offset eg 0 0 ')
-    # changed this to bool so that the filename from drizzler_cfg_descr_str(cfg.drizzler) could be used
-    parser.add_argument('--get-orientation', type=bool, dest='gdo',
-                        help='Run get_device_orientation on a fits file, first created with the default orientation.',
-                        default=None)
-
-    args = parser.parse_args()
-
-    # timeout limit for SkyCoord.from_name
-    Conf.remote_timeout.set(10)
-
-    # set up logging
-    mkidcore.corelog.getLogger('mkidcore', setup=True,
-                               configfile=pkg.resource_filename('mkidpipeline', './utils/logging.yaml'))
-    pipelinelog.create_log('mkidpipeline.imaging.drizzler', console=True, level="INFO")
-
-    # load as a task configuration
-    cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(drizzler=StepConfig()),
-                                                    cfg=mkidpipeline.config.configure_pipeline(args.cfg), copy=False)
-
-    wvl_min = args.wvl_min
-    wvl_max = args.wvl_max
-    startt = args.startt
-    intt = args.intt
-    pixfrac = cfg.drizzler.pixfrac
-    dither = cfg.dither  # TODO this is wrong and needs to be pulled from a data definition
-
-    if args.gso and isinstance(args.gso, list):
-        rotation_origin = get_star_offset(dither, wvl_min, wvl_max, startt, intt, start_guess=np.array(args.gso))
-
-    fitsname = '{}_{}.fits'.format(cfg.dither.name, 'todo')
-
-    # main function of drizzler
-    scidata = form(dither, wave_start=wvl_min, wave_stop=wvl_max, start=startt, duration=intt, pixfrac=pixfrac,
-                   derotate=True)
-
-    scidata.write(fitsname)
-
-    if args.gdo:
-        if not os.path.exists(fitsname):
-            getLogger(__name__).info(("Can't find {} Create the fits image "
-                                      "using the default orientation first").format(fitsname))
-        else:
-            target = dither.target
-            if target is None or target == 'None':
-                getLogger(__name__).error('Please enter a valid target name')
-                raise TypeError
-            elif isinstance(target, (list, np.array)):
-                target = [float(tar.value) * u.deg for tar in target]  # assume list of coord values in degrees
-                coords = SkyCoord(target[0], target[1])
-            elif isinstance(target, SkyCoord):
-                coords = target
-            else:
-                coords = SkyCoord.from_name(target)
-            getLogger(__name__).info('Found coordinates {} for target {}'.format(coords, target))
-            get_device_orientation(coords, fitsname)
