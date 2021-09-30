@@ -9,6 +9,7 @@ import numpy as np
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 
+import mkidcore.utils
 from .config import DataBase, Key, config, UnassociatedError
 from corelog import getLogger
 from mkidcore.legacy import parse_dither as parse_legacy_dither
