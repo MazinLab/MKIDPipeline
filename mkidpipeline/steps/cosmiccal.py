@@ -36,17 +36,17 @@ class CRImpact(tables.IsDescription):
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!cosmiccal_cfg'
     REQUIRED_KEYS = (('plots', 'all', 'Which plots to generate'),
-                     ('wave_range', None, 'TODO'),
-                     ('method', 'poisson', 'TODO'),
-                     ('removal_range', (50, 100), 'TODO'))
+                     ('wavecut', None, 'An optional range (min_nm, max_nm) to use for CR detection'),
+                     ('method', 'threshold', 'What method to use to identify CR impacts (threshold|poisson)'),
+                     ('removal_range', (50, 100), 'The number of microseconds before and after an event to filter'))
 
 
 class CosmicCleaner:
-    def __init__(self, file, wave_range=(-np.inf, np.inf), method="poisson", removal_range=(50, 100), bin_size=10):
+    def __init__(self, file, wavecut=(-np.inf, np.inf), method="poisson", region=(50, 100), bin_size=10):
         self.obs = Photontable(file)
-        self.wave_range = wave_range
+        self.wave_range = wavecut
         self.method = method
-        self.removalRange = removal_range
+        self.removal_range = region
         self.bin_size = bin_size
         self.photons = None  # Photon list used for the cosmic ray removal. Only modified if wave_range!=(-np.inf, np.inf)
         self.timestream = None  # (2,N) array. timestream[0] = time bins, timestream[1] = cts (over array)
@@ -164,14 +164,15 @@ class CosmicCleaner:
         #TODO replace this with array math
 
         # This is ~ 1.4GB for the first file I tested it on
-        mrr = np.max(self.removalRange)
+        mrr = np.max(self.removal_range)
         overlaps = [np.abs(i - self.cosmictimes) <= mrr for i in self.cosmictimes]
 
         # An array version is like this but cosmicbunches would either be overlaps[i] or overlaps[:, i]
-        # overlaps = (self.cosmictimes-self.cosmictimes[:, None]) <= np.max(self.removalRange)
+        # overlaps = (self.cosmictimes-self.cosmictimes[:, None]) <= np.max(self.removal_range)
 
         cosmicbunches = [self.cosmictimes[i] for i in overlaps]
-        cvals = np.array([[np.mean(i), i[0]-50, i[-1]+100, len(i)] for i in cosmicbunches])
+        cvals = np.array([[np.mean(i), i[0]-self.removal_range[0], i[-1]+self.removal_range[1], len(i)]
+                          for i in cosmicbunches])
 
         # TODO This seems guaranteed to go past the end of the array:   max(i)+d (which might be >1)-1
         other_ndx = np.arange(len(overlaps), dtype=int) + cvals[:, 3].astype(int)-1
@@ -236,11 +237,9 @@ def apply(o: definitions.MKIDTimerange, config=None, ncpu=None):
         getLogger(__name__).info('{} already has an attached CR impact table'.format(o.h5))
         return
 
-    exclude = [k[0] for k in StepConfig.REQUIRED_KEYS]
-    methodkw = {k: cfg.cosmiccal.get(k) for k in cfg.cosmiccal.keys() if k not in exclude}
+    methodkw = {k: v for k, v in cfg.cosmiccal.items() if v is not None}
     cc = CosmicCleaner(o.h5, **methodkw)
     cc.determine_cosmic_intervals()
-
 
     impacts = np.zeros(len(cc.interval_starts), dtype=NP_CR_IMPACT_TYPE)
     impacts['start'] = cc.interval_starts
@@ -251,7 +250,7 @@ def apply(o: definitions.MKIDTimerange, config=None, ncpu=None):
     # impacts['rate'] = ???
 
     getLogger(__name__).info(f'Attaching CR impact table with {impacts.size} events to {o.name} ({o.h5})')
-    md = dict(region=cc.removalRange, thresh=cc.threshold, method=cc.method, wavecut=cc.wave_range)
+    md = dict(region=cc.removal_range, thresh=cc.threshold, method=cc.method, wavecut=cc.wave_range)
     cc.obs.enablewrite()
     for k, v in md.items():
         cc.obs.update_header(f'cosmiccal.{k}', v)
