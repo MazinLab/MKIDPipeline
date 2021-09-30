@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import gridspec
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+import mkidpipeline.definitions as definitions
 from mkidpipeline.steps import wavecal
 from mkidpipeline.photontable import Photontable
 from mkidcore.corelog import getLogger
@@ -520,7 +522,7 @@ def load_solution(sc, singleton_ok=True):
         raise NotImplementedError('Must implement solution copying')
     if isinstance(sc, FlatSolution):
         return sc
-    if isinstance(sc, mkidpipeline.config.MKIDFlatcalDescription):
+    if isinstance(sc, definitions.MKIDFlatcalDescription):
         sc = sc.path
     sc = sc if os.path.isfile(sc) else os.path.join(mkidpipeline.config.config.paths.database, sc)
     try:
@@ -574,7 +576,7 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False):
     return solutions
 
 
-def apply(o: mkidpipeline.config.MKIDObservation, config=None):
+def apply(o: definitions.MKIDObservation, config=None):
     """
     Applies a flat calibration to the "SpecWeight" column for each pixel.
 

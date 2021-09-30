@@ -1,4 +1,5 @@
 #!/bin/env python3
+import mkidpipeline.definitions as definitions
 import mkidpipeline.config as config
 import mkidpipeline.pipeline as pipe
 import pkg_resources as pkg
@@ -14,7 +15,7 @@ paths = dict(data='/darkdata/ScienceData/Subaru/', out='/work/tmp/tests/out',
 config.update_paths(paths)
 config.make_paths()
 config.config.update('ncpu', 10)
-dataset = config.MKIDObservingDataset(pkg.resource_filename('mkidpipeline', 'tests/test_data.yml'))
+dataset = definitions.MKIDObservingDataset(pkg.resource_filename('mkidpipeline', 'tests/test_data.yml'))
 
 bin2hdf.buildtables(dataset.timeranges, remake=False)
 pipe.wavecal.fetch(dataset.wavecals, verbose=False)

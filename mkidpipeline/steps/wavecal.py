@@ -17,6 +17,7 @@ from matplotlib import cm, lines, pyplot as plt
 # from matplotlib.backends.backend_pdf import PdfPages
 from mpl_toolkits.axes_grid1 import axes_size, make_axes_locatable
 
+import mkidpipeline.definitions as definitions
 import mkidcore.corelog as pipelinelog
 import mkidcore.config
 from mkidcore.objects import Beammap
@@ -2622,7 +2623,7 @@ def load_solution(wc, singleton_ok=True):
                                         'in the vicinity of this comment')
             #_loaded_solutions[wc._file_path] = wc
         return wc
-    if isinstance(wc, mkidpipeline.config.MKIDWavecalDescription):
+    if isinstance(wc, definitions.MKIDWavecalDescription):
         wc = wc.path
     wc = wc if os.path.isfile(wc) else os.path.join(mkidpipeline.config.config.paths.database, wc)
     try:

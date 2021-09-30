@@ -8,7 +8,8 @@ from matplotlib.patches import Rectangle
 from photutils import DAOStarFinder, centroids, centroid_2dg
 from scipy.stats import chisquare
 from astropy import stats
-from mkidpipeline.config import MKIDDitherDescription
+from mkidpipeline.definitions import MKIDDitherDescription
+
 
 #Example (with a configured pipeline)
 # ditherfile = '/mnt/data0/isabel/highcontrastimaging/Jan2019Run/20190112/51Eri/51EriDither1/51Eri_wavecalib/51eri_ditheruseable.cfg'

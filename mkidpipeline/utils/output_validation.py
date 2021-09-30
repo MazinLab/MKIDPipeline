@@ -1,3 +1,4 @@
+import mkidpipeline.definitions as definitions
 import mkidpipeline.config as config
 from astropy.io import fits
 from mkidcore.corelog import getLogger
@@ -104,5 +105,5 @@ if __name__== "__main__":
     data_cfg = '/path/to/data.yaml'
 
     config.configure_pipeline(pipe_cfg)
-    outputs = config.MKIDOutputCollection(out_cfg, datafile=data_cfg)
+    outputs = definitions.MKIDOutputCollection(out_cfg, datafile=data_cfg)
     validate(outputs)

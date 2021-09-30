@@ -38,6 +38,8 @@ import astropy.coordinates as coord
 from specutils import Spectrum1D
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+
+import mkidpipeline.definitions as definitions
 from mkidcore.corelog import getLogger
 import mkidcore.config
 from astropy.wcs import WCS
@@ -593,7 +595,7 @@ def load_solution(sc, singleton_ok=True):
         raise NotImplementedError('Must implement solution copying')
     if isinstance(sc, ResponseCurve):
         return sc
-    if isinstance(sc, mkidpipeline.config.MKIDSpeccalDescription):
+    if isinstance(sc, definitions.MKIDSpeccalDescription):
         sc = sc.path
     sc = sc if os.path.isfile(sc) else os.path.join(mkidpipeline.config.config.paths.database, sc)
     try:

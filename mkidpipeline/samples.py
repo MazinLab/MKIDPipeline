@@ -1,5 +1,7 @@
 import pkg_resources
 from collections import defaultdict
+
+import mkidpipeline.definitions as definitions
 import mkidpipeline.config as config
 
 _i = defaultdict(lambda: 0)
@@ -12,88 +14,88 @@ def _namer(name='Thing'):
 
 
 SAMPLEDATA = {'default': (
-    config.MKIDObservation(name=_namer('HIP109427'), start=1602048875, duration=10, wavecal='wavecal0',
-                           dark=config.MKIDTimerange(name=_namer(), start=1602046500, duration=10),
-                           flatcal='flatcal0', wcscal='wcscal0', speccal='speccal0'),
+    definitions.MKIDObservation(name=_namer('HIP109427'), start=1602048875, duration=10, wavecal='wavecal0',
+                                dark=definitions.MKIDTimerange(name=_namer(), start=1602046500, duration=10),
+                                flatcal='flatcal0', wcscal='wcscal0', speccal='speccal0'),
     # wavecals
-    config.MKIDWavecalDescription(name=_namer('wavecal'),
-                                  data=(config.MKIDTimerange(name='850 nm', start=1602040820, duration=60,
-                                                             dark=config.MKIDTimerange(name=_namer(), start=1602046500,
-                                                                                       duration=10),
-                                                             header=dict(laser='on', other='fits_key')),
-                                        config.MKIDTimerange(name='950 nm', start=1602040895, duration=60,
-                                                             dark=config.MKIDTimerange(name=_namer(), start=1602046500,
-                                                                                       duration=10)),
-                                        config.MKIDTimerange(name='1.1 um', start=1602040970, duration=60,
-                                                             dark=config.MKIDTimerange(name=_namer(), start=1602046500,
-                                                                                       duration=10)),
-                                        config.MKIDTimerange(name='1.25 um', start=1602041040, duration=60,
-                                                             dark=config.MKIDTimerange(name=_namer(), start=1602046500,
-                                                                                       duration=10)),
-                                        config.MKIDTimerange(name='13750 AA', start=1602041110, duration=60))
-                                  ),
-    config.MKIDWavecalDescription(name=_namer('wavecal'),
-                                  data=(config.MKIDTimerange(name='850 nm', start=1621333295, duration=60,
-                                                             header=dict(laser='on', other='fits_key')),
-                                        config.MKIDTimerange(name='950 nm', start=1621333385, duration=60),
-                                        config.MKIDTimerange(name='1.1 um', start=1621333505, duration=60),
-                                        config.MKIDTimerange(name='1.25 um', start=1621333580, duration=60),
-                                        config.MKIDTimerange(name='13750 AA', start=1621333770, duration=60))
-                                  ),
+    definitions.MKIDWavecalDescription(name=_namer('wavecal'),
+                                       data=(definitions.MKIDTimerange(name='850 nm', start=1602040820, duration=60,
+                                                                       dark=definitions.MKIDTimerange(name=_namer(), start=1602046500,
+                                                                                                      duration=10),
+                                                                       header=dict(laser='on', other='fits_key')),
+                                             definitions.MKIDTimerange(name='950 nm', start=1602040895, duration=60,
+                                                                       dark=definitions.MKIDTimerange(name=_namer(), start=1602046500,
+                                                                                                      duration=10)),
+                                             definitions.MKIDTimerange(name='1.1 um', start=1602040970, duration=60,
+                                                                       dark=definitions.MKIDTimerange(name=_namer(), start=1602046500,
+                                                                                                      duration=10)),
+                                             definitions.MKIDTimerange(name='1.25 um', start=1602041040, duration=60,
+                                                                       dark=definitions.MKIDTimerange(name=_namer(), start=1602046500,
+                                                                                                      duration=10)),
+                                             definitions.MKIDTimerange(name='13750 AA', start=1602041110, duration=60))
+                                       ),
+    definitions.MKIDWavecalDescription(name=_namer('wavecal'),
+                                       data=(definitions.MKIDTimerange(name='850 nm', start=1621333295, duration=60,
+                                                                       header=dict(laser='on', other='fits_key')),
+                                             definitions.MKIDTimerange(name='950 nm', start=1621333385, duration=60),
+                                             definitions.MKIDTimerange(name='1.1 um', start=1621333505, duration=60),
+                                             definitions.MKIDTimerange(name='1.25 um', start=1621333580, duration=60),
+                                             definitions.MKIDTimerange(name='13750 AA', start=1621333770, duration=60))
+                                       ),
     # Flatcals
-    config.MKIDFlatcalDescription(name=_namer('flatcal'),
-                                  comment='Open dark that is being used for testing of white light flats while none are'
+    definitions.MKIDFlatcalDescription(name=_namer('flatcal'),
+                                       comment='Open dark that is being used for testing of white light flats while none are'
                                           ' available - should NOT be used as an actual flat calibration!',
-                                  data=config.MKIDObservation(name='open_dark', start=1576498833, duration=30.0,
-                                                              wavecal='wavecal0')),
-    config.MKIDFlatcalDescription(name=_namer('flatcal'), wavecal_duration=50.0, wavecal_offset=2.1, data='wavecal0'),
+                                       data=definitions.MKIDObservation(name='open_dark', start=1576498833, duration=30.0,
+                                                                        wavecal='wavecal0')),
+    definitions.MKIDFlatcalDescription(name=_namer('flatcal'), wavecal_duration=50.0, wavecal_offset=2.1, data='wavecal0'),
     # Speccal
-    config.MKIDSpeccalDescription(name=_namer('speccal'),
-                                  data=config.MKIDObservation(name=_namer('star'), start=1602049166, duration=10,
-                                                              wavecal='wavecal0',
-                                                              spectrum=pkg_resources.resource_filename('mkidpipeline', 'data/sample_spectrum.txt')),
-                                  aperture=('15h22m32.3', '30.32 deg', '200 mas')),
+    definitions.MKIDSpeccalDescription(name=_namer('speccal'),
+                                       data=definitions.MKIDObservation(name=_namer('star'), start=1602049166, duration=10,
+                                                                        wavecal='wavecal0',
+                                                                        spectrum=pkg_resources.resource_filename('mkidpipeline', 'data/sample_spectrum.txt')),
+                                       aperture=('15h22m32.3', '30.32 deg', '200 mas')),
 
     # WCS cal
-    config.MKIDWCSCalDescription(name=_namer('wcscal'), pixel_ref=[107, 46], conex_ref=[-0.16, -0.4],
-                                 data='10.40 mas'),
-    config.MKIDWCSCalDescription(name=_namer('wcscal'),
-                                 comment='ob wcscals may be used to manually determine '
+    definitions.MKIDWCSCalDescription(name=_namer('wcscal'), pixel_ref=[107, 46], conex_ref=[-0.16, -0.4],
+                                      data='10.40 mas'),
+    definitions.MKIDWCSCalDescription(name=_namer('wcscal'),
+                                      comment='ob wcscals may be used to manually determine '
                                          'WCS parameters. They are not yet supported for '
                                          'automatic WCS parameter computation',
-                                 data=config.MKIDObservation(name=_namer('Sigma Ori'), start=1631279400,
-                                                             duration=20, wavecal='wavecal0',
-                                                             dark=config.MKIDTimerange(name=_namer(), start=1602046500,
-                                                                                       duration=10)),
-                                 pixel_ref=(107, 46), conex_ref=(0.0, 0.0),
-                                 source_locs=[['22h10m11.98527s', '+06d11m52.3017s'],
+                                      data=definitions.MKIDObservation(name=_namer('Sigma Ori'), start=1631279400,
+                                                                       duration=20, wavecal='wavecal0',
+                                                                       dark=definitions.MKIDTimerange(name=_namer(), start=1602046500,
+                                                                                                      duration=10)),
+                                      pixel_ref=(107, 46), conex_ref=(0.0, 0.0),
+                                      source_locs=[['22h10m11.98527s', '+06d11m52.3017s'],
                                               ['22h11m11.98527s', '+06d11m52.3017s']]),
     # Dithers
-    config.MKIDDitherDescription(name=_namer('dither'), data=1602047815, wavecal='wavecal0',
-                                 header=dict(OBJECT="HIP 109427"),
-                                 flatcal='flatcal0', speccal='speccal0', use='0,2,4-9', wcscal='wcscal0'),
-    config.MKIDDitherDescription(name=_namer('dither'),
-                                 data=pkg_resources.resource_filename('mkidpipeline', 'data/dither_sample.log'),
-                                 wavecal='wavecal0', flatcal='flatcal0', speccal='speccal0', use=(1,),
-                                 wcscal='wcscal0'),
-    config.MKIDDitherDescription(name=_namer('dither'), flatcal='', speccal='', wcscal='', wavecal='',
-                                 header=dict(OBJECT='HIP 109427'),
-                                 data=(config.MKIDObservation(name=_namer('HIP109427_'), start=1602047815,
-                                                              duration=10, wavecal='wavecal0', wcscal='wcscal0',
-                                                              header=dict(E_CONEXX=.1, E_CONEXY=-.4,
+    definitions.MKIDDitherDescription(name=_namer('dither'), data=1602047815, wavecal='wavecal0',
+                                      header=dict(OBJECT="HIP 109427"),
+                                      flatcal='flatcal0', speccal='speccal0', use='0,2,4-9', wcscal='wcscal0'),
+    definitions.MKIDDitherDescription(name=_namer('dither'),
+                                      data=pkg_resources.resource_filename('mkidpipeline', 'data/dither_sample.log'),
+                                      wavecal='wavecal0', flatcal='flatcal0', speccal='speccal0', use=(1,),
+                                      wcscal='wcscal0'),
+    definitions.MKIDDitherDescription(name=_namer('dither'), flatcal='', speccal='', wcscal='', wavecal='',
+                                      header=dict(OBJECT='HIP 109427'),
+                                      data=(definitions.MKIDObservation(name=_namer('HIP109427_'), start=1602047815,
+                                                                        duration=10, wavecal='wavecal0', wcscal='wcscal0',
+                                                                        header=dict(E_CONEXX=.1, E_CONEXY=-.4,
                                                                           OBJECT='HIP 109427'),
-                                                              dark=config.MKIDTimerange(name=_namer(), start=1602046500,
-                                                                                        duration=10)),
-                                       config.MKIDObservation(name=_namer('HIP109427_'), start=1602047843, duration=10,
-                                                              wavecal='wavecal0', wcscal='wcscal0',
-                                                              header=dict(E_CONEXX=.1, E_CONEXY=-.28,
+                                                                        dark=definitions.MKIDTimerange(name=_namer(), start=1602046500,
+                                                                                                       duration=10)),
+                                            definitions.MKIDObservation(name=_namer('HIP109427_'), start=1602047843, duration=10,
+                                                                        wavecal='wavecal0', wcscal='wcscal0',
+                                                                        header=dict(E_CONEXX=.1, E_CONEXY=-.28,
                                                                           OBJECT='HIP 109427')),
-                                       config.MKIDObservation(name=_namer('HIP109427_'), start=1602047869,
-                                                              duration=10, wavecal='wavecal0', wcscal='wcscal0',
-                                                              header=dict(E_CONEXX=.1, E_CONEXY=-.16,
+                                            definitions.MKIDObservation(name=_namer('HIP109427_'), start=1602047869,
+                                                                        duration=10, wavecal='wavecal0', wcscal='wcscal0',
+                                                                        header=dict(E_CONEXX=.1, E_CONEXY=-.16,
                                                                           OBJECT='HIP 109427'))
-                                       )
-                                 )
+                                            )
+                                      )
 )}
 
 
@@ -102,12 +104,12 @@ def get_sample_data(dataset='default'):
 
 
 def get_sample_output(dataset='default'):
-    data = [config.MKIDOutput(name=_namer('out'), data='dither0', min_wave='950 nm', max_wave='1375 nm', kind=k,
-                              duration=10.0) for k in ('stack', 'drizzle', 'image', 'tcube', 'scube')] #TODO add 'list' back in once supported
-    data.append(config.MKIDOutput(name=_namer('out'), data='dither0', min_wave='950 nm', max_wave='1375 nm',
-                                  kind='drizzle', duration=10.0, timestep=1.0, wavestep= '0.0 nm'))
-    data.append(config.MKIDOutput(name=_namer('out'), data='dither0', min_wave='950 nm', max_wave='1375 nm',
-                                  kind='movie', duration=10.0, movie_format='gif', movie_runtime=3, movie_type='simple'))
-    data.append(config.MKIDOutput(name=_namer('out'), data='dither0', min_wave='950 nm', max_wave='1375 nm',
-                                  kind='movie', duration=10.0, movie_format='mp4', movie_runtime=3, movie_type='both'))
+    data = [definitions.MKIDOutput(name=_namer('out'), data='dither0', min_wave='950 nm', max_wave='1375 nm', kind=k,
+                                   duration=10.0) for k in ('stack', 'drizzle', 'image', 'tcube', 'scube')] #TODO add 'list' back in once supported
+    data.append(definitions.MKIDOutput(name=_namer('out'), data='dither0', min_wave='950 nm', max_wave='1375 nm',
+                                       kind='drizzle', duration=10.0, timestep=1.0, wavestep= '0.0 nm'))
+    data.append(definitions.MKIDOutput(name=_namer('out'), data='dither0', min_wave='950 nm', max_wave='1375 nm',
+                                       kind='movie', duration=10.0, movie_format='gif', movie_runtime=3, movie_type='simple'))
+    data.append(definitions.MKIDOutput(name=_namer('out'), data='dither0', min_wave='950 nm', max_wave='1375 nm',
+                                       kind='movie', duration=10.0, movie_format='mp4', movie_runtime=3, movie_type='both'))
     return data

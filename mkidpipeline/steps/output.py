@@ -5,6 +5,8 @@ import time
 from collections import defaultdict
 import functools
 import os
+
+import mkidpipeline.definitions as definitions
 import mkidcore.pixelflags
 from mkidcore.config import getLogger
 import mkidpipeline.config as config
@@ -15,7 +17,7 @@ import astropy.units as u
 StepConfig = None
 
 
-def generate(outputs: config.MKIDOutputCollection):
+def generate(outputs: definitions.MKIDOutputCollection):
     for o in outputs:
         if os.path.exists(o.filename):
             getLogger(__name__).info(f'Output {o.filename} for {o.name} already exists. Skipping')
