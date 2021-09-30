@@ -9,6 +9,7 @@ from astropy.io import fits
 from astropy.visualization import ImageNormalize, AsinhStretch, LinearStretch, \
     LogStretch, PowerDistStretch, PowerStretch, SinhStretch, SqrtStretch, SquaredStretch
 
+import mkidpipeline.definitions as definitions
 import mkidpipeline.config
 
 from mkidcore.corelog import getLogger
@@ -245,7 +246,7 @@ def fetch(out, **kwargs):
     config = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(movies=StepConfig()), cfg=None, copy=True)
 
     ob = out.data
-    if isinstance(ob, mkidpipeline.config.MKIDDitherDescription):
+    if isinstance(ob, definitions.MKIDDitherDescription):
         ob = ob.obs_for_time(ob.obs[0].start + out.start_offset)
 
     file = ob.h5

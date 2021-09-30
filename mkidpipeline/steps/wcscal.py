@@ -7,7 +7,7 @@ from astropy.coordinates import SkyCoord
 import astropy.units as u
 from mkidpipeline.photontable import Photontable
 from mkidcore.corelog import getLogger
-from mkidpipeline.config import MKIDDitherDescription, MKIDObservation
+from mkidpipeline.definitions import MKIDObservation, MKIDDitherDescription
 from scipy.optimize import root
 from astropy.io import fits
 import os

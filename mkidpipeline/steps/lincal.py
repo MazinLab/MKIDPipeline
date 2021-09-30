@@ -11,6 +11,7 @@ import time
 import numpy as np
 from progressbar import ProgressBar, NullBar
 
+import mkidpipeline.definitions as definitions
 from mkidcore.corelog import getLogger
 import mkidpipeline.config
 from mkidpipeline.photontable import Photontable
@@ -38,7 +39,7 @@ def calculate_weights(times, dt=1000, tau=0.000010):
     return weights
 
 
-def apply(o: mkidpipeline.config.MKIDTimerange, config=None):
+def apply(o: definitions.MKIDTimerange, config=None):
     cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(lincal=StepConfig()), cfg=config, copy=True)
 
     of = Photontable(o.h5, mode='w', in_memory=False)

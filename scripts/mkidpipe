@@ -5,6 +5,7 @@ import sys
 import pkg_resources as pkg
 from datetime import datetime
 
+import mkidpipeline.definitions as definitions
 import mkidcore
 import mkidcore.config
 from mkidcore.corelog import getLogger
@@ -75,7 +76,7 @@ if __name__ == "__main__":
         sys.exit(0)
 
     config.configure_pipeline(args.pipe_cfg)
-    outputs = config.MKIDOutputCollection(args.out_cfg, datafile=args.data_cfg)
+    outputs = definitions.MKIDOutputCollection(args.out_cfg, datafile=args.data_cfg)
     dataset = outputs.dataset
 
     if args.make_paths:

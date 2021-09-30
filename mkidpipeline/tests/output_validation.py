@@ -1,3 +1,4 @@
+import mkidpipeline.definitions as definitions
 import mkidpipeline.config as config
 from astropy.io import fits
 import logging
@@ -10,7 +11,7 @@ out_cfg='/work/steiger/new_pipeline_testing/out.yaml'
 data_cfg='/work/steiger/new_pipeline_testing/data.yaml'
 
 config.configure_pipeline(pipe_cfg)
-outputs = config.MKIDOutputCollection(out_cfg, datafile=data_cfg)
+outputs = definitions.MKIDOutputCollection(out_cfg, datafile=data_cfg)
 logging.getLogger().setLevel('INFO')
 
 def validate(outputs):

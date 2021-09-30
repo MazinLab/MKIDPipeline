@@ -88,7 +88,9 @@ Flat fields are based on either whitelight (e.g. a classical quartz/dome/sky fla
 
 ### Running from a shell
 Generally shell operation would consist of something to the effect of
+
 ```python
+import mkidpipeline.definitions as definitions
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
@@ -100,14 +102,15 @@ import mkidpipeline.pipeline as pipe
 import mkidcore as core
 import mkidpipeline.photontable as pt
 from mkidcore.corelog import getLogger
+
 lcfg = pkg.resource_filename('mkidpipeline', './utils/logging.yaml')
 getLogger('mkidcore', setup=True, logfile=f'mylog.log', configfile=lcfg).setLevel('WARNING')
 getLogger('mkidpipeline').setLevel('WARNING')
 
 config.configure_pipeline('pipe.yaml')
-o=config.MKIDOutputCollection('out.yaml', datafile='data.yaml')
+o = definitions.MKIDOutputCollection('out.yaml', datafile='data.yaml')
 print(o.validation_summary())
 
-#... then playing around
+# ... then playing around
 
 ```

@@ -15,6 +15,7 @@ import matplotlib.animation as animation
 from logging import getLogger
 from datetime import datetime
 
+import mkidpipeline.definitions as definitions
 import mkidpipeline.config
 from mkidpipeline.photontable import Photontable
 import tables
@@ -227,7 +228,7 @@ class CosmicCleaner:
         return frames
 
 
-def apply(o: mkidpipeline.config.MKIDTimerange, config=None, ncpu=None):
+def apply(o: definitions.MKIDTimerange, config=None, ncpu=None):
     cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(cosmiccal=StepConfig()), cfg=config, ncpu=ncpu,
                                                     copy=True)
 
