@@ -172,7 +172,7 @@ def solve_system_of_equations(coords, conex_positions, telescope_angle, ra, dec,
 
 
 def calculate_wcs_solution(images, source_locs=None, sigma_psf=2.0, interpolate=False, conex_positions=None,
-                           telescope_angle = 0, ra=None, dec=None, guesses=None,frame='icrs'):
+                           telescope_angle = 0, ra=None, dec=None, guesses=None):
     """
     calculates the parameters needed to form a WCS solution
     :param images: list of the images or each different pointing, conex position, or rotation angle.
@@ -183,7 +183,6 @@ def calculate_wcs_solution(images, source_locs=None, sigma_psf=2.0, interpolate=
     :param telescope_angle: List of telescope angles for each image
     :param ra: RA of the central object (telescope offset)
     :param dec: DEC of the central object (telescope offset)
-    :param frame: see SkyCoord variable of the same name - reference coordinate system for the keys of the coords dict
     :return: platescale in x, platescale in y, x slope of the conex, y slope of the conex, device rotation angle
     """
     coords = []
@@ -203,22 +202,21 @@ def calculate_wcs_solution(images, source_locs=None, sigma_psf=2.0, interpolate=
         for i, key in enumerate(coord_dict.keys()):
             coord_dict[key] = use_coord[i]
         coords.append(coord_dict)
-    res = solve_system_of_equations(coords, conex_positions, telescope_angle, ra, dec, frame=frame, guesses=guesses)
+    res = solve_system_of_equations(coords, conex_positions, telescope_angle, ra, dec, guesses=guesses)
     return res
 
 
 def run_wcscal(data, source_locs, sigma_psf=None, wave_start=950*u.nm, wave_stop=1375*u.nm, interpolate=True,
-               guesses=None, frame='icrs'):
+               guesses=None):
     """
     main function for running the WCSCal
     :param data: MKIDDitherDescription or MKIDObservation
-    :param source_locs: on-sky coordinates of objects in the image to be sued for the WCS cal. Need to be in a format
-    compatible with frame
+    :param source_locs: on-sky coordinates of objects in the image to be sued for the WCS cal. Needs to be in icrs
+    currently
     :param sigma_psf: width of the Gaussian PSF to use for the PSF fitting
     :param wave_start: start wavelenth to use for generating the image (u.Quantity)
     :param wave_stop: stop wavelength to use for generating the image (u.Quantity)
     :param interpolate: If True will perform a gaussian interpolation of the image before doing the PSF fits
-    :param frame: see astropy.SkyCoord - coordinate system of source_locs
     :param conex_ref: reference position of the conex
     :param pix_ref: reference pixel coordinate while conex is at conex_ref
     :return: platescale (in mas/pixel), rotation angle (in degrees), and x and y slopes of the conex mirror
@@ -259,7 +257,7 @@ def run_wcscal(data, source_locs, sigma_psf=None, wave_start=950*u.nm, wave_stop
     source_locs = [(s[0], s[1]) for s in source_locs]
     pltscl_x, pltscl_y, dp_dconx, dp_dcony, devang = \
         calculate_wcs_solution(images, source_locs, sigma_psf=sigma_psf,interpolate=interpolate,
-                               conex_positions=conex_positions, frame=frame, guesses=guesses, ra=ra, dec=dec)
+                               conex_positions=conex_positions, guesses=guesses, ra=ra, dec=dec)
     return pltscl_x, pltscl_y, dp_dconx, dp_dcony, devang, images, hdus
 
 
@@ -277,7 +275,7 @@ def fetch(solution_descriptors, config=None, ncpu=None):
         if isinstance(sd.data, MKIDObservation) or isinstance(sd.data, MKIDDitherDescription):
             pltsclx, pltscly, dp_dconx, dp_dcony, devang, images , hdus = \
                 run_wcscal(sd.data, sd.source_locs, sigma_psf=wcscfg.wcscal.sigma_psf, wave_start=950*u.nm,
-                           wave_stop=1375*u.nm, interpolate=wcscfg.wcscal.interpolate, frame=wcscfg.wcscal.frame,
+                           wave_stop=1375*u.nm, interpolate=wcscfg.wcscal.interpolate,
                            guesses=np.array(wcscfg.wcscal.param_guesses))
             if abs(pltscly-pltsclx) > 0.1*(max(pltsclx, pltscly)):
                 getLogger(__name__).critical('Platescale in x and y directions differ by more than 10%! Check WCS '
