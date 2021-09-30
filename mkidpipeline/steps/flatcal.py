@@ -530,8 +530,7 @@ def load_solution(sc, singleton_ok=True):
     return _loaded_solutions[sc]
 
 
-def fetch(dataset, config=None, ncpu=None, remake=False):
-    solution_descriptors = getattr(dataset, 'flatcals', dataset)
+def fetch(solution_descriptors, config=None, ncpu=None, remake=False):
 
     fcfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(flatcal=StepConfig()), cfg=config, ncpu=ncpu,
                                                      copy=True)
