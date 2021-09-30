@@ -124,17 +124,17 @@ def generate_equations(x, *args):
     :param args: known quantities
     :return: list of equations to fit
     """
-    nu_x, nu_y, mu_x, mu_y, phi = x
+    eta_x, eta_y, mu_x, mu_y, phi = x
     conex_pos, pix_coord, sky_coord, theta, s0, s1, frame = args
     equations = []
     for i, pos in enumerate(conex_pos):
         for j, pix in enumerate(pix_coord[i]):
             sky = SkyCoord(sky_coord[i][j][0], sky_coord[i][j][1], frame=frame)
-            eq1 = nu_x*np.cos(theta)*(np.cos(phi)*pix[0] - np.sin(phi)*pix[1] + mu_x*pos[0]) - \
-                  nu_y*np.sin(theta)*(np.sin(phi)*pix[0] + np.cos(phi)*pix[1] + mu_y*pos[1]) + s0 - \
+            eq1 = eta_x*np.cos(theta)*(np.cos(phi)*pix[0] - np.sin(phi)*pix[1] + mu_x*pos[0]) - \
+                  eta_y*np.sin(theta)*(np.sin(phi)*pix[0] + np.cos(phi)*pix[1] + mu_y*pos[1]) + s0 - \
                   sky.ra.to(u.deg).value
-            eq2 = nu_x*np.sin(theta)*(np.cos(phi)*pix[0] - np.sin(phi)*pix[1] + mu_x*pos[0]) + \
-                  nu_y*np.cos(theta)*(np.sin(phi)*pix[0] + np.cos(phi)*pix[1] + mu_y*pos[1]) + s1 - \
+            eq2 = eta_x*np.sin(theta)*(np.cos(phi)*pix[0] - np.sin(phi)*pix[1] + mu_x*pos[0]) + \
+                  eta_y*np.cos(theta)*(np.sin(phi)*pix[0] + np.cos(phi)*pix[1] + mu_y*pos[1]) + s1 - \
                   sky.dec.to(u.deg).value
             equations.append(eq1)
             equations.append(eq2)
