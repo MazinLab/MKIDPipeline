@@ -426,11 +426,8 @@ class CalDefinitionMixin:
 
     @property
     def id(self):
-        """
-        Compute a cal definition id string for the active config (must have STEPNAME namespace)
-        """
-        global config
-        return self.id_for_config(config)
+        """ Compute a cal definition id string for the active config (must have STEPNAME namespace) """
+        return self.id_for_config(mkpc.config)
 
 
 class MKIDWavecalDescription(DataBase, CalDefinitionMixin):
@@ -1260,7 +1257,6 @@ class MKIDOutput(DataBase):
         Returns the name of the full file path to which the output will be written. If kind is ('stack', 'drizzle',
         'image', 'scube', 'scube') this will be a fits file. if kind is 'movie' it will be a gif and otherwise it will
         remain an h5 file."""
-        global config
         if hasattr(self, '_filename'):
             file = self._filename
         else:

@@ -29,7 +29,7 @@ def parse():
     parser.add_argument('--info', dest='info', help='Report information about the configuration', action='store_true')
     parser.add_argument('--make-outputs', dest='makeout', help='Run the pipeline on the outputs', action='store_true')
     parser.add_argument('--logcfg', dest='logcfg', help='Run the pipeline on the outputs', type=str,
-                        default=pkg.resource_filename('mkidpipeline', './utils/logging.yaml'))
+                        default=pkg.resource_filename('mkidpipeline', './config/logging.yaml'))
 
     return parser.parse_args()
 
