@@ -761,11 +761,14 @@ class MKIDDitherDescription(DataBase):
                         self.use = tuple(map(int, self.use))
                     except Exception:
                         self._key_errors['use'] += [f'Failed to parse use, not int, list of ints, range spec or none']
-            if self.use and (min(self.use) < 0 or max(self.use) >= maxn):
-                self._key_errors['use'] += [f'Values must be in [0, {maxn}]']
-                getLogger(__name__).info('Clearing use due to illegal/out-of-range values.')
-                self.use = list(range(maxn))
-
+            try:
+                if self.use and (min(self.use) < 0 or max(self.use) >= maxn):
+                    self._key_errors['use'] += [f'Values must be in [0, {maxn}]']
+                    getLogger(__name__).info('Clearing use due to illegal/out-of-range values.')
+                    self.use = list(range(maxn))
+            except TypeError:
+                self._key_errors['use'] += [f'Failed to parse use, check that if type string there are no bounding '
+                                            f'brackets (i.e. 1-5 not [1-5])']
         try:
             if isinstance(self.data, (list, tuple)):
                 check_use(len(self.data))
