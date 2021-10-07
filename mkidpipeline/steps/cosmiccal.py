@@ -43,7 +43,7 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
 
 
 class CosmicCleaner:
-    def __init__(self, file, wavecut=(-np.inf, np.inf), method="poisson", region=(50, 100), bin_size=10):
+    def __init__(self, file, wavecut=None, method="poisson", region=(50, 100), bin_size=10):
         self.obs = Photontable(file)
         self.wave_range = wavecut
         self.method = method
@@ -61,7 +61,7 @@ class CosmicCleaner:
         self.interval_event_avg = None  # average cts over the duration of the event
         self.interval_event_peak = None  # peak number of counts for the event
 
-        if not np.isfinite(np.sum(self.wave_range)):
+        if self.wave_range is None:
             getLogger(__name__).warning("Consider using a wavelength cut to speed removal.")
             if self.method.lower() is "poisson":
                 getLogger(__name__).warning("The Poisson method is not optimized for broadband data and may remove "
@@ -70,7 +70,10 @@ class CosmicCleaner:
     def determine_cosmic_intervals(self):
         start = datetime.utcnow().timestamp()
         getLogger(__name__).debug(f"Starting cosmic ray detection on {self.obs.filename}")
-        self.photons = self.obs.query(startw=self.wave_range[0], stopw=self.wave_range[1], column='time')
+        if self.wave_range is not None:
+            self.photons = self.obs.query(startw=self.wave_range[0], stopw=self.wave_range[1], column='time')
+        else:
+            self.photons = self.obs.query(column='time')
         getLogger(__name__).debug(f"Making CR timestream for {self.obs.filename}")
         self.make_timestream()
         getLogger(__name__).debug(f"Making CR cosmic times for {self.obs.filename}")
@@ -104,7 +107,9 @@ class CosmicCleaner:
             # will be used to find the cosmic ray events. For the peak finding method, that is a value which is
             # nsigma times higher than the average number of counts per bin.
             std = poisson.std(avg)
-            std = self.timestream[np.logical_and((avg-3*std) < self.timestream, self.timestream < (avg+3*std))].std()
+            counts = self.timestream[1]
+            std = counts.std()
+            std = counts[((avg-3*std) < counts) & (counts < (avg+3*std))].std()
             self.threshold = np.ceil(n_sigma * std + avg)
 
         # distance is in bin widths noah says thats 10ms, after peak double threshold for the decay time
@@ -145,7 +150,8 @@ class CosmicCleaner:
             d = self.timestream[1, use]
             self.interval_event_avg.append(d.mean()*1e6/self.bin_size)
             self.interval_event_peak.append(d.max())
-
+        getLogger(__name__).info(f'{np.sum(self.interval_stops - self.interval_starts)} microseconds removed from '
+                                 f'exposure due to cosmic rays')
     def animate_cr_event(self, timestamp, saveName=None, timeBefore=150, timeAfter=250, frameSpacing=5, frameIntTime=10,
                          wvlStart=None, wvlStop=None, fps=5, save=True):
         """
