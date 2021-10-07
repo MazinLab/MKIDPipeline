@@ -8,6 +8,7 @@ creating a histogram of bincounts, and more as needed. This docstring will be ed
 is updated and refined.
 """
 import numpy as np
+import scipy.stats as stats
 from scipy.stats import poisson
 from scipy import signal
 import matplotlib.pyplot as plt
@@ -98,11 +99,12 @@ class CosmicCleaner:
 
     def make_count_histogram(self):
         """
-        This function will use the numpy.unique function on the self.arraycounts attribute to return 2 lists, the first
-        will be all of the different values that occur in the self.arraycounts array, the second will be the
+        This function will use the numpy.unique function on the self.timestream[1] attribute to return 2 lists, the first
+        will be all of the different values that occur in the self.timestream[1], the second will be the
         corresponding number of times that each of those values appear. This will allow us to create a histogram for
         data visualization as well as create the Poisson PDF to determine the cosmic ray threshold value.
         """
+        #todo use np.bincount
         unique, counts = np.unique(self.timestream[1], return_counts=True)
         unique_full = np.arange(unique.min(), unique.max() + 1, 1)
         counts_full = np.zeros(len(unique_full))
@@ -110,50 +112,26 @@ class CosmicCleaner:
             if j in unique:
                 m = unique == j
                 counts_full[i] = counts[m]
+        # average number of counts over the array in us bins
         self.countshistogram = np.array((unique_full, counts_full))
 
-    def _generate_poisson_threshold(self):
-        # Takes the average number of counts over the array in microsecond bins to be used in creating the Poisson PDF
-        avgcounts = self.timestream[1].mean()
-        # Creates a Poisson PDF of the number of counts per time
-        # bin. This can be used to compare with wavelength cut or non-cut data, but more care must be taken with non-cut
-        # data if there is a low probability of no counts over the array.
-        self.pdf = poisson.pmf(self.countshistogram[0], avgcounts)
-
-        # Creates a mask where the probability of that number of countsperbin
-        # happening is less than 1-in-all the counts during the observation.
-        mask = self.pdf < 1 / np.sum(self.timestream[1])
-
-        # Applies the 'low-probability mask' to the PDF for (1) plotting and
-        # (2) helping determine where the threshold for cosmic ray cuts should be made.
-        self.pdf[mask] = 0
-
-        thresholdmask = (self.pdf <= 1 / self.timestream[1].sum()) & (self.countshistogram[0] >= 2)
-        return self.countshistogram[0][thresholdmask].min()
-
-    def _generate_signal_threshold(self):
+    def find_cosmic_times(self, n_sigma=6):
         """
-        For the peak-finding cosmic ray identification generates the threshold of counts per bin which will be used to
-        find the cosmic ray events. For the peak finding method, that is a value which is >6 times higher than the
-        average number of counts per bin. This value was found to be appropriate empirically and has been tested
-        predominantly on data which was not wavelength-cut. However, it works on either filtered or non-filtered data
-        and will be used to find appropriate cosmic ray 'signals' in self.find_cutout_times.
-        :return:
-        threshold - The number of photons/10-microsecond bin
+        Determines self.threshold: The number of photons/10-microsecond bin
         """
-        avgcounts = self.timestream[1].mean()
-        return np.ceil(6 * poisson.std(avgcounts, loc=0) + avgcounts)
-
-    def find_cosmic_times(self):
-        """
-        """
+        avg = self.timestream[1].mean()
         if self.method.lower() == "poisson":
-            self.threshold = self._generate_poisson_threshold()
+            # P that self.countshistogram[0] would be counted at average count rate
+            self.pdf = poisson.pmf(self.countshistogram[0], avg)
+            self.pdf[self.countshistogram[0] < avg] = 1  # Probability of NOT being a CR hit is unity
+            self.threshold = np.ceil(self.countshistogram[0][self.pdf < (1-stats.norm.cdf(n_sigma))].min())
         else:
-            self.threshold = self._generate_signal_threshold()
+            # For the peak-finding cosmic ray identification generates the threshold of counts per bin which
+            # will be used to find the cosmic ray events. For the peak finding method, that is a value which is
+            # nsigma times higher than the average number of counts per bin.
+            self.threshold = np.ceil(n_sigma * poisson.std(avg) + avg)
 
-        # distance is in bin widths noah says thats 10ms
-        # after peak double threshold for the decay time
+        # distance is in bin widths noah says thats 10ms, after peak double threshold for the decay time
         self.cosmictimes = signal.find_peaks(self.timestream[1], height=self.threshold, threshold=10,
                                              distance=50)[0] * self.bin_size
 
