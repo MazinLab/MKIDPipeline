@@ -16,10 +16,10 @@ import os
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!wcscal_cfg'
     REQUIRED_KEYS = (('plot', 'none', 'none|all|summary'),
-                     ('interpolate', 'True', 'whether to inerpolate the image before PSF fitting. Recommended if an '
+                     ('interpolate', True, 'whether to inerpolate the image before PSF fitting. Recommended if an '
                                              'MKIDObservation is used or data is noisy'),
                      ('sigma_psf', 2.0, 'standard deviation of the point spread functions to fit in the image '),
-                     ('param_guesses', '[1e-6, 1e-6, 50, 50, 45]', '(optional) intitial guesses for hte wcs solution'
+                     ('param_guesses', [1e-6, 1e-6, 50, 50, 45], '(optional) intitial guesses for hte wcs solution'
                                                                    ' [platescale in x, platescale in y, '
                                                                    'pixels per conex move in x, '
                                                                    'pixels per conex move in y, device angle]'))
