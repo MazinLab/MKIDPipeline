@@ -62,8 +62,8 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('use_wavecal', True, 'Use a wavelength dependant correction for wavecaled data.'),
                      ('plots', 'summary', 'none|summary|all'))
 
-    def _vet_errors(self):
-        ret = []
+    def _verify_attributes(self):
+        ret = super()._verify_attributes()
         try:
             assert 0 <= self.rate_cutoff <= 20000
         except:

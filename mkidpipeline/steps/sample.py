@@ -8,8 +8,8 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('parameter2', 'string val', 'comment about parameter2')
                      )
 
-    def _vet_errors(self):
-        ret = []
+    def _verify_attributes(self):
+        ret = super()._verify_attributes()
         """
         Here is where you can assert that the keys in your config have values within allowed ranges or of allowed types.
         This will help to catch errors with the config at the beginning of running the pipeline if 'vet' is specified.

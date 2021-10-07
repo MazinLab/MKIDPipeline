@@ -61,9 +61,6 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      )
 
 
-TEST_CFGS= (StepConfig(method='median', step=30), StepConfig(method='laplacian', step=30),
-            StepConfig(method='threshold', step=30))
-
 FLAGS = FlagSet.define(('hot', 1, 'Hot pixel'),
                        ('cold', 2, 'Cold pixel'),
                        ('dead', 3, 'Dead pixel'))

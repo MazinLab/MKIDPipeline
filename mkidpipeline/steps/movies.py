@@ -41,9 +41,6 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('title', True, 'Display the title at the top of the animation'),
                      ('movie_format', 'gif', 'The format of the movie. Imagemagik if gif else ffmpeg'))
 
-    def __init__(self, *args,**kwargs):
-        super(StepConfig, self).__init__(*args,**kwargs)
-
 
 def _fetch_data(file, timestep, start=0, stop=np.inf, min_wave=None, max_wave=None, use_weights=False, cps=True,
                 exclude_flags=None):

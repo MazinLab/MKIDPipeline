@@ -61,21 +61,16 @@ class BaseStepConfig(mkidcore.config.ConfigThing):
         config
         """
         ret = super().from_yaml(loader, node)
-        errors = ret._verify_attribues() + ret._vet_errors()
+        errors = ret._verify_attributes()
 
         if errors:
             raise ValueError(f'{ret.yaml_tag} collected errors: \n' + '\n\t'.join(errors))
         return ret
 
-    def _verify_attribues(self):
+    def _verify_attributes(self):
         """Returns a list missing keys from the pipeline config"""
         missing = [key for key, default, comment in self.REQUIRED_KEYS if key not in self]
         return ['Missing required keys: ' + ', '.join(missing)] if missing else []
-
-    def _vet_errors(self):
-        """Returns a list of errors found in the pipeline config"""
-        return []
-
 
 _pathroot = os.path.join('/work', os.environ.get('USER', ''))
 
