@@ -69,8 +69,6 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('ncpu', 1, 'Number of cores to use for fetching'),
                      ('parallel_prefetch', False, 'use shared memory to load ALL the photon data into ram'))
 
-    def _vet_errors(self):
-        return []
 
 FLAGS = FlagSet.define(
           ('bad', 0, 'The calibration failed. See other flags for details'),
