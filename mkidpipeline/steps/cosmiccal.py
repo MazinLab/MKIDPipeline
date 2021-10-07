@@ -52,7 +52,6 @@ class CosmicCleaner:
         self.photons = None  # Photon list used for the cosmic ray removal. Only modified if wave_range!=(-np.inf, np.inf)
         self.timestream = None  # (2,N) array. timestream[0] = time bins, timestream[1] = cts (over array)
         self.countshistogram = None  # a histogram of the number of times each number of cts/bin appears
-        self.pdf = None  # The 'y-values' of the Poisson PDF, if used
         self.threshold = None  # The minimum number of counts per bin which will be able to be identified as a cosmic ray event
         self.cosmictimes = None  # A list of all the timestamps of cosmic ray events
 
@@ -97,34 +96,11 @@ class CosmicCleaner:
         assert np.setdiff1d(timebins, ts_timebins).size == 0
         self.timestream = np.array((timebins[:-1], arraycounts))
 
-    def make_count_histogram(self):
-        """
-        This function will use the numpy.unique function on the self.timestream[1] attribute to return 2 lists, the first
-        will be all of the different values that occur in the self.timestream[1], the second will be the
-        corresponding number of times that each of those values appear. This will allow us to create a histogram for
-        data visualization as well as create the Poisson PDF to determine the cosmic ray threshold value.
-        """
-        #todo use np.bincount
-        unique, counts = np.unique(self.timestream[1], return_counts=True)
-        unique_full = np.arange(unique.min(), unique.max() + 1, 1)
-        counts_full = np.zeros(len(unique_full))
-        for i, j in enumerate(unique_full):
-            if j in unique:
-                m = unique == j
-                counts_full[i] = counts[m]
-        # average number of counts over the array in us bins
-        self.countshistogram = np.array((unique_full, counts_full))
-
     def find_cosmic_times(self, n_sigma=6):
-        """
-        Determines self.threshold: The number of photons/10-microsecond bin
-        """
+        """ Determines self.threshold: The number of photons/10-microsecond bin """
         avg = self.timestream[1].mean()
         if self.method.lower() == "poisson":
-            # P that self.countshistogram[0] would be counted at average count rate
-            self.pdf = poisson.pmf(self.countshistogram[0], avg)
-            self.pdf[self.countshistogram[0] < avg] = 1  # Probability of NOT being a CR hit is unity
-            self.threshold = np.ceil(self.countshistogram[0][self.pdf < (1-stats.norm.cdf(n_sigma))].min())
+            self.threshold = poisson.ppf(stats.norm.cdf(n_sigma), avg)
         else:
             # For the peak-finding cosmic ray identification generates the threshold of counts per bin which
             # will be used to find the cosmic ray events. For the peak finding method, that is a value which is
