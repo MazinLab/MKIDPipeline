@@ -5,6 +5,15 @@ import scipy.constants as con
 from scipy.interpolate import griddata
 import scipy.integrate
 import astropy
+import warnings
+from astropy.convolution import convolve
+from astropy.convolution import Gaussian2DKernel
+
+
+def astropy_convolve(image, x_stddev=1.0):
+    kernel = Gaussian2DKernel(x_stddev=x_stddev)
+    astropy_conv = convolve(image, kernel)
+    return astropy_conv
 
 def smooth(x, window_len=11, window='hanning'):
     """
@@ -29,7 +38,6 @@ def smooth(x, window_len=11, window='hanning'):
         np.hanning, np.hamming, np.bartlett, np.blackman, np.convolve
         scipy.signal.lfilter
 
-    TODO: the window parameter could be the window itself if an array instead of a string
     """
     if x.ndim != 1:
         raise ValueError("smooth only accepts 1 dimension arrays.")
@@ -44,9 +52,10 @@ def smooth(x, window_len=11, window='hanning'):
         raise ValueError("Window is one of 'flat', 'hanning', 'hamming', 'bartlett', 'blackman'")
 
     s = np.r_[x[window_len - 1:0:-1], x, x[-1:-window_len:-1]]
-    w = np.ones(window_len, 'd') if window == 'flat' else  ast.literal_eval('np.' + window + '(window_len)')
+    w = np.ones(window_len, 'd') if window == 'flat' else ast.literal_eval('np.' + window + '(window_len)')
     y = np.convolve(w / w.sum(), s, mode='valid')
     return y[int((window_len / 2) - 1):-int((window_len / 2))]
+
 
 def gaussian_convolution(x, y, x_en_min=0.005, x_en_max=6.0, x_de=0.001, flux_units="lambda", r=8, nsig_gauss=1,
                          plots=False):
@@ -70,17 +79,14 @@ def gaussian_convolution(x, y, x_en_min=0.005, x_en_max=6.0, x_de=0.001, flux_un
     # =======================  define some Constants     ============================
     c = con.c * 100  # cm/s
     h = con.h  # erg*s
-    k = 1.3806488E-16  # erg/K
     heV = h / con.e
 
     # ================  Convert to F_nu and put x-axis in frequency  ===================
     if flux_units == 'lambda':
-        x_en = heV * (c * 1.0E8) / x
-        x_nu = x_en / heV
+        x_nu = heV * (c * 1.0E8) / x / heV
         y_nu = y * x ** 2 * 3.34E4  # convert Flambda to Fnu(Jy)
     elif flux_units == 'nu':
         x_nu = x
-        x_en = x_nu * heV
         y_nu = y
     else:
         raise ValueError("flux_units must be either 'nu' or 'lambda'")
@@ -88,7 +94,7 @@ def gaussian_convolution(x, y, x_en_min=0.005, x_en_max=6.0, x_de=0.001, flux_un
     # ============  regrid to a constant energy spacing for convolution  ===============
     x_nu_grid = np.arange(x_en_min, x_en_max, x_de) / heV  # make new x-axis gridding in constant freq bins
     y_nu_grid = griddata(x_nu, y_nu, x_nu_grid, 'linear', fill_value=0)
-    x_nu_grid = x_nu_grid[1:-1]  # remove weird effects with first and last values #TODO figure out why this is happening
+    x_nu_grid = x_nu_grid[1:-1]  # remove weird effects with first and last values
     y_nu_grid = y_nu_grid[1:-1]
     if plots:
         plt.plot(x_nu_grid, y_nu_grid, label="Spectrum in energy space")
@@ -112,7 +118,8 @@ def gaussian_convolution(x, y, x_en_min=0.005, x_en_max=6.0, x_de=0.001, flux_un
         plt.show()
 
     # ====== Integrate curve to get total flux, required to ensure flux conservation later =======
-    original_total_flux = scipy.integrate.simps(y_nu_grid[window_size:-window_size], x=x_nu_grid[window_size:-window_size])
+    original_total_flux = scipy.integrate.simps(y_nu_grid[window_size-1:-window_size],
+                                                x=x_nu_grid[window_size-1:-window_size])
 
     # ================================    convolve    ==================================
     conv_y = np.convolve(y_nu_grid, gauss_y, 'valid')
@@ -159,7 +166,7 @@ def median_filter_nan(input_array, size=5, *nkwarg, **kwarg):
     Arguments/return values are same as for scipy median_filter.
     INPUTS:
         input_array : array-like, input array to filter (can be n-dimensional)
-        size : scalar or tuple, optional, size of edge(s) of n-dimensional moving box. If 
+        size : scalar or tuple, optional, size of edge(s) of n-dimensional moving box. If
                 scalar, then same value is used for all dimensions.
     output_arrayS:
         NaN-resistant median filtered version of input_array.
@@ -174,9 +181,7 @@ def median_filter_nan(input_array, size=5, *nkwarg, **kwarg):
 
     JvE 12/28/12
     """
-    return scipy.ndimage.filters.generic_filter(input_array, lambda x: np.median(x[~np.isnan(x)]), size,
-                                                *nkwarg, **kwarg)
-
+    return scipy.ndimage.filters.generic_filter(input_array, np.nanmedian, size, *nkwarg, **kwarg)
 
 
 def mean_filter_nan(input_array, size=3, *nkwarg, **kwarg):
@@ -186,8 +191,7 @@ def mean_filter_nan(input_array, size=3, *nkwarg, **kwarg):
     See median_filter_nan for details.
     JvE 1/4/13
     """
-    return scipy.ndimage.filters.generic_filter(input_array, lambda x: np.mean(x[~np.isnan(x)]), size,
-                                                *nkwarg, **kwarg)
+    return scipy.ndimage.filters.generic_filter(input_array, np.nanmean, size, *nkwarg, **kwarg)
 
 
 def find_nearest_finite(im, i, j, n=10):
@@ -240,6 +244,7 @@ def find_nearest_finite(im, i, j, n=10):
     # to figure out right now. Should ignore NaN values automatically
     # nearest = np.unravel_index((np.argpartition(distsq,min(n,ngood)-1,axis=None))[0:min(n,ngood)], imShape)
     return nearest
+
 
 def nearest_n_robust_sigma_filter(input_array, n=24):
     """

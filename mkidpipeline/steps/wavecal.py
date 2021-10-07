@@ -6,17 +6,18 @@ import numpy as np
 import multiprocessing as mp
 import time
 from distutils.spawn import find_executable
-from six.moves.configparser import ConfigParser
 import progressbar as pb
+import scipy
 
 import astropy.constants
 import matplotlib
 from matplotlib import gridspec
 from matplotlib.widgets import Button, Slider
 from matplotlib import cm, lines, pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
+# from matplotlib.backends.backend_pdf import PdfPages
 from mpl_toolkits.axes_grid1 import axes_size, make_axes_locatable
 
+import mkidpipeline.definitions as definitions
 import mkidcore.corelog as pipelinelog
 import mkidcore.config
 from mkidcore.objects import Beammap
@@ -27,6 +28,24 @@ import mkidpipeline.photontable as photontable
 log = pipelinelog.getLogger('mkidpipeline.steps.wavecal', setup=False)
 
 import mkidpipeline.utils.wavecal_models as wm
+
+"""
+The wavecal step uses a series of laser exposures to calculate the relationship between the phase response of an MKID 
+pixel, and the wavelength of the incident photon that caused that response. This is done by first generating phase
+histograms for each of the lasers on a pixel by pixel basis. The resulting histograms are then fit
+(`Calibrator.fit_histograms`) using the specified histogram_models in the pipe.yaml to determine their central phase
+values. These histogram centers are then plotted as a function of wavelength. These phases as a function of
+wavelength are finally fit (`Calibrator.fit_calibrations`) using `histogram_fit_attempts` number of attempts (from
+the pipe.yaml) to determine the wavelength calibration solution for each pixel. The models used for the calibration
+solution are specified with the `calibration_models` parameter. 
+
+The total solution array is saved as an '.npz' file for later application. The energy resolution of each pixel at each
+laser wavelength is also stored along with the mean energy resolutions at each wavelength across the whole array. 
+ 
+The wavecal application reads in the saved '.npz' file and uses the calibration fit for each pixel to convert the phase 
+from each incident photon to a wavelength. After this value is determined, the phase in the table is overwritten with 
+the new wavelength value.  
+"""
 
 
 PLANK_CONSTANT_EVS = astropy.constants.h.to('eV s').value
@@ -47,11 +66,8 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('calibration_models', ('Quadratic', 'Linear'), 'model types from wavecal_models.py to '
                                                                      'attempt to fit to the phase-energy relationship'),
                      ('dt', 500, 'ignore photons which arrive this many microseconds from another photon (number)'),
-                     ('parallel', True, 'Fitting using more than one core'),
+                     ('ncpu', 1, 'Number of cores to use for fetching'),
                      ('parallel_prefetch', False, 'use shared memory to load ALL the photon data into ram'))
-
-    def _vet_errors(self):
-        return []
 
 
 FLAGS = FlagSet.define(
@@ -68,14 +84,14 @@ FLAGS = FlagSet.define(
 )
 
 
-class Configuration(object):
+class Configuration:
     """Configuration class for the wavelength calibration analysis."""
     yaml_tag = u'!wavecalconfig'
 
     def __init__(self, cfg=None, h5s=tuple(), wavelengths=tuple(),
                  darks=None, beammap=None, outdir='',
                  histogram_model_names=('GaussianAndExponential',), bin_width=2, histogram_fit_attempts=3,
-                 calibration_model_names=('Quadratic', 'Linear'), dt=500, parallel=True, parallel_prefetch=False,
+                 calibration_model_names=('Quadratic', 'Linear'), dt=500,  parallel_prefetch=False,
                  summary_plot=True, templarfile='', max_count_rate=2000, ncpu=1):
         """ darks should be a dict with fully qualified h5 paths to background files. wavelengths are keys.
         missing darks are fine
@@ -88,9 +104,9 @@ class Configuration(object):
         # parse arguments
         self.ncpu = ncpu
         self.out_directory = outdir
-        self.wavelengths = list(map(float, wavelengths))
+        self.wavelengths = [w.value for w in wavelengths]
         self.h5_file_names = {wave: h5 for wave, h5 in zip(self.wavelengths, h5s)}
-        self.darks = {} if darks is None else darks
+        self.darks = {} if darks is None else {w.value: d for w, d in zip(darks.keys(), darks.values())}
 
         # Things with defaults
         self.histogram_model_names = list(histogram_model_names)
@@ -98,7 +114,7 @@ class Configuration(object):
         self.histogram_fit_attempts = int(histogram_fit_attempts)
         self.calibration_model_names = list(calibration_model_names)
         self.dt = float(dt)
-        self.parallel = parallel
+        self.parallel = ncpu > 1
         self.parallel_prefetch = parallel_prefetch
         self.summary_plot = summary_plot
 
@@ -106,15 +122,15 @@ class Configuration(object):
             self.beammap = beammap if beammap is not None else Beammap('MEC')
         else:
             # load in configuration params
-            self.ncpu = cfg.ncpu
+            self.ncpu = mkidpipeline.config.n_cpus_available(max=cfg.get('wavecal.ncpu', inherit=True))
             self.beammap = cfg.beammap
             self.out_directory = cfg.paths.database
-            self.histogram_model_names = list(cfg.wavecal.histogram_model_names)
+            self.histogram_model_names = list(cfg.wavecal.histogram_models)
             self.bin_width = float(cfg.wavecal.bin_width)
             self.histogram_fit_attempts = int(cfg.wavecal.histogram_fit_attempts)
-            self.calibration_model_names = list(cfg.wavecal.calibration_model_names)
+            self.calibration_model_names = list(cfg.wavecal.calibration_models)
             self.dt = float(cfg.wavecal.dt)
-            self.parallel = cfg.wavecal.parallel
+            self.parallel = self.ncpu>1
             self.parallel_prefetch = cfg.wavecal.parallel_prefetch
             self.summary_plot = str(cfg.wavecal.plots).lower() in ('all', 'summary')
 
@@ -131,20 +147,7 @@ class Configuration(object):
             assert issubclass(getattr(wm, model), wm.XErrorsModel), \
                    '{} is not a subclass of wavecal_models.XErrorsModel'.format(model)
 
-        self.wavelengths, self.start_times = zip(*sorted(zip(self.wavelengths, self.start_times)))
-
-    #
-    # @classmethod
-    # def to_yaml(cls, representer, node):
-    #     d = node.__dict__.copy()
-    #     d.pop('config')
-    #     return representer.represent_mapping(cls.yaml_tag, d)
-    #
-    # @classmethod
-    # def from_yaml(cls, loader, node):
-    #     #TODO I don't know why I used extract_from_node here and dict(loader.construct_pairs(node)) elsewhere
-    #     d = mkidcore.config.extract_from_node(loader, 'configuration_path', node)
-    #     return cls(d['configuration_path'])
+        # self.wavelengths, self.start_times = zip(*sorted(zip(self.wavelengths, self.start_times)))
 
     def hdf_exist(self):
         """Check if all hdf5 files specified exist."""
@@ -281,7 +284,7 @@ class Calibrator(object):
         except KeyError:
             try:
                 file = self.cfg.darks[wavelength].h5 if background else self.cfg.h5_file_names[wavelength]
-            except (KeyError, TypeError):
+            except (KeyError, TypeError, AttributeError):
                 file = None
             self._obsfiles[key] = photontable.Photontable(file) if file else None
         return self._obsfiles[key]
@@ -314,18 +317,19 @@ class Calibrator(object):
                     # load the data
                     bkgd_phase_list = None
                     if self._shared_tables is None:
-                        photon_list = self.fetch_obsfile(wavelength).query(pixel=pixel)
+                        pt = self.fetch_obsfile(wavelength)
+                        photon_list = pt.query(pixel=tuple(pixel))
                         # create background phase list if specified
                         bg = self.fetch_obsfile(wavelength, background=True)
                         if bg is not None:
-                            bkgd_phase_list = bg.query(pixel=pixel, column='Wavelength')
+                            bkgd_phase_list = bg.query(pixel=tuple(pixel), column='wavelength')
                             bkgd_phase_list = bkgd_phase_list[bkgd_phase_list < 0]
                     else:
                         table_data, bg = self._shared_tables[wavelength].data
-                        photon_list = table_data[table_data['ResID'] == self.solution.beam_map[tuple(pixel)]]
+                        photon_list = table_data[table_data['resID'] == self.solution.beam_map[tuple(pixel)]]
 
                         if bg is not None:
-                            bkgd_phase_list = bg['Wavelength'][bg['ResID'] == self.solution.beam_map[tuple(pixel)]]
+                            bkgd_phase_list = bg['wavelength'][bg['resID'] == self.solution.beam_map[tuple(pixel)]]
                             bkgd_phase_list = bkgd_phase_list[bkgd_phase_list < 0]
 
                     # check for enough photons
@@ -335,8 +339,8 @@ class Calibrator(object):
                         continue
 
                     # remove hot pixels
-                    rate = (len(photon_list['Wavelength']) * 1e6 /
-                            (max(photon_list['Time']) - min(photon_list['Time'])))
+                    rate = (len(photon_list['wavelength']) * 1e6 /
+                            (max(photon_list['time']) - min(photon_list['time'])))
 
                     if rate > self.cfg.max_count_rate:
                         model.flag = wm.pixel_flags['hot pixel']
@@ -354,7 +358,7 @@ class Calibrator(object):
                         continue
 
                     # remove photons with positive peak heights
-                    phase_list = photon_list['Wavelength']
+                    phase_list = photon_list['wavelength']
                     phase_list = phase_list[phase_list < 0]
                     if phase_list.size == 0:
                         model.flag = wm.pixel_flags['positive cut']
@@ -362,9 +366,9 @@ class Calibrator(object):
                                    "after the negative phase only cut")
                         log.debug(message.format(pixel[0], pixel[1], wavelength))
                         continue
-                    norm = photon_list.duration/bg.duration if bg else None
+                    norm = pt.duration/bg.duration if bg else None
                     # make histogram
-                    centers, counts, variance = self._histogram(phase_list, bkgd_phase_list, norm)
+                    centers, counts, variance = self._histogram(phase_list, bkgd_phase_list=bkgd_phase_list, norm=norm)
                     # assign x, y and variance data to the fit model
                     model.x, model.y = centers, counts
                     # gaussian mle for the variance of poisson distributed data
@@ -598,7 +602,7 @@ class Calibrator(object):
     def _parallel(self, method, pixels=None, wavelengths=None, verbose=False):
         # configure number of processes
         n_data = pixels.shape[1]
-        cpu_count = mkidpipeline.config.n_cpus_available(max=self.cfg.ncpu)
+        cpu_count = self.cfg.ncpu
         log.info("Using {} additional cores".format(cpu_count))
         # setup chunks (at least 2 chunks per process per feedline on MEC)
         chunk_size = max(1, int(self.cfg.beammap.residmap.size / (2 * 10 * (cpu_count - 1 * bool(verbose)))))
@@ -668,17 +672,18 @@ class Calibrator(object):
                 progress_worker.join()
             log.info("{} cores released".format(cpu_count))
         except KeyboardInterrupt:
+            raise KeyboardInterrupt
+        finally:
             log.debug('cleaning up workers')
             self._clean_up(input_queue, output_queue, progress_queue, workers,
                            progress_worker, events, n_data, cpu_count, verbose)
             log.debug('cleaned up')
-            raise KeyboardInterrupt
 
     def _remove_tail_riding_photons(self, photon_list):
-        indices = np.argsort(photon_list['Time'])
+        indices = np.argsort(photon_list['time'])
         photon_list = photon_list[indices]
 
-        logic = np.hstack([True, np.diff(photon_list['Time']) > self.cfg.dt])
+        logic = np.hstack([True, np.diff(photon_list['time']) > self.cfg.dt])
         photon_list = photon_list[logic]
         return photon_list
 
@@ -698,15 +703,18 @@ class Calibrator(object):
             counts, x0 = np.histogram(phase_list, bins=bin_edges)
             # find background counts and subtract them off
             centers = (x0[:-1] + x0[1:]) / 2.0
-            update += 1
-            bkgd_counts = np.histogram(bkgd_phase_list, bins=bin_edges, weights=np.full(len(bkgd_phase_list), norm))[0] \
-                if bkgd_phase_list else 0
-            if (counts-bkgd_counts).max() >= 400:
+            if bkgd_phase_list is not None:
+                bkgd_counts = np.histogram(bkgd_phase_list, bins=bin_edges, weights=np.full(len(bkgd_phase_list), norm))[0]
+                bkgd_counts = np.array([int(count) for count in bkgd_counts])
+            else:
+                bkgd_counts = None
+            if counts.max() >= 400:
                 break
+            update += 1
         # gaussian mle for the variance of poisson distributed data
         # https://doi.org/10.1016/S0168-9002(00)00756-7
         variance = np.sqrt(counts ** 2 + 0.25) - 0.5
-        if bkgd_counts:
+        if bkgd_counts is not None:
             counts -= bkgd_counts
             variance += np.sqrt(bkgd_counts ** 2 + 0.25) - 0.5
         return centers, counts, variance
@@ -1088,12 +1096,18 @@ class Solution(object):
             except FileNotFoundError:
                 mkidcore.corelog.getLogger(__name__).warning(f'Unable to find {self._file_path}, '
                                                              f'initialization of solution incomplete')
-                pass
+                raise
         # if not finish the init
         else:
             self.name = solution_name  # use the default or specified name for saving
             self.npz = None  # no npz file so all the properties should be set
             self._finish_init()
+
+    def __getstate__(self):
+        return {'file': self._file_path}
+
+    def __setstate__(self, state):
+        self.__init__(file_path=state['_file_path'])
 
     def _finish_init(self):
         # load in fitting models
@@ -1120,6 +1134,7 @@ class Solution(object):
 
     @classmethod
     def from_yaml(cls, constructor, node):
+        dict(constructor.construct_pairs(node))['file']
         return load_solution(mkidcore.config.extract_from_node(constructor, 'file', node)['file'])
 
     def __str__(self):
@@ -1183,7 +1198,7 @@ class Solution(object):
         file_mode defaults to copy on write. For valid options see
         https://docs.scipy.org/doc/numpy/reference/generated/numpy.memmap.html#numpy.memmap
         """
-        log.info("Loading solution from {}".format(file_path))
+        log.debug("Loading solution from {}".format(file_path))
         keys = ('fit_array', 'configuration', 'beam_map', 'beam_map_flags')
         npz_file = np.load(file_path, allow_pickle=True, encoding='bytes', mmap_mode=file_mode)
         for key in keys:
@@ -1196,7 +1211,7 @@ class Solution(object):
         self._file_path = file_path  # new file_path for the solution
         self.name = os.path.splitext(os.path.basename(file_path))[0]  # new name for saving
         self._finish_init()
-        log.info("Complete")
+        log.debug("... complete")
 
     @property
     def fit_array(self):
@@ -1363,7 +1378,7 @@ class Solution(object):
         resolving_powers = resolving_powers[sorted_indices, :]
         res_ids = res_ids[sorted_indices]
 
-        return resolving_powers, res_ids
+        return resolving_powers, res_ids  #np.full((res_ids.size, len(wavelengths)), np.nan)
 
     def responses(self, pixel=None, res_id=None, wavelengths=None):
         """
@@ -1447,7 +1462,7 @@ class Solution(object):
         """
 
         calibrations, res_ids = self.find_calibrations(minimum, maximum, feedline)
-        np.savez(os.path.splitext(self._file_path)[0] + '_cal_coeffs.npz', 
+        np.savez(os.path.splitext(self._file_path)[0] + '_cal_coeffs.npz',
                  calibrations=calibrations, res_ids=res_ids, min_r=minimum, max_r=maximum,
                  feedline=feedline, solution_file_path=self._file_path)
 
@@ -1606,9 +1621,10 @@ class Solution(object):
         pixel, _ = self._parse_resonators(pixel, res_id)
         wavelengths = self._parse_wavelengths(wavelengths)
         models = self.histogram_models(wavelengths, pixel=pixel)
-        parameters = np.array([model.best_fit_result.params
-                               if model.best_fit_result is not None else None
-                               for model in models], dtype=object)
+        parameters = np.full_like(models, None, dtype=object)
+        for i, model in enumerate(models):
+            if model.best_fit_result is not None:
+                parameters[i] = model.best_fit_result.params
         return parameters
 
     def histogram_model_names(self, wavelengths=None, pixel=None, res_id=None):
@@ -2461,6 +2477,7 @@ class Solution(object):
                 figures.append(figure)
         # save the plots
         if save_name is not None:
+            from matplotlib.backends.backend_pdf import PdfPages
             file_path = os.path.join(self.cfg.out_directory, save_name)
             with PdfPages(file_path) as pdf:
                 for figure in figures:
@@ -2604,7 +2621,7 @@ def load_solution(wc, singleton_ok=True):
                                         'in the vicinity of this comment')
             #_loaded_solutions[wc._file_path] = wc
         return wc
-    if isinstance(wc, mkidpipeline.config.MKIDWavecalDescription):
+    if isinstance(wc, definitions.MKIDWavecalDescription):
         wc = wc.path
     wc = wc if os.path.isfile(wc) else os.path.join(mkidpipeline.config.config.paths.database, wc)
     try:
@@ -2625,24 +2642,30 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
     except AttributeError:
         pass
 
-    wcfg = config.PipelineConfigFactory(step_defaults=dict(wavecal=StepConfig()), cfg=config, ncpu=ncpu, copy=True)
+    wcfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(wavecal=StepConfig()), cfg=config, ncpu=ncpu,
+                                                     copy=True)
 
     solutions = {}
     if not remake:
         for sd in solution_descriptors:
             try:
+                if not os.path.exists(sd.path):
+                    raise IOError
                 solutions[sd.id] = load_solution(sd.path)
             except IOError:
                 pass
             except Exception as e:
-                getLogger(__name__).info(f'Failed to load {sd} due to a {e}')
+                getLogger(__name__).info(f'Failed to load {sd} due to a {e} error')
+                raise
 
-    for sd in (sd for sd in solution_descriptors if sd.id not in solutions):
+    for sd in set(sd for sd in solution_descriptors if sd.id not in solutions):
+        getLogger(__name__).info(f'Making {sd}')
         cfg = Configuration(wcfg, h5s=tuple(x.h5 for x in sd.data), wavelengths=tuple(w for w in sd.wavelengths),
                             darks=sd.darks)
         cal = Calibrator(cfg, solution_name=sd.path)
         cal.run(**kwargs)
         solutions[sd.id] = cal.solution
+        getLogger(__name__).info(f'{sd} made.')
 
     return solutions
 
@@ -2661,55 +2684,57 @@ def apply(o):
         return
 
     solution = load_solution(o.wavecal.path)
-    obs = o.photontable
-    obs.enablewrite()
-    
+    obs = photontable.Photontable(o.h5, mode='write')
+
     # check file_name and status of obsFile
-    if obs.query_header('isWvlCalibrated'):
-        getLogger(__name__).info('Data already calibrated using {}'.format(obs.query_header('wvlCalFile')))
+    wcf = obs.query_header('wavecal')
+    if wcf:
+        getLogger(__name__).info(f'Data already calibrated using {wcf}')
         return
 
     getLogger(__name__).info('Applying {} to {}'.format(solution, obs.filename))
-
     obs.photonTable.autoindex = False  # Don't reindex every time we change column
 
     tic = time.time()
-    for pixel, resID in obs.resonators():
+    with obs.needed_ram():
+        for pixel, resid in obs.resonators(pixel=True):
+            if not solution.has_good_calibration_solution(res_id=resid):
+                continue
 
-        if not solution.has_good_calibration_solution(res_id=resID):
-            continue
+            indices = obs.photonTable.get_where_list('resID==resid')
+            if not indices.size:
+                continue
 
-        indices = obs.photonTable.get_where_list('ResID==resID')
-        if not indices.size:
-            continue
+            flags = obs.flags
+            obs.unflag(flags.bitmask([f for f in flags.names if f.startswith('wavecal')], unknown='ignore'), pixel=pixel)
+            obs.flag(flags.bitmask([f'wavecal.{f}' for f in solution.get_flag(res_id=resid)], unknown='warn'),
+                     pixel=pixel)
 
-        flags = obs.flags
-        obs.unflag(flags.bitmask([f for f in flags.names if f.startswith('wavecal')]), pixel=pixel)
-        obs.flag(flags.bitmask([f'wavecal.{f.name}' for f in solution.get_flag(res_id=resID)]), pixel=pixel)
+            calibration = solution.calibration_function(res_id=resid, wavelength_units=True)
 
-        calibration = solution.calibration_function(res_id=resID, wavelength_units=True)
+            if (np.diff(indices) == 1).all():  # This takes ~475s for ALL photons combined on a 70Mphot file.
+                phase = obs.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='wavelength')
+                obs.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=calibration(phase),
+                                              colname='wavelength')
+            else:  # This takes 3.5s on a 70Mphot file!!!
+                getLogger(__name__).warning('Using modify_coordinates, this is very slow')
+                phase = obs.photonTable.read_coordinates(indices)
+                phase['wavelength'] = calibration(phase['wavelength'])
+                obs.photonTable.modify_coordinates(indices, phase)
+            tic2 = time.time()
+            getLogger(__name__).debug('Wavelength updated in {:.2f}s'.format(time.time() - tic2))
 
-        if (np.diff(indices) == 1).all():  # This takes ~475s for ALL photons combined on a 70Mphot file.
-            # getLogger(__name__).debug('Using modify_column')
-            phase = obs.photonTable.read(start=indices[0], stop=indices[-1] + 1, field='Wavelength')
-            obs.photonTable.modify_column(start=indices[0], stop=indices[-1] + 1, column=calibration(phase),
-                                          colname='Wavelength')
-        else:  # This takes 3.5s on a 70Mphot file!!!
-            # raise NotImplementedError('This code path is impractically slow at present.')
-            getLogger(__name__).debug('Using modify_coordinates')
-            rows = obs.photonTable.read_coordinates(indices)
-            rows['Wavelength'] = calibration(rows['Wavelength'])
-            obs.photonTable.modify_coordinates(indices, rows)
-        tic2 = time.time()
-        getLogger(__name__).debug('Wavelength updated in {:.2f}s'.format(time.time() - tic2))
+        obs.update_header('wavecal', solution.name)
+        powers, _ = solution.find_resolving_powers()
+        resdata = np.zeros(len(solution.cfg.wavelengths),
+                           dtype=np.dtype([('r', np.float32), ('r_err', np.float32), ('wave', np.float32)], align=True))
+        resdata['r'] = np.nanmedian(powers, axis=0)
+        resdata['r_err'] = scipy.stats.median_abs_deviation(powers, axis=0, nan_policy='omit')
+        resdata['wave'] = np.asarray(solution.cfg.wavelengths)
+        obs.update_header('wavecal.resolution', resdata)
+        obs.update_header('E_WAVCAL', o.wavecal.id)
 
-    obs.update_header('isWvlCalibrated', True)
-    obs.update_header('wvlCalFile', solution.name)
-    #TODO update header with WAVECAL.XXXX cards
-    obs.update_header(f'WAVECAL.ID', solution.id)
-    #TODO R and error for each wavelength
-    obs.update_header(f'WAVECAL.ID', solution.id)
-    obs.photonTable.reindex_dirty()  # recompute "dirty" wavelength index
-    obs.photonTable.autoindex = True  # turn on auto-indexing
-    obs.disablewrite()
+        obs.photonTable.reindex_dirty()  # recompute "dirty" wavelength index
+        obs.photonTable.autoindex = True  # turn on auto-indexing
+        del obs
     getLogger(__name__).info('Wavecal applied in {:.2f}s'.format(time.time() - tic))
