@@ -104,8 +104,7 @@ class CosmicCleaner:
             # will be used to find the cosmic ray events. For the peak finding method, that is a value which is
             # nsigma times higher than the average number of counts per bin.
             std = poisson.std(avg)
-            qtile = np.percentile(self.timestream[1], (.1, .9))
-            std = self.timestream[qtile[0] < self.timestream < qtile[1]].std()
+            std = self.timestream[np.logical_and((avg-3*std) < self.timestream, self.timestream < (avg+3*std))].std()
             self.threshold = np.ceil(n_sigma * std + avg)
 
         # distance is in bin widths noah says thats 10ms, after peak double threshold for the decay time
