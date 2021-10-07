@@ -202,18 +202,15 @@ class ParsedBin:
         tstamps -= np.amin(tstamps)  # remove offset so that smallest timestamp is at zero
         phase = self.phase[(self.x == xCoord) & (self.y == yCoord)]
 
-        # the datatype of the structured numpy array returned by get_pixel_photonlist in Photontable is:
-        # dtype = [('ResID', '<u4'), ('Time', '<u4'), ('Wavelength', '<f4'), ('SpecWeight', '<f4'),('NoiseWeight', '<f4')])
-
         # bin files only have timestamps and wavelengths, the xy coords are already specified for this method
 
         # note on dtype for Time: if we remove the initial offset at the beginning of the file, then
         # dtype can be <u4 (uint32). If we don't remove it, then it needs to be <u8 (uint64).
 
-        wtype = np.dtype([('Time', '<u4'), ('Wavelength', '<f4')])
+        wtype = np.dtype([('time', '<u4'), ('wavelength', '<f4')])
         w = np.empty(len(tstamps), wtype)
-        w['Time'] = tstamps
-        w['Wavelength'] = phase
+        w['time'] = tstamps
+        w['wavelength'] = phase
         return w
 
     def reshape(self, newshape):

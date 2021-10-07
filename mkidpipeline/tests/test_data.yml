@@ -98,8 +98,8 @@
 #- !wcscal
 #  name: wcscal1
 #  platescale: 10  #mas/pix
-#  dither_ref: [0.0,0.0]
-#  dither_home: [0, 0]
+#  conex_ref: [0.0,0.0]
+#  pixel_ref: [0, 0]
 #  device_orientation: -48
 #
 #- !dither

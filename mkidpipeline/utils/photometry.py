@@ -14,23 +14,24 @@ import scipy.ndimage as ndimage
 from photutils import aperture_photometry
 from photutils import CircularAperture
 from photutils import CircularAnnulus
-from photutils.psf import IterativelySubtractedPSFPhotometry
 from photutils.psf import BasicPSFPhotometry
-from astropy.modeling.functional_models import Gaussian2D
 from astropy.modeling import fitting
 from astropy.modeling.models import *
 import matplotlib.pyplot as plt
 from scipy.interpolate import griddata
+from astropy.io import fits
+from photutils.psf import IterativelySubtractedPSFPhotometry
 
 def get_aperture_radius(lam, platescale):
     """
     function to get the diffraction limited aperture radius for MEC
     :param lam: wavelength in angstroms
+    :param platescale: platescale in arcseconds/pix
     :return: radius (in pixels)
     """
-    D = 8.2 *(10**10)
+    D = 8.2 * 1e10
     theta_rad = 1.22 * (lam/D)
-    a = 4.8481368e-9
+    a = 4.8481368e-6
     theta_mas = theta_rad * (1/a)
     r = 0.5 * theta_mas * (1/platescale)
     return r
@@ -176,17 +177,24 @@ def interpolateImage(inputArray, method='linear'):
 
     return interpolatedFrame
 
-def mec_measure_satellite_spot_flux(cube, aperradii=None, wvl_start=np.array([950]), wvl_stop=np.array([1375])):
+
+def mec_measure_satellite_spot_flux(cube, aperradii=None, wvl_start=None, wvl_stop=None, wcs=None,
+                                    platescale=0.0104, D=8.2):
     """
     performs aperture photometry using an adaptation of the racetrack aperture from the polarimetry mode of the
-     GPI pipeline (http://docs.planetimager.org/pipeline/usage/tutorial_polphotometry.html)
+    GPI pipeline (http://docs.planetimager.org/pipeline/usage/tutorial_polphotometry.html)
+
     :param cube: [wvl, xdim, ydim] cube on which to perform photometry
     :param aperradii: radius of the aperture - if 'None' will use the diffraction limited aperture for each wvl
-    :param wvl_start: array, start wavelengths
-    :param wvl_stop: array, stop wavelenghts
+    :param wvl_start: array, start wavelengths in angstroms
+    :param wvl_stop: array, stop wavelengths in angstroms
+    :param platescale: platescale in arcsec/pix
+    :param D: telescope diameter in meters
     :return: background subtracted flux of the satellite spot in counts/sec
     """
     flux = np.zeros((len(cube), 4))
+    if len(cube) != len(wvl_start) or len(cube) != len(wvl_stop):
+        raise ValueError('cube must have same wavelength dimensions wvl start and wvl stop')
     for i, img in enumerate(cube):
         imgspare = img.copy()
         dim = np.shape(cube[0, :, :])
@@ -196,30 +204,34 @@ def mec_measure_satellite_spot_flux(cube, aperradii=None, wvl_start=np.array([95
         lambdamax = wvl_stop[i]
         landa = lambdamin + (lambdamax - lambdamin)/2.0
         if aperradii is None:
-            aperradii = get_aperture_radius(landa)
+            aperradii = get_aperture_radius(landa, platescale)
         R_spot = np.zeros(3)
-        D = 8.2e10
-        R_spot[0] = (206265 / 0.0104) * 15.91 * lambdamin / D
-        R_spot[1] = (206265 / 0.0104) * 15.91 * landa / D
-        R_spot[2] = (206265 / 0.0104) * 15.91 * lambdamax / D
+        R_spot[0] = (206265 / platescale) * 15.91 * lambdamin / (D*1e10)
+        R_spot[1] = (206265 / platescale) * 15.91 * landa / (D*1e10)
+        R_spot[2] = (206265 / platescale) * 15.91 * lambdamax / (D*1e10)
         halflength = R_spot[2] - R_spot[1]
 
-        ROT_ANG = [42.73, 90+(90-43.96), 180+46.9, -48.26]
+        wcs_rot = wcs.wcs.pc
+         # ROT_ANG = [42.73, 136, 226.9, 311.7]
+        ROT_ANG=[45, 45, 45, 45]
         ROT_ANG = np.deg2rad(ROT_ANG)
+        xs0 = R_spot[1] * np.cos(ROT_ANG[0])
+        ys0 = R_spot[1] * np.sin(ROT_ANG[0])
+        xs1 = R_spot[1] * np.cos(ROT_ANG[1])
+        ys1 = -R_spot[1] * np.sin(ROT_ANG[1])
+        xs2 = -R_spot[1] * np.cos(ROT_ANG[2])
+        ys2 = -R_spot[1] * np.sin(ROT_ANG[2])
+        xs3 = -R_spot[1] * np.cos(ROT_ANG[3])
+        ys3 = R_spot[1] * np.sin(ROT_ANG[3])
 
-        xs0 = starx + R_spot[1] * np.cos(ROT_ANG[0])
-        ys0 = stary + R_spot[1] * np.sin(ROT_ANG[0])
-        xs1 = starx + R_spot[1] * np.cos(ROT_ANG[1])
-        ys1 = stary + R_spot[1] * np.sin(ROT_ANG[1])
-        xs2 = starx + R_spot[1] * np.cos(ROT_ANG[2])
-        ys2 = stary + R_spot[1] * np.sin(ROT_ANG[2])
-        xs3 = starx + R_spot[1] * np.cos(ROT_ANG[3])
-        ys3 = stary + R_spot[1] * np.sin(ROT_ANG[3])
-
-        spot_posx = [xs0, xs1, xs2, xs3]
-        spot_posy = [ys0, ys1, ys2, ys3]
-        spot_xsep = [xs0 - starx, xs1 - starx, xs2 - starx, xs3 - starx]
-        spot_ysep = [ys0 - stary, ys1 - stary, ys2 - stary, ys3 - stary]
+        spot_posx = np.array([xs0, xs1, xs2, xs3])
+        spot_posy = np.array([ys0, ys1, ys2, ys3])
+        for idx, coord in enumerate(spot_posx):
+            new_x, new_y = wcs_rot.dot(np.array([spot_posx[idx], spot_posy[idx]]))
+            spot_posx[idx] = new_x + starx
+            spot_posy[idx] = new_y + stary
+        spot_xsep = [spot_posx[0] - starx, spot_posx[1] - starx, spot_posx[2] - starx, spot_posx[3] - starx]
+        spot_ysep = [spot_posy[0] - stary, spot_posy[1] - stary, spot_posy[2] - stary, spot_posy[3] - stary]
 
         spot_rotang = [np.arctan(spot_ysep[0]/spot_xsep[0]), np.arctan(spot_ysep[1]/spot_xsep[1]),
                                  np.arctan(spot_ysep[2]/spot_xsep[2]) - np.pi, np.pi + np.arctan(spot_ysep[3]/spot_xsep[3])]
@@ -228,7 +240,7 @@ def mec_measure_satellite_spot_flux(cube, aperradii=None, wvl_start=np.array([95
                                                   aperradii, halflength)
     return flux
 
-def racetrack_aper(img, imgspare, x_guess, y_guess, rotang, aper_radii, halflength):
+def racetrack_aper(img, imgspare, x_guess, y_guess, rotang, aper_radii, halflength, box_size=20):
     """
 
     :param img: 2D numpy array image
@@ -238,6 +250,7 @@ def racetrack_aper(img, imgspare, x_guess, y_guess, rotang, aper_radii, halfleng
     :param rotang: rotation angle of satellite spot
     :param aper_radii: aperture radius (in pixels)
     :param halflength: halflength of the satellite spot
+    :param box_size: size of box to use around each aperture to calculate the background (in pixels)
     :return: background subtracted flux, debug image
     """
     rotang *= -1
@@ -246,7 +259,8 @@ def racetrack_aper(img, imgspare, x_guess, y_guess, rotang, aper_radii, halfleng
     spot_halflen = halflength
     dims = np.shape(img)
 
-    crop_img = img[int(y_guess) - 20:int(y_guess) + 21, int(x_guess) - 20:int(x_guess) + 21]
+    crop_img = img[int(y_guess) - box_size:int(y_guess) + (box_size+1),
+               int(x_guess) - box_size:int(x_guess) + (box_size+1)]
     xpos = x_guess
     ypos = y_guess
     xcoord, ycoord = np.meshgrid(np.arange(dims[0]), np.arange(dims[1]))
@@ -270,41 +284,84 @@ def racetrack_aper(img, imgspare, x_guess, y_guess, rotang, aper_radii, halfleng
     x, y = np.meshgrid(np.arange(np.shape(crop_img)[0]), np.arange(np.shape(crop_img)[0]))
     p = fit_p(p_back_init, x, y, crop_img)
     background = p(x, y)
-    img[int(ypos)-20:int(ypos)+21, int(xpos)-20:int(xpos)+21] -= background
+    img[int(y_guess) - box_size:int(y_guess) + (box_size + 1),
+    int(x_guess) - box_size:int(x_guess) + (box_size + 1)] -= background
     flux = np.sum(img[source])
 
     imgspare[source] = 10000
     return flux, imgspare
 
-def countsToApparentMag(cps, filterName='V', telescope=None):
+def PHEONIX_to_txt(flux_fits, wave_fits, save_file, normalization_band, normalization_flux, output_wvls=None):
     """
-    routine to convert counts measured in a given filter to an apparent magnitude
-    input: cps = counts/s to be converted to magnitude. Can accept np array of numbers.
-           filterName = filter to have magnitude calculated for
-           telescope = name of telescope used. This is necessary to determine the collecting
-                       area since the counts need to be in units of counts/s/m^2 for conversion to mags
-                       If telescope = None: assumes data was already given in correct units
-    output: apparent magnitude. Returns same format as input (either single value or np array)
+    Converts the outputs of the PHEONIX stellar model library (https://phoenix.astro.physik.uni-goettingen.de/) to a
+    two column array (and saves the output as a two column text file) that is compatible with the speccal step of the
+    mkidpipeline
+    :param flux_fits: file path to the flux output of the PHEONIX models
+    :param wave_fits: file path to the wavelength output of the PHEONIX models
+    :param save_file: file path to save output two column spectrum txt file
+    :param normalization_band: array, stop and start wavelength of band to use for normalization (in Angstroms)
+    :param normalization_flux: integrated flux value over the normalization band (erg/s/cm^2/A)
+    :param output_wvls: array, start and stop wavelength to use for output spectrum. Defaults to whole range of PHEONIX
+    spectrum
+    :return: two column array where first dimension is the spectrum wavelengths in angstroms and the second is the flux
+    values in erg/cm^2/s/A
     """
-    Jansky2Counts = 1.51E7
-    dLambdaOverLambda = {'U': 0.15, 'B': 0.22, 'V': 0.16, 'R': 0.23, 'I': 0.19, 'g': 0.14, 'r': 0.14, 'i': 0.16,
-                         'z': 0.13}
-    f0 = {'U': 1810., 'B': 4260., 'V': 3640., 'R': 3080., 'I': 2550., 'g': 3730., 'r': 4490., 'i': 4760., 'z': 4810.}
+    flux_hdu = fits.open(flux_fits)
+    wav_hdu = fits.open(wave_fits)
+    # fluxes in flux_hdu have units erg/cm^2/s/cm
+    orig_fluxes = flux_hdu[0].data * 1e-8
+    # now in erg/cm^2/s/A
+    orig_wavs = wav_hdu[0].data
+    if output_wvls is None:
+        output_wvls = np.array([orig_wavs[0],orig_wavs[-1]])
+    wav_idxs = np.where(np.logical_and(output_wvls[0] < orig_wavs, orig_wavs < output_wvls[1]))
+    w = orig_wavs[wav_idxs]
+    crop_fluxes = orig_fluxes[wav_idxs]
 
-    if filterName not in list(f0.keys()):
-        raise ValueError("Not a valid filter. Please select from 'U','B','V','R','I','g','r','i','z'")
+    # determine numerator and denominator for normalization factor (dividing flux densities at 1.25 um)
+    i = np.where(np.logical_and(orig_wavs>normalization_band[0], orig_wavs<normalization_band[-1]))
+    denom = np.mean(orig_fluxes[i])
+    num = normalization_flux
+    f = np.zeros_like(crop_fluxes)
+    for i, flux in enumerate(crop_fluxes):
+        a = num / denom
+        corrected_flux = flux * a
+        f[i] = corrected_flux
+    #save data to a two column text file
+    data = np.array([w, f])
+    data = data.T
+    datafile_path = save_file
+    with open(datafile_path, 'w+') as datafile_id:
+        np.savetxt(datafile_id, data)
+    # return the data
+    return data
 
-    if telescope in ['Palomar', 'PAL', 'palomar', 'pal', 'Hale', 'hale']:
-        telArea = 17.8421  # m^2 for Hale 200" primary
-    elif telescope in ['Lick', 'LICK', 'Shane']:
-        raise ValueError("LICK NOT IMPLEMENTED")
-    elif telescope == None:
-        print(
-            "WARNING: no telescope provided for conversion to apparent mag. Assuming data is in units of counts/s/m^2")
-        telArea = 1.0
+def fit_sources(image, sigma_psf, guesses=None):
+    """
+
+    :param image:
+    :param sigma_psf:
+    :param guesses:
+    :return:
+    """
+    image[image == 0] = np.nan
+    bkgrms = MADStdBackgroundRMS()
+    std = bkgrms(image)
+    iraffind = IRAFStarFinder(threshold = 5.0 * std, fwhm = sigma_psf * gaussian_sigma_to_fwhm, minsep_fwhm = 0.01, #threshold=3.5
+                              roundhi = 5.0, roundlo = -5.0, sharplo = 0.0, sharphi = 2.0)
+    daogroup = DAOGroup(2.0 * sigma_psf * gaussian_sigma_to_fwhm)
+    mmm_bkg = MMMBackground()
+    fitter = LevMarLSQFitter()
+    psf_model = IntegratedGaussianPRF(sigma=sigma_psf)
+    photometry = IterativelySubtractedPSFPhotometry(finder=iraffind, group_maker = daogroup, bkg_estimator = mmm_bkg,
+                                                    psf_model = psf_model, fitter = fitter, niters = 3,
+                                                    fitshape = (11, 11), aperture_radius=2.0)
+    if guesses is not None:
+        x0 = [guess[0] for guess in guesses]
+        y0 = [guess[1] for guess in guesses]
+        pos = Table(names=['x_0', 'y_0'], data=[x0, y0])
+        result_tab = photometry(image=image, init_guesses=pos)
     else:
-        raise ValueError("No suitable argument provided for telescope name. Use None if data in counts/s/m^2 already.")
-
-    cpsPerArea = cps / telArea
-    mag = -2.5 * numpy.log10(cpsPerArea / (f0[filterName] * Jansky2Counts * dLambdaOverLambda[filterName]))
-    return mag
+        result_tab = photometry(image=image)
+    residual_image = photometry.get_residual_image()
+    return result_tab, residual_image

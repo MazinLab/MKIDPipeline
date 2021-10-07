@@ -1,73 +1,146 @@
 #!/usr/bin/env python3
 import argparse
 import os
-
 import sys
 import pkg_resources as pkg
-import shutil
+from datetime import datetime
 
+import mkidpipeline.definitions as definitions
 import mkidcore
 import mkidcore.config
 from mkidcore.corelog import getLogger
 import mkidpipeline.pipeline as pipe
 import mkidpipeline.config as config
+import mkidpipeline.steps as steps
+import mkidpipeline.samples
 
-if __name__ == "__main__":
+
+def parse():
     # read in command line arguments
     parser = argparse.ArgumentParser(description='MKID Pipeline CLI')
-    parser.add_argument('-o', type=str, help='An output specification file', default='out.yml', dest='out_cfg')
-    parser.add_argument('-p', type=str, help='A pipeline config file', default='pipe.yml', dest='pipe_cfg')
-    parser.add_argument('-d', type=str, help='A input config file', default='data.yml', dest='data_cfg')
-    parser.add_argument('--vet',  action='store_true', help='Check pipeline configuration', default=False)
-    parser.add_argument('--init', action='store_true', help='Setup the pipeline, clobbers files freely')
+    parser.add_argument('-o', type=str, help='An output specification file', default='out.yaml', dest='out_cfg')
+    parser.add_argument('-p', type=str, help='A pipeline config file', default='pipe.yaml', dest='pipe_cfg')
+    parser.add_argument('-d', type=str, help='A input config file', default='data.yaml', dest='data_cfg')
+    parser.add_argument('--vet',  action='store_true', help='Check pipeline configuration and exit', default=False)
+    parser.add_argument('--init', action='store_true', help='Setup the pipeline, clobbers _default.yaml as needed')
     parser.add_argument('--verbose', action='store_true', help='Verbose')
     parser.add_argument('--run-step', dest='single_step', help='Run a single named step', type=str)
     parser.add_argument('--make-dir', dest='make_paths', help='Create all needed directories', action='store_true')
     parser.add_argument('--info', dest='info', help='Report information about the configuration', action='store_true')
+    parser.add_argument('--make-outputs', dest='makeout', help='Run the pipeline on the outputs', action='store_true')
+    parser.add_argument('--logcfg', dest='logcfg', help='Run the pipeline on the outputs', type=str,
+                        default=pkg.resource_filename('mkidpipeline', './config/logging.yaml'))
 
-    getLogger('mkidcore').setLevel('INFO')
-    log = getLogger('mkidpipeline')
-    log.setLevel('INFO')
+    return parser.parse_args()
 
-    args = parser.parse_args()
+
+def init_pipeline():
+    defstr = lambda x: f"{x}_default.yaml" if os.path.exists(f"{x}.yaml") else f"{x}.yaml"
+    default_pipe_config = pipe.generate_default_config()
+    with open(defstr('pipe'), 'w') as f:
+        config.yaml.dump(default_pipe_config, f)
+
+    sample_data = mkidpipeline.samples.get_sample_data()
+    config.dump_dataconfig(sample_data, defstr('data'))
+
+    sample_out = mkidpipeline.samples.get_sample_output()
+    with open(defstr('out'), 'w') as f:
+        config.yaml.dump(sample_out, f)
+
+
+def run_step(stepname, dataset):
+    try:
+        pipe.PIPELINE_STEPS[stepname].fetch(dataset)
+    except AttributeError:
+        pass
+    try:
+        pipe.PIPELINE_STEPS[stepname].apply(dataset)
+    except AttributeError:
+        pass
+
+
+if __name__ == "__main__":
+
+    args = parse()
+    getLogger('mkidcore', setup=True, logfile=f'mkidpipe_{datetime.now().strftime("%Y-%m-%d_%H%M")}.log',
+              configfile=args.logcfg)
+    log = getLogger('mkidpipe')
+
     if args.verbose:
-        log.setLevel('DEBUG')
+        getLogger('mkidpipe').setLevel('DEBUG')
+        getLogger('mkidpipeline').setLevel('DEBUG')
         getLogger('mkidcore').setLevel('DEBUG')
-    else:
-        pipe.getLogger('mkidpipeline.steps').setLevel('INFO')
-        pipe.getLogger('mkidpipeline.hdf').setLevel('INFO')
 
     if args.init:
-        default_pipe_config = pipe.generate_default_config()
-        with open('pipe.yaml', 'w') as f:
-            config.yaml.dump(default_pipe_config, f)
-
-        sample_data = pipe.generate_sample_data()
-        config.dump_dataconfig(sample_data, 'data.yaml')
-
-        sample_out = pipe.generate_sample_output()
-        with open('out.yaml', 'w') as f:
-            config.yaml.dump(sample_out, f)
+        init_pipeline()
+        sys.exit(0)
 
     config.configure_pipeline(args.pipe_cfg)
-    outputs = config.MKIDOutputCollection(args.out_cfg, datafile=args.data_cfg)
+    outputs = definitions.MKIDOutputCollection(args.out_cfg, datafile=args.data_cfg)
     dataset = outputs.dataset
 
     if args.make_paths:
-        config.make_paths(output_dirs=[os.path.dirname(o.output_file) for o in output])
+        config.make_paths(output_collection=outputs)
+    missing_paths = config.verify_paths(output_collection=outputs, return_missing=True)
+    if missing_paths:
+        getLogger('mkidpipeline').critical(f'Required paths missing:\n\t'+'\n\t'.join(missing_paths))
+        sys.exit(1)
 
+    issue_report = outputs.validation_summary(null_success=True)
+    if issue_report:
+        getLogger('mkidpipeline').critical(issue_report)
+        sys.exit(1)
+    else:
+        getLogger('mkidpipeline').info('Validation of output and data successful! Done')
     if args.vet:
         sys.exit(0)
 
     if args.info:
-        from glob import glob
-        for f in glob(config.config.paths.database+'*'):
-            print(f'{f}')
-        #report database info
+        config.inspect_database(detailed=args.verbose)
 
     if args.single_step:
-        pipe.PIPELINE_STEPS[args.single_step].run(dataset)
+        run_step(args.single_step, dataset)
+        sys.exit(0)
 
+    if args.makeout:
+        # [] denote optional
+        # build, meta, wave, pix -> wcs
+        # build, meta, wave, pix, [lin, cr, flat] ->  spec
+        # build, meta, [wave, pix, lin, cr, flat] -> image / movie
+        # build, meta, wave, [pix, lin, cr] -> flat
+        # build, meta -> wave
 
-    pipe.run_stage1(outputs.dataset)
-    pipe.generate_outputs(outputs)
+        pipe.batch_applier('buildhdf', outputs)
+
+        if 'metadata' in config.config.flow:
+            pipe.batch_applier('metadata', outputs)
+
+        if 'wavecal' in config.config.flow:
+            steps.wavecal.fetch(outputs.wavecals)
+            steps.wavecal._loaded_solutions = {}  # TODO why is this necessary for Pool to work despite __getstate__
+            pipe.batch_applier('wavecal', outputs.to_wavecal)
+
+        if 'pixcal' in config.config.flow:
+            pipe.batch_applier('pixcal', outputs.to_pixcal)
+
+        if 'lincal' in config.config.flow:
+            pipe.batch_applier('lincal', outputs.to_lincal)
+
+        if 'cosmiccal' in config.config.flow:
+            pipe.batch_applier('cosmiccal', outputs.to_cosmiccal)
+
+        if 'flatcal' in config.config.flow:
+            steps.flatcal.fetch(outputs.flatcals)
+            pipe.batch_applier('flatcal', outputs.to_flatcal)
+
+        if 'wcscal' in config.config.flow:
+            steps.wcscal.fetch(outputs.wcscals)
+            pipe.batch_applier('wcscal', outputs.to_wcscal)
+
+        if 'speccal' in config.config.flow:
+            steps.speccal.fetch(outputs.speccals)
+
+        steps.output.generate(outputs)
+
+        if 'speccal' in config.config.flow:
+            pipe.batch_applier('speccal', outputs.to_speccal)

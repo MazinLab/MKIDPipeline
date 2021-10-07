@@ -2,22 +2,18 @@ import os
 import tables
 import time
 import numpy as np
-import psutil
 import multiprocessing as mp
-from datetime import datetime
-from glob import glob
-import warnings
-from io import StringIO
-from mkidcore.headers import ObsFileCols, ObsHeader
 from mkidcore.corelog import getLogger
-from mkidcore.config import yaml, yaml_object
+from mkidcore.config import yaml
 import mkidcore.utils
 from mkidcore.objects import Beammap
+from mkidcore.instruments import InstrumentInfo
+
 
 from mkidpipeline.photontable import Photontable
 import mkidpipeline.config
+from mkidpipeline.utils.memory import PIPELINE_MAX_RAM_GB, free_ram_gb, reserve_ram, release_ram
 
-_datadircache = {}
 
 PHOTON_BIN_SIZE_BYTES = 8
 
@@ -32,93 +28,49 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
 mkidcore.config.yaml.register_class(StepConfig)
 
 
-def _get_dir_for_start(base, start):
-    global _datadircache
-
-    if not base.endswith(os.path.sep):
-        base = base + os.path.sep
-
-    try:
-        nmin = _datadircache[base]
-    except KeyError:
-        try:
-            nights_times = glob(os.path.join(base, '*', '*.bin'))
-            with warnings.catch_warnings():  # ignore warning for nights_times = []
-                warnings.simplefilter("ignore", UserWarning)
-                nights, times = np.genfromtxt(list(map(lambda s: s[len(base):-4], nights_times)),
-                                              delimiter=os.path.sep, dtype=int).T
-            nmin = {times[nights == n].min(): str(n) for n in set(nights)}
-            _datadircache[base] = nmin
-        except ValueError:  # for not pipeline oriented bin file storage
-            return base
-
-    keys = np.array(list(nmin))
-    try:
-        return os.path.join(base, nmin[keys[keys < start].max()])
-    except ValueError:
-        raise ValueError('No directory in {} found for start {}'.format(base, start))
-
-
 def estimate_ram_gb(directory, start, inttime):
     files = [os.path.join(directory, '{}.bin'.format(t)) for t in
              range(int(start - 1), int(np.ceil(start) + inttime + 1))]
     files = filter(os.path.exists, files)
     n_max_photons = int(np.ceil(sum([os.stat(f).st_size for f in files]) / PHOTON_BIN_SIZE_BYTES))
-    return n_max_photons * PHOTON_BIN_SIZE_BYTES / 1024 ** 3
+    return 4.75 * n_max_photons * PHOTON_BIN_SIZE_BYTES / 1024 ** 3  #4.75 is empirical fudge
 
 
-def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250, shuffle=True, bitshuffle=False,
-                   wait_for_ram=3600, ndx_shuffle=True, ndx_bitshuffle=False):
-    """wait_for_ram speficies the number of seconds to wait for sufficient ram"""
+def _build_pytables(filename, bmap, instrument, datadir, starttime, inttime, include_baseline,
+                    index=('ultralight', 6), timesort=False, chunkshape=250, shuffle=True, bitshuffle=False,
+                    ndx_shuffle=True, ndx_bitshuffle=False, data=None):
+
     from mkidcore.binfile.mkidbin import extract
     from mkidpipeline.pipeline import PIPELINE_FLAGS, BEAMMAP_FLAGS    #here to prevent circular imports!
+    getLogger(__name__).debug('Starting build of {}'.format(filename))
 
-    if cfg.starttime < 1518222559:
-        raise ValueError('Data prior to 1518222559 not supported without added fixtimestamps')
+    if data is not None:
+        photons = data
+    else:
+        photons = extract(datadir, starttime, inttime, bmap.file, bmap.ncols, bmap.nrows,
+                          include_baseline=include_baseline)
 
-    def free_ram_gb():
-        mem = psutil.virtual_memory()
-        return (mem.free + mem.cached) / 1024 ** 3
-
-    ram_est_gb = estimate_ram_gb(cfg.datadir, cfg.starttime, cfg.inttime) + 2  # add some headroom
-    if free_ram_gb() < ram_est_gb:
-        msg = 'Insufficint free RAM to build {}, {:.1f} vs. {:.1f} GB.'
-        getLogger(__name__).warning(msg.format(cfg.h5file, free_ram_gb(), ram_est_gb))
-        if wait_for_ram:
-            getLogger(__name__).info('Waiting up to {} s for enough RAM'.format(wait_for_ram))
-            while wait_for_ram and free_ram_gb() < ram_est_gb:
-                sleeptime = np.random.uniform(1, 2)
-                time.sleep(sleeptime)
-                wait_for_ram -= sleeptime
-                if wait_for_ram % 30:
-                    getLogger(__name__).info('Still waiting (up to {} s) for enough RAM'.format(wait_for_ram))
-    if free_ram_gb() < ram_est_gb:
-        getLogger(__name__).error('Aborting build due to insufficient RAM.')
-        return
-
-    getLogger(__name__).debug('Starting build of {}'.format(cfg.h5file))
-
-    photons = extract(cfg.datadir, cfg.starttime, cfg.inttime, cfg.beamfile, cfg.x, cfg.y,
-                      include_baseline=cfg.include_baseline)
-
-    getLogger(__name__).debug('Data Extracted for {}'.format(cfg.h5file))
+    getLogger(__name__).debug('Data Extracted for {}'.format(filename))
 
     if timesort:
-        photons.sort(order=('Time', 'ResID'))
-        getLogger(__name__).warning('Sorting photon data on time for {}'.format(cfg.h5file))
-    elif not np.all(photons['ResID'][:-1] <= photons['ResID'][1:]):
-        getLogger(__name__).warning('binprocessor.extract returned data that was not sorted on ResID, sorting'
-                                    '({})'.format(cfg.h5file))
-        photons.sort(order=('ResID', 'Time'))
+        photons.sort(order=('time', 'resID'))
+        getLogger(__name__).warning('Sorting photon data on time for {}'.format(filename))
+    elif not np.all(photons['resID'][:-1] <= photons['resID'][1:]):
+        if data is not None:
+            getLogger(__name__).warning('binprocessor.extract returned data that was not sorted on ResID, sorting'
+                                        '({})'.format(filename))
+        photons.sort(order=('resID', 'time'))
 
-    h5file = tables.open_file(cfg.h5file, mode="a", title="MKID Photon File")
-    group = h5file.create_group("/", 'Photons', 'Photon Information')
+    h5file = tables.open_file(filename, mode="a", title="MKID Photon File")
+    group = h5file.create_group("/", 'photons', 'Photon Information')
     filter = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=shuffle, bitshuffle=bitshuffle, fletcher32=False)
-    table = h5file.create_table(group, name='PhotonTable', description=ObsFileCols, title="Photon Datatable",
+    table = h5file.create_table(group, name='photontable', description=Photontable.PhotonDescription, title="Photon Datatable",
                                 expectedrows=len(photons), filters=filter, chunkshape=chunkshape)
     table.append(photons)
+    if data is not None:
+        del photons
 
-    getLogger(__name__).debug('Table Populated for {}'.format(cfg.h5file))
+    getLogger(__name__).debug('Table populated for {}'.format(filename))
     if index:
         index_filter = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=ndx_shuffle, bitshuffle=ndx_bitshuffle,
                                       fletcher32=False)
@@ -129,19 +81,18 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
             else:
                 col.create_index(optlevel=index[1], kind=index[0], filters=filter)
 
-        indexer(table.cols.Time, index, filter=index_filter)
-        getLogger(__name__).debug('Time Indexed for {}'.format(cfg.h5file))
-        indexer(table.cols.ResID, index, filter=index_filter)
-        getLogger(__name__).debug('ResID Indexed for {}'.format(cfg.h5file))
-        indexer(table.cols.Wavelength, index, filter=index_filter)
-        getLogger(__name__).debug('Wavelength indexed for {}'.format(cfg.h5file))
-        getLogger(__name__).debug('Table indexed ({}) for {}'.format(index, cfg.h5file))
+        indexer(table.cols.time, index, filter=index_filter)
+        getLogger(__name__).debug('Time Indexed for {}'.format(filename))
+        indexer(table.cols.resID, index, filter=index_filter)
+        getLogger(__name__).debug('ResID Indexed for {}'.format(filename))
+        indexer(table.cols.wavelength, index, filter=index_filter)
+        getLogger(__name__).debug('Wavelength indexed for {}'.format(filename))
+        getLogger(__name__).debug('Table indexed ({}) for {}'.format(index, filename))
     else:
-        getLogger(__name__).debug('Skipping Index Generation for {}'.format(cfg.h5file))
+        getLogger(__name__).debug('Skipping Index Generation for {}'.format(filename))
 
-    bmap = Beammap(cfg.beamfile, xydim=(cfg.x, cfg.y))
-    group = h5file.create_group("/", 'BeamMap', 'Beammap Information', filters=filter)
-    h5file.create_array(group, 'Map', bmap.residmap.astype(int), 'resID map')
+    group = h5file.create_group("/", 'beammap', 'Beammap Information', filters=filter)
+    h5file.create_array(group, 'map', bmap.residmap.astype(int), 'resID map')
 
     def beammap_flagmap_to_h5_flagmap(flagmap):
         h5map = np.zeros_like(flagmap, dtype=int)
@@ -150,198 +101,178 @@ def build_pytables(cfg, index=('ultralight', 6), timesort=False, chunkshape=250,
             h5map.flat[i] = PIPELINE_FLAGS.bitmask(bset)
         return h5map
 
-    h5file.create_array(group, 'Flag', beammap_flagmap_to_h5_flagmap(bmap.flagmap), 'flag map')
-    getLogger(__name__).debug('Beammap Attached to {}'.format(cfg.h5file))
+    h5file.create_array(group, 'flag', beammap_flagmap_to_h5_flagmap(bmap.flagmap), 'flag map')
+    getLogger(__name__).debug('Beammap Attached to {}'.format(filename))
 
-    h5file.create_group('/', 'header', 'Header')
-    headerTable = h5file.create_table('/header', 'header', ObsHeader, 'Header')
-    headerContents = headerTable.row
-    headerContents['isWvlCalibrated'] = False
-    headerContents['isFlatCalibrated'] = False
-    headerContents['isFluxCalibrated'] = False
-    headerContents['isLinearityCorrected'] = False
-    headerContents['isPhaseNoiseCorrected'] = False
-    headerContents['isPhotonTailCorrected'] = False
-    headerContents['timeMaskExists'] = False
-    headerContents['startTime'] = cfg.starttime
-    headerContents['expTime'] = cfg.inttime
-    headerContents['wvlBinStart'] = 700
-    headerContents['wvlBinEnd'] = 1500
-    headerContents['energyBinWidth'] = 0.1
-    headerContents['target'] = ''
-    headerContents['dataDir'] = cfg.datadir
-    headerContents['beammapFile'] = cfg.beamfile
-    headerContents['wvlCalFile'] = ''
-    headerContents['fltCalFile'] = ''
-    headerContents['metadata'] = ''
-    out = StringIO()
+    headerContents = {}
+    headerContents['wavecal'] = ''
+    headerContents['flatcal'] = ''
+    headerContents['speccal'] = ''
+    headerContents['flags'] = PIPELINE_FLAGS.names
+    headerContents['pixcal'] = False
+    headerContents['lincal'] = False
+    headerContents['cosmiccal'] = False
+    headerContents['dead_time'] = instrument.deadtime_us
+    headerContents['UNIXSTR'] = starttime
+    headerContents['UNIXEND'] = starttime + inttime
+    headerContents['EXPTIME'] = inttime
+    headerContents['E_BMAP'] = bmap.file
+    headerContents['max_wavelength'] = instrument.maximum_wavelength
+    headerContents['min_wavelength'] = instrument.minimum_wavelength
+    headerContents['energy_resolution'] = instrument.energy_bin_width_ev
+    headerContents['data_path'] = datadir
 
-    yaml.dump({'flags': PIPELINE_FLAGS.names}, out)
-    out = out.getvalue().encode()
-    if len(out) > mkidcore.headers.METADATA_BLOCK_BYTES:  # this should match mkidcore.headers.ObsHeader.metadata
-        raise ValueError("Too much metadata! {} KB needed, {} allocated".format(len(out) // 1024,
-                                                                                mkidcore.headers.METADATA_BLOCK_BYTES // 1024))
-    headerContents['metadata'] = out
-
-    headerContents.append()
-    getLogger(__name__).debug('Header Attached to {}'.format(cfg.h5file))
+    # must not be an overlap
+    assert set(h5file.root.photons.photontable.attrs._f_list('sys')).isdisjoint(headerContents)
+    for k, v in headerContents.items():
+        setattr(h5file.root.photons.photontable.attrs, k, v)
 
     h5file.close()
-    getLogger(__name__).debug('Done with {}'.format(cfg.h5file))
-
-
-@yaml_object(yaml)
-class Bin2HdfConfig(object):
-    _template = ('{x} {y}\n'
-                 '{datadir}\n'
-                 '{starttime}\n'
-                 '{inttime}\n'
-                 '{beamfile}\n'
-                 '1\n'
-                 '{outdir}\n'
-                 '{include_baseline}')
-
-    def __init__(self, datadir='./', starttime=None, inttime=None, outdir='./', include_baseline=False, writeto=None,
-                 beammap='MEC'):
-
-        self.datadir = datadir
-        self.starttime = int(starttime)
-        self.inttime = int(np.ceil(inttime))
-        self.include_baseline = include_baseline
-
-        beammap = Beammap(beammap) if isinstance(beammap, str) else beammap
-        self.beamfile = beammap.file
-        self.x = beammap.ncols
-        self.y = beammap.nrows
-
-        self.outdir = outdir
-        if writeto is not None:
-            self.write(writeto)
-
-    @property
-    def h5file(self):
-        try:
-            return self.user_h5file
-        except AttributeError:
-            return os.path.join(self.outdir, str(self.starttime) + '.h5')
-
-    def write(self, file):
-        dir = self.datadir
-        if not glob(os.path.join(dir, '*.bin')):
-            dir = os.path.join(self.datadir, datetime.utcfromtimestamp(self.starttime).strftime('%Y%m%d'))
-        else:
-            getLogger(__name__).debug('bin files found in data directory. Will not append YYYMMDD')
-
-        try:
-            file.write(self._template.format(datadir=dir, starttime=self.starttime,
-                                             inttime=self.inttime, beamfile=self.beamfile,
-                                             outdir=self.outdir, x=self.x, y=self.y))
-        except AttributeError:
-            with open(file, 'w') as wavefile:
-                wavefile.write(self._template.format(datadir=dir, starttime=self.starttime,
-                                                     inttime=self.inttime, beamfile=self.beamfile,
-                                                     outdir=self.outdir, x=self.x, y=self.y))
-
-    def load(self):
-        raise NotImplementedError
+    del h5file
+    getLogger(__name__).debug('Done with {}'.format(filename))
 
 
 class HDFBuilder(object):
-    def __init__(self, cfg, force=False, **kwargs):
-        self.cfg = cfg
+    def __init__(self, force=False, datadir='./', outdir='./', include_baseline=False, instrument='MEC',
+                 beammap='MEC', starttime=None, inttime=None, user_h5file='',  **kwargs):
+        # self.cfg = cfg
+        self.datadir = datadir
+        self.starttime = int(starttime)
+        self.inttime = int(np.ceil(inttime))
+        self.outdir = outdir
+        self.include_baseline = include_baseline
+        self.beammap = Beammap(beammap) if isinstance(beammap, str) else beammap
+        self.beamfile = beammap.file
         self.done = False
         self.force = force
-        self.kwargs = kwargs
+        self.build_kwargs = kwargs
+        self.user_h5file=user_h5file
+        self.instrument = InstrumentInfo(instrument) if isinstance(instrument, str) else instrument
+
+    @property
+    def h5file(self):
+        return self.user_h5file if self.user_h5file else os.path.join(self.outdir, str(self.starttime) + '.h5')
 
     def handle_existing(self):
         """ Handles existing h5 files, deleting them if appropriate"""
-        if os.path.exists(self.cfg.h5file):
+        if os.path.exists(self.h5file):
 
             if self.force:
-                getLogger(__name__).info('Remaking {} forced'.format(self.cfg.h5file))
+                getLogger(__name__).info('Remaking {} forced'.format(self.h5file))
                 done = False
             else:
+                done = False
                 try:
-                    done = Photontable(self.cfg.h5file).duration >= self.cfg.inttime
+                    pt = Photontable(self.h5file)
+                    pt.photonTable[0],pt.photonTable[-1]
+                    done = pt.duration >= self.inttime
                     if not done:
-                        getLogger(__name__).info(('{} does not contain full duration, '
-                                                  'will remove and rebuild').format(self.cfg.h5file))
-                except:
-                    done = False
-                    getLogger(__name__).info(('{} presumed corrupt,'
-                                              ' will remove and rebuild').format(self.cfg.h5file), exc_info=True)
+                        getLogger(__name__).info(f'{self.h5file} does not contain full duration, '
+                                                 f'will remove and rebuild')
+                except Exception as e:
+                    getLogger(__name__).info(f'{self.h5file} presumed corrupt ({e}), will remove and rebuild')
             if not done:
                 try:
-                    os.remove(self.cfg.h5file)
-                    getLogger(__name__).info('Deleted {}'.format(self.cfg.h5file))
+                    os.remove(self.h5file)
+                    getLogger(__name__).info('Deleted {}'.format(self.h5file))
                 except FileNotFoundError:
                     pass
             else:
-                getLogger(__name__).info('H5 {} already built. Remake not requested. Done.'.format(self.cfg.h5file))
+                getLogger(__name__).info('H5 {} already built. Remake not requested. Done.'.format(self.h5file))
                 self.done = True
+
+    def build(self, index=('ultralight', 6), timesort=False, chunkshape=250, shuffle=True, bitshuffle=False,
+              wait_for_ram=300, ndx_shuffle=True, ndx_bitshuffle=False, data=None):
+        """
+        wait_for_ram speficies the number of seconds to wait for sufficient ram
+
+        data may be a numpy recarray to bypass extraction
+        """
+        if data is None:
+            if self.starttime < 1518222559:
+                raise ValueError('Data prior to 1518222559 not supported without added fixtimestamps')
+
+            ram_est_gb = estimate_ram_gb(self.datadir, self.starttime, self.inttime)
+            if PIPELINE_MAX_RAM_GB < ram_est_gb:
+                getLogger(__name__).error(f'Pipeline limited to {PIPELINE_MAX_RAM_GB:.0f} GB RAM '
+                                          f'need ~{ram_est_gb:.0f} to build file. Aborting')
+                return
+        try:
+            if data is None:
+                reserved = reserve_ram(ram_est_gb * 1024 ** 3, timeout=wait_for_ram, id=self.h5file)
+            else:
+                reserved = 0
+            _build_pytables(self.h5file, self.beammap, self.instrument, self.datadir, self.starttime, self.inttime,
+                            self.include_baseline,
+                            index=index, timesort=timesort, chunkshape=chunkshape, shuffle=shuffle,
+                            bitshuffle=bitshuffle, ndx_shuffle=ndx_shuffle, ndx_bitshuffle=ndx_bitshuffle, data=data)
+        except TimeoutError:
+            reserved = 0
+            getLogger(__name__).error(f'Aborting build of {self.h5file} due to insufficient RAM '
+                                      f'(req. {ram_est_gb:.1f}, free  {free_ram_gb():.1f} GB) after {wait_for_ram} s.')
+            return
+
+        finally:
+            release_ram(reserved)
 
     def run(self, **kwargs):
         """kwargs is passed on to build_pytables"""
-        self.kwargs.update(kwargs)
+        self.build_kwargs.update(kwargs)
         self.handle_existing()
         if self.done:
             return
 
         tic = time.time()
-        build_pytables(self.cfg, **self.kwargs)
+        self.build(**self.build_kwargs)
         self.done = True
-        getLogger(__name__).info('Created {} in {:.0f}s'.format(self.cfg.h5file, time.time() - tic))
+        getLogger(__name__).info('Created {} in {:.0f}s'.format(self.h5file, time.time() - tic))
 
 
-def gen_configs(timeranges, config=None):
-    cfg = mkidpipeline.config.config if config is None else config
+def _runbuilder(b):
+    getLogger(__name__).debug('Calling run on {}'.format(b.h5file))
+    try:
+        b.run()
+    except Exception as e:
+        getLogger(__name__).critical('Caught exception during run of {}'.format(b.h5file), exc_info=True)
 
-    timeranges = list(set(timeranges))
 
-    b2h_configs = []
-    for start_t, end_t in timeranges:
-        bc = Bin2HdfConfig(datadir=_get_dir_for_start(cfg.paths.data, start_t), beammap=cfg.beammap,
-                           outdir=cfg.paths.out, starttime=start_t, inttime=end_t - start_t,
-                           include_baseline=cfg.include_baseline)
-        b2h_configs.append(bc)
-
-    return b2h_configs
+def buildfromarray(array, config=None):
+    cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(buildhdf=StepConfig()), cfg=config, copy=True)
+    b = HDFBuilder(beammap=cfg.beammap, outdir=cfg.paths.out, starttime=array['time'].min()/1e6,
+                   inttime=(array['time'].max()-array['time'].min())/1e6, force=True)
+    b.run(data=array)
 
 
 def buildtables(timeranges, config=None, ncpu=None, remake=None, **kwargs):
     """
-    timeranges must be an iterable of (start, stop) or an object that hase a .timeranges attribute providing the same
-    Pipeline must be configured or a loaded config passed
+    timeranges must be an iterable of (start, stop) or objects that have .start, .stop attributes providing the same
+    If the pipeline is not configured it will be configured with defaults.
     ncpu and remake will be pulled from config if not specified
-    kwargs my be used to pass settings on to pytables
+    kwargs my be used to pass settings on to pytables, exttra settings in the step config will also be passed to
+    pytables
     """
-    try:
-        timeranges = timeranges.timeranges
-    except AttributeError:
-        pass
-
-    timeranges = list(set(timeranges))
+    timeranges = map(lambda x: x if isinstance(x, tuple) else (x.start, x.stop), timeranges)
+    timeranges = set(map(lambda x: (int(np.floor(x[0])), int(np.ceil(x[1]))), timeranges))
 
     cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(buildhdf=StepConfig()), cfg=config, ncpu=ncpu,
                                                     copy=True)
 
-    b2h_configs = []
-    for start_t, end_t in timeranges:
-        bc = Bin2HdfConfig(datadir=_get_dir_for_start(cfg.paths.data, start_t), beammap=cfg.beammap,
-                           outdir=cfg.paths.out, starttime=start_t, inttime=end_t - start_t,
-                           include_baseline=cfg.hdf.include_baseline)
-        b2h_configs.append(bc)
+    remake = mkidpipeline.config.config.buildhdf.get('remake', False) if remake is None else remake
+    ncpu = mkidpipeline.config.config.get('buildhdf.ncpu') if ncpu is None else ncpu
 
-    remake = mkidpipeline.config.config.hdf.get('remake', False) if remake is None else remake
-    ncpu = mkidpipeline.config.config.hdf.get('ncpu', 1) if ncpu is None else ncpu
-
-    for k in mkidpipeline.config.config.hdf.keys():  # This is how chunkshape is propagated
+    for k in mkidpipeline.config.config.buildhdf.keys():  # This is how chunkshape is propagated
         if k not in kwargs and k not in ('ncpu', 'remake', 'include_baseline'):
-            kwargs[k] = mkidpipeline.config.config.hdf.get(k)
+            kwargs[k] = mkidpipeline.config.config.buildhdf.get(k)
 
-    builders = [HDFBuilder(c, force=remake, **kwargs) for c in b2h_configs]
+    builders = [HDFBuilder(datadir=mkidcore.utils.get_bindir_for_time(cfg.paths.data, start_t), beammap=cfg.beammap,
+                           instrument=cfg.instrument, outdir=cfg.paths.out, starttime=start_t, inttime=end_t - start_t,
+                           include_baseline=cfg.buildhdf.include_baseline, force=remake, **kwargs)
+                for start_t, end_t in timeranges]
 
-    if ncpu == 1:
+    if not builders:
+        return
+
+    if ncpu == 1 or len(builders) == 1:
         for b in builders:
             try:
                 b.run()
@@ -349,14 +280,7 @@ def buildtables(timeranges, config=None, ncpu=None, remake=None, **kwargs):
                 getLogger(__name__).error('Insufficient memory to process {}'.format(b.h5file))
         return timeranges
 
-    def runbuilder(b):
-        getLogger(__name__).debug('Calling run on {}'.format(b.cfg.h5file))
-        try:
-            b.run()
-        except Exception as e:
-            getLogger(__name__).critical('Caught exception during run of {}'.format(b.cfg.h5file), exc_info=True)
-
-    pool = mp.Pool(mkidpipeline.config.n_cpus_available(ncpu))
-    pool.map(runbuilder, builders)
+    pool = mp.Pool(mkidpipeline.config.n_cpus_available(max=cfg.get('buildhdf.ncpu', inherit=True)))
+    pool.map(_runbuilder, builders)
     pool.close()
     pool.join()

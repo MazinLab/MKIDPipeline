@@ -160,7 +160,7 @@ def plot_text(axes, flag, color):
               flag_definitions[flag], color=color, ha='left', va='top')
 
 
-class PartialLinearModel(object):
+class PartialLinearModel:
     """Base model class for fitting a linear combination of multiple functions to data.
     The linearity of the coefficients multiplying each function is used to reduce the
     dimension of the solution space by the number of functions. This reduction leads to
@@ -204,8 +204,7 @@ class PartialLinearModel(object):
     def __init__(self, pixel=None, res_id=None):
         self.pixel = pixel
         self.res_id = res_id
-        self._reduced_model = lm.Model(self.reduced_fit_function,
-                                       independent_vars=['x', 'y', 'variance'])
+        self._reduced_model = lm.Model(self.reduced_fit_function, independent_vars=['x', 'y', 'variance'])
         self._full_model = lm.Model(self.full_fit_function, independent_vars=['x'])
         self._cycler = cycler('color', ['orange', 'purple', 'yellow', 'black'])
         self.x = None
@@ -221,30 +220,30 @@ class PartialLinearModel(object):
             message = "no more than {} parameters are allowed in the full_fit_function"
             raise SyntaxError(message.format(self.max_parameters))
 
-    def __getstate__(self):
-        b = self.best_fit_result
-        r = (b.aic, b.success, b.params.dumps(), b.chisqr, b.errorbars, b.residual, b.nvarys) if b is not None else None
-        state = {'pixel': self.pixel, 'res_id': self.res_id, 'x': self.x, 'y': self.y, 'variance': self.variance,
-                 'best_fit_result': r, 'best_fit_result_good': self.best_fit_result_good, 'flag': self.flag,
-                 'phm': self.phm, 'nhm': self.nhm}
-        return state
-
-    def __setstate__(self, state):
-        self.__init__(state['pixel'], state['res_id'])
-        self.x = state['x']
-        self.y = state['y']
-        self.variance = state['variance']
-        if state['best_fit_result'] is None:
-            self.best_fit_result = None
-        else:
-            r = lm.model.ModelResult(self._full_model, lm.Parameters())
-            (r.aic, r.success, params, r.chisqr, r.errorbars, r.residual, r.nvarys) = state['best_fit_result']
-            r.params = lm.Parameters().loads(params)
-            self.best_fit_result = r
-        self.best_fit_result_good = state['best_fit_result_good']
-        self.flag = state['flag']
-        self.phm = state['phm']
-        self.nhm = state['nhm']
+    # def __getstate__(self):
+    #     b = self.best_fit_result
+    #     r = (b.aic, b.success, b.params.dumps(), b.chisqr, b.errorbars, b.residual, b.nvarys) if b is not None else None
+    #     state = {'pixel': self.pixel, 'res_id': self.res_id, 'x': self.x, 'y': self.y, 'variance': self.variance,
+    #              'best_fit_result': r, 'best_fit_result_good': self.best_fit_result_good, 'flag': self.flag,
+    #              'phm': self.phm, 'nhm': self.nhm}
+    #     return state
+    #
+    # def __setstate__(self, state):
+    #     self.__init__(state['pixel'], state['res_id'])
+    #     self.x = state['x']
+    #     self.y = state['y']
+    #     self.variance = state['variance']
+    #     if state['best_fit_result'] is None:
+    #         self.best_fit_result = None
+    #     else:
+    #         r = lm.model.ModelResult(self._full_model, lm.Parameters())
+    #         (r.aic, r.success, params, r.chisqr, r.errorbars, r.residual, r.nvarys) = state['best_fit_result']
+    #         r.params = lm.Parameters().loads(params)
+    #         self.best_fit_result = r
+    #     self.best_fit_result_good = state['best_fit_result_good']
+    #     self.flag = state['flag']
+    #     self.phm = state['phm']
+    #     self.nhm = state['nhm']
 
     def fit(self, guess):
         self._check_data()
