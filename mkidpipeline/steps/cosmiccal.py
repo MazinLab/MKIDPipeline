@@ -73,8 +73,6 @@ class CosmicCleaner:
         self.photons = self.obs.query(startw=self.wave_range[0], stopw=self.wave_range[1], column='time')
         getLogger(__name__).debug(f"Making CR timestream for {self.obs.filename}")
         self.make_timestream()
-        getLogger(__name__).debug(f"Making CR count histogram for {self.obs.filename}")
-        self.make_count_histogram()
         getLogger(__name__).debug(f"Making CR cosmic times for {self.obs.filename}")
         self.find_cosmic_times()
         getLogger(__name__).debug(f"Making CR cosmic info for {self.obs.filename}")
