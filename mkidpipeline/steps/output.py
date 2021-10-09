@@ -67,5 +67,4 @@ def generate(outputs: definitions.MKIDOutputCollection):
                           wcs_timestep=config.drizzler.wcs_timestep, usecache=config.drizzler.usecache,
                           ncpu=config.get('drizzler.ncpu'), derotate=config.drizzler.derotate,
                           align_start_pa=config.drizzler.align_start_pa, whitelight=config.drizzler.whitelight,
-                          save_steps=config.drizzler.save_steps, debug_dither_plot=config.drizzler.plots == 'all',
-                          **kwargs)
+                          debug_dither_plot=config.drizzler.plots == 'all', **kwargs)

@@ -778,8 +778,7 @@ stdrizzle.Drizzle.increment_id = _increment_id
 def form(dither, mode='drizzler', derotate=True, wave_start=None, wave_stop=None, start=0, duration=None, pixfrac=.5,
          wvl_bin_width=0.0*u.nm, time_bin_width=0.0, wcs_timestep=1., usecache=True, ncpu=None,
          exclude_flags=PROBLEM_FLAGS + EXCLUDE, whitelight=False, align_start_pa=False, debug_dither_plot=False,
-         save_steps=False, output_file='',
-         weight=False):
+         output_file='', weight=False):
     """
     Takes in a MKIDDitherDescription object and drizzles the dithers onto a common sky grid.
 
@@ -841,8 +840,6 @@ def form(dither, mode='drizzler', derotate=True, wave_start=None, wave_stop=None
     dcfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(drizzler=StepConfig()), ncpu=ncpu, cfg=None,
                                                      copy=True)
     ncpu = mkidpipeline.config.n_cpus_available(max=dcfg.get('ncpu', inherit=True))
-    out_root = os.path.dirname('./' if not output_file else output_file)
-    intermediate_file = os.path.join(out_root, 'drizstep_') if save_steps else ''
 
     if mode not in ('drizzle', 'list'):
         raise ValueError('mode must be: drizzle|list')
