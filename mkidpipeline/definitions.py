@@ -141,7 +141,7 @@ class DataBase:
         #  keys that are explicitly allowed are used in __init__ to support dual definition (e.g. stop/duration)
         #  we exclude th to prevent redundancy
         #  we want to include any user defined keys
-        keys = [k for k in node._keys if k not in cls.EXPLICIT_ALLOW] + d.pop('extra_keys')
+        keys = [k for k in node._keys if k not in dir(cls)] + d.pop('extra_keys')
         store = {}
         for k in keys:
             if type(d[k]) not in representer.yaml_representers:
