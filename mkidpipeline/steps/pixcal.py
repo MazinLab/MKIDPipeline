@@ -96,7 +96,7 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
     'num_iter': number of iterations performed.
     """
 
-    raw_image = np.copy(image)
+    raw_image = image
     # Approximate peak/median ratio for an ideal (Gaussian) PSF sampled at
     # pixel locations corresponding to the median kernel used with the real data.
     gauss_array = fitting.gaussian_psf(fwhm, box_size)
@@ -157,7 +157,7 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
     getLogger(__name__).info(f'Masked {len(hot_mask[hot_mask != False])} hot pixels,'
                              f' {len(cold_mask[cold_mask != False])} cold pixels,'
                              f' {len(dead_mask[dead_mask!=False])} dead pixels')
-    return {'hot': hot_mask, 'cold': cold_mask, 'dead': dead_mask, 'masked_image': raw_image, 'input_image': image,
+    return {'hot': hot_mask, 'cold': cold_mask, 'dead': dead_mask, 'masked_image': raw_image,
             'num_iter': iteration + 1}
 
 
@@ -180,7 +180,7 @@ def median(image, box_size=5, n_sigma=5.0, max_iter=5):
     'input_image': original input image
     'num_iter': number of iterations performed.
     """
-    raw_image = np.copy(image)
+    raw_image = image
 
     # Assume everything with 0 counts is a dead pixel, turn dead pixel values into NaNs
     dead_mask = raw_image == 0
@@ -234,7 +234,7 @@ def median(image, box_size=5, n_sigma=5.0, max_iter=5):
         assert ~(hot_mask & cold_mask).any()
     getLogger(__name__).info(f'Masked {len(hot_mask[hot_mask != False])} hot pixels and'
                              f' {len(hot_mask[cold_mask != False])} cold pixels')
-    return {'hot': hot_mask, 'cold': cold_mask, 'dead': dead_mask, 'masked_image': raw_image, 'input_image': image,
+    return {'hot': hot_mask, 'cold': cold_mask, 'dead': dead_mask, 'masked_image': raw_image,
             'num_iter': iteration + 1}
 
 
@@ -254,7 +254,7 @@ def laplacian(image, box_size=5, n_sigma=5.0, max_iter=5):
     'num_iter': number of iterations performed.
     """
 
-    raw_image = np.copy(image)
+    raw_image = image
 
     # Assume everything with 0 counts is a dead pixel, turn dead pixel values into NaNs
     dead_mask = raw_image == 0
@@ -303,7 +303,7 @@ def laplacian(image, box_size=5, n_sigma=5.0, max_iter=5):
         assert ~(hot_mask & cold_mask).any()
     getLogger(__name__).info(f'Masked {len(hot_mask[hot_mask != False])} hot pixels and'
                              f' {len(hot_mask[cold_mask != False])} cold pixels')
-    return {'hot': hot_mask, 'cold': cold_mask, 'dead': dead_mask, 'masked_image': raw_image, 'input_image': image,
+    return {'hot': hot_mask, 'cold': cold_mask, 'dead': dead_mask, 'masked_image': raw_image,
             'num_iter': iteration + 1}
 
 
@@ -386,7 +386,8 @@ def apply(o, config=None):
         return
 
     pt = Photontable(o.h5)
-    mask, meta = fetch(pt, o.start, o.stop, config=config)
+    with pt.needed_ram():
+        mask, meta = fetch(pt, o.start, o.stop, config=config)
     if mask is None:
         return
     tic = time.time()
