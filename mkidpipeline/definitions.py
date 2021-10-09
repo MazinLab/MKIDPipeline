@@ -34,7 +34,6 @@ class DataBase:
     """Superclass to handle all MKID data. Verifies and sets all required keys"""
     KEYS = tuple()
     REQUIRED = tuple()  # May set individual elements to tuples of keys if they are alternates e.g. stop/duration
-    EXPLICIT_ALLOW = tuple()  # Set to names that are allowed keys and are also used as properties
 
     def __init__(self, *args, **kwargs):
         from collections import defaultdict
@@ -44,7 +43,7 @@ class DataBase:
 
         # Check disallowed
         for k in kwargs:
-            if getattr(self, k, None) is not None and k not in self.EXPLICIT_ALLOW or k.startswith('_'):
+            if hasattr(self, f'_{k}'):
                 self._key_errors[k] += ['Not an allowed key']
 
         self.name = kwargs.get('name', f'Unnamed !{self.yaml_tag}')  # yaml_tag defined by subclass
@@ -62,11 +61,12 @@ class DataBase:
             if not found:
                 self._key_errors[key_set] += ['missing']
             elif found > 1:
-                if not found:
-                    self._key_errors[key_set] += ['multiple specified']
+                self._key_errors[key_set] += ['multiple specified']
 
         # Process keys
         for k, v in kwargs.items():
+
+            # Deal with types
             if k in self._keys:
                 required_type = self._keys[k].dtype
                 try:
@@ -84,12 +84,15 @@ class DataBase:
                 if required_type[0] is not None and not isinstance(v, required_type):
                     self._key_errors[k] += [f' {v} not an instance of {tuple(map(lambda x: x.__name__, required_type))}']
 
+            # Try converting strings to Astropy quantities
             if isinstance(v, str):
                 try:
                     v = u.Quantity(v)
                 except (TypeError, ValueError):
                     if v.startswith('_'):
                         raise ValueError(f'Keys may not start with an underscore: "{v}". Check {self.name}')
+
+            # Set the attribute, prepend _ if is a property/method
             try:
                 setattr(self, k, v)
             except AttributeError:
@@ -97,10 +100,11 @@ class DataBase:
                     setattr(self, '_' + k, v)
                     getLogger(__name__).debug(f'Storing {k} as _{k} for use by subclass')
                 except AttributeError:
-                    pass
+                    getLogger(__name__).warning(f'Could not store {k} as _{k} for use by subclass')
 
-        # Set defaults
-        for key in (key for key in self.KEYS if key.name not in kwargs and key.name not in self.EXPLICIT_ALLOW):
+        # Set defaults keys that don't exist
+        extant = dir(self)+list(kwargs.keys())
+        for key in (key for key in self.KEYS if key.name not in extant):
             try:
                 if key.default is None and key.dtype is not None:
                     default = key.dtype[0]() if isinstance(key.dtype, tuple) else key.dtype()
@@ -115,15 +119,6 @@ class DataBase:
             except Exception:
                 getLogger(__name__).debug(f'Key {key.name} is shadowed by property, prepending _')
                 setattr(self, '_' + key.name, default)
-
-        # # Check types
-        # for k:
-        #     if key.dtype is not None:
-        #         try:
-        #             if not isinstance(getattr(self, key.name), key.dtype):
-        #                 self._key_errors[key.name] += [f'not an instance of {key.dtype}']
-        #         except AttributeError:
-        #             pass
 
     def _vet(self):
         """Returns a copy of all of the key errors"""
@@ -146,7 +141,7 @@ class DataBase:
         #  keys that are explicitly allowed are used in __init__ to support dual definition (e.g. stop/duration)
         #  we exclude th to prevent redundancy
         #  we want to include any user defined keys
-        keys = [k for k in node._keys if k not in cls.EXPLICIT_ALLOW] + d.pop('extra_keys')
+        keys = [k for k in node._keys if k not in dir(cls)] + d.pop('extra_keys')
         store = {}
         for k in keys:
             if type(d[k]) not in representer.yaml_representers:
@@ -194,7 +189,6 @@ class MKIDTimerange(DataBase):
         Key('header', None, 'A dictionary of fits header key overrides.', dict)
     )
     REQUIRED = ('name', 'start', ('duration', 'stop'))
-    EXPLICIT_ALLOW = ('duration',)  # if a key is allowed AND is a property or method name it must be listed here
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -319,7 +313,6 @@ class MKIDObservation(MKIDTimerange):
         Key('speccal', '', 'A MKIDSpecdata nam', str),
     )
     REQUIRED = MKIDTimerange.REQUIRED + ('wavecal', 'flatcal', 'wcscal', 'speccal')
-    EXPLICIT_ALLOW = MKIDTimerange.EXPLICIT_ALLOW
 
     # OPTIONAL = ('standard', 'conex_pos')
 
@@ -1174,7 +1167,6 @@ class MKIDOutput(DataBase):
         Key('wavestep', '0.0 nm', 'Width of wavelength bins in output cubes with a wavelength axis', str)
     )
     REQUIRED = ('name', 'data', 'kind')
-    EXPLICIT_ALLOW = ('filename','duration')
 
     # OPTIONAL = tuple
 
