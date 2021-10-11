@@ -318,8 +318,7 @@ class SpectralCalibrator:
 
         # rebin cleaned spectrum to flat cal's wvlBinEdges
         rebin_std_data = rebin(self.conv[0], self.conv[1], self.wvl_bin_edges.to(u.Angstrom).value)
-        wvl_bin_centers = [(a.value + b.value) / 2 for a, b in zip(self.wvl_bin_edges, self.wvl_bin_edges[1::])]
-
+        wvl_bin_centers = [(a.value + b.value) / 2 for a, b in zip(self.wvl_bin_edges.to(u.Angstrom), self.wvl_bin_edges[1::].to(u.Angstrom))]
         if self.use_satellite_spots:
             for i, wvl in enumerate(wvl_bin_centers):
                 self.contrast[i] = satellite_spot_contrast(wvl)
@@ -579,7 +578,7 @@ def get_coords(object_name, ra, dec):
 def satellite_spot_contrast(lam, ref_contrast=2.72e-3, ref_wvl=1.55*1e4):  # 2.72e-3 number from Currie et. al. 2018b
     """
 
-    :param lam:
+    :param lam : Wavelength of interest, must be in Angstroms
     :param ref_contrast:
     :param ref_wvl:
     :return:
