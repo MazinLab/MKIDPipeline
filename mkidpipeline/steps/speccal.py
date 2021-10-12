@@ -74,6 +74,7 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                                            ' (in Angstroms). Defaults to nyquist sampling the energy resolution'),
                      ('fit_order', 1, 'order of the univariate spline to fit the soectrophotometric repsonse curve -'
                                       'must be shorter than the length of the wvl_bin_edges if specified'))
+
     def _verify_attribues(self):
         """Returns a list missing keys from the pipeline config"""
         errors = super(StepConfig, self)._verify_attribues()
@@ -94,52 +95,44 @@ class StandardSpectrum:
         self.ra = ra
         self.dec = dec
         self.std_path = std_path
-        self.coords = coords  # SkyCoord object
+        self.coords = coords  # SkyCoord
         self.spectrum_file = None
         self.k = 5.03411259e7
 
-    def get(self):
-        """
-        creates a spectrum directory, populates it with the spectrum file either pulled from the ESO catalog, SDSS
-        catalog, a URL, or a specified path to a .txt file and returns the wavelength and flux column in the
-        appropriate units
-        :return: wavelengths (Angstroms), flux (erg/s/cm^2/A)
-        """
-        self.coords = get_coords(object_name=self.object_name, ra=self.ra, dec=self.dec)
-        data = self.fetch_spectra()
-        return data[:, 0], data[:, 1]
-
     def fetch_spectra(self):
         """
-        called from get(), searches either a URL, ESO catalog or uses astroquery.SDSS to search the SDSS catalog. Puts
+        searches either a URL, ESO catalog or uses astroquery.SDSS to search the SDSS catalog. Puts
         the retrieved spectrum in a '/spectrum/' folder in self.save_dir
         :return:
         """
-        if self.std_path is not None:
-            try:
-                data = np.loadtxt(self.std_path)
-            except OSError:
-                self.spectrum_file = fetch_spectra_URL(object_name=self.object_name, url_path=self.std_path,
-                                                       save_dir=self.save_dir)
-                data = np.loadtxt(self.spectrum_file)
-            return data
+        conversion = 1
+        filename = None
+        if os.path.isfile(self.std_path):
+            filename = self.std_path
+        elif self.std_path:
+            filename = fetch_spectra_URL(object_name=self.object_name, url_path=self.std_path, save_dir=self.save_dir)
         else:
-            self.spectrum_file = fetch_spectra_ESO(object_name=self.object_name, save_dir=self.save_dir)
-            if not self.spectrum_file:
-                self.spectrum_file = fetch_spectra_SDSS(object_name=self.object_name, save_dir=self.save_dir,
-                                                        coords=self.coords)
+            try:
+                filename = fetch_spectra_ESO(object_name=self.object_name, save_dir=self.save_dir)
+                conversion = 1e-16          # to convert to the appropriate units if ESO spectra
+            except:
+                getLogger(__name__).info('ESO query failed, falling back to SDSS')
                 try:
-                    data = np.loadtxt(self.spectrum_file)
-                    return data
-                except ValueError:
-                    getLogger(__name__).error(
-                        'Could not find standard spectrum for this object, please find a spectrum and point to it in '
-                        'the standard_path in your pipe.yml')
-                    sys.exit()
+                    coords = self.coords or get_coords(object_name=self.object_name, ra=self.ra, dec=self.dec)
+                    filename = fetch_spectra_SDSS(object_name=self.object_name, save_dir=self.save_dir, coords=coords)
+                except ConnectionError:
+                    getLogger(__name__).info('SDSS query failed')
+
+        self.spectrum_file = filename
+
+        try:
             data = np.loadtxt(self.spectrum_file)
-            # to convert to the appropriate units if ESO spectra
-            data[:, 1] = data[:, 1] * 1e-16
-            return data
+            data[:, 1] *= conversion
+        except (ValueError, IndexError, OSError):
+            getLogger(__name__).error(f'Could not find standard spectrum for {self.object_name} with path')
+            raise
+
+        return data
 
     def photons_to_ergs(self, a):
         """
@@ -221,22 +214,19 @@ class SpectralCalibrator:
         self.aperture_radius = np.zeros(len(self.wvl_bin_edges) - 1) if self.wvl_bin_edges else None
 
     def run(self, save=True, plot=None):
-        try:
-            getLogger(__name__).info("Loading Spectrum from MEC")
-            self.load_absolute_spectrum()
-            getLogger(__name__).info("Loading Standard Spectrum")
-            self.load_standard_spectrum()
-            getLogger(__name__).info("Calculating Spectrophotometric Response Curve")
-            self.calculate_response_curve()
-            self.solution = ResponseCurve(configuration=self.cfg, curve=self.curve[0], wvl_bin_edges=self.wvl_bin_edges,
-                                          cube=self.cube, solution_name=self.solution_name)
-            if save:
-                self.solution.save(save_name=self.solution_name if isinstance(self.solution_name, str) else None)
-            if plot or (plot is None and self.plots == 'summary'):
-                save_name = self.solution_name.rpartition(".")[0] + ".pdf"
-                self.plot_summary(save_name=save_name)
-        except KeyboardInterrupt:
-            getLogger(__name__).info("Keyboard shutdown requested ... exiting")
+        getLogger(__name__).info("Loading Spectrum from MEC")
+        self.load_absolute_spectrum()
+        getLogger(__name__).info("Loading Standard Spectrum")
+        self.load_standard_spectrum()
+        getLogger(__name__).info("Calculating Spectrophotometric Response Curve")
+        self.calculate_response_curve()
+        self.solution = ResponseCurve(configuration=self.cfg, curve=self.curve[0], wvl_bin_edges=self.wvl_bin_edges,
+                                      cube=self.cube, solution_name=self.solution_name)
+        if save:
+            self.solution.save(save_name=self.solution_name if isinstance(self.solution_name, str) else None)
+        if plot or (plot is None and self.plots == 'summary'):
+            save_name = self.solution_name.rpartition(".")[0] + ".pdf"
+            self.plot_summary(save_name=save_name)
 
     def load_absolute_spectrum(self):
         """
@@ -250,7 +240,7 @@ class SpectralCalibrator:
             pt = Photontable(self.data.obs[0].h5)
             hdul = pt.get_fits(weight=True, rate=True, cube_type='wave',
                                bin_edges=self.wvl_bin_edges, bin_type='energy')
-            cube = np.array(hdul['SCIENCE'].data, dtype=np.double)
+            cube = hdul['SCIENCE'].data
         else:
             cube = []
             for wvl in range(len(self.wvl_bin_edges) - 1):
@@ -264,7 +254,7 @@ class SpectralCalibrator:
                                 derotate=not self.use_satellite_spots)
                 getLogger(__name__).info(('finished image {}/ {}'.format(wvl + 1.0, len(self.wvl_bin_edges) - 1)))
                 cube.append(drizzled.cps)
-            self.cube = np.array(cube)
+        self.cube = np.array(cube, dtype=np.double)
         n_wvl_bins = len(self.wvl_bin_edges) - 1
 
         wvl_bin_centers = [(a.value + b.value) / 2 for a, b in zip(self.wvl_bin_edges, self.wvl_bin_edges[1::])]
@@ -303,16 +293,19 @@ class SpectralCalibrator:
         return self.mkid
 
     def load_standard_spectrum(self):
+        # creat a spectrum directory, populate with the spectrum file either pulled from the ESO catalog, SDSS
+        # catalog, a URL, or a specified path to a .txt file and returns the wavelength and flux column in the
+        # appropriate units
+        c = self.data.obs[0].skycoord
         standard = StandardSpectrum(save_path=self.save_path, std_path=self.std_path,
                                     name=self.data.obs[0].metadata['OBJECT'],
-                                    ra=self.data.obs[0].metadata['RA'].values[0] if not
-                                    self.data.obs[0].metadata['RA'].is_empty() else None,
-                                    dec=self.data.obs[0].metadata['DEC'].values[0] if
-                                    not self.data.obs[0].metadata['DEC'].is_empty() else None)
-        std_wvls, std_flux = standard.get()  # standard star object spectrum in ergs/s/Angs/cm^2
-        self.std_wvls = std_wvls*u.Angstrom
-        self.std_flux = std_flux*u.erg*(1/u.s)*(1/u.Angstrom)*(1/u.cm**2)
-        conv_wvls_rev, conv_flux_rev = self.extend_and_convolve(self.std_wvls.to(u.Angstrom).value, self.std_flux.value)
+                                    ra=c.ra if c else None, dec=c.dec if c else None)
+
+        data = standard.fetch_spectra()
+        self.std_wvls, std_flux = data[:, 0]*u.Angstrom, data[:, 1]
+
+        self.std_flux = std_flux * u.erg/u.s/u.Angstrom/u.cm**2
+        conv_wvls_rev, conv_flux_rev = self.extend_and_convolve(self.std_wvls.value, self.std_flux.value)
         # convolved spectrum comes back sorted backwards, from long wvls to low which screws up rebinning
         self.conv = np.vstack((conv_wvls_rev[::-1], conv_flux_rev[::-1]))
 
@@ -633,9 +626,13 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
                                  use_satellite_spots=True if sd.aperture == 'satellite' else False,
                                  aperture=sd.aperture if not sd.aperture == 'satellite' else None,
                                  std_path=sd.data.spectrum, ncpu=ncpu if ncpu is not None else 1)
-        cal.run(**kwargs)
-        solutions[sd.id] = cal.solution
-        getLogger(__name__).info(f'{sd} made.')
+        try:
+            cal.run(**kwargs)
+            solutions[sd.id] = cal.solution
+            getLogger(__name__).info(f'{sd} made.')
+        except IOError as e:
+            solutions[sd.id] = None
+            getLogger(__name__).error(f'Unable to fetch solution for {sd}: {e}')
     return solutions
 
 
