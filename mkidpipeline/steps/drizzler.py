@@ -559,7 +559,7 @@ def debug_dither_image(dithers_data, drizzle_params, weight=True):
 
     drizzle_params.canvas_shape = 500, 500  # hand set to large number to ensure all frames are captured
     driz = Drizzler(dithers_data, drizzle_params)
-    driz.run(weight=weight)
+    driz.run(apply_weight=weight)
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 6))
     axes[0].imshow(driz.cps, cmap='viridis', origin='lower', norm=LogNorm())
