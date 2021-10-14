@@ -14,6 +14,7 @@ import mkidpipeline.config
 from mkidpipeline.config import H5Subset
 from mkidcore.pixelflags import FlagSet
 import warnings
+
 _loaded_solutions = {}
 
 """
@@ -52,6 +53,7 @@ the incident pixel of the photon and its wavelength. This weight is multiplied i
 photontable. 
 """
 
+
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!flatcal_cfg'
     REQUIRED_KEYS = (('rate_cutoff', 0, 'Count Rate Cutoff in inverse seconds (number)'),
@@ -82,12 +84,10 @@ TEST_CFGS = (StepConfig(chunk_time=30, nchunks=10, trim_chunks=0, use_wavecal=Tr
              StepConfig(chunk_time=10, nchunks=5, trim_chunks=1, use_wavecal=True),
              StepConfig(chunk_time=10, nchunks=5, trim_chunks=3, use_wavecal=True))
 
-
 FLAGS = FlagSet.define(
     ('bad', 0, 'either all or less than the power of the fit polynomial number of flat weights are invalid '),
     ('not_all_weights_valid', 1, 'at least one of the wavelength weights is invalid')
 )
-
 
 PROBLEM_FLAGS = ('pixcal.dead', 'beammap.noDacTone', 'wavecal.bad', 'wavecal.failed_convergence',
                  'wavecal.no_histograms', 'wavecal.not_attempted', 'flatcal.bad')
@@ -138,21 +138,18 @@ class FlatCalibrator:
             sol.debug_plot(plot_fraction=0.1, save_plot=True)
         getLogger(__name__).info('Done')
 
-
     def make_spectral_cube(self):
         pass
-
 
     def load_flat_spectra(self):
         self.make_spectral_cube()
         dark_frames = self.get_dark_frames()
         for icube, cube in enumerate(self.spectral_cube):
             # mask out any pixels with PROBLEM_FLAGS
-            self.spectral_cube[icube] = np.ma.filled(np.ma.masked_array(cube-dark_frames, mask=self.mask),
+            self.spectral_cube[icube] = np.ma.filled(np.ma.masked_array(cube - dark_frames, mask=self.mask),
                                                      fill_value=np.nan)
         self.spectral_cube = np.array(self.spectral_cube)
         # count cubes is the counts over the integration time
-
 
     def calculate_weights(self):
         """
@@ -167,8 +164,8 @@ class FlatCalibrator:
         weight_mask = np.zeros_like(self.spectral_cube, dtype=bool)
         self.flat_flags = np.zeros(self.spectral_cube.shape[1:3], dtype=int)
         self.spectral_cube[self.spectral_cube == 0] = np.nan
-        wvl_averages_array = np.nanmean(self.spectral_cube, axis=(1,2))
-        #TODO get rid of for loop if possible
+        wvl_averages_array = np.nanmean(self.spectral_cube, axis=(1, 2))
+        # TODO get rid of for loop if possible
         for iCube, cube in enumerate(self.spectral_cube):
             wvl_weights = wvl_averages_array[iCube] / cube
             weight_mask[iCube] = (~np.isfinite(wvl_weights)) | (wvl_weights <= 0)
@@ -222,8 +219,8 @@ class FlatCalibrator:
                 self.flat_flags[x, y] |= FLAGS.flags['bad'].bit
             else:
                 self.coeff_array[x, y] = np.polyfit(self.wavelengths[fittable], self.flat_weights[x, y][fittable],
-                                                self.cfg.flatcal.power,
-                                                w=1 / self.flat_weight_err[x, y][fittable] ** 2)
+                                                    self.cfg.flatcal.power,
+                                                    w=1 / self.flat_weight_err[x, y][fittable] ** 2)
 
         getLogger(__name__).info('Calculated Flat coefficients')
 
@@ -245,16 +242,18 @@ class FlatCalibrator:
                                                    wave_stop=self.wvl_stop)['SCIENCE']
                     frames[:, :, i] = im.data[:, :, 0]
                 elif not enforce_wavecal:
-                    getLogger(__name__).info(f'Not using a wavelength calibrated dark for {self.wavelengths[i]} nm flat '
-                                             f'- if you would like the wavelength range of the dark to match that of '
-                                             f'the wavelength flat please apply a wavecal to your dark frame.')
+                    getLogger(__name__).info(
+                        f'Not using a wavelength calibrated dark for {self.wavelengths[i]} nm flat '
+                        f'- if you would like the wavelength range of the dark to match that of '
+                        f'the wavelength flat please apply a wavecal to your dark frame.')
                     im = dark.photontable.get_fits(start=dark.start, duration=dark.duration, cube_type='time',
                                                    rate=True, bin_width=dark.duration)['SCIENCE']
                     frames[:, :, i] = im.data[:, :, 0]
                 else:
                     assert enforce_wavecal is True and not wcf
-                    getLogger(__name__).info(f'No wavecal solution is applied for the {self.wavelengths[i]} nm dark and '
-                                             f'enforce_wavecal is True - dark will not be applied')
+                    getLogger(__name__).info(
+                        f'No wavecal solution is applied for the {self.wavelengths[i]} nm dark and '
+                        f'enforce_wavecal is True - dark will not be applied')
                     pass
             else:
                 pass
@@ -296,7 +295,7 @@ class WhiteCalibrator(FlatCalibrator):
 
         # define wavelengths to use
         wvl_edges = pt.nominal_wavelength_bins
-        self.wavelengths = wvl_edges[: -1] + np.diff(wvl_edges) / 2 # wavelength bin centers
+        self.wavelengths = wvl_edges[: -1] + np.diff(wvl_edges) / 2  # wavelength bin centers
 
         if not pt.query_header('pixcal'):
             getLogger(__name__).warning('H5 File not hot pixel masked, will skew flat weights')
@@ -306,7 +305,7 @@ class WhiteCalibrator(FlatCalibrator):
         for i, (wstart, wstop) in enumerate(zip(wvl_edges[:-1], wvl_edges[1:])):
             hdul = pt.get_fits(duration=self.h5s.duration, rate=True, bin_edges=time_edges, wave_start=wstart,
                                wave_stop=wstop, cube_type='time')
-            cps_cube_list[:,:,:,i] = hdul['SCIENCE'].data  # moveaxis for code compatibility
+            cps_cube_list[:, :, :, i] = hdul['SCIENCE'].data  # moveaxis for code compatibility
         getLogger(__name__).info(f'Loaded spectral cubes')
         self.spectral_cube = cps_cube_list  # n_times, x, y, n_wvls
         self.int_time = time_edges[1] - time_edges[0]
@@ -358,7 +357,7 @@ class LaserCalibrator(FlatCalibrator):
                 wvl_stop = wvl.value + delta_list[w_idx]
 
             hdul = pt.get_fits(duration=flat_duration[w_idx], rate=True, bin_width=self.cfg.flatcal.chunk_time,
-                                wave_start=wvl_start, wave_stop=wvl_stop, cube_type='time')
+                               wave_start=wvl_start, wave_stop=wvl_stop, cube_type='time')
 
             getLogger(__name__).info(f'Loaded {wvl.value:.1f} nm spectral cube')
             cps_cube_list[:, :, :, w_idx] = hdul['SCIENCE'].data
@@ -391,7 +390,6 @@ class FlatSolution(object):
             self.name = solution_name  # use the default or specified name for saving
             self.npz = None  # no npz file so all the properties should be set
 
-
     def save(self, save_name=None):
         """Save the solution to a file. The directory is given by the configuration."""
         if save_name is None:
@@ -407,7 +405,6 @@ class FlatSolution(object):
                  beammap=self.beammap)
         self._file_path = save_path  # new file_path for the solution
 
-
     def load(self, file_path, overload=True, file_mode='c'):
         """
         Load a solution from a file, optionally overloading previously defined attributes.
@@ -416,7 +413,8 @@ class FlatSolution(object):
 
         """
         getLogger(__name__).debug("Loading solution from {}".format(file_path))
-        keys = ('coeff_array', 'configuration', 'beammap', 'flat_weights', 'flat_flags', 'flat_weight_err', 'wavelengths')
+        keys = (
+        'coeff_array', 'configuration', 'beammap', 'flat_weights', 'flat_flags', 'flat_weight_err', 'wavelengths')
         npz_file = np.load(file_path, allow_pickle=True, encoding='bytes', mmap_mode=file_mode)
         for key in keys:
             if key not in list(npz_file.keys()):
@@ -436,7 +434,6 @@ class FlatSolution(object):
         self.name = os.path.splitext(os.path.basename(file_path))[0]  # new name for saving
         getLogger(__name__).info("Complete")
 
-
     def get(self, pixel=None, res_id=None):
         if not pixel and not res_id:
             raise ValueError('Need to specify either resID or pixel coordinates')
@@ -444,7 +441,6 @@ class FlatSolution(object):
             if res == res_id or pix == pixel:  # in case of non unique resIDs
                 coeffs = self.coeff_array[pix[0], pix[1]]
                 return np.poly1d(coeffs)
-
 
     def plot_summary(self, save_plot=True):
         """ Writes a summary plot of the Flat Fielding """
@@ -460,7 +456,7 @@ class FlatSolution(object):
 
         gs = gridspec.GridSpec(2, 4)
         axes = np.array([figure.add_subplot(gs[:, 0:2]), figure.add_subplot(gs[0, 2:]),
-                              figure.add_subplot(gs[1, 2:])])
+                         figure.add_subplot(gs[1, 2:])])
 
         axes[0].set_title('Mean Flat Weight', fontsize=8)
         max = np.nanmean(mean_weight_array) + 1 * np.nanstd(mean_weight_array)
@@ -497,9 +493,9 @@ class FlatSolution(object):
 
     def debug_plot(self, plot_fraction=0.1, save_plot=False):
         for (x, y), resID in np.ndenumerate(self.beammap):
-            if (x*y) % (1/plot_fraction) == 0:
-                plt.scatter(self.wavelengths, self.flat_weights[x,y])
-                soln = self.get(pixel=(x,y), res_id=resID)
+            if (x * y) % (1 / plot_fraction) == 0:
+                plt.scatter(self.wavelengths, self.flat_weights[x, y])
+                soln = self.get(pixel=(x, y), res_id=resID)
                 plt.plot(self.wavelengths, soln(self.wavelengths))
             else:
                 pass
@@ -533,7 +529,6 @@ def load_solution(sc, singleton_ok=True):
 
 
 def fetch(solution_descriptors, config=None, ncpu=None, remake=False):
-
     fcfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(flatcal=StepConfig()), cfg=config, ncpu=ncpu,
                                                      copy=True)
 
@@ -583,7 +578,6 @@ def apply(o: definitions.MKIDObservation, config=None):
     Weights are multiplied in and replaced; NOT reversible
     """
 
-
     if o.flatcal is None:
         getLogger(__name__).info(f"No flatcal specified for {o}, nothing to do")
         return
@@ -611,7 +605,7 @@ def apply(o: definitions.MKIDObservation, config=None):
 
     n_todo = len(list(of.resonators(exclude=PROBLEM_FLAGS)))
     getLogger(__name__).info(f'Applying flat weights to {n_todo} unflagged pixels ('
-                             f'{100*(n_todo/calsoln.beammap.size):.2f} % of pixels).')
+                             f'{100 * (n_todo / calsoln.beammap.size):.2f} % of pixels).')
     with of.needed_ram():
         counter = 0
         for pixel, resid in of.resonators(exclude=PROBLEM_FLAGS, pixel=True):
