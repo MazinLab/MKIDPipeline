@@ -17,9 +17,9 @@ import astropy.units as u
 StepConfig = None
 
 
-def generate(outputs: definitions.MKIDOutputCollection):
+def generate(outputs: definitions.MKIDOutputCollection, remake=False):
     for o in outputs:
-        if os.path.exists(o.filename):
+        if os.path.exists(o.filename) and not remake:
             getLogger(__name__).info(f'Output {o.filename} for {o.name} already exists. Skipping')
             continue
         getLogger(__name__).info('Generating {}'.format(o.name))
@@ -33,21 +33,28 @@ def generate(outputs: definitions.MKIDOutputCollection):
 
             for i, obs in enumerate(o.data.obs):
                 file = filename.format(i+1)
-                if os.path.exists(file):
+                if os.path.exists(file) and not remake:
                     getLogger(__name__).info(f'Output {file} for {o.name} already exists. Skipping')
                     continue
                 kwargs = o.output_settings_dict
                 kwargs['wave_start'] = kwargs['wave_start'].to(u.nm).value
                 kwargs['wave_stop'] = kwargs['wave_stop'].to(u.nm).value
-                for k in ('wvl_bin_width', 'time_bin_width'):
+                if kwargs['bin_type'] is not None:
+                    if kwargs['bin_type'] == 'wave':
+                        k, unit = 'wvl_bin_width', u.nm
+                    else:
+                        k = 'time_bin_width'
+                        unit = u.s
                     try:
-                        val = kwargs[k].to(u.nm).value
+                        bw_val = kwargs[k].to(unit).value
                     except AttributeError:
-                        val = kwargs[k]
-                    if val > 0:
-                        kwargs['bin_width'] = val
-                    kwargs.pop(k)
-                obs.photontable.get_fits(**kwargs).writeto(file)
+                        bw_val = kwargs.get(k, 0)
+
+                    if bw_val > 0:
+                        kwargs['bin_width'] = bw_val
+                kwargs.pop('wvl_bin_width')
+                kwargs.pop('time_bin_width')
+                obs.photontable.get_fits(**kwargs).writeto(file, overwrite=True)
                 getLogger(__name__).info(f'Output {file} for {o.name} generated')
 
         if o.wants_movie:
