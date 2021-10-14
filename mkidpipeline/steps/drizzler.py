@@ -412,8 +412,8 @@ class Drizzler(Canvas):
             dithexp = np.zeros((nexp_time, nwvls) + self.canvas_shape[::-1], dtype=np.float32)
 
             for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):  # iterate through each of the wcs time spacing
-                if t > len(self.wcs_times) - 1:
-                    continue
+                if t >= len(self.wcs_times) - 1:
+                    break
                 # inwcs = wcs.WCS(header=inwcs)
                 inwcs.pixel_shape = self.shape
 
