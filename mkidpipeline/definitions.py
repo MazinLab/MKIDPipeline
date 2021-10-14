@@ -141,6 +141,10 @@ class DataBase:
         #  keys that are explicitly allowed are used in __init__ to support dual definition (e.g. stop/duration)
         #  we exclude th to prevent redundancy
         #  we want to include any user defined keys
+
+        #TODO consider adding support for outputing optional specifications
+        # add or f'_{k}' in dir(node) to the line below and then handle cases where e.g. stop and duration are now both
+        # in the keys list
         keys = [k for k in node._keys if k not in dir(cls)] + d.pop('extra_keys')
         store = {}
         for k in keys:
@@ -227,7 +231,11 @@ class MKIDTimerange(DataBase):
             else:  #TODO remove once updated
                 x = mkidcore.metadata._LEGACY_OBSLOG_MAP.get(k, '')
                 if x in mkidcore.metadata.MEC_KEY_INFO:
+                    getLogger(__name__).warning(f'{k} is a legacy key name and will be replaced by {x}. '
+                                                f'Update your data definition for {self.name}')
                     d[x] = self.header[k]
+                else:
+                    getLogger(__name__).warning(f'Header key {k} in definition of {self.name} is not valid. Ignoring')
         return d
 
     @property
@@ -280,6 +288,13 @@ class MKIDTimerange(DataBase):
         """Returns a dict of of KEY:mkidcore.metadata.MetadataSeries|value pairs, likely a subset of all keys"""
         obslog_files = mkidcore.utils.get_obslogs(mkpc.config.paths.data, start=self.start)
         data = mkidcore.metadata.load_observing_metadata(files=obslog_files, use_cache=True)
+
+        #TODO one way to override defaults with settings from the pipeline is to develop a "defaults" dict to pass
+        #as a new feature to observing_metadata_for_timerange which would supplant those defined in the csv file
+        # defaults = {'E_DEVANG':mkpc.config.instrument.device_orientation_deg,
+        #             E_PLTSCL':nominal_platescale_mas'
+        #             }
+
         metadata = mkidcore.metadata.observing_metadata_for_timerange(self.start, self.duration, data)
 
         for k, v in self._metadata.items():
@@ -1148,8 +1163,8 @@ class MKIDOutput(DataBase):
         Key('exclude_flags', None, 'A list of pixel flag names to exclude', None),
         Key('min_wave', float('-inf'), 'Wavelength start for wavelength sensitive outputs', str),
         Key('max_wave', float('inf'), 'Wavelength stop for wavelength sensitive outputs, ', str),
-        Key('start_offset', 0, 'start time (s) offset from start of data', float),
-        Key('duration', None, 'number of seconds of the data to use, None=all', float),
+        Key('start_offset', 0, 'start offset (s) into data (per frame if dithered)', float),
+        Key('duration', None, 'number of seconds od data to use (per frame if dithered), None=all', float),
         Key('filename', '', 'relative or fully qualified path, defaults to name+output type,'
                             'so set if making multiple outputs with different settings', str),
         Key('units', 'photons', 'photons|photons/s', str),
