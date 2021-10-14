@@ -215,7 +215,6 @@ class Photontable:
         self.file = None
         self.photonTable = None
         self.filename = file_name
-        self.header = None
         self.nominal_wavelength_bins = None
         self.beamImage = None
         self._flagArray = None

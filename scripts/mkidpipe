@@ -26,7 +26,8 @@ def parse():
     parser.add_argument('--verbose', action='store_true', help='Verbose')
     parser.add_argument('--run-step', dest='single_step', help='Run a single named step', type=str)
     parser.add_argument('--make-dir', dest='make_paths', help='Create all needed directories', action='store_true')
-    parser.add_argument('--info', dest='info', help='Report information about the configuration', action='store_true')
+    parser.add_argument('-i', '--info', dest='info', help='Report information about the configuration', type=str,
+                        default='database')
     parser.add_argument('--make-outputs', dest='makeout', help='Run the pipeline on the outputs', action='store_true')
     parser.add_argument('--logcfg', dest='logcfg', help='Run the pipeline on the outputs', type=str,
                         default=pkg.resource_filename('mkidpipeline', './config/logging.yaml'))

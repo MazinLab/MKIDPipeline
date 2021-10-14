@@ -637,5 +637,5 @@ def apply(o: definitions.MKIDObservation, config=None):
                              f'good pixels ')
     of.update_header('flatcal', calsoln.name)
     of.update_header('E_FLTCAL', o.flatcal.id)
-    of.update_header('FLATCAL.METHOD', o.flatcal.method)
+    of.update_header('flatcal.method', o.flatcal.method)
     getLogger(__name__).info('Flatcal applied in {:.2f}s'.format(time.time() - tic))
