@@ -214,7 +214,7 @@ def inspect_database(detailed=False):
     """Warning detailed=True will load each thing in the database for detailed inspection"""
     from glob import glob
 
-    for f in glob(config.config.paths.database + '*'):
+    for f in glob(config.paths.database + '*'):
         print(f'{f}')
 
 
