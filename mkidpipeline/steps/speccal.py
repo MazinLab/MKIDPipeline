@@ -311,7 +311,7 @@ class SpectralCalibrator:
 
         # rebin cleaned spectrum to flat cal's wvlBinEdges
         rebin_std_data = rebin(self.conv[0], self.conv[1], self.wvl_bin_edges.to(u.Angstrom).value)
-        wvl_bin_centers = [(a.value + b.value) / 2 for a, b in zip(self.wvl_bin_edges, self.wvl_bin_edges[1::])]
+        wvl_bin_centers = [(a.value + b.value) / 2 for a, b in zip(self.wvl_bin_edges.to(u.Angstrom), self.wvl_bin_edges[1::].to(u.Angstrom))]
 
         if self.use_satellite_spots:
             for i, wvl in enumerate(wvl_bin_centers):
