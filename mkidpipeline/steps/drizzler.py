@@ -411,7 +411,7 @@ class Drizzler(Canvas):
             dithhyper = np.zeros((nexp_time, nwvls) + self.canvas_shape[::-1], dtype=np.float32)
             dithexp = np.zeros((nexp_time, nwvls) + self.canvas_shape[::-1], dtype=np.float32)
 
-            for t, inwcs in enumerate([dither_photons['obs_wcs_seq']]):  # iterate through each of the wcs time spacing
+            for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):  # iterate through each of the wcs time spacing
                 if t >= len(self.wcs_times) - 1:
                     break
                 # inwcs = wcs.WCS(header=inwcs)
@@ -572,7 +572,7 @@ def debug_dither_image(dithers_data, drizzle_params, weight=True):
     for pos, dither_photons in enumerate(dithers_data):
         # make a new driz object so the color of each frame is uniform
         driz = stdrizzle.Drizzle(outwcs=canvas_wcs, wt_scl='')
-        for t, inwcs in enumerate([dither_photons['obs_wcs_seq']]):
+        for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):
             # inwcs = wcs.WCS(header=inwcs)
             inwcs.pixel_shape = shape
             image = np.zeros(shape[::-1])  # create a simple image consisting of the array boarder and the diagonals
