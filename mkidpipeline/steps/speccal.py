@@ -648,7 +648,7 @@ def apply(fits_file, wvl_bins, solution='', overwrite=False):
     """
     ff = fits.open(fits_file)
     hdr = fits.getheader(fits_file, 0)
-    if hdr['E_SPECAL'] is not None:
+    if hdr['E_SPECAL'] != 'none':
         getLogger(__name__).info(f'{fits_file} already flux calibrated, skipping calibration.')
         flux_calibrated_cube = ff[1].data
         return flux_calibrated_cube
