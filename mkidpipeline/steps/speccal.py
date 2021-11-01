@@ -684,7 +684,9 @@ def apply(fits_file, wvl_bins, solution='', overwrite=False):
         resampled = rebin(soln_wvl_centers * 10, curve(soln_wvl_centers * 10), wvl_bins)
         resampled_wvls = resampled[:, 0]
         resampled_curve = resampled[:, 1]
-        assert np.all(resampled_wvls == wvl_bin_centers)
+        if not np.all(np.abs(resampled_wvls-wvl_bin_centers) < 1e-2*np.mean(np.diff(wvl_bins))):
+            getLogger(__name__).warning('Resampled speccal solution bins do not match wavelength bins of the given fits '
+                                        'file within tolerence!')
         for wvl, cube in enumerate(s_cube):
             flux_calibrated_cube[wvl] = s_cube[wvl] * resampled_curve[wvl]
     else:
