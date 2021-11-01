@@ -834,8 +834,8 @@ class Photontable:
         return {'spectrum': spectrum, 'wavelengths': bin_edges, 'nphotons': len(photons)}
 
     def get_fits(self, start=None, duration=None, weight=False, wave_start=None,
-                 wave_stop=None, rate=True, cube_type=None, bin_width=None, bin_edges=None, bin_type='energy',
-                 exclude_flags=pixelflags.PROBLEM_FLAGS):
+                 wave_stop=None, rate=True, cube_type=None, bin_width=None, bin_edges=None, derotate=True,
+                 bin_type='energy', exclude_flags=pixelflags.PROBLEM_FLAGS):
         """
         Return a fits hdul of the data.
 
@@ -969,7 +969,7 @@ class Photontable:
         bins=None
         if cube_type is not None:
             bins = bin_edges / 1e6 if cube_type == 'time' else bin_edges
-        wcs = self.get_wcs(cube_type=cube_type, bins=bins, single_pa_time=time_nfo['start'])
+        wcs = self.get_wcs(cube_type=cube_type, bins=bins, single_pa_time=time_nfo['start'], derotate=derotate)
         if wcs:
             header.update(wcs.to_header())
         hdr = header.copy()
