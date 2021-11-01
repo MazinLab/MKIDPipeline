@@ -653,7 +653,11 @@ def apply(fits_file, wvl_bins, solution='', overwrite=False):
         flux_calibrated_cube = ff[1].data
         return flux_calibrated_cube
     s_cube = ff[1].data
-    if s_cube.shape[0] != (len(wvl_bins) - 1):
+    if len(s_cube.shape) == 2:
+        getLogger(__name__).warning(f'Cube only has spatial dimensions. Make sure that you have intended to run a '
+                                    f'spectral calibration for photometry in 1 spectral band only')
+        s_cube = np.array([s_cube])
+    elif s_cube.shape[0] != (len(wvl_bins) - 1):
         getLogger(__name__).warning(f'Mismatch between shape of spectral cube wavelength axis '
                                     f'({s_cube.shape[0]}) and number of specified wavelength bins '
                                     f'({len(wvl_bins) - 1})')
