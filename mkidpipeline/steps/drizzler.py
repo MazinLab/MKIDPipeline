@@ -67,8 +67,10 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('pixfrac', 0.5, 'The drizzle algorithm pixel fraction'),
                      ('wcs_timestep', None, 'Seconds between different WCS (eg orientations). If None, the the '
                                             'non-blurring minimum (1 pixel at furthest dither center) will be used'),
-                     ('derotate', False, 'TODO'),
-                     ('align_start_pa', False, 'TODO'),
+                     ('derotate', False, 'Subtract the PA from individual frames for a derotated output. '
+                                         'Overrides align_start_pa.'),
+                     ('align_start_pa', False, 'Align frames to the PA for the UTC of the of the first exposure in the'
+                                               ' sequence.'),
                      ('whitelight', False, 'TODO'),
                      ('save_steps', False, 'Save intermediate fits files where possible (only some modes)'),
                      ('usecache', False, 'Cache photontable for subsequent runs'),
