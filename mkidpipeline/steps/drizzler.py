@@ -686,6 +686,14 @@ def align_hdu_conex(hdus, mode):
 
 
 def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, md, single_pa_time=None, exclude_flags=()):
+    """
+    Uses photontable.query to retrieve all photons in startw-stopw after startt for duration intt.
+
+    startt is assumed to be in relative seconds.
+
+    Culls photons affected by exclude_flags.
+
+    Determines WCS solump_workertions for the interval at wcs_timestep cadence calling with derotate and single_pa_time"""
     getLogger(__name__).debug(f'Fetching data from {file}')
     pt = Photontable(file)
     photons = pt.query(startw=startw, stopw=stopw, start=startt, intt=intt)
@@ -716,6 +724,10 @@ def load_data(dither, wvl_min, wvl_max, startt, duration, wcs_timestep, derotate
     """
     Load the photons either by querying the photontables in parrallel or loading from pkl if it exists. The wcs
     solutions are added to this photon data dictionary but will likely be integrated into photontable.py directly
+
+    startt must be relative to the start of the file in seconds
+
+    derotate takes precedence over align_start_pa
     """
     begin = time.time()
     filenames = [o.h5 for o in dither.obs]
@@ -723,8 +735,8 @@ def load_data(dither, wvl_min, wvl_max, startt, duration, wcs_timestep, derotate
     if not filenames:
         getLogger(__name__).info('No photontables found')
 
-    offsets = [o.start - int(o.start) for o in dither.obs]
-    single_pa_time = Photontable(filenames[0]).start_time if not derotate and align_start_pa else None
+    offsets = [o.start - int(o.start) for o in dither.obs]  # How many seconds into the h5 does valid data start
+    single_pa_time = Photontable(filenames[0]).start_time if align_start_pa and not derotate else None
 
     if ncpu < 2:
         dithers_data = []
@@ -735,9 +747,9 @@ def load_data(dither, wvl_min, wvl_max, startt, duration, wcs_timestep, derotate
     else:
         #TODO result of mp_worker too big, causes issues with multiprocessing when pickling
         p = mp.Pool(ncpu)
-        processes = [p.apply_async(mp_worker, (file, wvl_min, wvl_max, startt + offsett, duration, derotate, wcs_timestep, md,
-                                               single_pa_time, exclude_flags)) for file, offsett, md in
-                     zip(filenames, offsets, meta)]
+        processes = [p.apply_async(mp_worker, (file, wvl_min, wvl_max, startt + offsett, duration, derotate,
+                                               wcs_timestep, md, single_pa_time, exclude_flags))
+                     for file, offsett, md in zip(filenames, offsets, meta)]
         dithers_data = [res.get() for res in processes]
 
     dithers_data.sort(key=lambda k: filenames.index(k['file']))
@@ -797,8 +809,8 @@ def form(dither, mode='drizzler', derotate=True, wave_start=None, wave_stop=None
         Lower bound on the photons used in the drizzle. See photontable.query()
     wave_stop : float or None
         Upper bound on the photons used in the drizzle. See photontable.query()
-    start : float or None
-        Starttime for photons used in each dither. See photontable.query()
+    start : float
+        Start offset in seconds for photons used in each dither.
     duration : float or None
         start + int = upper bound on the photons used in each dither. See photontable.query()
     pixfrac : float (0<= pixfrac <=1)
