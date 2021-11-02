@@ -993,7 +993,7 @@ class Photontable:
             try:
                 data*=torate
             except:
-                data*=torate[:, None, None]  #TODO this probably diesn't work for 4D
+                data*=torate[:, None, None]  #TODO this probably doesn't work for 4D
 
         hdul = fits.HDUList([fits.PrimaryHDU(header=header),
                              fits.ImageHDU(data=sci_data, header=hdr, name='SCIENCE'),
