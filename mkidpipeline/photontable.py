@@ -691,7 +691,7 @@ class Photontable:
                 bins=None):
         """
         sample_times or wcs_timestep required, sample_times takes precedence. single_pa_time is a pa time to override
-        all the timesteps (a single wcs will be returned)
+        all the timesteps (a single wcs will be returned). sample_times is in unixtime.
 
         bins are the cube bins and is required if cube_type is not None
 
@@ -711,7 +711,7 @@ class Photontable:
         bins: array
             must be passed with the evenly spaced bins of the cube if cube_type is wave or time
         single_pa_time : float
-            Time at which to orient all non-derotated frames
+            Time at which to orient all non-derotated frames, overrides derotate
 
         See instruments.compute_wcs_ref_pixel() for information on wcscal parameters
 
@@ -722,12 +722,13 @@ class Photontable:
         """
 
         if single_pa_time is not None:
-            getLogger(__name__).info(f"Derotate off. Using PA at time: {single_pa_time}")
+            getLogger(__name__).info(f"Single PA UTC ({single_pa_time}) specified. Forcing derotate to False")
             derotate = False
             sample_times = np.array([single_pa_time])
-        else:
-            if sample_times is None:
-                sample_times = np.arange(self.start_time, self.stop_time, wcs_timestep)
+        elif sample_times is None:
+            sample_times = np.arange(self.start_time, self.stop_time, wcs_timestep)
+
+        start_time = sample_times[0]
 
         ref_pixels = []
         try:
@@ -749,9 +750,9 @@ class Photontable:
                         'CDELT3': bins[1] - bins[0], 'CRPIX3': 1, 'CRVAL3': bins[0], 'NAXIS3': bins.size}
 
         # we want to inherit defaults for ref values
-        header = mkidcore.metadata.build_header(self.metadata(self.start_time), unknown_keys='warn')
+        header = mkidcore.metadata.build_header(self.metadata(start_time), unknown_keys='warn')
         wcs_solns = mkidcore.metadata.build_wcs(header, astropy.time.Time(val=sample_times, format='unix'), ref_pixels,
-                                                self.beamImage.shape, derotate=derotate, cubeaxis=cubeaxis)
+                                                self.beamImage.shape, subtract_parallactic=derotate, cubeaxis=cubeaxis)
         if single_pa_time is not None:
             wcs_solns = wcs_solns[0]
 
