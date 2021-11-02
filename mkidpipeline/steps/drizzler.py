@@ -703,13 +703,8 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, md, sin
                              f"from {num_unfiltered} total from bad pix")
     xy = pt.xy(photons)
 
-    # ob.get_wcs returns all wcs solutions (including those after intt), so just pass then remove post facto()
-    wcs = pt.get_wcs(derotate=derotate, wcs_timestep=wcs_timestep, single_pa_time=single_pa_time)
-    try:
-        nwcs = int(np.ceil(intt / wcs_timestep))
-        wcs = wcs[:nwcs]
-    except IndexError:
-        pass
+    wcs_times = pt.start_time + np.arange(startt, startt+intt, wcs_timestep)  #This is in unixtime
+    wcs = pt.get_wcs(derotate=derotate, sample_times=wcs_times, single_pa_time=single_pa_time)
 
     del pt
     return {'file': file, 'timestamps': photons["time"], 'wavelengths': photons["wavelength"],
