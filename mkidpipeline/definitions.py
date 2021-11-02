@@ -285,12 +285,16 @@ class MKIDTimerange(DataBase):
 
     @property
     def metadata(self):
-        """Returns a dict of of KEY:mkidcore.metadata.MetadataSeries|value pairs, likely a subset of all keys"""
+        """
+        Returns a dict of of KEY:mkidcore.metadata.MetadataSeries|value pairs, likely a subset of all keys
+
+        Does not return default key values, that would be the responsibility of e.g. get_metadata for a photontable
+        """
         obslog_files = mkidcore.utils.get_obslogs(mkpc.config.paths.data, start=self.start)
         data = mkidcore.metadata.load_observing_metadata(files=obslog_files, use_cache=True)
 
         #TODO one way to override defaults with settings from the pipeline is to develop a "defaults" dict to pass
-        #as a new feature to observing_metadata_for_timerange which would supplant those defined in the csv file
+        # as a new feature to observing_metadata_for_timerange which would supplant those defined in the csv file
         # defaults = {'E_DEVANG':mkpc.config.instrument.device_orientation_deg,
         #             E_PLTSCL':nominal_platescale_mas'
         #             }
