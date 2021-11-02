@@ -369,7 +369,7 @@ def fetch(o, startt, stopt, config=None):
     method = cfg.pixcal.method
     if cfg.pixcal.step > stopt-startt:
         getLogger(__name__).info(f'Step time longer than data time by {(float(step)-(stopt-startt))*1000:.2f} ms, '
-                                    f'using full exposure.')
+                                 f'using full exposure.')
 
     # This is how method keywords are fetched is propagated
     exclude = [k[0] for k in StepConfig.REQUIRED_KEYS]
