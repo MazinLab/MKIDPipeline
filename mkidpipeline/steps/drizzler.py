@@ -243,7 +243,8 @@ class Canvas:
         self.header = mkidcore.metadata.build_header(meta, unknown_keys='warn')
         # TODO massage relevant params (i.e. UNIX timestamps should not be average)
 
-    def write(self, filename, overwrite=True, compress=False, dashboard_orient=False):
+    def write(self, filename, overwrite=True, compress=False, dashboard_orient=False, cube_type=None,
+              time_bin_edges=None, wvl_bin_edges=None):
         if self.stack and dashboard_orient:
             getLogger(__name__).info('Transposing image stack to match dashboard orientation')
             getLogger(__name__).warning('Has not been verified')
@@ -253,10 +254,32 @@ class Canvas:
         science_header = self.wcs.to_header()
         science_header['WCSTIME'] = (self.drizzle_params.wcs_timestep, '')
         science_header['PIXFRAC'] = (self.drizzle_params.pixfrac, '')
+
+        if cube_type is None:
+            bin_hdu = []
+        elif cube_type == 'time':
+            tmp = time_bin_edges
+            bin_hdu = [fits.TableHDU.from_columns(np.recarray(shape=time_bin_edges.shape, buf=tmp,
+                                                  dtype=np.dtype([('edges', time_bin_edges.dtype)])), name='CUBE_EDGES')]
+            bin_hdu[0].header.append(fits.Card('UNIT', 's', comment='Bin unit'))
+        elif cube_type == 'wave':
+            tmp = wvl_bin_edges
+            bin_hdu = [fits.TableHDU.from_columns(np.recarray(shape=wvl_bin_edges.shape, buf=tmp,
+                                                  dtype=np.dtype([('edges', wvl_bin_edges.dtype)])), name='CUBE_EDGES')]
+            bin_hdu[0].header.append(fits.Card('UNIT', 'nm', comment='Bin unit'))
+        elif cube_type == 'both':
+            wvl_hdu = [fits.TableHDU.from_columns(np.recarray(shape=wvl_bin_edges.shape, buf=wvl_bin_edges,
+                                                  dtype=np.dtype([('edges', wvl_bin_edges.dtype)])), name='CUBE_EDGES')]
+            wvl_hdu[0].header.append(fits.Card('UNIT', 'nm', comment='Bin unit'))
+            time_hdu = [fits.TableHDU.from_columns(np.recarray(shape=time_bin_edges.shape, buf=time_bin_edges,
+                                                              dtype=np.dtype([('edges', time_bin_edges.dtype)])),
+                                                  name='CUBE_EDGES')]
+            time_hdu[0].header.append(fits.Card('UNIT', 's', comment='Bin unit'))
+            bin_hdu = time_hdu + wvl_hdu
+
         hdul = fits.HDUList([fits.PrimaryHDU(header=self.header),
                              fits.ImageHDU(name='cps', data=self.cps, header=science_header),
-                             fits.ImageHDU(name='variance', data=self.counts, header=science_header)])
-
+                             fits.ImageHDU(name='variance', data=self.counts, header=science_header)] + bin_hdu)
         if compress:
             filename = filename + '.gz'
 
@@ -931,7 +954,24 @@ def form(dither, mode='drizzler', derotate=True, wave_start=None, wave_stop=None
         getLogger(__name__).debug('Running Drizzler')
         driz = Drizzler(dithers_data, drizzle_params, wvl_bin_width=wvl_bin_width, time_bin_width=time_bin_width,
                         wvl_min=wave_start, wvl_max=wave_stop)
-
+    if time_bin_width is not 0.0 and wvl_bin_width is not 0.0*u.nm:
+        cube_type = 'both'
+        time_bin_edges = np.append(np.arange(0, duration, time_bin_width), duration)
+        wvl_bin_edges = np.append(np.arange(wave_start.to(u.nm).value, wave_stop.to(u.nm).value,
+                                        wvl_bin_width.to(u.nm).value), wave_stop.to(u.nm).value)
+    elif time_bin_width is not 0.0:
+        cube_type = 'time'
+        time_bin_edges = np.append(np.arange(0, duration, time_bin_width), duration)
+        wvl_bin_edges = None
+    elif wvl_bin_width is not 0.0*u.nm:
+        cube_type = 'wave'
+        wvl_bin_edges = np.append(np.arange(wave_start.to(u.nm).value, wave_stop.to(u.nm).value,
+                                        wvl_bin_width.to(u.nm).value), wave_stop.to(u.nm).value)
+        time_bin_edges = None
+    else:
+        cube_type = None
+        wvl_bin_edges = None
+        time_bin_edges = None
     getLogger(__name__).debug('Drizzling...')
     driz.run(apply_weight=weight)
     if mode == 'list':
@@ -939,6 +979,7 @@ def form(dither, mode='drizzler', derotate=True, wave_start=None, wave_stop=None
         driz.write_list(file = output_file)
     elif output_file and mode != 'list':
         getLogger(__name__).debug('Writing fits...')
-        driz.write(output_file)
+        print('CUBE TYPE IS ' + str(cube_type))
+        driz.write(output_file, cube_type=cube_type, time_bin_edges=time_bin_edges, wvl_bin_edges=wvl_bin_edges)
     getLogger(__name__).info('Finished')
     return driz
