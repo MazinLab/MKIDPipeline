@@ -637,6 +637,7 @@ def fetch(solution_descriptors, config=None, ncpu=None, remake=False, **kwargs):
 
 
 def apply(fits_file, wvl_bins, solution='', overwrite=False):
+    # TODO get wvl bins from fits header
     """
     applies a sepccal solution to a spectral cube in a fits file format.
     :param fits_file: file to be calibrated
