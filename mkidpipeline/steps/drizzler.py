@@ -9,7 +9,6 @@ Classes
     DrizzleParams   : Calculates and stores the relevant info for Drizzler
     Canvas          : Called by the "Drizzler" classes. Generates the canvas that is drizzled onto
     Drizzler        : Generates a spatially dithered 4-cube (xytw)
-    ListDrizzler    : Generates photonlist with RA/Dec coordinates assigned
     DrizzledData    : Saves the drizzled data as FITS
 
 Functions
@@ -127,7 +126,7 @@ class DrizzleParams:
 class Canvas:
     def __init__(self, dithers_data, drizzle_params, header=None, canvas_shape=(None, None), force_square_grid=True):
         """
-        Class common to Drizzler and ListDrizzler. It generates the canvas that is drizzled onto
+        generates the canvas that is drizzled onto
 
         TODO determine appropriate value from area coverage of dataset and oversampling, even longerterm there
          the oversampling should be selected to optimize total phase coverage to extract the most resolution at a
@@ -287,84 +286,6 @@ class Canvas:
 
         hdul.writeto(filename, overwrite=overwrite)
         getLogger(__name__).info('FITS file {} saved'.format(filename))
-
-
-class ListDrizzler(Canvas):
-    """ Assign photons an RA and Dec. """
-
-    def __init__(self, dithers_data, drizzle_params):
-        super().__init__(dithers_data, drizzle_params=drizzle_params, canvas_shape=drizzle_params.canvas_shape)
-
-        self.driz = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=drizzle_params.pixfrac, wt_scl='')
-        self.wcs_timestep = drizzle_params.wcs_timestep
-
-        # if inttime is say 100 and wcs_timestep is say 60 then this yields [0,60,100]
-        # meaning the positions don't have constant integration time
-        self.wcs_times = np.append(np.arange(0, drizzle_params.inttime, self.wcs_timestep), drizzle_params.inttime)
-        self.stackedim = np.zeros((drizzle_params.n_dithers * (len(self.wcs_times) - 1),) + self.shape[::-1])
-
-    def run(self, weight=True):
-        tic = time.clock()
-        for pos, dither_photons in enumerate(self.dithers_data):
-            getLogger(__name__).debug('Assigning RA/Decs for dither %s', pos)
-            for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):
-                # inwcs = wcs.WCS(header=inwcs)
-                inwcs.pixel_shape = self.shape
-
-                # the sky grid ref and dither ref should match (crpix varies between dithers)
-                if not np.all(np.round(inwcs.wcs.crval, decimals=4) == np.round(self.wcs.wcs.crval, decimals=4)):
-                    err = 'sky grid ref and dither ref do not match (crpix varies between dithers)!'
-                    getLogger(__name__).critical(err)
-                    raise RuntimeError(err)
-
-                X, Y = np.mgrid[:self.shape[0], :self.shape[1]]
-                sky_grid = np.dstack(inwcs.wcs_pix2world(X, Y, 0))
-
-                dither_photons['RA'], dither_photons['Dec'] = sky_grid[dither_photons['photon_pixels']].T
-
-        getLogger(__name__).debug(f'Assigning of RA/Decs completed in {time.clock() - tic:1f} s')
-
-    def write_list(self, file=None, chunkshape=None, shuffle=True, bitshuffle=False):
-        """
-        Writes out a photontable with two extra columns RA and Dec
-
-        Adapted from https://github.com/PyTables/PyTables/blob/master/examples/add-column.py.
-        """
-
-        for pos, dither_photons in enumerate(self.dithers_data):
-            getLogger(__name__).debug('Creating new photontable for dither %s', pos)
-
-            newfile = dither_photons['file'].split('.')[0] + '_RADec.h5'
-            shutil.copyfile(dither_photons['file'], newfile)
-            ob = Photontable(newfile, mode='write')
-
-            newdescr = ob.file.root.Photons.PhotonTable.description._v_colobjects.copy()
-            newdescr["RA"] = tables.Float32Col()
-            newdescr["Dec"] = tables.Float32Col()
-
-            filter = tables.Filters(complevel=1, complib='blosc:lz4', shuffle=shuffle, bitshuffle=bitshuffle,
-                                    fletcher32=False)
-            newtable = ob.file.create_table(ob.file.root.Photons, name='PhotonTable2', description=newdescr,
-                                            title="Photon Datatable", expectedrows=len(dither_photons['timestamps']),
-                                            filters=filter, chunkshape=chunkshape)
-
-            photons = np.zeros(len(dither_photons["timestamps"]),
-                               dtype=np.dtype([('resID', np.uint32), ('time', np.uint32), ('wavelength', np.float32),
-                                               ('weight', np.float32), ('ra', np.float32), ('dec', np.float32)]))
-
-            photons['resID'] = ob.beamImage[dither_photons['photon_pixels']]
-            photons['time'] = dither_photons["timestamps"]
-            photons['wavelength'] = dither_photons["wavelengths"]
-            photons['weight'] = dither_photons["weight"]  # todo allow different weights to be stored
-            photons['RA'] = dither_photons["RA"]
-            photons['Dec'] = dither_photons["Dec"]
-
-            newtable.append(photons)
-
-            newtable.move('/Photons', 'PhotonTable', overwrite=True)  # Move table2 to table
-
-            ob.file.close()  # Finally, close the file
-
 
 class Drizzler(Canvas):
     """
@@ -947,13 +868,9 @@ def form(dither, mode='drizzler', derotate=True, wave_start=None, wave_stop=None
         debug_dither_image(dithers_data, drizzle_params)
 
     getLogger(__name__).debug('Initializing drizzler core')
-    if mode == 'list':
-        getLogger(__name__).debug('Running ListDrizzler')
-        driz = ListDrizzler(dithers_data, drizzle_params)
-    else:
-        getLogger(__name__).debug('Running Drizzler')
-        driz = Drizzler(dithers_data, drizzle_params, wvl_bin_width=wvl_bin_width, time_bin_width=time_bin_width,
-                        wvl_min=wave_start, wvl_max=wave_stop)
+    getLogger(__name__).debug('Running Drizzler')
+    driz = Drizzler(dithers_data, drizzle_params, wvl_bin_width=wvl_bin_width, time_bin_width=time_bin_width,
+                    wvl_min=wave_start, wvl_max=wave_stop)
     if time_bin_width is not 0.0 and wvl_bin_width is not 0.0*u.nm:
         cube_type = 'both'
         time_bin_edges = np.append(np.arange(0, duration, time_bin_width), duration)
