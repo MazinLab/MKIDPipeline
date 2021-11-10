@@ -1154,7 +1154,6 @@ class MKIDOutput(DataBase):
     image - uses photontable.get_fits to the a simple image of the data, applies to a single h5
     stack - uses drizzler.Drizzler
     drizzle- uses drizzler.Drizzler
-    list - drizzler.ListDrizzler to assign photons an RA and Dec
     movie - uses movie.make_movie to make an animation
 
     """
