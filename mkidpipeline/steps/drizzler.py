@@ -17,7 +17,6 @@ Functions
     mp_worker       : Genereate a reduced, reformated photonlist
     load_data       : Consolidate all dither positions
     form            : Takes in a MKIDDitherDescription object and drizzles the dithers onto a common sky grid
-    get_star_offset : Get the rotation_center offset parameter for a dither
 """
 import os
 import numpy as np
@@ -530,91 +529,6 @@ def debug_dither_image(dithers_data, drizzle_params, weight=True):
     clb.ax.set_title('Dither index')
 
     plt.show(block=True)
-
-
-def get_star_offset(dither, wvl_min, wvl_max, startt, intt, start_guess=(0, 0), zoom=2.):
-    """
-    Get the rotation_center offset parameter for a dither
-
-    :param dither:
-    :param wvl_min:
-    :param wvl_max:
-    :param startt:
-    :param intt:
-    :param start_guess:
-    :param zoom: after each loop the figure zooms on the centre of the image.
-        zoom==2 yields the middle quadrant on 1st iteration
-    :return:
-    """
-
-    rotation_center = start_guess
-
-    def onclick(event):
-        xlocs.append(event.xdata)
-        ylocs.append(event.ydata)
-        getLogger(__name__).info(f'pixex={(event.xdata, event.ydata)}. Running mean={(np.mean(xlocs), np.mean(ylocs))}')
-
-    iteration = 0
-    while True:
-
-        drizzle = mkidpipeline.steps.drizzler.form(dither=dither, wave_start=wvl_min,
-                                                   wave_stop=wvl_max, start=startt, duration=intt, pixfrac=1,
-                                                   derotate=False, usecache=True)
-
-        image = drizzle.data
-        fig, ax = plt.subplots()
-
-        print("Click on the four satellite speckles and the star")
-        cax = ax.imshow(image, origin='lower', norm=LogNorm())
-        lims = np.array(image.shape) / zoom ** iteration
-        ax.set_xlim((image.shape[0] // 2 - lims[0] // 2, image.shape[0] // 2 + lims[0] // 2 - 1))
-        ax.set_ylim((image.shape[1] // 2 - lims[1] // 2, image.shape[1] // 2 + lims[1] // 2 - 1))
-        cb = plt.colorbar(cax)
-        cb.ax.set_title('Counts')
-
-        xlocs, ylocs = [], []
-
-        fig.canvas.mpl_connect('button_press_event', onclick)
-        plt.show(block=True)
-
-        if not xlocs:  # if the user doesn't click on the figure don't change rotation_center's value
-            xlocs, ylocs = np.array(image.shape) // 2, np.array(image.shape) // 2
-        star_pix = np.array([np.mean(xlocs), np.mean(ylocs)]).astype(int)
-        rotation_center += (star_pix - np.array(image.shape) // 2)[::-1]  # * np.array([1,-1])
-        getLogger(__name__).info(f'rotation_center: {rotation_center}')
-
-        iteration += 1
-        user_input = input('Do you wish to continue looping [Y/n]? ').lower()
-        if user_input == 'n':
-            break
-
-    return rotation_center
-
-
-def align_hdu_conex(hdus, mode):
-    # TODO merge into drizzle and support wcs
-    """Make an image or cube from the data (Obs, list of obs, or dither) using sum, median, or average"""
-
-    shifts = []
-    angles = []
-    frames = []
-    for h in hdus:
-        shifts.append(CONEX2PIXEL(h.header['CONEXX'], h.header['CONEXY']).tolist())
-        angles.append(h.header['PARAAOFF'])
-        frames.append(h.data)
-    shifts = np.array(shifts)
-
-    # Combine frames, NB this assumes that frames are in surface brightness units
-
-    padx_high, pady_high = shifts.max(0).clip(0, np.inf)
-    padx_low, pady_low = np.abs(np.array(shifts).min(0).clip(-np.inf, 0))
-    stack = []
-    for data, angle, shift in zip(frames, angles, shifts):
-        padim = np.pad(data, ((padx_low, padx_high), (pady_low, pady_high)), 'constant', constant_values=0)
-        stack.append(ndimage.shift(ndimage.rotate(padim, angle, order=1, reshape=False), shift, order=1))
-
-    return getattr(np, mode)(stack, axis=0)
-
 
 def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, md, single_pa_time=None, exclude_flags=()):
     """
