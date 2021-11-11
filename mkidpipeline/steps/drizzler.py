@@ -690,36 +690,6 @@ def load_data(dither, wvl_min, wvl_max, startt, duration, wcs_timestep, derotate
     return dithers_data
 
 
-def _increment_id(self):
-    """
-    monkey patch for STScI drizzle class of drizzle package
-
-    Increment the id count and add a plane to the context image if needed
-
-    Drizzle tracks which input images contribute to the output image
-    by setting a bit in the corresponding pixel in the context image.
-    The uniqid indicates which bit. So it must be incremented each time
-    a new image is added. Each plane in the context image can hold 32 bits,
-    so after each 32 images, a new plane is added to the context.
-    """
-    getLogger(__name__).debug('Using _increment_id monkey patch')
-
-    # Compute what plane of the context image this input would correspond to:
-    planeid = int(self.uniqid / 32)
-
-    # Add a new plane to the context image if planeid overflows
-    if self.outcon.shape[0] == planeid:
-        plane = np.zeros_like(self.outcon[0])
-        self.outcon = np.append(self.outcon, [plane], axis=0)
-
-    # Increment the id
-    self.uniqid += 1
-
-
-# TODO I dont think this should be here
-stdrizzle.Drizzle.increment_id = _increment_id
-
-
 def form(dither, mode='drizzler', derotate=True, wave_start=None, wave_stop=None, start=0, duration=None, pixfrac=.5,
          wvl_bin_width=0.0*u.nm, time_bin_width=0.0, wcs_timestep=1., usecache=True, ncpu=None,
          exclude_flags=PROBLEM_FLAGS + EXCLUDE, whitelight=False, align_start_pa=False, debug_dither_plot=False,
