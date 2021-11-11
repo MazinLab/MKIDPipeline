@@ -18,8 +18,6 @@ Functions
     load_data       : Consolidate all dither positions
     form            : Takes in a MKIDDitherDescription object and drizzles the dithers onto a common sky grid
     get_star_offset : Get the rotation_center offset parameter for a dither
-
-Author: Rupert Dodkins,                                 Date: Jan 2020
 """
 import os
 import numpy as np
@@ -40,21 +38,15 @@ from astropy import wcs
 from astropy.coordinates import EarthLocation
 import astropy.units as u
 from astroplan import Observer
-
-import tables
-import shutil
 from drizzle import drizzle as stdrizzle
-
 import mkidcore.corelog
 import mkidcore.pixelflags
 import mkidcore.metadata
 from mkidcore.corelog import getLogger
 from mkidcore.instruments import CONEX2PIXEL
-
 from mkidpipeline.photontable import Photontable
 import mkidpipeline.config
 
-# currently no pixel flags make drizzler explode but there are plenty one wouldn't want by default in the output
 EXCLUDE = ('pixcal.dead', 'pixcal.hot', 'pixcal.cold', 'beammap.noDacTone', 'wavecal.bad', 'wavecal.failed_convergence',
            'wavecal.no_histograms', 'wavecal.not_attempted', 'flatcal.bad') # fill with undesired flags
 PROBLEM_FLAGS = tuple()  # fill with flags that will break drizzler
@@ -184,7 +176,6 @@ class Canvas:
         """
         combine metadata from all of the h5s in a dither into a single dictionary with a MetadataSeries as the value
         for each key
-        :return:
         """
         combined_meta = self.dithers_data[0]['metadata'].copy()
         for entry in combined_meta:
@@ -222,7 +213,6 @@ class Canvas:
         """
         Creates the header for the drizzled data. Uses combined metadata and adds the necessary drizzler keys and wcs
         solution keys
-        :return:
         """
         meta = self.metadata.copy()
         for key, series in self.metadata.items():
@@ -289,10 +279,7 @@ class Canvas:
 
 class Drizzler(Canvas):
     """
-    Generate a spatially dithered fits 4D hypercube from a set dithered dataset. The cube size is
-    ntimebins * ndithers X nwvlbins X nPixRA X nPixDec.
-
-    exp_timestep or ntimebins argument accepted. ntimebins takes priority
+    Generate a 2D-4D hypercube from a set dithered dataset. The cube size is ntimes * ndithers * nwvlbins * nPixRA * nPixDec.
     """
 
     def __init__(self, dithers_data, drizzle_params, wvl_bin_width=0.0*u.nm, time_bin_width=0.0, wvl_min=700.0*u.nm,
@@ -410,7 +397,7 @@ class Drizzler(Canvas):
 
     def make_cube(self, dither_photons, time_bins, wvl_bins, applyweights=False, max_counts_cut=None):
         """
-        Creates a 4D image cube for the duration of the wcs timestep range or finer sampled if exp_timestep is
+        Creates a 4D image cube for the duration of the wcs timestep range or finer sampled if timestep is
         shorter
 
         :param dither_photons:
@@ -738,69 +725,40 @@ def form(dither, mode='drizzler', derotate=True, wave_start=None, wave_stop=None
          exclude_flags=PROBLEM_FLAGS + EXCLUDE, whitelight=False, align_start_pa=False, debug_dither_plot=False,
          output_file='', weight=False):
     """
-    Takes in a MKIDDitherDescription object and drizzles the dithers onto a common sky grid.
-
-    Parameters
-    ----------
-    dither : MKIDDitherDescription
-        Contains the lists of observations and metadata for a set of dithers
-    mode : str
-        Format for the output (drizzle | list (not implemented yet))
-    derotate : bool
-        True means all dithers (and integrations within) are rotated to their orientation on the sky during their observation
-        False aligns all dithers and integrations to the orientation at the beginning of the observation
-    wave_start : float or None
-        Lower bound on the photons used in the drizzle. See photontable.query()
-    wave_stop : float or None
-        Upper bound on the photons used in the drizzle. See photontable.query()
-    start : float
-        Start offset in seconds for photons used in each dither.
-    duration : float or None
-        start + int = upper bound on the photons used in each dither. See photontable.query()
-    pixfrac : float (0<= pixfrac <=1)
-        pixfrac parameter used in drizzle algorithm. See stsci.drizzle()
-    nwvlbins : int
-        Number of bins to group photon data by wavelength for all dithers when using mode == 'temporal'
-    wcs_timestep : float (0<= wcs_timestep <= duration)
-        Time between different wcs parameters (eg orientations). 0 will use the calculated non-blurring min
-    bin_width : float (0<= exp_timestep <= duration)
-        Duration of the time bins in the output cube when using mode == 'temporal'
-    usecache : bool
-        True means the output of load_data() is stored and reloaded for subsequent runs of form
-    ncpu : int
-        Number of cpu used when loading and reformatting the dither photontables
-    flags : int
-        Bitmask containing the various flags on each pixel from previous steps
-    whitelight : bool
-        Relevant parameters are updated to perform a whitelight dither. Take presedence over derotate user input
-    align_start_pa : bool
-        If derotate is False then the images can be aligned to the first frame for the purpose of ADI
-    debug_dither_plot : bool
-        Plot the location of frames with simple boxes for calibration/debugging purposes and compare to a simple spatial
-        drizzled image
-
-    Returns
-    -------
-    drizzle : DrizzledData
-        Contains maps and metadata from the drizzled data
-
-
-    There are 4 output modes: stack, spatial, temporal, list (not implemented yet). stack does no drizzling and just
-    appends time integrated MKID images on oneanother with associated wcs solutions at that time. spatial drizzles all
-    the selected times and wavelengths onto a single map. temporal bins the selected times and wavelengths into a 4D
-    hypercube (2 spatial, 1 wavelength, 1 time) The number of time bins is ndither * duration/exp_timestep. list will be
-    assigning an RA and dec to each photon
-
-    exp_timestep vs wcs_timestep. Both parameters are independent -- several wcs solutions (orientations) can contribute
-    to one effective exposure (taking an image of the zenith), and you can have one wcs object for lots of exposures
-    (doing binned SSD on a target that barely rotates).
+    Takes in a MKIDDitherDescription object and drizzles each frame onto a common sky grid.
+    :param dither: MKIDDitherDescription, contains the lists of observations and metadata for a set of dithers
+    :param mode: 'drizzler' only currently accepted mode
+    :param derotate: If True, all dithers (and integrations within) are rotated to their orientation on sky. If False
+    only the device angle rotation will be subtracted from each frame
+    :param wave_start: start wavelength. See photontable.query()
+    :param wave_stop: stop wavelength. See photontable.query()
+    :param start: start offset (in seconds) for photons used in each dither.
+    :param duration: upper bound on the photons used in each dither. See photontable.query()
+    :param pixfrac: pixfrac parameter used in drizzle algorithm. See stsci.drizzle()
+    :param wvl_bin_width: astropy.units.Quantity - size of wavelength bins. If 0.0 will use full wavelength extent of
+    the instrument
+    :param time_bin_width: size of time bins (in seconds). If 0.0 will use full duration
+    :param wcs_timestep: Time between different wcs parameters (eg orientations). 0 will use the calculated
+    non-blurring min
+    :param usecache: True means the output of load_data() is stored and reloaded for subsequent runs of form
+    :param ncpu: Number of cpu used when loading and reformatting the dither photontables
+    :param exclude_flags: List of pixelflags to be excluded from analysis
+    :param whitelight: Relevant parameters are updated to perform a whitelight dither. Takes presedence over derotate
+    user input
+    :param align_start_pa: If derotate is False then the first image can be oriented to its on sky position and that
+    same rotation offset applied to all subsequent frames. Useful for the purpose of ADI.
+    :param debug_dither_plot: Plot the location of frames with simple boxes for calibration/debugging purposes
+    :param output_file: Name of the output save file
+    :param weight: If True will apply weight column of the photontable to the dither frames
+    :returns: drizzle : DrizzledData. Contains maps and metadata from the drizzled data
     """
+
     dcfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(drizzler=StepConfig()), ncpu=ncpu, cfg=None,
                                                      copy=True)
     ncpu = mkidpipeline.config.n_cpus_available(max=dcfg.get('ncpu', inherit=True))
 
-    if mode not in ('drizzle', 'list'):
-        raise ValueError('mode must be: drizzle|list')
+    if mode not in ('drizzle'):
+        raise ValueError('mode must be: drizzle')
 
     # ensure the user input is shorter than the dither or that wcs are just calculated for the requested timespan
     dither_inttime = min(dither.inttime)
