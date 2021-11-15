@@ -713,16 +713,16 @@ def form(dither, mode='drizzler', derotate=True, wave_start=None, wave_stop=None
     getLogger(__name__).debug('Running Drizzler')
     driz = Drizzler(dithers_data, drizzle_params, wvl_bin_width=wvl_bin_width, time_bin_width=time_bin_width,
                     wvl_min=wave_start, wvl_max=wave_stop)
-    if time_bin_width is not 0.0 and wvl_bin_width is not 0.0*u.nm:
+    if time_bin_width != 0.0 and wvl_bin_width != 0.0*u.nm:
         cube_type = 'both'
         time_bin_edges = np.append(np.arange(0, duration, time_bin_width), duration)
         wvl_bin_edges = np.append(np.arange(wave_start.to(u.nm).value, wave_stop.to(u.nm).value,
                                         wvl_bin_width.to(u.nm).value), wave_stop.to(u.nm).value)
-    elif time_bin_width is not 0.0:
+    elif time_bin_width != 0.0:
         cube_type = 'time'
         time_bin_edges = np.append(np.arange(0, duration, time_bin_width), duration)
         wvl_bin_edges = None
-    elif wvl_bin_width is not 0.0*u.nm:
+    elif wvl_bin_width != 0.0*u.nm:
         cube_type = 'wave'
         wvl_bin_edges = np.append(np.arange(wave_start.to(u.nm).value, wave_stop.to(u.nm).value,
                                         wvl_bin_width.to(u.nm).value), wave_stop.to(u.nm).value)
