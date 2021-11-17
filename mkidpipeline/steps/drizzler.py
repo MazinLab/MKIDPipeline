@@ -1,9 +1,4 @@
 """
-*** Warning ***
-
-    The STScI drizzle module currently appears to have a bug which has been raised under issue #50.
-    In the meantime _increment_id() patches the bug
-
 Classes
 
     DrizzleParams   : Calculates and stores the relevant info for Drizzler
@@ -29,7 +24,6 @@ import pickle
 import hashlib
 from glob import glob
 import getpass
-import scipy.ndimage as ndimage
 from mkidcore.metadata import MetadataSeries
 import astropy
 from astropy.io import fits
@@ -71,12 +65,13 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
 class DrizzleParams:
     """ Calculates and stores the relevant info for Drizzler """
 
-    def __init__(self, dither, inttime, wcs_timestep=None, pixfrac=1.0, simbad=False):
+    def __init__(self, dither, inttime, wcs_timestep=None, pixfrac=1.0, simbad=False, startt=0):
         self.n_dithers = len(dither.obs)
         self.image_shape = dither.obs[0].beammap.shape
         self.platescale = [v.platescale.to(u.deg).value for v in dither.wcscal.values()][0]
         self.inttime = inttime
         self.pixfrac = pixfrac
+        self.startt = startt
         # Get the SkyCoord type coordinates to use for center of sky grid that is drizzled onto
         self.coords = mkidcore.metadata.skycoord_from_metadata(dither.obs[0].metadata_at(), force_simbad=simbad)
         self.telescope = dither.obs[0].header.get('TELESCOP') or mkidcore.metadata.DEFAULT_CARDSET['TELESCOP'].value
@@ -304,24 +299,24 @@ class Drizzler(Canvas):
         else:
             self.wvl_bin_edges = np.arange(wvl_min.to(u.nm).value, wvl_max.to(u.nm).value, wvl_bin_width.to(u.nm).value) if \
                 wvl_bin_width.to(u.nm).value != 0.0 else np.array([wvl_min.to(u.nm).value, wvl_max.to(u.nm).value])
-
+        startt = drizzle_params.startt
         #get time bins to use
-        if time_bin_width >= (drizzle_params.inttime * len(self.dithers_data)):
+        if startt + time_bin_width >= (drizzle_params.inttime * len(self.dithers_data)):
             getLogger(__name__).info('Timestep larger than entire duration - using whole duration instead')
-            self.timebins = np.array([0, drizzle_params.inttime])
-        elif time_bin_width != 0 and drizzle_params.inttime % time_bin_width != 0:
-            mod = drizzle_params.inttime % time_bin_width
-            inttime = drizzle_params.inttime - mod
+            self.timebins = np.array([startt, drizzle_params.inttime])
+        elif time_bin_width != 0 and (startt + drizzle_params.inttime) % time_bin_width != 0:
+            mod = (startt + drizzle_params.inttime) % time_bin_width
+            inttime = (startt + drizzle_params.inttime) - mod
             n_steps = inttime/time_bin_width
             getLogger(__name__).warning(f'Specified duration not evenly divisible by timestep, using {n_steps} '
                                         f'time steps of length {time_bin_width}s for each dither position ')
-            self.timebins = np.append(np.arange(0, inttime, time_bin_width), inttime)
+            self.timebins = np.append(np.arange(startt, inttime, time_bin_width), inttime)
         else:
-            self.timebins = np.append(np.arange(0, drizzle_params.inttime,
+            self.timebins = np.append(np.arange(startt, startt + drizzle_params.inttime,
                                                 time_bin_width if time_bin_width!=0 else drizzle_params.inttime),
-                                      drizzle_params.inttime)
+                                      startt + drizzle_params.inttime)
 
-        self.wcs_times = np.append(np.arange(0, self.timebins[-1], drizzle_params.wcs_timestep),
+        self.wcs_times = np.append(np.arange(startt, self.timebins[-1], drizzle_params.wcs_timestep),
                                    self.timebins[-1])
         self.cps = None
         self.counts = None
@@ -398,9 +393,9 @@ class Drizzler(Canvas):
         """
         Creates a 4D image cube for the duration of the wcs timestep range or finer sampled if timestep is
         shorter
-
         :param dither_photons:
-        :param timespan: in seconds
+        :param time_bins:
+        :param wvl_bins:
         :param applyweights:
         :param max_counts_cut:
         :return:
@@ -661,7 +656,7 @@ def form(dither, mode='drizzler', derotate=True, wave_start=None, wave_stop=None
         dither.dec = 0
 
     getLogger(__name__).debug('Parsing Params')
-    drizzle_params = DrizzleParams(dither, used_inttime, wcs_timestep, pixfrac)
+    drizzle_params = DrizzleParams(dither, used_inttime, wcs_timestep, pixfrac, startt=start)
 
     getLogger(__name__).debug('Loading data')
     dithers_data = None
