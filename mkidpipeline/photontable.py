@@ -987,18 +987,17 @@ class Photontable:
             bin_hdu[0].header.append(fits.Card('UNIT', 's' if cube_type == 'time' else 'nm', comment='Bin unit'))
 
         torate = 1 / duration if cube_type != 'time' else 1 / np.diff(bins)
-
         sci_data = data
         if rate:
-            data=data.copy()
+            sci_data=data.copy()
             try:
-                data*=torate
+                sci_data*=torate
             except:
-                data*=torate[:, None, None]  #TODO this probably doesn't work for 4D
+                sci_data*=torate[:, None, None]  #TODO this probably doesn't work for 4D
 
         hdul = fits.HDUList([fits.PrimaryHDU(header=header),
                              fits.ImageHDU(data=sci_data, header=hdr, name='SCIENCE'),
-                             fits.ImageHDU(data=np.sqrt(data), header=hdr, name='VARIANCE')] + bin_hdu + pixcal_hdu)
+                             fits.ImageHDU(data=data, header=hdr, name='VARIANCE')] + bin_hdu + pixcal_hdu)
 
         getLogger(__name__).debug(f'FITS generated in {time.time()-tic:.0f} s')
         return hdul
