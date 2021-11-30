@@ -1170,7 +1170,7 @@ class MKIDOutput(DataBase):
         Key('duration', None, 'number of seconds od data to use (per frame if dithered), None=all', float),
         Key('filename', '', 'relative or fully qualified path, defaults to name+output type,'
                             'so set if making multiple outputs with different settings', str),
-        Key('units', 'photons', 'photons|photons/s', str),
+        Key('units', 'photons', 'photons|photons/s. Drizzled data will always be in photons/s', str),
         Key('use_weights', True, 'Use photon weights', bool),
         Key('lincal', False, 'Apply and use lincal, slow', bool),
         Key('pixcal', True, 'Apply pixcal', bool),
