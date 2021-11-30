@@ -92,11 +92,25 @@ class PipeConfig(BaseStepConfig):
                      ('instrument', None, 'An instrument name or mkidcore.instruments.InstrumentInfo instance')
                      )
 
-    def __init__(self, *args, defaults: dict = None, instrument='MEC', **kwargs):
+    def __init__(self, *args, defaults: dict = None, **kwargs):
         super().__init__(*args, **kwargs)
+
+        if isinstance(self.instrument, str):
+            self.register('instrument', InstrumentInfo(self.instrument), update=True)
+        else:
+            try:
+                ii = InstrumentInfo(self.instrument['name'])
+            except KeyError:
+                getLogger(__name__).warning('No name was included in the instrument section, assuming MEC for'
+                                            ' updates to missing defaults')
+                ii = InstrumentInfo('MEC')
+
+            for k, v in ii.items():
+                self.instrument.register(k, v, update=False)
+
         if self.beammap is None:
-            self.register('beammap', Beammap(specifier=instrument), update=True)
-        self.register('instrument', InstrumentInfo(instrument), update=True)
+            self.register('beammap', Beammap(specifier=self.instrument.name), update=True)
+
         if defaults is not None:
             for k, v in defaults.items():
                 self.register(k, v, update=True)
