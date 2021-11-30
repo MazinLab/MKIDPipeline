@@ -53,7 +53,7 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                                             'non-blurring minimum (1 pixel at furthest dither center) will be used'),
                      ('derotate', False, 'Subtract the PA from individual frames for a derotated output. '
                                          'Overrides align_start_pa.'),
-                     ('align_start_pa', False, 'Align frames to the PA for the UTC of the of the first exposure in the'
+                     ('align_start_pa', False, 'Use the PA at the start of the first exposure for each frame in the '
                                                ' sequence.'),
                      ('whitelight', False, 'TODO'),
                      ('save_steps', False, 'Save intermediate fits files where possible (only some modes)'),

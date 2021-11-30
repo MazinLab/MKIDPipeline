@@ -88,8 +88,8 @@ class PipeConfig(BaseStepConfig):
                       'calibrations will be retrieved/stored here'),
                      ('paths.out', os.path.join(_pathroot, 'out'), 'root of output'),
                      ('paths.tmp', os.path.join(_pathroot, 'scratch'), 'use for data intensive temp files'),
-                     ('beammap', None, 'A Beammap to use'),
-                     ('instrument', None, 'An mkidcore.instruments.InstrumentInfo instance')
+                     ('beammap', None, 'A Beammap to use, may be None to use the default for the instrument'),
+                     ('instrument', None, 'An instrument name or mkidcore.instruments.InstrumentInfo instance')
                      )
 
     def __init__(self, *args, defaults: dict = None, instrument='MEC', **kwargs):
