@@ -100,13 +100,11 @@ class PipeConfig(BaseStepConfig):
         else:
             try:
                 ii = InstrumentInfo(self.instrument['name'])
-            except KeyError:
+            except TypeError:
                 getLogger(__name__).warning('No name was included in the instrument section, assuming MEC for'
                                             ' updates to missing defaults')
                 ii = InstrumentInfo('MEC')
-
-            for k, v in ii.items():
-                self.instrument.register(k, v, update=False)
+            self.register('instrument', ii, update=True)
 
         if self.beammap is None:
             self.register('beammap', Beammap(specifier=self.instrument.name), update=True)
