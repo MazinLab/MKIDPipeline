@@ -967,7 +967,7 @@ class Photontable:
         # Build primary and image headers
         header = mkidcore.metadata.build_header(md, unknown_keys='warn')
 
-        bins=None
+        bins = None
         if cube_type is not None:
             bins = bin_edges / 1e6 if cube_type == 'time' else bin_edges
         wcs = self.get_wcs(cube_type=cube_type, bins=bins, single_pa_time=time_nfo['start'], derotate=derotate)
@@ -981,25 +981,26 @@ class Photontable:
         if cube_type is None:
             bin_hdu = []
         else:
-            tmp = bin_edges/1e6 if cube_type == 'time' else bin_edges
+            tmp = bin_edges / 1e6 if cube_type == 'time' else bin_edges
             bin_hdu = [fits.TableHDU.from_columns(np.recarray(shape=bin_edges.shape, buf=tmp,
-                                                  dtype=np.dtype([('edges', bin_edges.dtype)])), name='CUBE_EDGES')]
+                                                              dtype=np.dtype([('edges', bin_edges.dtype)])),
+                                                  name='CUBE_EDGES')]
             bin_hdu[0].header.append(fits.Card('UNIT', 's' if cube_type == 'time' else 'nm', comment='Bin unit'))
 
         torate = 1 / duration if cube_type != 'time' else 1 / np.diff(bins)
         sci_data = data
         if rate:
-            sci_data=data.copy()
+            sci_data = data.copy()
             try:
-                sci_data*=torate
+                sci_data *= torate
             except:
-                sci_data*=torate[:, None, None]  #TODO this probably doesn't work for 4D
+                sci_data *= torate[:, None, None]  # TODO this probably doesn't work for 4D
 
         hdul = fits.HDUList([fits.PrimaryHDU(header=header),
                              fits.ImageHDU(data=sci_data, header=hdr, name='SCIENCE'),
                              fits.ImageHDU(data=data, header=hdr, name='VARIANCE')] + bin_hdu + pixcal_hdu)
 
-        getLogger(__name__).debug(f'FITS generated in {time.time()-tic:.0f} s')
+        getLogger(__name__).debug(f'FITS generated in {time.time() - tic:.0f} s')
         return hdul
 
     def query_header(self, name):
@@ -1101,5 +1102,5 @@ class Photontable:
             yield (pix, resid) if pixel else resid
 
     def needed_ram(self):
-        amount = len(self.photonTable) * self.photonTable.dtype.itemsize * 3 # 25
+        amount = len(self.photonTable) * self.photonTable.dtype.itemsize * 3  # 25
         return self.ram_manager(amount)
