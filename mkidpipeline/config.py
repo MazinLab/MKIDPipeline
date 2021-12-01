@@ -49,8 +49,15 @@ class BaseStepConfig(mkidcore.config.ConfigThing):
     """
     REQUIRED_KEYS = tuple()
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *args, _config_lock=None, **kwargs):
+        """
+        Note that *args is used for YAML machinery.
+
+        kwargs is used for initialization of items
+
+        don't use _config_lock unless you understand why you need to.
+        """
+        super().__init__(*(args+tuple(kwargs.items())), lock=_config_lock)
         for k, v, c in self.REQUIRED_KEYS:
             self.register(k, v, comment=c, update=False)
 
@@ -72,6 +79,7 @@ class BaseStepConfig(mkidcore.config.ConfigThing):
         missing = [key for key, default, comment in self.REQUIRED_KEYS if key not in self]
         return ['Missing required keys: ' + ', '.join(missing)] if missing else []
 
+
 _pathroot = os.path.join('/work', os.environ.get('USER', ''))
 
 
@@ -92,7 +100,11 @@ class PipeConfig(BaseStepConfig):
                      ('instrument', None, 'An instrument name or mkidcore.instruments.InstrumentInfo instance')
                      )
 
-    def __init__(self, *args, defaults: dict = None, **kwargs):
+    def __init__(self, *args, **kwargs):
+        """
+        :param args: used for YAML machinery
+        :param kwargs: generally used for instrument='MEC' If used with *args the result you get is not specified
+        """
         super().__init__(*args, **kwargs)
 
         if isinstance(self.instrument, str):
@@ -110,10 +122,6 @@ class PipeConfig(BaseStepConfig):
 
         if self.beammap is None:
             self.register('beammap', Beammap(specifier=self.instrument.name), update=True)
-
-        if defaults is not None:
-            for k, v in defaults.items():
-                self.register(k, v, update=True)
 
 
 mkidcore.config.yaml.register_class(PipeConfig)
