@@ -1161,7 +1161,11 @@ class MKIDOutput(DataBase):
     KEYS = (
         Key(name='name', default='', comment='A name', dtype=str),
         Key('data', '', 'An data name', str),
-        Key('kind', 'image', "stack|drizzle|list|image|movie|tcube|scube", str),
+        Key('kind', 'image', "drizzle - Use drizzler"
+                             "image - Generate a simple image (use photontable.get_fits)"
+                             "movie - Use movies to generate a gif animation"
+                             "tcube - use photontable.get_fits"
+                             "scube - use photontable.get_fits", str),
 
         Key('exclude_flags', None, 'A list of pixel flag names to exclude', None),
         Key('min_wave', float('-inf'), 'Wavelength start for wavelength sensitive outputs', str),
@@ -1180,7 +1184,7 @@ class MKIDOutput(DataBase):
         # NB wavecal is applied and used if the underlying data specifies them, min/max wave allow ignoring it
         # there is no speccal key as it isn't something that is applied to the data
         # speccals are just fetched and determined for
-        Key('timestep', None, 'Duration of time bins in output cubes with a temporal axis (req. by temporal)',
+        Key('timestep', None, 'Duration of time bins in output cubes with a temporal axis (None means no temporal axis)',
             float),
         Key('wavestep', '0.0 nm', 'Width of wavelength bins in output cubes with a wavelength axis', str)
     )
@@ -1239,10 +1243,9 @@ class MKIDOutput(DataBase):
     @property
     def wants_drizzled(self):
         """
-        Returns True if the output type specified is a drizzled output ('stack', 'drizzle', 'list'),
-        otherwise returns False
+        Returns True if the output type specified is a drizzled output ('drizzle'.), otherwise returns False
         """
-        return self.kind in ('stack', 'drizzle', 'list')
+        return self.kind in ('drizzle',)
 
     @property
     def wants_movie(self):
