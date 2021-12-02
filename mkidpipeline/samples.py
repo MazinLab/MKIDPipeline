@@ -95,8 +95,26 @@ SAMPLEDATA = {'default': (
                                                                         header=dict(E_CONEXX=.1, E_CONEXY=-.16,
                                                                           OBJECT='HIP 109427'))
                                             )
-                                      )
-)}
+                                      )),
+              'sigori': (
+        definitions.MKIDObservation(name='Sigma Ori', start=1631279400, duration=10, wavecal='wavecal_sigori',
+                                    dark=definitions.MKIDTimerange(name=_namer('dark'), start=1631273610, duration=10),
+                                    flatcal='', wcscal='wcscal0', speccal=''),
+        # wavecals
+        definitions.MKIDWavecalDescription(name='wavecal_sigori',
+                                           data=(definitions.MKIDTimerange(name='850 nm', start=1630603720, duration=60,
+                                                                           dark=definitions.MKIDTimerange(name=_namer('dark'), start=1631273610, duration=10),
+                                                                           header=dict(laser='on', other='fits_key')),
+                                                 definitions.MKIDTimerange(name='950 nm', start=1630603840, duration=60,
+                                                                           dark=definitions.MKIDTimerange(name=_namer('dark'), start=1631273610, duration=10)),
+                                                 definitions.MKIDTimerange(name='1.1 um', start=1630603920, duration=60,
+                                                                           dark=definitions.MKIDTimerange(name=_namer('dark'), start=1631273610, duration=10)),
+                                                 definitions.MKIDTimerange(name='1.25 um', start=1630603995, duration=60,
+                                                                           dark=definitions.MKIDTimerange(name=_namer('dark'), start=1631273610, duration=10)),
+                                                 definitions.MKIDTimerange(name='13750 AA', start=1630604065,duration=60,
+                                                                           dark=definitions.MKIDTimerange(name=_namer('dark'), start=1631273610, duration=10)))
+                                           ))
+        }
 
 
 def get_sample_data(dataset='default'):
