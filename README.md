@@ -114,3 +114,35 @@ print(o.validation_summary())
 # ... then playing around
 
 ```
+
+
+### WCS And your data
+
+Some general notes:
+   MEC observations are generally taken with the derotator off (pupil tracking mode) and 
+   the telescope target generally w/ a coronagraph. 
+   MEC observations sometimes are taken for ADI.
+      
+
+Use Cases
+1. Getting a FITS image/scube with an appropriate WCS solution
+   1. Here WCS makes sense as either the time window midpoint or start
+   2. We thin impremented correctly
+   3. When  these images are to be used by drizzler
+      1. timebins are how to break up a dwell, larger than a dwell doesn't make sense
+      2. wcs timesteps have an effective lower bound below which the resutling coadded spot size is limited by the PSF, 
+   In non adi mode (where you don't want blurring) with timebins
+      3. control whether or not you see the fields aligned in the steps or not
+      4. control whether or not north aligned
+
+
+TODO ADD some sort of parallactic angle offset support to build_wcs and teach get_wcs about it. rip out single pa time
+then make drizzler compute offsets for each timestep. derotate becomes true always, adi mode turns on computation of 
+per bin PA offsets
+
+
+The end result of this is:
+outputs gets an adi mode setting
+derotate defaults to true
+align start pa vanishes
+wcs_timestep leaves the config files and takes its default of the nonblurring value
