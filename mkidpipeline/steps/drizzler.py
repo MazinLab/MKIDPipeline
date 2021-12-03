@@ -35,6 +35,7 @@ from drizzle import drizzle as stdrizzle
 import mkidcore.corelog
 import mkidcore.pixelflags
 import mkidcore.metadata
+from mkidcore.utils import mjd_to
 from mkidcore.corelog import getLogger
 from mkidcore.instruments import CONEX2PIXEL
 from mkidpipeline.photontable import Photontable
@@ -131,7 +132,6 @@ class Canvas:
         self.center = drizzle_params.coords
         self.header = header
         self.stack = None
-        self.metadata = self.combine_metadata()
 
         if canvas_shape[0] is None or canvas_shape[1] is None:
             dith_pix_min = np.zeros((len(dithers_data), 2))
@@ -163,13 +163,29 @@ class Canvas:
         if max(self.canvas_shape) > max(self.shape) * len(dithers_data):
             getLogger(__name__).warning(f'Canvas grid {self.canvas_shape} exceeds maximum nominal extent of dithers '
                                         f'({max(self.shape) * len(dithers_data)})')
-        self.canvas_wcs()
-        self.canvas_header()
+        #Create the canvas WCS
+        self.wcs = wcs.WCS(naxis=2)
+        self.wcs.wcs.pc = np.eye(2)
+        self.wcs.pixel_shape = self.canvas_shape
+        self.wcs.wcs.crpix = np.array(self.canvas_shape) / 2
+        self.wcs.wcs.crval = [self.center.ra.deg, self.center.dec.deg]
+        self.wcs.wcs.ctype = ["RA--TAN", "DEC-TAN"]
+        self.wcs.wcs.cdelt = [self.vPlateScale, self.vPlateScale]
+        self.wcs.wcs.cunit = ["deg", "deg"]
 
-    def combine_metadata(self):
+        self.header = self.canvas_header()
+
+    def canvas_header(self):
         """
-        combine metadata from all of the h5s in a dither into a single dictionary with a MetadataSeries as the value
-        for each key
+        Creates the majority of the header for the drizzled data. Some keys are added after drizzling.
+
+        combine metadata from all input data into a single dict and use that to build ahead with mkidcore.build_header
+        (to get defaults)
+
+        All keys use the first value of the dither except for time keys (UT, HST, MJD, UNIX), which take the start,
+        mean, or last as appropriate.
+
+        Keys 'UT' and 'HST' will correspond to 'MJD'
         """
         combined_meta = self.dithers_data[0]['metadata'].copy()
         for entry in combined_meta:
@@ -184,92 +200,72 @@ class Canvas:
                     combined_meta[entry].add(md['UNIXSTR'], md[entry])
                 else:
                     combined_meta[entry] += md[entry]
-        return combined_meta
 
-    def canvas_wcs(self):
-        self.wcs = wcs.WCS(naxis=2)
-        self.wcs.wcs.crpix = np.array(self.canvas_shape) / 2
-        self.wcs.wcs.crval = [self.center.ra.deg, self.center.dec.deg]
-        self.wcs.wcs.ctype = ["RA--TAN", "DEC-TAN"]
-        self.wcs.pixel_shape = self.canvas_shape
-        self.wcs.wcs.pc = np.eye(2)
-        self.wcs.wcs.cdelt = [self.vPlateScale, self.vPlateScale]
-        self.wcs.wcs.cunit = ["deg", "deg"]
+        metadata = combined_meta
+        meta = {}
 
-        import pickle
-        try:
-            pickle.dumps(self.wcs)
-        except Exception:
-            pass
-        getLogger(__name__).debug(self.wcs)
+        mean = ('MJD', )
+        last = ('UNIXEND', 'MJD-END', 'UT-END', 'HST-END')
 
-    def canvas_header(self):
-        """
-        Creates the header for the drizzled data. Uses combined metadata and adds the necessary drizzler keys and wcs
-        solution keys
-        """
-        meta = self.metadata.copy()
-        for key, series in self.metadata.items():
+        for key, series in metadata.items():
             if not len(series.values):
-                meta.pop(key)
                 continue
-            elif all(elem == series.values[0] for elem in series.values):
-                val = series.values[0]
+            if key in last:
+                val = series.values[-1]
+            elif key in mean:
+                val = np.mean(series.values)
             else:
-                try:
-                    val = np.mean(series.values)
-                except TypeError:
-                    getLogger(__name__).info(f'Cannot find mean value for key {key}, using value at the start of the'
-                                             f' dither')
-                    val = series.values[0]
+                val = series.values[0]
             meta[key] = val
-        self.header = mkidcore.metadata.build_header(meta, unknown_keys='warn')
-        # TODO massage relevant params (i.e. UNIX timestamps should not be average)
+
+        meta['UT'] = mjd_to(meta['MJD'], 'UTC').strftime('%H:%M:%S.%f')[:-4]
+        meta['HST'] = mjd_to(meta['MJD'], 'HST').strftime('%H:%M:%S.%f')[:-4]
+        return mkidcore.metadata.build_header(meta, unknown_keys='warn')
 
     def write(self, filename, overwrite=True, compress=False, dashboard_orient=False, cube_type=None,
               time_bin_edges=None, wvl_bin_edges=None):
+
         if self.stack and dashboard_orient:
             getLogger(__name__).info('Transposing image stack to match dashboard orientation')
             getLogger(__name__).warning('Has not been verified')
             self.data = np.transpose(self.data, (0, 2, 1))
             self.wcs.pc = self.wcs.pc.T
 
-        science_header = self.wcs.to_header()
+        primary_header = self.header
+        primary_header.update(self.wcs.to_header())
+        primary_header['EXPTIME'] = self.average_nonzero_exp_time
+        science_header = primary_header.copy()
         science_header['WCSTIME'] = (self.drizzle_params.wcs_timestep, '')
         science_header['PIXFRAC'] = (self.drizzle_params.pixfrac, '')
+        science_header['UNIT'] = 'photon/s'
 
-        if cube_type is None:
-            bin_hdu = []
-        elif cube_type == 'time':
-            tmp = time_bin_edges
-            bin_hdu = [fits.TableHDU.from_columns(np.recarray(shape=time_bin_edges.shape, buf=tmp,
+        variance_header = science_header.copy()
+        variance_header['UNIT'] = 'photon'
+
+        bin_hdu = []
+        if cube_type in ('both', 'time'):
+            hdu = fits.TableHDU.from_columns(np.recarray(shape=time_bin_edges.shape, buf=time_bin_edges,
                                                               dtype=np.dtype([('edges', time_bin_edges.dtype)])),
-                                                  name='CUBE_EDGES')]
-            bin_hdu[0].header.append(fits.Card('UNIT', 's', comment='Bin unit'))
-        elif cube_type == 'wave':
-            tmp = wvl_bin_edges
-            bin_hdu = [fits.TableHDU.from_columns(np.recarray(shape=wvl_bin_edges.shape, buf=tmp,
-                                                              dtype=np.dtype([('edges', wvl_bin_edges.dtype)])),
-                                                  name='CUBE_EDGES')]
-            bin_hdu[0].header.append(fits.Card('UNIT', 'nm', comment='Bin unit'))
-        elif cube_type == 'both':
-            wvl_hdu = [fits.TableHDU.from_columns(np.recarray(shape=wvl_bin_edges.shape, buf=wvl_bin_edges,
-                                                              dtype=np.dtype([('edges', wvl_bin_edges.dtype)])),
-                                                  name='CUBE_EDGES')]
-            wvl_hdu[0].header.append(fits.Card('UNIT', 'nm', comment='Bin unit'))
-            time_hdu = [fits.TableHDU.from_columns(np.recarray(shape=time_bin_edges.shape, buf=time_bin_edges,
-                                                               dtype=np.dtype([('edges', time_bin_edges.dtype)])),
-                                                   name='CUBE_EDGES')]
-            time_hdu[0].header.append(fits.Card('UNIT', 's', comment='Bin unit'))
-            bin_hdu = time_hdu + wvl_hdu
+                                             name='CUBE_EDGES')
+            hdu.header.append(fits.Card('UNIT', 's', comment='Bin unit'))
+            bin_hdu.append(hdu)
 
-        hdul = fits.HDUList([fits.PrimaryHDU(header=self.header),
+        if cube_type in ('both', 'wave'):
+            hdu = fits.TableHDU.from_columns(np.recarray(shape=wvl_bin_edges.shape, buf=wvl_bin_edges,
+                                                         dtype=np.dtype([('edges', wvl_bin_edges.dtype)])),
+                                             name='CUBE_EDGES')
+            hdu.header.append(fits.Card('UNIT', 'nm', comment='Bin unit'))
+            bin_hdu.append(hdu)
+
+        hdul = fits.HDUList([fits.PrimaryHDU(header=primary_header),
                              fits.ImageHDU(name='cps', data=self.cps, header=science_header),
-                             fits.ImageHDU(name='variance', data=self.counts, header=science_header)] + bin_hdu)
+                             fits.ImageHDU(name='variance', data=self.counts, header=variance_header)] + bin_hdu)
+
         if compress:
             filename = filename + '.gz'
 
-        assert filename[-5:] == '.fits', 'Please enter valid filename'
+        if not (filename.lower().endswith('.fits') or filename.lower().endswith('.fits.gz')):
+            filename += '.fits'
 
         hdul.writeto(filename, overwrite=overwrite)
         getLogger(__name__).info('FITS file {} saved'.format(filename))
@@ -386,14 +382,18 @@ class Drizzler(Canvas):
             expmap[pos * nexp_time: (pos + 1) * nexp_time] = dithexp
 
         getLogger(__name__).debug(f'Image load done in {time.clock() - tic:.1f} s')
+
         if nexp_time == 1 and self.time_bin_width == 0:
             self.cps = np.sum(self.cps, axis=0)
             expmap = np.sum(expmap, axis=0)
+
         if nwvls == 1:
             self.cps = np.squeeze(self.cps)
             expmap = expmap[0, :, :] if nexp_time == 1 else expmap[:, 0, :, :]
-        self.generate_header(wave=nwvls != 1, time=nexp_time != 1)
+
+        self.wcs = self.generate_wcs(wave=nwvls != 1, time=nexp_time != 1)
         self.counts = self.cps * expmap
+        self.average_nonzero_exp_time = expmap[expmap > 0].mean()
 
     def make_cube(self, dither_photons, time_bins, wvl_bins, applyweights=False, max_counts_cut=None):
         """
@@ -425,65 +425,55 @@ class Drizzler(Canvas):
             hypercube *= np.int_(hypercube < max_counts_cut)
         return hypercube
 
-    def generate_header(self, wave=True, time=True):
+    def generate_wcs(self, wave=True, time=True):
         """
-        Add to the extra elements to the header
+        Return a WCS object appropriate for the resulting cube to the extra elements to the header
 
         Its not clear how to increase the number of dimensions of a 2D wcs.WCS() after its created so just create
-        a new object, read the original parameters where needed, and overwrite
-
-        :return:
+        a new object, read the original parameters where needed
         """
-        if wave and time:
-            w = wcs.WCS(naxis=4)
-            w.wcs.crpix = [self.wcs.wcs.crpix[0], self.wcs.wcs.crpix[1], 1, 1]
-            w.wcs.crval = [self.wcs.wcs.crval[0], self.wcs.wcs.crval[1], self.wvl_bin_edges[0] / 1e9,
-                           self.timebins[0]]
-            w.wcs.ctype = [self.wcs.wcs.ctype[0], self.wcs.wcs.ctype[1], "WAVE", "TIME"]
-            w.pixel_shape = (self.wcs.pixel_shape[0], self.wcs.pixel_shape[1], len(self.wvl_bin_edges) - 1,
-                             len(self.timebins) - 1)
-            w.wcs.pc = np.eye(4)
-            w.wcs.cdelt = [self.wcs.wcs.cdelt[0], self.wcs.wcs.cdelt[1],
-                           (self.wvl_bin_edges[1] - self.wvl_bin_edges[0]) / 1e9,
-                           (self.timebins[1] - self.timebins[0])]
-            w.wcs.cunit = [self.wcs.wcs.cunit[0], self.wcs.wcs.cunit[1], "m", "s"]
+        naxis = 2 + int(wave) + int(time)
+        w = wcs.WCS(naxis=naxis)
+        w.wcs.pc = np.eye(naxis)
+        w.wcs.crpix = [self.wcs.wcs.crpix[0], self.wcs.wcs.crpix[1]]
+        w.wcs.crval = [self.wcs.wcs.crval[0], self.wcs.wcs.crval[1]]
+        w.wcs.ctype = [self.wcs.wcs.ctype[0], self.wcs.wcs.ctype[1]]
+        w.wcs.cdelt = [self.wcs.wcs.cdelt[0], self.wcs.wcs.cdelt[1]]
+        w.wcs.cunit = [self.wcs.wcs.cunit[0], self.wcs.wcs.cunit[1]]
+        pixel_shape = [self.wcs.pixel_shape[0], self.wcs.pixel_shape[1]]
 
-            self.wcs = w
-            getLogger(__name__).debug('4D wcs {}'.format(w))
-        elif (wave and not time) or (time and not wave):
-            if wave:
-                type = "WAVE"
-                val = self.wvl_bin_edges[0] / 1e9
-                shape = len(self.wvl_bin_edges) - 1
-                delt = (self.wvl_bin_edges[1] - self.wvl_bin_edges[0]) / 1e9
-                unit = "m"
-            if time:
-                type = "TIME"
-                val = self.timebins[0]
-                shape = len(self.timebins) - 1
-                delt = (self.timebins[1] - self.timebins[0])
-                unit = "s"
-            w = wcs.WCS(naxis=3)
-            w.wcs.crpix = [self.wcs.wcs.crpix[0], self.wcs.wcs.crpix[1], 1]
-            w.wcs.crval = [self.wcs.wcs.crval[0], self.wcs.wcs.crval[1], val]
-            w.wcs.ctype = [self.wcs.wcs.ctype[0], self.wcs.wcs.ctype[1], type]
-            w.pixel_shape = (self.wcs.pixel_shape[0], self.wcs.pixel_shape[1], shape)
-            w.wcs.pc = np.eye(3)
-            w.wcs.cdelt = [self.wcs.wcs.cdelt[0], self.wcs.wcs.cdelt[1], delt]
-            w.wcs.cunit = [self.wcs.wcs.cunit[0], self.wcs.wcs.cunit[1], unit]
-            self.wcs = w
-            getLogger(__name__).debug('3D wcs {}'.format(w))
-        else:
-            w = wcs.WCS(naxis=2)
-            w.wcs.crpix = [self.wcs.wcs.crpix[0], self.wcs.wcs.crpix[1]]
-            w.wcs.crval = [self.wcs.wcs.crval[0], self.wcs.wcs.crval[1]]
-            w.wcs.ctype = [self.wcs.wcs.ctype[0], self.wcs.wcs.ctype[1]]
-            w.pixel_shape = (self.wcs.pixel_shape[0], self.wcs.pixel_shape[1])
-            w.wcs.pc = np.eye(2)
-            w.wcs.cdelt = [self.wcs.wcs.cdelt[0], self.wcs.wcs.cdelt[1]]
-            w.wcs.cunit = [self.wcs.wcs.cunit[0], self.wcs.wcs.cunit[1]]
-            self.wcs = w
-            getLogger(__name__).debug('4D wcs {}'.format(w))
+        if wave:
+            typ = wtype = "WAVE"
+            val = wval = self.wvl_bin_edges[0] / 1e9
+            shape = wshape = len(self.wvl_bin_edges) - 1
+            delt = wdelt = (self.wvl_bin_edges[1] - self.wvl_bin_edges[0]) / 1e9
+            unit = wunit = "m"
+
+        if time:
+            typ = ttype = "TIME"
+            val = tval = self.timebins[0]
+            shape = tshape = len(self.timebins) - 1
+            delt = tdelt = (self.timebins[1] - self.timebins[0])
+            unit = tunit = "s"
+
+        if naxis == 4:
+            pixel_shape.extend([wshape,tshape])
+            w.wcs.crpix.extend([1, 1])
+            w.wcs.crval.extend([wval, tval])
+            w.wcs.ctype.extend([wtype, ttype])
+            w.wcs.cdelt.extend([wdelt, tdelt])
+            w.wcs.cunit.extend([wunit, tunit])
+        elif naxis == 3:
+            pixel_shape.append(shape)
+            w.wcs.crpix.append(1)
+            w.wcs.crval.append(val)
+            w.wcs.ctype.append(typ)
+            w.wcs.cdelt.append(delt)
+            w.wcs.cunit.append(unit)
+
+        w.pixel_shape = tuple(pixel_shape)
+        getLogger(__name__).debug(f'{naxis}D wcs {w}')
+        return w
 
 
 def debug_dither_image(dithers_data, drizzle_params, weight=True):
