@@ -56,7 +56,9 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                                          ' Overrides align_start_pa.'),
                      #TODO make into a single argument: ADI_mode and move to output settings (we want to derotate within time bins)
                      ('align_start_pa', False, 'Use the PA of the first frame for each frame in the sequence.'),
-                     ('whitelight', False, 'TODO'),
+                     ('whitelight', False, 'If True will not expect an OBJECT, RA, or DEC in the header and will only '
+                                           'use the CONEX position to calculate the WCS. Used for bench tests where '
+                                           'data is not taken'),
                      ('save_steps', False, 'Save intermediate fits files where possible (only some modes)'),
                      ('usecache', False, 'Cache photontable for subsequent runs'),
                      ('ncpu', 1, 'Number of CPUs to use'),
@@ -66,7 +68,7 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
 class DrizzleParams:
     """ Calculates and stores the relevant info for Drizzler """
 
-    def __init__(self, dither, inttime, wcs_timestep=None, pixfrac=1.0, simbad=False, startt=0):
+    def __init__(self, dither, inttime, wcs_timestep=None, pixfrac=1.0, simbad=False, startt=0, whitelight=False):
         self.n_dithers = len(dither.obs)
         self.image_shape = dither.obs[0].beammap.shape
         self.platescale = [v.platescale.to(u.deg).value for v in dither.wcscal.values()][0]
@@ -74,7 +76,10 @@ class DrizzleParams:
         self.pixfrac = pixfrac
         self.startt = startt
         # Get the SkyCoord type coordinates to use for center of sky grid that is drizzled onto
-        self.coords = mkidcore.metadata.skycoord_from_metadata(dither.obs[0].metadata_at(), force_simbad=simbad)
+        if not whitelight:
+            self.coords = mkidcore.metadata.skycoord_from_metadata(dither.obs[0].metadata_at(), force_simbad=simbad)
+        else:
+            self.coords= astropy.coordinates.SkyCoord(0, 0, unit=('hourangle', 'deg'))
         self.telescope = dither.obs[0].header.get('TELESCOP') or mkidcore.metadata.DEFAULT_CARDSET['TELESCOP'].value
         self.canvas_shape = (None, None)
         self.dith_start_times = np.array([o.start for o in dither.obs])
@@ -645,14 +650,8 @@ def form(dither, mode='drizzler', derotate=True, wave_start=None, wave_stop=None
         getLogger(__name__).info(f'Using user specified integration time of {duration:.1f} s')
         used_inttime = duration
 
-    if whitelight:
-        getLogger(__name__).warning('Changing some of the wcs params to white light mode')
-        derotate = False
-        dither.ra = 0
-        dither.dec = 0
-
     getLogger(__name__).debug('Parsing Params')
-    drizzle_params = DrizzleParams(dither, used_inttime, wcs_timestep, pixfrac, startt=start)
+    drizzle_params = DrizzleParams(dither, used_inttime, wcs_timestep, pixfrac, startt=start, whitelight=whitelight)
 
     getLogger(__name__).debug('Loading data')
     dithers_data = None
