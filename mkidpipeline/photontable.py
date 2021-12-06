@@ -971,6 +971,7 @@ class Photontable:
         if cube_type is not None:
             bins = bin_edges / 1e6 if cube_type == 'time' else bin_edges
         #TODO set single_pa_time=None when generating an image|scube|tcube output
+        #TODO breaks if wcs is a list (single_pa_time=None)
         wcs = self.get_wcs(cube_type=cube_type, bins=bins, single_pa_time=None, derotate=derotate)
         if wcs:
             header.update(wcs.to_header())
@@ -1039,7 +1040,7 @@ class Photontable:
             setattr(self.file.root.photons.photontable.attrs, key, value)
 
     def metadata(self, timestamp=None):
-        """ Return an dict of key, value pairs asociated with the dataset
+        """ Return an dict of key, value pairs associated with the dataset
 
         if no timestamp is specified the first record for a key (if a series) is returned.
         if a timestamp is specified then the most recent preceeding record is returned
