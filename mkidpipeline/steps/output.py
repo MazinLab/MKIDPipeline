@@ -72,6 +72,6 @@ def generate(outputs: definitions.MKIDOutputCollection, remake=False):
                 kwargs.pop(k)
             drizzler.form(o.data, pixfrac=config.drizzler.pixfrac,
                           wcs_timestep=config.drizzler.wcs_timestep, usecache=config.drizzler.usecache,
-                          ncpu=config.get('drizzler.ncpu'), derotate=config.drizzler.derotate,
-                          whitelight=config.drizzler.whitelight, debug_dither_plot=config.drizzler.plots == 'all',
+                          ncpu=config.get('drizzler.ncpu'), whitelight=config.drizzler.whitelight,
+                          debug_dither_plot=config.drizzler.plots == 'all',
                           **kwargs)

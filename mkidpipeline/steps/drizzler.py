@@ -600,7 +600,7 @@ def load_data(dither, wvl_min, wvl_max, startt, duration, wcs_timestep, ADI_mode
 
 def form(dither, mode='drizzler', wave_start=None, wave_stop=None, start=0, duration=None, pixfrac=.5,
          wvl_bin_width=0.0 * u.nm, time_bin_width=0.0, wcs_timestep=1., usecache=True, ncpu=None,
-         exclude_flags=PROBLEM_FLAGS + EXCLUDE, whitelight=False, ADI_mode=False, debug_dither_plot=False,
+         exclude_flags=PROBLEM_FLAGS + EXCLUDE, whitelight=False, adi_mode=False, debug_dither_plot=False,
          output_file='', weight=False):
     """
     Takes in a MKIDDitherDescription object and drizzles each frame onto a common sky grid.
@@ -674,7 +674,8 @@ def form(dither, mode='drizzler', wave_start=None, wave_stop=None, start=0, dura
 
     if dithers_data is None:
         dithers_data = load_data(dither, wave_start, wave_stop, start, drizzle_params.inttime,
-                                 drizzle_params.wcs_timestep, ncpu=ncpu, exclude_flags=exclude_flags, ADI_mode=ADI_mode)
+                                 drizzle_params.wcs_timestep, ncpu=ncpu, exclude_flags=exclude_flags,
+                                 ADI_mode=adi_mode)
         if usecache:
             try:
                 with open(pkl_save, 'wb') as handle:
