@@ -120,24 +120,11 @@ class CosmicCleaner:
         """
         Generates the timestamps in microseconds to be removed from the obsFile. Removes doubles for clarity.
         """
-        #TODO replace this with array math
-
-        # This is ~ 1.4GB for the first file I tested it on
         mrr = np.max(self.removal_range)
         overlaps = [np.abs(i - self.cosmictimes) <= mrr for i in self.cosmictimes]
-
-        # An array version is like this but cosmicbunches would either be overlaps[i] or overlaps[:, i]
-        # overlaps = (self.cosmictimes-self.cosmictimes[:, None]) <= np.max(self.removal_range)
-
         cosmicbunches = [self.cosmictimes[i] for i in overlaps]
-        cvals = np.array([[np.mean(i), i[0]-self.removal_range[0], i[-1]+self.removal_range[1], len(i)]
-                          for i in cosmicbunches])
-
-        # TODO This seems guaranteed to go past the end of the array:   max(i)+d (which might be >1)-1
-        other_ndx = np.arange(len(overlaps), dtype=int) + cvals[:, 3].astype(int)-1
-        delidx, = ((cvals[other_ndx, 0] != cvals[:, 0]) & (cvals[:, 3] > 1)).nonzero()
-
-        cvals = np.delete(cvals, delidx, axis=0)
+        cvals = np.unique(np.array([[np.mean(i), i[0]-self.removal_range[0], i[-1]+self.removal_range[1], len(i)]
+                          for i in cosmicbunches]), axis=0)
 
         self.interval_starts = cvals[:, 1]
         self.interval_stops = cvals[:, 2]
