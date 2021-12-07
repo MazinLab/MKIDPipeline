@@ -123,7 +123,7 @@ def get_sample_data(dataset='default'):
 
 def get_sample_output(dataset='default'):
     data = [definitions.MKIDOutput(name=_namer('out'), data='dither0', min_wave='950 nm', max_wave='1375 nm', kind=k,
-                                   duration=10.0) for k in ('stack', 'drizzle', 'image', 'tcube', 'scube')] #TODO add 'list' back in once supported
+                                   duration=10.0) for k in ('drizzle', 'image', 'tcube', 'scube')]
     data.append(definitions.MKIDOutput(name=_namer('out'), data='dither0', min_wave='950 nm', max_wave='1375 nm',
                                        kind='drizzle', duration=10.0, timestep=1.0, wavestep= '0.0 nm'))
     data.append(definitions.MKIDOutput(name=_namer('out'), data='dither0', min_wave='950 nm', max_wave='1375 nm',
