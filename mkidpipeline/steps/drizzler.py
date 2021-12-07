@@ -45,17 +45,12 @@ EXCLUDE = ('pixcal.dead', 'pixcal.hot', 'pixcal.cold', 'beammap.noDacTone', 'wav
            'wavecal.no_histograms', 'wavecal.not_attempted', 'flatcal.bad')  # fill with undesired flags
 PROBLEM_FLAGS = tuple()  # fill with flags that will break drizzler
 
-
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!drizzler_cfg'
     REQUIRED_KEYS = (('plots', 'all', 'Which plots to generate: none|summary|all'),
                      ('pixfrac', 0.5, 'The drizzle algorithm pixel fraction'),
                      ('wcs_timestep', None, 'Seconds between different WCS (eg orientations). If None, the the '
                                             'non-blurring minimum (1 pixel at furthest dither center) will be used'),
-                     ('derotate', False, 'Subtract the Parallactic angle from individual frames for a derotated output.'
-                                         ' Overrides align_start_pa.'),
-                     #TODO make into a single argument: ADI_mode and move to output settings (we want to derotate within time bins)
-                     ('align_start_pa', False, 'Use the PA of the first frame for each frame in the sequence.'),
                      ('whitelight', False, 'If True will not expect an OBJECT, RA, or DEC in the header and will only '
                                            'use the CONEX position to calculate the WCS. Used for bench tests where '
                                            'data is not taken'),
@@ -560,7 +555,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, md, sin
             'weight': photons['weight'], 'photon_pixels': xy, 'obs_wcs_seq': wcs, 'duration': intt, 'metadata': md}
 
 
-def load_data(dither, wvl_min, wvl_max, startt, duration, wcs_timestep, derotate=True, align_start_pa=False, ncpu=1,
+def load_data(dither, wvl_min, wvl_max, startt, duration, wcs_timestep, ADI_mode=False, ncpu=1,
               exclude_flags=()):
     """
     Load the photons either by querying the photontables in parrallel or loading from pkl if it exists. The wcs
@@ -568,8 +563,11 @@ def load_data(dither, wvl_min, wvl_max, startt, duration, wcs_timestep, derotate
 
     startt must be relative to the start of the file in seconds
 
-    derotate takes precedence over align_start_pa
     """
+    if ADI_mode:
+        derotate = False
+    else:
+        derotate = True
     begin = time.time()
     filenames = [o.h5 for o in dither.obs]
     meta = [o.metadata for o in dither.obs]
@@ -577,7 +575,7 @@ def load_data(dither, wvl_min, wvl_max, startt, duration, wcs_timestep, derotate
         getLogger(__name__).info('No photontables found')
 
     offsets = [o.start - int(o.start) for o in dither.obs]  # How many seconds into the h5 does valid data start
-    single_pa_time = Photontable(filenames[0]).start_time if align_start_pa and not derotate else None
+    single_pa_time = Photontable(filenames[0]).start_time if ADI_mode else None
 
     if ncpu < 2:
         dithers_data = []
@@ -600,16 +598,14 @@ def load_data(dither, wvl_min, wvl_max, startt, duration, wcs_timestep, derotate
     return dithers_data
 
 
-def form(dither, mode='drizzler', derotate=True, wave_start=None, wave_stop=None, start=0, duration=None, pixfrac=.5,
+def form(dither, mode='drizzler', wave_start=None, wave_stop=None, start=0, duration=None, pixfrac=.5,
          wvl_bin_width=0.0 * u.nm, time_bin_width=0.0, wcs_timestep=1., usecache=True, ncpu=None,
-         exclude_flags=PROBLEM_FLAGS + EXCLUDE, whitelight=False, align_start_pa=False, debug_dither_plot=False,
+         exclude_flags=PROBLEM_FLAGS + EXCLUDE, whitelight=False, ADI_mode=False, debug_dither_plot=False,
          output_file='', weight=False):
     """
     Takes in a MKIDDitherDescription object and drizzles each frame onto a common sky grid.
     :param dither: MKIDDitherDescription, contains the lists of observations and metadata for a set of dithers
     :param mode: 'drizzler' only currently accepted mode
-    :param derotate: If True, all dithers (and integrations within) are rotated to their orientation on sky. If False
-    only the device angle rotation will be subtracted from each frame
     :param wave_start: start wavelength. See photontable.query()
     :param wave_stop: stop wavelength. See photontable.query()
     :param start: start offset (in seconds) for photons used in each dither.
@@ -623,9 +619,8 @@ def form(dither, mode='drizzler', derotate=True, wave_start=None, wave_stop=None
     :param usecache: True means the output of load_data() is stored and reloaded for subsequent runs of form
     :param ncpu: Number of cpu used when loading and reformatting the dither photontables
     :param exclude_flags: List of pixelflags to be excluded from analysis
-    :param whitelight: Relevant parameters are updated to perform a whitelight dither. Takes presedence over derotate
-    user input
-    :param align_start_pa: If derotate is False then the first image can be oriented to its on sky position and that
+    :param whitelight: Relevant parameters are updated to perform a whitelight dither.
+    :param ADI_mode: The first image is oriented to its on sky position and that
     same rotation offset applied to all subsequent frames. Useful for the purpose of ADI.
     :param debug_dither_plot: Plot the location of frames with simple boxes for calibration/debugging purposes
     :param output_file: Name of the output save file
@@ -657,7 +652,7 @@ def form(dither, mode='drizzler', derotate=True, wave_start=None, wave_stop=None
     dithers_data = None
     if usecache:
         settings = (tuple(o.h5 for o in dither.obs), dither.name, wave_start.value, wave_stop.value, start,
-                    drizzle_params.inttime, drizzle_params.wcs_timestep, derotate, exclude_flags, align_start_pa)
+                    drizzle_params.inttime, drizzle_params.wcs_timestep, exclude_flags, ADI_mode)
         setting_hash = hashlib.md5(str(settings).encode()).hexdigest()
         pkl_save = os.path.join(mkidpipeline.config.config.paths.tmp,
                                 f'drizzler_{getpass.getuser()}_{dither.name}_{setting_hash}.pkl')
@@ -679,8 +674,7 @@ def form(dither, mode='drizzler', derotate=True, wave_start=None, wave_stop=None
 
     if dithers_data is None:
         dithers_data = load_data(dither, wave_start, wave_stop, start, drizzle_params.inttime,
-                                 drizzle_params.wcs_timestep, derotate=derotate,
-                                 ncpu=ncpu, exclude_flags=exclude_flags, align_start_pa=align_start_pa)
+                                 drizzle_params.wcs_timestep, ncpu=ncpu, exclude_flags=exclude_flags, ADI_mode=ADI_mode)
         if usecache:
             try:
                 with open(pkl_save, 'wb') as handle:
