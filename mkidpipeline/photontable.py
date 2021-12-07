@@ -934,6 +934,11 @@ class Photontable:
         md = self.metadata(timestamp=start)
 
         md['E_H5FILE'] = self.filename
+        
+        import mkidpipeline.config as pipeconfig
+        md['E_GITHSH'] = pipeconfig.git_hash()
+        md['E_CFGHSH'] = pipeconfig.config_hash()
+
         md['UNIXSTR'] = time_nfo['start']
         md['UNIXEND'] = time_nfo['stop']
         md['EXPTIME'] = time_nfo['duration']
