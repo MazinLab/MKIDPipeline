@@ -139,6 +139,3 @@ if __name__ == "__main__":
             steps.speccal.fetch(outputs.speccals)
 
         steps.output.generate(outputs)
-
-        if 'speccal' in config.config.flow:
-            pipe.batch_applier('speccal', outputs.to_speccal)
