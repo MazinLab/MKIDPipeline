@@ -24,7 +24,6 @@ def parse():
     parser.add_argument('--vet',  action='store_true', help='Check pipeline configuration and exit', default=False)
     parser.add_argument('--init', action='store_true', help='Setup the pipeline, clobbers _default.yaml as needed')
     parser.add_argument('--verbose', action='store_true', help='Verbose')
-    parser.add_argument('--run-step', dest='single_step', help='Run a single named step', type=str)
     parser.add_argument('--make-dir', dest='make_paths', help='Create all needed directories', action='store_true')
     parser.add_argument('-i', '--info', dest='info', help='Report information about the configuration', type=str,
                         default='database')
@@ -92,16 +91,14 @@ if __name__ == "__main__":
         getLogger('mkidpipeline').critical(issue_report)
         sys.exit(1)
     else:
-        getLogger('mkidpipeline').info('Validation of output and data successful! Done')
+        getLogger('mkidpipeline').info('Validation of output and data successful!')
+
     if args.vet:
+        getLogger('mkidpipeline').info('Vetting YAMLs complete. Done.')
         sys.exit(0)
 
     if args.info:
         config.inspect_database(detailed=args.verbose)
-
-    if args.single_step:
-        run_step(args.single_step, dataset)
-        sys.exit(0)
 
     if args.makeout:
         # [] denote optional
