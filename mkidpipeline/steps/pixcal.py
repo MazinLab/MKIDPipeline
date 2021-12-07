@@ -114,7 +114,6 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
 
     if raw_image[np.isfinite(raw_image)].sum() <= 0:
         getLogger(__name__).warning('Entire image consists of pixels with 0 counts')
-        dead_mask = np.ones_like(raw_image, dtype=bool)
         iteration = -1
     else:
         for iteration in range(max_iter):
@@ -352,7 +351,7 @@ def _compute_mask(pt, method, step, startt, stopt, methodkw, weight, n_sigma):
         masks[i, :, :, 0] = result['hot']
         masks[i, :, :, 1] = result['cold']
         masks[i, :, :, 2] = result['dead']
-    mask = masks.all(axis=0) # all hot, all cold, or all dead
+    mask = masks.any(axis=0) # all hot, all cold, or all dead
     meta = {'pixcal.method':method, 'pixcal.step':step}
     for k in methodkw:
         meta[f'pixcal.m_{k}']=methodkw[k]
