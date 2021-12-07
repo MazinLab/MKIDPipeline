@@ -1432,6 +1432,14 @@ class MKIDOutputCollection:
                 yield o
 
     @property
+    def to_buildhdf(self):
+        return self
+
+    @property
+    def to_attachmeta(self):
+        return self
+
+    @property
     def to_wavecal(self):
         def input_observations(obs):
             for o in obs:

@@ -82,7 +82,7 @@ def generate_default_config(instrument='MEC'):
 
 
 def batch_applier(step, obs, ncpu=None, unique_h5=True):
-    if step == 'metadata':
+    if step == 'attachmeta':
         _batch_apply_metadata(obs)
         return
     if step == 'buildhdf':

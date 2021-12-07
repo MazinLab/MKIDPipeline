@@ -108,10 +108,11 @@ if __name__ == "__main__":
         # build, meta, wave, [pix, lin, cr] -> flat
         # build, meta -> wave
 
-        pipe.batch_applier('buildhdf', outputs)
 
-        if 'metadata' in config.config.flow:
-            pipe.batch_applier('metadata', outputs)
+        pipe.batch_applier('buildhdf', outputs.to_buildhdf)
+
+        if 'attachmeta' in config.config.flow:
+            pipe.batch_applier('attachmeta', outputs.to_attachmeta)
 
         if 'wavecal' in config.config.flow:
             steps.wavecal.fetch(outputs.wavecals)
