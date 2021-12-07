@@ -645,6 +645,15 @@ def form(dither, mode='drizzler', wave_start=None, wave_stop=None, start=0, dura
         getLogger(__name__).info(f'Using user specified integration time of {duration:.1f} s')
         used_inttime = duration
 
+    if dither_inttime < time_bin_width and adi_mode:
+        getLogger(__name__).error(f" Temporal bin widths below the dither frame duration are not presently supported\n"
+                                  f"\t for ADI drizzles. To correct this the PA at each time bin center needs to\n"
+                                  f"\t be computed and then that PA added back to the WCS for each bin.\n"
+                                  f"\t WCS solutions for the bins need to be computed with their PA subtracted\n"
+                                  f"\t (i.e. with PA subtraction enabled)")
+        getLogger(__name__).error(f'Unable to form {dither}')
+        return
+
     getLogger(__name__).debug('Parsing Params')
     drizzle_params = DrizzleParams(dither, used_inttime, wcs_timestep, pixfrac, startt=start, whitelight=whitelight)
 
@@ -722,4 +731,3 @@ def form(dither, mode='drizzler', wave_start=None, wave_stop=None, start=0, dura
         getLogger(__name__).debug(f'Writing fits cube of type {cube_type}.')
         driz.write(output_file, cube_type=cube_type, time_bin_edges=time_bin_edges, wvl_bin_edges=wvl_bin_edges)
     getLogger(__name__).info('Finished')
-    return driz
