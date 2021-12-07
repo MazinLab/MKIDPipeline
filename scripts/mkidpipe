@@ -104,7 +104,7 @@ if __name__ == "__main__":
         
         for step in config.config.flow:
             try:
-                pipe.steps[step].fetch(getattr(outputs, '{step}s'))
+                pipe.PIPELINE_STEPS[step].fetch(getattr(outputs, f'{step}s'))
             except AttributeError:
                 pass
             if step == 'wavecal':
