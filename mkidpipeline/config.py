@@ -1,6 +1,7 @@
 import os
 import multiprocessing as mp
 import pathlib
+from io import StringIO
 
 import mkidcore.config
 from mkidcore.corelog import getLogger
@@ -17,6 +18,18 @@ _dataset = None
 _metadata = {}
 
 yaml = mkidcore.config.yaml
+
+
+def git_hash():
+    return 'Not Implemented'  # + mkidcore.utils.git_hash()
+
+
+def config_hash():
+    """Return a hash of the pipeline config"""
+    global config
+    f = StringIO()
+    yaml.dump(config, f)
+    return str(hash(f.getvalue()))
 
 
 def dump_dataconfig(data, file):
