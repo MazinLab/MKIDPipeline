@@ -73,5 +73,5 @@ def generate(outputs: definitions.MKIDOutputCollection, remake=False):
             drizzler.form(o.data, pixfrac=config.drizzler.pixfrac,
                           wcs_timestep=config.drizzler.wcs_timestep, usecache=config.drizzler.usecache,
                           ncpu=config.get('drizzler.ncpu'), derotate=config.drizzler.derotate,
-                          align_start_pa=config.drizzler.align_start_pa, whitelight=config.drizzler.whitelight,
-                          debug_dither_plot=config.drizzler.plots == 'all', **kwargs)
+                          whitelight=config.drizzler.whitelight, debug_dither_plot=config.drizzler.plots == 'all',
+                          **kwargs)

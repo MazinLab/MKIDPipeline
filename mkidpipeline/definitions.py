@@ -1176,6 +1176,8 @@ class MKIDOutput(DataBase):
                             'so set if making multiple outputs with different settings', str),
         Key('units', 'photons', 'photons|photons/s. Drizzled data will always be in photons/s', str),
         Key('use_weights', True, 'Use photon weights', bool),
+        Key('ADI_mode', False, 'Output compatible with ADI pipeline - do not apply any rotation to outputs '
+                               '(If True will overwrite derotate)', bool),
         Key('lincal', False, 'Apply and use lincal, slow', bool),
         Key('pixcal', True, 'Apply pixcal', bool),
         Key('cosmical', False, 'Determine cosmic ray hits, slow', bool),
@@ -1232,7 +1234,7 @@ class MKIDOutput(DataBase):
         kwargs = dict(start=self.start_offset, duration=self.duration, weight=self.use_weights,
                       wave_start=self.min_wave, wave_stop=self.max_wave, rate=self.units == 'photons/s',
                       bin_type=bin_type, cube_type=cube_type, wvl_bin_width=wave_step, time_bin_width=time_step,
-                      exclude_flags=mkidcore.pixelflags.PROBLEM_FLAGS)
+                      ADI_mode = self.ADI_mode, exclude_flags=mkidcore.pixelflags.PROBLEM_FLAGS)
         return mkidcore.config.ConfigThing().registerfromkvlist(kwargs.items(), namespace='')
 
     @property
