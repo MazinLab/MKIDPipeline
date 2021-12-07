@@ -10,7 +10,7 @@ import mkidpipeline.config as config
 import mkidpipeline.steps
 
 
-PIPELINE_STEPS = {}
+PIPELINE_STEPS = {'attachmeta': None}
 for info in pkgutil.iter_modules(mkidpipeline.steps.__path__):
     if info.name == 'sample':
         continue
