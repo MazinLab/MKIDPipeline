@@ -754,8 +754,7 @@ class Photontable:
         wcs_solns = mkidcore.metadata.build_wcs(header, astropy.time.Time(val=sample_times, format='unix'), ref_pixels,
                                                 self.beamImage.shape, subtract_parallactic=derotate, cubeaxis=cubeaxis)
         if single_pa_time is not None:
-            wcs_solns = wcs_solns[0]
-
+            wcs_solns = np.array([wcs_solns[0]])
         return wcs_solns
 
     def get_pixel_spectrum(self, pixel, start=None, duration=None, weight=False,
