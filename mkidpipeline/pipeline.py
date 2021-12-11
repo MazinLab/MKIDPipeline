@@ -22,17 +22,22 @@ for info in pkgutil.iter_modules(mkidpipeline.steps.__path__):
     except AttributeError:
         pass
 
-_flags = {'beammap': BEAMMAP_FLAGS}
-for name, step in PIPELINE_STEPS.items():
-    try:
-        _flags[name] = step.FLAGS
-    except AttributeError:
-        getLogger(__name__).debug(f"Step {name} does not export any pipeline flags.")
-        pass
 
-PIPELINE_FLAGS = FlagSet.define(*sorted([(f"{k}.{f.name.replace(' ', '_')}", i, f.description) for i, (k, f) in
-                                         enumerate((k, f) for k, flagset in _flags.items() for f in flagset)]))
-del _flags
+def _build_pipeline_flagset():
+    flags = {'beammap': BEAMMAP_FLAGS}
+    for name, step in PIPELINE_STEPS.items():
+        try:
+            flags[name] = step.FLAGS
+        except AttributeError:
+            getLogger(__name__).debug(f"Step {name} does not export any pipeline flags.")
+            pass
+
+    return FlagSet.define(*sorted([(f"{k}.{f.name.replace(' ', '_')}", i, f.description) for i, (k, f) in
+                          enumerate((k, f) for k, flagset in flags.items() for f in flagset)]))
+
+
+PIPELINE_FLAGS = _build_pipeline_flagset()
+
 
 PROBLEM_FLAGS = ('pixcal.hot', 'pixcal.cold', 'pixcal.dead', 'beammap.noDacTone', 'wavecal.bad',
                  'wavecal.failed_validation', 'wavecal.failed_convergence', 'wavecal.not_monotonic',
