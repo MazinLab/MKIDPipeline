@@ -8,7 +8,7 @@ from matplotlib.patches import Rectangle
 from photutils import DAOStarFinder, centroids, centroid_2dg
 from scipy.stats import chisquare
 from astropy import stats
-from mkidpipeline.definitions import MKIDDitherDescription
+from mkidpipeline.definitions import MKIDDither
 
 
 #Example (with a configured pipeline)
@@ -17,7 +17,7 @@ from mkidpipeline.definitions import MKIDDitherDescription
 
 
 def get_transforms(ditherfile, wvl_start=None, wvl_stop=None, fwhm_guess=3.0, fit_power=1, plot=False):
-    dither = MKIDDitherDescription(name=os.path.basename(ditherfile), data=ditherfile)
+    dither = MKIDDither(name=os.path.basename(ditherfile), data=ditherfile)
 
     box_size = fwhm_guess * 10
 

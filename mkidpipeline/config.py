@@ -35,8 +35,8 @@ def config_hash():
 def dump_dataconfig(data, file):
     """
     writes data to the yaml file
-    :param data: tuple containing all of the data. Can be of type MKIDObservation, MKIDWavecalDescription,
-    MKIDFlatcalDescription, MKIDSpeccalDescription, MKIDWCSCalDescription, or MKIDDitherDescription
+    :param data: tuple containing all of the data. Can be of type MKIDObservation, MKIDWavecal,
+    MKIDFlatcal, MKIDSpeccal, MKIDWCSCal, or MKIDDither
     :param file: yaml file to which to write the data
     :return:
     """
@@ -53,7 +53,7 @@ def dump_dataconfig(data, file):
         f.writelines(lines)
 
 
-# Note that in contrast to the Keys or DataBase these don't work quite the same way
+# Note that in contrast to the Keys or _Base these don't work quite the same way
 # required keys specify items that the resulting object is required to have, not that use
 # user is required to pass, they are
 class BaseStepConfig(mkidcore.config.ConfigThing):

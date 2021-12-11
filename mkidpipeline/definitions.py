@@ -30,7 +30,7 @@ class Key:
         self.dtype = dtype
 
 
-class DataBase:
+class _Base:
     """Superclass to handle all MKID data. Verifies and sets all required keys"""
     KEYS = tuple()
     REQUIRED = tuple()  # May set individual elements to tuples of keys if they are alternates e.g. stop/duration
@@ -177,7 +177,7 @@ class DataBase:
         return tuple([k.name for k in self.KEYS])
 
 
-class MKIDTimerange(DataBase):
+class MKIDTimerange(_Base):
     """
     Basic MKID data type. By definition, an MKIDTimerange can specify no calibrations to be applied and only consists
     of a start, ether a stop or a duration, and optional dark and header fields. A dark, if specified, is itself an
@@ -334,8 +334,6 @@ class MKIDObservation(MKIDTimerange):
     )
     REQUIRED = MKIDTimerange.REQUIRED + ('wavecal', 'flatcal', 'wcscal', 'speccal')
 
-    # OPTIONAL = ('standard', 'conex_pos')
-
     @classmethod
     def to_yaml(cls, representer, node):
         return super().to_yaml(representer, node, use_underscore=('wavecal', 'flatcal', 'wcscal', 'speccal'))  # save as
@@ -400,8 +398,8 @@ class MKIDObservation(MKIDTimerange):
                 setattr(self, k, kwargs[k][item])  # pull item from kwargs[k]
 
 
-class CalDefinitionMixin:
-    """Supplementary class to DataBase for the calibration data descriptions"""
+class CalibMixin:
+    """Supplementary class to _Base for the calibration data descriptions"""
 
     @property
     def path(self):
@@ -443,9 +441,9 @@ class CalDefinitionMixin:
         return self.id_for_config(mkpc.config)
 
 
-class MKIDWavecalDescription(DataBase, CalDefinitionMixin):
+class MKIDWavecal(_Base, CalibMixin):
     """Data description for the wavelength calibration data - requires keys 'name' and 'data'"""
-    yaml_tag = u'!MKIDWavecalDescription'
+    yaml_tag = u'!MKIDWavecal'
     KEYS = (
         Key(name='name', default='', comment='A name', dtype=str),
         Key('data', None, 'List of MKIDTimerange named like 950 nm', tuple),
@@ -464,7 +462,7 @@ class MKIDWavecalDescription(DataBase, CalDefinitionMixin):
     def __str__(self):
         start = min(x.start for x in self.data)
         stop = min(x.stop for x in self.data)
-        return f'{self.name} (MKIDWavecalDescription): {start}-{stop}\n' + '\n '.join(str(x) for x in self.data)
+        return f'{self.name} (MKIDWavecal): {start}-{stop}\n' + '\n '.join(str(x) for x in self.data)
 
     @property
     def wavelengths(self):
@@ -485,9 +483,9 @@ class MKIDWavecalDescription(DataBase, CalDefinitionMixin):
         pass
 
 
-class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
+class MKIDFlatcal(_Base, CalibMixin):
     """Data description for the flat calibration data - requires keys 'name' and 'data'"""
-    yaml_tag = u'!MKIDFlatcalDescription'
+    yaml_tag = u'!MKIDFlatcal'
     KEYS = (
         Key(name='name', default=None, comment='A name', dtype=str),
         Key('data', None, 'An MKIDObservation (for a whitelight flat) or an MKIDWavedata '
@@ -505,7 +503,7 @@ class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if isinstance(self.data, (MKIDWavecalDescription, str)):
+        if isinstance(self.data, (MKIDWavecal, str)):
             try:
                 if self.wavecal_offset < 1:
                     self._key_errors['wavecal_offset'] += ['must be >= 1s']
@@ -520,8 +518,8 @@ class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
         else:
             if not isinstance(self.data, MKIDObservation):
                 self._key_errors['data'] += [
-                    'must be an MKIDObservation, MKIDWavecalDescription, or name of the latter']
-            if not isinstance(getattr(self.data, 'wavecal', None), (MKIDWavecalDescription, str)):
+                    'must be an MKIDObservation, MKIDWavecal, or name of the latter']
+            if not isinstance(getattr(self.data, 'wavecal', None), (MKIDWavecal, str)):
                 self._key_errors['data'] += ['data must specify a wavecal when an MKIDObservation']
             self.wavecal_offset = None
             self.wavecal_duration = None
@@ -556,16 +554,16 @@ class MKIDFlatcalDescription(DataBase, CalDefinitionMixin):
                 yield o
 
     def associate(self, **kwargs):
-        """Pulls identifiers for associated datasets needed for MKIDFlatcalDescription"""
+        """Pulls identifiers for associated datasets needed for MKIDFlatcal"""
         if isinstance(self.data, str):
             self.data = kwargs['wavecal'].get(self.data, self.data)
         else:
             self.data.associate(**kwargs)
 
 
-class MKIDSpeccalDescription(DataBase, CalDefinitionMixin):
+class MKIDSpeccal(_Base, CalibMixin):
     """Data description for the spectrophotometric calibration data - requires keys name, data, and aperture"""
-    yaml_tag = u'!MKIDSpeccalDescription'
+    yaml_tag = u'!MKIDSpeccal'
     KEYS = (
         Key(name='name', default='', comment='A name', dtype=str),
         Key('data', None, 'MKIDObservation or MKIDDither', None),
@@ -577,8 +575,8 @@ class MKIDSpeccalDescription(DataBase, CalDefinitionMixin):
     def __init__(self, *args, **kwargs):
         self.aperture_info = None
         super().__init__(*args, **kwargs)
-        if not isinstance(self.data, (MKIDObservation, MKIDDitherDescription, str)):
-            self._key_errors['data'] += ['Much be an MKIDObservation, an MKIDDitherDescription, or name of the latter']
+        if not isinstance(self.data, (MKIDObservation, MKIDDither, str)):
+            self._key_errors['data'] += ['Much be an MKIDObservation, an MKIDDither, or name of the latter']
         if isinstance(self.aperture, str):
             if self.aperture != 'satellite':
                 self._key_errors['aperture'] += ['satellite is the only acceptable string']
@@ -605,7 +603,7 @@ class MKIDSpeccalDescription(DataBase, CalDefinitionMixin):
                 yield o
 
     def associate(self, **kwargs):
-        """Pulls identifiers for associated datasets needed for MKIDSpeccalDescription"""
+        """Pulls identifiers for associated datasets needed for MKIDSpeccal"""
         if isinstance(self.data, str):
             self.data = kwargs['dither'].get(self.data, self.data)
         else:
@@ -613,15 +611,15 @@ class MKIDSpeccalDescription(DataBase, CalDefinitionMixin):
 
     def __str__(self):
         try:
-            s = f'{self.name} (MKIDSpeccalDescription):' + '\n '.join(str(x) for x in self.data)
+            s = f'{self.name} (MKIDSpeccal):' + '\n '.join(str(x) for x in self.data)
         except TypeError:
-            s = f'{self.name} (MKIDSpeccalDescription):' + '\n '.join(str(x) for x in self.data.obs)
+            s = f'{self.name} (MKIDSpeccal):' + '\n '.join(str(x) for x in self.data.obs)
         return s
 
 
-class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
+class MKIDWCSCal(_Base, CalibMixin):
     """
-    The MKIDWCSCalDescription defines the coordinate relation between detector pixels and on-sky RA/DEC
+    The MKIDWCSCal defines the coordinate relation between detector pixels and on-sky RA/DEC
 
     Keys are
     name - required
@@ -632,7 +630,7 @@ class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
     conex_ref - 2 tuple (dither controller position for pixel_ref)
     pixel_ref - 2 tuple (pixel position of optical axis at conex_ref)
     """
-    yaml_tag = '!MKIDWCSCalDescription'
+    yaml_tag = '!MKIDWCSCal'
     KEYS = (
         Key(name='name', default=None, comment='A name', dtype=str),
         Key('data', None, 'MKIDObservation, MKIDDither, or platescale (e.g. 10 mas)', None),
@@ -645,14 +643,14 @@ class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
     STEPNAME = 'wcscal'
 
     def __init__(self, *args, **kwargs):
-        super(MKIDWCSCalDescription, self).__init__(*args, **kwargs)
+        super(MKIDWCSCal, self).__init__(*args, **kwargs)
 
         if isinstance(self.data, u.Quantity):
             try:
                 self.data.to('arcsec')
             except Exception:
                 self._key_errors['platescale'] += ['must be a valid angular unit e.g. "10 mas"']
-        elif isinstance(self.data, (MKIDObservation, MKIDDitherDescription)):
+        elif isinstance(self.data, (MKIDObservation, MKIDDither)):
             if self.pixel_ref is None:
                 self._key_errors['pixel_ref'] += ['must be an (x,y) position for the central source at conex_ref']
             if self.conex_ref is None:
@@ -701,26 +699,26 @@ class MKIDWCSCalDescription(DataBase, CalDefinitionMixin):
                 yield o
 
     def associate(self, **kwargs):
-        """Pulls identifiers for associated datasets needed for MKIDWCSCalDescription"""
+        """Pulls identifiers for associated datasets needed for MKIDWCSCal"""
         if isinstance(self.data, str):
             self.data = kwargs['dither'].get(self.data, self.data)
-        elif isinstance(self.data, (MKIDObservation, MKIDDitherDescription)):
+        elif isinstance(self.data, (MKIDObservation, MKIDDither)):
             self.data.associate(**kwargs)
 
     def __str__(self):
         try:
-            s = f'{self.name} (MKIDWCSCalDescription):' + '\n '.join(str(x) for x in self.data)
+            s = f'{self.name} (MKIDWCSCal):' + '\n '.join(str(x) for x in self.data)
         except TypeError:
             try:
-                s = f'{self.name} (MKIDWCSCalDescription):' + '\n '.join(str(x) for x in self.data.obs)
+                s = f'{self.name} (MKIDWCSCal):' + '\n '.join(str(x) for x in self.data.obs)
             except AttributeError:
-                s = f'{self.name} (MKIDWCSCalDescription):' + '\n '.join(str(self.data))
+                s = f'{self.name} (MKIDWCSCal):' + '\n '.join(str(self.data))
         return s
 
 
-class MKIDDitherDescription(DataBase):
+class MKIDDither(_Base):
     """Data description for dithered data - requires keys name, data, wavecal, flatcal, and wcscal"""
-    yaml_tag = '!MKIDDitherDescription'
+    yaml_tag = '!MKIDDither'
     KEYS = (
         Key(name='name', default=None, comment='A name', dtype=str),
         Key('data', None, 'A list of !sob composing the dither, a unix time that falls within the range of a '
@@ -845,7 +843,7 @@ class MKIDDitherDescription(DataBase):
             pass
 
     def associate(self, **kwargs):
-        """Pulls identifiers for associated datasets needed for MKIDDitherDescription"""
+        """Pulls identifiers for associated datasets needed for MKIDDither"""
         for k in ('wavecal', 'flatcal', 'speccal', 'wcscal'):
             if k not in kwargs:
                 continue
@@ -856,7 +854,7 @@ class MKIDDitherDescription(DataBase):
             o.associate(**kwargs)
 
     def obs_for_time(self, timestamp):
-        """Returns the MKIDObservation object within an MKIDDitherDescription containing time 'timestamp'"""
+        """Returns the MKIDObservation object within an MKIDDither containing time 'timestamp'"""
         for o in self.obs:
             if o.start <= timestamp <= o.stop:
                 return o
@@ -864,18 +862,18 @@ class MKIDDitherDescription(DataBase):
 
     @property
     def inttime(self):
-        """Returns a list of the durations of the MKIDObservation objects that compose the MKIDDitherDescription"""
+        """Returns a list of the durations of the MKIDObservation objects that compose the MKIDDither"""
         return [o.duration for o in self.obs]
 
     @property
     def pos(self):
-        """Returns a list of the CONEX positions of the MKIDObservation objects that compose the MKIDDitherDescription"""
+        """Returns a list of the CONEX positions of the MKIDObservation objects that compose the MKIDDither"""
         return [o.dither_pos for o in self.obs]
 
     @property
     def timeranges(self):
         """
-        Returns the MKIDTimerange objects directly associated with the MKIDDitherDescription. This includes darks, but
+        Returns the MKIDTimerange objects directly associated with the MKIDDither. This includes darks, but
         not the nested MKIDtTimeranges for the associated calibration steps
         """
         for o in self.obs:
@@ -885,9 +883,9 @@ class MKIDDitherDescription(DataBase):
     @property
     def input_timeranges(self):
         """
-        Returns all of the MKIDTimerange objects associated with the MKIDDitherDescription including the nested
-        MKIDTimerange objects in the associated MKIDWavecalDescription, MKIDFlatcalDescription, MKIDWCSCalDescription,
-        and MKIDSpeccalDescription (as applicable).
+        Returns all of the MKIDTimerange objects associated with the MKIDDither including the nested
+        MKIDTimerange objects in the associated MKIDWavecal, MKIDFlatcal, MKIDWCSCal,
+        and MKIDSpeccal (as applicable).
         """
         for o in self.obs:
             for tr in o.input_timeranges:
@@ -961,7 +959,7 @@ class MKIDObservingDataset:
     def _find_nested(self, attr, kind, look_in):
         """
         Internal function for finding nested data descriptions associated with another data description (i.e. find an
-        MKIDWavecalDescription associated with an MKIDObservation). Yields an object of type 'kind'.
+        MKIDWavecal associated with an MKIDObservation). Yields an object of type 'kind'.
         """
         for r in self.meta:
             if isinstance(r, kind):
@@ -1006,56 +1004,56 @@ class MKIDObservingDataset:
     def wavecals(self):
         """
         Returns a set of all of the MKIDWavecalDescriptions that are associated with each MKIDObservation,
-        MKIDWCSCalDescription, MKIDDitherDescription, or MKIDFlatcalDescription.
+        MKIDWCSCal, MKIDDither, or MKIDFlatcal.
         """
-        look_in = (MKIDObservation, MKIDWCSCalDescription, MKIDDitherDescription, MKIDFlatcalDescription,
-                   MKIDSpeccalDescription)
-        return set(self._find_nested('wavecal', MKIDWavecalDescription, look_in))
+        look_in = (MKIDObservation, MKIDWCSCal, MKIDDither, MKIDFlatcal,
+                   MKIDSpeccal)
+        return set(self._find_nested('wavecal', MKIDWavecal, look_in))
 
     @property
     def flatcals(self):
         """
         Returns a set of all of the MKIDFlatcalDescriptions that are associated with each MKIDObservation,
-        MKIDWCSCalDescription, MKIDDitherDescription, or MKIDSpeccalDescription.
+        MKIDWCSCal, MKIDDither, or MKIDSpeccal.
         """
-        look_in = (MKIDObservation, MKIDWCSCalDescription, MKIDDitherDescription, MKIDSpeccalDescription)
-        return set(self._find_nested('flatcal', MKIDFlatcalDescription, look_in))
+        look_in = (MKIDObservation, MKIDWCSCal, MKIDDither, MKIDSpeccal)
+        return set(self._find_nested('flatcal', MKIDFlatcal, look_in))
 
     @property
     def wcscals(self):
         """
         Returns a set of all of the MKIDWCSCalDescriptions that are associated with each MKIDObservation,
-        MKIDDitherDescription, or MKIDSpeccalDescription.
+        MKIDDither, or MKIDSpeccal.
         """
-        look_in = (MKIDObservation, MKIDDitherDescription, MKIDSpeccalDescription)
-        return set(self._find_nested('wcscal', MKIDWCSCalDescription, look_in))
+        look_in = (MKIDObservation, MKIDDither, MKIDSpeccal)
+        return set(self._find_nested('wcscal', MKIDWCSCal, look_in))
 
     @property
     def dithers(self):
         """
-        Returns a set of all of the MKIDDitherDescriptions that are associated with each MKIDDitherDescription,
-        or MKIDSpeccalDescription.
+        Returns a set of all of the MKIDDitherDescriptions that are associated with each MKIDDither,
+        or MKIDSpeccal.
         """
         for r in self.meta:
-            if isinstance(r, MKIDDitherDescription):
+            if isinstance(r, MKIDDither):
                 yield r
-            if isinstance(r, MKIDSpeccalDescription) and isinstance(r.data, MKIDDitherDescription):
+            if isinstance(r, MKIDSpeccal) and isinstance(r.data, MKIDDither):
                 yield r.data
 
     @property
     def speccals(self):
         """
-        Returns a set of all of the MKIDSpeccalDescriptions that are associated with each MKIDDitherDescription,
+        Returns a set of all of the MKIDSpeccalDescriptions that are associated with each MKIDDither,
         or MKIDObservation.
         """
-        look_in = (MKIDObservation, MKIDDitherDescription)
-        return set(self._find_nested('speccal', MKIDSpeccalDescription, look_in))
+        look_in = (MKIDObservation, MKIDDither)
+        return set(self._find_nested('speccal', MKIDSpeccal, look_in))
 
     @property
     def all_observations(self):
         """
-        Returns a set of all of the MKIDObservations that are associated with each MKIDFlatcalDescription,
-        MKIDWCSCalDescription, MKIDSpeccalDescription, or MKIDDitherDescription.
+        Returns a set of all of the MKIDObservations that are associated with each MKIDFlatcal,
+        MKIDWCSCal, MKIDSpeccal, or MKIDDither.
 
         Note that nested definitions are not included
         """
@@ -1063,20 +1061,20 @@ class MKIDObservingDataset:
             if isinstance(o, MKIDObservation):
                 yield o
         for d in self.meta:
-            if isinstance(d, MKIDFlatcalDescription):
+            if isinstance(d, MKIDFlatcal):
                 for o in d.obs:
                     yield o
         for d in self.meta:
-            if isinstance(d, MKIDWCSCalDescription):
+            if isinstance(d, MKIDWCSCal):
                 for o in d.obs:
                     if o:
                         yield o
         for d in self.meta:
-            if isinstance(d, MKIDSpeccalDescription):
+            if isinstance(d, MKIDSpeccal):
                 for o in d.obs:
                     yield o
         for d in self.meta:
-            if isinstance(d, MKIDDitherDescription):
+            if isinstance(d, MKIDDither):
                 for o in d.obs:
                     yield o
 
@@ -1108,18 +1106,18 @@ class MKIDObservingDataset:
         Returns all items that can have flatcal applied. Must return EVERY item in the dataset that might have .flatcal
         """
         return ([o for o in self.meta if isinstance(o, MKIDObservation)] +
-                [o for d in self.meta if isinstance(d, MKIDDitherDescription) for o in d.obs] +
-                [o for d in self.meta if isinstance(d, MKIDSpeccalDescription) for o in d.obs] +
-                [o for d in self.meta if isinstance(d, MKIDWCSCalDescription) for o in d.obs if o])
+                [o for d in self.meta if isinstance(d, MKIDDither) for o in d.obs] +
+                [o for d in self.meta if isinstance(d, MKIDSpeccal) for o in d.obs] +
+                [o for d in self.meta if isinstance(d, MKIDWCSCal) for o in d.obs if o])
 
     @property
     def wcscalable(self):
         """
         Returns all items that can have wcscal applied. Must return EVERY item in the dataset that might have .wcscal
         """
-        return ([o for d in self.meta if isinstance(d, MKIDSpeccalDescription) for o in d.obs] +
+        return ([o for d in self.meta if isinstance(d, MKIDSpeccal) for o in d.obs] +
                 [o for o in self.meta if isinstance(o, MKIDObservation)] +
-                [o for d in self.meta if isinstance(d, MKIDDitherDescription) for o in d.obs])
+                [o for d in self.meta if isinstance(d, MKIDDither) for o in d.obs])
 
     @property
     def speccalable(self):
@@ -1127,7 +1125,7 @@ class MKIDObservingDataset:
         Returns all items that can have speccal applied. Must return EVERY item in the dataset that might have .speccal
         """
         return ([o for o in self.meta if isinstance(o, MKIDObservation)] +
-                [o for d in self.meta if isinstance(d, MKIDDitherDescription) for o in d.obs])
+                [o for d in self.meta if isinstance(d, MKIDDither) for o in d.obs])
 
     @property
     def description(self):
@@ -1146,7 +1144,7 @@ class MKIDObservingDataset:
         return s
 
 
-class MKIDOutput(DataBase):
+class MKIDOutput(_Base):
     """
 
     Kind 'movie' requires exp_timestep and either frameduration or movieduration with frameduration
@@ -1211,7 +1209,7 @@ class MKIDOutput(DataBase):
     def associate(self, data):
         if not isinstance(self.data, str):
             raise RuntimeError('Association already complete')
-        if self.wants_drizzled and not isinstance(data, MKIDDitherDescription):
+        if self.wants_drizzled and not isinstance(data, MKIDDither):
             raise ValueError(f'Output {self.kind} requires a dither')
         if self.data != data.name:
             getLogger(__name__).warning(f'Data named {data.name} used of dataset {self.data}')
@@ -1378,7 +1376,7 @@ class MKIDOutputCollection:
     def wavecals(self):
         """
         Returns a set of all of the MKIDObservations affiliated with an output that have an associated
-        MKIDWavecalDescription
+        MKIDWavecal
         """
         return set([o.wavecal for o in self.to_wavecal if o.wavecal])
 
@@ -1386,7 +1384,7 @@ class MKIDOutputCollection:
     def flatcals(self):
         """
         Returns a set of all of the MKIDObservations affiliated with an output that have an associated
-        MKIDFlatcalDescription
+        MKIDFlatcal
         """
         return set([o.flatcal for o in self.to_flatcal if o.flatcal])
 
@@ -1394,7 +1392,7 @@ class MKIDOutputCollection:
     def speccals(self):
         """
         Returns a set of all of the MKIDObservations affiliated with an output that have an associated
-        MKIDSpeccalDescription
+        MKIDSpeccal
         """
         return set([o.speccal for o in self.to_speccal if o.speccal])
 
@@ -1402,7 +1400,7 @@ class MKIDOutputCollection:
     def wcscals(self):
         """
         Returns a set of all of the MKIDObservations affiliated with an output that have an associated
-        MKIDWCSCalDescription. Does not search for nested MKIDWCSCalDescriptions except with the speccal
+        MKIDWCSCal. Does not search for nested MKIDWCSCalDescriptions except with the speccal
         """
         return set([o.wcscal for o in self.to_wcscal if o.wcscal])
 
@@ -1590,19 +1588,19 @@ class MKIDOutputCollection:
     @property
     def to_drizzle(self):
         for out in self:
-            if isinstance(out.data, MKIDDitherDescription):
+            if isinstance(out.data, MKIDDither):
                 yield out.data
-            if out.data.speccal and isinstance(out.data.speccal.data, MKIDDitherDescription):
+            if out.data.speccal and isinstance(out.data.speccal.data, MKIDDither):
                 yield out.data.speccal.data
-            if out.data.wcscal and isinstance(out.data.wcscal.data, MKIDDitherDescription):
+            if out.data.wcscal and isinstance(out.data.wcscal.data, MKIDDither):
                 yield out.data.wcscal.data
 
 
 mkidcore.config.yaml.register_class(MKIDTimerange)
 mkidcore.config.yaml.register_class(MKIDObservation)
-mkidcore.config.yaml.register_class(MKIDWavecalDescription)
-mkidcore.config.yaml.register_class(MKIDFlatcalDescription)
-mkidcore.config.yaml.register_class(MKIDSpeccalDescription)
-mkidcore.config.yaml.register_class(MKIDWCSCalDescription)
-mkidcore.config.yaml.register_class(MKIDDitherDescription)
+mkidcore.config.yaml.register_class(MKIDWavecal)
+mkidcore.config.yaml.register_class(MKIDFlatcal)
+mkidcore.config.yaml.register_class(MKIDSpeccal)
+mkidcore.config.yaml.register_class(MKIDWCSCal)
+mkidcore.config.yaml.register_class(MKIDDither)
 mkidcore.config.yaml.register_class(MKIDOutput)
