@@ -2609,7 +2609,7 @@ mkidpipeline.config.yaml.register_class(Solution)
 
 
 def load_solution(wc, singleton_ok=True):
-    """wc is a solution filename string, a Solution object, or a mkidpipeline.config.MKIDWavecalDescription"""
+    """wc is a solution filename string, a Solution object, or a mkidpipeline.config.MKIDWavecal"""
     global _loaded_solutions
     if not singleton_ok:
         raise NotImplementedError('Must implement solution copying')
@@ -2621,7 +2621,7 @@ def load_solution(wc, singleton_ok=True):
                                         'in the vicinity of this comment')
             #_loaded_solutions[wc._file_path] = wc
         return wc
-    if isinstance(wc, definitions.MKIDWavecalDescription):
+    if isinstance(wc, definitions.MKIDWavecal):
         wc = wc.path
     wc = wc if os.path.isfile(wc) else os.path.join(mkidpipeline.config.config.paths.database, wc)
     try:

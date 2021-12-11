@@ -7,7 +7,7 @@ from astropy.coordinates import SkyCoord
 import astropy.units as u
 from mkidpipeline.photontable import Photontable
 from mkidcore.corelog import getLogger
-from mkidpipeline.definitions import MKIDObservation, MKIDDitherDescription
+from mkidpipeline.definitions import MKIDObservation, MKIDDither
 from scipy.optimize import root
 from astropy.io import fits
 import os
@@ -210,7 +210,7 @@ def run_wcscal(data, source_locs, sigma_psf=None, wave_start=950*u.nm, wave_stop
                guesses=None):
     """
     main function for running the WCSCal
-    :param data: MKIDDitherDescription or MKIDObservation
+    :param data: MKIDDither or MKIDObservation
     :param source_locs: on-sky coordinates of objects in the image to be sued for the WCS cal. Needs to be in icrs
     currently
     :param sigma_psf: width of the Gaussian PSF to use for the PSF fitting
@@ -221,11 +221,11 @@ def run_wcscal(data, source_locs, sigma_psf=None, wave_start=950*u.nm, wave_stop
     :param pix_ref: reference pixel coordinate while conex is at conex_ref
     :return: platescale (in mas/pixel), rotation angle (in degrees), and x and y slopes of the conex mirror
     """
-    if isinstance(data, MKIDDitherDescription):
+    if isinstance(data, MKIDDither):
         conex_positions = []
         images = []
         hdus = []
-        getLogger(__name__).info('Using MKIDDitherDescription to find WCS Solution')
+        getLogger(__name__).info('Using MKIDDither to find WCS Solution')
         for o in data.obs:
             hdul = Photontable(o.h5).get_fits(wave_start=wave_start.to(u.nm).value,
                                               wave_stop=wave_stop.to(u.nm).value)
@@ -272,7 +272,7 @@ def fetch(solution_descriptors, config=None, ncpu=None):
     for sd in solution_descriptors:
         if os.path.exists(sd.path[:-4] + '.fits'):
             continue
-        if isinstance(sd.data, MKIDObservation) or isinstance(sd.data, MKIDDitherDescription):
+        if isinstance(sd.data, MKIDObservation) or isinstance(sd.data, MKIDDither):
             pltsclx, pltscly, dp_dconx, dp_dcony, devang, images , hdus = \
                 run_wcscal(sd.data, sd.source_locs, sigma_psf=wcscfg.wcscal.sigma_psf, wave_start=950*u.nm,
                            wave_stop=1375*u.nm, interpolate=wcscfg.wcscal.interpolate,

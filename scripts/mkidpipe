@@ -101,7 +101,6 @@ if __name__ == "__main__":
         config.inspect_database(detailed=args.verbose)
 
     if args.makeout:
-        
         for step in config.config.flow:
             try:
                 pipe.PIPELINE_STEPS[step].fetch(getattr(outputs, f'{step}s'))

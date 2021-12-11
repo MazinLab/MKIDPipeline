@@ -243,7 +243,7 @@ def fetch(out, **kwargs):
     config = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(movies=StepConfig()), cfg=None, copy=True)
 
     ob = out.data
-    if isinstance(ob, definitions.MKIDDitherDescription):
+    if isinstance(ob, definitions.MKIDDither):
         ob = ob.obs_for_time(ob.obs[0].start + out.start_offset)
 
     file = ob.h5

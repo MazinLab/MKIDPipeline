@@ -582,13 +582,13 @@ def satellite_spot_contrast(lam, ref_contrast=2.72e-3, ref_wvl=1.55*1e4):  # 2.7
 
 
 def load_solution(sc, singleton_ok=True):
-    """sc is a solution filename string, a ResponseCurve object, or a mkidpipeline.config.MKIDSpeccalDescription"""
+    """sc is a solution filename string, a ResponseCurve object, or a mkidpipeline.config.MKIDSpeccal"""
     global _loaded_solutions
     if not singleton_ok:
         raise NotImplementedError('Must implement solution copying')
     if isinstance(sc, ResponseCurve):
         return sc
-    if isinstance(sc, definitions.MKIDSpeccalDescription):
+    if isinstance(sc, definitions.MKIDSpeccal):
         sc = sc.path
     sc = sc if os.path.isfile(sc) else os.path.join(mkidpipeline.config.config.paths.database, sc)
     try:

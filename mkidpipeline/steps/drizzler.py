@@ -11,7 +11,7 @@ Functions
     _increment_id    : Monkey patch for STScI drizzle class of drizzle package
     mp_worker       : Genereate a reduced, reformated photonlist
     load_data       : Consolidate all dither positions
-    form            : Takes in a MKIDDitherDescription object and drizzles the dithers onto a common sky grid
+    form            : Takes in a MKIDDither object and drizzles the dithers onto a common sky grid
 """
 import os
 import numpy as np
@@ -44,6 +44,7 @@ import mkidpipeline.config
 EXCLUDE = ('pixcal.dead', 'pixcal.hot', 'pixcal.cold', 'beammap.noDacTone', 'wavecal.bad', 'wavecal.failed_convergence',
            'wavecal.no_histograms', 'wavecal.not_attempted', 'flatcal.bad')  # fill with undesired flags
 PROBLEM_FLAGS = tuple()  # fill with flags that will break drizzler
+
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!drizzler_cfg'
@@ -603,8 +604,8 @@ def form(dither, mode='drizzler', wave_start=None, wave_stop=None, start=0, dura
          exclude_flags=PROBLEM_FLAGS + EXCLUDE, whitelight=False, adi_mode=False, debug_dither_plot=False,
          output_file='', weight=False):
     """
-    Takes in a MKIDDitherDescription object and drizzles each frame onto a common sky grid.
-    :param dither: MKIDDitherDescription, contains the lists of observations and metadata for a set of dithers
+    Takes in a MKIDDither object and drizzles each frame onto a common sky grid.
+    :param dither: MKIDDither, contains the lists of observations and metadata for a set of dithers
     :param mode: 'drizzler' only currently accepted mode
     :param wave_start: start wavelength. See photontable.query()
     :param wave_stop: stop wavelength. See photontable.query()
