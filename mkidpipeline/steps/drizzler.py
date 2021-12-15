@@ -218,9 +218,11 @@ class Canvas:
             else:
                 val = series.values[0]
             meta[key] = val
-
-        meta['UT'] = mjd_to(meta['MJD'], 'UTC').strftime('%H:%M:%S.%f')[:-4]
-        meta['HST'] = mjd_to(meta['MJD'], 'HST').strftime('%H:%M:%S.%f')[:-4]
+        try:
+            meta['UT'] = mjd_to(meta['MJD'], 'UTC').strftime('%H:%M:%S.%f')[:-4]
+            meta['HST'] = mjd_to(meta['MJD'], 'HST').strftime('%H:%M:%S.%f')[:-4]
+        except KeyError:
+            getLogger(__name__).warning('MJD not present in metadata - make sure obslog is properly populated!')
         return mkidcore.metadata.build_header(meta, unknown_keys='warn')
 
     def write(self, filename, overwrite=True, compress=False, dashboard_orient=False, cube_type=None,
@@ -732,3 +734,4 @@ def form(dither, mode='drizzler', wave_start=None, wave_stop=None, start=0, dura
         getLogger(__name__).debug(f'Writing fits cube of type {cube_type}.')
         driz.write(output_file, cube_type=cube_type, time_bin_edges=time_bin_edges, wvl_bin_edges=wvl_bin_edges)
     getLogger(__name__).info('Finished')
+    return driz
