@@ -93,8 +93,10 @@ def batch_applier(step, obs, ncpu=None, unique_h5=True):
     if step == 'buildhdf':
         PIPELINE_STEPS['buildhdf'].buildtables(obs.input_timeranges, ncpu=ncpu)
         return
-
-    func = PIPELINE_STEPS[step].apply
+    if step == 'speccal':
+        return
+    else:
+        func = PIPELINE_STEPS[step].apply
 
     if unique_h5:
         obs = {o.h5: o for o in obs}.values()
