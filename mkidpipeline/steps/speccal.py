@@ -71,7 +71,7 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('plots', 'summary', 'summary | none'),
                      ('interpolation', 'linear', ' linear | cubic | nearest'),
                      ('wvl_bin_edges', [], 'list of wavelength bin edges to use for determining the solution'
-                                           ' (in Angstroms). Defaults to nyquist sampling the energy resolution'),
+                                           ' (in nm). Defaults to nyquist sampling the energy resolution'),
                      ('fit_order', 1, 'order of the univariate spline to fit the soectrophotometric repsonse curve -'
                                       'must be shorter than the length of the wvl_bin_edges if specified'))
 
@@ -214,6 +214,7 @@ class SpectralCalibrator:
         self.aperture_radius = np.zeros(len(self.wvl_bin_edges) - 1) if self.wvl_bin_edges else None
 
     def run(self, save=True, plot=None):
+        getLogger(__name__).info("Performing Spectrophotometric Calibration")
         getLogger(__name__).info("Loading Spectrum from MEC")
         self.load_absolute_spectrum()
         getLogger(__name__).info("Loading Standard Spectrum")
@@ -233,9 +234,12 @@ class SpectralCalibrator:
          Extract the MEC measured spectrum of the spectrophotometric standard by breaking data into spectral cubes
          and performing photometry (aperture or psf) on each spectral frame
          """
-        getLogger(__name__).info('performing {} photometry on MEC spectrum'.format(self.photometry))
+        if not self.use_satellite_spots:
+            getLogger(__name__).info('performing {} photometry on MEC spectrum'.format(self.photometry))
+        else:
+            getLogger(__name__).info('using satellite spots to get MEC spectrum')
         pt = Photontable(self.data.obs[0].h5)
-        self.wcs = pt.get_wcs(wcs_timestep=pt.duration, derotate=not self.use_satellite_spots)[0]
+        self.wcs = pt.get_wcs(wcs_timestep=pt.duration, derotate=not self.use_satellite_spots)
         if len(self.data.obs) == 1:
             pt = Photontable(self.data.obs[0].h5)
             hdul = pt.get_fits(weight=True, rate=True, cube_type='wave',
@@ -265,9 +269,9 @@ class SpectralCalibrator:
             phot_cube = self.cube.copy()
             fluxes = mec_measure_satellite_spot_flux(phot_cube,
                                                      wvl_start=self.wvl_bin_edges[:-1].to(u.Angstrom).value,
-                                                     wvl_stop=self.wvl_bin_edges[1:].to(u.Angstrom).value,
+                                                     wvl_stop= self.wvl_bin_edges[1:].to(u.Angstrom).value,
                                                      platescale=self.platescale.value,
-                                                     wcs=self.wcs)
+                                                     wcs=self.wcs[0])
             self.mkid[1] = np.nanmean(fluxes, axis=1)
         else:
             cube = self.cube.copy()
