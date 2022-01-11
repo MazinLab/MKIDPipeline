@@ -975,9 +975,13 @@ class Photontable:
         if cube_type is not None:
             bins = bin_edges / 1e6 if cube_type == 'time' else bin_edges
         #TODO set single_pa_time=None when generating an image|scube|tcube output
-        #TODO breaks if wcs is a list (single_pa_time=None)
         wcs = self.get_wcs(cube_type=cube_type, bins=bins, single_pa_time=None, derotate=derotate)
         if wcs:
+            # TODO make sure there are no cases where this gives unintuitive behavior
+            if isinstance(wcs, list):
+                getLogger(__name__).info('More than one WCS solution found for FITS header - writing WCS solution for '
+                                         'the first frame to the header')
+                wcs = wcs[0]
             header.update(wcs.to_header())
         hdr = header.copy()
         hdr.extend(ext_cards, unique=True)
