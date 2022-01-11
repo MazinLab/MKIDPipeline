@@ -349,8 +349,8 @@ class Drizzler(Canvas):
                 # the sky grid ref and dither ref should match (crpix varies between dithers)
                 if not np.all(np.round(wcs_sol.wcs.crval, decimals=4) == np.round(self.wcs.wcs.crval, decimals=4)):
                     getLogger(__name__).critical('sky grid ref and dither ref do not match '
-                                                 '(crpix varies between dithers)!')
-                    raise RuntimeError('sky grid ref and dither ref do not match (crpix varies between dithers)!')
+                                                 '(crval varies between dithers)!')
+                    raise RuntimeError('sky grid ref and dither ref do not match (crval varies between dithers)!')
 
                 if len(self.timebins) <= len(self.wcs_times):
                     time_bins = np.array([self.wcs_times[wcs_i], self.wcs_times[wcs_i + 1]])
@@ -532,7 +532,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, md, sin
 
     Culls photons affected by exclude_flags.
 
-    Determines WCS solump_workertions for the interval at wcs_timestep cadence calling with derotate and single_pa_time"""
+    Determines WCS solutions for the interval at wcs_timestep cadence calling with derotate and single_pa_time"""
     getLogger(__name__).debug(f'Fetching data from {file}')
     pt = Photontable(file)
     photons = pt.query(startw=startw, stopw=stopw, start=startt, intt=intt)
