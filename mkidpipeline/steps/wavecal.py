@@ -135,7 +135,8 @@ class Configuration:
             self.summary_plot = str(cfg.wavecal.plots).lower() in ('all', 'summary')
 
         if self.beammap.frequencies is None:
-            log.warning('Beammap loaded without frequencies and no templar config specified.')
+            log.warning('Beammap loaded without frequencies and no templar config specified. Add freqfiles to the '
+                        'beammap config to associate frequencies')
 
         self.beam_map_path = self.beammap.file
 
