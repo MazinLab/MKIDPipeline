@@ -444,7 +444,6 @@ class Drizzler(Canvas):
         w.wcs.cdelt[0], w.wcs.cdelt[1] = self.wcs.wcs.cdelt[0], self.wcs.wcs.cdelt[1]
         w.wcs.cunit[0], w.wcs.cunit[1] = self.wcs.wcs.cunit[0], self.wcs.wcs.cunit[1]
         pixel_shape = [self.wcs.pixel_shape[0], self.wcs.pixel_shape[1]]
-
         if wave:
             typ = wtype = "WAVE"
             val = wval = self.wvl_bin_edges[0] / 1e9
@@ -535,6 +534,9 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, md, sin
     Determines WCS solutions for the interval at wcs_timestep cadence calling with derotate and single_pa_time"""
     getLogger(__name__).debug(f'Fetching data from {file}')
     pt = Photontable(file)
+    if startt + intt > pt.duration:
+        getLogger(__name__).warning(f'Specified start ({startt}s) and duration ({intt}s) exceed the full length of the '
+                                    f'photontable ({pt.duration}s).')
     photons = pt.query(startw=startw, stopw=stopw, start=startt, intt=intt)
     num_unfiltered = len(photons)
     if not len(photons):
