@@ -438,11 +438,11 @@ class Drizzler(Canvas):
         naxis = 2 + int(wave) + int(time)
         w = wcs.WCS(naxis=naxis)
         w.wcs.pc = np.eye(naxis)
-        w.wcs.crpix = [self.wcs.wcs.crpix[0], self.wcs.wcs.crpix[1]]
-        w.wcs.crval = [self.wcs.wcs.crval[0], self.wcs.wcs.crval[1]]
-        w.wcs.ctype = [self.wcs.wcs.ctype[0], self.wcs.wcs.ctype[1]]
-        w.wcs.cdelt = [self.wcs.wcs.cdelt[0], self.wcs.wcs.cdelt[1]]
-        w.wcs.cunit = [self.wcs.wcs.cunit[0], self.wcs.wcs.cunit[1]]
+        w.wcs.crpix[0], w.wcs.crpix[1] = self.wcs.wcs.crpix[0], self.wcs.wcs.crpix[1]
+        w.wcs.crval[0], w.wcs.crval[1] = self.wcs.wcs.crval[0], self.wcs.wcs.crval[1]
+        w.wcs.ctype[0], w.wcs.ctype[1] = self.wcs.wcs.ctype[0], self.wcs.wcs.ctype[1]
+        w.wcs.cdelt[0], w.wcs.cdelt[1] = self.wcs.wcs.cdelt[0], self.wcs.wcs.cdelt[1]
+        w.wcs.cunit[0], w.wcs.cunit[1] = self.wcs.wcs.cunit[0], self.wcs.wcs.cunit[1]
         pixel_shape = [self.wcs.pixel_shape[0], self.wcs.pixel_shape[1]]
 
         if wave:
@@ -460,19 +460,19 @@ class Drizzler(Canvas):
             unit = tunit = "s"
 
         if naxis == 4:
-            pixel_shape.extend([wshape,tshape])
-            w.wcs.crpix.extend([1, 1])
-            w.wcs.crval.extend([wval, tval])
-            w.wcs.ctype.extend([wtype, ttype])
-            w.wcs.cdelt.extend([wdelt, tdelt])
-            w.wcs.cunit.extend([wunit, tunit])
+            pixel_shape.extend([wshape, tshape])
+            w.wcs.crpix[2], w.wcs.crpix[3] = 1, 1
+            w.wcs.crval[2], w.wcs.crval[3] = wval, tval
+            w.wcs.ctype[2], w.wcs.ctype[3] = wtype, ttype
+            w.wcs.cdelt[2], w.wcs.cdelt[3] = wdelt, tdelt
+            w.wcs.cunit[2], w.wcs.cunit[3] = wunit, tunit
         elif naxis == 3:
-            pixel_shape.append(shape)
-            w.wcs.crpix.append(1)
-            w.wcs.crval.append(val)
-            w.wcs.ctype.append(typ)
-            w.wcs.cdelt.append(delt)
-            w.wcs.cunit.append(unit)
+            pixel_shape.extend([shape])
+            w.wcs.crpix[2] = 1
+            w.wcs.crval[2] = val
+            w.wcs.ctype[2] = typ
+            w.wcs.cdelt[2] = delt
+            w.wcs.cunit[2] = unit
 
         w.pixel_shape = tuple(pixel_shape)
         getLogger(__name__).debug(f'{naxis}D wcs {w}')
