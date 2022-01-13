@@ -1170,7 +1170,7 @@ class MKIDOutput(_Base):
         Key('min_wave', float('-inf'), 'Wavelength start for wavelength sensitive outputs', str),
         Key('max_wave', float('inf'), 'Wavelength stop for wavelength sensitive outputs, ', str),
         Key('start_offset', 0, 'start offset (s) into data (per frame if dithered)', float),
-        Key('duration', None, 'number of seconds od data to use (per frame if dithered), None=all', float),
+        Key('duration', None, 'number of seconds od data to use (per frame if dithered), None=all', (float, int)),
         Key('filename', '', 'relative or fully qualified path, defaults to name+output type,'
                             'so set if making multiple outputs with different settings', str),
         Key('units', 'photons', 'photons|photons/s. Drizzled data will always be in photons/s', str),
@@ -1196,7 +1196,7 @@ class MKIDOutput(_Base):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.kind = self.kind.lower()
-        opt = ('stack', 'drizzle', 'list', 'image', 'movie', 'tcube', 'scube')
+        opt = ('drizzle', 'image', 'movie', 'tcube', 'scube')
         if self.kind not in opt:
             self._key_errors['kind'] += [f"Must be one of: {opt}"]
         if self.kind == 'movie':
@@ -1266,7 +1266,12 @@ class MKIDOutput(_Base):
         except AttributeError:
             if isinstance(self.data, str):
                 raise RuntimeError('Must associate dataset to get default duration')
-            return self.data.duration
+            if isinstance(self.data, MKIDDither):
+                return min(self.data.inttime)
+            else:
+                return self.data.duration
+
+
 
     @property
     def filename(self):
