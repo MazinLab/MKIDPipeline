@@ -666,7 +666,7 @@ def form(dither, mode='drizzler', wave_start=None, wave_stop=None, start=0, dura
     dithers_data = None
     if usecache:
         settings = (tuple(o.h5 for o in dither.obs), dither.name, wave_start.value, wave_stop.value, start,
-                    drizzle_params.inttime, drizzle_params.wcs_timestep, exclude_flags, ADI_mode)
+                    drizzle_params.inttime, drizzle_params.wcs_timestep, exclude_flags, adi_mode)
         setting_hash = hashlib.md5(str(settings).encode()).hexdigest()
         pkl_save = os.path.join(mkidpipeline.config.config.paths.tmp,
                                 f'drizzler_{getpass.getuser()}_{dither.name}_{setting_hash}.pkl')
