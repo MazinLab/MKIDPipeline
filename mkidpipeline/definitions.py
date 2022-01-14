@@ -866,6 +866,11 @@ class MKIDDither(_Base):
         return [o.duration for o in self.obs]
 
     @property
+    def duration(self):
+        """Returns the minimum duration of the MKIDObservations that make the dither to be used as the default"""
+        return min(self.inttime)
+
+    @property
     def pos(self):
         """Returns a list of the CONEX positions of the MKIDObservation objects that compose the MKIDDither"""
         return [o.dither_pos for o in self.obs]
@@ -1266,10 +1271,7 @@ class MKIDOutput(_Base):
         except AttributeError:
             if isinstance(self.data, str):
                 raise RuntimeError('Must associate dataset to get default duration')
-            if isinstance(self.data, MKIDDither):
-                return min(self.data.inttime)
-            else:
-                return self.data.duration
+            return self.data.duration
 
 
 
