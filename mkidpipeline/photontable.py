@@ -4,6 +4,7 @@ import multiprocessing as mp
 import functools
 import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
+from ruamel.yaml.comments import CommentedSeq
 
 import mkidcore.metadata
 from mkidcore.binfile.mkidbin import PhotonCType, PhotonNumpyType
@@ -1036,6 +1037,12 @@ class Photontable:
         """
         if self.mode != 'write':
             raise IOError("Must open file in write mode to do this!")
+
+        if isinstance(value, CommentedSeq):
+            # Always converted to a tuple because a commented sequence (list or tuple created by the YAML when reading
+            # in a sequence of info) cannot be written to photontable header
+            getLogger(__name__).debug(f"Converting CommentedSeq {value} to tuple so header can be updated.")
+            value = tuple(value)
 
         if key in self.file.root.photons.photontable.attrs._f_list('sys'):
             raise KeyError(f'"{key}" is reserved for use by pytables')
