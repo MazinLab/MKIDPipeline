@@ -36,10 +36,9 @@ class CRImpact(tables.IsDescription):
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!cosmiccal_cfg'
-    REQUIRED_KEYS = (('plots', 'all', 'Which plots to generate'),
-                     ('wavecut', None, 'An optional range (min_nm, max_nm) to use for CR detection'),
+    REQUIRED_KEYS = (('wavecut', None, 'An optional range (min_nm, max_nm) to use for CR detection'),
                      ('method', 'threshold', 'What method to use to identify CR impacts (threshold|poisson)'),
-                     ('removal_range', (50, 100), 'The number of microseconds before and after an event to filter'))
+                     ('region', (50, 100), 'The number of microseconds before and after an event to filter'))
 
 
 class CosmicCleaner:
