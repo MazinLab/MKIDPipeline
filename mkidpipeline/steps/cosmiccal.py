@@ -198,14 +198,7 @@ def apply(o: definitions.MKIDTimerange, config=None, ncpu=None):
 
     getLogger(__name__).info(f'Attaching CR impact table with {impacts.size} events to {o.name} ({o.h5})')
 
-    # cc.removal_range and cc.wave_range are of type <ruamel.yaml.comments.CommentedSeq> since they are read in from
-    # a YAML config file. These are not legal types to be written to an h5 header, so they must be cast to a different
-    # type. They are cast to tuples, since both are of form (x, y).
-    # If cc.wave_range was not specified, it is None, and is handled accordingly.
-    if cc.wave_range:
-        md = dict(region=tuple(cc.removal_range), thresh=cc.threshold, method=cc.method, wavecut=tuple(cc.wave_range))
-    else:
-        md = dict(region=tuple(cc.removal_range), thresh=cc.threshold, method=cc.method, wavecut=cc.wave_range)
+    md = dict(region=cc.removal_range, thresh=cc.threshold, method=cc.method, wavecut=cc.wave_range)
     cc.obs.enablewrite()
     for k, v in md.items():
         cc.obs.update_header(f'cosmiccal.{k}', v)
