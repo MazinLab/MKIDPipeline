@@ -344,9 +344,14 @@ class MKIDObservation(MKIDTimerange):
         """Updates the metadata to include necessary keywords for the WCScal"""
         d = super()._metadata
         try:
-            d.update(dict(E_PLTSCL=self.wcscal.platescale, E_DEVANG=mkpc.config.instrument.device_orientation_deg,
-                          E_CXREFX=self.wcscal.conex_ref[0], E_CXREFY=self.wcscal.conex_ref[1],
-                          E_PREFX=self.wcscal.pixel_ref[0], E_PREFY=self.wcscal.pixel_ref[1]))
+            d.update(dict(E_CXREFX=self.wcscal.conex_ref[0], E_CXREFY=self.wcscal.conex_ref[1],
+                          E_PREFX=self.wcscal.pixel_ref[0], E_PREFY=self.wcscal.pixel_ref[1],
+                          E_PLTSCL=self.wcscal.platescale if self.wcscal.platescale else self.photontable.query_header(
+                              'E_PLTSCL'),
+                          E_DPDCX=self.wcscal.conex_slopes[0] if self.wcscal.conex_slopes[
+                              0] else self.photontable.query_header('E_DPDCX'),
+                          E_DPDCY=self.wcscal.conex_slopes[1] if self.wcscal.conex_slopes[
+                              1] else self.photontable.query_header('E_DPDCY')))
         except AttributeError:
             pass
         return d
@@ -637,7 +642,9 @@ class MKIDWCSCal(_Base, CalibMixin):
         Key('pixel_ref', None, 'The pixel position of the target centroid when on '
                                'axis and the conex is at conex_ref', tuple),
         Key('conex_ref', None, 'The conex (x,y) position, [0, 1.0], when the target is at pixel_ref ', tuple),
-        Key('source_locs', None, 'The RA/DEC coordinates of the sources in the image ', list)
+        Key('source_locs', None, 'The RA/DEC coordinates of the sources in the image ', list),
+        Key('dp_dcx', None, 'Change in pixels/change in CONEX position in x ', float),
+        Key('dp_dcy', None, 'Change in pixels/change in CONEX position in y ', float)
     )
     REQUIRED = ('name',)
     STEPNAME = 'wcscal'
@@ -685,8 +692,17 @@ class MKIDWCSCal(_Base, CalibMixin):
     def platescale(self):
         """Returns the platescale as an astropy.unit.Quantity object in units of arcseconds"""
         if not isinstance(self.data, u.Quantity):
-            raise NotImplementedError('WCSCal not created with a defined platescale')
+            getLogger(__name__).info('WCSCal not defined by a platescale but by an observation. Platescale set to None '
+                                     'until WCSCal is run.')
+            return None
         return self.data.to('arcsec')
+
+    @property
+    def conex_slopes(self):
+        if self.dp_dcx is None or self.dp_dcy is None:
+            return tuple((None, None))
+        else:
+            return tuple((self.dp_dcx, self.dp_dcy))
 
     @property
     def obs(self):
