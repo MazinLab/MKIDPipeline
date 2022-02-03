@@ -739,7 +739,8 @@ class Photontable:
                 head = mkidcore.metadata.build_header(md, unknown_keys='ignore')
                 ref_pixels.append(compute_wcs_ref_pixel((md['E_CONEXX'], md['E_CONEXY']),
                                                         reference_pixel=(head['E_PREFX'], head['E_PREFY']),
-                                                        reference=(head['E_CXREFX'], head['E_CXREFY'])))
+                                                        reference=(head['E_CXREFX'], head['E_CXREFY']),
+                                                        conex_deltas=(md['E_DPDCX'], md['E_DPDCY'])))
         except KeyError:
             getLogger(__name__).warning('Insufficient data to build a WCS solution, conex info missing')
             return None

@@ -99,8 +99,8 @@ class DrizzleParams:
         # Smart 1962
         dith_start_rot_rates = (earthrate * np.cos(site.geodetic.lat.rad) * np.cos(altaz.az.radian) /
                                 np.cos(altaz.alt.radian))
-
-        dith_pix_offset = CONEX2PIXEL(*self.dither_pos) - CONEX2PIXEL(*center).reshape(2, 1)
+        dith_pix_offset = (CONEX2PIXEL(*self.dither_pos, ref_pix=ref_pix, slopes=conex_slopes, ref_con=ref_con) -
+                           CONEX2PIXEL(*center, ref_pix=ref_pix, slopes=conex_slopes, ref_con=ref_con).reshape(2, 1))
         # get the minimum required timestep. One that would produce allowable_pixel_smear pixel displacement at the
         # center of furthest dither
         angle = np.arctan2(allowable_pixel_smear, np.linalg.norm(dith_pix_offset))
