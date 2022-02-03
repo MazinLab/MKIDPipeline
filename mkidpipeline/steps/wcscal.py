@@ -24,7 +24,7 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('interpolate', True, 'whether to inerpolate the image before PSF fitting. Recommended if an '
                                              'MKIDObservation is used or data is noisy'),
                      ('sigma_psf', 2.0, 'standard deviation of the point spread functions to fit in the image '),
-                     ('param_guesses', [1e-6, 1e-6, 50, 50, 45], '(optional) intitial guesses for hte wcs solution'
+                     ('param_guesses', [1e-6, 50, 50, 45], '(optional) intitial guesses for hte wcs solution'
                                                                    ' [platescale in x, platescale in y, '
                                                                    'pixels per conex move in x, '
                                                                    'pixels per conex move in y, device angle]'))
@@ -46,7 +46,6 @@ class ClickCoords:
 
     def __init__(self, image, source_locs, fig=None, conex_pos=None):
         self.coords = []
-        self.plot_coords = []
         self.image = image
         self.n_sources = len(source_locs)
         self.source_locs = source_locs
@@ -72,20 +71,17 @@ class ClickCoords:
     def __onclick__(self, click):
         # set origin to bottom left of array
         try:
-            point = (click.xdata, 146 - click.ydata)
-            plot_point = (click.xdata, click.ydata)
+            point = (click.xdata, click.ydata)
         except TypeError:
             point = (None, None)
-            plot_point = (0, 0)
         self.coords.append(point)
-        self.plot_coords.append(plot_point)
         self.counter += 1
         if self.counter == self.n_sources:
             self.fig.canvas.mpl_disconnect(self.cid)
             plt.close(self.fig)
         try:
             plt.imshow(self.image)
-            plt.scatter(*zip(*self.plot_coords), c='red', marker='o', s=10)
+            plt.scatter(*zip(*self.coords), c='red', marker='o', s=10)
             plt.title(f'CONEX pos: {self.conex_pos}. \n Select Locations of Source at {self.source_locs[self.counter]}')
             plt.draw()
         except IndexError:
@@ -128,11 +124,10 @@ def generate_equations(x, *args):
         for i, pos in enumerate(conex_pos):
             for j, pix in enumerate(pix_coord[i]):
                 sky = sky_coord[i][j]
-                sx, sy = np.around(sky.ra.value, decimals=7), np.around(sky.dec.value, decimals=7)
-                t0, t1 = np.around(t0, decimals=7), np.around(t1, decimals=7)
+                sx, sy = sky.ra.value, sky.dec.value
                 p_refx, p_refy = ref_pix[0], ref_pix[1]
                 c_refx, c_refy = conex_ref[0], conex_ref[1]
-                x_cen, y_cen = 140 / 2, 146 / 2
+                x_cen, y_cen = 139 / 2, 145 / 2
                 cx, cy = pos[0], pos[1]
                 px, py = pix[0], pix[1]
                 eq1 = np.cos(theta[i]) * (eta * (
@@ -140,14 +135,14 @@ def generate_equations(x, *args):
                     phi) + x_cen + mux * (cx - c_refx) - p_refx)) - \
                       np.sin(theta[i]) * (eta * (
                         px * np.sin(phi) + py * np.cos(phi) - x_cen * np.sin(phi) - y_cen * np.cos(
-                    phi) + y_cen + muy * (cy - c_refy) - p_refy)) + \
+                    phi) + y_cen - muy * (cy - c_refy) - p_refy)) + \
                       t0 - sx
                 eq2 = np.sin(theta[i]) * (eta * (
                         px * np.cos(phi) - py * np.sin(phi) - x_cen * np.cos(phi) + y_cen * np.sin(
                     phi) + x_cen + mux * (cx - c_refx) - p_refx)) + \
                       np.cos(theta[i]) * (eta * (
                         px * np.sin(phi) + py * np.cos(phi) - x_cen * np.sin(phi) - y_cen * np.cos(
-                    phi) + y_cen + muy * (cy - c_refy) - p_refy)) + \
+                    phi) + y_cen - muy * (cy - c_refy) - p_refy)) + \
                       t1 - sy
                 equations.append(eq1)
                 equations.append(eq2)
@@ -228,7 +223,7 @@ def solve_system_of_equations(coords, conex_positions, telescope_angles, ra, dec
 
 def calculate_wcs_solution(images, source_locs=None, sigma_psf=2.0, interpolate=False, conex_positions=None,
                            telescope_angles=None, ra=None, dec=None, ref_pix=None, conex_ref=None, guesses=None,
-                           solve_conex_separately=True):
+                           solve_conex_separately=True, mux=None, muy=None):
     """
     calculates the parameters needed to form a WCS solution
     :param images: list of the images or each different pointing, conex position, or rotation angle.
@@ -249,11 +244,11 @@ def calculate_wcs_solution(images, source_locs=None, sigma_psf=2.0, interpolate=
             im = astropy_convolve(im)
         else:
             im = image
-        #returns clicked coordinates corresponding in order to the given ra/dec coords
+        # returns clicked coordinates corresponding in order to the given ra/dec coords
         coord_dict = {k: None for k in source_locs}
         selected_coords = select_sources(im, source_locs=source_locs, conex_pos=conex_positions[i])
         sources, residuals = fit_sources(im, sigma_psf=sigma_psf)#, guesses=selected_coords)
-        fit_coords = [(sources['x_fit'][i], 146 - sources['y_fit'][i]) for i in range(len(sources))]
+        fit_coords = [(sources['x_fit'][i], sources['y_fit'][i]) for i in range(len(sources))]
         use_idxs = []
         for i, coord in enumerate(selected_coords):
             if coord[0] is None or coord[1] is None:
@@ -274,10 +269,13 @@ def calculate_wcs_solution(images, source_locs=None, sigma_psf=2.0, interpolate=
 
 
         coords.append(coord_dict)
-    if solve_conex_separately:
-        mux, muy = solve_conex(coords, conex_positions)
+    if mux and muy:
+        pass
     else:
-        mux, muy = None, None
+        if solve_conex_separately:
+            mux, muy = solve_conex(coords, conex_positions)
+        else:
+            mux, muy = None, None
     res = solve_system_of_equations(coords, conex_positions, telescope_angles, ra, dec, ref_pix, conex_ref,
                                     guesses=guesses, mux=mux, muy=muy)
     return res
@@ -320,26 +318,8 @@ def solve_conex(coords, conex_pos):
                              f' to be ({xopt[1]}, {yopt[1]})')
     return mux, muy
 
-def run_wcscal(data, source_locs, sigma_psf=None, wave_start=950*u.nm, wave_stop=1375*u.nm, interpolate=True,
-               ref_pix=None, conex_ref=None, guesses=None):
-    """
-    main function for running the WCSCal
-    :param data: MKIDDither or MKIDObservation
-    :param source_locs: on-sky coordinates of objects in the image to be sued for the WCS cal. Needs to be in icrs
-    currently
-    :param sigma_psf: width of the Gaussian PSF to use for the PSF fitting
-    :param wave_start: start wavelenth to use for generating the image (u.Quantity)
-    :param wave_stop: stop wavelength to use for generating the image (u.Quantity)
-    :param interpolate: If True will perform a gaussian interpolation of the image before doing the PSF fits
-    :param conex_ref: reference position of the conex
-    :param pix_ref: reference pixel coordinate while conex is at conex_ref
-    :return: platescale (in mas/pixel), rotation angle (in degrees), and x and y slopes of the conex mirror
-    """
-    sources = []
-    for source in source_locs:
-        loc = SkyCoord(source[0], source[1], unit=(u.hourangle, u.deg), frame='icrs')
-        sources.append((loc.ra.value, loc.dec.value))
 
+def load_data(data, wave_start=950 * u.nm, wave_stop=1375 * u.nm):
     if isinstance(data, MKIDDither):
         conex_positions = []
         images = []
@@ -350,7 +330,7 @@ def run_wcscal(data, source_locs, sigma_psf=None, wave_start=950*u.nm, wave_stop
             hdul = Photontable(o.h5).get_fits(wave_start=wave_start.to(u.nm).value,
                                               wave_stop=wave_stop.to(u.nm).value,
                                               exclude_flags=('beammap.NoDacTone'))
-            images.append(hdul[1].data)
+            images.append(np.flipud(hdul[1].data))
             hdus.append(hdul[1].header)
             conex_positions.append((o.header['E_CONEXX'], o.header['E_CONEXY']))
             sky = SkyCoord(o.metadata['D_IMRRA'].values[0], o.metadata['D_IMRDEC'].values[0], unit=(u.hourangle, u.deg),
@@ -380,9 +360,33 @@ def run_wcscal(data, source_locs, sigma_psf=None, wave_start=950*u.nm, wave_stop
                 ra, dec = skycood.ra.value, skycood.dec.value
             except AttributeError:
                 getLogger(__name__).warning('either RA and DEC or OBJECT must be specified in the metadata!')
+    return images, conex_positions, telescope_ang, ra, dec
+
+
+def run_wcscal(data, source_locs, sigma_psf=None, wave_start=950*u.nm, wave_stop=1375*u.nm, interpolate=True,
+               ref_pix=None, conex_ref=None, guesses=None, mux=None, muy=None):
+    """
+    main function for running the WCSCal
+    :param data: MKIDDither or MKIDObservation
+    :param source_locs: on-sky coordinates of objects in the image to be sued for the WCS cal. Needs to be in icrs
+    currently
+    :param sigma_psf: width of the Gaussian PSF to use for the PSF fitting
+    :param wave_start: start wavelenth to use for generating the image (u.Quantity)
+    :param wave_stop: stop wavelength to use for generating the image (u.Quantity)
+    :param interpolate: If True will perform a gaussian interpolation of the image before doing the PSF fits
+    :param conex_ref: reference position of the conex
+    :param pix_ref: reference pixel coordinate while conex is at conex_ref
+    :return: platescale (in mas/pixel), rotation angle (in degrees), and x and y slopes of the conex mirror
+    """
+    sources = []
+    for source in source_locs:
+        loc = SkyCoord(source[0], source[1], unit=(u.hourangle, u.deg), frame='icrs')
+        sources.append((loc.ra.value, loc.dec.value))
+
+    images, conex_positions, telescope_ang, ra, dec = load_data(data, wave_start=wave_start, wave_stop=wave_stop)
     res = calculate_wcs_solution(images, sources, sigma_psf=sigma_psf, interpolate=interpolate,
                                  conex_positions=conex_positions, guesses=guesses, telescope_angles=telescope_ang,
-                                 ra=ra, dec=dec, ref_pix=ref_pix, conex_ref=conex_ref)
+                                 ra=ra, dec=dec, ref_pix=ref_pix, conex_ref=conex_ref, mux=mux, muy=muy)
     try:
         pltscl_x, pltscl_y, dp_dconx, dp_dcony, devang = res
     except ValueError:
@@ -405,7 +409,8 @@ def fetch(solution_descriptors, config=None, ncpu=None):
             pltscl, dp_dconx, dp_dcony, devang = \
                 run_wcscal(sd.data, sd.source_locs, sigma_psf=wcscfg.wcscal.sigma_psf, wave_start=950*u.nm,
                            wave_stop=1375 * u.nm, interpolate=wcscfg.wcscal.interpolate, ref_pix=sd.pixel_ref,
-                           conex_ref=sd.conex_ref, guesses=np.array(wcscfg.wcscal.param_guesses))
+                           conex_ref=sd.conex_ref, guesses=np.array(wcscfg.wcscal.param_guesses), mux=sd.dp_dcx,
+                           muy=sd.dp_dcy)
             hdr = sd.data.obs[0].photontable.get_fits()[0].header
             hdul = fits.HDUList([fits.PrimaryHDU(header=hdr)])
             hdul[0].header['PLTSCL'] = (pltscl.to(u.deg).value, 'platescale in degree/pixel')
@@ -414,13 +419,14 @@ def fetch(solution_descriptors, config=None, ncpu=None):
             hdul[0].header['DEVANG'] = (devang.to(u.deg).value, 'device angle in degrees')
             hdul.writeto(sd.path[:-4] + '.fits')
             getLogger(__name__).info(f'Saved WCS Solution to {sd.path[:-4]}.fits')
-            exit()
         else:
             pltscl = sd.data
             devang = wcscfg.instrument.device_orientation_deg
             hdul = fits.HDUList([fits.PrimaryHDU()])
             hdul[0].header['PLTSCL'] = (pltscl.to(u.deg).value, 'platescale in degree/pixel')
-            hdul[0].header['DEVANG'] = (devang.value, 'device angle in degrees')
+            hdul[0].header['E_DPDCX'] = (sd.dp_dcx, 'pixel move per conex move in x')
+            hdul[0].header['E_DPDCY'] = (sd.dp_dcy, 'pixel move per conex move in y')
+            hdul[0].header['DEVANG'] = (devang, 'device angle in degrees')
             hdul.writeto(sd.path[:-4] + '.fits')
             getLogger(__name__).info(f'Saved WCS Solution to {sd.path[:-4]}.fits')
 
