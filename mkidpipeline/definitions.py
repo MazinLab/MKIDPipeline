@@ -348,10 +348,10 @@ class MKIDObservation(MKIDTimerange):
                           E_PREFX=self.wcscal.pixel_ref[0], E_PREFY=self.wcscal.pixel_ref[1],
                           E_PLTSCL=self.wcscal.platescale if self.wcscal.platescale else self.photontable.query_header(
                               'E_PLTSCL'),
-                          E_DPDCX=self.wcscal.conex_slopes[0] if self.wcscal.conex_slopes[
-                              0] else self.photontable.query_header('E_DPDCX'),
-                          E_DPDCY=self.wcscal.conex_slopes[1] if self.wcscal.conex_slopes[
-                              1] else self.photontable.query_header('E_DPDCY')))
+                          E_DPDCX=self.wcscal.dp_dcx if self.wcscal.dp_dcx else self.photontable.query_header(
+                              'E_DPDCX'),
+                          E_DPDCY=self.wcscal.dp_dcy if self.wcscal.dp_dcy else self.photontable.query_header(
+                              'E_DPDCY')))
         except AttributeError:
             pass
         return d
@@ -644,14 +644,13 @@ class MKIDWCSCal(_Base, CalibMixin):
         Key('conex_ref', None, 'The conex (x,y) position, [0, 1.0], when the target is at pixel_ref ', tuple),
         Key('source_locs', None, 'The RA/DEC coordinates of the sources in the image ', list),
         Key('dp_dcx', None, 'Change in pixels/change in CONEX position in x ', float),
-        Key('dp_dcy', None, 'Change in pixels/change in CONEX position in y ', float)
+        Key('dp_dcy', None, 'Change in pixels/change in CONEX position in y ', float),
     )
     REQUIRED = ('name',)
     STEPNAME = 'wcscal'
 
     def __init__(self, *args, **kwargs):
         super(MKIDWCSCal, self).__init__(*args, **kwargs)
-
         if isinstance(self.data, u.Quantity):
             try:
                 self.data.to('arcsec')
@@ -745,7 +744,7 @@ class MKIDDither(_Base):
         Key('wcscal', '', 'A MKIDWCSCal or name of the same', str),
         Key('speccal', '', 'A MKIDSpecdata or name of the same', str),
         Key('use', None, 'Specify which dither obs to use, list or range specification string e.g. #,#-#,#,#', None),
-        Key('header', None, 'A dictionary of fits header key overrides, to be applied to the observations', dict)
+        Key('header', None, 'A dictionary of fits header key overrides, to be applied to the observations', dict),
     )
     REQUIRED = ('name', 'data', 'wavecal', 'flatcal', 'wcscal')
     STEPNAME = 'dither'
@@ -836,6 +835,7 @@ class MKIDDither(_Base):
                     self._key_errors['data'] += [f'Unable to find a dither at time {self.data}']
                     getLogger(__name__).warning(f'No dither found for {self.name} @ {self.data} in {dither_path}')
                     endt, startt, pos = [], [], []
+
             else:
                 self._key_errors['data'] += [f'data is neither a timestamp, MKIDObservation list, nor dither logfile']
                 self.obs = []
