@@ -67,7 +67,8 @@ class DrizzleParams:
     def __init__(self, dither, inttime, wcs_timestep=None, pixfrac=1.0, simbad=False, startt=0, whitelight=False):
         self.n_dithers = len(dither.obs)
         self.image_shape = dither.obs[0].beammap.shape
-        self.platescale = [v.platescale.to(u.deg).value for v in dither.wcscal.values()][0]
+        self.platescale = [v.platescale.to(u.deg).value if v.platescale else dither.obs[0].metadata['E_PLTSCL']
+                           for v in dither.wcscal.values()][0]
         self.inttime = inttime
         self.pixfrac = pixfrac
         self.startt = startt
@@ -80,10 +81,15 @@ class DrizzleParams:
         self.canvas_shape = (None, None)
         self.dith_start_times = np.array([o.start for o in dither.obs])
         self.dither_pos = np.asarray(dither.pos).T
+        self.wcs_timestep = wcs_timestep or self.non_blurring_timestep(ref_pix=(dither.obs[0].metadata['E_PREFX'],
+                                                                                dither.obs[0].metadata['E_PREFY']),
+                                                                       ref_con=(dither.obs[0].metadata['E_CXREFX'],
+                                                                                dither.obs[0].metadata['E_CXREFY']),
+                                                                       conex_slopes=(dither.obs[0].metadata['E_DPDCX'],
+                                                                                     dither.obs[0].metadata['E_DPDCY']))
 
-        self.wcs_timestep = wcs_timestep or self.non_blurring_timestep()
-
-    def non_blurring_timestep(self, allowable_pixel_smear=1, center=(0, 0)):
+    def non_blurring_timestep(self, allowable_pixel_smear=1, center=(0, 0), ref_pix=(0, 0), ref_con=(0, 0),
+                              conex_slopes=(0, 0)):
         """
         [1] Smart, W. M. 1962, Spherical Astronomy, (Cambridge: Cambridge University Press), p. 55
 
