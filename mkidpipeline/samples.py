@@ -58,7 +58,7 @@ SAMPLEDATA = {'default': (
 
     # WCS cal
     definitions.MKIDWCSCal(name=_namer('wcscal'), pixel_ref=[107, 46], conex_ref=[-0.16, -0.4],
-                           data='10.40 mas'),
+                           data='10.40 mas', dp_dcx=-63.09, dp_dcy=67.61),
     definitions.MKIDWCSCal(name=_namer('wcscal'),
                            comment='ob wcscals may be used to manually determine '
                                          'WCS parameters. They are not yet supported for '
