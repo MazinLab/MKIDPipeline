@@ -267,6 +267,8 @@ class MKIDTimerange(_Base):
     @property
     def h5(self):
         """Returns the full h5 file path associated with the MKIDTimerange"""
+        if hasattr(self, 'h5_file'):
+            return os.path.join(mkpc.config.paths.out, self.h5_file)
         return os.path.join(mkpc.config.paths.out, '{}.h5'.format(int(self.start)))
 
     @property
