@@ -604,6 +604,10 @@ def apply(o: definitions.MKIDObservation, config=None):
         of.flag(mask * of.flags.bitmask([f'flatcal.{flag.name}'], unknown='warn'))
 
     n_todo = len(list(of.resonators(exclude=PROBLEM_FLAGS)))
+    if not n_todo:
+        getLogger(__name__).warning(f'Done. There were no unflagged pixels.')
+        return
+
     getLogger(__name__).info(f'Applying flat weights to {n_todo} unflagged pixels ('
                              f'{100 * (n_todo / calsoln.beammap.size):.2f} % of pixels).')
     with of.needed_ram():
