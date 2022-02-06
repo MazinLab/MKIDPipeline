@@ -560,7 +560,6 @@ class Photontable:
         if self.mode != 'write':
             raise Exception("Must open file in write mode to do this!")
 
-        # flag = np.asarray(flag)
         self.flags.valid(flag, error=True)
         if not np.isscalar(flag) and self._flagArray[pixel].shape != flag.shape:
             raise ValueError('flag must be scalar or match the desired region selected by x & y coordinates')
