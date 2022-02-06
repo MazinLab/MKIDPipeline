@@ -27,7 +27,10 @@ print(f"======MEMORY PID={os.getpid()}======", allocated)
 
 def get_free_ram():
     mem = psutil.virtual_memory()
-    return mem.free + mem.cached
+    if 'macos' in os.environ['PLAT'].lower():
+        return mem.available
+    else:
+        return mem.free + mem.cached
 
 
 def free_ram_gb():
