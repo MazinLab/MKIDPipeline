@@ -236,10 +236,10 @@ def _runbuilder(b):
         getLogger(__name__).critical('Caught exception during run of {}'.format(b.h5file), exc_info=True)
 
 
-def buildfromarray(array, config=None):
+def buildfromarray(array, config=None, **kwargs):
     cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(buildhdf=StepConfig()), cfg=config, copy=True)
     b = HDFBuilder(beammap=cfg.beammap, outdir=cfg.paths.out, starttime=array['time'].min()/1e6,
-                   inttime=(array['time'].max()-array['time'].min())/1e6, force=True)
+                   inttime=(array['time'].max()-array['time'].min())/1e6, force=True, **kwargs)
     b.run(data=array)
 
 
