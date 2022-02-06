@@ -34,6 +34,7 @@ from mkidcore.pixelflags import FlagSet
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
+
 def _calc_stdev(x):
     return np.nanstd(x) * _stddev_bias_corr((~np.isnan(x)).sum())
 
@@ -139,7 +140,7 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
             hot_mask = (hot_difference_image > (n_sigma * std_filter_image)) | reference_hot_mask
             cold_mask = (cold_difference_image < -(n_sigma * std_filter_image)) | reference_cold_mask
 
-            #If no change between between this and the last iteration then stop iterating
+            # If no change between between this and the last iteration then stop iterating
             if np.all(hot_mask == reference_hot_mask) and np.all(cold_mask == reference_cold_mask):
                 break
 
@@ -148,14 +149,15 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
             raw_image[hot_mask] = np.nan
             raw_image[cold_mask] = np.nan
             if iteration == max_iter:
-                getLogger(__name__).info(f'Reached max number of iterations ({max_iter}) - Increase max iterations to ensure'
-                                         ' all hot pixels are masked or check your data for excessive'
-                                         ' outliers')
+                getLogger(__name__).info(
+                    f'Reached max number of iterations ({max_iter}) - Increase max iterations to ensure'
+                    ' all hot pixels are masked or check your data for excessive'
+                    ' outliers')
         # make sure a pixel is not simultaneously hot and cold
         assert ~(hot_mask & cold_mask).any()
     getLogger(__name__).info(f'Masked {len(hot_mask[hot_mask != False])} hot pixels,'
                              f' {len(cold_mask[cold_mask != False])} cold pixels,'
-                             f' {len(dead_mask[dead_mask!=False])} dead pixels')
+                             f' {len(dead_mask[dead_mask != False])} dead pixels')
     return {'hot': hot_mask, 'cold': cold_mask, 'dead': dead_mask, 'masked_image': raw_image,
             'num_iter': iteration + 1}
 
@@ -307,7 +309,7 @@ def laplacian(image, box_size=5, n_sigma=5.0, max_iter=5):
 
 
 def plot_summary(masks, save_name=None):
-    hot = masks[: ,: ,0]
+    hot = masks[:, :, 0]
     cold = masks[:, :, 1]
     dead = masks[:, :, 2]
     figure = plt.figure()
@@ -323,9 +325,9 @@ def plot_summary(masks, save_name=None):
     axes_list[3].set_axis_off()
     rows = ('Hot', 'Cold', 'Dead')
     columns = ('Number (pixels)', 'Percent (%)')
-    data = np.array([[len(hot[hot==True]), round((len(hot[hot==True])/len(hot.flatten())) *100, 2)],
-                     [len(cold[cold==True]), round((len(cold[cold==True])/len(cold.flatten())) * 100, 2)],
-                     [len(dead[dead==True]), round((len(dead[dead==True])/len(dead.flatten())) * 100, 2)]])
+    data = np.array([[len(hot[hot == True]), round((len(hot[hot == True]) / len(hot.flatten())) * 100, 2)],
+                     [len(cold[cold == True]), round((len(cold[cold == True]) / len(cold.flatten())) * 100, 2)],
+                     [len(dead[dead == True]), round((len(dead[dead == True]) / len(dead.flatten())) * 100, 2)]])
     plt.table(rowLabels=rows, colLabels=columns, loc=axes_list[3], cellText=data)
     axes_list[0].tick_params(labelsize=8)
     axes_list[1].tick_params(labelsize=8)
@@ -343,38 +345,37 @@ def _compute_mask(pt, method, step, startt, stopt, methodkw, weight, n_sigma):
         raise ValueError(f'"{method} is an unsupported pixel masking method')
 
     # Generate a stack of bad pixel mask, one for each time step
-    img = pt.get_fits(start=startt, duration=stopt-startt, weight=weight, rate=False, cube_type='time', bin_width=step)
-    masks = np.zeros(img['SCIENCE'].data.shape+(3,), dtype=bool)
+    img = pt.get_fits(start=startt, duration=stopt - startt, weight=weight, rate=False, cube_type='time',
+                      bin_width=step, exclude_flags=tuple())
+    masks = np.zeros(img['SCIENCE'].data.shape + (3,), dtype=bool)
     for i, (sl, each_time) in enumerate(zip(img['SCIENCE'].data, img['CUBE_EDGES'].data.edges[:-1])):
         getLogger(__name__).info(f'Processing time slice: {each_time} - {each_time + step} s')
         result = func(sl, n_sigma=n_sigma, **methodkw)
         masks[i, :, :, 0] = result['hot']
         masks[i, :, :, 1] = result['cold']
         masks[i, :, :, 2] = result['dead']
-    mask = masks.any(axis=0) # all hot, all cold, or all dead
-    meta = {'pixcal.method':method, 'pixcal.step':step}
+    mask = masks.any(axis=0)  # all hot, all cold, or all dead
+    meta = {'pixcal.method': method, 'pixcal.step': step}
     for k in methodkw:
-        meta[f'pixcal.m_{k}']=methodkw[k]
+        meta[f'pixcal.m_{k}'] = methodkw[k]
 
     return mask, meta
 
 
 def fetch(o, startt, stopt, config=None):
-    pt = Photontable(o) if isinstance(o,str) else o
+    pt = Photontable(o) if isinstance(o, str) else o
 
     cfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(pixcal=StepConfig()), cfg=config, copy=True)
 
-    step = min(stopt-startt, cfg.pixcal.step)
+    step = min(stopt - startt, cfg.pixcal.step)
     method = cfg.pixcal.method
-    if cfg.pixcal.step > stopt-startt:
-        getLogger(__name__).info(f'Step time longer than data time by {(float(step)-(stopt-startt))*1000:.2f} ms, '
-                                 f'using full exposure.')
+    if cfg.pixcal.step > stopt - startt:
+        getLogger(__name__).info(
+            f'Step time longer than data time by {(float(step) - (stopt - startt)) * 1000:.2f} ms, '
+            f'using full exposure.')
 
-    # This is how method keywords are fetched is propagated
     exclude = [k[0] for k in StepConfig.REQUIRED_KEYS]
-    methodkw = {k: mkidpipeline.config.config.pixcal.get(k) for k in mkidpipeline.config.config.pixcal.keys() if
-                k not in exclude}
-
+    methodkw = {k: cfg.pixcal.get(k) for k in cfg.pixcal.keys() if k not in exclude}
     return _compute_mask(pt, method, step, startt, stopt, methodkw, cfg.pixcal.use_weight, cfg.pixcal.n_sigma)
 
 
@@ -401,7 +402,7 @@ def apply(o, config=None):
     pt.disablewrite()
     if config.pixcal.plots == 'last':
         plot_summary(mask, save_name=config.paths.database + "/last_pixcal_masks.pdf")
-    elif config.pixcal.plots =='all':
+    elif config.pixcal.plots == 'all':
         plot_summary(mask, save_name=config.paths.database + "/" + str(round(o.start)) + "_pixcal_masks.pdf")
     else:
         pass
