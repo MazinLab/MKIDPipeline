@@ -582,17 +582,18 @@ def apply(o: definitions.MKIDObservation, config=None):
         getLogger(__name__).info(f"No flatcal specified for {o}, nothing to do")
         return
 
-    of = o.photontable
+    fc_file = o.flatcal if os.path.exists(o.flatcal) else o.flatcal.path
+    of = Photontable(o.h5)
     fcfg = of.query_header('flatcal')
     if fcfg:
-        if fcfg != o.flatcal.path:
+        if fcfg != fc_file:
             getLogger(__name__).warning(f'{o.name} is already calibrated with a different flat ({fcfg}).')
         else:
             getLogger(__name__).info(f"{o.name} is already flat calibrated.")
         return
 
     tic = time.time()
-    calsoln = FlatSolution(o.flatcal.path)
+    calsoln = FlatSolution(fc_file)
     getLogger(__name__).info(f'Applying {calsoln.name} to {o}')
 
     # Set flags for pixels that have them
@@ -640,6 +641,13 @@ def apply(o: definitions.MKIDObservation, config=None):
                              f'{(counter / len(list(of.resonators(exclude=PROBLEM_FLAGS, pixel=True)))) * 100:.2f} % '
                              f'good pixels ')
     of.update_header('flatcal', calsoln.name)
-    of.update_header('E_FLTCAL', o.flatcal.id)
-    of.update_header('flatcal.method', o.flatcal.method)
+    try:
+        assert calsoln.name == o.flatcal.id.strip('.npz')  #DO NOT REMOVE
+    except AttributeError:
+        assert calsoln.name == o.flatcal.strip('.npz')
+    of.update_header('E_FLTCAL', calsoln.name)
+    try:
+        of.update_header('flatcal.method', o.flatcal.method)
+    except AttributeError:
+        of.update_header('flatcal.method', 'Explicit flatcal file')
     getLogger(__name__).info('Flatcal applied in {:.2f}s'.format(time.time() - tic))
