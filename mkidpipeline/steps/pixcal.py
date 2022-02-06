@@ -53,7 +53,7 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!pixcal_cfg'
     REQUIRED_KEYS = (('method', 'threshold', 'method to use laplacian|median|threshold'),
                      ('step', 30, 'Time interval for methods that need one'),
-                     ('use_weight', True, 'Use photon weights'),
+                     ('use_weight', False, 'Use photon weights'),
                      ('remake', False, 'Remake the calibration even if it exists'),
                      ('n_sigma', 5.0, 'number of standard deviations above/below the expected value for which a pixel'
                                       ' will be flagged as hot/cold'),
@@ -392,10 +392,10 @@ def apply(o, config=None):
     tic = time.time()
     getLogger(__name__).info(f'Applying pixel mask to {o}')
     pt.enablewrite()
-    f = pt.flags
-    pt.flag(f.bitmask('pixcal.hot') * mask[:, :, 0])
-    pt.flag(f.bitmask('pixcal.cold') * mask[:, :, 1])
-    pt.flag(f.bitmask('pixcal.dead') * mask[:, :, 2])
+    pt.unflag(pt.flags.bitmask(('pixcal.hot', 'pixcal.cold', 'pixcal.dead')))
+    pt.flag(pt.flags.bitmask('pixcal.hot') * mask[..., 0] +
+            pt.flags.bitmask('pixcal.cold') * mask[..., 1] +
+            pt.flags.bitmask('pixcal.dead') * mask[..., 2])
     pt.attach_observing_metadata(meta)
     pt.update_header('pixcal', True)
     pt.disablewrite()
