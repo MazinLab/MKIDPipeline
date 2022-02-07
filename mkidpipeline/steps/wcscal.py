@@ -8,7 +8,7 @@ import astropy.units as u
 from mkidpipeline.photontable import Photontable
 from mkidcore.corelog import getLogger
 from mkidpipeline.definitions import MKIDObservation, MKIDDither
-from scipy.optimize import root, fsolve
+from scipy.optimize import fsolve
 from astropy.io import fits
 import os
 from mkidpipeline.utils.smoothing import replace_nan
@@ -24,10 +24,8 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
                      ('interpolate', True, 'whether to inerpolate the image before PSF fitting. Recommended if an '
                                              'MKIDObservation is used or data is noisy'),
                      ('sigma_psf', 2.0, 'standard deviation of the point spread functions to fit in the image '),
-                     ('param_guesses', [1e-6, 50, 50, 45], '(optional) intitial guesses for hte wcs solution'
-                                                                   ' [platescale in x, platescale in y, '
-                                                                   'pixels per conex move in x, '
-                                                                   'pixels per conex move in y, device angle]'))
+                     ('param_guesses', [-0.6], '(optional) initial guesse for device angle fitting '
+                                               '(in radians)'))
 
 
 HEADER_KEYS = tuple()
@@ -117,68 +115,37 @@ def generate_equations(x, *args):
     :param args: known quantities
     :return: list of equations to fit
     """
-    conex_pos, pix_coord, sky_coord, theta, t0, t1, frame, ref_pix, conex_ref, mux, muy = args
-    equations = []
-    if mux and muy:
-        eta, phi = x
-        for i, pos in enumerate(conex_pos):
-            for j, pix in enumerate(pix_coord[i]):
-                sky = sky_coord[i][j]
-                sx, sy = sky.ra.value, sky.dec.value
-                p_refx, p_refy = ref_pix[0], ref_pix[1]
-                c_refx, c_refy = conex_ref[0], conex_ref[1]
-                x_cen, y_cen = 139 / 2, 145 / 2
-                cx, cy = pos[0], pos[1]
-                px, py = pix[0], pix[1]
-                eq1 = np.cos(theta[i]) * (eta * (
-                        px * np.cos(phi) - py * np.sin(phi) - x_cen * np.cos(phi) + y_cen * np.sin(
-                    phi) + x_cen + mux * (cx - c_refx) - p_refx)) - \
-                      np.sin(theta[i]) * (eta * (
-                        px * np.sin(phi) + py * np.cos(phi) - x_cen * np.sin(phi) - y_cen * np.cos(
-                    phi) + y_cen - muy * (cy - c_refy) - p_refy)) + \
-                      t0 - sx
-                eq2 = np.sin(theta[i]) * (eta * (
-                        px * np.cos(phi) - py * np.sin(phi) - x_cen * np.cos(phi) + y_cen * np.sin(
-                    phi) + x_cen + mux * (cx - c_refx) - p_refx)) + \
-                      np.cos(theta[i]) * (eta * (
-                        px * np.sin(phi) + py * np.cos(phi) - x_cen * np.sin(phi) - y_cen * np.cos(
-                    phi) + y_cen - muy * (cy - c_refy) - p_refy)) + \
-                      t1 - sy
-                equations.append(eq1)
-                equations.append(eq2)
-    else:
-        eta, mu_x, mu_y, phi = x
-        for i, pos in enumerate(conex_pos):
-            for j, pix in enumerate(pix_coord[i]):
-                sky = sky_coord[i][j]
-                sx, sy = np.around(sky.ra.value, decimals=7), np.around(sky.dec.value, decimals=7)
-                t0, t1 = np.around(t0, decimals=7), np.around(t1, decimals=7)
-                p_refx, p_refy = ref_pix[0], ref_pix[1]
-                c_refx, c_refy = conex_ref[0], conex_ref[1]
-                x_cen, y_cen = 140 / 2, 146 / 2
-                cx, cy = pos[0], pos[1]
-                px, py = pix[0], pix[1]
-                eq1 = np.cos(theta[i]) * (eta * (
-                            px * np.cos(phi) - py * np.sin(phi) - x_cen * np.cos(phi) + y_cen * np.sin(
-                        phi) + x_cen + mu_x * (cx - c_refx) - p_refx)) - \
-                      np.sin(theta[i]) * (eta * (
-                            px * np.sin(phi) + py * np.cos(phi) - x_cen * np.sin(phi) - y_cen * np.cos(
-                        phi) + y_cen + mu_y * (cy - c_refy) - p_refy)) + \
-                      t0 - sx
-                eq2 = np.sin(theta[i]) * (eta * (
-                            px * np.cos(phi) - py * np.sin(phi) - x_cen * np.cos(phi) + y_cen * np.sin(
-                        phi) + x_cen + mu_x * (cx - c_refx) - p_refx)) + \
-                      np.cos(theta[i]) * (eta * (
-                            px * np.sin(phi) + py * np.cos(phi) - x_cen * np.sin(phi) - y_cen * np.cos(
-                        phi) + y_cen + mu_y * (cy - c_refy) - p_refy)) + \
-                      t1 - sy
-
-                equations.append(eq1)
-                equations.append(eq2)
-    return equations
+    conex_pos, pix_coord, sky_coord, theta, t0, t1, frame, ref_pix, conex_ref, mux, muy, eta, idx = args
+    phi = x
+    theta = theta
+    sx, sy = sky_coord.ra.value, sky_coord.dec.value
+    p_refx, p_refy = ref_pix[0], ref_pix[1]
+    c_refx, c_refy = conex_ref[0], conex_ref[1]
+    x_cen, y_cen = 139 / 2, 145 / 2
+    cx, cy = conex_pos[0], conex_pos[1]
+    px, py = pix_coord[0], pix_coord[1]
+    eq1 = np.cos(theta) * (eta * (
+            px * np.sqrt(1 - phi ** 2) - py * phi - x_cen * np.sqrt(1 - phi ** 2) + y_cen * phi + x_cen + mux * (
+                cx - c_refx) - p_refx)) - \
+          np.sin(theta) * (eta * (
+            px * phi + py * np.sqrt(1 - phi ** 2) - x_cen * phi - y_cen * np.sqrt(1 - phi ** 2) + y_cen + muy * (
+                cy - c_refy) - p_refy)) + \
+          t0 - sx
+    eq2 = np.sin(theta) * (eta * (
+            px * np.sqrt(1 - phi ** 2) - py * phi - x_cen * np.sqrt(1 - phi ** 2) + y_cen * phi + x_cen + mux * (
+                cx - c_refx) - p_refx)) + \
+          np.cos(theta) * (eta * (
+            px * phi + py * np.sqrt(1 - phi ** 2) - x_cen * phi - y_cen * np.sqrt(1 - phi ** 2) + y_cen + muy * (
+                cy - c_refy) - p_refy)) + \
+          t1 - sy
+    if idx == 0:
+        return eq1
+    if idx == 1:
+        return eq2
 
 
-def solve_system_of_equations(coords, conex_positions, telescope_angles, ra, dec, ref_pix, conex_ref, frame='icrs',
+def solve_system_of_equations(coords, conex_positions, telescope_angles, ra, dec, ref_pix, conex_ref, pltscl,
+                              frame='icrs',
                               guesses=np.array([1, 1, 1, 1]), mux=None, muy=None):
     """
     Solves the system of equations to generate the wcs solution
@@ -196,40 +163,39 @@ def solve_system_of_equations(coords, conex_positions, telescope_angles, ra, dec
     for i, c in enumerate(coords):
         pix_coords.append([i for i in c.values()])
         sky_coords.append([SkyCoord(i[0], i[1], unit='deg') for i in c.keys()])
-
-    if mux and muy:
-        res = root(generate_equations, np.array([guesses[0], guesses[-1]]),
-                   args=(conex_positions, pix_coords, sky_coords, telescope_angles, ra, dec, frame,
-                         ref_pix, conex_ref, mux, muy),
-                   method='lm',
-                   options={'maxiter': 5000, 'xtol': 1e-10, 'ftol': 1e-10})
-        pltscl, devang = res.x
-        dp_dconx = mux
-        dp_dcony = muy
-    else:
-        res = root(generate_equations, guesses,
-                   args=(conex_positions, pix_coords, sky_coords, telescope_angles, ra, dec, frame,
-                         ref_pix, conex_ref, mux, muy),
-                   method='lm',
-                   options={'maxiter': 5000, 'xtol': 1e-10, 'ftol': 1e-10})
-        pltscl, dp_dconx, dp_dcony, devang = res.x
+    devangs = []
+    for i, pos in enumerate(conex_positions):
+        for j, pix in enumerate(pix_coords[i]):
+            for k in range(2):
+                sky = sky_coords[i][j]
+                ang = telescope_angles[i]
+                if np.isclose(ra - sky.ra.value, 0, rtol=1e-7) or np.isclose(dec - sky.dec.value, 0, rtol=1e-7):
+                    pass
+                else:
+                    res = fsolve(generate_equations, guesses[-1],
+                                 args=(pos, pix, sky, ang, ra, dec, frame, ref_pix, conex_ref, mux, muy,
+                                       pltscl.to(u.deg).value, k), xtol=1e-12, maxfev=1000)
+                    devangs.append((np.arcsin(res) * u.rad).to(u.deg).value)
+    devang = np.mean(devangs)
+    dp_dconx = mux
+    dp_dcony = muy
     getLogger(__name__).info('\n Calculated WCS Solution: \n'
-                             f'PLATESCALE: {(pltscl * u.deg).to(u.arcsec).value} arcsec/pix\n'
+                             f'PLATESCALE: {(pltscl).to(u.arcsec).value} arcsec/pix\n'
                              f'CONEX MOVE: ({dp_dconx:.2f}, {dp_dcony:.2f}) pixels/conex move\n'
                              f'TELESCOPE OFFSET: ({ra:.5f}, {dec:.5f}) (RA, DEC)\n'
-                             f'DEVANG: {(devang * u.rad).to(u.deg).value:.2f} degrees')
-    return (pltscl * u.deg), dp_dconx, dp_dcony, (devang * u.rad)
+                             f'DEVANG: {(devang * u.deg).value:.2f} degrees, stddev: {np.std(devangs)}')
+    return pltscl.to(u.deg), dp_dconx, dp_dcony, (devang * u.deg)
 
 
 def calculate_wcs_solution(images, source_locs=None, sigma_psf=2.0, interpolate=False, conex_positions=None,
                            telescope_angles=None, ra=None, dec=None, ref_pix=None, conex_ref=None, guesses=None,
-                           solve_conex_separately=True, mux=None, muy=None):
+                           mux=None, muy=None):
     """
     calculates the parameters needed to form a WCS solution
     :param images: list of the images or each different pointing, conex position, or rotation angle.
     :param source_locs: Array of SkyCoord objects - true locations of the sources in the image
     :param sigma_psf: if interpolate is True, what width Gaussian to use for the interpolation
-    :param interpolate: if True will interpolate thei mages to improve the PSF fitting
+    :param interpolate: if True will interpolate the images to improve the PSF fitting
     :param conex_positions: List of conex positions for each image
     :param telescope_angles: List of telescope angles for each image
     :param ra: RA of the central object (telescope offset)
@@ -272,11 +238,10 @@ def calculate_wcs_solution(images, source_locs=None, sigma_psf=2.0, interpolate=
     if mux and muy:
         pass
     else:
-        if solve_conex_separately:
-            mux, muy = solve_conex(coords, conex_positions)
-        else:
-            mux, muy = None, None
-    res = solve_system_of_equations(coords, conex_positions, telescope_angles, ra, dec, ref_pix, conex_ref,
+        mux, muy = solve_conex(coords, conex_positions)
+
+    pltscl = solve_platescale(coords, len(source_locs))
+    res = solve_system_of_equations(coords, conex_positions, telescope_angles, ra, dec, ref_pix, conex_ref, pltscl,
                                     guesses=guesses, mux=mux, muy=muy)
     return res
 
@@ -319,6 +284,40 @@ def solve_conex(coords, conex_pos):
     return mux, muy
 
 
+def sep_between_two_points(p1, p2):
+    dist = np.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
+    return dist
+
+
+def solve_platescale(coords, n_sources):
+    pix_coords = []
+    sky_coords = []
+    if len(n_sources) > 2:
+        getLogger(__name__).error('WCS Cal currently only supports an using a dataset with two unique sources')
+        raise NotImplementedError
+    for i, c in enumerate(coords):
+        pix_coords.append([i for i in c.values()])
+        sky_coords.append([SkyCoord(i[0], i[1], unit='deg') for i in c.keys()])
+    unique_coords = []
+    for i in range(n_sources):
+        unique_coords.append(sky_coords[0][i])
+
+    platescales = []
+    for i, pix in enumerate(pix_coords):
+        try:
+            s1 = unique_coords[0]
+            s2 = unique_coords[1]
+            p1 = pix[0]
+            p2 = pix[1]
+            sky_sep = s1.separation(s2).to(u.mas).value
+            pix_sep = sep_between_two_points(p1, p2)
+            platescale = sky_sep / pix_sep
+            platescales.append(platescale)
+        except IndexError:
+            pass
+    return np.mean(platescales) * u.mas
+
+
 def load_data(data, wave_start=950 * u.nm, wave_stop=1375 * u.nm):
     if isinstance(data, MKIDDither):
         conex_positions = []
@@ -330,7 +329,7 @@ def load_data(data, wave_start=950 * u.nm, wave_stop=1375 * u.nm):
             hdul = Photontable(o.h5).get_fits(wave_start=wave_start.to(u.nm).value,
                                               wave_stop=wave_stop.to(u.nm).value,
                                               exclude_flags=('beammap.NoDacTone'))
-            images.append(np.flipud(hdul[1].data))
+            images.append(hdul[1].data)
             hdus.append(hdul[1].header)
             conex_positions.append((o.header['E_CONEXX'], o.header['E_CONEXY']))
             sky = SkyCoord(o.metadata['D_IMRRA'].values[0], o.metadata['D_IMRDEC'].values[0], unit=(u.hourangle, u.deg),
