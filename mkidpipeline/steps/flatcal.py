@@ -581,8 +581,10 @@ def apply(o: definitions.MKIDObservation, config=None):
     if o.flatcal is None:
         getLogger(__name__).info(f"No flatcal specified for {o}, nothing to do")
         return
-
-    fc_file = o.flatcal if os.path.exists(o.flatcal) else o.flatcal.path
+    try:
+        fc_file = o.flatcal
+    except TypeError:
+        fc_file = o.flatcal.path
     of = Photontable(o.h5)
     fcfg = of.query_header('flatcal')
     if fcfg:
