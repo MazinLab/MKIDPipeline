@@ -67,7 +67,7 @@ FLAGS = FlagSet.define(('hot', 1, 'Hot pixel'),
                        ('dead', 3, 'Dead pixel'))
 
 
-def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
+def threshold(image, dead_mask=None, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
     """
     Compares the ratio of flux in each pixel to the median of the flux in an enclosing box. If the ratio is too high
      -- i.e. the flux is too tightly distributed compared to a Gaussian PSF of the expected FWHM -- then the pixel is
@@ -104,7 +104,6 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
     max_ratio = np.max(gauss_array) / np.median(gauss_array)
 
     # turn dead pixel values into NaNs
-    dead_mask = raw_image == 0
     raw_image[dead_mask] = np.nan
 
     # Initialise a mask for hot pixels (all False) for comparison on each iteration.
@@ -162,7 +161,7 @@ def threshold(image, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
             'num_iter': iteration + 1}
 
 
-def median(image, box_size=5, n_sigma=5.0, max_iter=5):
+def median(image, dead_mask=None, box_size=5, n_sigma=5.0, max_iter=5):
     """
     Passes a box_size by box_size moving box over the entire array and checks if the pixel at the center of that window
     has counts higher than the median plus n_sigma times the standard deviation of the pixels in that window
@@ -184,7 +183,6 @@ def median(image, box_size=5, n_sigma=5.0, max_iter=5):
     raw_image = image
 
     # Assume everything with 0 counts is a dead pixel, turn dead pixel values into NaNs
-    dead_mask = raw_image == 0
     raw_image[dead_mask] = np.nan
 
     # Initialise a mask for hot pixels (all False) for comparison on each iteration.
@@ -239,7 +237,7 @@ def median(image, box_size=5, n_sigma=5.0, max_iter=5):
             'num_iter': iteration + 1}
 
 
-def laplacian(image, box_size=5, n_sigma=5.0, max_iter=5):
+def laplacian(image, dead_mask=None, box_size=5, n_sigma=5.0, max_iter=5):
     """
     :param image: 2D image array of photons (in counts)
     :param box_size: in pixels
@@ -258,7 +256,6 @@ def laplacian(image, box_size=5, n_sigma=5.0, max_iter=5):
     raw_image = image
 
     # Assume everything with 0 counts is a dead pixel, turn dead pixel values into NaNs
-    dead_mask = raw_image == 0
     raw_image[dead_mask] = np.nan
 
     # Initialise a mask for hot pixels (all False)
@@ -348,9 +345,10 @@ def _compute_mask(pt, method, step, startt, stopt, methodkw, weight, n_sigma):
     img = pt.get_fits(start=startt, duration=stopt - startt, weight=weight, rate=False, cube_type='time',
                       bin_width=step, exclude_flags=tuple())
     masks = np.zeros(img['SCIENCE'].data.shape + (3,), dtype=bool)
+    dead_mask = pt.flagged('beammap.noDacTone')
     for i, (sl, each_time) in enumerate(zip(img['SCIENCE'].data, img['CUBE_EDGES'].data.edges[:-1])):
         getLogger(__name__).info(f'Processing time slice: {each_time} - {each_time + step} s')
-        result = func(sl, n_sigma=n_sigma, **methodkw)
+        result = func(sl, n_sigma=n_sigma, dead_mask=dead_mask, **methodkw)
         masks[i, :, :, 0] = result['hot']
         masks[i, :, :, 1] = result['cold']
         masks[i, :, :, 2] = result['dead']
