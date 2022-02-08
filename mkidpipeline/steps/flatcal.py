@@ -595,7 +595,11 @@ def apply(o: definitions.MKIDObservation, config=None):
         return
 
     tic = time.time()
-    calsoln = FlatSolution(fc_file)
+    try:
+        calsoln = FlatSolution(fc_file)
+    except TypeError:
+        calsoln = FlatSolution(fc_file.path)
+
     getLogger(__name__).info(f'Applying {calsoln.name} to {o}')
 
     # Set flags for pixels that have them
