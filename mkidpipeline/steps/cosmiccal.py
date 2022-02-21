@@ -120,24 +120,45 @@ class CosmicCleaner:
         Generates the timestamps in microseconds to be removed from the obsFile. Removes doubles for clarity.
         """
         mrr = np.max(self.removal_range)
-        overlaps = [np.abs(i - self.cosmictimes) <= mrr for i in self.cosmictimes]
-        cosmicbunches = [self.cosmictimes[i] for i in overlaps]
-        cvals = np.unique(np.array([[np.mean(i), i[0]-self.removal_range[0], i[-1]+self.removal_range[1], len(i)]
-                          for i in cosmicbunches]), axis=0)
 
-        self.interval_starts = cvals[:, 1]
-        self.interval_stops = cvals[:, 2]
-        self.interval_event_count = cvals[:, 3]
+        bunches = []
+        for cosmic_no, i in enumerate(self.cosmictimes):
+            bunch = [cosmic_no]
+            last_cos_time = i
+            for cosmic_no2, j in enumerate(self.cosmictimes[cosmic_no + 1:]):
+                if (last_cos_time + mrr) > j:
+                    last_cos_time = j
+                    bunch.append(cosmic_no2 + cosmic_no + 1)
+                else:
+                    bunches.append(bunch)
+                    break
+
+        to_keep = []
+        for i in range(len(bunches)):
+            if bunches[i][0] in bunches[i-1]:
+                to_keep.append(False)
+            else:
+                to_keep.append(True)
+        cosmicbunch_indices = [b for b, k in zip(bunches, to_keep) if k]
+
+        cvals = np.array([[self.cosmictimes[bunch][0]-self.removal_range[0],
+                  self.cosmictimes[bunch][-1]+self.removal_range[-1],
+                  len(bunch)] for bunch in cosmicbunch_indices])
+
+        self.interval_starts = cvals[:, 0]
+        self.interval_stops = cvals[:, 1]
+        self.interval_event_count = cvals[:, 2]
 
         self.interval_event_avg = []
         self.interval_event_peak = []
-        for x0, x1 in cvals[:, 1:3]:
-            use = (x0 <= self.timestream[0]) & (self.timestream[0] <= x1)
+        for start, stop in zip(cvals[:,0], cvals[:,1]):
+            use = (start <= self.timestream[0]) & (self.timestream[0] <= stop)
             d = self.timestream[1, use]
-            self.interval_event_avg.append(d.mean()*1e6/self.bin_size)
+            self.interval_event_avg.append(d.mean()/self.bin_size*1e6)
             self.interval_event_peak.append(d.max())
         getLogger(__name__).info(f'{np.sum(self.interval_stops - self.interval_starts)} microseconds removed from '
                                  f'exposure due to cosmic rays')
+
     def animate_cr_event(self, timestamp, saveName=None, timeBefore=150, timeAfter=250, frameSpacing=5, frameIntTime=10,
                          wvlStart=None, wvlStop=None, fps=5, save=True):
         """
@@ -197,12 +218,14 @@ def apply(o: definitions.MKIDTimerange, config=None, ncpu=None):
 
     getLogger(__name__).info(f'Attaching CR impact table with {impacts.size} events to {o.name} ({o.h5})')
 
-    md = dict(region=cc.removal_range, thresh=cc.threshold, method=cc.method, wavecut=cc.wave_range)
-    cc.obs.enablewrite()
-    for k, v in md.items():
-        cc.obs.update_header(f'cosmiccal.{k}', v)
+    # md = dict(region=cc.removal_range, thresh=cc.threshold, method=cc.method, wavecut=cc.wave_range)
+    # cc.obs.enablewrite()
+    # for k, v in md.items():
+    #     cc.obs.update_header(f'cosmiccal.{k}', v)
 
-    cc.obs.attach_new_table('cosmics', 'Cosmic Ray Info', 'impacts', CRImpact, "Cosmic-Ray Hits", impacts)
-    cc.obs.update_header(f'cosmiccal', True)
-    cc.obs.disablewrite()
-    getLogger(__name__).info(f'Cosmiccal applied to {o.name}')
+    np.savez(cc.obs.filename[:-3] + '_aggressive_cut.npz' , cosmics=impacts, time_removed=np.sum(impacts['stop']-impacts['start']))
+
+    # cc.obs.attach_new_table('cosmics', 'Cosmic Ray Info', 'impacts', CRImpact, "Cosmic-Ray Hits", impacts)
+    # cc.obs.update_header(f'cosmiccal', True)
+    # cc.obs.disablewrite()
+    # getLogger(__name__).info(f'Cosmiccal applied to {o.name}')
