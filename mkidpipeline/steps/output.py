@@ -54,6 +54,8 @@ def generate(outputs: definitions.MKIDOutputCollection, remake=False):
                         kwargs['bin_width'] = bw_val
                 kwargs.pop('wvl_bin_width')
                 kwargs.pop('time_bin_width')
+                if 'adi_mode' in kwargs:
+                    kwargs.pop('adi_mode')
                 obs.photontable.get_fits(**kwargs).writeto(file, overwrite=True)
                 getLogger(__name__).info(f'Output {file} for {o.name} generated')
 
