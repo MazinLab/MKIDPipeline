@@ -13,11 +13,12 @@ import mkidpipeline.config as config
 from mkidpipeline.steps import movies, drizzler
 import mkidpipeline.steps.movies
 import astropy.units as u
+import mkidpipeline.photontable as pt
 
 StepConfig = None
 
 
-def generate(outputs: definitions.MKIDOutputCollection, remake=False):
+def generate(outputs: definitions.MKIDOutputCollection, remake=False, **output_kw):
     for o in outputs:
         if os.path.exists(o.filename) and not remake:
             getLogger(__name__).info(f'Output {o.filename} for {o.name} already exists. Skipping')
@@ -54,15 +55,17 @@ def generate(outputs: definitions.MKIDOutputCollection, remake=False):
                         kwargs['bin_width'] = bw_val
                 kwargs.pop('wvl_bin_width')
                 kwargs.pop('time_bin_width')
-                if 'adi_mode' in kwargs:
-                    kwargs.pop('adi_mode')
-                obs.photontable.get_fits(**kwargs).writeto(file, overwrite=True)
+                kwargs=dict(kwargs)
+                kwargs.update(output_kw)
+                pt.Photontable(obs.h5).get_fits(**kwargs).writeto(file, overwrite=True)
                 getLogger(__name__).info(f'Output {file} for {o.name} generated')
 
         if o.wants_movie:
             if o.output_settings_dict['time_bin_width'] == 0.0:
                 raise ValueError(f'need to specify a timestep for {o.name} of output type {o.kind}')
-            mkidpipeline.steps.movies.fetch(o, **o.output_settings_dict)
+            kwargs=o.output_settings_dict
+            kwargs.update(output_kw)
+            mkidpipeline.steps.movies.fetch(o, **kwargs)
 
         if o.wants_drizzled:
             config = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(drizzler=mkidpipeline.steps.drizzler.StepConfig()),
@@ -72,6 +75,7 @@ def generate(outputs: definitions.MKIDOutputCollection, remake=False):
             kwargs['output_file'] = o.filename
             for k in ('cube_type', 'rate', 'bin_type'):
                 kwargs.pop(k)
+            kwargs.update(output_kw)
             drizzler.form(o.data, pixfrac=config.drizzler.pixfrac,
                           wcs_timestep=config.drizzler.wcs_timestep, usecache=config.drizzler.usecache,
                           ncpu=config.get('drizzler.ncpu'), whitelight=config.drizzler.whitelight,
