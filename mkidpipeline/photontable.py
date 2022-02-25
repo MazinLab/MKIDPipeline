@@ -836,7 +836,7 @@ class Photontable:
 
     def get_fits(self, start=None, duration=None, weight=False, wave_start=None,
                  wave_stop=None, rate=True, cube_type=None, bin_width=None, bin_edges=None, derotate=True,
-                 bin_type='energy', exclude_flags=pixelflags.PROBLEM_FLAGS):
+                 bin_type='energy', exclude_flags=pixelflags.PROBLEM_FLAGS, **kwargs):
         """
         Return a fits hdul of the data.
 

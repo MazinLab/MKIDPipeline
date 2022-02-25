@@ -612,7 +612,7 @@ def load_data(dither, wvl_min, wvl_max, startt, duration, wcs_timestep, ADI_mode
 def form(dither, mode='drizzler', wave_start=None, wave_stop=None, start=0, duration=None, pixfrac=.5,
          wvl_bin_width=0.0 * u.nm, time_bin_width=0.0, wcs_timestep=1., usecache=True, ncpu=None,
          exclude_flags=PROBLEM_FLAGS + EXCLUDE, whitelight=False, adi_mode=False, debug_dither_plot=False,
-         output_file='', weight=False):
+         output_file='', weight=False, **kwargs):
     """
     Takes in a MKIDDither object and drizzles each frame onto a common sky grid.
     :param dither: MKIDDither, contains the lists of observations and metadata for a set of dithers
