@@ -912,7 +912,8 @@ class Photontable:
         photons = self.query(start=start, intt=duration, startw=wave_start, stopw=wave_stop)
 
         weights = photons['weight'] if weight else None
-
+        if weights is not None and (weights == 0).all():
+            getLogger(__name__).critical(f'weights=True and all photon weights are zero, are you sure?')
         if cube_type in ('time', 'wave'):
             data = np.zeros((self.nXPix, self.nYPix, bin_edges.size - 1))
             hist, xedg, yedg = np.histogram2d(photons['resID'], photons[ycol], bins=(ridbins, bin_edges),
