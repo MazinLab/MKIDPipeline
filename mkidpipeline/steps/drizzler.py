@@ -98,7 +98,6 @@ class DrizzleParams:
         # get the field rotation rate at the start of each dither
         site = astropy.coordinates.EarthLocation.of_site(self.telescope)
         apo = Observer.at_site(self.telescope)
-
         altaz = apo.altaz(astropy.time.Time(val=self.dith_start_times, format='unix'), self.coords)
         earthrate = 2 * np.pi / astropy.units.sday.to(astropy.units.second)
 
@@ -113,7 +112,6 @@ class DrizzleParams:
         max_timestep = np.abs(angle / dith_start_rot_rates).min()
 
         getLogger(__name__).debug(f"Maximum non-blurring time step calculated to be {max_timestep:.1f} s")
-
         return max_timestep
 
 
@@ -308,8 +306,9 @@ class Drizzler(Canvas):
         else:
             self.wvl_bin_edges = np.arange(wvl_min.to(u.nm).value, wvl_max.to(u.nm).value, wvl_bin_width.to(u.nm).value) if \
                 wvl_bin_width.to(u.nm).value != 0.0 else np.array([wvl_min.to(u.nm).value, wvl_max.to(u.nm).value])
-        startt = drizzle_params.startt
+
         # get time bins to use
+        startt = drizzle_params.startt
         if startt + time_bin_width >= (drizzle_params.inttime * len(self.dithers_data)):
             getLogger(__name__).info('Timestep larger than entire duration - using whole duration instead')
             self.timebins = np.array([startt, drizzle_params.inttime])
@@ -375,7 +374,7 @@ class Drizzler(Canvas):
                     for n_wvl in range(nwvls):  # iterate over wavelengths
                         # create a new drizzle object for each time (and wavelength) frame
                         #TODO Add README disclaimer or go to multi extension:
-                        #  in adi mode the companion will appear to move on sky because a common wcs is being used
+                        # in adi mode the companion will appear to move on sky because a common wcs is being used
                         # in reality the detector mapping is changing
                         driz = stdrizzle.Drizzle(outwcs=self.wcs, pixfrac=self.pixfrac)
                         inwht = cps[it, n_wvl].astype(bool).astype(int)
@@ -529,7 +528,7 @@ def debug_dither_image(dithers_data, drizzle_params, weight=True):
     plt.show(block=True)
 
 
-def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, md, single_pa_time=None, exclude_flags=()):
+def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, md, exclude_flags=()):
     """
     Uses photontable.query to retrieve all photons in startw-stopw after startt for duration intt.
 
@@ -559,8 +558,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, md, sin
     xy = pt.xy(photons)
 
     wcs_times = pt.start_time + np.arange(startt, startt + intt, wcs_timestep)  # This is in unixtime
-    wcs = pt.get_wcs(derotate=derotate, sample_times=wcs_times, single_pa_time=single_pa_time)
-
+    wcs = pt.get_wcs(derotate=derotate, sample_times=wcs_times)
     del pt
     return {'file': file, 'timestamps': photons["time"], 'wavelengths': photons["wavelength"],
             'weight': photons['weight'], 'photon_pixels': xy, 'obs_wcs_seq': wcs, 'duration': intt, 'metadata': md}
@@ -586,19 +584,17 @@ def load_data(dither, wvl_min, wvl_max, startt, duration, wcs_timestep, ADI_mode
         getLogger(__name__).info('No photontables found')
 
     offsets = [o.start - int(o.start) for o in dither.obs]  # How many seconds into the h5 does valid data start
-    single_pa_time = Photontable(filenames[0]).start_time if ADI_mode else None
-
     if ncpu < 2:
         dithers_data = []
         for file, offset, md in zip(filenames, offsets, meta):
             data = mp_worker(file, wvl_min, wvl_max, startt + offset, duration, derotate, wcs_timestep, md,
-                             single_pa_time, exclude_flags)
+                             exclude_flags)
             dithers_data.append(data)
     else:
         # TODO result of mp_worker too big, causes issues with multiprocessing when pickling
         p = mp.Pool(ncpu)
         processes = [p.apply_async(mp_worker, (file, wvl_min, wvl_max, startt + offsett, duration, derotate,
-                                               wcs_timestep, md, single_pa_time, exclude_flags))
+                                               wcs_timestep, md, exclude_flags))
                      for file, offsett, md in zip(filenames, offsets, meta)]
         dithers_data = [res.get() for res in processes]
 
@@ -638,7 +634,6 @@ def form(dither, mode='drizzler', wave_start=None, wave_stop=None, start=0, dura
     :param weight: If True will apply weight column of the photontable to the dither frames
     :returns: drizzle : DrizzledData. Contains maps and metadata from the drizzled data
     """
-
     dcfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(drizzler=StepConfig()), ncpu=ncpu, cfg=None,
                                                      copy=True)
     ncpu = mkidpipeline.config.n_cpus_available(max=dcfg.get('ncpu', inherit=True))
