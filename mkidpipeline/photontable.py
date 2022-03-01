@@ -687,8 +687,7 @@ class Photontable:
         filtered = self.flagged(disallowed, self.xy(photons))
         return photons[np.invert(filtered)]
 
-    def get_wcs(self, sample_times=None, derotate=True, wcs_timestep=None, cube_type=None, single_pa_time=None,
-                bins=None):
+    def get_wcs(self, sample_times=None, derotate=True, wcs_timestep=None, cube_type=None, bins=None):
         """
         sample_times or wcs_timestep required, sample_times takes precedence. single_pa_time is a pa time to override
         all the timesteps (a single wcs will be returned). sample_times is in unixtime.
@@ -721,10 +720,8 @@ class Photontable:
         :param bins:
         """
 
-        if single_pa_time is not None:
-            getLogger(__name__).info(f"Single PA UTC ({single_pa_time}) specified. Forcing derotate to False")
-            derotate = False
-            sample_times = np.array([single_pa_time])
+        if not derotate:
+            sample_times = np.array([self.start_time])
         elif sample_times is None:
             sample_times = np.arange(self.start_time, self.stop_time, wcs_timestep)
 
@@ -754,7 +751,7 @@ class Photontable:
         header = mkidcore.metadata.build_header(self.metadata(start_time), unknown_keys='warn')
         wcs_solns = mkidcore.metadata.build_wcs(header, astropy.time.Time(val=sample_times, format='unix'), ref_pixels,
                                                 self.beamImage.shape, subtract_parallactic=derotate, cubeaxis=cubeaxis)
-        if single_pa_time is not None:
+        if not derotate:
             wcs_solns = np.array([wcs_solns[0]])
         return wcs_solns
 
@@ -977,7 +974,7 @@ class Photontable:
         if cube_type is not None:
             bins = bin_edges / 1e6 if cube_type == 'time' else bin_edges
         #TODO set single_pa_time=None when generating an image|scube|tcube output
-        wcs = self.get_wcs(cube_type=cube_type, bins=bins, single_pa_time=None, derotate=derotate)
+        wcs = self.get_wcs(cube_type=cube_type, bins=bins, derotate=derotate)
         if wcs:
             # TODO make sure there are no cases where this gives unintuitive behavior
             if isinstance(wcs, list):
