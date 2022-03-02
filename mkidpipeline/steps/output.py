@@ -75,6 +75,7 @@ def generate(outputs: definitions.MKIDOutputCollection, remake=False, **output_k
             kwargs['output_file'] = o.filename
             for k in ('cube_type', 'rate', 'bin_type'):
                 kwargs.pop(k)
+            kwargs = dict(kwargs)
             kwargs.update(output_kw)
             drizzler.form(o.data, pixfrac=config.drizzler.pixfrac,
                           wcs_timestep=config.drizzler.wcs_timestep, usecache=config.drizzler.usecache,
