@@ -720,13 +720,12 @@ class Photontable:
         :param bins:
         """
 
-        if not derotate:
+        if not derotate and sample_times is None:
             sample_times = np.array([self.start_time])
         elif sample_times is None:
             sample_times = np.arange(self.start_time, self.stop_time, wcs_timestep)
 
         start_time = sample_times[0]
-
         ref_pixels = []
         try:
             for t in sample_times:
@@ -751,8 +750,6 @@ class Photontable:
         header = mkidcore.metadata.build_header(self.metadata(start_time), unknown_keys='warn')
         wcs_solns = mkidcore.metadata.build_wcs(header, astropy.time.Time(val=sample_times, format='unix'), ref_pixels,
                                                 self.beamImage.shape, subtract_parallactic=derotate, cubeaxis=cubeaxis)
-        if not derotate:
-            wcs_solns = np.array([wcs_solns[0]])
         return wcs_solns
 
     def get_pixel_spectrum(self, pixel, start=None, duration=None, weight=False,

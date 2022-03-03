@@ -284,13 +284,14 @@ class Drizzler(Canvas):
     """
 
     def __init__(self, dithers_data, drizzle_params, wvl_bin_width=0.0 * u.nm, time_bin_width=0.0, wvl_min=700.0 * u.nm,
-                 wvl_max=1500 * u.nm):
+                 wvl_max=1500 * u.nm, adi_mode=False):
         super().__init__(dithers_data, drizzle_params=drizzle_params, canvas_shape=drizzle_params.canvas_shape)
         self.drizzle_params = drizzle_params
         self.pixfrac = drizzle_params.pixfrac
         self.time_bin_width = time_bin_width
         wvl_span = wvl_max.to(u.nm).value - wvl_min.to(u.nm).value
-
+        self.timebins = None
+        self.wvl_bin_edges = None
         # get wavelength bins to use
         if wvl_bin_width.to(u.nm).value > wvl_span:
             getLogger(__name__).info('Wavestep larger than entire wavelength range - using whole wavelength range '
@@ -325,7 +326,7 @@ class Drizzler(Canvas):
                                       startt + drizzle_params.inttime)
 
         self.wcs_times = np.append(np.arange(startt, self.timebins[-1], drizzle_params.wcs_timestep),
-                                   self.timebins[-1])
+                                   self.timebins[-1]) if not adi_mode else np.array([startt])
         self.cps = None
         self.counts = None
         self.expmap = None
@@ -342,15 +343,13 @@ class Drizzler(Canvas):
         self.cps = np.zeros((nexp_time * ndithers, nwvls) + self.canvas_shape[::-1])
         expmap = np.zeros((nexp_time * ndithers, nwvls) + self.canvas_shape[::-1])
         for pos, dither_photons in enumerate(self.dithers_data):  # iterate over dithers
-
             dithhyper = np.zeros((nexp_time, nwvls) + self.canvas_shape[::-1], dtype=np.float32)
             dithexp = np.zeros((nexp_time, nwvls) + self.canvas_shape[::-1], dtype=np.float32)
 
             for wcs_i, wcs_sol in enumerate(dither_photons['obs_wcs_seq']):  # iterate through each of the wcs time spacing
-                if wcs_i >= len(self.wcs_times) - 1:
+                if wcs_i >= len(self.wcs_times) - 1 and len(self.wcs_times) != 1:
                     break
                 wcs_sol.pixel_shape = self.shape
-
                 # the sky grid ref and dither ref should match (crpix varies between dithers)
                 if not np.all(np.round(wcs_sol.wcs.crval, decimals=4) == np.round(self.wcs.wcs.crval, decimals=4)):
                     getLogger(__name__).critical('sky grid ref and dither ref do not match '
@@ -360,12 +359,15 @@ class Drizzler(Canvas):
                 if len(self.timebins) <= len(self.wcs_times):
                     time_bins = np.array([self.wcs_times[wcs_i], self.wcs_times[wcs_i + 1]])
                 else:
-                    idx = np.where((self.timebins >= self.wcs_times[wcs_i]) & (self.timebins <= self.wcs_times[wcs_i + 1]))
-                    time_bins = self.timebins[idx]
+                    if len(self.wcs_times) == 1:
+                        time_bins = self.timebins
+                    else:
+                        idx = np.where(
+                            (self.timebins >= self.wcs_times[wcs_i]) & (self.timebins <= self.wcs_times[wcs_i + 1]))
+                        time_bins = self.timebins[idx]
                 counts = self.make_cube(dither_photons, time_bins, self.wvl_bin_edges, applyweights=apply_weight)
                 expin = time_bins[1] - time_bins[0]
                 cps = counts / expin  # scale this frame by its exposure time
-
                 # get exposure bin of current wcs time
                 wcs_time = self.wcs_times[wcs_i]
                 iwcs = np.where([(wcs_time >= self.timebins[i]) & (wcs_time < self.timebins[i + 1]) for i in
@@ -528,7 +530,7 @@ def debug_dither_image(dithers_data, drizzle_params, weight=True):
     plt.show(block=True)
 
 
-def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, md, exclude_flags=()):
+def mp_worker(file, startw, stopw, startt, intt, adi_mode, wcs_timestep, md, exclude_flags=()):
     """
     Uses photontable.query to retrieve all photons in startw-stopw after startt for duration intt.
 
@@ -536,7 +538,7 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, md, exc
 
     Culls photons affected by exclude_flags.
 
-    Determines WCS solutions for the interval at wcs_timestep cadence calling with derotate and single_pa_time"""
+    Determines WCS solutions for the interval at wcs_timestep cadence calling with adi_mode"""
     getLogger(__name__).debug(f'Fetching data from {file}')
     pt = Photontable(file)
     if startt + intt > pt.duration:
@@ -556,15 +558,14 @@ def mp_worker(file, startw, stopw, startt, intt, derotate, wcs_timestep, md, exc
     getLogger(__name__).info(f"Removed {num_unfiltered - len(photons)} photons "
                              f"from {num_unfiltered} total from bad pix")
     xy = pt.xy(photons)
-
     wcs_times = pt.start_time + np.arange(startt, startt + intt, wcs_timestep)  # This is in unixtime
-    wcs = pt.get_wcs(derotate=derotate, sample_times=wcs_times)
+    wcs = pt.get_wcs(derotate=not adi_mode, sample_times=wcs_times)
     del pt
     return {'file': file, 'timestamps': photons["time"], 'wavelengths': photons["wavelength"],
             'weight': photons['weight'], 'photon_pixels': xy, 'obs_wcs_seq': wcs, 'duration': intt, 'metadata': md}
 
 
-def load_data(dither, wvl_min, wvl_max, startt, duration, wcs_timestep, ADI_mode=False, ncpu=1,
+def load_data(dither, wvl_min, wvl_max, startt, duration, wcs_timestep, adi_mode=False, ncpu=1,
               exclude_flags=()):
     """
     Load the photons either by querying the photontables in parrallel or loading from pkl if it exists. The wcs
@@ -573,10 +574,6 @@ def load_data(dither, wvl_min, wvl_max, startt, duration, wcs_timestep, ADI_mode
     startt must be relative to the start of the file in seconds
 
     """
-    if ADI_mode:
-        derotate = False
-    else:
-        derotate = True
     begin = time.time()
     filenames = [o.h5 for o in dither.obs]
     meta = [o.metadata for o in dither.obs]
@@ -587,13 +584,13 @@ def load_data(dither, wvl_min, wvl_max, startt, duration, wcs_timestep, ADI_mode
     if ncpu < 2:
         dithers_data = []
         for file, offset, md in zip(filenames, offsets, meta):
-            data = mp_worker(file, wvl_min, wvl_max, startt + offset, duration, derotate, wcs_timestep, md,
+            data = mp_worker(file, wvl_min, wvl_max, startt + offset, duration, adi_mode, wcs_timestep, md,
                              exclude_flags)
             dithers_data.append(data)
     else:
         # TODO result of mp_worker too big, causes issues with multiprocessing when pickling
         p = mp.Pool(ncpu)
-        processes = [p.apply_async(mp_worker, (file, wvl_min, wvl_max, startt + offsett, duration, derotate,
+        processes = [p.apply_async(mp_worker, (file, wvl_min, wvl_max, startt + offsett, duration, adi_mode,
                                                wcs_timestep, md, exclude_flags))
                      for file, offsett, md in zip(filenames, offsets, meta)]
         dithers_data = [res.get() for res in processes]
@@ -690,7 +687,7 @@ def form(dither, mode='drizzler', wave_start=None, wave_stop=None, start=0, dura
     if dithers_data is None:
         dithers_data = load_data(dither, wave_start, wave_stop, start, drizzle_params.inttime,
                                  drizzle_params.wcs_timestep, ncpu=ncpu, exclude_flags=exclude_flags,
-                                 ADI_mode=adi_mode)
+                                 adi_mode=adi_mode)
         if usecache:
             try:
                 with open(pkl_save, 'wb') as handle:
@@ -712,25 +709,18 @@ def form(dither, mode='drizzler', wave_start=None, wave_stop=None, start=0, dura
     getLogger(__name__).debug('Initializing drizzler core')
     getLogger(__name__).debug('Running Drizzler')
     driz = Drizzler(dithers_data, drizzle_params, wvl_bin_width=wvl_bin_width, time_bin_width=time_bin_width,
-                    wvl_min=wave_start, wvl_max=wave_stop)
+                    wvl_min=wave_start, wvl_max=wave_stop, adi_mode=adi_mode)
+
     if time_bin_width != 0.0 and wvl_bin_width != 0.0 * u.nm:
         cube_type = 'both'
-        time_bin_edges = np.append(np.arange(start, duration, time_bin_width), duration)
-        wvl_bin_edges = np.append(np.arange(wave_start.to(u.nm).value, wave_stop.to(u.nm).value,
-                                            wvl_bin_width.to(u.nm).value), wave_stop.to(u.nm).value)
     elif time_bin_width != 0.0:
         cube_type = 'time'
-        time_bin_edges = np.append(np.arange(start, duration, time_bin_width), duration)
-        wvl_bin_edges = None
     elif wvl_bin_width != 0.0 * u.nm:
         cube_type = 'wave'
-        wvl_bin_edges = np.append(np.arange(wave_start.to(u.nm).value, wave_stop.to(u.nm).value,
-                                            wvl_bin_width.to(u.nm).value), wave_stop.to(u.nm).value)
-        time_bin_edges = None
     else:
         cube_type = None
-        wvl_bin_edges = None
-        time_bin_edges = None
+    time_bin_edges = driz.timebins
+    wvl_bin_edges = driz.wvl_bin_edges
     getLogger(__name__).debug('Drizzling...')
     driz.run(apply_weight=weight)
     if output_file:
