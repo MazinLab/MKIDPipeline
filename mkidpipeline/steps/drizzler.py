@@ -576,7 +576,7 @@ def load_data(dither, wvl_min, wvl_max, startt, duration, wcs_timestep, adi_mode
     """
     begin = time.time()
     filenames = [o.h5 for o in dither.obs]
-    meta = [o.metadata for o in dither.obs]
+    meta = [Photontable(o.h5).metadata() for o in dither.obs]
     if not filenames:
         getLogger(__name__).info('No photontables found')
 
