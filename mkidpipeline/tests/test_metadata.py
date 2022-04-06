@@ -1,6 +1,5 @@
 from mkidpipeline.config import *
 import mkidpipeline as pipe
-import mkidpipeline.hdf.photontable as pt
 from io import StringIO
 
 df = '/scratch/baileyji/mec/data.yml'
@@ -21,7 +20,7 @@ dataset = pipe.load_data_description(df)
 md=parse_obslog('/scratch/baileyji/mec/obslog_201905171955.json')
 metadata = load_observing_metadata()
 ob = dataset.sobs[0]
-mdl = select_metadata_for_h5(ob, metadata)
+mdl = observing_metadata_for_timerange(ob, metadata)
 out = StringIO()
 extensible_header = {'obs_metadata':mdl}
 yaml.dump(extensible_header, out)
