@@ -1,33 +1,30 @@
-from mkidpipeline.config import *
-import mkidpipeline as pipe
+import mkidpipeline.definitions as definitions
+import mkidpipeline.samples
+import mkidpipeline.config as config
+import mkidpipeline.pipeline as pipe
+import mkidcore.corelog
+import pkg_resources as pkg
 
-df = '/scratch/baileyji/mec/data.yml'
-pf = '/scratch/baileyji/mec/pipe.yml'
-of = '/scratch/baileyji/mec/out.yml'
+mkidcore.corelog.getLogger('mkidcore', setup=True,
+                           configfile=pkg.resource_filename('mkidpipeline', './config/logging.yaml'))
 
-pipe.logtoconsole()
+data = mkidpipeline.samples.get_sample_data('default')
+config.dump_dataconfig(data)
+d = definitions.MKIDObservingDataset('data.yaml')
 
-pcfg = pipe.configure_pipeline(pf)
-dataset = pipe.load_data_description(df)
-out = MKIDOutputCollection(of, df)
-
-
-
-import mkidcore.config
-from datetime import datetime
-import json
-from mkidcore.config import ConfigThing
+pcfg = config.configure_pipeline('pipe.yaml')
+data = mkidpipeline.samples.get_sample_data('default')
+config.dump_dataconfig(data)
+d = definitions.MKIDObservingDataset('data.yaml')
 
 
-def parse_obslog(file):
-    with open(file, 'r') as f:
-        lines = f.readlines()
 
-    ret = []
-    for l in lines:
-        ct = ConfigThing(json.loads(l).items())
-        ct.register('utc', datetime.strptime(ct.utc, "%Y%m%d%H%M%S"), update=True)
-        ret.append(ct)
-    return ret
+list(d.all_observations)
+list(d.wavecalable)
+list(d.flatcalable)
+list(d.speccalable)
 
-md=parse_obslog('/scratch/baileyji/mec/obslog_201905171955.json')
+sample_out = pipe.generate_sample_output()
+with open('out.yaml', 'w') as f:
+    config.yaml.dump(sample_out, f)
+definitions.MKIDOutputCollection('out.yaml')
