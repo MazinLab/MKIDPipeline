@@ -133,13 +133,14 @@ class DrizzleParams:
 class Canvas:
     """Creates the canvas on which the drizzled data is placed"""
 
-    def __init__(self, dithers_data, drizzle_params, canvas_shape=(None, None), force_square_grid=True):
+    def __init__(self, dithers_data, drizzle_params, canvas_shape=(None, None), force_square_grid=True, buffer=10):
         """
         :param dithers_data: list of dictionaries of relevant input data and parameters (see output of load_data)
         :param drizzle_params: DrizzleParams object
         :param canvas_shape: (x, y) shape of the Canvas on which to place the drizzled output. Note that if any part of
         the image falls of of the canvas this can result in the STScI drizzle code to return all 0's
         :param force_square_grid: If True will force the x and y dimensions of the drizzled output to be the same
+        :param buffer: buffer (in pixels) to add to canvas grid to ensure no image falls off the edge of the grid
         """
 
         # TODO determine appropriate value from area coverage of dataset and oversampling, even longer term there
@@ -171,9 +172,6 @@ class Canvas:
 
             # Set size of virtual grid to accommodate the limits of the offsets.
             # max_detector_dist = np.linalg.norm(self.shape)
-            buffer = 100
-            # if any part of the image falls off the canvas it can cause stsci.drizzle to produce nothing
-            # so add a safety perimeter
             self.canvas_shape = ((2 * (pix_ra_span[1] - pix_ra_span[0]) + self.shape[0] + buffer).astype(int),
                                  (2 * (pix_dec_span[1] - pix_dec_span[0]) + self.shape[1] + buffer).astype(int))
 
@@ -184,7 +182,7 @@ class Canvas:
         if max(self.canvas_shape) > max(self.shape) * len(dithers_data):
             getLogger(__name__).warning(f'Canvas grid {self.canvas_shape} exceeds maximum nominal extent of dithers '
                                         f'({max(self.shape) * len(dithers_data)})')
-        #Create the canvas WCS
+        # Create the canvas WCS
         self.wcs = wcs.WCS(naxis=2)
         self.wcs.wcs.pc = np.eye(2)
         self.wcs.pixel_shape = self.canvas_shape
