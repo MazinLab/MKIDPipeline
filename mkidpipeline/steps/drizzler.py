@@ -499,6 +499,7 @@ def debug_dither_image(dithers_data, drizzle_params, weight=True):
     canvas_wcs = driz.wcs
     shape = driz.shape
     del driz
+    drizzle_params.canvas_shape = None, None
 
     for pos, dither_photons in enumerate(dithers_data):
         # make a new driz object so the color of each frame is uniform
