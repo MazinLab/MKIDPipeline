@@ -62,9 +62,20 @@ class StepConfig(mkidpipeline.config.BaseStepConfig):
 
 
 class DrizzleParams:
-    """ Calculates and stores the relevant info for Drizzler """
-
+    """Calculates and stores the relevant parameters for Drizzler"""
     def __init__(self, dither, inttime, wcs_timestep=None, pixfrac=1.0, simbad=False, startt=0, whitelight=False):
+        """
+        :param dither: MKIDDither, contains the lists of observations and metadata for a set of dithers
+        :param inttime: duration in seconds
+        :param wcs_timestep: cadence at which to calculate discrete WCS solutions
+        :param pixfrac: ratio of how much each input pixel is shrunk by before drizzling that data onto the output grid
+        (see also STScI DrizzlePac documentation)
+        :param simbad: If True will use simbad to query the target coordinates instead of using the RA and Dec saved in
+        the metadata
+        :param startt: start time in relative seconds
+        :param whitelight: If True will run drizzler in a simplified mode so as to avoid errors associated with not
+        having required on-sky metadata. To be used with any data taken off-sky (i.e. using the SCExAO bench)
+        """
         self.n_dithers = len(dither.obs)
         self.image_shape = dither.obs[0].beammap.shape
         self.platescale = [v.platescale.to(u.deg).value if v.platescale else dither.obs[0].metadata['E_PLTSCL']
@@ -91,9 +102,16 @@ class DrizzleParams:
     def non_blurring_timestep(self, allowable_pixel_smear=1, center=(0, 0), ref_pix=(0, 0), ref_con=(0, 0),
                               conex_slopes=(0, 0)):
         """
+        Calculates the minimum required timestep that would produce allowable_pixel_smear pixel displacement at the
+        center of the furthest dither
         [1] Smart, W. M. 1962, Spherical Astronomy, (Cambridge: Cambridge University Press), p. 55
 
-        :param allowable_pixel_smear: the resolution element threshold
+        :param allowable_pixel_smear: resolution element threshold
+        :param center: center tip-tilt mirror position
+        :param ref_pix: (x, y) pixel reference position
+        :param ref_con: tip-tilt mirror position at which ref_pix was determined
+        :param conex_slopes: (dx, dy) how much the tip-tilt mirror moves in pixels for a mirror displacement of 1
+        :return: maximum non-blurring timestep in seconds
         """
         # get the field rotation rate at the start of each dither
         site = astropy.coordinates.EarthLocation.of_site(self.telescope)
@@ -101,13 +119,10 @@ class DrizzleParams:
         altaz = apo.altaz(astropy.time.Time(val=self.dith_start_times, format='unix'), self.coords)
         earthrate = 2 * np.pi / astropy.units.sday.to(astropy.units.second)
 
-        # Smart 1962
         dith_start_rot_rates = (earthrate * np.cos(site.geodetic.lat.rad) * np.cos(altaz.az.radian) /
                                 np.cos(altaz.alt.radian))
         dith_pix_offset = (CONEX2PIXEL(*self.dither_pos, ref_pix=ref_pix, slopes=conex_slopes, ref_con=ref_con) -
                            CONEX2PIXEL(*center, ref_pix=ref_pix, slopes=conex_slopes, ref_con=ref_con).reshape(2, 1))
-        # get the minimum required timestep. One that would produce allowable_pixel_smear pixel displacement at the
-        # center of furthest dither
         angle = np.arctan2(allowable_pixel_smear, np.linalg.norm(dith_pix_offset))
         max_timestep = np.abs(angle / dith_start_rot_rates).min()
 
@@ -116,27 +131,28 @@ class DrizzleParams:
 
 
 class Canvas:
-    def __init__(self, dithers_data, drizzle_params, header=None, canvas_shape=(None, None), force_square_grid=True):
-        """
-        generates the canvas that is drizzled onto
+    """Creates the canvas on which the drizzled data is placed"""
 
-        TODO determine appropriate value from area coverage of dataset and oversampling, even longerterm there
-         the oversampling should be selected to optimize total phase coverage to extract the most resolution at a
-         desired minimum S/N
-
-        :param dithers_data:
-        :param coords:
-        :param canvas_shape: (int, int). RA dec samples. If either are None both are set to minimum required to
-            fit all dithers
+    def __init__(self, dithers_data, drizzle_params, canvas_shape=(None, None), force_square_grid=True):
         """
+        :param dithers_data: list of dictionaries of relevant input data and parameters (see output of load_data)
+        :param drizzle_params: DrizzleParams object
+        :param canvas_shape: (x, y) shape of the Canvas on which to place the drizzled output. Note that if any part of
+        the image falls of of the canvas this can result in the STScI drizzle code to return all 0's
+        :param force_square_grid: If True will force the x and y dimensions of the drizzled output to be the same
+        """
+
+        # TODO determine appropriate value from area coverage of dataset and oversampling, even longer term there
+        #  the oversampling should be selected to optimize total phase coverage to extract the most resolution at a
+        #  desired minimum S/N
+
         self.canvas_shape = canvas_shape
         self.dithers_data = dithers_data
         self.drizzle_params = drizzle_params
         self.shape = drizzle_params.image_shape
         self.vPlateScale = drizzle_params.platescale
         self.center = drizzle_params.coords
-        self.header = header
-        self.stack = None
+        self.header = None
 
         if canvas_shape[0] is None or canvas_shape[1] is None:
             dith_pix_min = np.zeros((len(dithers_data), 2))
@@ -229,15 +245,16 @@ class Canvas:
             getLogger(__name__).warning('MJD not present in metadata - make sure obslog is properly populated!')
         return mkidcore.metadata.build_header(meta, unknown_keys='warn')
 
-    def write(self, filename, overwrite=True, compress=False, dashboard_orient=False, cube_type=None,
-              time_bin_edges=None, wvl_bin_edges=None):
-
-        if self.stack and dashboard_orient:
-            getLogger(__name__).info('Transposing image stack to match dashboard orientation')
-            getLogger(__name__).warning('Has not been verified')
-            self.data = np.transpose(self.data, (0, 2, 1))
-            self.wcs.pc = self.wcs.pc.T
-
+    def write(self, filename, overwrite=True, compress=False, cube_type=None, time_bin_edges=None, wvl_bin_edges=None):
+        """
+        Writes the drizzled output to a FITS file
+        :param filename: fully qualified file path
+        :param overwrite: if True will overwrite existing file of the same name
+        :param compress: If True will output a compressed GZ file instead of a FITS file
+        :param cube_type: Type of output cube, options are 'both', 'time', or 'wave'
+        :param time_bin_edges: temporal bin edges (in seconds) if cube_type is 'both' or 'time'
+        :param wvl_bin_edges: wavelength bin edges (in nm) if cube_type is 'both' or 'wave'
+        """
         primary_header = self.header
         primary_header.update(self.wcs.to_header())
         primary_header['EXPTIME'] = self.average_nonzero_exp_time
@@ -282,9 +299,17 @@ class Drizzler(Canvas):
     """
     Generate a 2D-4D hypercube from a set dithered dataset. The cube size is ntimes * ndithers * nwvlbins * nPixRA * nPixDec.
     """
-
     def __init__(self, dithers_data, drizzle_params, wvl_bin_width=0.0 * u.nm, time_bin_width=0.0, wvl_min=700.0 * u.nm,
                  wvl_max=1500 * u.nm, adi_mode=False):
+        """
+        :param dithers_data: list of dictionaries of relevant input data and parameters (see output of load_data)
+        :param drizzle_params: DrizzleParams object
+        :param wvl_bin_width: wavelength bin width (in nm)
+        :param time_bin_width: time bin width (in seconds)
+        :param wvl_min: minimum wavelength to use
+        :param wvl_max: maximum wavelength to use
+        :param adi_mode: If True will not subtract off the calculated parallactic angle to preserve field rotation
+        """
         super().__init__(dithers_data, drizzle_params=drizzle_params, canvas_shape=drizzle_params.canvas_shape)
         self.drizzle_params = drizzle_params
         self.pixfrac = drizzle_params.pixfrac
@@ -332,6 +357,10 @@ class Drizzler(Canvas):
         self.expmap = None
 
     def run(self, apply_weight=True):
+        """
+        Runs the drizzling code
+        :param apply_weight: If True will weight each pixel by its weight from the photon table.
+        """
         tic = time.clock()
 
         nexp_time = len(self.timebins) - 1
@@ -405,19 +434,18 @@ class Drizzler(Canvas):
         self.counts = self.cps * expmap
         self.average_nonzero_exp_time = expmap[expmap > 0].mean()
 
-    def make_cube(self, dither_photons, time_bins, wvl_bins, applyweights=False, max_counts_cut=None):
+    def make_cube(self, dither_photons, time_bins, wvl_bins, apply_weight=False):
         """
         Creates a 4D image cube for the duration of the wcs timestep range or finer sampled if timestep is
         shorter
-        :param dither_photons:
-        :param time_bins:
-        :param wvl_bins:
-        :param applyweights:
-        :param max_counts_cut:
-        :return:
+        :param dither_photons: dictionary of relevant input data for a single dither position
+        :param time_bins: array of time bin edges (in seconds)
+        :param wvl_bins: array of wavelength bin edges (in nm)
+        :param apply_weight: If True will weight each pixel by its weight from the photon table.
+        :return: 4D data cube
         """
         time_bins = time_bins * 1e6
-        weights = dither_photons['weight'] if applyweights else None
+        weights = dither_photons['weight'] if apply_weight else None
         timespan_mask = ((dither_photons['timestamps'] >= time_bins[0]) &
                          (dither_photons['timestamps'] <= time_bins[-1]))
         if weights is not None:
@@ -429,18 +457,16 @@ class Drizzler(Canvas):
 
         bins = np.array([time_bins, wvl_bins, range(self.shape[1] + 1), range(self.shape[0] + 1)])
         hypercube, _ = np.histogramdd(sample.T, bins, weights=weights)
-
-        if max_counts_cut:
-            getLogger(__name__).debug("Applying max pixel count cut")
-            hypercube *= np.int_(hypercube < max_counts_cut)
         return hypercube
 
     def generate_wcs(self, wave=True, time=True):
         """
         Return a WCS object appropriate for the resulting cube to the extra elements to the header
-
         Its not clear how to increase the number of dimensions of a 2D wcs.WCS() after its created so just create
         a new object, read the original parameters where needed
+        :param wave: If True creates a spectral dimension
+        :param time: If True creates a temporal dimension
+        :return: Astropy.wcs.WCS object
         """
         naxis = 2 + int(wave) + int(time)
         w = wcs.WCS(naxis=naxis)
@@ -486,8 +512,12 @@ class Drizzler(Canvas):
 
 
 def debug_dither_image(dithers_data, drizzle_params, weight=True):
-    """ Plot the location of frames with simple boxes for calibration/debugging purposes. """
-
+    """
+    Plot the location of frames with simple boxes for calibration/debugging purposes.
+    :param dithers_data: list of dictionaries of relevant input data and parameters (see output of load_data)
+    :param drizzle_params: DrizzleParams object
+    :param weight: If True will weight each pixel by its weight from the photon table.
+    """
     drizzle_params.canvas_shape = 500, 500  # hand set to large number to ensure all frames are captured
     driz = Drizzler(dithers_data, drizzle_params)
     driz.run(apply_weight=weight)
@@ -533,13 +563,21 @@ def debug_dither_image(dithers_data, drizzle_params, weight=True):
 
 def mp_worker(file, startw, stopw, startt, intt, adi_mode, wcs_timestep, md, exclude_flags=()):
     """
-    Uses photontable.query to retrieve all photons in startw-stopw after startt for duration intt.
+    Uses photontable.query to retrieve all photons in a wavelength range defined by startw and stopw in a timerange
+    defined by start time startt and duration intt. Culls photons affected by exclude_flags.
 
-    startt is assumed to be in relative seconds.
-
-    Culls photons affected by exclude_flags.
-
-    Determines WCS solutions for the interval at wcs_timestep cadence calling with adi_mode"""
+    Determines WCS solutions for the interval at wcs_timestep cadence calling with adi_mode
+    :param file: h5 file name
+    :param startw: start wavelenght (nm)
+    :param stopw: stop wavelength (nm)
+    :param startt: start time in relative seconds
+    :param intt: duration in seconds
+    :param adi_mode: if True will not subtract off the calculated parallactic angle to preserve field rotation
+    :param wcs_timestep: cadence at which to calculate discrete WCS solutions
+    :param md: observational metadata
+    :param exclude_flags: list of pixel flags to exclude from analysis
+    :return: dictionary of relevant data and parameters
+    """
     getLogger(__name__).debug(f'Fetching data from {file}')
     pt = Photontable(file)
     if startt + intt > pt.duration:
@@ -571,9 +609,17 @@ def load_data(dither, wvl_min, wvl_max, startt, duration, wcs_timestep, adi_mode
     """
     Load the photons either by querying the photontables in parrallel or loading from pkl if it exists. The wcs
     solutions are added to this photon data dictionary but will likely be integrated into photontable.py directly
-
-    startt must be relative to the start of the file in seconds
-
+    :param dither: MKIDDither, contains the lists of observations and metadata for a set of dithers
+    :param wvl_min: minimum wavelength (in nm)
+    :param wvl_max: maximum wavelength (in nm)
+    :param startt: start time relative ot the beginning of the file (in seconds)
+    :param duration: duration of file to use (in seconds)
+    :param wcs_timestep: cadence at which to calculate discrete WCS solutions
+    :param adi_mode: If True will not subtract off the calculated parallactic angle to preserve field rotation. Useful
+    for ADI analysis
+    :param ncpu: number of CPUs to use for multiprocessing
+    :param exclude_flags: list of pixelflags to be excluded from analysis
+    :return: list of dictionaries of relevant data and parameters
     """
     begin = time.time()
     filenames = [o.h5 for o in dither.obs]
@@ -619,14 +665,14 @@ def form(dither, mode='drizzler', wave_start=None, wave_stop=None, start=0, dura
     :param wvl_bin_width: astropy.units.Quantity - size of wavelength bins. If 0.0 will use full wavelength extent of
     the instrument
     :param time_bin_width: size of time bins (in seconds). If 0.0 will use full duration
-    :param wcs_timestep: Time between different wcs parameters (eg orientations). 0 will use the calculated
+    :param wcs_timestep: Time between different wcs parameters (e.g. orientations). 0 will use the calculated
     non-blurring min
     :param usecache: True means the output of load_data() is stored and reloaded for subsequent runs of form
     :param ncpu: Number of cpu used when loading and reformatting the dither photontables
-    :param exclude_flags: List of pixelflags to be excluded from analysis
+    :param exclude_flags: 'ist of pixelflags to be excluded from analysis
     :param whitelight: Relevant parameters are updated to perform a whitelight dither.
-    :param ADI_mode: The first image is oriented to its on sky position and that
-    same rotation offset applied to all subsequent frames. Useful for the purpose of ADI.
+    :param adi_mode: If True will not subtract off the calculated parallactic angle to preserve field rotation. Useful
+    for ADI analysis
     :param debug_dither_plot: Plot the location of frames with simple boxes for calibration/debugging purposes
     :param output_file: Name of the output save file
     :param weight: If True will apply weight column of the photontable to the dither frames
