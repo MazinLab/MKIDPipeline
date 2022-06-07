@@ -17,10 +17,11 @@ from photutils import CircularAnnulus
 from photutils.psf import BasicPSFPhotometry
 from astropy.modeling import fitting
 from astropy.modeling.models import *
-import matplotlib.pyplot as plt
 from scipy.interpolate import griddata
 from astropy.io import fits
 from photutils.psf import IterativelySubtractedPSFPhotometry
+from astropy.stats import gaussian_fwhm_to_sigma
+
 
 def get_aperture_radius(lam, platescale):
     """
@@ -30,11 +31,12 @@ def get_aperture_radius(lam, platescale):
     :return: radius (in pixels)
     """
     D = 8.2 * 1e10
-    theta_rad = 1.22 * (lam/D)
+    theta_rad = 1.22 * (lam / D)
     a = 4.8481368e-6
-    theta_mas = theta_rad * (1/a)
-    r = 0.5 * theta_mas * (1/platescale)
+    theta_mas = theta_rad * (1 / a)
+    r = 0.5 * theta_mas * (1 / platescale)
     return r
+
 
 def aper_photometry(image, obj_position, radius, box_size=10, bkgd_subtraction_type='plane'):
     """
@@ -53,20 +55,20 @@ def aper_photometry(image, obj_position, radius, box_size=10, bkgd_subtraction_t
     if bkgd_subtraction_type == 'plane':
         xp = obj_position[1]
         yp = obj_position[0]
-        crop_img = image[int(xp) - box_size:int(xp) + (box_size+1), int(yp) - box_size:int(yp) + (box_size+1)]
+        crop_img = image[int(xp) - box_size:int(xp) + (box_size + 1), int(yp) - box_size:int(yp) + (box_size + 1)]
         p_back_init = Polynomial2D(degree=1)
         fit_p = fitting.LevMarLSQFitter()
         x, y = np.meshgrid(np.arange(np.shape(crop_img)[0]), np.arange(np.shape(crop_img)[0]))
         p = fit_p(p_back_init, x, y, crop_img)
         background = p(x, y)
-        image[int(xp) - box_size:int(xp) + (box_size+1), int(yp) - box_size:int(yp) + (box_size+1)] -= background
+        image[int(xp) - box_size:int(xp) + (box_size + 1), int(yp) - box_size:int(yp) + (box_size + 1)] -= background
         circ_aperture = CircularAperture(position, r=radius)
         photometry_table = aperture_photometry(image, circ_aperture)
         object_flux = photometry_table['aperture_sum']
         return object_flux
     elif bkgd_subtraction_type == 'annulus':
         circ_aperture = CircularAperture(position, r=radius)
-        annulus_aperture = CircularAnnulus(position, r_in=radius, r_out=radius+0.5*radius)
+        annulus_aperture = CircularAnnulus(position, r_in=radius, r_out=radius + 0.5 * radius)
         apers = [circ_aperture, annulus_aperture]
         photometry_table = aperture_photometry(image, apers)
         object_flux = photometry_table['aperture_sum_0']
@@ -78,7 +80,9 @@ def aper_photometry(image, obj_position, radius, box_size=10, bkgd_subtraction_t
                        .format(bkgd_subtraction_type))
 
 
-def astropy_psf_photometry(img, sigma_psf, aperture=3, x0=None, y0=None, filter=True, sigma_filter=1):
+def astropy_psf_photometry(img, aperture=3, guess_loc=None, filter=1,
+                           star_fwhm=3, threshold=None, minsep_fwhm=1.5, max_fwhm=10,
+                           return_photometry=False, mask='zeros', n_brightest=1, nfwhm_win=4):
     """
     performs PSF photometry on an image. If x0 and y0 are None will attempt to locate the target by searching for the
     brightest PSF in the field
@@ -93,33 +97,46 @@ def astropy_psf_photometry(img, sigma_psf, aperture=3, x0=None, y0=None, filter=
     :param sigma_filter: standard deviation of gaussian filter to apply to the image
     :return: x0 column of photometry table, y0 column of photometry table, flux column of photometry table
     """
+    if mask == 'zeros':
+        mask = img == 0
     if filter:
-        image = ndimage.gaussian_filter(img, sigma=sigma_filter, order=0)
+        image = ndimage.gaussian_filter(img, sigma=filter, order=0, mode='nearest')
     else:
-        image = img
+        image = img.copy()
+    # size/hwhm = 2*size/fwhm ->sharplo =.5 -> fwhm/4 = minsize  and sharphi=2 -> 2*fwhm/2=maxsize
+    # sharpness is defined to be the ratio of the object size to the hwhmpsf parameter value.
     bkgrms = MADStdBackgroundRMS()
-    std = bkgrms(image[image != 0])
-    iraffind = IRAFStarFinder(threshold=2 * std, fwhm=sigma_psf * gaussian_sigma_to_fwhm, minsep_fwhm=0.01,
-                              roundhi=5.0, roundlo=-5.0, sharplo=0.0, sharphi=2.0)
-    daogroup = DAOGroup(2.0 * sigma_psf * gaussian_sigma_to_fwhm)
+    background = bkgrms(image[~mask])
+    threshold = threshold or (2*background)
+    iraffind = IRAFStarFinder(threshold=threshold, fwhm=star_fwhm, minsep_fwhm=minsep_fwhm,
+                              roundhi=5.0, roundlo=-5.0, sharplo=.5, sharphi=max_fwhm*2/star_fwhm,
+                              brightest=n_brightest)
+    daogroup = DAOGroup(2.0 * star_fwhm)
     mmm_bkg = MMMBackground()
     fitter = LevMarLSQFitter()
-    psf_model = IntegratedGaussianPRF(sigma=sigma_psf)
-    if x0 and y0:
-        pos = Table(names=['x_0', 'y_0'], data=[x0, y0])
+    psf_model = IntegratedGaussianPRF(sigma=star_fwhm*gaussian_fwhm_to_sigma)
+
+    fitshape = 2*((nfwhm_win * star_fwhm) // 2) + 1
+    if guess_loc:
+        pos = Table(names=['x_0', 'y_0'], data=guess_loc)
         photometry = BasicPSFPhotometry(group_maker=daogroup, bkg_estimator=mmm_bkg, psf_model=psf_model,
-                                        fitter=LevMarLSQFitter(), fitshape=(11, 11))
+                                        fitter=fitter, fitshape=fitshape)
         res = photometry(image=image, init_guesses=pos)
-        return res['x_fit'], res['y_fit'], res['flux_0']
-    photometry = BasicPSFPhotometry(finder=iraffind, group_maker=daogroup, bkg_estimator=mmm_bkg,
-                                                    psf_model=psf_model, fitter=fitter, fitshape=(11, 11),
-                                                    aperture_radius=aperture)
-    res = photometry(image=image)
-    return res['x_0'], res['y_0'], res['flux_0']
+    else:
+        photometry = BasicPSFPhotometry(finder=iraffind, group_maker=daogroup, bkg_estimator=mmm_bkg,
+                                        psf_model=psf_model, fitter=fitter, fitshape=fitshape,
+                                        aperture_radius=aperture)
+        photometry.do_photometry(image)
+
+        res = photometry(image=image)
+    if return_photometry:
+        return res
+    else:
+        return res['x_fit'], res['y_fit'], res['flux_fit']
 
 
-def gaussian_fit_psf_photometry(image, obj_pos, box_size=15, bkgd_poly_deg=1, x_std = 0.5, y_std=2, theta=np.pi/4,
-                             interpolate=False):
+def gaussian_fit_psf_photometry(image, obj_pos, box_size=15, bkgd_poly_deg=1, x_std=0.5, y_std=2, theta=np.pi / 4,
+                                interpolate=False):
     """
     performs PSF photometry by fitting a plane background model and a gaussian
     :param image: 2D array image
@@ -135,8 +152,8 @@ def gaussian_fit_psf_photometry(image, obj_pos, box_size=15, bkgd_poly_deg=1, x_
 
     x_pos = int(obj_pos[1])
     y_pos = int(obj_pos[0])
-    frame = image[x_pos-box_size:x_pos+box_size, y_pos-box_size:y_pos+box_size]
-    if len(frame[frame==0]) > (len(frame.flatten())/2):
+    frame = image[x_pos - box_size:x_pos + box_size, y_pos - box_size:y_pos + box_size]
+    if len(frame[frame == 0]) > (len(frame.flatten()) / 2):
         print('More than half of the frame values are 0 - returning None for the flux')
         return None, None
     else:
@@ -148,8 +165,9 @@ def gaussian_fit_psf_photometry(image, obj_pos, box_size=15, bkgd_poly_deg=1, x_
         p_init = p_spot_init + p_back_init
         fit_p = fitting.LevMarLSQFitter()
         p = fit_p(p_init, x, y, frame)
-        signal = p[0](x,y)
+        signal = p[0](x, y)
         return np.sum(signal)
+
 
 def interpolateImage(inputArray, method='linear'):
     """
@@ -165,9 +183,11 @@ def interpolateImage(inputArray, method='linear'):
 
     finalshape = np.shape(inputArray)
 
-    dataPoints = np.where(np.logical_or(np.isnan(inputArray), inputArray == 0) == False)  # data points for interp are only pixels with counts
+    dataPoints = np.where(np.logical_or(np.isnan(inputArray),
+                                        inputArray == 0) == False)  # data points for interp are only pixels with counts
     data = inputArray[dataPoints]
-    dataPoints = np.array((dataPoints[0], dataPoints[1]), dtype=np.int).transpose()  # griddata expects them in this order
+    dataPoints = np.array((dataPoints[0], dataPoints[1]),
+                          dtype=np.int).transpose()  # griddata expects them in this order
 
     interpPoints = np.where(inputArray != np.nan)  # should include all points as interpolation points
     interpPoints = np.array((interpPoints[0], interpPoints[1]), dtype=np.int).transpose()
@@ -202,18 +222,18 @@ def mec_measure_satellite_spot_flux(cube, aperradii=None, wvl_start=None, wvl_st
         stary = dim[1] / 2
         lambdamin = wvl_start[i]
         lambdamax = wvl_stop[i]
-        landa = lambdamin + (lambdamax - lambdamin)/2.0
+        landa = lambdamin + (lambdamax - lambdamin) / 2.0
         if aperradii is None:
             aperradii = get_aperture_radius(landa, platescale)
         R_spot = np.zeros(3)
-        R_spot[0] = (206265 / platescale) * 15.91 * lambdamin / (D*1e10)
-        R_spot[1] = (206265 / platescale) * 15.91 * landa / (D*1e10)
-        R_spot[2] = (206265 / platescale) * 15.91 * lambdamax / (D*1e10)
+        R_spot[0] = (206265 / platescale) * 15.91 * lambdamin / (D * 1e10)
+        R_spot[1] = (206265 / platescale) * 15.91 * landa / (D * 1e10)
+        R_spot[2] = (206265 / platescale) * 15.91 * lambdamax / (D * 1e10)
         halflength = R_spot[2] - R_spot[1]
 
         wcs_rot = wcs.wcs.pc
-         # ROT_ANG = [42.73, 136, 226.9, 311.7]
-        ROT_ANG=[45, 45, 45, 45]
+        # ROT_ANG = [42.73, 136, 226.9, 311.7]
+        ROT_ANG = [45, 45, 45, 45]
         ROT_ANG = np.deg2rad(ROT_ANG)
         xs0 = R_spot[1] * np.cos(ROT_ANG[0])
         ys0 = R_spot[1] * np.sin(ROT_ANG[0])
@@ -233,12 +253,13 @@ def mec_measure_satellite_spot_flux(cube, aperradii=None, wvl_start=None, wvl_st
         spot_xsep = [spot_posx[0] - starx, spot_posx[1] - starx, spot_posx[2] - starx, spot_posx[3] - starx]
         spot_ysep = [spot_posy[0] - stary, spot_posy[1] - stary, spot_posy[2] - stary, spot_posy[3] - stary]
 
-        spot_rotang = [np.arctan(spot_ysep[0]/spot_xsep[0]), np.arctan(spot_ysep[1]/spot_xsep[1]),
-                                 np.arctan(spot_ysep[2]/spot_xsep[2]) - np.pi, np.pi + np.arctan(spot_ysep[3]/spot_xsep[3])]
+        spot_rotang = [np.arctan(spot_ysep[0] / spot_xsep[0]), np.arctan(spot_ysep[1] / spot_xsep[1]),
+                       np.arctan(spot_ysep[2] / spot_xsep[2]) - np.pi, np.pi + np.arctan(spot_ysep[3] / spot_xsep[3])]
         for j in range(4):
             flux[i, j], imgspare = racetrack_aper(img, imgspare, spot_posx[j], spot_posy[j], spot_rotang[j],
                                                   aperradii, halflength)
     return flux
+
 
 def racetrack_aper(img, imgspare, x_guess, y_guess, rotang, aper_radii, halflength, box_size=20):
     """
@@ -259,8 +280,8 @@ def racetrack_aper(img, imgspare, x_guess, y_guess, rotang, aper_radii, halfleng
     spot_halflen = halflength
     dims = np.shape(img)
 
-    crop_img = img[int(y_guess) - box_size:int(y_guess) + (box_size+1),
-               int(x_guess) - box_size:int(x_guess) + (box_size+1)]
+    crop_img = img[int(y_guess) - box_size:int(y_guess) + (box_size + 1),
+               int(x_guess) - box_size:int(x_guess) + (box_size + 1)]
     xpos = x_guess
     ypos = y_guess
     xcoord, ycoord = np.meshgrid(np.arange(dims[0]), np.arange(dims[1]))
@@ -270,12 +291,12 @@ def racetrack_aper(img, imgspare, x_guess, y_guess, rotang, aper_radii, halfleng
     xpcoord = np.cos(rotang) * xcoord - np.sin(rotang) * ycoord
     ypcoord = np.sin(rotang) * xcoord + np.cos(rotang) * ycoord
 
-    source_mid = (ypcoord > yppos-aper_radii) & (ypcoord < yppos + aper_radii) & (xpcoord > xppos - spot_halflen)\
+    source_mid = (ypcoord > yppos - aper_radii) & (ypcoord < yppos + aper_radii) & (xpcoord > xppos - spot_halflen) \
                  & (xpcoord < xppos + spot_halflen)
     source_bot = (xpcoord < xppos - spot_halflen) & \
-                 ((ypcoord-yppos)**2 + (xpcoord-(xppos-spot_halflen))**2 < aper_radii**2)
+                 ((ypcoord - yppos) ** 2 + (xpcoord - (xppos - spot_halflen)) ** 2 < aper_radii ** 2)
     source_top = (xpcoord > xppos + spot_halflen) & \
-                 ((ypcoord - yppos)**2 + (xpcoord - (xppos + spot_halflen))**2 < aper_radii**2)
+                 ((ypcoord - yppos) ** 2 + (xpcoord - (xppos + spot_halflen)) ** 2 < aper_radii ** 2)
     source = np.where(source_mid | source_bot | source_top)
 
     # subtract off background flux
@@ -290,6 +311,7 @@ def racetrack_aper(img, imgspare, x_guess, y_guess, rotang, aper_radii, halfleng
 
     imgspare[source] = 10000
     return flux, imgspare
+
 
 def PHEONIX_to_txt(flux_fits, wave_fits, save_file, normalization_band, normalization_flux, output_wvls=None):
     """
@@ -313,13 +335,13 @@ def PHEONIX_to_txt(flux_fits, wave_fits, save_file, normalization_band, normaliz
     # now in erg/cm^2/s/A
     orig_wavs = wav_hdu[0].data
     if output_wvls is None:
-        output_wvls = np.array([orig_wavs[0],orig_wavs[-1]])
+        output_wvls = np.array([orig_wavs[0], orig_wavs[-1]])
     wav_idxs = np.where(np.logical_and(output_wvls[0] < orig_wavs, orig_wavs < output_wvls[1]))
     w = orig_wavs[wav_idxs]
     crop_fluxes = orig_fluxes[wav_idxs]
 
     # determine numerator and denominator for normalization factor (dividing flux densities at 1.25 um)
-    i = np.where(np.logical_and(orig_wavs>normalization_band[0], orig_wavs<normalization_band[-1]))
+    i = np.where(np.logical_and(orig_wavs > normalization_band[0], orig_wavs < normalization_band[-1]))
     denom = np.mean(orig_fluxes[i])
     num = normalization_flux
     f = np.zeros_like(crop_fluxes)
@@ -327,7 +349,7 @@ def PHEONIX_to_txt(flux_fits, wave_fits, save_file, normalization_band, normaliz
         a = num / denom
         corrected_flux = flux * a
         f[i] = corrected_flux
-    #save data to a two column text file
+    # save data to a two column text file
     data = np.array([w, f])
     data = data.T
     datafile_path = save_file
@@ -335,6 +357,7 @@ def PHEONIX_to_txt(flux_fits, wave_fits, save_file, normalization_band, normaliz
         np.savetxt(datafile_id, data)
     # return the data
     return data
+
 
 def fit_sources(image, sigma_psf, guesses=None):
     """
@@ -347,15 +370,16 @@ def fit_sources(image, sigma_psf, guesses=None):
     image[image == 0] = np.nan
     bkgrms = MADStdBackgroundRMS()
     std = bkgrms(image)
-    iraffind = IRAFStarFinder(threshold = 5.0 * std, fwhm = sigma_psf * gaussian_sigma_to_fwhm, minsep_fwhm = 0.01, #threshold=3.5
-                              roundhi = 5.0, roundlo = -5.0, sharplo = 0.0, sharphi = 2.0)
+    iraffind = IRAFStarFinder(threshold=5.0 * std, fwhm=sigma_psf * gaussian_sigma_to_fwhm, minsep_fwhm=0.01,
+                              # threshold=3.5
+                              roundhi=5.0, roundlo=-5.0, sharplo=0.0, sharphi=2.0)
     daogroup = DAOGroup(2.0 * sigma_psf * gaussian_sigma_to_fwhm)
     mmm_bkg = MMMBackground()
     fitter = LevMarLSQFitter()
     psf_model = IntegratedGaussianPRF(sigma=sigma_psf)
-    photometry = IterativelySubtractedPSFPhotometry(finder=iraffind, group_maker = daogroup, bkg_estimator = mmm_bkg,
-                                                    psf_model = psf_model, fitter = fitter, niters = 3,
-                                                    fitshape = (11, 11), aperture_radius=2.0)
+    photometry = IterativelySubtractedPSFPhotometry(finder=iraffind, group_maker=daogroup, bkg_estimator=mmm_bkg,
+                                                    psf_model=psf_model, fitter=fitter, niters=3,
+                                                    fitshape=(11, 11), aperture_radius=2.0)
     if guesses is not None:
         x0 = [guess[0] for guess in guesses]
         y0 = [guess[1] for guess in guesses]
