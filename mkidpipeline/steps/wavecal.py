@@ -1332,7 +1332,7 @@ class Solution(object):
                      is used if it is not specified.
             feedline: integer corresponding to the feedline from which to use. All
                       feedlines are used if it is not specified.
-            cache: use results cached when the data was first calibrated.
+            cache: use results cached when the data was first calxibrated.
         Returns:
             resolving_powers: an MxN array of resolving powers where M is the number of
                               res_ids the search criterion and N is the number of
