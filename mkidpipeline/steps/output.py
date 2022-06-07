@@ -51,8 +51,9 @@ def generate(outputs: definitions.MKIDOutputCollection, remake=False, **output_k
                     except AttributeError:
                         bw_val = kwargs.get(k, 0)
 
-                    if bw_val > 0:
-                        kwargs['bin_width'] = bw_val
+                    if bw_val is None or bw_val <= 0:
+                        bw_val = None
+                    kwargs['bin_width'] = bw_val
                 kwargs.pop('wvl_bin_width')
                 kwargs.pop('time_bin_width')
                 kwargs=dict(kwargs)

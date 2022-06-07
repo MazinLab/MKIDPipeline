@@ -1210,7 +1210,7 @@ class MKIDOutput(_Base):
         # speccals are just fetched and determined for
         Key('timestep', None, 'Duration of time bins in output cubes with a temporal axis (None means no temporal axis)',
             float),
-        Key('wavestep', '0.0 nm', 'Width of wavelength bins in output cubes with a wavelength axis', str)
+        Key('wavestep', None, 'Width of wavelength bins in output cubes with a wavelength axis', (None,str))
     )
     REQUIRED = ('name', 'data', 'kind')
 
@@ -1250,7 +1250,7 @@ class MKIDOutput(_Base):
             bin_type = 'time'
         elif self.kind == 'scube':
             cube_type = 'wave'
-            bin_type = 'wave' if self.wavestep.unit != 'eV' else 'energy'
+            bin_type = 'wave' if self.wavestep is None or self.wavestep.unit != 'eV' else 'energy'
         else:
             bin_type = 'energy'
         kwargs = dict(start=self.start_offset, duration=self.duration, weight=self.use_weights,
@@ -1465,29 +1465,32 @@ class MKIDOutputCollection:
     @property
     def to_wavecal(self):
         def input_observations(obs):
-            for o in obs:
-                if o.flatcal:
-                    for x in o.flatcal.obs:
-                        yield x
-                if o.speccal:
-                    for x in o.speccal.obs:
-                        yield x
-                        if x.flatcal:
-                            for y in x.flatcal.obs:
-                                yield y
-                        if x.wcscal:
-                            for y in x.wcscal.obs:
-                                yield y
-                                if y.flatcal:
-                                    for z in y.flatcal.obs:
-                                        yield z
-                if o.wcscal:
-                    for x in o.wcscal.obs:
-                        yield x
-                        if x.flatcal:
-                            for y in x.flatcal.obs:
-                                yield y
-
+            try:
+                for o in obs:
+                    if o.flatcal:
+                        for x in o.flatcal.obs:
+                            yield x
+                    if o.speccal:
+                        for x in o.speccal.obs:
+                            yield x
+                            if x.flatcal:
+                                for y in x.flatcal.obs:
+                                    yield y
+                            if x.wcscal:
+                                for y in x.wcscal.obs:
+                                    yield y
+                                    if y.flatcal:
+                                        for z in y.flatcal.obs:
+                                            yield z
+                    if o.wcscal:
+                        for x in o.wcscal.obs:
+                            yield x
+                            if x.flatcal:
+                                for y in x.flatcal.obs:
+                                    yield y
+            except AttributeError as e:
+                if "'str' object has not attribute obs" in str(e):
+                    raise KeyError(f'An input {o} to {self.name} has was not associated properly')
         for out in self:
             for o in out.data.obs:
                 yield o

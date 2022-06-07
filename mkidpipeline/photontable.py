@@ -240,7 +240,11 @@ class Photontable:
     def __str__(self):
         return 'Photontable: ' + self.filename
 
-    def nyquist_wavelengths(self):
+    def nyquist_wavelengths(self, min=None, max=None):
+        """Return a wavelegnth array based on the wavecal resolution and the minimum and maximum wavelengths.
+
+        min and max may be specified to set alternative minimum and maximum sampling points
+        """
         try:
             resdata = self.query_header('wavecal.resolution')
         except KeyError:
@@ -250,12 +254,15 @@ class Photontable:
                                         stop=self.query_header('max_wavelength'))
 
         dl = InterpolatedUnivariateSpline(resdata['wave'], resdata['wave'] / resdata['r'], w=1 / resdata['r_err'])
-        min = resdata['wave'][0] - dl(resdata['wave'][0]) / 2
-        max = resdata['wave'][-1] - dl(resdata['wave'][-1]) / 2
-        wave = [min]
+        if min is None:
+            min = self.query_header('min_wavelength')
+            # min = resdata['wave'][0] - dl(resdata['wave'][0]) / 2
+        if max is None:
+            max = self.query_header('max_wavelength')
+            # max = resdata['wave'][-1] + dl(resdata['wave'][-1]) / 2
+        wave = [min - dl(min) / 2]
         while wave[-1] <= max:
             wave.append(wave[-1] + dl(wave[-1]) / 2)
-        wave.append(wave[-1] + dl(wave[-1]) / 2)
         return np.array(wave)
 
     def _load_file(self):
@@ -836,11 +843,11 @@ class Photontable:
 
         if cube_type is time or wave a spectral or temporal cube will be returned
 
-        bin_type is for computing bins off bin_width: is width in energy or wavelength anything other than
+        bin_type is for computing bins of bin_width: is width in energy or wavelength anything other than
         'energy' will be treated as wavelength requested.
         if cube_type is 'time' bin_width/edges are in seconds and one of the two is required. bin_type is ignored.
 
-        if the bin_width does not evenly divide the interval (e.g. duration is 55 and width is 10) then
+        see self.wavelength_bins() for how wavelegnth bins are computed from the arguments
 
         Temporal bin_edges will take precedence over start and duration
 
@@ -867,9 +874,11 @@ class Photontable:
 
         if cube_type:
             cube_type = cube_type.lower()
+
         bin_type = bin_type.lower()
 
         tic = time.time()
+
         ridbins = sorted(self.beamImage.ravel())
         ridbins = np.append(ridbins, ridbins[-1] + 1)
 
@@ -929,7 +938,7 @@ class Photontable:
         md = self.metadata(timestamp=start)
 
         md['E_H5FILE'] = self.filename
-        
+
         import mkidpipeline.config as pipeconfig
         md['E_GITHSH'] = pipeconfig.git_hash()
         md['E_CFGHSH'] = pipeconfig.config_hash()
