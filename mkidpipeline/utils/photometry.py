@@ -86,16 +86,21 @@ def astropy_psf_photometry(img, aperture=3, guess_loc=None, filter=1,
     """
     performs PSF photometry on an image. If x0 and y0 are None will attempt to locate the target by searching for the
     brightest PSF in the field
-
     :param img: 2D array, image on which to perform PSF photometry
-    :param sigma_psf: float, standard deviation of the PSF
     :param aperture: int, size of the aperture (pixels)
-    :param x0: x position of the target (pixels)
-    :param y0: y position of the target (pixels)
-    :param filter: If True will apply a gaussian filter to the image with standard deviation sigma_filter before
-     performing PSF photometry
-    :param sigma_filter: standard deviation of gaussian filter to apply to the image
-    :return: x0 column of photometry table, y0 column of photometry table, flux column of photometry table
+    :param guess_loc: list or tuple of guess x, y for the centroid
+    :param filter: sigma value for a gaussian filter - if None no filter is applied
+    :param star_fwhm: expected fwhm of the stellar psf
+    :param threshold: Threshold above which a source is determined to be real. If None then twice the calculated
+    background value is used
+    :param minsep_fwhm: The minimum separation for detected objects in units of star_fwhm
+    :param max_fwhm: The maximum allowed fwhm value
+    :param return_photometry: if True will return the full Astropy table with photometry results
+    :param mask: If 'zeros' will mask all pixels with 0 counts in the image in the calculation fo the background,
+     otherwise image isn't altered before finding the background value.
+    :param n_brightest: int, number of objects in the image to return sorted in decreasing order of brightness
+    :param nfwhm_win: int, Number of fwhm around the object in which to fit
+    :return: full Astropy table containing the photometry results OR the fit x value, fit y value, and fit flux
     """
     if mask == 'zeros':
         mask = img == 0
@@ -118,17 +123,15 @@ def astropy_psf_photometry(img, aperture=3, guess_loc=None, filter=1,
 
     fitshape = 2*((nfwhm_win * star_fwhm) // 2) + 1
     if guess_loc:
-        pos = Table(names=['x_0', 'y_0'], data=guess_loc)
+        pos = Table(names=('x_0', 'y_0'), data=[[guess_loc[0]], [guess_loc[1]]])
         photometry = BasicPSFPhotometry(group_maker=daogroup, bkg_estimator=mmm_bkg, psf_model=psf_model,
                                         fitter=fitter, fitshape=fitshape)
-        res = photometry(image=image, init_guesses=pos)
+        res = photometry.do_photometry(image=image, init_guesses=pos)
     else:
         photometry = BasicPSFPhotometry(finder=iraffind, group_maker=daogroup, bkg_estimator=mmm_bkg,
                                         psf_model=psf_model, fitter=fitter, fitshape=fitshape,
                                         aperture_radius=aperture)
-        photometry.do_photometry(image)
-
-        res = photometry(image=image)
+        res = photometry.do_photometry(image)
     if return_photometry:
         return res
     else:
