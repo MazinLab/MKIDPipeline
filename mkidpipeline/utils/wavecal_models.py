@@ -971,6 +971,14 @@ class XErrorsModel(object):
             self.best_fit_result_good = None
             self.best_fit_result_good = self.has_good_solution()
 
+        # Set relevant flags for fit
+        if len(self.x) <= 1:
+            self.flag = pixel_flags["few histograms"]
+        elif not self.best_fit_result_good:
+            self.flag = pixel_flags["calibration convergence"]
+        else:
+            self.flag = pixel_flags["good calibration"]
+
     def calibration_function(self, x):
         self._check_fit()
         return self.fit_function(x, self.best_fit_result.params)
