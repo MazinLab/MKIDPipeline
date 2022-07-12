@@ -2698,18 +2698,19 @@ def apply(o):
 
     tic = time.time()
     with obs.needed_ram():
+        flags = obs.flags
         for pixel, resid in obs.resonators(pixel=True):
+            obs.unflag(flags.bitmask([f for f in flags.names if f.startswith('wavecal')], unknown='ignore'),
+                       pixel=pixel)
+            obs.flag(flags.bitmask([f'wavecal.{f}' for f in solution.get_flag(res_id=resid)], unknown='warn'),
+                     pixel=pixel)
+
             if not solution.has_good_calibration_solution(res_id=resid):
                 continue
 
             indices = obs.photonTable.get_where_list('resID==resid')
             if not indices.size:
                 continue
-
-            flags = obs.flags
-            obs.unflag(flags.bitmask([f for f in flags.names if f.startswith('wavecal')], unknown='ignore'), pixel=pixel)
-            obs.flag(flags.bitmask([f'wavecal.{f}' for f in solution.get_flag(res_id=resid)], unknown='warn'),
-                     pixel=pixel)
 
             calibration = solution.calibration_function(res_id=resid, wavelength_units=True)
 
