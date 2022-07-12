@@ -959,7 +959,7 @@ class XErrorsModel(object):
         scale = True
         variance = self.variance
         if self.variance is None:
-            variance = np.ones(y.shape)
+            variance = np.ones(self.y.shape)
             scale = False
         arguments = (self.x, self.y, variance, self.fit_function, self.dfdx)
         fit_result = lm.minimize(self.chi_squared, guess, args=arguments, scale_covar=scale)
