@@ -83,11 +83,14 @@ def threshold(image, dead_mask=None, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5
     (a pixel below the background level is unlikely to be hot!)
 
     :param image: 2D image array of photons (in counts)
+    :param dead_mask: boolean dead pixel mask
     :param fwhm: estimated full-width-half-max of the PSF (in pixels)
     :param box_size: in pixels
     :param n_sigma: number of standard deviations above/below the expected value for which a pixel will be flagged as
      'hot'/'cold'
     :param max_iter: maximum number of iterations
+    :param mu: average expected number of counts for exposure - used to generate Poisson probability of getting a
+    certain number of photons in a given pixel
     :return:
     A dictionary containing the result and various diagnostics. Keys are:
     'hot': boolean mask of hot pixels
@@ -106,10 +109,12 @@ def threshold(image, dead_mask=None, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5
     if dead_mask is not None:
         raw_image[dead_mask] = np.nan
     else:
+        getLogger(__name__).warning('No dead mask provided - if the image contains dead pixels, the amount of hot and '
+                                    'cold pixels may be overestimated!')
         dead_mask = np.zeros_like(raw_image, dtype=bool)
     # get median count rate for Poisson distribution if one not given. Minimum value of 1
     if mu is None:
-        mu = np.max(np.nanmedian(raw_image), 1)
+        mu = np.max((np.nanmedian(raw_image), 1))
 
     # Initialise a mask for hot pixels (all False) for comparison on each iteration.
     reference_hot_mask = np.zeros_like(raw_image, dtype=bool)
