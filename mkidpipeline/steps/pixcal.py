@@ -24,7 +24,7 @@ import warnings
 import numpy as np
 import scipy.ndimage.filters as spfilters
 import time
-
+from scipy.stats import poisson
 from mkidcore.corelog import getLogger
 from mkidpipeline.photontable import Photontable
 from mkidpipeline.utils import fitting
@@ -67,7 +67,7 @@ FLAGS = FlagSet.define(('hot', 1, 'Hot pixel'),
                        ('dead', 3, 'Dead pixel'))
 
 
-def threshold(image, dead_mask=None, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5):
+def threshold(image, dead_mask=None, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5, mu=None):
     """
     Compares the ratio of flux in each pixel to the median of the flux in an enclosing box. If the ratio is too high
      -- i.e. the flux is too tightly distributed compared to a Gaussian PSF of the expected FWHM -- then the pixel is
@@ -96,7 +96,6 @@ def threshold(image, dead_mask=None, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5
     'input_image': original input image
     'num_iter': number of iterations performed.
     """
-
     raw_image = image
     # Approximate peak/median ratio for an ideal (Gaussian) PSF sampled at
     # pixel locations corresponding to the median kernel used with the real data.
@@ -104,7 +103,13 @@ def threshold(image, dead_mask=None, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5
     max_ratio = np.max(gauss_array) / np.median(gauss_array)
 
     # turn dead pixel values into NaNs
-    raw_image[dead_mask] = np.nan
+    if dead_mask is not None:
+        raw_image[dead_mask] = np.nan
+    else:
+        dead_mask = np.zeros_like(raw_image, dtype=bool)
+    # get median count rate for Poisson distribution if one not given. Minimum value of 1
+    if mu is None:
+        mu = np.max(np.nanmedian(raw_image), 1)
 
     # Initialise a mask for hot pixels (all False) for comparison on each iteration.
     reference_hot_mask = np.zeros_like(raw_image, dtype=bool)
@@ -131,6 +136,13 @@ def threshold(image, dead_mask=None, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5
             threshold = max_ratio * median_filter_image - (max_ratio - 1) * median_bkgd
             idx = np.where(threshold < median_bkgd)
             threshold[idx] = median_bkgd
+
+            # If threshold or standard deviation values are below what makes sense given Poisson statistics then modify
+            poisson_threshold = np.max(poisson.interval(0.95, mu=mu))
+            poisson_std = poisson.std(mu=mu)
+            std_filter_image[std_filter_image < poisson_std] = poisson_std
+            threshold[threshold < poisson_threshold] = poisson_threshold
+
             hot_difference_image = raw_image - threshold
             cold_difference_image = raw_image - median_filter_image
 
