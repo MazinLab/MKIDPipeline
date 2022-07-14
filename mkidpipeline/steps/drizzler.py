@@ -349,7 +349,7 @@ class Drizzler(Canvas):
                                       startt + drizzle_params.inttime)
 
         self.wcs_times = np.append(np.arange(startt, self.timebins[-1], drizzle_params.wcs_timestep),
-                                   self.timebins[-1]) if not adi_mode else np.array([startt])
+                                   self.timebins[-1]) if not adi_mode else self.timebins
         self.cps = None
         self.counts = None
         self.expmap = None
@@ -392,7 +392,7 @@ class Drizzler(Canvas):
                         idx = np.where(
                             (self.timebins >= self.wcs_times[wcs_i]) & (self.timebins <= self.wcs_times[wcs_i + 1]))
                         time_bins = self.timebins[idx]
-                counts = self.make_cube(dither_photons, time_bins, self.wvl_bin_edges, applyweights=apply_weight)
+                counts = self.make_cube(dither_photons, time_bins, self.wvl_bin_edges, apply_weight=apply_weight)
                 expin = time_bins[1] - time_bins[0]
                 cps = counts / expin  # scale this frame by its exposure time
                 # get exposure bin of current wcs time
