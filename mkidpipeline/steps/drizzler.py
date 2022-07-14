@@ -133,7 +133,8 @@ class DrizzleParams:
 class Canvas:
     """Creates the canvas on which the drizzled data is placed"""
 
-    def __init__(self, dithers_data, drizzle_params, canvas_shape=(None, None), force_square_grid=True, buffer=10):
+    def __init__(self, dithers_data, drizzle_params, canvas_shape=(None, None), force_square_grid=True, buffer=10,
+                 rate=True):
         """
         :param dithers_data: list of dictionaries of relevant input data and parameters (see output of load_data)
         :param drizzle_params: DrizzleParams object
@@ -154,6 +155,7 @@ class Canvas:
         self.vPlateScale = drizzle_params.platescale
         self.center = drizzle_params.coords
         self.header = None
+        self.rate = rate
 
         if canvas_shape[0] is None or canvas_shape[1] is None:
             dith_pix_min = np.zeros((len(dithers_data), 2))
@@ -259,7 +261,7 @@ class Canvas:
         science_header = primary_header.copy()
         science_header['WCSTIME'] = (self.drizzle_params.wcs_timestep, '')
         science_header['PIXFRAC'] = (self.drizzle_params.pixfrac, '')
-        science_header['UNIT'] = 'photon/s'
+        science_header['UNIT'] = 'photon/s' if self.rate else 'photons'
 
         variance_header = science_header.copy()
         variance_header['UNIT'] = 'photon'
@@ -278,10 +280,14 @@ class Canvas:
                                              name='CUBE_EDGES')
             hdu.header.append(fits.Card('UNIT', 'nm', comment='Bin unit'))
             bin_hdu.append(hdu)
-
-        hdul = fits.HDUList([fits.PrimaryHDU(header=primary_header),
-                             fits.ImageHDU(name='cps', data=self.cps, header=science_header),
-                             fits.ImageHDU(name='variance', data=self.counts, header=variance_header)] + bin_hdu)
+        if self.rate:
+            hdul = fits.HDUList([fits.PrimaryHDU(header=primary_header),
+                                 fits.ImageHDU(name='cps', data=self.cps, header=science_header),
+                                 fits.ImageHDU(name='variance', data=self.counts, header=variance_header)] + bin_hdu)
+        else:
+            hdul = fits.HDUList([fits.PrimaryHDU(header=primary_header),
+                                 fits.ImageHDU(name='counts', data=self.counts, header=science_header),
+                                 fits.ImageHDU(name='variance', data=self.counts, header=variance_header)] + bin_hdu)
 
         if compress:
             filename = filename + '.gz'
@@ -298,7 +304,7 @@ class Drizzler(Canvas):
     Generate a 2D-4D hypercube from a set dithered dataset. The cube size is ntimes * ndithers * nwvlbins * nPixRA * nPixDec.
     """
     def __init__(self, dithers_data, drizzle_params, wvl_bin_width=0.0 * u.nm, time_bin_width=0.0, wvl_min=700.0 * u.nm,
-                 wvl_max=1500 * u.nm, adi_mode=False):
+                 wvl_max=1500 * u.nm, adi_mode=False, rate=True):
         """
         :param dithers_data: list of dictionaries of relevant input data and parameters (see output of load_data)
         :param drizzle_params: DrizzleParams object
@@ -307,8 +313,10 @@ class Drizzler(Canvas):
         :param wvl_min: minimum wavelength to use
         :param wvl_max: maximum wavelength to use
         :param adi_mode: If True will not subtract off the calculated parallactic angle to preserve field rotation
+        :param rate: If True output will be in photons/s else in photons
         """
-        super().__init__(dithers_data, drizzle_params=drizzle_params, canvas_shape=drizzle_params.canvas_shape)
+        super().__init__(dithers_data, drizzle_params=drizzle_params, canvas_shape=drizzle_params.canvas_shape,
+                         rate=rate)
         self.drizzle_params = drizzle_params
         self.pixfrac = drizzle_params.pixfrac
         self.time_bin_width = time_bin_width
@@ -651,7 +659,6 @@ def form(dither, mode='drizzler', wave_start=None, wave_stop=None, start=0, dura
          wvl_bin_width=0.0 * u.nm, time_bin_width=0.0, wcs_timestep=1., usecache=True, ncpu=None,
          exclude_flags=PROBLEM_FLAGS + EXCLUDE, whitelight=False, adi_mode=False, debug_dither_plot=False,
          rate=True, output_file='', weight=False, **kwargs):
-    # TODO have code respect 'rate' kwarg (i.e. can return output in photons and photons/s)
     """
     Takes in a MKIDDither object and drizzles each frame onto a common sky grid.
     :param dither: MKIDDither, contains the lists of observations and metadata for a set of dithers
@@ -755,7 +762,7 @@ def form(dither, mode='drizzler', wave_start=None, wave_stop=None, start=0, dura
     getLogger(__name__).debug('Initializing drizzler core')
     getLogger(__name__).debug('Running Drizzler')
     driz = Drizzler(dithers_data, drizzle_params, wvl_bin_width=wvl_bin_width, time_bin_width=time_bin_width,
-                    wvl_min=wave_start, wvl_max=wave_stop, adi_mode=adi_mode)
+                    wvl_min=wave_start, wvl_max=wave_stop, adi_mode=adi_mode, rate=rate)
 
     if time_bin_width != 0.0 and wvl_bin_width != 0.0 * u.nm:
         cube_type = 'both'
