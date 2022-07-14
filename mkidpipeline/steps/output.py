@@ -74,7 +74,7 @@ def generate(outputs: definitions.MKIDOutputCollection, remake=False, **output_k
             kwargs = o.output_settings_dict
             kwargs['mode'] = o.kind
             kwargs['output_file'] = o.filename
-            for k in ('cube_type', 'rate', 'bin_type'):
+            for k in ('cube_type', 'bin_type'):
                 kwargs.pop(k)
             kwargs = dict(kwargs)
             kwargs.update(output_kw)
