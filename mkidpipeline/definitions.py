@@ -1210,7 +1210,9 @@ class MKIDOutput(_Base):
         # speccals are just fetched and determined for
         Key('timestep', None, 'Duration of time bins in output cubes with a temporal axis (None means no temporal axis)',
             float),
-        Key('wavestep', None, 'Width of wavelength bins in output cubes with a wavelength axis', (None,str))
+        Key('wavestep', None,
+            'Width of wavelength bins in output cubes with a wavelength axis (None means no wavelength'
+            ' axis)', (None, str))
     )
     REQUIRED = ('name', 'data', 'kind')
 

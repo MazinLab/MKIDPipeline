@@ -44,8 +44,7 @@ def generate(outputs: definitions.MKIDOutputCollection, remake=False, **output_k
                     if kwargs['bin_type'] == 'wave':
                         k, unit = 'wvl_bin_width', u.nm
                     else:
-                        k = 'time_bin_width'
-                        unit = u.s
+                        k, unit = 'time_bin_width', u.s
                     try:
                         bw_val = kwargs[k].to(unit).value
                     except AttributeError:
