@@ -1245,7 +1245,7 @@ class MKIDOutput(_Base):
     def output_settings_dict(self):
         """Returns a dict of kwargs from the various output settings"""
         step, cube_type = None, None
-        wave_step = self.wavestep
+        wave_step = self.wavestep if isinstance(self.wavestep, u.Quantity) else 0.0 * u.nm
         time_step = self.timestep
         if self.kind in ('tcube', 'movie'):
             cube_type = 'time'
