@@ -99,6 +99,9 @@ def threshold(image, dead_mask=None, fwhm=4, box_size=5, n_sigma=5.0, max_iter=5
     'input_image': original input image
     'num_iter': number of iterations performed.
     """
+    if not dead_mask.any():
+        getLogger(__name__).warning('Dead pixel mask all False! Make sure you expect no dead pixels in the '
+                                    'array or that you are specifying the correct beammap for this dataset!')
     raw_image = image
     # Approximate peak/median ratio for an ideal (Gaussian) PSF sampled at
     # pixel locations corresponding to the median kernel used with the real data.
@@ -197,6 +200,9 @@ def median(image, dead_mask=None, box_size=5, n_sigma=5.0, max_iter=5):
     'input_image': original input image
     'num_iter': number of iterations performed.
     """
+    if not dead_mask.any():
+        getLogger(__name__).warning('Dead pixel mask all False! Make sure you expect no dead pixels in the '
+                                    'array or that you are specifying the correct beammap for this dataset!')
     raw_image = image
 
     # Assume everything with 0 counts is a dead pixel, turn dead pixel values into NaNs
@@ -269,7 +275,9 @@ def laplacian(image, dead_mask=None, box_size=5, n_sigma=5.0, max_iter=5):
     'input_image': original input image
     'num_iter': number of iterations performed.
     """
-
+    if not dead_mask.any():
+        getLogger(__name__).warning('Dead pixel mask all False! Make sure you expect no dead pixels in the '
+                                    'array or that you are specifying the correct beammap for this dataset!')
     raw_image = image
 
     # Assume everything with 0 counts is a dead pixel, turn dead pixel values into NaNs
@@ -330,11 +338,11 @@ def plot_summary(masks, save_name=None):
     gs = gridspec.GridSpec(2, 2)
     axes_list = np.array([figure.add_subplot(gs[0, 0]), figure.add_subplot(gs[0, 1]),
                           figure.add_subplot(gs[1, 0]), figure.add_subplot(gs[1, 1])])
-    axes_list[0].imshow(hot)
+    axes_list[0].imshow(hot.T, origin='lower')
     axes_list[0].set_title('Hot Mask')
-    axes_list[1].imshow(cold)
+    axes_list[1].imshow(cold.T, origin='lower')
     axes_list[1].set_title('Cold Mask')
-    axes_list[2].imshow(dead)
+    axes_list[2].imshow(dead.T, origin='lower')
     axes_list[2].set_title('Dead Mask')
     axes_list[3].set_axis_off()
     rows = ('Hot', 'Cold', 'Dead')
