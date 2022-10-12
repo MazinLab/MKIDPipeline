@@ -1,9 +1,20 @@
 # The MKID Pipeline
-Data reduction pipeline for Mazinlab MKID instruments.
+Data reduction pipeline for Mazinlab MKID instruments - see also 
+[The MKID Pipeline paper](https://iopscience.iop.org/article/10.3847/1538-3881/ac5833) for further detail.
 
-## Installation
+## Installation 
+
+### Configure conda + mamba
+ask sudo user to run:
+
+```
+conda update -n base -c conda-forge -c defaults conda
+mamba update -n base -c conda-forge -c defaults mamba
+sudo chmod -R g+s /opt/miniconda3 # (if needed because of mamba cache permissions errors)
+```
+### Create .condarc file, create conda environments, and clone the repositories 
+Once your shell and conda + mamba are configured create ~/.condarc with these contents
 ```shell
-# Once your shell and conda + mamba are configured create ~/.condarc with these contents
 #=============
 channels:
   - conda-forge
@@ -18,8 +29,9 @@ pkg_dirs:
   - /opt/anaconda3/pkgs
 pip_interop_enabled: true
 #=============
-
-#Then do 
+```
+Then do 
+```
 mkdir ~/src
 cd ~/src
 git clone https://github.com/mazinlab/mkidpipeline.git
@@ -35,11 +47,15 @@ pip install -e src/mkidpipeline
 
 ## Pipeline Quick Start Guide
 
-Move to a directory you would like to play around in, activate your `pipeline` envronment and run: 
+Move to a directory you would like to play around in, activate your `pipeline` environment with
+
+`conda activate pipeline` 
+
+and run: 
 
 `mkidpipe --init`
 
-This will create three YAML config files (NB "_default" will be apended if the file already exists):
+This will create three YAML config files (NB "_default" will be appended if the file already exists):
 1. pipe.yaml - The pipeline global configuration file.
 1. data.yaml - A sample dataset. You'll need to redefine this with your actual data.
 1. out.yaml - A sample output configuration. You'll need to redefine this as well.
@@ -50,8 +66,32 @@ the other two are in mkidpipeline.config. Data and output yaml files can be vett
 
 `mkidpipe --vet` in the directory containing your three files. 
 
-To build and reduce this dataset open pipe.yaml and make sure you are happy with the default paths, these are sensible if you are working on GLADoS. On dark you'll want to change the `darkdata` folder to `data`. If the various output paths don't exist they will be created, though permissions issues could cause unexpected results. Using a shared database location might save you some time and is strongly encouraged at least across all of your pipeline runs (consider collaborating even with other users)! Outputs will be placed into a generated directory structure under `out` and WILL clobber existing files with the same name.
+To build and reduce this dataset open the pipe.yaml and make sure you are happy with the default `paths`, these should be 
+sensible if you are working on GLADoS. On dark you'll want to change the `darkdata` folder to `data`. If the various 
+output paths don't exist they will be created, though permissions issues could cause unexpected results. Using a shared 
+database location might save you some time and is strongly encouraged at least across all of your pipeline runs 
+(consider collaborating even with other users)! Outputs will be placed into a generated directory structure under 
+`out` and WILL clobber existing files with the same name.
 
+The `flow` section of the `pipe.yaml` (see also below) lists all of the pipeline steps that will be executed when doing
+the reduction. Here you may comment out or delete all steps you do not wish to run. For example to run all steps except
+the cosmiccal and speccal, the flow will look like this:
+
+```
+flow: 
+- buildhdf
+- attachmeta
+- wavecal
+  #- cosmiccal
+- pixcal
+- flatcal
+- wcscal
+  #- speccal
+```
+
+Note that `buildhdf`, `attachmeta`, and `wavecal` need to be run for all reductions or else you will run into unexpected 
+behavior. 
+  
 To generate all necessary directories as specified in the pipe.yaml, run
 
 `mkidpipe --make-dir`
@@ -62,15 +102,24 @@ To run the full calibration pipeline and generate specified outputs, use
 
 See `mkidpipe --help` for more options, including how to run a single step or specify yaml files in different directories.
 
-After a while (~TODO hours with the defaults) you should have some outputs to look at. To really get going you'll now need to use observing logs to figure out what your data.yaml and out.yaml should contain you want to work with. Look for good seeing conditions and note the times of the nearest laser cals.
+After a while (~TODO hours with the defaults) you should have some outputs to look at. To really get going you'll now 
+need to use observing logs to figure out what your `data.yaml` and `out.yaml` should contain for the particular data set
+you want to look at. Look for good seeing conditions and note the times of the nearest laser cals.
 
-## Pipeline flow
+## Pipeline Flow
 
-When run the pipeline goes through several steps, some only as needed, and only as needed for the requeted outputs, so it won't slow you down to have all your data defined in one place. 
+When run, the pipeline goes through several steps, some only as needed, and only as needed for the requested outputs, 
+so it won't slow you down to have all your data defined in one place (i.e. you do not need multiple `data.yaml` files
+for different targets in a given night, they can all go in the same file). The steps are each described briefly in the 
+list below with practical notes given for each step following.
 
-1. Photontables (`mkidpipeline.photontable.Photontable`) files _for the defined outputs_ are created as needed by `mkidpipeline.steps.buildhdf`.
-1. Observing metadata defined in the data definition and observing logs is attached to tables by `mkidpipeline.pipeline.batch_apply_metadata`.
-1. Any wavecals not already in the database are generated by `mkidpipeline.steps.wavecal.fetch`. There is some intelligence here so if the global config for the step or the start/stop times of the data  the solution will be regnerated. 
+1. Photontables (`mkidpipeline.photontable.Photontable`) files _for the defined outputs_ are created as needed by 
+`mkidpipeline.steps.buildhdf` and are saved to the `out` path in the form of HDF5 (.h5) files.
+1. Observing metadata defined in the data definition and observing logs is attached to tables by 
+`mkidpipeline.pipeline.batch_apply_metadata`.
+1. Any wavecals not already in the database are generated by `mkidpipeline.steps.wavecal.fetch`. There is some 
+intelligence here so if the global config for the step or the start/stop times of the data is the same then the 
+solution will not be regenerated. 
 1. Photon data is wavelength calibrated by `mkidpipeline.steps.wavecal.apply`.
 1. Individual observations (not timeranges) have a bad pixel mask determined and associated by 
    `mkidpipeline.steps.pixcal.apply`.
@@ -82,44 +131,20 @@ When run the pipeline goes through several steps, some only as needed, and only 
 1. Requested output products (dithers, stacks, movies, fits cubes, etc) are generated and stored in subdirectories per the output name (`mkidpipeline.steps.output.generate`). 
 1. Finally spectral calibration data is generated and saved (speccals often use the output fits files of dithers) and are saved to the database (`mkidpipeline.steps.speccal.fetch`).
 
+### Wavelength Calibration
+Takes in a series of laser exposures as inputs with optional dark exposures to remove unwanted backgrounds.
+### Cosmic Ray Calibration
+Takes a long time to run and is a sub-percent level effect on typical data set. Not recommended for standard reductions.
+### Pixel Calibration
+Requires no additional calibration data. Parameters defined entirely in the `pipe.yaml` and defaults are typically 
+sufficient in most use cases. 
 ### Flat Fielding
 Flat fields are based on either whitelight (e.g. a classical quartz/dome/sky flat) observations or on a set of laser observations used for a wavecal. The whitelight codepath is operational but has not seen appreciable use as MEC flats are generally laser-based.
 
-
-### Running from a shell
-Generally shell operation would consist of something to the effect of
-
-```python
-import mkidpipeline.definitions as definitions
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-import numpy as np
-import astropy
-from astropy.io import fits
-import pkg_resources as pkg
-import mkidpipeline.config as config
-import mkidpipeline.pipeline as pipe
-import mkidcore as core
-import mkidpipeline.photontable as pt
-from mkidcore.corelog import getLogger
-
-lcfg = pkg.resource_filename('mkidpipeline', './utils/logging.yaml')
-getLogger('mkidcore', setup=True, logfile=f'mylog.log', configfile=lcfg).setLevel('WARNING')
-getLogger('mkidpipeline').setLevel('WARNING')
-
-config.configure_pipeline('pipe.yaml')
-o = definitions.MKIDOutputCollection('out.yaml', datafile='data.yaml')
-print(o.validation_summary())
-
-# ... then playing around
-
-```
-
-
-### WCS And your data
+### WCS Calibration and Your Data
 
 Some general notes:
-   MEC observations are generally taken with the derotator off (pupil tracking mode) and 
+   MEC observations are always taken with the derotator off (pupil tracking mode) and 
    the telescope target generally w/ a coronagraph. 
    MEC observations sometimes are taken for ADI.
       
@@ -127,10 +152,10 @@ Some general notes:
 Use Cases
 1. Getting a FITS image/scube with an appropriate WCS solution
    1. Here WCS makes sense as either the time window midpoint or start
-   2. We thin impremented correctly
+   2. We think implemented correctly
    3. When  these images are to be used by drizzler
       1. timebins are how to break up a dwell, larger than a dwell doesn't make sense
-      2. wcs timesteps have an effective lower bound below which the resutling coadded spot size is limited by the PSF, 
+      2. wcs timesteps have an effective lower bound below which the resulting coadded spot size is limited by the PSF, 
    In non adi mode (where you don't want blurring) with timebins
       3. control whether or not you see the fields aligned in the steps or not
       4. control whether or not north aligned
@@ -146,3 +171,38 @@ outputs gets an adi mode setting
 derotate defaults to true
 align start pa vanishes
 wcs_timestep leaves the config files and takes its default of the nonblurring value
+
+### Spectral Calibration
+Currently not implemented. Converts pixel counts into a flux density. 
+
+## Running From a Shell
+
+Instead of running the pipeline from the command line, MKID data can be manipulated directly from a python shell. 
+ 
+Generally shell operation would consist of something to the effect of
+
+```python
+import mkidpipeline.definitions as definitions
+import pkg_resources as pkg
+import mkidpipeline.config as config
+import mkidpipeline.pipeline as pipe
+import mkidcore as core
+from mkidpipeline.photontable import Photontable 
+from mkidcore.corelog import getLogger
+
+#set up logging
+lcfg = pkg.resource_filename('mkidpipeline', './utils/logging.yaml')
+getLogger('mkidcore', setup=True, logfile=f'mylog.log', configfile=lcfg).setLevel('WARNING')
+getLogger('mkidpipeline').setLevel('WARNING')
+
+#To access photon tables directly
+pt = Photontable('/path/to/h5_file.h5')
+
+# To load and manipulate the full MKID data sets as defined in the YAMLS
+config.configure_pipeline('pipe.yaml')
+o = definitions.MKIDOutputCollection('out.yaml', datafile='data.yaml')
+print(o.validation_summary())
+
+# ... then playing around
+
+```
