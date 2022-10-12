@@ -56,17 +56,17 @@ and run:
 `mkidpipe --init`
 
 This will create three YAML config files (NB "_default" will be appended if the file already exists):
-1. pipe.yaml - The pipeline global configuration file.
-1. data.yaml - A sample dataset. You'll need to redefine this with your actual data.
-1. out.yaml - A sample output configuration. You'll need to redefine this as well.
+1. `pipe.yaml` - The pipeline global configuration file.
+1. `data.yaml` - A sample dataset. You'll need to redefine this with your actual data.
+1. `out.yaml` - A sample output configuration. You'll need to redefine this as well.
 
 Each of these files contains extensive comments and irrelevant settings (or those for which the defaults are fine) may 
-be omitted. More details for pipe.yaml are in mkidpipeline.pipeline and mkidpipeline.steps.<stepname>. More details for 
-the other two are in mkidpipeline.config. Data and output yaml files can be vetted with helpful errors by running
+be omitted. More details for `pipe.yaml` are in `mkidpipeline.pipeline` and `mkidpipeline.steps.<stepname>`. More details for 
+the other two are in `mkidpipeline.config`. Data and output yaml files can be vetted with helpful errors by running
 
 `mkidpipe --vet` in the directory containing your three files. 
 
-To build and reduce this dataset open the pipe.yaml and make sure you are happy with the default `paths`, these should be 
+To build and reduce this dataset open the `pipe.yaml` and make sure you are happy with the default `paths`, these should be 
 sensible if you are working on GLADoS. On dark you'll want to change the `darkdata` folder to `data`. If the various 
 output paths don't exist they will be created, though permissions issues could cause unexpected results. Using a shared 
 database location might save you some time and is strongly encouraged at least across all of your pipeline runs 
@@ -92,7 +92,7 @@ flow:
 Note that `buildhdf`, `attachmeta`, and `wavecal` need to be run for all reductions or else you will run into unexpected 
 behavior. 
   
-To generate all necessary directories as specified in the pipe.yaml, run
+To generate all necessary directories as specified in the `pipe.yaml`, run
 
 `mkidpipe --make-dir`
 
