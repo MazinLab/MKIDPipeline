@@ -43,7 +43,7 @@ mamba env create --name pipeline -f src/mkidpipeline/condaenv.yml
 conda activate pipeline
 pip install -e src/mkidpipeline
 ```
-Next clone the mkidcore repository which contains supplementary packages needed to run the pipeline such as logging, and
+Next install the mkidcore repository which contains supplementary packages needed to run the pipeline such as logging, and
 flagging
 
 ```
