@@ -30,7 +30,7 @@ pkg_dirs:
 pip_interop_enabled: true
 #=============
 ```
-Then do 
+Then make a src directory in your home directory, clone the pipeline repository, and create a pipeline conda environemnt 
 ```
 mkdir ~/src
 cd ~/src
@@ -41,10 +41,16 @@ cd ~
 #if the following command gives issues try running: conda clean -a
 mamba env create --name pipeline -f src/mkidpipeline/condaenv.yml
 conda activate pipeline
-pip install -e git+https://github.com/mazinlab/mkidcore.git@<whatever branch goes with mkidp>#egg=mkidcore
 pip install -e src/mkidpipeline
 ```
+Next clone the mkidcore repository which contains supplementary packages needed to run the pipeline such as logging, and
+flagging
 
+```
+cd ~/src
+conda activate pipeline # if not already activated
+pip install -e git+https://github.com/mazinlab/mkidcore.git@<whatever branch goes with mkidp>#egg=mkidcore
+```
 ## Pipeline Quick Start Guide
 
 Move to a directory you would like to play around in, activate your `pipeline` environment with
