@@ -104,7 +104,7 @@ class PipeConfig(BaseStepConfig):
                      ('flow', ('buildhdf', 'attachmeta', 'wavecal', 'cosmiccal', 'pixcal', 'flatcal', 'wcscal',
                                'speccal'),
                       'Calibration steps to apply and order in which to do them'),
-                     ('paths.data', '/darkdata/ScienceData/Subaru/',
+                     ('paths.data', '/nfs/dark/data/ScienceData/Subaru/',
                       'bin file parent folder, must contain YYYYMMDD/*.bin and YYYYMMDD/logs/'),
                      ('paths.database', os.path.join(_pathroot, 'database'),
                       'calibrations will be retrieved/stored here'),
