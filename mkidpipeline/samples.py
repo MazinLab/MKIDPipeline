@@ -16,7 +16,7 @@ def _namer(name='Thing'):
 SAMPLEDATA = {'default': (
     d.MKIDObservation(name=_namer('HIP109427'), start=1602048875, duration=10, wavecal='wavecal0',
                       dark=d.MKIDTimerange(name=_namer(), start=1602046500, duration=10),
-                      flatcal='flatcal0', wcscal='wcscal0', speccal='speccal0'),
+                      flatcal='flatcal0', wcscal='wcscal0', speccal=''),
     # wavecals
     d.MKIDWavecal(name=_namer('wavecal'),
                   data=(d.MKIDTimerange(name='850 nm', start=1602040820, duration=60,
@@ -66,10 +66,10 @@ SAMPLEDATA = {'default': (
     # Dithers
     d.MKIDDither(name=_namer('dither'), data=1602047815, wavecal='wavecal0',
                  header=dict(OBJECT="HIP 109427"),
-                 flatcal='flatcal0', speccal='speccal0', use='0,2,4-9', wcscal='wcscal0'),
+                 flatcal='flatcal0', speccal='', use='0,2,4-9', wcscal='wcscal0'),
     d.MKIDDither(name=_namer('dither'),
                  data=pkg_resources.resource_filename('mkidpipeline', 'data/dither_sample.log'),
-                 wavecal='wavecal0', flatcal='flatcal0', speccal='speccal0', use=(1,),
+                 wavecal='wavecal0', flatcal='flatcal0', speccal='', use=(1,),
                  wcscal='wcscal0'),
     d.MKIDDither(name=_namer('dither'), flatcal='', speccal='', wcscal='', wavecal='',
                  header=dict(OBJECT='HIP 109427'),
