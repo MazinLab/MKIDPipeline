@@ -98,9 +98,11 @@ flow:
 Note that `buildhdf`, `attachmeta`, and `wavecal` need to be run for all reductions or else you will run into unexpected 
 behavior. 
   
-To generate all necessary directories as specified in the `pipe.yaml`, run
+To generate all necessary directories as specified in the `paths` section of the `pipe.yaml`, run
 
 `mkidpipe --make-dir`
+
+NOTE: The default values for these `paths` will need to be changed to point to the appropriate location for your machine. 
 
 To run the full calibration pipeline and generate specified outputs, use 
 
