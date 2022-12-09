@@ -127,9 +127,13 @@ def get_sample_data(dataset='default'):
 
 def get_sample_output(dataset='default'):
     data = [d.MKIDOutput(name=_namer('out'), data='dither0', min_wave='950 nm', max_wave='1375 nm', kind=k,
-                         duration=10.0) for k in ('drizzle', 'image', 'tcube', 'scube')]
+                         duration=10.0) for k in ('drizzle', 'image')]
     data.append(d.MKIDOutput(name=_namer('out'), data='dither0', min_wave='950 nm', max_wave='1375 nm',
                              kind='drizzle', duration=10.0, timestep=1.0, wavestep='0.0 nm'))
+    data.append(d.MKIDOutput(name=_namer('out'), data='dither0', min_wave='950 nm', max_wave='1375 nm',
+                             kind='tcube', duration=10.0, timestep=1.0, wavestep='0.0 nm'))
+    data.append(d.MKIDOutput(name=_namer('out'), data='dither0', min_wave='950 nm', max_wave='1375 nm',
+                             kind='scube', duration=10.0, wavestep='100.0 nm'))
     data.append(d.MKIDOutput(name=_namer('out'), data='dither0', min_wave='950 nm', max_wave='1375 nm',
                              kind='movie', duration=10.0, movie_format='gif', movie_runtime=3,
                              movie_type='simple'))
