@@ -74,7 +74,7 @@ class _Base:
                 except TypeError:
                     required_type = (required_type,)
 
-                if tuple in required_type and isinstance(v, list):
+                if tuple in required_type and isinstance(v, (list, ruamel.yaml.comments.CommentedSeq)):
                     v = tuple(v)
                 if float in required_type and v is not None:  # and isinstance(v, str) and v.endswith('inf'):
                     try:
