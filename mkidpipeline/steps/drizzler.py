@@ -78,8 +78,8 @@ class DrizzleParams:
         """
         self.n_dithers = len(dither.obs)
         self.image_shape = dither.obs[0].beammap.shape
-        self.platescale = [v.platescale.to(u.deg).value if v.platescale else dither.obs[0].metadata['E_PLTSCL']
-                           for v in dither.wcscal.values()][0]
+        self.platescale = [v.platescale.to(u.deg).value if v.platescale else
+                           dither.obs[0].metadata['E_PLTSCL'].to(u.deg).value for v in dither.wcscal.values()][0]
         self.inttime = inttime
         self.pixfrac = pixfrac
         self.startt = startt
