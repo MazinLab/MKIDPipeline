@@ -301,7 +301,7 @@ class MKIDTimerange(_Base):
         #             E_PLTSCL':nominal_platescale_mas'
         #             }
 
-        metadata = mkidcore.metadata.observing_metadata_for_timerange(self.start, self.duration, data)
+        metadata = mkidcore.metadata.observing_metadata_for_timerange(int(self.start), np.round(self.duration), data)
 
         for k, v in self._metadata.items():
             metadata[k.upper()] = v  # override
