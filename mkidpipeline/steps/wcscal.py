@@ -15,6 +15,8 @@ from mkidpipeline.utils.smoothing import replace_nan
 from scipy.optimize import curve_fit
 from astropy.utils.exceptions import AstropyUserWarning
 import warnings
+import tkinter as tk
+from tkinter import messagebox
 
 warnings.simplefilter('ignore', category=AstropyUserWarning)
 
@@ -393,6 +395,16 @@ def run_wcscal(data, source_locs, sigma_psf=None, wave_start=950*u.nm, wave_stop
     return pltscl, dp_dconx, dp_dcony, devang
 
 
+def display_message():
+    messagebox.showinfo(title="WCS Calibration Instructions",
+                        message="You specified an observation or dither and are about to run the WCS Calibration. \n"
+                                "Some quick instructions before you get started: \n \n"
+                                "- Depending on how many source locations were specified in your data you will need to click the approximate location of each source. \n \n"
+                                "- You will receive the RA/Dec location of each source you are supposed to click \n \n"
+                                "- If you do not see a source in your image, click outside the image window \n \n"
+                                "- Currently there is no way to go back so select carefully! \n \n"
+                                "Have Fun! ")
+
 def fetch(solution_descriptors, config=None, ncpu=None):
     try:
         solution_descriptors = solution_descriptors.wcscals
@@ -405,6 +417,13 @@ def fetch(solution_descriptors, config=None, ncpu=None):
         if os.path.exists(sd.path[:-4] + '.fits'):
             continue
         if isinstance(sd.data, MKIDObservation) or isinstance(sd.data, MKIDDither):
+            ws = tk.Tk()
+            ws.geometry('300x100')
+            button = tk.Button(ws, text='Click to view WCSCal Directions', command=display_message)
+            button.pack()
+            ws.mainloop()
+            tk.Tk().withdraw()
+
             pltscl, dp_dconx, dp_dcony, devang = \
                 run_wcscal(sd.data, sd.source_locs, sigma_psf=wcscfg.wcscal.sigma_psf, wave_start=950*u.nm,
                            wave_stop=1375 * u.nm, interpolate=wcscfg.wcscal.interpolate, ref_pix=sd.pixel_ref,
