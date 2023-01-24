@@ -691,8 +691,12 @@ def form(dither, mode='drizzler', wave_start=None, wave_stop=None, start=0, dura
     if mode not in ('drizzle'):
         raise ValueError('mode must be: drizzle')
 
-    # ensure the user input is shorter than the dither or that wcs are just calculated for the requested timespan
     dither_inttime = min(dither.inttime)
+
+    # if no duration specified, use whole dither integration time
+    if duration is None:
+        duration = dither_inttime
+    # ensure the user input is shorter than the dither or that wcs are just calculated for the requested timespan
     if duration > dither_inttime:
         getLogger(__name__).info(f'User integration time of {duration:.1f} too long, '
                                  f'using shortest dither dwell time ({dither_inttime:.1f} s)')
