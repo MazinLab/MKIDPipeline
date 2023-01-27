@@ -51,8 +51,10 @@ class ClickCoords:
         self.source_locs = source_locs
         self.counter = 0
         self.fig = plt.figure() if fig is None else fig
-        self.cid = None
+        self.cid1 = None
+        self.cid2 = None
         self.conex_pos = conex_pos
+        self.redo = False
 
     def push_to_start(self):
         plt.imshow(self.image)
@@ -62,14 +64,14 @@ class ClickCoords:
 
     def get_coords(self):
         self.push_to_start()
-        plt.title(f'CONEX pos: {self.conex_pos}. \n Select Location of Source at {self.source_locs[self.counter]}')
+        plt.title(f'CONEX pos: {self.conex_pos}. \n Select Location of Source at '
+                  f'({self.source_locs[self.counter][0]:.6f}, {self.source_locs[self.counter][1]:.6f})')
         plt.draw()
-        self.cid = self.fig.canvas.mpl_connect('button_press_event', self.__onclick__)
+        self.cid1 = self.fig.canvas.mpl_connect('button_press_event', self.__onclick__)
         plt.show()
         return self.coords
 
     def __onclick__(self, click):
-        # set origin to bottom left of array
         try:
             point = (click.xdata, click.ydata)
         except TypeError:
@@ -77,15 +79,36 @@ class ClickCoords:
         self.coords.append(point)
         self.counter += 1
         if self.counter == self.n_sources:
-            self.fig.canvas.mpl_disconnect(self.cid)
-            plt.close(self.fig)
+            plt.scatter(*zip(*self.coords), c='red', marker='o', s=10)
+            plt.draw()
+            plt.title('Press "c" to Continue or "r" to Re-do')
+            self.cid2 = self.fig.canvas.mpl_connect('key_press_event', self.__onkey__)
         try:
             plt.imshow(self.image)
             plt.scatter(*zip(*self.coords), c='red', marker='o', s=10)
-            plt.title(f'CONEX pos: {self.conex_pos}. \n Select Locations of Source at {self.source_locs[self.counter]}')
+            plt.title(f'CONEX pos: {self.conex_pos}. \n Select Locations of Source at '
+                      f'({self.source_locs[self.counter][0]:.6f}, {self.source_locs[self.counter][1]:.6f})')
             plt.draw()
         except IndexError:
             pass
+        return self.coords
+
+    def __onkey__(self, event):
+        cont_key = 'c'
+        redo_key = 'r'
+        cont = False
+        while not cont:
+            if event.key == cont_key:
+                cont = True
+            if event.key == redo_key:
+                self.fig.canvas.mpl_disconnect(self.cid2)
+                self.fig.canvas.mpl_disconnect(self.cid1)
+                plt.close(self.fig)
+                self.redo = True
+                break
+        self.fig.canvas.mpl_disconnect(self.cid2)
+        self.fig.canvas.mpl_disconnect(self.cid1)
+        plt.close(self.fig)
         return self.coords
 
 
@@ -100,6 +123,8 @@ def select_sources(image, source_locs, conex_pos):
     fig = plt.figure()
     cc = ClickCoords(image, source_locs=source_locs, fig=fig, conex_pos=conex_pos)
     coords = cc.get_coords()
+    if cc.redo:
+        coords = select_sources(image, source_locs, conex_pos)
     plt.close("all")
     return coords
 
@@ -294,7 +319,7 @@ def sep_between_two_points(p1, p2):
 def solve_platescale(coords, n_sources):
     pix_coords = []
     sky_coords = []
-    if len(n_sources) > 2:
+    if n_sources > 2:
         getLogger(__name__).error('WCS Cal currently only supports an using a dataset with two unique sources')
         raise NotImplementedError
     for i, c in enumerate(coords):
@@ -399,10 +424,12 @@ def display_message():
     messagebox.showinfo(title="WCS Calibration Instructions",
                         message="You specified an observation or dither and are about to run the WCS Calibration. \n"
                                 "Some quick instructions before you get started: \n \n"
-                                "- Depending on how many source locations were specified in your data you will need to click the approximate location of each source. \n \n"
+                                "- Depending on how many source locations were specified in your data you will need to "
+                                "click the approximate location of each source. \n \n"
                                 "- You will receive the RA/Dec location of each source you are supposed to click \n \n"
                                 "- If you do not see a source in your image, click outside the image window \n \n"
-                                "- Currently there is no way to go back so select carefully! \n \n"
+                                "- After selecting all the sources you can press 'c' to move to the next image or 'r' "
+                                "to reselect \n \n"
                                 "Have Fun! ")
 
 def fetch(solution_descriptors, config=None, ncpu=None):
