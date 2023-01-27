@@ -354,7 +354,7 @@ class MKIDObservation(MKIDTimerange):
                               'E_DPDCX'),
                           E_DPDCY=self.wcscal.dp_dcy if self.wcscal.dp_dcy else self.photontable.query_header(
                               'E_DPDCY')))
-        except AttributeError:
+        except (AttributeError, KeyError) as error:
             pass
         return d
 
