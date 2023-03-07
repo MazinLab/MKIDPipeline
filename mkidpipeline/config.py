@@ -251,7 +251,7 @@ def inspect_database(detailed=False):
     from glob import glob
 
     for f in glob(config.paths.database + '*'):
-        print(f'{f}')
+        getLogger(__name__).debug(f'{f}')
 
 
 def n_cpus_available(max=None):
