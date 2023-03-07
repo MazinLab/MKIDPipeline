@@ -68,10 +68,13 @@ class _Base:
         for k, v in kwargs.items():
 
             if k in self.UNIXTIMESTAMPKEYS:
-                try:
-                    v = datetime.strptime(v, '%Y-%m-%d %H:%M:%S').timestamp()
-                except (ValueError, TypeError):
-                    pass
+                if isinstance(v, datetime):
+                    v = v.timestamp()
+                elif isinstance(v, str):
+                    try:
+                        v = datetime.strptime(v, '%Y-%m-%d %H:%M:%S').timestamp()
+                    except ValueError:
+                        pass
 
             # Deal with types
             if k in self._keys:
@@ -296,12 +299,13 @@ class MKIDTimerange(_Base):
     @property
     def metadata(self):
         """
-        Returns a dict of of KEY:mkidcore.metadata.MetadataSeries|value pairs, likely a subset of all keys
+        Returns a dict of KEY:mkidcore.metadata.MetadataSeries|value pairs, likely a subset of all keys
 
         Does not return default key values, that would be the responsibility of e.g. get_metadata for a photontable
         """
         obslog_files = mkidcore.utils.get_obslogs(mkpc.config.paths.data, start=self.start)
-        data = mkidcore.metadata.load_observing_metadata(files=obslog_files, use_cache=True)
+        data = mkidcore.metadata.load_observing_metadata(files=obslog_files, use_cache=True,
+                                                         instrument=mkpc.config.instrument.name)
 
         #TODO one way to override defaults with settings from the pipeline is to develop a "defaults" dict to pass
         # as a new feature to observing_metadata_for_timerange which would supplant those defined in the csv file
