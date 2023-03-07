@@ -34,6 +34,7 @@ class _Base:
     """Superclass to handle all MKID data. Verifies and sets all required keys"""
     KEYS = tuple()
     REQUIRED = tuple()  # May set individual elements to tuples of keys if they are alternates e.g. stop/duration
+    UNIXTIMESTAMPKEYS = tuple()
 
     def __init__(self, *args, **kwargs):
         from collections import defaultdict
@@ -65,6 +66,12 @@ class _Base:
 
         # Process keys
         for k, v in kwargs.items():
+
+            if k in self.UNIXTIMESTAMPKEYS:
+                try:
+                    v = datetime.strptime(v, '%Y-%m-%d %H:%M:%S').timestamp()
+                except (ValueError, TypeError):
+                    pass
 
             # Deal with types
             if k in self._keys:
@@ -180,19 +187,20 @@ class _Base:
 class MKIDTimerange(_Base):
     """
     Basic MKID data type. By definition, an MKIDTimerange can specify no calibrations to be applied and only consists
-    of a start, ether a stop or a duration, and optional dark and header fields. A dark, if specified, is itself an
+    of a start, either a stop or a duration, and optional dark and header fields. A dark, if specified, is itself an
     MKIDTimerange
     """
     yaml_tag = u'!MKIDTimerange'
     KEYS = (
         Key(name='name', default=None, comment='A name', dtype=str),
-        Key('start', None, 'The start unix time, float ok, rounded down for H5 creation.', (float, int)),
+        Key('start', None, 'The start unix time, float ok, rounded down for H5 creation. yyyy-mm-dd HH:MM:SS ok', (float, int)),
         Key('duration', None, 'A duration in seconds, float ok. If not specified stop must be', (float, int)),
-        Key('stop', None, 'A stop unit time, float ok. If not specified duration must be', (float, int)),
+        Key('stop', None, 'A stop unit time, float ok, yyyy-mm-dd HH:MM:SS ok. If not specified duration must be', (float, int)),
         Key('dark', None, 'An MKIDTimerange to use for a dark reference.', None),
         Key('header', None, 'A dictionary of fits header key overrides.', dict)
     )
     REQUIRED = ('name', 'start', ('duration', 'stop'))
+    UNIXTIMESTAMPKEYS = ('start', 'stop')
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
