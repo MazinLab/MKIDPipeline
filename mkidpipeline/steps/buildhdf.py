@@ -29,7 +29,7 @@ mkidcore.config.yaml.register_class(StepConfig)
 
 
 def estimate_ram_gb(directory, start, inttime):
-    files = [os.path.join(directory, '{}.bin'.format(t)) for t in
+    files = [os.path.join(directory, f'{t}.bin') for t in
              range(int(start - 1), int(np.ceil(start) + inttime + 1))]
     files = filter(os.path.exists, files)
     n_max_photons = int(np.ceil(sum([os.stat(f).st_size for f in files]) / PHOTON_BIN_SIZE_BYTES))
