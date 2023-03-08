@@ -1,7 +1,7 @@
 import hashlib
 import os
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Set
 import ruamel.yaml
 import astropy.units
@@ -69,10 +69,10 @@ class _Base:
 
             if k in self.UNIXTIMESTAMPKEYS:
                 if isinstance(v, datetime):
-                    v = v.timestamp()
+                    v = v.replace(tzinfo=timezone.utc).timestamp()
                 elif isinstance(v, str):
                     try:
-                        v = datetime.strptime(v, '%Y-%m-%d %H:%M:%S').timestamp()
+                        v = datetime.strptime(v, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp()
                     except ValueError:
                         pass
 
@@ -167,13 +167,14 @@ class _Base:
                 # getLogger(__name__).debug(f'{node.name} ({cls.__name__}.{k}) is a {type(d[k])} and '
                 #                           f'will be stored as ({d[k]}) for yaml representation ')
                 store[k] = d[k]
+        key_info = mkidcore.metadata.INSTRUMENT_KEY_MAP[mkpc.config.instrument.lower()]['keys']
         if 'header' in store:
             cm = ruamel.yaml.comments.CommentedMap(store['header'])
             for k in store['header']:
                 try:
-                    descr = mkidcore.metadata.MEC_KEY_INFO[k].description
+                    descr = key_info[k].description
                 except KeyError:
-                    descr = '!UNKNOWN MEC HEADER KEY!'
+                    descr = '!UNKNOWN HEADER KEY FOR INSTRUMENT!'
                 cm.yaml_add_eol_comment(descr, key=k)
             store['header'] = cm
         cm = ruamel.yaml.comments.CommentedMap(store)
@@ -234,14 +235,15 @@ class MKIDTimerange(_Base):
     @property
     def _metadata(self):
         """Return a dict of the metadata unique to self"""
+        key_info = mkidcore.metadata.INSTRUMENT_KEY_MAP[mkpc.config.instrument.lower()]['keys']
         d = dict(UNIXSTR=self.start, UNIXEND=self.stop,
                  E_DARK=f'{self.dark.duration}@{self.dark.start}' if self.dark else 'None')
         for k in self.header:
-            if k in mkidcore.metadata.MEC_KEY_INFO:
+            if k in key_info:
                 d[k] = self.header[k]
             else:  #TODO remove once updated
                 x = mkidcore.metadata._LEGACY_OBSLOG_MAP.get(k, '')
-                if x in mkidcore.metadata.MEC_KEY_INFO:
+                if x in key_info:
                     getLogger(__name__).warning(f'{k} is a legacy key name and will be replaced by {x}. '
                                                 f'Update your data definition for {self.name}')
                     d[x] = self.header[k]
