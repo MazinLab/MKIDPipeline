@@ -30,15 +30,18 @@ def parse():
     parser.add_argument('--make-outputs', dest='makeout', help='Run the pipeline on the outputs', action='store_true')
     parser.add_argument('--logcfg', dest='logcfg', help='Run the pipeline on the outputs', type=str,
                         default=pkg.resource_filename('mkidpipeline', './config/logging.yaml'))
+    parser.add_argument('--instrument', help='instrument name being used', type=str, default='MEC')
 
     return parser.parse_args()
 
 
-def init_pipeline():
+def init_pipeline(instrument='MEC'):
     defstr = lambda x: f"{x}_default.yaml" if os.path.exists(f"{x}.yaml") else f"{x}.yaml"
-    default_pipe_config = pipe.generate_default_config()
+    default_pipe_config = pipe.generate_default_config(instrument=instrument)
     with open(defstr('pipe'), 'w') as f:
         config.yaml.dump(default_pipe_config, f)
+
+    config.configure_pipeline(args.pipe_cfg)
 
     sample_data = mkidpipeline.samples.get_sample_data()
     config.dump_dataconfig(sample_data, defstr('data'))
@@ -72,7 +75,7 @@ if __name__ == "__main__":
         getLogger('mkidcore').setLevel('DEBUG')
 
     if args.init:
-        init_pipeline()
+        init_pipeline(instrument=args.instrument)
         sys.exit(0)
 
     config.configure_pipeline(args.pipe_cfg)
