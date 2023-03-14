@@ -321,7 +321,8 @@ class MKIDTimerange(_Base):
             metadata[k.upper()] = v  # override
 
         mkidcore.metadata.validate_metadata_dict(metadata, warn='required', error=False,
-                                                 allow_missing=mkidcore.metadata.PIPELINE_KEYS)
+                                                 allow_missing=mkidcore.metadata.PIPELINE_KEYS,
+                                                 instrument=mkpc.config.instrument.name)
 
         return metadata
 
