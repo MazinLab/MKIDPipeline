@@ -13,7 +13,7 @@ from mkidcore.pixelflags import FlagSet
 import mkidcore.pixelflags as pixelflags
 from mkidcore.instruments import compute_wcs_ref_pixel
 import mkidpipeline.utils.memory as pipeline_ram
-
+from mkidcore.metadata import INSTRUMENT_KEY_MAP
 import SharedArray
 
 import tables
@@ -737,8 +737,12 @@ class Photontable:
         try:
             for t in sample_times:
                 md = self.metadata(t)
-                # we want to inherit defaults for ref values
-                head = mkidcore.metadata.build_header(md, unknown_keys='ignore')
+                instrument = md['INSTRUME'].lower()
+                head = mkidcore.metadata.build_header(md, unknown_keys='ignore',
+                                                      KEY_INFO=INSTRUMENT_KEY_MAP[instrument]['keys'],
+                                                      TIME_KEYS=INSTRUMENT_KEY_MAP[instrument]['time'],
+                                                      DEFAULT_CARDSET=INSTRUMENT_KEY_MAP[instrument]['card'],
+                                                      TIME_KEY_BUILDER=INSTRUMENT_KEY_MAP[instrument]['builder'])
                 ref_pixels.append(compute_wcs_ref_pixel((md['E_CONEXX'], md['E_CONEXY']),
                                                         reference_pixel=(head['E_PREFX'], head['E_PREFY']),
                                                         reference=(head['E_CXREFX'], head['E_CXREFY']),
@@ -754,7 +758,11 @@ class Photontable:
                         'CDELT3': bins[1] - bins[0], 'CRPIX3': 1, 'CRVAL3': bins[0], 'NAXIS3': bins.size}
 
         # we want to inherit defaults for ref values
-        header = mkidcore.metadata.build_header(self.metadata(start_time), unknown_keys='warn')
+        header = mkidcore.metadata.build_header(self.metadata(start_time), unknown_keys='warn',
+                                                KEY_INFO=INSTRUMENT_KEY_MAP[instrument]['keys'],
+                                                TIME_KEYS=INSTRUMENT_KEY_MAP[instrument]['time'],
+                                                DEFAULT_CARDSET=INSTRUMENT_KEY_MAP[instrument]['cards'],
+                                                TIME_KEY_BUILDER=INSTRUMENT_KEY_MAP[instrument]['builder'])
         wcs_solns = mkidcore.metadata.build_wcs(header, astropy.time.Time(val=sample_times, format='unix'), ref_pixels,
                                                 self.beamImage.shape, subtract_parallactic=derotate, cubeaxis=cubeaxis)
         return wcs_solns
