@@ -184,7 +184,7 @@ class HDFBuilder(object):
     def build(self, index=('ultralight', 6), timesort=False, chunkshape=250, shuffle=True, bitshuffle=False,
               wait_for_ram=300, ndx_shuffle=True, ndx_bitshuffle=False, data=None):
         """
-        wait_for_ram speficies the number of seconds to wait for sufficient ram
+        wait_for_ram specifiies the number of seconds to wait for sufficient ram
 
         data may be a numpy recarray to bypass extraction
         """
