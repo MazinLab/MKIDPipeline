@@ -982,7 +982,12 @@ class Photontable:
                      fits.Card('EXFLAG', excluded, comment='Bitmask of excluded flags')]
 
         # Build primary and image headers
-        header = mkidcore.metadata.build_header(md, unknown_keys='warn')
+        instrument = md['INSTRUME'].lower()
+        header = mkidcore.metadata.build_header(md, unknown_keys='ignore',
+                                                KEY_INFO=INSTRUMENT_KEY_MAP[instrument]['keys'],
+                                                TIME_KEYS=INSTRUMENT_KEY_MAP[instrument]['time'],
+                                                DEFAULT_CARDSET=INSTRUMENT_KEY_MAP[instrument]['card'],
+                                                TIME_KEY_BUILDER=INSTRUMENT_KEY_MAP[instrument]['builder'])
 
         bins = None
         if cube_type is not None:
