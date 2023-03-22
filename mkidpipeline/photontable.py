@@ -761,7 +761,7 @@ class Photontable:
         header = mkidcore.metadata.build_header(self.metadata(start_time), unknown_keys='warn',
                                                 KEY_INFO=INSTRUMENT_KEY_MAP[instrument]['keys'],
                                                 TIME_KEYS=INSTRUMENT_KEY_MAP[instrument]['time'],
-                                                DEFAULT_CARDSET=INSTRUMENT_KEY_MAP[instrument]['cards'],
+                                                DEFAULT_CARDSET=INSTRUMENT_KEY_MAP[instrument]['card'],
                                                 TIME_KEY_BUILDER=INSTRUMENT_KEY_MAP[instrument]['builder'])
         wcs_solns = mkidcore.metadata.build_wcs(header, astropy.time.Time(val=sample_times, format='unix'), ref_pixels,
                                                 self.beamImage.shape, subtract_parallactic=derotate, cubeaxis=cubeaxis)
