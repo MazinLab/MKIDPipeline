@@ -94,6 +94,10 @@ class DrizzleParams:
         instrument = dither.obs[0].header.get('INSTRUME')
         self.telescope = dither.obs[0].header.get('TELESCOP') or \
                          mkidcore.metadata.INSTRUMENT_KEY_MAP[instrument]['card']['TELESCOP'].value
+
+        if self.telescope.lower() == "clay":
+            self.telescope = "LAS CAMPANAS OBSERVATORY"
+
         self.canvas_shape = (None, None)
         self.dith_start_times = np.array([o.start for o in dither.obs])
         self.dither_pos = np.asarray(dither.pos).T
