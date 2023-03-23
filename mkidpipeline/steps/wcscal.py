@@ -451,53 +451,34 @@ def fetch(solution_descriptors, config=None, ncpu=None):
             ws.mainloop()
             tk.Tk().withdraw()
 
+            if sd.pixel_ref and sd.conex_ref:  # if pixel and conex ref specified in data definition then use those
+                pxref = sd.pixel_ref
+                cxref = sd.conex_ref
+            else:  # else try to get values from photontable header
+                try:
+                    pxref = (sd.data.photontable.query_header('E_PREFX'), sd.data.photontable.query_header('E_PREFY'))
+                    cxref = (sd.data.photontable.query_header('E_CXREFX'), sd.data.photontable.query_header('E_CXREFY'))
+                except AttributeError:  # must be a dither
+                    pxref = (sd.data.obs[0].photontable.query_header('E_PREFX'),
+                             sd.data.photontable.query_header('E_PREFY'))
+                    cxref = (sd.data.obs[0].photontable.query_header('E_CXREFX'),
+                             sd.data.photontable.query_header('E_CXREFY'))
+
             pltscl, dp_dconx, dp_dcony, devang = \
                 run_wcscal(sd.data, sd.source_locs, sigma_psf=wcscfg.wcscal.sigma_psf, wave_start=950*u.nm,
-                           wave_stop=1375 * u.nm, interpolate=wcscfg.wcscal.interpolate, ref_pix=sd.pixel_ref,
-                           conex_ref=sd.conex_ref, guesses=np.array(wcscfg.wcscal.param_guesses), mux=sd.dp_dcx,
+                           wave_stop=1375 * u.nm, interpolate=wcscfg.wcscal.interpolate, ref_pix=pxref,
+                           conex_ref=cxref, guesses=np.array(wcscfg.wcscal.param_guesses), mux=sd.dp_dcx,
                            muy=sd.dp_dcy)
-            hdr = sd.data.obs[0].photontable.get_fits()[0].header
-            hdul = fits.HDUList([fits.PrimaryHDU(header=hdr)])
+
+            hdul = fits.HDUList([fits.PrimaryHDU()])
             hdul[0].header['PLTSCL'] = (pltscl.to(u.deg).value, 'platescale in degree/pixel')
             hdul[0].header['E_DPDCX'] = (dp_dconx, 'pixel move per conex move in x')
             hdul[0].header['E_DPDCY'] = (dp_dcony, 'pixel move per conex move in y')
             hdul[0].header['DEVANG'] = (devang.to(u.deg).value, 'device angle in degrees')
-
-            if sd.conex_ref is not None:
-                hdul[0].header['E_CXREFX'] = (sd.conex_ref[0], 'Conex reference position in X')
-                hdul[0].header['E_CXREFY'] = (sd.conex_ref[1], 'Conex reference position in Y')
-            else:
-                try:
-                    if isinstance(sd.data, MKIDObservation):
-                        time = sd.data.start
-                        md = sd.data.metadata_at(time=time)
-                    elif isinstance(sd.data, MKIDDither):
-                        time = sd.data.obs[0].start
-                        md = sd.data.obs[0].metadata_at(time=time)
-
-                    hdul[0].header['E_CXREFX'] = (md['E_CXREFX'], 'Conex reference position in X')
-                    hdul[0].header['E_CXREFY'] = (md['E_CXREFY'], 'Conex reference position in X')
-                except KeyError:
-                    raise RuntimeError('Conex reference either needs to be specified in the pipeline config or '
-                                       'be present in the metadata. WCScal failes to apply.')
-
-            if sd.pixel_ref is not None:
-                hdul[0].header['E_PREFX'] = (sd.pixel_ref[0], 'Pixel reference position in X')
-                hdul[0].header['E_PREFY'] = (sd.pixel_ref[1], 'Pixel reference position in Y')
-            else:
-                try:
-                    if isinstance(sd.data, MKIDObservation):
-                        time = sd.data.start
-                        md = sd.data.metadata_at(time=time)
-                    elif isinstance(sd.data, MKIDDither):
-                        time = sd.data.obs[0].start
-                        md = sd.data.obs[0].metadata_at(time=time)
-                    hdul[0].header['E_PREFX'] = (md['E_PREFX'], 'Pixel reference position in X')
-                    hdul[0].header['E_PREFY'] = (md['E_PREFY'], 'Pixel reference position in X')
-                except KeyError:
-                    raise RuntimeError('Pixel reference either needs to be specified in the pipeline config or '
-                                       'be present in the metadata. WCScal failed to apply ')
-
+            hdul[0].header['E_CXREFX'] = (cxref[0], 'Conex reference position in X')
+            hdul[0].header['E_CXREFY'] = (cxref[1], 'Conex reference position in Y')
+            hdul[0].header['E_PREFX'] = (pxref[0], 'Pixel reference position in X')
+            hdul[0].header['E_PREFY'] = (pxref[1], 'Pixel reference position in Y')
             hdul.writeto(sd.path[:-4] + '.fits')
             getLogger(__name__).info(f'Saved WCS Solution to {sd.path[:-4]}.fits')
         else:
