@@ -462,6 +462,42 @@ def fetch(solution_descriptors, config=None, ncpu=None):
             hdul[0].header['E_DPDCX'] = (dp_dconx, 'pixel move per conex move in x')
             hdul[0].header['E_DPDCY'] = (dp_dcony, 'pixel move per conex move in y')
             hdul[0].header['DEVANG'] = (devang.to(u.deg).value, 'device angle in degrees')
+
+            if sd.conex_ref is not None:
+                hdul[0].header['E_CXREFX'] = (sd.conex_ref[0], 'Conex reference position in X')
+                hdul[0].header['E_CXREFY'] = (sd.conex_ref[1], 'Conex reference position in Y')
+            else:
+                try:
+                    if isinstance(sd.data, MKIDObservation):
+                        time = sd.data.start
+                        md = sd.data.metadata_at(time=time)
+                    elif isinstance(sd.data, MKIDDither):
+                        time = sd.data.obs[0].start
+                        md = sd.data.obs[0].metadata_at(time=time)
+
+                    hdul[0].header['E_CXREFX'] = (md['E_CXREFX'], 'Conex reference position in X')
+                    hdul[0].header['E_CXREFY'] = (md['E_CXREFY'], 'Conex reference position in X')
+                except KeyError:
+                    raise RuntimeError('Conex reference either needs to be specified in the pipeline config or '
+                                       'be present in the metadata. WCScal failes to apply.')
+
+            if sd.pixel_ref is not None:
+                hdul[0].header['E_PREFX'] = (sd.pixel_ref[0], 'Pixel reference position in X')
+                hdul[0].header['E_PREFY'] = (sd.pixel_ref[1], 'Pixel reference position in Y')
+            else:
+                try:
+                    if isinstance(sd.data, MKIDObservation):
+                        time = sd.data.start
+                        md = sd.data.metadata_at(time=time)
+                    elif isinstance(sd.data, MKIDDither):
+                        time = sd.data.obs[0].start
+                        md = sd.data.obs[0].metadata_at(time=time)
+                    hdul[0].header['E_PREFX'] = (md['E_PREFX'], 'Pixel reference position in X')
+                    hdul[0].header['E_PREFY'] = (md['E_PREFY'], 'Pixel reference position in X')
+                except KeyError:
+                    raise RuntimeError('Pixel reference either needs to be specified in the pipeline config or '
+                                       'be present in the metadata. WCScal failed to apply ')
+
             hdul.writeto(sd.path[:-4] + '.fits')
             getLogger(__name__).info(f'Saved WCS Solution to {sd.path[:-4]}.fits')
         else:
@@ -472,6 +508,10 @@ def fetch(solution_descriptors, config=None, ncpu=None):
             hdul[0].header['E_DPDCX'] = (sd.dp_dcx, 'pixel move per conex move in x')
             hdul[0].header['E_DPDCY'] = (sd.dp_dcy, 'pixel move per conex move in y')
             hdul[0].header['DEVANG'] = (devang, 'device angle in degrees')
+            hdul[0].header['E_CXREFX'] = (sd.conex_ref[0], 'Conex reference position in X')
+            hdul[0].header['E_CXREFY'] = (sd.conex_ref[1], 'Conex reference position in Y')
+            hdul[0].header['E_PREFX'] = (sd.pixel_ref[0], 'Pixel reference position in X')
+            hdul[0].header['E_PREFY'] = (sd.pixel_ref[1], 'Pixel reference position in Y')
             hdul.writeto(sd.path[:-4] + '.fits')
             getLogger(__name__).info(f'Saved WCS Solution to {sd.path[:-4]}.fits')
 
@@ -483,11 +523,19 @@ def apply(o):
     devang = sol_hdul[0].header['DEVANG']
     dp_dcx = sol_hdul[0].header['E_DPDCX']
     dp_dcy = sol_hdul[0].header['E_DPDCY']
+    cx_refx = sol_hdul[0].header['E_CXREFX']
+    cx_refy = sol_hdul[0].header['E_CXREFY']
+    p_refx = sol_hdul[0].header['E_PREFX']
+    p_refy = sol_hdul[0].header['E_PREFY']
     pt = Photontable(o.h5)
     pt.enablewrite()
     pt.update_header('E_DPDCX', dp_dcx)
     pt.update_header('E_DPDCY', dp_dcy)
     pt.update_header('E_PLTSCL', pltscl)
     pt.update_header('E_DEVANG', devang)
+    pt.update_header('E_CXREFX', cx_refx)
+    pt.update_header('E_CXREFY', cx_refy)
+    pt.update_header('E_PREFX', p_refx)
+    pt.update_header('E_PREFY', p_refy)
     getLogger(__name__).info(f'Updated WCS info for {o.h5}')
     pt.disablewrite()
