@@ -500,23 +500,15 @@ def apply(o):
     sol_path = o.wcscal.path[:-4] + '.fits'
     getLogger(__name__).info(f'Applying {sol_path} to {o.h5}')
     sol_hdul = fits.open(sol_path)
-    pltscl = sol_hdul[0].header['PLTSCL']
-    devang = sol_hdul[0].header['DEVANG']
-    dp_dcx = sol_hdul[0].header['E_DPDCX']
-    dp_dcy = sol_hdul[0].header['E_DPDCY']
-    cx_refx = sol_hdul[0].header['E_CXREFX']
-    cx_refy = sol_hdul[0].header['E_CXREFY']
-    p_refx = sol_hdul[0].header['E_PREFX']
-    p_refy = sol_hdul[0].header['E_PREFY']
     pt = Photontable(o.h5)
     pt.enablewrite()
-    pt.update_header('E_DPDCX', dp_dcx)
-    pt.update_header('E_DPDCY', dp_dcy)
-    pt.update_header('E_PLTSCL', pltscl)
-    pt.update_header('E_DEVANG', devang)
-    pt.update_header('E_CXREFX', cx_refx)
-    pt.update_header('E_CXREFY', cx_refy)
-    pt.update_header('E_PREFX', p_refx)
-    pt.update_header('E_PREFY', p_refy)
+    pt.update_header('E_DPDCX', sol_hdul[0].header['E_DPDCX'])
+    pt.update_header('E_DPDCY', sol_hdul[0].header['E_DPDCY'])
+    pt.update_header('E_PLTSCL', sol_hdul[0].header['PLTSCL'])
+    pt.update_header('E_DEVANG', sol_hdul[0].header['DEVANG'])
+    pt.update_header('E_CXREFX', sol_hdul[0].header['E_CXREFX'])
+    pt.update_header('E_CXREFY', sol_hdul[0].header['E_CXREFY'])
+    pt.update_header('E_PREFX', sol_hdul[0].header['E_PREFX'])
+    pt.update_header('E_PREFY', sol_hdul[0].header['E_PREFY'])
     getLogger(__name__).info(f'Updated WCS info for {o.h5}')
     pt.disablewrite()
