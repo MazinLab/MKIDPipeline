@@ -31,7 +31,6 @@ from astropy.io import fits
 from astropy import wcs
 from astropy.coordinates import EarthLocation
 import astropy.units as u
-from astroplan import Observer
 from drizzle import drizzle as stdrizzle
 import mkidcore.corelog
 import mkidcore.pixelflags
@@ -41,6 +40,7 @@ from mkidcore.corelog import getLogger
 from mkidcore.instruments import CONEX2PIXEL
 from mkidpipeline.photontable import Photontable
 import mkidpipeline.config
+from mkidcore.utils import astropy_observer
 
 EXCLUDE = ('pixcal.dead', 'pixcal.hot', 'pixcal.cold', 'beammap.noDacTone', 'wavecal.bad', 'wavecal.failed_convergence',
            'wavecal.no_histograms', 'wavecal.not_attempted', 'flatcal.bad')  # fill with undesired flags
@@ -95,9 +95,6 @@ class DrizzleParams:
         self.telescope = dither.obs[0].photontable.query_header('TELESCOP') or \
                          mkidcore.metadata.INSTRUMENT_KEY_MAP[instrument]['card']['TELESCOP'].value
 
-        if self.telescope.lower() == "clay":
-            self.telescope = "LAS CAMPANAS OBSERVATORY"
-
         self.canvas_shape = (None, None)
         self.dith_start_times = np.array([o.start for o in dither.obs])
         self.dither_pos = np.asarray(dither.pos).T
@@ -124,8 +121,7 @@ class DrizzleParams:
         :return: maximum non-blurring timestep in seconds
         """
         # get the field rotation rate at the start of each dither
-        site = astropy.coordinates.EarthLocation.of_site(self.telescope)
-        apo = Observer.at_site(self.telescope)
+        site, apo = astropy_observer(self.telescope)
         altaz = apo.altaz(astropy.time.Time(val=self.dith_start_times, format='unix'), self.coords)
         earthrate = 2 * np.pi / astropy.units.sday.to(astropy.units.second)
 
