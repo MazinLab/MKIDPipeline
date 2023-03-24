@@ -38,6 +38,14 @@ PROBLEM_FLAGS = ('pixcal.hot', 'pixcal.cold', 'pixcal.dead', 'beammap.noDacTone'
                  'wavecal.not_enough_histogram_fits', 'wavecal.no_histograms',
                  'wavecal.not_attempted')
 
+WCS_KEY_DICT = {
+    'mec': {'RA': 'D_IMRRA',
+            'DEC': 'D_IMRDEC',
+            'ANG': 'D_IMRPAD'},
+    'xkid': {'RA': 'RA',
+             'DEC': 'DEC'}
+
+}
 class ClickCoords:
     """
     Class for choosing approximate location in the image for each point source to use for the wcscal. Associates the
@@ -356,14 +364,21 @@ def load_data(data, wave_start=950 * u.nm, wave_stop=1375 * u.nm):
             hdul = Photontable(o.h5).get_fits(wave_start=wave_start.to(u.nm).value,
                                               wave_stop=wave_stop.to(u.nm).value,
                                               exclude_flags=('beammap.NoDacTone'))
+            instrument = hdul[0].header['INSTRUME'].lower()
             images.append(hdul[1].data)
             hdus.append(hdul[1].header)
             conex_positions.append((o.header['E_CONEXX'], o.header['E_CONEXY']))
-            sky = SkyCoord(o.metadata['D_IMRRA'].values[0], o.metadata['D_IMRDEC'].values[0], unit=(u.hourangle, u.deg),
-                           frame='icrs')
+            sky = SkyCoord(o.metadata[WCS_KEY_DICT[instrument]['RA']].values[0],
+                           o.metadata[WCS_KEY_DICT[instrument]['DEC']].values[0],
+                           unit=(u.hourangle, u.deg), frame='icrs')
             ra = sky.ra.value
             dec = sky.dec.value
-            telescope_ang.append((o.metadata['D_IMRPAD'].values[0] * u.deg).to(u.rad).value)
+            try:
+                telescope_ang.append((o.metadata[WCS_KEY_DICT[instrument]['ANG']].values[0] * u.deg).to(u.rad).value)
+            except KeyError:
+                getLogger(__name__).warning('Could not find telescope angle in WCScal Key mapping, using 0 degrees.')
+                telescope_ang.append((0 * u.deg).to(u.rad).value)
+
             if ra == 999 or dec == 999:
                 try:
                     skycoord = SkyCoord.from_name(o.header['OBJECT'])
@@ -510,5 +525,6 @@ def apply(o):
     pt.update_header('E_CXREFY', sol_hdul[0].header['E_CXREFY'])
     pt.update_header('E_PREFX', sol_hdul[0].header['E_PREFX'])
     pt.update_header('E_PREFY', sol_hdul[0].header['E_PREFY'])
+    pt.update_header('E_WCSCAL', sol_path)
     getLogger(__name__).info(f'Updated WCS info for {o.h5}')
     pt.disablewrite()
