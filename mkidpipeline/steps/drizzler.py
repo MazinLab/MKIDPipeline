@@ -91,9 +91,9 @@ class DrizzleParams:
             self.coords = mkidcore.metadata.skycoord_from_metadata(dither.obs[0].metadata_at(), force_simbad=simbad)
         else:
             self.coords = astropy.coordinates.SkyCoord(0, 0, unit=('hourangle', 'deg'))
-        instrument = dither.obs[0].photontable.query_header('INSTRUME')
-        self.telescope = dither.obs[0].photontable.query_header('TELESCOP') or \
-                         mkidcore.metadata.INSTRUMENT_KEY_MAP[instrument.lower()]['card']['TELESCOP'].value
+        instrument = dither.obs[0].photontable.query_header('INSTRUME', last_if_series=True)
+        default_tel = mkidcore.metadata.INSTRUMENT_KEY_MAP[instrument.lower()]['card']['TELESCOP'].value
+        self.telescope = dither.obs[0].photontable.query_header('TELESCOP', last_if_series=True) or default_tel
 
         self.canvas_shape = (None, None)
         self.dith_start_times = np.array([o.start for o in dither.obs])
