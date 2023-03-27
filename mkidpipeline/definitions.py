@@ -167,7 +167,7 @@ class _Base:
                 # getLogger(__name__).debug(f'{node.name} ({cls.__name__}.{k}) is a {type(d[k])} and '
                 #                           f'will be stored as ({d[k]}) for yaml representation ')
                 store[k] = d[k]
-        key_info = mkidcore.metadata.INSTRUMENT_KEY_MAP[mkpc.config.instrument.name.lower()]['keys']
+        key_info = mkidcore.metadata.INSTRUMENT_KEY_MAP[mkpc.instrument()]['keys']
         if 'header' in store:
             cm = ruamel.yaml.comments.CommentedMap(store['header'])
             for k in store['header']:
@@ -235,7 +235,7 @@ class MKIDTimerange(_Base):
     @property
     def _metadata(self):
         """Return a dict of the metadata unique to self"""
-        key_info = mkidcore.metadata.INSTRUMENT_KEY_MAP[mkpc.config.instrument.name.lower()]['keys']
+        key_info = mkidcore.metadata.INSTRUMENT_KEY_MAP[mkpc.instrument()]['keys']
         d = dict(UNIXSTR=self.start, UNIXEND=self.stop,
                  E_DARK=f'{self.dark.duration}@{self.dark.start}' if self.dark else 'None')
         for k in self.header:
