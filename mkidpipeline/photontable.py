@@ -1031,14 +1031,18 @@ class Photontable:
         getLogger(__name__).debug(f'FITS generated in {time.time() - tic:.0f} s')
         return hdul
 
-    def query_header(self, name):
+    def query_header(self, name, last_if_series=False):
         """
         Returns a requested entry from the obs file header
         """
         if name not in self.file.root.photons.photontable.attrs:
             raise KeyError(name)
         # the implementation does not like missing get calls
-        return getattr(self.file.root.photons.photontable.attrs, name)
+        x = getattr(self.file.root.photons.photontable.attrs, name)
+        if isinstance(x, mkidcore.metadata.MetadataSeries) and last_if_series:
+            return x.value[-1]
+        else:
+            return x
 
     def update_header(self, key, value):
         """
