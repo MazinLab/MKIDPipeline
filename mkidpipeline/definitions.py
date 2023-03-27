@@ -656,7 +656,7 @@ class MKIDWCSCal(_Base, CalibMixin):
     yaml_tag = '!MKIDWCSCal'
     KEYS = (
         Key(name='name', default=None, comment='A name', dtype=str),
-        Key('data', None, 'MKIDObservation, MKIDDither, or platescale (e.g. 10 mas)', None),
+        Key('data', None, 'MKIDObservation, MKIDDither (or name), or platescale (e.g. 10 mas)', None),
         Key('pixel_ref', None, 'The pixel position of the target centroid when on '
                                'axis and the conex is at conex_ref', tuple),
         Key('conex_ref', None, 'The conex (x,y) position, [0, 1.0], when the target is at pixel_ref ', tuple),
@@ -674,7 +674,7 @@ class MKIDWCSCal(_Base, CalibMixin):
                 self.data.to('arcsec')
             except Exception:
                 self._key_errors['platescale'] += ['must be a valid angular unit e.g. "10 mas"']
-        elif isinstance(self.data, (MKIDObservation, MKIDDither)):
+        elif isinstance(self.data, (MKIDObservation, MKIDDither, str)):
             if self.pixel_ref is None:
                 self._key_errors['pixel_ref'] += ['must be an (x,y) position for the central source at conex_ref']
             if self.conex_ref is None:
@@ -682,7 +682,8 @@ class MKIDWCSCal(_Base, CalibMixin):
             if self.source_locs is None:
                 self._key_errors['source_locs'] += ['must specify source_locations in the image']
         else:
-            self._key_errors['data'] += ['MKIDObservation, MKIDDither, or platescale (e.g. 10 mas)']
+            self._key_errors['data'] += [
+                'MKIDObservation, MKIDDither, the name of either or a platescale (e.g. 10 mas)']
 
         if self.conex_ref is not None:
             try:
@@ -724,7 +725,9 @@ class MKIDWCSCal(_Base, CalibMixin):
     @property
     def obs(self):
         """Returns all of the MKIDObservation objects associated with the wcscal"""
-        if isinstance(self.data, u.Quantity):
+        if isinstance(self.data, str):
+            raise UnassociatedError(f'Must associate wavecal {self.data} prior to calling')
+        elif isinstance(self.data, u.Quantity):
             return
             yield
         else:
