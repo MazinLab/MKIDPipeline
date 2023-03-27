@@ -1039,7 +1039,7 @@ class Photontable:
         # the implementation does not like missing get calls
         x = getattr(self.file.root.photons.photontable.attrs, name)
         if isinstance(x, mkidcore.metadata.MetadataSeries) and last_if_series:
-            return x.value[-1]
+            return x.values[-1]
         else:
             return x
 
