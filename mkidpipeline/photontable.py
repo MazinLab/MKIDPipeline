@@ -895,15 +895,14 @@ class Photontable:
         if cube_type == 'time':
             ycol = 'time'
             if bin_edges is None:
-                t0 = 0 if start is None else time_nfo['relstart']
-                itime = self.duration if duration is None else duration
                 try:
-                    bin_edges = np.linspace(t0, t0 + itime, int(itime / bin_width) + 1)
+                    bin_edges = np.linspace(time_nfo['relstart'], time_nfo['relstart'] + time_nfo['duration'],
+                                            int(time_nfo['duration'] / bin_width) + 1)
                 except TypeError:
                     raise Warning('Either bin_width or bin_edges must be specified for get_fits')
 
             start = bin_edges[0]
-            duration = bin_edges[-1] - bin_edges[0]
+            time_nfo['duration'] = duration = bin_edges[-1] - bin_edges[0]
             bin_edges *= 1e6
 
         elif cube_type == 'wave':
@@ -943,7 +942,7 @@ class Photontable:
         toc2 = time.time()
         getLogger(__name__).debug(f'Histogram completed in {toc2 - tic:.2f} s, reformatting in {toc2 - toc:.2f}')
 
-        md = self.metadata(timestamp=start)
+        md = self.metadata(timestamp=time_nfo['start'])
 
         md['E_H5FILE'] = self.filename
 
