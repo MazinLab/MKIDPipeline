@@ -1,3 +1,4 @@
+import mkidcore.metadata
 import mkidpipeline.config
 import numpy as np
 import matplotlib.pyplot as plt
@@ -38,14 +39,7 @@ PROBLEM_FLAGS = ('pixcal.hot', 'pixcal.cold', 'pixcal.dead', 'beammap.noDacTone'
                  'wavecal.not_enough_histogram_fits', 'wavecal.no_histograms',
                  'wavecal.not_attempted')
 
-WCS_KEY_DICT = {
-    'mec': {'RA': 'D_IMRRA',
-            'DEC': 'D_IMRDEC',
-            'ANG': 'D_IMRPAD'},
-    'xkid': {'RA': 'RA',
-             'DEC': 'DEC'}
 
-}
 class ClickCoords:
     """
     Class for choosing approximate location in the image for each point source to use for the wcscal. Associates the
@@ -368,13 +362,13 @@ def load_data(data, wave_start=950 * u.nm, wave_stop=1375 * u.nm):
             images.append(hdul[1].data)
             hdus.append(hdul[1].header)
             conex_positions.append((o.header['E_CONEXX'], o.header['E_CONEXY']))
-            sky = SkyCoord(o.metadata[WCS_KEY_DICT[instrument]['RA']].values[0],
-                           o.metadata[WCS_KEY_DICT[instrument]['DEC']].values[0],
+            wcs_keys = mkidcore.metadata.INSTRUMENT_KEY_MAP[instrument]['wcs']
+            sky = SkyCoord(o.metadata[wcs_keys['RA']].values[0], o.metadata[wcs_keys['DEC']].values[0],
                            unit=(u.hourangle, u.deg), frame='icrs')
             ra = sky.ra.value
             dec = sky.dec.value
             try:
-                telescope_ang.append((o.metadata[WCS_KEY_DICT[instrument]['ANG']].values[0] * u.deg).to(u.rad).value)
+                telescope_ang.append((o.metadata[wcs_keys['ANG']].values[0] * u.deg).to(u.rad).value)
             except KeyError:
                 getLogger(__name__).warning('Could not find telescope angle in WCScal Key mapping, using 0 degrees.')
                 telescope_ang.append((0 * u.deg).to(u.rad).value)

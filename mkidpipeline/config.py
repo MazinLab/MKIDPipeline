@@ -263,3 +263,8 @@ def n_cpus_available(max=None):
         except Exception:
             max = 1
     return min((mp.cpu_count()-1) * 2, max)
+
+
+def instrument():
+    global config
+    return config.instrument.name.lower()
