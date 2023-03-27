@@ -1089,7 +1089,8 @@ class Photontable:
                 records[k] = data
             except AttributeError:
                 records[k] = data
-            except ValueError:
+            except ValueError as e:
+                getLogger(__name__).warning(e)
                 pass  # no data
 
         return records
