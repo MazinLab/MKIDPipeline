@@ -384,10 +384,12 @@ def load_data(data, wave_start=950 * u.nm, wave_stop=1375 * u.nm):
         hdul = Photontable(data.h5).get_fits(wave_start=wave_start.to(u.nm).value,
                                              wave_stop=wave_stop.to(u.nm).value,
                                              exclude_flags={'beammap.NoDacTone'})
+        instrument = hdul[0].header['INSTRUME'].lower()
+        wcs_keys = mkidcore.metadata.INSTRUMENT_KEY_MAP[instrument]['wcs']
         images = [hdul[1].data]
         conex_positions = [(data.header['E_CONEXX'], data.header['E_CONEXY'])]
-        ra = data.metadata['D_IMRRA'].values
-        dec = data.metadata['D_IMRDEC'].values
+        ra = data.metadata[wcs_keys['RA']].values
+        dec = data.metadata[wcs_keys['DEC']].values
         telescope_ang = [(data.metadata['D_IMRPAD'].values * u.deg).to(u.rad)]
         if ra == 999 or dec == 999:
             try:
