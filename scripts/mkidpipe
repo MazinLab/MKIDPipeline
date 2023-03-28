@@ -22,7 +22,8 @@ def parse():
     parser.add_argument('-p', type=str, help='A pipeline config file', default='pipe.yaml', dest='pipe_cfg')
     parser.add_argument('-d', type=str, help='A input config file', default='data.yaml', dest='data_cfg')
     parser.add_argument('--vet',  action='store_true', help='Check pipeline configuration and exit', default=False)
-    parser.add_argument('--init', action='store_true', help='Setup the pipeline, clobbers _default.yaml as needed')
+    parser.add_argument('--init', type=str, default='MEC', dest='instrument',
+                        help='Setup the pipeline, clobbers _default.yaml as needed')
     parser.add_argument('--verbose', action='store_true', help='Verbose')
     parser.add_argument('--make-dir', dest='make_paths', help='Create all needed directories', action='store_true')
     parser.add_argument('-i', '--info', dest='info', help='Report information about the configuration', type=str,
@@ -30,7 +31,6 @@ def parse():
     parser.add_argument('--make-outputs', dest='makeout', help='Run the pipeline on the outputs', action='store_true')
     parser.add_argument('--logcfg', dest='logcfg', help='Run the pipeline on the outputs', type=str,
                         default=pkg.resource_filename('mkidpipeline', './config/logging.yaml'))
-    parser.add_argument('--instrument', help='instrument name being used', type=str, default='MEC')
 
     return parser.parse_args()
 
@@ -74,7 +74,7 @@ if __name__ == "__main__":
         getLogger('mkidpipeline').setLevel('DEBUG')
         getLogger('mkidcore').setLevel('DEBUG')
 
-    if args.init:
+    if args.instrument:
         init_pipeline(instrument=args.instrument)
         sys.exit(0)
 
