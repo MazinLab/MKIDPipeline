@@ -390,7 +390,7 @@ def load_data(data, wave_start=950 * u.nm, wave_stop=1375 * u.nm):
         conex_positions = [(data.header['E_CONEXX'], data.header['E_CONEXY'])]
         ra = data.metadata[wcs_keys['RA']].values
         dec = data.metadata[wcs_keys['DEC']].values
-        telescope_ang = [(data.metadata['D_IMRPAD'].values * u.deg).to(u.rad)]
+        telescope_ang = [(data.metadata[wcs_keys['ANG']].values * u.deg).to(u.rad)]
         if ra == 999 or dec == 999:
             try:
                 skycood = SkyCoord.from_name(data.header['OBJECT'])
