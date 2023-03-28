@@ -1016,12 +1016,39 @@ class MKIDObservingDataset:
                 except UnassociatedError:
                     getLogger(__name__).debug(f'Skipping nested search of unassociated "{r.data}" for {attr}')
 
+    def unique_data(self):
+        """
+        returns True if there are no distinct datasets defined by the same timeranges. All h5 files must be unique to a
+        given data definition.
+        Does not search through nested definitions since this is allowed.
+        """
+        start_times = []
+        data = [o for o in self.meta]
+        names = [o.name for o in self.meta]
+        for d in data:
+            try:
+                if d.data.name in names:
+                    continue
+            except AttributeError:
+                pass
+            if isinstance(d, MKIDWavecal):
+                start_times.extend([t.start for t in d.input_timeranges])
+            else:
+                try:
+                    for o in d.obs:
+                        start_times.append(o.start)
+                except AttributeError:
+                    start_times.append(d.start)
+        return len(set(start_times)) == len(start_times)
+
     def validate(self, return_errors=False, error=False):
         """
         Ensures that there is no missing or ill-defined data in the data configuration. Returns True if everything is
         good and all is associated. If error=True raise an exception instead of returning False
         """
         errors = {}
+        if not self.unique_data():
+            errors['Non unique data'] = 'all observations must be defined by unique data'
         for x in self:
             issues = x._vet()
             if issues:
