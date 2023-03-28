@@ -24,7 +24,6 @@ import pickle
 import hashlib
 from glob import glob
 import getpass
-from math import isclose
 from mkidcore.metadata import MetadataSeries
 import astropy
 from astropy.io import fits
@@ -392,7 +391,7 @@ class Drizzler(Canvas):
                     break
                 wcs_sol.pixel_shape = self.shape
                 # the sky grid ref and dither ref should match (crpix varies between dithers)
-                if not isclose(wcs_sol.wcs.crval, self.wcs.wcs.crval, rel_tol=1e-4):
+                if not np.allclose(wcs_sol.wcs.crval, self.wcs.wcs.crval, rtol=1e-4):
                     getLogger(__name__).critical('sky grid ref and dither ref do not match '
                                                  '(crval varies between dithers)!')
                     raise RuntimeError('sky grid ref and dither ref do not match (crval varies between dithers)!')
