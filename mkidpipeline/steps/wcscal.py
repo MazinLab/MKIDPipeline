@@ -218,7 +218,7 @@ def solve_system_of_equations(coords, conex_positions, telescope_angles, ra, dec
 
 def calculate_wcs_solution(images, source_locs=None, sigma_psf=2.0, interpolate=False, conex_positions=None,
                            telescope_angles=None, ra=None, dec=None, ref_pix=None, conex_ref=None, guesses=None,
-                           mux=None, muy=None):
+                           mux=None, muy=None, fitsources=True):
     """
     calculates the parameters needed to form a WCS solution
     :param images: list of the images or each different pointing, conex position, or rotation angle.
@@ -244,14 +244,23 @@ def calculate_wcs_solution(images, source_locs=None, sigma_psf=2.0, interpolate=
         selected_coords = select_sources(im, source_locs=source_locs, conex_pos=conex_positions[i])
         sources, residuals = fit_sources(im, sigma_psf=sigma_psf)#, guesses=selected_coords)
         fit_coords = [(sources['x_fit'][i], sources['y_fit'][i]) for i in range(len(sources))]
+
         use_idxs = []
+
         for i, coord in enumerate(selected_coords):
             if coord[0] is None or coord[1] is None:
                 use_idxs.append(np.nan)
             else:
-                use_idxs.append(closest_node(selected_coords[i], fit_coords))
+                if fitsources:
+                    use_idxs.append(closest_node(selected_coords[i], fit_coords))
+                else:
+                    use_idxs.append(i)
 
-        use_coord = [fit_coords[idx] if not np.isnan(idx) else (0, 0) for idx in use_idxs]
+        if fitsources:
+            use_coord = [fit_coords[idx] if not np.isnan(idx) else (0, 0) for idx in use_idxs]
+        else:
+            use_coord = [selected_coords[idx] if not np.isnan(idx) else (0, 0) for idx in use_idxs]
+
         for i, key in enumerate(coord_dict.keys()):
             coord_dict[key] = use_coord[i]
 
@@ -401,7 +410,7 @@ def load_data(data, wave_start=950 * u.nm, wave_stop=1375 * u.nm):
 
 
 def run_wcscal(data, source_locs, sigma_psf=None, wave_start=950*u.nm, wave_stop=1375*u.nm, interpolate=True,
-               ref_pix=None, conex_ref=None, guesses=None, mux=None, muy=None):
+               ref_pix=None, conex_ref=None, guesses=None, mux=None, muy=None, fitsources=True):
     """
     main function for running the WCSCal
     :param data: MKIDDither or MKIDObservation
@@ -423,7 +432,7 @@ def run_wcscal(data, source_locs, sigma_psf=None, wave_start=950*u.nm, wave_stop
     images, conex_positions, telescope_ang, ra, dec = load_data(data, wave_start=wave_start, wave_stop=wave_stop)
     res = calculate_wcs_solution(images, sources, sigma_psf=sigma_psf, interpolate=interpolate,
                                  conex_positions=conex_positions, guesses=guesses, telescope_angles=telescope_ang,
-                                 ra=ra, dec=dec, ref_pix=ref_pix, conex_ref=conex_ref, mux=mux, muy=muy)
+                                 ra=ra, dec=dec, ref_pix=ref_pix, conex_ref=conex_ref, mux=mux, muy=muy, fitsources=fitsources)
     try:
         pltscl_x, pltscl_y, dp_dconx, dp_dcony, devang = res
     except ValueError:
@@ -479,7 +488,7 @@ def fetch(solution_descriptors, config=None, ncpu=None):
                 run_wcscal(sd.data, sd.source_locs, sigma_psf=wcscfg.wcscal.sigma_psf, wave_start=950*u.nm,
                            wave_stop=1375 * u.nm, interpolate=wcscfg.wcscal.interpolate, ref_pix=pxref,
                            conex_ref=cxref, guesses=np.array(wcscfg.wcscal.param_guesses), mux=sd.dp_dcx,
-                           muy=sd.dp_dcy)
+                           muy=sd.dp_dcy, fitsources=wcscfg.wcscal.fitsources)
 
             hdul = fits.HDUList([fits.PrimaryHDU()])
             hdul[0].header['PLTSCL'] = (pltscl.to(u.deg).value, 'platescale in degree/pixel')
