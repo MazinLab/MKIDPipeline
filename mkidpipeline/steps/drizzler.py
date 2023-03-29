@@ -48,7 +48,7 @@ PROBLEM_FLAGS = tuple()  # fill with flags that will break drizzler
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!drizzler_cfg'
-    REQUIRED_KEYS = (('plots', 'all', 'Which plots to generate: none|summary|all'),
+    REQUIRED_KEYS = (('plots', 'summary', 'Which plots to generate: none|summary'),
                      ('pixfrac', 0.5, 'The drizzle algorithm pixel fraction'),
                      ('wcs_timestep', None, 'Seconds between different WCS (eg orientations). If None, the the '
                                             'non-blurring minimum (1 pixel at furthest dither center) will be used'),
@@ -522,7 +522,7 @@ class Drizzler(Canvas):
         return w
 
 
-def debug_dither_image(dithers_data, drizzle_params, weight=True):
+def debug_dither_image(dithers_data, drizzle_params, save=None, weight=True):
     """
     Plot the location of frames with simple boxes for calibration/debugging purposes.
     :param dithers_data: list of dictionaries of relevant input data and parameters (see output of load_data)
@@ -569,8 +569,11 @@ def debug_dither_image(dithers_data, drizzle_params, weight=True):
     clb = fig.colorbar(im, cax=cax)
     clb.ax.set_title('Dither index')
 
-    plt.show(block=True)
-
+    if save:
+        plt.show(block=False)
+        plt.savefig(save)
+    else:
+        plt.show(block=True)
 
 def mp_worker(file, startw, stopw, startt, intt, adi_mode, wcs_timestep, md, exclude_flags=()):
     """
@@ -764,9 +767,9 @@ def form(dither, mode='drizzler', wave_start=None, wave_stop=None, start=0, dura
         getLogger(__name__).critical('No photons found in any of the dithers. Check your wavelength and time ranges')
         return None
 
-    if debug_dither_plot:
+    if dcfg.drizzler.plots == 'summary':
         getLogger(__name__).debug('Generating debug image')
-        debug_dither_image(dithers_data, drizzle_params)
+        debug_dither_image(dithers_data, drizzle_params, save=dcfg.paths.database + '/drizzler_debug.pdf')
 
     getLogger(__name__).debug('Initializing drizzler core')
     getLogger(__name__).debug('Running Drizzler')
