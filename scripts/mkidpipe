@@ -22,7 +22,7 @@ def parse():
     parser.add_argument('-p', type=str, help='A pipeline config file', default='pipe.yaml', dest='pipe_cfg')
     parser.add_argument('-d', type=str, help='A input config file', default='data.yaml', dest='data_cfg')
     parser.add_argument('--vet',  action='store_true', help='Check pipeline configuration and exit', default=False)
-    parser.add_argument('--init', type=str, default='MEC', dest='instrument',
+    parser.add_argument('--init', type=str, default=None, dest='instrument',
                         help='Setup the pipeline, clobbers _default.yaml as needed')
     parser.add_argument('--verbose', action='store_true', help='Verbose')
     parser.add_argument('--make-dir', dest='make_paths', help='Create all needed directories', action='store_true')
@@ -73,6 +73,7 @@ if __name__ == "__main__":
         getLogger('mkidpipe').setLevel('DEBUG')
         getLogger('mkidpipeline').setLevel('DEBUG')
         getLogger('mkidcore').setLevel('DEBUG')
+    getLogger('mkidcore.metadata').setLevel('INFO')
 
     if args.instrument:
         init_pipeline(instrument=args.instrument)
