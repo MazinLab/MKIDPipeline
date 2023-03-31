@@ -434,7 +434,7 @@ class Drizzler(Canvas):
         getLogger(__name__).debug(f'Image load done in {time.clock() - tic:.1f} s')
 
         if nexp_time == 1 and self.time_bin_width == 0:
-            self.cps = np.sum(self.cps, axis=0)
+            self.cps = np.sum(self.cps * expmap, axis=0) / np.sum(expmap, axis=0)
             expmap = np.sum(expmap, axis=0)
 
         if nwvls == 1:
