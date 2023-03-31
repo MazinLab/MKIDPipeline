@@ -545,12 +545,13 @@ def debug_dither_image(dithers_data, drizzle_params, save=None, weight=True):
     shape = driz.shape
     del driz
     drizzle_params.canvas_shape = None, None
-
+    angles = []
     for pos, dither_photons in enumerate(dithers_data):
         # make a new driz object so the color of each frame is uniform
         driz = stdrizzle.Drizzle(outwcs=canvas_wcs, wt_scl='')
         for t, inwcs in enumerate(dither_photons['obs_wcs_seq']):
             # inwcs = wcs.WCS(header=inwcs)
+            pc_matrix = inwcs.wcs.pc
             inwcs.pixel_shape = shape
             image = np.zeros(shape[::-1])  # create a simple image consisting of the array boarder and the diagonals
             image[[0, -1]] = 1
@@ -562,6 +563,7 @@ def debug_dither_image(dithers_data, drizzle_params, save=None, weight=True):
             driz.add_image(image, inwcs)
             driz.outsci = driz.outsci.astype(bool)
             output_image[driz.outsci] = pos
+            angles.append((np.arccos(pc_matrix[0][0]) * u.rad).to(u.deg).value)
 
     output_image[output_image == 0] = np.nan
 
@@ -573,9 +575,18 @@ def debug_dither_image(dithers_data, drizzle_params, save=None, weight=True):
     clb = fig.colorbar(im, cax=cax)
     clb.ax.set_title('Dither index')
 
+    total_rotation = abs(angles[-1] - angles[0])
+    rotation_offset = angles[0]
+    col_labels = ['total relative rotation (deg)', 'first frame rotation offset (deg)']
+    table_data = [[np.round(total_rotation, decimals=2), np.round(rotation_offset, decimals=2)]]
+    table = axes[1].table(cellText=table_data, colLabels=col_labels, cellLoc='center', loc='upper right',
+                          colWidths=[0.3] * 2)
+    table.set_zorder(5)
+    table.auto_set_font_size(False)
+    table.set_fontsize(6)
     if save:
-        plt.show(block=False)
         plt.savefig(save)
+        plt.show(block=True)
     else:
         plt.show(block=True)
 
