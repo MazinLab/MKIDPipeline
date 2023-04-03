@@ -422,17 +422,23 @@ class Drizzler(Canvas):
                         inwht = cps[it, n_wvl].astype(bool).astype(int)
                         driz.add_image(cps[it, n_wvl], wcs_sol, expin=expin, inwht=inwht, in_units='cps')
                         # for a single wcs timestep
-                        dithhyper[iwcs + it, n_wvl, :, :] += driz.outsci  # sum all counts in same exposure bin
+                        dithhyper[iwcs + it, n_wvl, :, :] += driz.outsci * driz.outexptime  # sum all counts in same exposure bin
                         used_exptimes = np.full(np.shape(driz.outsci), driz.outexptime)
-                        whtmask = driz.outwht == 0
+                        whtmask = driz.outsci == 0
                         used_exptimes[whtmask] = 0
                         dithexp[iwcs + it, n_wvl, :, :] += used_exptimes
+
             # for the whole dither pos
             if len(self.wcs_times) > len(self.timebins):
                 wcs_per_timebin = (len(self.wcs_times) - 1) / nexp_time
+                #TODO check why/if this is necessary?
                 dithhyper = dithhyper / wcs_per_timebin
-            self.cps[pos * nexp_time: (pos + 1) * nexp_time] = dithhyper
+
+            self.cps[pos * nexp_time: (pos + 1) * nexp_time] = dithhyper / dithexp
             expmap[pos * nexp_time: (pos + 1) * nexp_time] = dithexp
+
+        self.cps[np.isnan(self.cps)] = 0
+        expmap[np.isnan(expmap)] = 0
 
         getLogger(__name__).debug(f'Image load done in {time.clock() - tic:.1f} s')
 
