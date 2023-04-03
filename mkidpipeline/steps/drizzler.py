@@ -424,7 +424,8 @@ class Drizzler(Canvas):
                         # for a single wcs timestep
                         dithhyper[iwcs + it, n_wvl, :, :] += driz.outsci  # sum all counts in same exposure bin
                         used_exptimes = np.full(np.shape(driz.outsci), driz.outexptime)
-                        used_exptimes[~driz.outwht.astype(bool)] = 0
+                        whtmask = driz.outwht == 0
+                        used_exptimes[whtmask] = 0
                         dithexp[iwcs + it, n_wvl, :, :] += used_exptimes
             # for the whole dither pos
             if len(self.wcs_times) > len(self.timebins):
