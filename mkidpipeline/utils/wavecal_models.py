@@ -436,7 +436,8 @@ class PartialLinearModel:
         chi_squared, df = self.chi2()
         high_chi2 = chi_squared / df > 200
         no_errors = not self.best_fit_result.errorbars
-        max_phase = np.min([-10., np.max(self.x) * 1.7])
+        # TODO: Bring out the max_phase/min_phase to a user specifiable parameter
+        max_phase = np.min([-10., np.max(self.x) * 1.])
         min_phase = np.min(self.x)
         out_of_bounds_peak = (p['signal_center'] > max_phase or
                               p['signal_center'] < min_phase)
