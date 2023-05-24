@@ -14,6 +14,7 @@ import mkidcore.pixelflags as pixelflags
 from mkidcore.instruments import compute_wcs_ref_pixel
 import mkidpipeline.utils.memory as pipeline_ram
 from mkidcore.metadata import INSTRUMENT_KEY_MAP
+import mkidpipeline.config as mkpc
 import SharedArray
 
 import tables
@@ -1082,6 +1083,9 @@ class Photontable:
         """
 
         records = {}
+        instrument = mkpc.config.instrument.name
+        records['INSTRUME'] = instrument.upper()
+
         for k in self.file.root.photons.photontable.attrs._f_list('user'):
             data = getattr(self.file.root.photons.photontable.attrs, k)
             try:
