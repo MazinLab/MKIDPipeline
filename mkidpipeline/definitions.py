@@ -317,7 +317,7 @@ class MKIDTimerange(_Base):
 
         metadata = mkidcore.metadata.observing_metadata_for_timerange(int(self.start), np.round(self.duration), data,
                                                                       instrument=mkpc.config.instrument.name)
-
+        metadata['INSTRUME'] = mkpc.instrument()
         for k, v in self._metadata.items():
             metadata[k.upper()] = v  # override
 
