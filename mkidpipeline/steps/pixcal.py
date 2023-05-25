@@ -392,7 +392,7 @@ def fetch(o, startt, stopt, config=None):
 
     step = min(stopt - startt, cfg.pixcal.step)
     method = cfg.pixcal.method
-    if cfg.pixcal.step > stopt - startt:
+    if np.around(cfg.pixcal.step, 3) > np.around(stopt - startt, 3):
         getLogger(__name__).info(
             f'Step time longer than data time by {(float(step) - (stopt - startt)) * 1000:.2f} ms, '
             f'using full exposure.')
