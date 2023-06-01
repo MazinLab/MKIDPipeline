@@ -770,6 +770,26 @@ class MKIDDither(_Base):
     REQUIRED = ('name', 'data', 'wavecal', 'flatcal', 'wcscal')
     STEPNAME = 'dither'
 
+    def __add__(self, other):
+        wavecal = self.wavecal if self.wavecal==other.wavecal else ''
+        flatcal = self.flatcal if self.flatcal == other.flatcal else ''
+        speccal = self.speccal if self.speccal == other.speccal else ''
+        wcscal = self.wcscal if self.wcscal == other.wcscal else ''
+        header = dict(self.header)
+        for k,v in other.header.items():
+            if header.get(k,v)!=v:
+                raise ValueError(f'Cannot combine dithers due to incompatible headers ({k}:{header.get(k)} v. {k}:{v})')
+        header.update(other.header)
+        # use = self.use
+        # base=len(self.data)
+        # use += tuple([a + base for a in other.use])
+        d = MKIDDither(name=f'{self.name}+{other.name}', flatcal=flatcal, speccal=speccal,
+                       wcscal=wcscal, wavecal=wavecal, header=header,
+                       #use=use,
+                       data=tuple(self.obs+other.obs))
+        return d
+
+
     def __init__(self, *args, **kwargs):
         """
         Obs, byLegacy, or byTimestamp must be specified. byTimestamp is normal.
