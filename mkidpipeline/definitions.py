@@ -751,7 +751,6 @@ class MKIDWCSCal(_Base, CalibMixin):
                 s = f'{self.name} (MKIDWCSCal):' + '\n '.join(str(self.data))
         return s
 
-
 class MKIDDither(_Base):
     """Data description for dithered data - requires keys name, data, wavecal, flatcal, and wcscal"""
     yaml_tag = '!MKIDDither'
@@ -808,6 +807,14 @@ class MKIDDither(_Base):
             dither_path = ''
             getLogger(__name__).debug('Pipeline mkpc.config.paths.data not configured, '
                                       'dither discovery will use working directory')
+
+        def check_duration_consistency(startt, endt, name):
+            delta = np.array([int(y - x) for x, y in zip(startt, endt)])
+            w = np.where(delta == np.median(delta))[0]
+            nn = len(delta) - len(w)
+            if nn != 0:
+                getLogger(__name__).warning(f'Data named {name} has inconsitent dwell times. {nn} outliers removed.')
+                self.use = tuple([self.use[i] for i in w])
 
         def check_use(maxn):
             """Determines whether the 'use' keyword contains sensical values and is appropriately formatted"""
@@ -884,11 +891,13 @@ class MKIDDither(_Base):
 
             n = len(startt)
             check_use(n)
+            if 'dither' in kwargs['name'] and n > 1:
+                check_duration_consistency(startt, endt, kwargs['name'])
 
             startt = [startt[i] for i in self.use]
             endt = [endt[i] for i in self.use]
             pos = [pos[i] for i in self.use]
-
+            n = len(startt)
             self.obs = [MKIDObservation(name=f'{self.name}_{i+1}/{n}', start=b, stop=e, wavecal=self.wavecal,
                                         flatcal=self.flatcal, wcscal=self.wcscal, speccal=self.speccal,
                                         header=dict(E_CONEXX=p[0], E_CONEXY=p[1]), **self.extra())
@@ -953,6 +962,34 @@ class MKIDDither(_Base):
             for tr in o.input_timeranges:
                 yield tr
 
+class MKIDMCMCWCScal(_Base, CalibMixin):
+    """
+
+    """
+    yaml_tag = '!MKIDMCMCWCScal'
+
+    KEYS = (
+        Key(name='name', default='', comment='A name', dtype=str),
+        Key('data', '', 'A data name', str),
+        Key('wcscal', '', 'The wcscal name to update with he new solution in the data.yaml', str),
+        Key('cor_spot_ref', [], 'X,Y guess for the chronograph', list),
+        Key('conex_ref', [], 'X,Y conex for the chronograph guess', list),
+        Key('spot_ref1', [], 'X,Y guess for the first satellite spot', list),
+        Key('spot_ref2', [], 'X,Y guess for the second satellite spot', list),
+        Key('spot_ref3', [], 'X,Y guess for the third satellite spot', list),
+        Key('spot_ref4', [], 'X,Y guess for the fourth satellite spot', list),
+        Key('slopes', [], 'Chronograph position to conex slope guess', list),
+        Key('start_offset', 0, 'An offset in seconds (>=0) from the start of the data timerange', int),
+        Key('sol', {}, 'The dpdc pixel solution at conex 0 with errors', dict),
+    )
+    REQUIRED = ('name', 'data', 'wcscal','cor_spot_ref','conex_ref')
+
+    def __init__(self, *args, **kwargs):
+        super(MKIDMCMCWCScal, self).__init__(*args, **kwargs)
+
+    @property
+    def obs(self):
+        return self.data
 
 class MKIDObservingDataset:
     """Class that manages all of the data specified in the data configuration file"""
@@ -1053,6 +1090,7 @@ class MKIDObservingDataset:
                 pass
             if isinstance(d, MKIDWavecal):
                 start_times.extend([t.start for t in d.input_timeranges])
+            elif  isinstance(d, MKIDMCMCWCScal): continue
             else:
                 try:
                     for o in d.obs:
@@ -1232,6 +1270,36 @@ class MKIDObservingDataset:
                                          obs='Not implemented'))
         return s
 
+# class MKIDMcmc(_Base):
+#     """
+#
+#     """
+#     yaml_tag = '!MKIDMcmc'
+#
+#     KEYS = (
+#         Key(name='name', default='', comment='A name', dtype=str),
+#         Key('data', '', 'A data name', str),
+#         Key('wcscal', '', 'The wcscal name to update with he new solution in the data.yaml', str),
+#         Key('length', [80, 75, 85], 'Length of the satellite spot arm: i.e. [value, min, max]', list),
+#         Key('amplitude', [500, 1, 1000], 'Amplitude of the satellite spot: i.e. [value, min, max]', list),
+#         Key('angle1', [45, 44, 46], 'Angle of the first pair of satellite spots vs to X: i.e. [value, min, max]', list),
+#         Key('angle2', [90, 89, 91], 'Angle of the second pair of satellite spots vs to the first: i.e. [value, min, max]', list),
+#         Key('fwhm_x', [7, 3, 20], 'X FWHM of the satellite spots: i.e. [value, min, max]', list),
+#         Key('fwhm_y', [7, 3, 20], 'Y FWHM of the satellite spots: i.e. [value, min, max]', list),
+#         Key('cor_spot_ref', [], 'X,Y guess for the chronograph', list),
+#         Key('conex_ref', [], 'X,Y conex for the chronograph guess', list),
+#         Key('spot_ref1', [], 'X,Y guess for the first satellite spot', list),
+#         Key('spot_ref2', [], 'X,Y guess for the second satellite spot', list),
+#         Key('spot_ref3', [], 'X,Y guess for the third satellite spot', list),
+#         Key('spot_ref4', [], 'X,Y guess for the fourth satellite spot', list),
+#         Key('slopes', [], 'Chronograph position to conex slope guess', list),
+#         Key('start_offset', 0, 'An offset in seconds (>=0) from the start of the data timerange', int),
+#     )
+#     REQUIRED = ('name', 'data', 'kind','wcscal','lenght','amplitude','angle1','angle2','fwhm_x','fwhm_y','cor_spot_ref','conex_ref')
+#
+#     def __init__(self, *args, **kwargs):
+#         super().__init__(*args, **kwargs)
+
 
 class MKIDOutput(_Base):
     """
@@ -1393,7 +1461,12 @@ class MKIDOutputCollection:
         if self.dataset is not None:
             for o in self.meta:
                 try:
-                    o.associate(self.dataset.datadict[o.data])
+                    if '+' in o.data:
+                        a = self.dataset.datadict[o.data.split('+')[0]]
+                        for i in o.data.split('+')[1:]: a += self.dataset.datadict[i]
+                        o.associate(a)
+                    else:
+                        o.associate(self.dataset.datadict[o.data])
                 except KeyError:
                     getLogger(__name__).error(f'Unable to find data description for "{o.data}"')
                 except ValueError:
@@ -1692,6 +1765,8 @@ class MKIDOutputCollection:
                 yield out.data.wcscal.data
 
 
+# mkidcore.config.yaml.register_class(MKIDMcmc)
+mkidcore.config.yaml.register_class(MKIDMCMCWCScal)
 mkidcore.config.yaml.register_class(MKIDTimerange)
 mkidcore.config.yaml.register_class(MKIDObservation)
 mkidcore.config.yaml.register_class(MKIDWavecal)

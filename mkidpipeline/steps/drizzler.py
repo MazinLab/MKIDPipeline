@@ -721,6 +721,10 @@ def form(dither, mode='drizzler', wave_start=None, wave_stop=None, start=0, dura
     if mode not in ('drizzle'):
         raise ValueError('mode must be: drizzle')
 
+    # int_inttime = np.array([int(x) for x in dither.inttime])
+    # w = np.where(int_inttime == np.median(int_inttime))[0]
+    # if len(w) != len(int_inttime): dither.use = tuple(np.array(dither.use)[w])
+
     dither_inttime = min(dither.inttime)
 
     # if no duration specified, use whole dither integration time
