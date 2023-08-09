@@ -253,7 +253,6 @@ def inspect_database(detailed=False):
     for f in glob(config.paths.database + '*'):
         getLogger(__name__).debug(f'{f}')
 
-
 def n_cpus_available(max=None):
     """Returns n threads - 4 modulo pipelinesettings"""
     global config
