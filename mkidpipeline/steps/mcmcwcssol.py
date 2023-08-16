@@ -707,7 +707,7 @@ if __name__ == '__main__':
     nwalkers = pipe_dict['mcmcwcscal']['nwalkers']
     steps = pipe_dict['mcmcwcscal']['steps']
     progress = pipe_dict['mcmcwcscal']['progress']
-    workers = pipe_dict['mcmcwcscal']['workers']
+    workers = pipe_dict['mcmcwcscal']['ncpu']
     sat_spots=pipe_dict['mcmcwcscal']['sat_spots']
     ref_el=pipe_dict['mcmcwcscal']['ref_el']
     v_lim = pipe_dict['mcmcwcscal']['v_lim']
