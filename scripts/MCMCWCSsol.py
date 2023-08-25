@@ -752,7 +752,7 @@ class MCMCWCS:
             print('> Making %s' % self.path2out + 'MCMC_fit/plots/posterior/')
             os.makedirs(self.path2out + 'MCMC_fit/plots/posterior/')
 
-    def fetching_data(self):
+    def fetching_h5_names(self):
         start_time_list = []
         print('> Building list of start times from: %s' % self.out_data_list)
         for name, data in zip(self.out_data_list, self.data_list):
@@ -770,29 +770,29 @@ class MCMCWCS:
         filename_list = []
 
         self.ntargets = len(start_time_list)
-        num_of_chunks = 3 * self.workers
-        chunksize = self.ntargets // num_of_chunks
-        if chunksize <= 0:
-            chunksize = 1
+        # num_of_chunks = 3 * self.workers
+        # chunksize = self.ntargets // num_of_chunks
+        # if chunksize <= 0:
+        #     chunksize = 1
 
-        elno = 0
-        if self.workers == 1:
-            workers_load = 10
-        else:
-            workers_load = self.workers
-        print('> Using %i workers to load a total of %i files ...' % (workers_load, self.ntargets))
-        with concurrent.futures.ProcessPoolExecutor(max_workers=workers_load) as executor:
-            for filename, header, data in tqdm(executor.map(mcmcwcs.load_fits_task, start_time_list, chunksize=chunksize)):
-                elno += 1
-                filename_list.append(filename)
-                header_list.append(header)
-                image_list.append(data)
-                dist_list.append(np.sqrt((header_list[0]['E_CONEXX'] - header['E_CONEXX']) ** 2 + (
-                        header_list[0]['E_CONEXY'] - header['E_CONEXY']) ** 2))
-                elno_list.append(elno)
-
-        sorted_elno_list = [x for _, x in sorted(zip(dist_list, elno_list))]
-        return (filename_list, header_list, image_list, dist_list, elno_list, sorted_elno_list)
+        # elno = 0
+        # if self.workers == 1:
+        #     workers_load = 10
+        # else:
+        #     workers_load = self.workers
+        # print('> Using %i workers to load a total of %i files ...' % (workers_load, self.ntargets))
+        # with concurrent.futures.ProcessPoolExecutor(max_workers=workers_load) as executor:
+        #     for filename, header, data in tqdm(executor.map(mcmcwcs.load_fits_task, start_time_list, chunksize=chunksize)):
+        #         elno += 1
+        #         filename_list.append(filename)
+        #         header_list.append(header)
+        #         image_list.append(data)
+        #         dist_list.append(np.sqrt((header_list[0]['E_CONEXX'] - header['E_CONEXX']) ** 2 + (
+        #                 header_list[0]['E_CONEXY'] - header['E_CONEXY']) ** 2))
+        #         elno_list.append(elno)
+        #
+        # sorted_elno_list = [x for _, x in sorted(zip(dist_list, elno_list))]
+        # return (filename_list, header_list, image_list, dist_list, elno_list, sorted_elno_list)
 
     # def fetching_mcmc_parameters(self):
     #     print('> Fitting parameters')
@@ -1118,7 +1118,7 @@ if __name__ == '__main__':
 
     #################################### Lodading data #################################################
     if not args.makeout:
-        filename_list, header_list, image_list, dist_list, elno_list, sorted_elno_list=mcmcwcs.fetching_data()
+        mcmcwcs.fetching_h5_names()
         # print('> Looking for data in %s' % self.path2out)
         #
         # start_time_list=[]
@@ -1168,7 +1168,7 @@ if __name__ == '__main__':
         if chunksize <= 0:
             chunksize = 1
 
-        if redo or np.any([len(getattr(data_dict[data_elno], label)) == 0 for label in [ 'slopes']]):
+        if redo or np.any([len(getattr(data_dict[data_elno], label)) == 0 for label in ['slopes']]):
             out_dictc = get_slope_and_conex(data_elno,data_dict,sorted_elno_list,filename_list,image_list,header_list,ref_el)
 
         if sat_spots:
