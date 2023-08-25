@@ -962,11 +962,11 @@ class MKIDDither(_Base):
             for tr in o.input_timeranges:
                 yield tr
 
-class MKIDMCMCWCScal(_Base, CalibMixin):
+class MKIDMCMCWCSol(_Base, CalibMixin):
     """
 
     """
-    yaml_tag = '!MKIDMCMCWCScal'
+    yaml_tag = '!MKIDMCMCWCSol'
 
     KEYS = (
         Key(name='name', default='', comment='A name', dtype=str),
@@ -985,7 +985,7 @@ class MKIDMCMCWCScal(_Base, CalibMixin):
     REQUIRED = ('name', 'data', 'wcscal','cor_spot_ref','conex_ref')
 
     def __init__(self, *args, **kwargs):
-        super(MKIDMCMCWCScal, self).__init__(*args, **kwargs)
+        super(MKIDMCMCWCSol, self).__init__(*args, **kwargs)
 
     @property
     def obs(self):
@@ -1090,7 +1090,7 @@ class MKIDObservingDataset:
                 pass
             if isinstance(d, MKIDWavecal):
                 start_times.extend([t.start for t in d.input_timeranges])
-            elif  isinstance(d, MKIDMCMCWCScal): continue
+            elif  isinstance(d, MKIDMCMCWCSol): continue
             else:
                 try:
                     for o in d.obs:
@@ -1766,7 +1766,7 @@ class MKIDOutputCollection:
 
 
 # mkidcore.config.yaml.register_class(MKIDMcmc)
-mkidcore.config.yaml.register_class(MKIDMCMCWCScal)
+mkidcore.config.yaml.register_class(MKIDMCMCWCSol)
 mkidcore.config.yaml.register_class(MKIDTimerange)
 mkidcore.config.yaml.register_class(MKIDObservation)
 mkidcore.config.yaml.register_class(MKIDWavecal)
