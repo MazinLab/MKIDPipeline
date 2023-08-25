@@ -729,23 +729,14 @@ class MCMCWCS:
             self.verbose = self.pipe_dict['mcmcwcssol']['verbose']
         else:
             self.verbose = verbose
-
         self.data_elno = [index for (index, d) in enumerate(self.data_dict) if '!MKIDMCMCWCSol' in d.tag.value][0]
-
         self.out_data_list = self.data_dict[self.data_elno]['data'].split('+')
-
         self.data_elno_list = [index for (index, d) in enumerate(self.data_dict) for out_data in self.out_data_list if
                           out_data in d['name']]
         self.data_list = [self.data_dict[data_elno]['data'] for data_elno in self.data_elno_list[:5]]
-
         self.path2MCMC_fit = self.path2out + 'MCMC_fit/'
-        # self.path2PLOTdir = self.path2MCMC_fit + 'plots/'
-        # self.path2CORNERdir = self.path2MCMC_fit + 'plots/corners/'
-        # self.path2DEBUGdir = self.path2MCMC_fit + 'plots/debug/'
-        # self.path2POSTERIORdir = self.path2MCMC_fit + 'plots/posterior/'
-
-        # return (data_dict, dither_path, nwalkers, steps, progress, workers, sat_spots, ref_el, v_lim, factor, redo,
-        #         verbose, data_elno, data_list, path2out)
+        self.wcscal = self.data_dict[self.data_elno]['wcscal']
+        self.start_offset = self.data_dict[self.data_elno]['start_offset']
 
     def make_dir(self):
         if not os.path.exists(self.path2out + 'MCMC_fit/plots/posterior/'):
@@ -760,49 +751,49 @@ class MCMCWCS:
             os.makedirs(self.path2out + 'MCMC_fit/plots/debug/')
             print('> Making %s' % self.path2out + 'MCMC_fit/plots/posterior/')
             os.makedirs(self.path2out + 'MCMC_fit/plots/posterior/')
-    #
-    # def fetching_data(self, path2out, out_data_list, data_list, dither_path, workers):
-    #     start_time_list = []
-    #     print('> Building list of start times from: %s' % out_data_list)
-    #     for name, data in zip(out_data_list, data_list):
-    #         print('>> Looking for data associated to %s containing time %s,...' % (name, data))
-    #         startt, _, _ = mkidcore.utils.get_ditherdata_for_time(dither_path, data)
-    #         start_time_list.extend([np.round(i) for i in startt])
-    #         print('>> Found %i dithers.' % len(startt))
-    #
-    #     # start_time_list=start_time_list[::10]
-    #     image_list = []
-    #     header_list = []
-    #     dist_list = []
-    #     elno_list = []
-    #     h5_name_list = [int(i.split('/')[-1].split('.h5')[0]) for i in glob(path2out + '*.h5')]
-    #     filename_list = []
-    #
-    #     ntargets = len(start_time_list)
-    #     num_of_chunks = 3 * workers
-    #     chunksize = ntargets // num_of_chunks
-    #     if chunksize <= 0:
-    #         chunksize = 1
-    #
-    #     elno = 0
-    #     if workers == 1:
-    #         workers_load = 10
-    #     else:
-    #         workers_load = workers
-    #     print('> Using %i workers to load a total of %i files ...' % (workers_load, ntargets))
-    #     with concurrent.futures.ProcessPoolExecutor(max_workers=workers_load) as executor:
-    #         for filename, header, data in tqdm(executor.map(load_fits_task, start_time_list, chunksize=chunksize)):
-    #             elno += 1
-    #             filename_list.append(filename)
-    #             header_list.append(header)
-    #             image_list.append(data)
-    #             dist_list.append(np.sqrt((header_list[0]['E_CONEXX'] - header['E_CONEXX']) ** 2 + (
-    #                     header_list[0]['E_CONEXY'] - header['E_CONEXY']) ** 2))
-    #             elno_list.append(elno)
-    #
-    #     sorted_elno_list = [x for _, x in sorted(zip(dist_list, elno_list))]
-    #     return (ntargets, filename_list, header_list, image_list, dist_list, elno_list, sorted_elno_list)
-    #
+
+    def fetching_data(self):
+        start_time_list = []
+        print('> Building list of start times from: %s' % self.out_data_list)
+        for name, data in zip(self.out_data_list, self.data_list):
+            print('>> Looking for data associated to %s containing time %s,...' % (name, data))
+            startt, _, _ = mkidcore.utils.get_ditherdata_for_time(self.dither_path, data)
+            start_time_list.extend([np.round(i) for i in startt])
+            print('>> Found %i dithers.' % len(startt))
+
+        # start_time_list=start_time_list[::10]
+        image_list = []
+        header_list = []
+        dist_list = []
+        elno_list = []
+        self.h5_name_list = [int(i.split('/')[-1].split('.h5')[0]) for i in glob(self.path2out + '*.h5')]
+        filename_list = []
+
+        self.ntargets = len(start_time_list)
+        num_of_chunks = 3 * self.workers
+        chunksize = self.ntargets // num_of_chunks
+        if chunksize <= 0:
+            chunksize = 1
+
+        elno = 0
+        if self.workers == 1:
+            workers_load = 10
+        else:
+            workers_load = self.workers
+        print('> Using %i workers to load a total of %i files ...' % (workers_load, self.ntargets))
+        with concurrent.futures.ProcessPoolExecutor(max_workers=workers_load) as executor:
+            for filename, header, data in tqdm(executor.map(mcmcwcs.load_fits_task, start_time_list, chunksize=chunksize)):
+                elno += 1
+                filename_list.append(filename)
+                header_list.append(header)
+                image_list.append(data)
+                dist_list.append(np.sqrt((header_list[0]['E_CONEXX'] - header['E_CONEXX']) ** 2 + (
+                        header_list[0]['E_CONEXY'] - header['E_CONEXY']) ** 2))
+                elno_list.append(elno)
+
+        sorted_elno_list = [x for _, x in sorted(zip(dist_list, elno_list))]
+        return (filename_list, header_list, image_list, dist_list, elno_list, sorted_elno_list)
+
     # def fetching_mcmc_parameters(self):
     #     print('> Fitting parameters')
     #     ntargets = len(filename_list)
@@ -913,9 +904,9 @@ class MCMCWCS:
                    np.linspace(p1[1], p2[1], parts+1))
 
     def load_fits_task(self,start_time):
-        filename = min(h5_name_list, key=lambda x: abs(x - start_time))
+        filename = min(self.h5_name_list, key=lambda x: abs(x - start_time))
         pt = Photontable(self.path2out + '%i.h5' % (filename))
-        hdul = pt.get_fits(wave_start=950, wave_stop=1100, start=pt.start_time + start_offset)
+        hdul = pt.get_fits(wave_start=950, wave_stop=1100, start=pt.start_time + self.start_offset)
         header = hdul[0].header
         data = hdul[1].data
         hdul.close()
@@ -944,7 +935,7 @@ class MCMCWCS:
         with io.capture_output() as captured:
             MCMC_filename = "%i_MCMC_fit.h5"%filename
             pt = Photontable(self.path2out+'%i.h5'%filename)
-            hdul = pt.get_fits(wave_start=950,wave_stop=1100,start=pt.start_time+start_offset)
+            hdul = pt.get_fits(wave_start=950,wave_stop=1100,start=pt.start_time+self.start_offset)
             header = hdul[0].header
             data = hdul[1].data
             d=np.nanmedian(data[data>0])
@@ -1127,45 +1118,45 @@ if __name__ == '__main__':
 
     #################################### Lodading data #################################################
     if not args.makeout:
-
-        print('> Looking for data in %s' % self.path2out)
-
-        start_time_list=[]
-        print('> Building list of start times from: %s'%out_data_list)
-        for name,data in zip(out_data_list,data_list):
-            print('>> Looking for data associated to %s containing time %s,...' % (name,data))
-            startt, _, _ = mkidcore.utils.get_ditherdata_for_time(dither_path, data)
-            start_time_list.extend([np.round(i) for i in startt])
-            print('>> Found %i dithers.'%len(startt))
-
-        # start_time_list=start_time_list[::10]
-        image_list = []
-        header_list = []
-        dist_list = []
-        elno_list = []
-        h5_name_list=[int(i.split('/')[-1].split('.h5')[0]) for i in glob(self.path2out + '*.h5')]
-        filename_list=[]
-
-        ntargets = len(start_time_list)
-        num_of_chunks = 3 * workers
-        chunksize = ntargets // num_of_chunks
-        if chunksize <= 0:
-            chunksize = 1
-
-        elno=0
-        if workers == 1: workers_load=10
-        else: workers_load=workers
-        print('> Using %i workers to load a total of %i files ...'%(workers_load,ntargets))
-        with concurrent.futures.ProcessPoolExecutor(max_workers=workers_load) as executor:
-            for filename,header,data in tqdm(executor.map(load_fits_task, start_time_list,chunksize=chunksize)):
-                elno+=1
-                filename_list.append(filename)
-                header_list.append(header)
-                image_list.append(data)
-                dist_list.append(np.sqrt((header_list[0]['E_CONEXX']-header['E_CONEXX'])**2+(header_list[0]['E_CONEXY']-header['E_CONEXY'])**2))
-                elno_list.append(elno)
-
-        sorted_elno_list = [x for _, x in sorted(zip(dist_list, elno_list))]
+        filename_list, header_list, image_list, dist_list, elno_list, sorted_elno_list=mcmcwcs.fetching_data()
+        # print('> Looking for data in %s' % self.path2out)
+        #
+        # start_time_list=[]
+        # print('> Building list of start times from: %s'%out_data_list)
+        # for name,data in zip(out_data_list,data_list):
+        #     print('>> Looking for data associated to %s containing time %s,...' % (name,data))
+        #     startt, _, _ = mkidcore.utils.get_ditherdata_for_time(dither_path, data)
+        #     start_time_list.extend([np.round(i) for i in startt])
+        #     print('>> Found %i dithers.'%len(startt))
+        #
+        # # start_time_list=start_time_list[::10]
+        # image_list = []
+        # header_list = []
+        # dist_list = []
+        # elno_list = []
+        # h5_name_list=[int(i.split('/')[-1].split('.h5')[0]) for i in glob(self.path2out + '*.h5')]
+        # filename_list=[]
+        #
+        # ntargets = len(start_time_list)
+        # num_of_chunks = 3 * workers
+        # chunksize = ntargets // num_of_chunks
+        # if chunksize <= 0:
+        #     chunksize = 1
+        #
+        # elno=0
+        # if workers == 1: workers_load=10
+        # else: workers_load=workers
+        # print('> Using %i workers to load a total of %i files ...'%(workers_load,ntargets))
+        # with concurrent.futures.ProcessPoolExecutor(max_workers=workers_load) as executor:
+        #     for filename,header,data in tqdm(executor.map(load_fits_task, start_time_list,chunksize=chunksize)):
+        #         elno+=1
+        #         filename_list.append(filename)
+        #         header_list.append(header)
+        #         image_list.append(data)
+        #         dist_list.append(np.sqrt((header_list[0]['E_CONEXX']-header['E_CONEXX'])**2+(header_list[0]['E_CONEXY']-header['E_CONEXY'])**2))
+        #         elno_list.append(elno)
+        #
+        # sorted_elno_list = [x for _, x in sorted(zip(dist_list, elno_list))]
 
     ############################################################## PARAMETERS FIT #################################################################
 
