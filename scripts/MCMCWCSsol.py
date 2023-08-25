@@ -739,27 +739,27 @@ class MCMCWCS:
         self.data_list = [self.data_dict[data_elno]['data'] for data_elno in self.data_elno_list[:5]]
 
         self.path2MCMC_fit = self.path2out + 'MCMC_fit/'
-        self.path2PLOTdir = self.path2MCMC_fit + 'plots/'
-        self.path2CORNERdir = self.path2MCMC_fit + 'plots/corners/'
-        self.path2DEBUGdir = self.path2MCMC_fit + 'plots/debug/'
-        self.path2POSTERIORdir = self.path2MCMC_fit + 'plots/posterior/'
+        # self.path2PLOTdir = self.path2MCMC_fit + 'plots/'
+        # self.path2CORNERdir = self.path2MCMC_fit + 'plots/corners/'
+        # self.path2DEBUGdir = self.path2MCMC_fit + 'plots/debug/'
+        # self.path2POSTERIORdir = self.path2MCMC_fit + 'plots/posterior/'
 
         # return (data_dict, dither_path, nwalkers, steps, progress, workers, sat_spots, ref_el, v_lim, factor, redo,
         #         verbose, data_elno, data_list, path2out)
 
-    # def make_dir(self, path2out):
-    #     if not os.path.exists(path2out + 'MCMC_fit/plots/posterior/'):
-    #         print('> Making %s' % path2out + 'MCMC_fit/')
-    #         os.makedirs(path2out + 'MCMC_fit/')
-    #     if not os.path.exists(path2out + 'MCMC_fit/plots/'):
-    #         print('> Making %s' % path2out + 'MCMC_fit/plots/')
-    #         os.makedirs(path2out + 'MCMC_fit/plots/')
-    #         print('> Making %s' % path2out + 'MCMC_fit/plots/corners/')
-    #         os.makedirs(path2out + 'MCMC_fit/plots/corners/')
-    #         print('> Making %s' % path2out + 'MCMC_fit/plots/debug/')
-    #         os.makedirs(path2out + 'MCMC_fit/plots/debug/')
-    #         print('> Making %s' % path2out + 'MCMC_fit/plots/posterior/')
-    #         os.makedirs(path2out + 'MCMC_fit/plots/posterior/')
+    def make_dir(self):
+        if not os.path.exists(self.path2out + 'MCMC_fit/plots/posterior/'):
+            print('> Making %s' % self.path2out + 'MCMC_fit/')
+            os.makedirs(self.path2out + 'MCMC_fit/')
+        if not os.path.exists(self.path2out + 'MCMC_fit/plots/'):
+            print('> Making %s' % self.path2out + 'MCMC_fit/plots/')
+            os.makedirs(self.path2out + 'MCMC_fit/plots/')
+            print('> Making %s' % self.path2out + 'MCMC_fit/plots/corners/')
+            os.makedirs(self.path2out + 'MCMC_fit/plots/corners/')
+            print('> Making %s' % self.path2out + 'MCMC_fit/plots/debug/')
+            os.makedirs(self.path2out + 'MCMC_fit/plots/debug/')
+            print('> Making %s' % self.path2out + 'MCMC_fit/plots/posterior/')
+            os.makedirs(self.path2out + 'MCMC_fit/plots/posterior/')
     #
     # def fetching_data(self, path2out, out_data_list, data_list, dither_path, workers):
     #     start_time_list = []
@@ -914,7 +914,7 @@ class MCMCWCS:
 
     def load_fits_task(self,start_time):
         filename = min(h5_name_list, key=lambda x: abs(x - start_time))
-        pt = Photontable(path2out + '%i.h5' % (filename))
+        pt = Photontable(self.path2out + '%i.h5' % (filename))
         hdul = pt.get_fits(wave_start=950, wave_stop=1100, start=pt.start_time + start_offset)
         header = hdul[0].header
         data = hdul[1].data
@@ -923,7 +923,7 @@ class MCMCWCS:
 
     def mcmc_task(self,name,data,header,pos_dict):
         filename = "%i_MCMC_fit.h5"%name
-        pt = Photontable(path2out + '%i.h5' % (name))
+        pt = Photontable(self.path2out + '%i.h5' % (name))
         xyCons = [header['E_CONEXX'],header['E_CONEXY']]
         cen_xy=np.round(CONEX2PIXEL(xyCons[0],
                                     xyCons[1],
@@ -936,21 +936,21 @@ class MCMCWCS:
         masked_img=create_mask(data,xyCons,slopes,positions_ref,conex_xy_ref,factor)
         d=np.nanmedian(data[data>0])
 
-        mcmc=MCMC_FIT(path=path2out + 'MCMC_fit/', nwalkers=nwalkers, steps=steps, ndesired=100, ncpu=20, progress=progress, verbose=verbose,
+        mcmc=MCMC_FIT(path=self.path2out + 'MCMC_fit/', nwalkers=nwalkers, steps=steps, ndesired=100, ncpu=20, progress=progress, verbose=verbose,
                       const=d, sat_spots=sat_spots , kwargs={'shape_xy': np.array(data.shape[::-1])-1, 'factor' : factor})
         mcmc.run(filename, pos_dict, masked_img)
 
     def sample_posteriors_task(self,filename):
         with io.capture_output() as captured:
             MCMC_filename = "%i_MCMC_fit.h5"%filename
-            pt = Photontable(path2out+'%i.h5'%filename)
+            pt = Photontable(self.path2out+'%i.h5'%filename)
             hdul = pt.get_fits(wave_start=950,wave_stop=1100,start=pt.start_time+start_offset)
             header = hdul[0].header
             data = hdul[1].data
             d=np.nanmedian(data[data>0])
 
             xyCons=[float(header['E_CONEXX']), float(header['E_CONEXY'])]
-            mcmc=MCMC_FIT(path=path2out + 'MCMC_fit/', ncpu=1, progress=False, verbose=False,labels=MCMC_labels)
+            mcmc=MCMC_FIT(path=self.path2out + 'MCMC_fit/', ncpu=1, progress=False, verbose=False,labels=MCMC_labels)
             s=mcmc.sample_posteriors(MCMC_filename, slopes, full_posterior=True, verbose=False,save_output=True)
             pixel_cen=[s['cen_x'][0],s['cen_y'][0]]
             epixel_cen=[np.mean(s['cen_x'][1:3]),np.mean(s['cen_y'][1:3])]
@@ -965,7 +965,7 @@ class MCMCWCS:
             norm = [simple_norm(masked_img, stretch='sqrt', min_cut=v_lim[0][0], max_cut=v_lim[0][1]),simple_norm(sp.psfs_img, stretch='sqrt', min_cut=v_lim[1][0], max_cut=v_lim[1][1]),simple_norm(chi2_map/np.nanmax(data), stretch='sqrt', min_cut=v_lim[2][0], max_cut=v_lim[2][1])]
 
             sp.plot_image(np.array(data_list),
-                      title=['MaskedData', 'Model', 'Chi2'], cen_xy=[s['cen_x'][0],s['cen_y'][0]], satspot_xy=sp.satspots_xy, norm=norm, rows=1, path2savedir=path2out + 'MCMC_fit/' + 'plots/'+'debug/',filename="%i_MCMC_fit.jpg"%filename,save_output=True)
+                      title=['MaskedData', 'Model', 'Chi2'], cen_xy=[s['cen_x'][0],s['cen_y'][0]], satspot_xy=sp.satspots_xy, norm=norm, rows=1, path2savedir=self.path2out + 'MCMC_fit/' + 'plots/'+'debug/',filename="%i_MCMC_fit.jpg"%filename,save_output=True)
             return(filename,pixel_cen,epixel_cen,xyCons)
 
     def get_slope_and_conex(self,data_elno,data_dict,sorted_elno_list,filename_list,image_list,header_list,ref_el):
@@ -1014,10 +1014,10 @@ class MCMCWCS:
 
         sol_x = lsq_fit_dpdc(d, ['conexx', 'pixel_at_conex_x', 'std_pixel_at_conex_x'], showplot=verbose,
                              verbose=verbose,
-                             path2savedir=path2out + 'MCMC_fit/' + 'plots/', ext='_x_test_')
+                             path2savedir=self.path2out + 'MCMC_fit/' + 'plots/', ext='_x_test_')
         sol_y = lsq_fit_dpdc(d, ['conexy', 'pixel_at_conex_y', 'std_pixel_at_conex_y'], showplot=verbose,
                              verbose=verbose,
-                             path2savedir=path2out + 'MCMC_fit/' + 'plots/', ext='_y_test_')
+                             path2savedir=self.path2out + 'MCMC_fit/' + 'plots/', ext='_y_test_')
 
         slopes = [float(np.round(sol_x[0][0],2)),float(np.round(sol_y[0][0],2))]
         data_dict[data_elno].slopes =[float(np.round(x,2)) for x in slopes]
@@ -1067,7 +1067,7 @@ if __name__ == '__main__':
     args = parse()
     config.configure_pipeline(args.pipe_cfg)
     YAML = ruamel.yaml.YAML()
-    mcmc=MCMCWCS(args.pipe_cfg, args.data_cfg, args.verbose)
+    mcmcwcs=MCMCWCS(args.pipe_cfg, args.data_cfg, args.verbose)
     # config.configure_pipeline(args.pipe_cfg)
     #
     # data_dict = mkidcore.config.load(args.data_cfg)
@@ -1111,23 +1111,24 @@ if __name__ == '__main__':
     # path2POSTERIORdir = path2MCMC_fit + 'plots/posterior/'
 
     if args.make_paths:
-        if not os.path.exists(path2MCMC_fit):
-            print('> Making %s'%path2MCMC_fit)
-            os.makedirs(path2MCMC_fit)
-        if not os.path.exists(path2MCMC_fit + 'plots/'):
-            print('> Making %s'%path2MCMC_fit + 'plots/')
-            os.makedirs(path2MCMC_fit + 'plots/')
-            print('> Making %s'%path2MCMC_fit + 'plots/corners/')
-            os.makedirs(path2MCMC_fit + 'plots/corners/')
-            print('> Making %s'%path2MCMC_fit + 'plots/debug/')
-            os.makedirs(path2MCMC_fit + 'plots/debug/')
-            print('> Making %s'%path2MCMC_fit + 'plots/posterior/')
-            os.makedirs(path2MCMC_fit + 'plots/posterior/')
+        mcmcwcs.make_dir()
+        # if not os.path.exists(path2MCMC_fit):
+        #     print('> Making %s'%path2MCMC_fit)
+        #     os.makedirs(path2MCMC_fit)
+        # if not os.path.exists(path2MCMC_fit + 'plots/'):
+        #     print('> Making %s'%path2MCMC_fit + 'plots/')
+        #     os.makedirs(path2MCMC_fit + 'plots/')
+        #     print('> Making %s'%path2MCMC_fit + 'plots/corners/')
+        #     os.makedirs(path2MCMC_fit + 'plots/corners/')
+        #     print('> Making %s'%path2MCMC_fit + 'plots/debug/')
+        #     os.makedirs(path2MCMC_fit + 'plots/debug/')
+        #     print('> Making %s'%path2MCMC_fit + 'plots/posterior/')
+        #     os.makedirs(path2MCMC_fit + 'plots/posterior/')
 
     #################################### Lodading data #################################################
     if not args.makeout:
 
-        print('> Looking for data in %s' % path2out)
+        print('> Looking for data in %s' % self.path2out)
 
         start_time_list=[]
         print('> Building list of start times from: %s'%out_data_list)
@@ -1142,7 +1143,7 @@ if __name__ == '__main__':
         header_list = []
         dist_list = []
         elno_list = []
-        h5_name_list=[int(i.split('/')[-1].split('.h5')[0]) for i in glob(path2out + '*.h5')]
+        h5_name_list=[int(i.split('/')[-1].split('.h5')[0]) for i in glob(self.path2out + '*.h5')]
         filename_list=[]
 
         ntargets = len(start_time_list)
@@ -1243,9 +1244,9 @@ if __name__ == '__main__':
 
     #################################################### OUTPUTS ###########################################################
     print('> Working on outputs')
-    print('> Looking for data in %s'%path2out + 'MCMC_fit/')
+    print('> Looking for data in %s'%self.path2out + 'MCMC_fit/')
 
-    filename_list = [int(filename.split('/')[-1].split('_')[0]) for filename in glob(path2out + 'MCMC_fit/' + '*.h5')]
+    filename_list = [int(filename.split('/')[-1].split('_')[0]) for filename in glob(self.path2out + 'MCMC_fit/' + '*.h5')]
 
     ntargets=len(filename_list)
     num_of_chunks = 3 * workers
@@ -1290,9 +1291,9 @@ if __name__ == '__main__':
         [np.std(d['pixel_at_conex_y'][np.where(d['conexy'] == conexy)[0]]) for conexy in set(d['conexy'])])
 
     sol_x = lsq_fit_dpdc(d, ['conexx', 'pixel_at_conex_x', 'std_pixel_at_conex_x'], showplot=verbose, verbose=verbose,
-                         path2savedir=path2out + 'MCMC_fit/' + 'plots/', ext='_x_')
+                         path2savedir=self.path2out + 'MCMC_fit/' + 'plots/', ext='_x_')
     sol_y = lsq_fit_dpdc(d, ['conexy', 'pixel_at_conex_y', 'std_pixel_at_conex_y'], showplot=verbose, verbose=verbose,
-                         path2savedir=path2out + 'MCMC_fit/' + 'plots/', ext='_y_')
+                         path2savedir=self.path2out + 'MCMC_fit/' + 'plots/', ext='_y_')
 
     dout = {'x': {'dpdc': [float(np.round(i,2)) for i in sol_x[0]],
                   'pc0': [float(np.round(i,2)) for i in sol_x[1]],
