@@ -29,6 +29,7 @@ from IPython.utils import io
 from itertools import repeat
 from skimage.morphology.footprints import disk
 from skimage.morphology import dilation
+from varname import nameof
 
 class ClickCoords:
     """
@@ -711,46 +712,44 @@ class MCMC_FIT:
 class MCMCWCS:
     def __init__(self, pipe_cfg, data_cfg,verbose):
 
-        self.data_dict = mkidcore.config.load(data_cfg)
-        self.pipe_dict = mkidcore.config.load(pipe_cfg)
+        self.data = mkidcore.config.load(data_cfg)
+        self.pipe = mkidcore.config.load(pipe_cfg)
 
-        self.path2out = self.pipe_dict['paths']['out']
-        self.dither_path = self.pipe_dict['paths']['data']
-        self.nwalkers = self.pipe_dict['mcmcwcssol']['nwalkers']
-        self.steps = self.pipe_dict['mcmcwcssol']['steps']
-        self.progress = self.pipe_dict['mcmcwcssol']['progress']
-        self.workers = self.pipe_dict['mcmcwcssol']['workers']
-        self.sat_spots = self.pipe_dict['mcmcwcssol']['sat_spots']
-        self.ref_el = self.pipe_dict['mcmcwcssol']['ref_el']
-        self.v_lim = self.pipe_dict['mcmcwcssol']['v_lim']
-        self.factor = self.pipe_dict['mcmcwcssol']['factor']
-        self.redo = self.pipe_dict['mcmcwcssol']['redo']
+        self.path={label: self.pipe['paths'][label] for label in ['data','out']}
+        self.path['MCMC_fit']=self.path['out'] + 'MCMC_fit/'
+        self.mcmc_config={label: self.pipe['mcmcwcssol'][label] for label in ['nwalkers','steps','progress','workers',
+                                                                              'sat_spots','ref_el','v_lim','factor',
+                                                                              'redo']}
+
+
         if not verbose:
-            self.verbose = self.pipe_dict['mcmcwcssol']['verbose']
+            self.mcmc_config['verbose'] = self.pipe['mcmcwcssol']['verbose']
         else:
-            self.verbose = verbose
-        self.data_elno = [index for (index, d) in enumerate(self.data_dict) if '!MKIDMCMCWCSol' in d.tag.value][0]
-        self.out_data_list = self.data_dict[self.data_elno]['data'].split('+')
-        self.data_elno_list = [index for (index, d) in enumerate(self.data_dict) for out_data in self.out_data_list if
+            self.mcmc_config['verbose'] = verbose
+
+        mcmcmwcs_pos = [index for (index, d) in enumerate(self.data) if '!MKIDMCMCWCSol' in d.tag.value][0]
+        data_names = self.data[mcmcmwcs_pos]['data'].split('+')
+        mcmcmwcs_pos_list = [index for (index, d) in enumerate(self.data) for out_data in data_names if
                           out_data in d['name']]
-        self.data_list = [self.data_dict[data_elno]['data'] for data_elno in self.data_elno_list[:5]]
-        self.path2MCMC_fit = self.path2out + 'MCMC_fit/'
-        self.wcscal = self.data_dict[self.data_elno]['wcscal']
-        self.start_offset = self.data_dict[self.data_elno]['start_offset']
+        data_list = [self.data[mcmcmwcs_pos]['data'] for mcmcmwcs_pos in mcmcmwcs_pos_list[:5]]
+        wcscal = self.data[mcmcmwcs_pos]['wcscal']
+        start_offset = self.data[mcmcmwcs_pos]['start_offset']
+
+        self.mcmc_setup={label:var for var,label in zip([mcmcmwcs_pos,data_names,data_list,wcscal,start_offset],['mcmcmwcs_pos','data_names','data_list','wcscal','start_offset'])}
 
     def make_dir(self):
-        if not os.path.exists(self.path2out + 'MCMC_fit/plots/posterior/'):
-            print('> Making %s' % self.path2out + 'MCMC_fit/')
-            os.makedirs(self.path2out + 'MCMC_fit/')
-        if not os.path.exists(self.path2out + 'MCMC_fit/plots/'):
-            print('> Making %s' % self.path2out + 'MCMC_fit/plots/')
-            os.makedirs(self.path2out + 'MCMC_fit/plots/')
-            print('> Making %s' % self.path2out + 'MCMC_fit/plots/corners/')
-            os.makedirs(self.path2out + 'MCMC_fit/plots/corners/')
-            print('> Making %s' % self.path2out + 'MCMC_fit/plots/debug/')
-            os.makedirs(self.path2out + 'MCMC_fit/plots/debug/')
-            print('> Making %s' % self.path2out + 'MCMC_fit/plots/posterior/')
-            os.makedirs(self.path2out + 'MCMC_fit/plots/posterior/')
+        if not os.path.exists(self.path['MCMC_fit']):
+            print('> Making %s' % self.path['MCMC_fit'])
+            os.makedirs(self.path['MCMC_fit'])
+        if not os.path.exists(self.path['MCMC_fit']'/plots/'):
+            print('> Making %s' % self.path['MCMC_fit']+'plots/')
+            os.makedirs(self.path['MCMC_fit']+'plots/')
+            print('> Making %s' % self.path['MCMC_fit']+'plots/corners/')
+            os.makedirs(self.path['MCMC_fit']+'plots/corners/')
+            print('> Making %s' % self.path['MCMC_fit']+'plots/debug/')
+            os.makedirs(self.path['MCMC_fit']+'plots/debug/')
+            print('> Making %s' % self.path['MCMC_fit']+'plots/posterior/')
+            os.makedirs(self.path['MCMC_fit']+'plots/posterior/')
 
     def fetching_h5_names(self):
         start_time_list = []
@@ -770,103 +769,103 @@ class MCMCWCS:
         filename_list = []
 
         self.ntargets = len(start_time_list)
-        # num_of_chunks = 3 * self.workers
-        # chunksize = self.ntargets // num_of_chunks
-        # if chunksize <= 0:
-        #     chunksize = 1
+        num_of_chunks = 3 * self.workers
+        chunksize = self.ntargets // num_of_chunks
+        if chunksize <= 0:
+            chunksize = 1
 
-        # elno = 0
-        # if self.workers == 1:
-        #     workers_load = 10
-        # else:
-        #     workers_load = self.workers
-        # print('> Using %i workers to load a total of %i files ...' % (workers_load, self.ntargets))
-        # with concurrent.futures.ProcessPoolExecutor(max_workers=workers_load) as executor:
-        #     for filename, header, data in tqdm(executor.map(mcmcwcs.load_fits_task, start_time_list, chunksize=chunksize)):
-        #         elno += 1
-        #         filename_list.append(filename)
-        #         header_list.append(header)
-        #         image_list.append(data)
-        #         dist_list.append(np.sqrt((header_list[0]['E_CONEXX'] - header['E_CONEXX']) ** 2 + (
-        #                 header_list[0]['E_CONEXY'] - header['E_CONEXY']) ** 2))
-        #         elno_list.append(elno)
-        #
-        # sorted_elno_list = [x for _, x in sorted(zip(dist_list, elno_list))]
-        # return (filename_list, header_list, image_list, dist_list, elno_list, sorted_elno_list)
+        elno = 0
+        if self.workers == 1:
+            workers_load = 10
+        else:
+            workers_load = self.workers
+        print('> Using %i workers to load a total of %i files ...' % (workers_load, self.ntargets))
+        with concurrent.futures.ProcessPoolExecutor(max_workers=workers_load) as executor:
+            for filename, header, data in tqdm(executor.map(mcmcwcs.load_fits_task, start_time_list, chunksize=chunksize)):
+                elno += 1
+                filename_list.append(filename)
+                header_list.append(header)
+                image_list.append(data)
+                dist_list.append(np.sqrt((header_list[0]['E_CONEXX'] - header['E_CONEXX']) ** 2 + (
+                        header_list[0]['E_CONEXY'] - header['E_CONEXY']) ** 2))
+                elno_list.append(elno)
 
-    # def fetching_mcmc_parameters(self):
-    #     print('> Fitting parameters')
-    #     ntargets = len(filename_list)
-    #
-    #     num_of_chunks = 3 * workers
-    #     chunksize = ntargets // num_of_chunks
-    #     if chunksize <= 0:
-    #         chunksize = 1
-    #
-    #     if redo or np.any([len(getattr(data_dict[data_elno], label)) == 0 for label in ['slopes']]):
-    #         data_dict = get_slope_and_conex(data_elno, data_dict, sorted_elno_list, filename_list, image_list,
-    #                                         header_list, ref_el)
-    #
-    #     if sat_spots:
-    #         if redo or np.any([len(getattr(data_dict[data_elno], label)) == 0 for label in
-    #                            ['spot_ref1', 'spot_ref2', 'spot_ref3', 'spot_ref4', 'cor_spot_ref', 'conex_ref']]):
-    #             data_dict = get_satellite_spots_and_coronograph(data_elno, data_dict, image_list, header_list,
-    #                                                             sat_spots)
-    #
-    #         positions_ref = [np.float64(data_dict[data_elno].spot_ref1),
-    #                          np.float64(data_dict[data_elno].spot_ref2),
-    #                          np.float64(data_dict[data_elno].spot_ref3),
-    #                          np.float64(data_dict[data_elno].spot_ref4)]
-    #         coronograph_ref = np.float64(data_dict[data_elno].cor_spot_ref)
-    #         conex_xy_ref = np.float64(data_dict[data_elno].conex_ref)
-    #         slopes = np.float64(data_dict[data_elno].slopes)
-    #
-    #         pos_dict = {'amplitude': [pipe_dict['mcmcwcssol']['amplitude'][0], pipe_dict['mcmcwcssol']['amplitude'][1],
-    #                                   pipe_dict['mcmcwcssol']['amplitude'][2]],
-    #                     'length1': [pipe_dict['mcmcwcssol']['length'][0], pipe_dict['mcmcwcssol']['length'][1],
-    #                                 pipe_dict['mcmcwcssol']['length'][2]],
-    #                     'length2': [pipe_dict['mcmcwcssol']['length'][0], pipe_dict['mcmcwcssol']['length'][1],
-    #                                 pipe_dict['mcmcwcssol']['length'][2]],
-    #                     'angle1': [pipe_dict['mcmcwcssol']['angle1'][0], pipe_dict['mcmcwcssol']['angle1'][1],
-    #                                pipe_dict['mcmcwcssol']['angle1'][2]],
-    #                     'angle2': [pipe_dict['mcmcwcssol']['angle2'][0], pipe_dict['mcmcwcssol']['angle2'][1],
-    #                                pipe_dict['mcmcwcssol']['angle2'][2]],
-    #                     'fwhm_x1': [pipe_dict['mcmcwcssol']['fwhm_x'][0], pipe_dict['mcmcwcssol']['fwhm_x'][1],
-    #                                 pipe_dict['mcmcwcssol']['fwhm_x'][2]],
-    #                     'fwhm_y1': [pipe_dict['mcmcwcssol']['fwhm_y'][0], pipe_dict['mcmcwcssol']['fwhm_y'][1],
-    #                                 pipe_dict['mcmcwcssol']['fwhm_y'][2]],
-    #                     'fwhm_x2': [pipe_dict['mcmcwcssol']['fwhm_x'][0], pipe_dict['mcmcwcssol']['fwhm_x'][1],
-    #                                 pipe_dict['mcmcwcssol']['fwhm_x'][2]],
-    #                     'fwhm_y2': [pipe_dict['mcmcwcssol']['fwhm_y'][0], pipe_dict['mcmcwcssol']['fwhm_y'][1],
-    #                                 pipe_dict['mcmcwcssol']['fwhm_y'][2]]}
-    #     else:
-    #         if redo or np.any([len(getattr(data_dict[data_elno], label)) == 0 for label in
-    #                            ['cor_spot_ref', 'conex_ref']]):
-    #             data_dict = get_satellite_spots_and_coronograph(data_elno, data_dict, image_list, header_list,
-    #                                                             sat_spots)
-    #
-    #         positions_ref = [np.float64(data_dict[data_elno].cor_spot_ref)]
-    #         coronograph_ref = np.float64(data_dict[data_elno].cor_spot_ref)
-    #         conex_xy_ref = np.float64(data_dict[data_elno].conex_ref)
-    #         slopes = np.float64(data_dict[data_elno].slopes)
-    #
-    #         pos_dict = {'amplitude': [pipe_dict['mcmcwcssol']['amplitude'][0], pipe_dict['mcmcwcssol']['amplitude'][1],
-    #                                   pipe_dict['mcmcwcssol']['amplitude'][2]],
-    #                     'fwhm_x1': [pipe_dict['mcmcwcssol']['fwhm_x'][0], pipe_dict['mcmcwcssol']['fwhm_x'][1],
-    #                                 pipe_dict['mcmcwcssol']['fwhm_x'][2]],
-    #                     'fwhm_y1': [pipe_dict['mcmcwcssol']['fwhm_y'][0], pipe_dict['mcmcwcssol']['fwhm_y'][1],
-    #                                 pipe_dict['mcmcwcssol']['fwhm_y'][2]]}
-    #
-    #     config.dump_dataconfig(data_dict, args.data_cfg)
-    #
-    #     if workers > 1:
-    #         print('> workers %i,chunksize %i,ntargets %i' % (workers, chunksize, ntargets))
-    #         with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
-    #             for _ in tqdm(executor.map(mcmc_task, filename_list, image_list, header_list, repeat(pos_dict),
-    #                                        chunksize=chunksize)): pass
-    #     else:
-    #         for elno in range(len(filename_list)): mcmc_task(filename_list[elno], image_list[elno], header_list[elno],
-    #                                                          pos_dict)
+        sorted_elno_list = [x for _, x in sorted(zip(dist_list, elno_list))]
+        return (filename_list, header_list, image_list, dist_list, elno_list, sorted_elno_list)
+
+    def fetching_mcmc_parameters(self):
+        print('> Fitting parameters')
+        # ntargets = len(filename_list)
+
+        num_of_chunks = 3 * self.workers
+        chunksize = self.ntargets // num_of_chunks
+        if chunksize <= 0:
+            chunksize = 1
+
+        if redo or np.any([len(getattr(self.data_dict[self.data_elno], label)) == 0 for label in ['slopes']]):
+            data_dict = get_slope_and_conex(self.data_elno, self.data_dict, self.sorted_elno_list, self.filename_list, image_list,
+                                            header_list, ref_el)
+
+        if sat_spots:
+            if redo or np.any([len(getattr(data_dict[data_elno], label)) == 0 for label in
+                               ['spot_ref1', 'spot_ref2', 'spot_ref3', 'spot_ref4', 'cor_spot_ref', 'conex_ref']]):
+                data_dict = get_satellite_spots_and_coronograph(data_elno, data_dict, image_list, header_list,
+                                                                sat_spots)
+
+            positions_ref = [np.float64(data_dict[data_elno].spot_ref1),
+                             np.float64(data_dict[data_elno].spot_ref2),
+                             np.float64(data_dict[data_elno].spot_ref3),
+                             np.float64(data_dict[data_elno].spot_ref4)]
+            coronograph_ref = np.float64(data_dict[data_elno].cor_spot_ref)
+            conex_xy_ref = np.float64(data_dict[data_elno].conex_ref)
+            slopes = np.float64(data_dict[data_elno].slopes)
+
+            pos_dict = {'amplitude': [pipe_dict['mcmcwcssol']['amplitude'][0], pipe_dict['mcmcwcssol']['amplitude'][1],
+                                      pipe_dict['mcmcwcssol']['amplitude'][2]],
+                        'length1': [pipe_dict['mcmcwcssol']['length'][0], pipe_dict['mcmcwcssol']['length'][1],
+                                    pipe_dict['mcmcwcssol']['length'][2]],
+                        'length2': [pipe_dict['mcmcwcssol']['length'][0], pipe_dict['mcmcwcssol']['length'][1],
+                                    pipe_dict['mcmcwcssol']['length'][2]],
+                        'angle1': [pipe_dict['mcmcwcssol']['angle1'][0], pipe_dict['mcmcwcssol']['angle1'][1],
+                                   pipe_dict['mcmcwcssol']['angle1'][2]],
+                        'angle2': [pipe_dict['mcmcwcssol']['angle2'][0], pipe_dict['mcmcwcssol']['angle2'][1],
+                                   pipe_dict['mcmcwcssol']['angle2'][2]],
+                        'fwhm_x1': [pipe_dict['mcmcwcssol']['fwhm_x'][0], pipe_dict['mcmcwcssol']['fwhm_x'][1],
+                                    pipe_dict['mcmcwcssol']['fwhm_x'][2]],
+                        'fwhm_y1': [pipe_dict['mcmcwcssol']['fwhm_y'][0], pipe_dict['mcmcwcssol']['fwhm_y'][1],
+                                    pipe_dict['mcmcwcssol']['fwhm_y'][2]],
+                        'fwhm_x2': [pipe_dict['mcmcwcssol']['fwhm_x'][0], pipe_dict['mcmcwcssol']['fwhm_x'][1],
+                                    pipe_dict['mcmcwcssol']['fwhm_x'][2]],
+                        'fwhm_y2': [pipe_dict['mcmcwcssol']['fwhm_y'][0], pipe_dict['mcmcwcssol']['fwhm_y'][1],
+                                    pipe_dict['mcmcwcssol']['fwhm_y'][2]]}
+        else:
+            if redo or np.any([len(getattr(data_dict[data_elno], label)) == 0 for label in
+                               ['cor_spot_ref', 'conex_ref']]):
+                data_dict = get_satellite_spots_and_coronograph(data_elno, data_dict, image_list, header_list,
+                                                                sat_spots)
+
+            positions_ref = [np.float64(data_dict[data_elno].cor_spot_ref)]
+            coronograph_ref = np.float64(data_dict[data_elno].cor_spot_ref)
+            conex_xy_ref = np.float64(data_dict[data_elno].conex_ref)
+            slopes = np.float64(data_dict[data_elno].slopes)
+
+            pos_dict = {'amplitude': [pipe_dict['mcmcwcssol']['amplitude'][0], pipe_dict['mcmcwcssol']['amplitude'][1],
+                                      pipe_dict['mcmcwcssol']['amplitude'][2]],
+                        'fwhm_x1': [pipe_dict['mcmcwcssol']['fwhm_x'][0], pipe_dict['mcmcwcssol']['fwhm_x'][1],
+                                    pipe_dict['mcmcwcssol']['fwhm_x'][2]],
+                        'fwhm_y1': [pipe_dict['mcmcwcssol']['fwhm_y'][0], pipe_dict['mcmcwcssol']['fwhm_y'][1],
+                                    pipe_dict['mcmcwcssol']['fwhm_y'][2]]}
+
+        config.dump_dataconfig(data_dict, args.data_cfg)
+
+        if workers > 1:
+            print('> workers %i,chunksize %i,ntargets %i' % (workers, chunksize, ntargets))
+            with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
+                for _ in tqdm(executor.map(mcmc_task, filename_list, image_list, header_list, repeat(pos_dict),
+                                           chunksize=chunksize)): pass
+        else:
+            for elno in range(len(filename_list)): mcmc_task(filename_list[elno], image_list[elno], header_list[elno],
+                                                             pos_dict)
 
     def lsq_fit_dpdc(self,d,labels,path2savedir=None,filename='test.jpg',showplot=True,verbose=True,ext='_'):
         # np.random.seed(42)
@@ -927,7 +926,7 @@ class MCMCWCS:
         masked_img=create_mask(data,xyCons,slopes,positions_ref,conex_xy_ref,factor)
         d=np.nanmedian(data[data>0])
 
-        mcmc=MCMC_FIT(path=self.path2out + 'MCMC_fit/', nwalkers=nwalkers, steps=steps, ndesired=100, ncpu=20, progress=progress, verbose=verbose,
+        mcmc=MCMC_FIT(path=self.path['MCMC_fit'], nwalkers=nwalkers, steps=steps, ndesired=100, ncpu=20, progress=progress, verbose=verbose,
                       const=d, sat_spots=sat_spots , kwargs={'shape_xy': np.array(data.shape[::-1])-1, 'factor' : factor})
         mcmc.run(filename, pos_dict, masked_img)
 
@@ -941,7 +940,7 @@ class MCMCWCS:
             d=np.nanmedian(data[data>0])
 
             xyCons=[float(header['E_CONEXX']), float(header['E_CONEXY'])]
-            mcmc=MCMC_FIT(path=self.path2out + 'MCMC_fit/', ncpu=1, progress=False, verbose=False,labels=MCMC_labels)
+            mcmc=MCMC_FIT(path=self.path['MCMC_fit'], ncpu=1, progress=False, verbose=False,labels=MCMC_labels)
             s=mcmc.sample_posteriors(MCMC_filename, slopes, full_posterior=True, verbose=False,save_output=True)
             pixel_cen=[s['cen_x'][0],s['cen_y'][0]]
             epixel_cen=[np.mean(s['cen_x'][1:3]),np.mean(s['cen_y'][1:3])]
@@ -956,7 +955,7 @@ class MCMCWCS:
             norm = [simple_norm(masked_img, stretch='sqrt', min_cut=v_lim[0][0], max_cut=v_lim[0][1]),simple_norm(sp.psfs_img, stretch='sqrt', min_cut=v_lim[1][0], max_cut=v_lim[1][1]),simple_norm(chi2_map/np.nanmax(data), stretch='sqrt', min_cut=v_lim[2][0], max_cut=v_lim[2][1])]
 
             sp.plot_image(np.array(data_list),
-                      title=['MaskedData', 'Model', 'Chi2'], cen_xy=[s['cen_x'][0],s['cen_y'][0]], satspot_xy=sp.satspots_xy, norm=norm, rows=1, path2savedir=self.path2out + 'MCMC_fit/' + 'plots/'+'debug/',filename="%i_MCMC_fit.jpg"%filename,save_output=True)
+                      title=['MaskedData', 'Model', 'Chi2'], cen_xy=[s['cen_x'][0],s['cen_y'][0]], satspot_xy=sp.satspots_xy, norm=norm, rows=1, path2savedir=self.path['MCMC_fit'] + 'plots/'+'debug/',filename="%i_MCMC_fit.jpg"%filename,save_output=True)
             return(filename,pixel_cen,epixel_cen,xyCons)
 
     def get_slope_and_conex(self,data_elno,data_dict,sorted_elno_list,filename_list,image_list,header_list,ref_el):
@@ -1005,10 +1004,10 @@ class MCMCWCS:
 
         sol_x = lsq_fit_dpdc(d, ['conexx', 'pixel_at_conex_x', 'std_pixel_at_conex_x'], showplot=verbose,
                              verbose=verbose,
-                             path2savedir=self.path2out + 'MCMC_fit/' + 'plots/', ext='_x_test_')
+                             path2savedir=self.path['MCMC_fit'] + 'plots/', ext='_x_test_')
         sol_y = lsq_fit_dpdc(d, ['conexy', 'pixel_at_conex_y', 'std_pixel_at_conex_y'], showplot=verbose,
                              verbose=verbose,
-                             path2savedir=self.path2out + 'MCMC_fit/' + 'plots/', ext='_y_test_')
+                             path2savedir=self.path['MCMC_fit'] + 'plots/', ext='_y_test_')
 
         slopes = [float(np.round(sol_x[0][0],2)),float(np.round(sol_y[0][0],2))]
         data_dict[data_elno].slopes =[float(np.round(x,2)) for x in slopes]
@@ -1095,7 +1094,7 @@ if __name__ == '__main__':
 
     # warnings.filterwarnings("ignore")
 
-    # path2MCMC_fit = path2out + 'MCMC_fit/'
+    # path2MCMC_fit = path['MCMC_fit']
     # path2PLOTdir = path2MCMC_fit + 'plots/'
     # path2CORNERdir = path2MCMC_fit + 'plots/corners/'
     # path2DEBUGdir = path2MCMC_fit + 'plots/debug/'
@@ -1235,9 +1234,9 @@ if __name__ == '__main__':
 
     #################################################### OUTPUTS ###########################################################
     print('> Working on outputs')
-    print('> Looking for data in %s'%self.path2out + 'MCMC_fit/')
+    print('> Looking for data in %s'%self.path['MCMC_fit'])
 
-    filename_list = [int(filename.split('/')[-1].split('_')[0]) for filename in glob(self.path2out + 'MCMC_fit/' + '*.h5')]
+    filename_list = [int(filename.split('/')[-1].split('_')[0]) for filename in glob(self.path['MCMC_fit'] + '*.h5')]
 
     ntargets=len(filename_list)
     num_of_chunks = 3 * workers
@@ -1282,9 +1281,9 @@ if __name__ == '__main__':
         [np.std(d['pixel_at_conex_y'][np.where(d['conexy'] == conexy)[0]]) for conexy in set(d['conexy'])])
 
     sol_x = lsq_fit_dpdc(d, ['conexx', 'pixel_at_conex_x', 'std_pixel_at_conex_x'], showplot=verbose, verbose=verbose,
-                         path2savedir=self.path2out + 'MCMC_fit/' + 'plots/', ext='_x_')
+                         path2savedir=self.path['MCMC_fit'] + 'plots/', ext='_x_')
     sol_y = lsq_fit_dpdc(d, ['conexy', 'pixel_at_conex_y', 'std_pixel_at_conex_y'], showplot=verbose, verbose=verbose,
-                         path2savedir=self.path2out + 'MCMC_fit/' + 'plots/', ext='_y_')
+                         path2savedir=self.path['MCMC_fit'] + 'plots/', ext='_y_')
 
     dout = {'x': {'dpdc': [float(np.round(i,2)) for i in sol_x[0]],
                   'pc0': [float(np.round(i,2)) for i in sol_x[1]],
