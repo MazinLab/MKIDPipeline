@@ -735,7 +735,7 @@ class MCMCWCS:
         wcscal = self.data[mcmcmwcs_pos]['wcscal']
         start_offset = self.data[mcmcmwcs_pos]['start_offset']
 
-        self.mcmc_setup={label:var for var,label in zip([mcmcmwcs_pos,data_names,data_list,wcscal,start_offset],['mcmcmwcs_pos','data_names','data_list','wcscal','start_offset'])}
+        self.mcmc_setup={label:var for var,label in zip([data_names,data_list,wcscal,start_offset],['data_names','data_list','wcscal','start_offset'])}
 
     def make_dir(self):
         if not os.path.exists(self.path['MCMC_fit']):
@@ -755,25 +755,28 @@ class MCMCWCS:
                 os.makedirs(self.path['MCMC_fit']+'plots/posterior/')
 
     def fetching_h5_names(self):
-        start_time_list = []
+        start_times = []
         print('> Building list of start times from: %s' % self.mcmc_setup['data_names'])
         for name, data in zip(self.mcmc_setup['data_names'], self.mcmc_setup['data_list']):
             print('>> Looking for data associated to %s containing time %s,...' % (name, data))
             startt, _, _ = mkidcore.utils.get_ditherdata_for_time(self.path['data'], data)
-            start_time_list.extend([np.round(i) for i in startt])
+            start_times.extend([np.round(i) for i in startt])
             print('>> Found %i dithers.' % len(startt))
 
-        # start_time_list=start_time_list[::10]
+        self.mcmc_setup['h5_int_names']= [int(i.split('/')[-1].split('.h5')[0]) for i in glob(self.path['out'] + '*.h5')]
+        self.mcmc_setup['start_times'] = start_times
+        ntargets = len(start_times)
+        self.mcmc_setup['ntargets'] = ntargets
+
+    def fetching_datas(self):
         datas = []
         headers = []
         dist_list = []
         elno_list = []
-        self.mcmc_setup['h5_names']= [int(i.split('/')[-1].split('.h5')[0]) for i in glob(self.path['out'] + '*.h5')]
         data_names = []
 
-        ntargets = len(start_time_list)
         num_of_chunks = 3 * self.mcmc_config['workers']
-        chunksize = ntargets // num_of_chunks
+        chunksize = self.mcmc_setup['ntargets'] // num_of_chunks
         if chunksize <= 0:
             chunksize = 1
 
@@ -782,9 +785,9 @@ class MCMCWCS:
             workers_load = 10
         else:
             workers_load = self.mcmc_config['workers']
-        print('> Using %i workers to load a total of %i files ...' % (workers_load, ntargets))
+        print('> Using %i workers to load a total of %i files ...' % (workers_load, self.mcmc_setup['ntargets']))
         with concurrent.futures.ProcessPoolExecutor(max_workers=workers_load) as executor:
-            for filename, header, data in tqdm(executor.map(mcmcwcs.load_fits_task, start_time_list, chunksize=chunksize)):
+            for filename, header, data in tqdm(executor.map(mcmcwcs.load_fits_task, self.mcmc_setup['start_times'], chunksize=chunksize)):
                 elno += 1
                 data_names.append(filename)
                 headers.append(header)
@@ -796,9 +799,18 @@ class MCMCWCS:
         sorted_data_pos = [x for _, x in sorted(zip(dist_list, elno_list))]
         
         self.mcmc_setup['data_names']=data_names
-        self.mcmc_setup['ntargets']=ntargets
         self.mcmc_setup['sorted_data_pos']=sorted_data_pos
         return(datas)
+
+
+    def load_fits_task(self,start_time):
+        filename = min(self.mcmc_setup['h5_int_names'], key=lambda x: abs(x - start_time))
+        pt = Photontable(self.path['out'] + '%i.h5' % (filename))
+        hdul = pt.get_fits(wave_start=950, wave_stop=1100, start=pt.start_time + self.mcmc_setup['start_offset'])
+        header = hdul[0].header
+        data = hdul[1].data
+        hdul.close()
+        return (filename, header, data)
 
     def fetching_mcmc_parameters(self):
         print('> Fitting parameters')
@@ -908,15 +920,6 @@ class MCMCWCS:
     def getEquidistantPoints(self,p1, p2, parts):
         return zip(np.linspace(p1[0], p2[0], parts+1),
                    np.linspace(p1[1], p2[1], parts+1))
-
-    def load_fits_task(self,start_time):
-        filename = min(self.mcmc_setup['h5_names'], key=lambda x: abs(x - start_time))
-        pt = Photontable(self.path['out'] + '%i.h5' % (filename))
-        hdul = pt.get_fits(wave_start=950, wave_stop=1100, start=pt.start_time + self.mcmc_setup['start_offset'])
-        header = hdul[0].header
-        data = hdul[1].data
-        hdul.close()
-        return (filename, header, data)
 
     def mcmc_task(self,name,data,header,pos_dict):
         filename = "%i_MCMC_fit.h5"%name
@@ -1124,7 +1127,9 @@ if __name__ == '__main__':
 
     #################################### Lodading data #################################################
     if not args.makeout:
-        datas=mcmcwcs.fetching_h5_names()
+        mcmcwcs.fetching_h5_names()
+        datas=mcmcwcs.fetching_datas()
+        print()
         # print('> Looking for data in %s' % self.path2out)
         #
         # start_time_list=[]
