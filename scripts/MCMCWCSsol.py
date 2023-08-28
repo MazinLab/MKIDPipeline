@@ -734,8 +734,10 @@ class MCMCWCS:
         data_list = [self.data[mcmcmwcs_pos]['data'] for mcmcmwcs_pos in mcmcmwcs_pos_list[:5]]
         wcscal = self.data[mcmcmwcs_pos]['wcscal']
         start_offset = self.data[mcmcmwcs_pos]['start_offset']
+        self.mcmc_config['mcmcmwcs_pos'] = mcmcmwcs_pos
+        self.mcmc_config['start_offset'] = start_offset
 
-        self.mcmc_setup={label:var for var,label in zip([data_names,data_list,wcscal,start_offset],['data_names','data_list','wcscal','start_offset'])}
+        self.mcmc_setup={label:var for var,label in zip([data_names,data_list,wcscal,start_offset],['data_names','data_list','wcscal'])}
 
     def make_dir(self):
         if not os.path.exists(self.path['MCMC_fit']):
@@ -816,12 +818,12 @@ class MCMCWCS:
         print('> Fitting parameters')
         # ntargets = len(filename_list)
 
-        num_of_chunks = 3 * self.workers
-        chunksize = self.ntargets // num_of_chunks
+        num_of_chunks = 3 * self.mcmc_config['workers']
+        chunksize = self.mcmc_setup['ntargets'] // num_of_chunks
         if chunksize <= 0:
             chunksize = 1
 
-        if redo or np.any([len(getattr(self.data_dict[self.data_elno], label)) == 0 for label in ['slopes']]):
+        if redo or np.any([len(getattr(self.data[self.data_elno], label)) == 0 for label in ['slopes']]):
             data_dict = get_slope_and_conex(self.data_elno, self.data_dict, self.sorted_elno_list, self.filename_list, image_list,
                                             header_list, ref_el)
 
@@ -1129,7 +1131,6 @@ if __name__ == '__main__':
     if not args.makeout:
         mcmcwcs.fetching_h5_names()
         datas=mcmcwcs.fetching_datas()
-        print()
         # print('> Looking for data in %s' % self.path2out)
         #
         # start_time_list=[]
@@ -1170,79 +1171,79 @@ if __name__ == '__main__':
         # sorted_elno_list = [x for _, x in sorted(zip(dist_list, elno_list))]
 
     ############################################################## PARAMETERS FIT #################################################################
-
-        print('> Fitting parameters')
-        ntargets = len(filename_list)
-
-        num_of_chunks = 3 * workers
-        chunksize = ntargets // num_of_chunks
-        if chunksize <= 0:
-            chunksize = 1
-
-        if redo or np.any([len(getattr(data_dict[data_elno], label)) == 0 for label in ['slopes']]):
-            out_dictc = get_slope_and_conex(data_elno,data_dict,sorted_elno_list,filename_list,image_list,header_list,ref_el)
-
-        if sat_spots:
-            if redo or np.any([len(getattr(data_dict[data_elno],label)) == 0 for label in
-                        ['spot_ref1', 'spot_ref2', 'spot_ref3', 'spot_ref4', 'cor_spot_ref','conex_ref']]):
-                data_dict =get_satellite_spots_and_coronograph(data_elno, data_dict,image_list,header_list,sat_spots)
-
-            positions_ref = [np.float64(data_dict[data_elno].spot_ref1),
-                             np.float64(data_dict[data_elno].spot_ref2),
-                             np.float64(data_dict[data_elno].spot_ref3),
-                             np.float64(data_dict[data_elno].spot_ref4)]
-            coronograph_ref = np.float64(data_dict[data_elno].cor_spot_ref)
-            conex_xy_ref = np.float64(data_dict[data_elno].conex_ref)
-            slopes = np.float64(data_dict[data_elno].slopes)
-
-            pos_dict = {'amplitude': [pipe_dict['mcmcwcssol']['amplitude'][0], pipe_dict['mcmcwcssol']['amplitude'][1], pipe_dict['mcmcwcssol']['amplitude'][2]],
-                        'length1': [pipe_dict['mcmcwcssol']['length'][0], pipe_dict['mcmcwcssol']['length'][1], pipe_dict['mcmcwcssol']['length'][2]],
-                        'length2': [pipe_dict['mcmcwcssol']['length'][0], pipe_dict['mcmcwcssol']['length'][1], pipe_dict['mcmcwcssol']['length'][2]],
-                        'angle1': [pipe_dict['mcmcwcssol']['angle1'][0], pipe_dict['mcmcwcssol']['angle1'][1], pipe_dict['mcmcwcssol']['angle1'][2]],
-                        'angle2': [pipe_dict['mcmcwcssol']['angle2'][0], pipe_dict['mcmcwcssol']['angle2'][1], pipe_dict['mcmcwcssol']['angle2'][2]],
-                        'fwhm_x1': [pipe_dict['mcmcwcssol']['fwhm_x'][0], pipe_dict['mcmcwcssol']['fwhm_x'][1], pipe_dict['mcmcwcssol']['fwhm_x'][2]],
-                        'fwhm_y1': [pipe_dict['mcmcwcssol']['fwhm_y'][0], pipe_dict['mcmcwcssol']['fwhm_y'][1], pipe_dict['mcmcwcssol']['fwhm_y'][2]],
-                        'fwhm_x2': [pipe_dict['mcmcwcssol']['fwhm_x'][0], pipe_dict['mcmcwcssol']['fwhm_x'][1], pipe_dict['mcmcwcssol']['fwhm_x'][2]],
-                        'fwhm_y2': [pipe_dict['mcmcwcssol']['fwhm_y'][0], pipe_dict['mcmcwcssol']['fwhm_y'][1], pipe_dict['mcmcwcssol']['fwhm_y'][2]]}
-        else:
-            if redo or np.any([len(getattr(data_dict[data_elno],label)) == 0 for label in
-                        ['cor_spot_ref','conex_ref']]):
-                data_dict =get_satellite_spots_and_coronograph(data_elno, data_dict,image_list,header_list,sat_spots)
-
-            positions_ref = [np.float64(data_dict[data_elno].cor_spot_ref)]
-            coronograph_ref = np.float64(data_dict[data_elno].cor_spot_ref)
-            conex_xy_ref = np.float64(data_dict[data_elno].conex_ref)
-            slopes = np.float64(data_dict[data_elno].slopes)
-
-            pos_dict = {'amplitude': [pipe_dict['mcmcwcssol']['amplitude'][0], pipe_dict['mcmcwcssol']['amplitude'][1], pipe_dict['mcmcwcssol']['amplitude'][2]],
-                        'fwhm_x1': [pipe_dict['mcmcwcssol']['fwhm_x'][0], pipe_dict['mcmcwcssol']['fwhm_x'][1], pipe_dict['mcmcwcssol']['fwhm_x'][2]],
-                        'fwhm_y1': [pipe_dict['mcmcwcssol']['fwhm_y'][0], pipe_dict['mcmcwcssol']['fwhm_y'][1], pipe_dict['mcmcwcssol']['fwhm_y'][2]]}
-
-        config.dump_dataconfig(data_dict, args.data_cfg)
-
-        if workers >1:
-            print('> workers %i,chunksize %i,ntargets %i'%(workers,chunksize,ntargets))
-            with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
-                for _ in tqdm(executor.map(mcmc_task,filename_list,image_list,header_list,repeat(pos_dict),chunksize=chunksize)): pass
-
-        else:
-            for elno in range(len(filename_list)): mcmc_task(filename_list[elno],image_list[elno],header_list[elno],pos_dict)
-
-    else:
-        if sat_spots:
-            positions_ref = [np.float64(data_dict[data_elno].spot_ref1),
-                             np.float64(data_dict[data_elno].spot_ref2),
-                             np.float64(data_dict[data_elno].spot_ref3),
-                             np.float64(data_dict[data_elno].spot_ref4)]
-            coronograph_ref = np.float64(data_dict[data_elno].cor_spot_ref)
-            conex_xy_ref = np.float64(data_dict[data_elno].conex_ref)
-            slopes = np.float64(data_dict[data_elno].slopes)
-
-        else:
-            positions_ref = [np.float64(data_dict[data_elno].cor_spot_ref)]
-            coronograph_ref = np.float64(data_dict[data_elno].cor_spot_ref)
-            conex_xy_ref = np.float64(data_dict[data_elno].conex_ref)
-            slopes = np.float64(data_dict[data_elno].slopes)
+        mcmcwcs.fetching_mcmc_parameters()
+    #     print('> Fitting parameters')
+    #     ntargets = len(filename_list)
+    #
+    #     num_of_chunks = 3 * workers
+    #     chunksize = ntargets // num_of_chunks
+    #     if chunksize <= 0:
+    #         chunksize = 1
+    #
+    #     if redo or np.any([len(getattr(data_dict[data_elno], label)) == 0 for label in ['slopes']]):
+    #         out_dictc = get_slope_and_conex(data_elno,data_dict,sorted_elno_list,filename_list,image_list,header_list,ref_el)
+    #
+    #     if sat_spots:
+    #         if redo or np.any([len(getattr(data_dict[data_elno],label)) == 0 for label in
+    #                     ['spot_ref1', 'spot_ref2', 'spot_ref3', 'spot_ref4', 'cor_spot_ref','conex_ref']]):
+    #             data_dict =get_satellite_spots_and_coronograph(data_elno, data_dict,image_list,header_list,sat_spots)
+    #
+    #         positions_ref = [np.float64(data_dict[data_elno].spot_ref1),
+    #                          np.float64(data_dict[data_elno].spot_ref2),
+    #                          np.float64(data_dict[data_elno].spot_ref3),
+    #                          np.float64(data_dict[data_elno].spot_ref4)]
+    #         coronograph_ref = np.float64(data_dict[data_elno].cor_spot_ref)
+    #         conex_xy_ref = np.float64(data_dict[data_elno].conex_ref)
+    #         slopes = np.float64(data_dict[data_elno].slopes)
+    #
+    #         pos_dict = {'amplitude': [pipe_dict['mcmcwcssol']['amplitude'][0], pipe_dict['mcmcwcssol']['amplitude'][1], pipe_dict['mcmcwcssol']['amplitude'][2]],
+    #                     'length1': [pipe_dict['mcmcwcssol']['length'][0], pipe_dict['mcmcwcssol']['length'][1], pipe_dict['mcmcwcssol']['length'][2]],
+    #                     'length2': [pipe_dict['mcmcwcssol']['length'][0], pipe_dict['mcmcwcssol']['length'][1], pipe_dict['mcmcwcssol']['length'][2]],
+    #                     'angle1': [pipe_dict['mcmcwcssol']['angle1'][0], pipe_dict['mcmcwcssol']['angle1'][1], pipe_dict['mcmcwcssol']['angle1'][2]],
+    #                     'angle2': [pipe_dict['mcmcwcssol']['angle2'][0], pipe_dict['mcmcwcssol']['angle2'][1], pipe_dict['mcmcwcssol']['angle2'][2]],
+    #                     'fwhm_x1': [pipe_dict['mcmcwcssol']['fwhm_x'][0], pipe_dict['mcmcwcssol']['fwhm_x'][1], pipe_dict['mcmcwcssol']['fwhm_x'][2]],
+    #                     'fwhm_y1': [pipe_dict['mcmcwcssol']['fwhm_y'][0], pipe_dict['mcmcwcssol']['fwhm_y'][1], pipe_dict['mcmcwcssol']['fwhm_y'][2]],
+    #                     'fwhm_x2': [pipe_dict['mcmcwcssol']['fwhm_x'][0], pipe_dict['mcmcwcssol']['fwhm_x'][1], pipe_dict['mcmcwcssol']['fwhm_x'][2]],
+    #                     'fwhm_y2': [pipe_dict['mcmcwcssol']['fwhm_y'][0], pipe_dict['mcmcwcssol']['fwhm_y'][1], pipe_dict['mcmcwcssol']['fwhm_y'][2]]}
+    #     else:
+    #         if redo or np.any([len(getattr(data_dict[data_elno],label)) == 0 for label in
+    #                     ['cor_spot_ref','conex_ref']]):
+    #             data_dict =get_satellite_spots_and_coronograph(data_elno, data_dict,image_list,header_list,sat_spots)
+    #
+    #         positions_ref = [np.float64(data_dict[data_elno].cor_spot_ref)]
+    #         coronograph_ref = np.float64(data_dict[data_elno].cor_spot_ref)
+    #         conex_xy_ref = np.float64(data_dict[data_elno].conex_ref)
+    #         slopes = np.float64(data_dict[data_elno].slopes)
+    #
+    #         pos_dict = {'amplitude': [pipe_dict['mcmcwcssol']['amplitude'][0], pipe_dict['mcmcwcssol']['amplitude'][1], pipe_dict['mcmcwcssol']['amplitude'][2]],
+    #                     'fwhm_x1': [pipe_dict['mcmcwcssol']['fwhm_x'][0], pipe_dict['mcmcwcssol']['fwhm_x'][1], pipe_dict['mcmcwcssol']['fwhm_x'][2]],
+    #                     'fwhm_y1': [pipe_dict['mcmcwcssol']['fwhm_y'][0], pipe_dict['mcmcwcssol']['fwhm_y'][1], pipe_dict['mcmcwcssol']['fwhm_y'][2]]}
+    #
+    #     config.dump_dataconfig(data_dict, args.data_cfg)
+    #
+    #     if workers >1:
+    #         print('> workers %i,chunksize %i,ntargets %i'%(workers,chunksize,ntargets))
+    #         with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
+    #             for _ in tqdm(executor.map(mcmc_task,filename_list,image_list,header_list,repeat(pos_dict),chunksize=chunksize)): pass
+    #
+    #     else:
+    #         for elno in range(len(filename_list)): mcmc_task(filename_list[elno],image_list[elno],header_list[elno],pos_dict)
+    #
+    # else:
+    #     if sat_spots:
+    #         positions_ref = [np.float64(data_dict[data_elno].spot_ref1),
+    #                          np.float64(data_dict[data_elno].spot_ref2),
+    #                          np.float64(data_dict[data_elno].spot_ref3),
+    #                          np.float64(data_dict[data_elno].spot_ref4)]
+    #         coronograph_ref = np.float64(data_dict[data_elno].cor_spot_ref)
+    #         conex_xy_ref = np.float64(data_dict[data_elno].conex_ref)
+    #         slopes = np.float64(data_dict[data_elno].slopes)
+    #
+    #     else:
+    #         positions_ref = [np.float64(data_dict[data_elno].cor_spot_ref)]
+    #         coronograph_ref = np.float64(data_dict[data_elno].cor_spot_ref)
+    #         conex_xy_ref = np.float64(data_dict[data_elno].conex_ref)
+    #         slopes = np.float64(data_dict[data_elno].slopes)
 
     #################################################### OUTPUTS ###########################################################
     print('> Working on outputs')
