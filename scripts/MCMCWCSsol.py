@@ -729,15 +729,15 @@ class MCMCWCS:
 
         mcmcmwcs_pos = [index for (index, d) in enumerate(self.data) if '!MKIDMCMCWCSol' in d.tag.value][0]
         data_names = self.data[mcmcmwcs_pos]['data'].split('+')
-        mcmcmwcs_pos_list = [index for (index, d) in enumerate(self.data) for out_data in data_names if
+        data_pos = [index for (index, d) in enumerate(self.data) for out_data in data_names if
                           out_data in d['name']]
-        data_list = [self.data[mcmcmwcs_pos]['data'] for mcmcmwcs_pos in mcmcmwcs_pos_list[:5]]
+        data_list = [self.data[mcmcmwcs_pos]['data'] for mcmcmwcs_pos in data_pos]
         wcscal = self.data[mcmcmwcs_pos]['wcscal']
         start_offset = self.data[mcmcmwcs_pos]['start_offset']
         self.mcmc_config['mcmcmwcs_pos'] = mcmcmwcs_pos
         self.mcmc_config['start_offset'] = start_offset
 
-        self.mcmc_setup={label:var for var,label in zip([data_names,data_list,wcscal,start_offset],['data_names','data_list','wcscal'])}
+        self.mcmc_setup={label:var for var,label in zip([data_names,data_list,wcscal],['data_names','data_list','wcscal'])}
 
     def make_dir(self):
         if not os.path.exists(self.path['MCMC_fit']):
@@ -802,19 +802,19 @@ class MCMCWCS:
         
         self.mcmc_setup['data_names']=data_names
         self.mcmc_setup['sorted_data_pos']=sorted_data_pos
-        return(datas)
+        return(datas,headers)
 
 
     def load_fits_task(self,start_time):
         filename = min(self.mcmc_setup['h5_int_names'], key=lambda x: abs(x - start_time))
         pt = Photontable(self.path['out'] + '%i.h5' % (filename))
-        hdul = pt.get_fits(wave_start=950, wave_stop=1100, start=pt.start_time + self.mcmc_setup['start_offset'])
+        hdul = pt.get_fits(wave_start=950, wave_stop=1100, start=pt.start_time + self.mcmc_config['start_offset'])
         header = hdul[0].header
         data = hdul[1].data
         hdul.close()
         return (filename, header, data)
 
-    def fetching_mcmc_parameters(self):
+    def fetching_mcmc_parameters(self,datas,headers):
         print('> Fitting parameters')
         # ntargets = len(filename_list)
 
@@ -823,23 +823,22 @@ class MCMCWCS:
         if chunksize <= 0:
             chunksize = 1
 
-        if redo or np.any([len(getattr(self.data[self.data_elno], label)) == 0 for label in ['slopes']]):
-            data_dict = get_slope_and_conex(self.data_elno, self.data_dict, self.sorted_elno_list, self.filename_list, image_list,
-                                            header_list, ref_el)
+        if self.mcmc_config['redo'] or np.any([len(self.data[self.mcmc_config['mcmcmwcs_pos']][label]) == 0 for label in ['slopes']]):
+            mcmcwcs.get_slope_and_conex(datas,headers)
 
         if sat_spots:
-            if redo or np.any([len(getattr(data_dict[data_elno], label)) == 0 for label in
+            if self.mcmc_configp['redo'] or np.any([len(getattr(data_dict[self.mcmc_config['mcmcmwcs_pos']], label)) == 0 for label in
                                ['spot_ref1', 'spot_ref2', 'spot_ref3', 'spot_ref4', 'cor_spot_ref', 'conex_ref']]):
-                data_dict = get_satellite_spots_and_coronograph(data_elno, data_dict, image_list, header_list,
+                data_dict = get_satellite_spots_and_coronograph(self.mcmc_config['mcmcmwcs_pos'], data_dict, image_list, header_list,
                                                                 sat_spots)
 
-            positions_ref = [np.float64(data_dict[data_elno].spot_ref1),
-                             np.float64(data_dict[data_elno].spot_ref2),
-                             np.float64(data_dict[data_elno].spot_ref3),
-                             np.float64(data_dict[data_elno].spot_ref4)]
-            coronograph_ref = np.float64(data_dict[data_elno].cor_spot_ref)
-            conex_xy_ref = np.float64(data_dict[data_elno].conex_ref)
-            slopes = np.float64(data_dict[data_elno].slopes)
+            positions_ref = [np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].spot_ref1),
+                             np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].spot_ref2),
+                             np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].spot_ref3),
+                             np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].spot_ref4)]
+            coronograph_ref = np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].cor_spot_ref)
+            conex_xy_ref = np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].conex_ref)
+            slopes = np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].slopes)
 
             pos_dict = {'amplitude': [pipe_dict['mcmcwcssol']['amplitude'][0], pipe_dict['mcmcwcssol']['amplitude'][1],
                                       pipe_dict['mcmcwcssol']['amplitude'][2]],
@@ -860,15 +859,15 @@ class MCMCWCS:
                         'fwhm_y2': [pipe_dict['mcmcwcssol']['fwhm_y'][0], pipe_dict['mcmcwcssol']['fwhm_y'][1],
                                     pipe_dict['mcmcwcssol']['fwhm_y'][2]]}
         else:
-            if redo or np.any([len(getattr(data_dict[data_elno], label)) == 0 for label in
+            if redo or np.any([len(getattr(data_dict[self.mcmc_config['mcmcmwcs_pos']], label)) == 0 for label in
                                ['cor_spot_ref', 'conex_ref']]):
-                data_dict = get_satellite_spots_and_coronograph(data_elno, data_dict, image_list, header_list,
+                data_dict = get_satellite_spots_and_coronograph(self.mcmc_config['mcmcmwcs_pos'], data_dict, image_list, header_list,
                                                                 sat_spots)
 
-            positions_ref = [np.float64(data_dict[data_elno].cor_spot_ref)]
-            coronograph_ref = np.float64(data_dict[data_elno].cor_spot_ref)
-            conex_xy_ref = np.float64(data_dict[data_elno].conex_ref)
-            slopes = np.float64(data_dict[data_elno].slopes)
+            positions_ref = [np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].cor_spot_ref)]
+            coronograph_ref = np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].cor_spot_ref)
+            conex_xy_ref = np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].conex_ref)
+            slopes = np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].slopes)
 
             pos_dict = {'amplitude': [pipe_dict['mcmcwcssol']['amplitude'][0], pipe_dict['mcmcwcssol']['amplitude'][1],
                                       pipe_dict['mcmcwcssol']['amplitude'][2]],
@@ -892,7 +891,6 @@ class MCMCWCS:
         # np.random.seed(42)
         x = d[labels[0]]
         y= d[labels[1]]
-        print(y)
         yerr = np.array([d[labels[2]]]*len(y))
         x0 = np.linspace(x.min(), x.max(), 500)
         A = np.vander(x, 2)
@@ -970,25 +968,25 @@ class MCMCWCS:
                       title=['MaskedData', 'Model', 'Chi2'], cen_xy=[s['cen_x'][0],s['cen_y'][0]], satspot_xy=sp.satspots_xy, norm=norm, rows=1, path2savedir=self.path['MCMC_fit'] + 'plots/'+'debug/',filename="%i_MCMC_fit.jpg"%filename,save_output=True)
             return(filename,pixel_cen,epixel_cen,xyCons)
 
-    def get_slope_and_conex(self,data_elno,data_dict,sorted_elno_list,filename_list,image_list,header_list,ref_el):
+    def get_slope_and_conex(self,datas,headers):
         print('> Getting slope and conex postition from images.')
-        N=int(ref_el)
+        N=int(self.mcmc_config['ref_el'])
         # if len(data_dict[data_elno].slopes) == 0:
-        if N != 2: selected_elno_list=sorted_elno_list[::int(np.ceil( len(sorted_elno_list) / N ))]
-        else: selected_elno_list=[sorted_elno_list[0],sorted_elno_list[-1]]
+        if N != 2: selected_pos=self.mcmc_setup['sorted_data_pos'][::int(np.ceil( len(self.mcmc_setup['sorted_data_pos']) / N ))]
+        else: selected_pos=[self.mcmc_setup['sorted_data_pos'][0],self.mcmc_setup['sorted_data_pos'][-1]]
         print('> Selected N reference = %i, closest number of equidistant element = %i' % (
-            N, len(selected_elno_list)))
+            N, len(selected_pos)))
         # else:
-        #     selected_elno_list=[sorted_elno_list[0]]
+        #     selected_pos=[sorted_elno_list[0]]
         #     print('> Selected N reference = %i, closest number of equidistant element = %i' % (
-        #         N, len(selected_elno_list)))
+        #         N, len(selected_pos)))
         conex_ref_list=[]
         coronograph_ref_list=[]
 
         store=True
-        for elno in selected_elno_list:
-            data=image_list[elno]
-            header=header_list[elno]
+        for elno in selected_pos:
+            data=datas[elno]
+            header=headers[elno]
             coords = select_sources(data, n_satspots=0)
 
             positions, coronograph = [coords[0], coords[0]]
@@ -1006,24 +1004,27 @@ class MCMCWCS:
         coronograph_ref_list=np.array(coronograph_ref_list)
         conex_ref_list=np.array(conex_ref_list)
 
-        d = {'conexx': conex_ref_list[:, 0],
+        self.mcmc_setup['guesses'] = {'conexx': conex_ref_list[:, 0],
              'conexy': conex_ref_list[:, 1],
              'pixel_at_conex_x': coronograph_ref_list[:, 0],
-             'pixel_at_conex_y': coronograph_ref_list[:, 1]}
+             'pixel_at_conex_y': coronograph_ref_list[:, 1],
+             'std_pixel_at_conex_x':1,
+             'std_pixel_at_conex_y':1}
 
-        d['std_pixel_at_conex_x'] = 1
-        d['std_pixel_at_conex_y'] = 1
+        # d['std_pixel_at_conex_x'] = 1
+        # d['std_pixel_at_conex_y'] = 1
 
-        sol_x = lsq_fit_dpdc(d, ['conexx', 'pixel_at_conex_x', 'std_pixel_at_conex_x'], showplot=verbose,
-                             verbose=verbose,
-                             path2savedir=self.path['MCMC_fit'] + 'plots/', ext='_x_test_')
-        sol_y = lsq_fit_dpdc(d, ['conexy', 'pixel_at_conex_y', 'std_pixel_at_conex_y'], showplot=verbose,
-                             verbose=verbose,
-                             path2savedir=self.path['MCMC_fit'] + 'plots/', ext='_y_test_')
+        sol_x = mcmcwcs.lsq_fit_dpdc(self.mcmc_setup['guesses'], ['conexx', 'pixel_at_conex_x', 'std_pixel_at_conex_x'],
+                                     showplot=mcmcwcs.mcmc_config['verbose'],
+                                     verbose=mcmcwcs.mcmc_config['verbose'],
+                                     path2savedir=self.path['MCMC_fit'] + 'plots/', ext='_x_test_')
+        sol_y = mcmcwcs.lsq_fit_dpdc(self.mcmc_setup['guesses'], ['conexy', 'pixel_at_conex_y', 'std_pixel_at_conex_y'],
+                                     showplot=mcmcwcs.mcmc_config['verbose'],
+                                     verbose=mcmcwcs.mcmc_config['verbose'],
+                                     path2savedir=self.path['MCMC_fit'] + 'plots/', ext='_y_test_')
 
         slopes = [float(np.round(sol_x[0][0],2)),float(np.round(sol_y[0][0],2))]
-        data_dict[data_elno].slopes =[float(np.round(x,2)) for x in slopes]
-        return(data_dict)
+        self.data[self.mcmc_config['mcmcmwcs_pos']]['slopes'] =[float(np.round(x,2)) for x in slopes]
 
     def get_satellite_spots_and_coronograph(self,data_elno,data_dict,image_list,header_list,sat_spots):
         if sat_spots:
@@ -1038,13 +1039,13 @@ class MCMCWCS:
         positions_ref, coronograph_ref = [coords[:-1], coords[-1]]
         conex_xy_ref = [float(header['E_CONEXX']), float(header['E_CONEXY'])]
         if sat_spots:
-            data_dict[data_elno].spot_ref1 = [float(np.round(x, 2)) for x in positions_ref[0]]
-            data_dict[data_elno].spot_ref2 = [float(np.round(x, 2)) for x in positions_ref[1]]
-            data_dict[data_elno].spot_ref3 = [float(np.round(x, 2)) for x in positions_ref[2]]
-            data_dict[data_elno].spot_ref4 = [float(np.round(x, 2)) for x in positions_ref[3]]
+            data_dict[self.mcmc_config['mcmcmwcs_pos']].spot_ref1 = [float(np.round(x, 2)) for x in positions_ref[0]]
+            data_dict[self.mcmc_config['mcmcmwcs_pos']].spot_ref2 = [float(np.round(x, 2)) for x in positions_ref[1]]
+            data_dict[self.mcmc_config['mcmcmwcs_pos']].spot_ref3 = [float(np.round(x, 2)) for x in positions_ref[2]]
+            data_dict[self.mcmc_config['mcmcmwcs_pos']].spot_ref4 = [float(np.round(x, 2)) for x in positions_ref[3]]
 
-        data_dict[data_elno].cor_spot_ref = [float(np.round(x, 2)) for x in coronograph_ref]
-        data_dict[data_elno].conex_ref = [float(np.round(x, 2)) for x in conex_xy_ref]
+        data_dict[self.mcmc_config['mcmcmwcs_pos']].cor_spot_ref = [float(np.round(x, 2)) for x in coronograph_ref]
+        data_dict[self.mcmc_config['mcmcmwcs_pos']].conex_ref = [float(np.round(x, 2)) for x in conex_xy_ref]
 
         return(data_dict)
 
@@ -1130,7 +1131,7 @@ if __name__ == '__main__':
     #################################### Lodading data #################################################
     if not args.makeout:
         mcmcwcs.fetching_h5_names()
-        datas=mcmcwcs.fetching_datas()
+        datas,headers=mcmcwcs.fetching_datas()
         # print('> Looking for data in %s' % self.path2out)
         #
         # start_time_list=[]
@@ -1171,7 +1172,7 @@ if __name__ == '__main__':
         # sorted_elno_list = [x for _, x in sorted(zip(dist_list, elno_list))]
 
     ############################################################## PARAMETERS FIT #################################################################
-        mcmcwcs.fetching_mcmc_parameters()
+        mcmcwcs.fetching_mcmc_parameters(datas,headers)
     #     print('> Fitting parameters')
     #     ntargets = len(filename_list)
     #
@@ -1305,13 +1306,13 @@ if __name__ == '__main__':
                   'pc0': [float(np.round(i,2)) for i in sol_y[1]],
                   'conex': 0}}
 
-    data_dict[data_elno].sol = dout
+    data_dict[self.mcmc_config['mcmcmwcs_pos']].sol = dout
 
-    data_elno = next((index for (index, d) in enumerate(data_dict) if wcscal in d.name),None)
-    data_dict[data_elno].pixel_ref = [float(dout['x']['pc0'][0]),float(dout['y']['pc0'][0])]
-    data_dict[data_elno].conex_ref = [float(dout['x']['conex']),float(dout['y']['conex'])]
-    data_dict[data_elno].dp_dcx = float(dout['x']['dpdc'][0])
-    data_dict[data_elno].dp_dcy = float(dout['y']['dpdc'][0])
+    self.mcmc_config['mcmcmwcs_pos'] = next((index for (index, d) in enumerate(data_dict) if wcscal in d.name),None)
+    data_dict[self.mcmc_config['mcmcmwcs_pos']].pixel_ref = [float(dout['x']['pc0'][0]),float(dout['y']['pc0'][0])]
+    data_dict[self.mcmc_config['mcmcmwcs_pos']].conex_ref = [float(dout['x']['conex']),float(dout['y']['conex'])]
+    data_dict[self.mcmc_config['mcmcmwcs_pos']].dp_dcx = float(dout['x']['dpdc'][0])
+    data_dict[self.mcmc_config['mcmcmwcs_pos']].dp_dcy = float(dout['y']['dpdc'][0])
 
     # with open(args.data_cfg, "w") as file:
     #     YAML.dump(data_dict, file)
