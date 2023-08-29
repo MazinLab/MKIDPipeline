@@ -814,7 +814,7 @@ class MCMCWCS:
         hdul.close()
         return (filename, header, data)
 
-    def fetching_mcmc_parameters(self,datas,headers):
+    def fetching_mcmc_parameters(self, datas, headers):
         print('> Fitting parameters')
         # ntargets = len(filename_list)
 
@@ -826,11 +826,10 @@ class MCMCWCS:
         if self.mcmc_config['redo'] or np.any([len(self.data[self.mcmc_config['mcmcmwcs_pos']][label]) == 0 for label in ['slopes']]):
             mcmcwcs.get_slope_and_conex(datas,headers)
 
-        if sat_spots:
-            if self.mcmc_configp['redo'] or np.any([len(getattr(data_dict[self.mcmc_config['mcmcmwcs_pos']], label)) == 0 for label in
+        if self.mcmc_config['sat_spots']:
+            if self.mcmc_config['redo'] or np.any([len(self.data[self.mcmc_config['mcmcmwcs_pos']][label]) == 0 for label in
                                ['spot_ref1', 'spot_ref2', 'spot_ref3', 'spot_ref4', 'cor_spot_ref', 'conex_ref']]):
-                data_dict = get_satellite_spots_and_coronograph(self.mcmc_config['mcmcmwcs_pos'], data_dict, image_list, header_list,
-                                                                sat_spots)
+                mcmcwcs.get_satellite_spots_and_coronograph(datas[0], headers[0])
 
             positions_ref = [np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].spot_ref1),
                              np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].spot_ref2),
@@ -1026,29 +1025,25 @@ class MCMCWCS:
         slopes = [float(np.round(sol_x[0][0],2)),float(np.round(sol_y[0][0],2))]
         self.data[self.mcmc_config['mcmcmwcs_pos']]['slopes'] =[float(np.round(x,2)) for x in slopes]
 
-    def get_satellite_spots_and_coronograph(self,data_elno,data_dict,image_list,header_list,sat_spots):
-        if sat_spots:
+    def get_satellite_spots_and_coronograph(self,data,header):
+        if self.pipe['mcmcwcssol']['sat_spots']:
             print('> Getting satellite spots and coronograph postions from images.')
             n_satspots=4
         else:
             print('> Getting coronograph postions from images.')
             n_satspots=0
-        header = header_list[0] # hdul[0].header
-        data = image_list[0] #hdul[1].data
+
         coords = select_sources(data, n_satspots=n_satspots)
         positions_ref, coronograph_ref = [coords[:-1], coords[-1]]
         conex_xy_ref = [float(header['E_CONEXX']), float(header['E_CONEXY'])]
-        if sat_spots:
-            data_dict[self.mcmc_config['mcmcmwcs_pos']].spot_ref1 = [float(np.round(x, 2)) for x in positions_ref[0]]
-            data_dict[self.mcmc_config['mcmcmwcs_pos']].spot_ref2 = [float(np.round(x, 2)) for x in positions_ref[1]]
-            data_dict[self.mcmc_config['mcmcmwcs_pos']].spot_ref3 = [float(np.round(x, 2)) for x in positions_ref[2]]
-            data_dict[self.mcmc_config['mcmcmwcs_pos']].spot_ref4 = [float(np.round(x, 2)) for x in positions_ref[3]]
+        if self.pipe['mcmcwcssol']['sat_spots']:
+            self.data[self.mcmc_config['mcmcmwcs_pos']]['spot_ref1'] = [float(np.round(x, 2)) for x in positions_ref[0]]
+            self.data[self.mcmc_config['mcmcmwcs_pos']]['spot_ref2'] = [float(np.round(x, 2)) for x in positions_ref[1]]
+            self.data[self.mcmc_config['mcmcmwcs_pos']]['spot_ref3'] = [float(np.round(x, 2)) for x in positions_ref[2]]
+            self.data[self.mcmc_config['mcmcmwcs_pos']]['spot_ref4'] = [float(np.round(x, 2)) for x in positions_ref[3]]
 
-        data_dict[self.mcmc_config['mcmcmwcs_pos']].cor_spot_ref = [float(np.round(x, 2)) for x in coronograph_ref]
-        data_dict[self.mcmc_config['mcmcmwcs_pos']].conex_ref = [float(np.round(x, 2)) for x in conex_xy_ref]
-
-        return(data_dict)
-
+        self.data[self.mcmc_config['mcmcmwcs_pos']]['cor_spot_ref'] = [float(np.round(x, 2)) for x in coronograph_ref]
+        self.data[self.mcmc_config['mcmcmwcs_pos']]['conex_ref'] = [float(np.round(x, 2)) for x in conex_xy_ref]
 
 
 if __name__ == '__main__':
