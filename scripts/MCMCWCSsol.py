@@ -718,8 +718,8 @@ class MCMCWCS:
         self.path={label: self.pipe['paths'][label] for label in ['data','out']}
         self.path['MCMC_fit']=self.path['out'] + 'MCMC_fit/'
         self.mcmc_config={label: self.pipe['mcmcwcssol'][label] for label in ['nwalkers','steps','progress','workers',
-                                                                              'sat_spots','ref_el','v_lim','factor',
-                                                                              'redo']}
+                                                                              'sat_spots','ref_sat_spot_im','ref_el',
+                                                                              'v_lim','factor', 'redo']}
 
 
         if not verbose:
@@ -829,15 +829,16 @@ class MCMCWCS:
         if self.mcmc_config['sat_spots']:
             if self.mcmc_config['redo'] or np.any([len(self.data[self.mcmc_config['mcmcmwcs_pos']][label]) == 0 for label in
                                ['spot_ref1', 'spot_ref2', 'spot_ref3', 'spot_ref4', 'cor_spot_ref', 'conex_ref']]):
-                mcmcwcs.get_satellite_spots_and_coronograph(datas[0], headers[0])
+                mcmcwcs.get_satellite_spots_and_coronograph(datas[self.mcmc_config['ref_sat_spot_pos']],
+                                                            headers[self.mcmc_config['ref_sat_spot_pos']])
 
-            positions_ref = [np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].spot_ref1),
-                             np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].spot_ref2),
-                             np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].spot_ref3),
-                             np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].spot_ref4)]
-            coronograph_ref = np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].cor_spot_ref)
-            conex_xy_ref = np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].conex_ref)
-            slopes = np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].slopes)
+            self.mcmc_setup['positions_ref'] = [np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['spot_ref1']),
+                             np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['spot_ref2']),
+                             np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['spot_ref3']),
+                             np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['spot_ref4'])]
+            self.mcmc_setup['coronograph_ref'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['cor_spot_ref'])
+            self.mcmc_setup['conex_xy_ref'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['conex_ref'])
+            self.mcmc_setup['slopes'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['slopes'])
 
             pos_dict = {'amplitude': [pipe_dict['mcmcwcssol']['amplitude'][0], pipe_dict['mcmcwcssol']['amplitude'][1],
                                       pipe_dict['mcmcwcssol']['amplitude'][2]],
@@ -1036,6 +1037,7 @@ class MCMCWCS:
         coords = select_sources(data, n_satspots=n_satspots)
         positions_ref, coronograph_ref = [coords[:-1], coords[-1]]
         conex_xy_ref = [float(header['E_CONEXX']), float(header['E_CONEXY'])]
+
         if self.pipe['mcmcwcssol']['sat_spots']:
             self.data[self.mcmc_config['mcmcmwcs_pos']]['spot_ref1'] = [float(np.round(x, 2)) for x in positions_ref[0]]
             self.data[self.mcmc_config['mcmcmwcs_pos']]['spot_ref2'] = [float(np.round(x, 2)) for x in positions_ref[1]]
