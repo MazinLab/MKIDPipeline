@@ -765,7 +765,7 @@ class MCMCWCS:
             start_times.extend([np.round(i) for i in startt])
             print('>> Found %i dithers.' % len(startt))
 
-        self.mcmc_setup['h5_int_names']= [int(i.split('/')[-1].split('.h5')[0]) for i in glob(self.paths['out'] + '*.h5')]
+        self.mcmc_setup['h5_names']= [i.split('/')[-1] for i in glob(self.paths['out'] + '*.h5')]
         self.mcmc_setup['start_times'] = start_times
         self.mcmc_setup['ntargets'] = len(start_times)
 
@@ -786,9 +786,9 @@ class MCMCWCS:
             workers_load = 10
         else:
             workers_load = self.mcmc_config['ncpu']
-        print('> Using %i workers to load a total of %i files ...' % (workers_load, self.mcmc_setup['ntargets']))
+        print('> Using %i cpus to load a total of %i files ...' % (workers_load, self.mcmc_setup['ntargets']))
         with concurrent.futures.ProcessPoolExecutor(max_workers=workers_load) as executor:
-            for filename, header, data in tqdm(executor.map(mcmcwcs.load_fits_task, self.mcmc_setup['start_times'], chunksize=chunksize)):
+            for filename, header, data in tqdm(executor.map(mcmcwcs.load_fits_task, self.mcmc_setup['h5_names'], chunksize=chunksize)):
                 elno += 1
                 data_names.append(filename)
                 headers.append(header)
@@ -804,9 +804,9 @@ class MCMCWCS:
         return(datas,headers)
 
 
-    def load_fits_task(self,start_time):
-        filename = min(self.mcmc_setup['h5_int_names'], key=lambda x: abs(x - start_time))
-        pt = Photontable(self.paths['out'] + '%i.h5' % (filename))
+    def load_fits_task(self, filename):
+        # filename = min(self.mcmc_setup['h5_names'], key=lambda x: abs(x - start_time))
+        pt = Photontable(self.paths['out'] + filename)
         hdul = pt.get_fits(wave_start=950, wave_stop=1100, start=pt.start_time + self.mcmc_config['start_offset'])
         header = hdul[0].header
         data = hdul[1].data
@@ -878,12 +878,13 @@ class MCMCWCS:
         config.dump_dataconfig(self.data, self.paths['data_cfg'])
 
         if self.mcmc_config['parallel_runs']:
-            print('> workers %i,chunksize %i,ntargets %i' % (self.mcmc_config['ncpu'], chunksize, self.mcmc_setup['ntargets']))
+            print('> parallel runs %s, number of parallel runs %i, ncpu per target %i, ntargets %i, chunksize %i' % (self.mcmc_config['parallel_runs'], self.mcmc_config['ncpu'],self.mcmc_config['mcmc_ncpu_multiplier'], self.mcmc_setup['ntargets'], chunksize))
             with concurrent.futures.ProcessPoolExecutor(max_workers=self.mcmc_config['ncpu']) as executor:
                 for _ in tqdm(executor.map(mcmcwcs.mcmc_task, self.mcmc_setup['data_names'], datas, headers, repeat(self.mcmc_config['mcmc_ncpu_multiplier']),
                                            chunksize=chunksize)):
                     pass
         else:
+            print('> parallel_runs %s, ncpu per target %i ,ntargets %i' % (self.mcmc_config['parallel_runs'], self.mcmc_config['mcmc_ncpu_multiplier']*self.mcmc_config['ncpu'], self.mcmc_setup['ntargets']))
             for elno in tqdm(range(self.mcmc_setup['ntargets'])):
                 mcmcwcs.mcmc_task(self.mcmc_setup['data_names'][elno], datas[elno], headers[elno],self.mcmc_config['mcmc_ncpu_multiplier']*self.mcmc_config['ncpu'])
 
@@ -1052,6 +1053,80 @@ class MCMCWCS:
         self.data[self.mcmc_config['mcmcmwcs_pos']]['cor_spot_ref'] = [float(np.round(x, 2)) for x in coronograph_ref]
         self.data[self.mcmc_config['mcmcmwcs_pos']]['conex_ref'] = [float(np.round(x, 2)) for x in conex_xy_ref]
 
+    def make_outputs(self):
+        print('> Working on outputs')
+        print('> Looking for data in %s' % self.path['MCMC_fit'])
+
+        filename_list = [int(filename.split('/')[-1].split('_')[0]) for filename in
+                         glob(self.path['MCMC_fit'] + '*.h5')]
+
+        ntargets = len(filename_list)
+        num_of_chunks = 3 * workers
+        chunksize = ntargets // num_of_chunks
+        if chunksize <= 0:
+            chunksize = 1
+
+        out_filename_list = []
+        pixel_cen_list = []
+        epixel_cen_list = []
+        conexx_list = []
+        if sat_spots:
+            MCMC_labels = ['amplitude', 'length1', 'length2', 'angle1', 'angle2', 'fwhm_x1', 'fwhm_y1', 'fwhm_x2',
+                           'fwhm_y2', 'cen_x',
+                           'cen_y']
+        else:
+            MCMC_labels = ['amplitude', 'fwhm_x1', 'fwhm_y1', 'cen_x', 'cen_y']
+
+        print('> Working on data:')
+        for filename in tqdm(filename_list):
+            try:
+                filename, pixel_cen, epixel_cen, xyCons = sample_posteriors_task(filename)
+                out_filename_list.append(filename)
+                pixel_cen_list.append(pixel_cen)
+                epixel_cen_list.append(epixel_cen)
+                conexx_list.append(xyCons)
+            except:
+                print('> Skipping %s' % filename)
+        out_filename_list = np.array(out_filename_list)
+        pixel_cen_list = np.array(pixel_cen_list)
+        epixel_cen_list = np.array(epixel_cen_list)
+        conexx_list = np.array(conexx_list)
+
+        d = {'conexx': conexx_list[:, 0],
+             'conexy': conexx_list[:, 1],
+             'pixel_at_conex_x': pixel_cen_list[:, 0],
+             'pixel_at_conex_y': pixel_cen_list[:, 1],
+             'epixel_at_conex_x': epixel_cen_list[:, 0],
+             'epixel_at_conex_y': epixel_cen_list[:, 1]}
+
+        d['std_pixel_at_conex_x'] = np.nanmean(
+            [np.std(d['pixel_at_conex_x'][np.where(d['conexx'] == conexx)[0]]) for conexx in set(d['conexx'])])
+
+        d['std_pixel_at_conex_y'] = np.nanmean(
+            [np.std(d['pixel_at_conex_y'][np.where(d['conexy'] == conexy)[0]]) for conexy in set(d['conexy'])])
+
+        sol_x = lsq_fit_dpdc(d, ['conexx', 'pixel_at_conex_x', 'std_pixel_at_conex_x'], showplot=verbose,
+                             verbose=verbose,
+                             path2savedir=self.path['MCMC_fit'] + 'plots/', ext='_x_')
+        sol_y = lsq_fit_dpdc(d, ['conexy', 'pixel_at_conex_y', 'std_pixel_at_conex_y'], showplot=verbose,
+                             verbose=verbose,
+                             path2savedir=self.path['MCMC_fit'] + 'plots/', ext='_y_')
+
+        dout = {'x': {'dpdc': [float(np.round(i, 2)) for i in sol_x[0]],
+                      'pc0': [float(np.round(i, 2)) for i in sol_x[1]],
+                      'conex': 0},
+                'y': {'dpdc': [float(np.round(i, 2)) for i in sol_y[0]],
+                      'pc0': [float(np.round(i, 2)) for i in sol_y[1]],
+                      'conex': 0}}
+
+        data_dict[self.mcmc_config['mcmcmwcs_pos']].sol = dout
+
+        self.mcmc_config['mcmcmwcs_pos'] = next((index for (index, d) in enumerate(data_dict) if wcscal in d.name),
+                                                None)
+        data_dict[self.mcmc_config['mcmcmwcs_pos']].pixel_ref = [float(dout['x']['pc0'][0]), float(dout['y']['pc0'][0])]
+        data_dict[self.mcmc_config['mcmcmwcs_pos']].conex_ref = [float(dout['x']['conex']), float(dout['y']['conex'])]
+        data_dict[self.mcmc_config['mcmcmwcs_pos']].dp_dcx = float(dout['x']['dpdc'][0])
+        data_dict[self.mcmc_config['mcmcmwcs_pos']].dp_dcy = float(dout['y']['dpdc'][0])
 
 if __name__ == '__main__':
     def parse():
@@ -1063,7 +1138,7 @@ if __name__ == '__main__':
         # parser.add_argument('-s', type=str, help='A config file for the solution', default='./dpdc_pc0.yaml', dest='dpdc_pc0')
         parser.add_argument('--make-dir', dest='make_paths', help='Create all needed directories', action='store_true')
         parser.add_argument('--verbose', action='store_true', help='Verbose', dest='verbose')
-        parser.add_argument('--make-outputs-only', dest='makeout', help='Run the pipeline on the outputs only', action='store_true')
+        # parser.add_argument('--make-outputs-only', dest='makeout', help='Run the pipeline on the outputs only', action='store_true')
         return parser.parse_args()
 
     ############################# VARIABLES DEFINITION ########################################
@@ -1131,8 +1206,8 @@ if __name__ == '__main__':
         #     os.makedirs(path2MCMC_fit + 'plots/posterior/')
 
     #################################### Lodading data #################################################
-    if not args.makeout:
-        mcmcwcs.fetching_h5_names()
+    mcmcwcs.fetching_h5_names()
+    if mcmcwcs.mcmc_config['redo']:
         datas,headers=mcmcwcs.fetching_datas()
         # print('> Looking for data in %s' % self.path2out)
         #
@@ -1175,7 +1250,6 @@ if __name__ == '__main__':
 
     ############################################################## PARAMETERS FIT #################################################################
         mcmcwcs.fetching_mcmc_parameters(datas,headers)
-        sys.exit()
     #     print('> Fitting parameters')
     #     ntargets = len(filename_list)
     #
@@ -1250,72 +1324,72 @@ if __name__ == '__main__':
     #         slopes = np.float64(data_dict[data_elno].slopes)
 
     #################################################### OUTPUTS ###########################################################
-    print('> Working on outputs')
-    print('> Looking for data in %s'%self.path['MCMC_fit'])
-
-    filename_list = [int(filename.split('/')[-1].split('_')[0]) for filename in glob(self.path['MCMC_fit'] + '*.h5')]
-
-    ntargets=len(filename_list)
-    num_of_chunks = 3 * workers
-    chunksize = ntargets // num_of_chunks
-    if chunksize <= 0:
-        chunksize = 1
-
-    out_filename_list = []
-    pixel_cen_list = []
-    epixel_cen_list = []
-    conexx_list = []
-    if sat_spots: MCMC_labels = ['amplitude', 'length1', 'length2', 'angle1', 'angle2', 'fwhm_x1', 'fwhm_y1', 'fwhm_x2', 'fwhm_y2', 'cen_x',
-             'cen_y']
-    else: MCMC_labels = ['amplitude', 'fwhm_x1', 'fwhm_y1', 'cen_x', 'cen_y']
-
-    print('> Working on data:')
-    for filename in tqdm(filename_list):
-        try:
-            filename, pixel_cen, epixel_cen, xyCons  = sample_posteriors_task(filename)
-            out_filename_list.append(filename)
-            pixel_cen_list.append(pixel_cen)
-            epixel_cen_list.append(epixel_cen)
-            conexx_list.append(xyCons)
-        except:
-            print('> Skipping %s'%filename)
-    out_filename_list = np.array(out_filename_list)
-    pixel_cen_list = np.array(pixel_cen_list)
-    epixel_cen_list = np.array(epixel_cen_list)
-    conexx_list = np.array(conexx_list)
-
-    d = {'conexx': conexx_list[:, 0],
-         'conexy': conexx_list[:, 1],
-         'pixel_at_conex_x': pixel_cen_list[:, 0],
-         'pixel_at_conex_y': pixel_cen_list[:, 1],
-         'epixel_at_conex_x': epixel_cen_list[:, 0],
-         'epixel_at_conex_y': epixel_cen_list[:, 1]}
-
-    d['std_pixel_at_conex_x'] = np.nanmean(
-        [np.std(d['pixel_at_conex_x'][np.where(d['conexx'] == conexx)[0]]) for conexx in set(d['conexx'])])
-
-    d['std_pixel_at_conex_y']= np.nanmean(
-        [np.std(d['pixel_at_conex_y'][np.where(d['conexy'] == conexy)[0]]) for conexy in set(d['conexy'])])
-
-    sol_x = lsq_fit_dpdc(d, ['conexx', 'pixel_at_conex_x', 'std_pixel_at_conex_x'], showplot=verbose, verbose=verbose,
-                         path2savedir=self.path['MCMC_fit'] + 'plots/', ext='_x_')
-    sol_y = lsq_fit_dpdc(d, ['conexy', 'pixel_at_conex_y', 'std_pixel_at_conex_y'], showplot=verbose, verbose=verbose,
-                         path2savedir=self.path['MCMC_fit'] + 'plots/', ext='_y_')
-
-    dout = {'x': {'dpdc': [float(np.round(i,2)) for i in sol_x[0]],
-                  'pc0': [float(np.round(i,2)) for i in sol_x[1]],
-                  'conex': 0},
-            'y': {'dpdc': [float(np.round(i,2)) for i in sol_y[0]],
-                  'pc0': [float(np.round(i,2)) for i in sol_y[1]],
-                  'conex': 0}}
-
-    data_dict[self.mcmc_config['mcmcmwcs_pos']].sol = dout
-
-    self.mcmc_config['mcmcmwcs_pos'] = next((index for (index, d) in enumerate(data_dict) if wcscal in d.name),None)
-    data_dict[self.mcmc_config['mcmcmwcs_pos']].pixel_ref = [float(dout['x']['pc0'][0]),float(dout['y']['pc0'][0])]
-    data_dict[self.mcmc_config['mcmcmwcs_pos']].conex_ref = [float(dout['x']['conex']),float(dout['y']['conex'])]
-    data_dict[self.mcmc_config['mcmcmwcs_pos']].dp_dcx = float(dout['x']['dpdc'][0])
-    data_dict[self.mcmc_config['mcmcmwcs_pos']].dp_dcy = float(dout['y']['dpdc'][0])
+    # print('> Working on outputs')
+    # print('> Looking for data in %s'%self.path['MCMC_fit'])
+    #
+    # filename_list = [int(filename.split('/')[-1].split('_')[0]) for filename in glob(self.path['MCMC_fit'] + '*.h5')]
+    #
+    # ntargets=len(filename_list)
+    # num_of_chunks = 3 * workers
+    # chunksize = ntargets // num_of_chunks
+    # if chunksize <= 0:
+    #     chunksize = 1
+    #
+    # out_filename_list = []
+    # pixel_cen_list = []
+    # epixel_cen_list = []
+    # conexx_list = []
+    # if sat_spots: MCMC_labels = ['amplitude', 'length1', 'length2', 'angle1', 'angle2', 'fwhm_x1', 'fwhm_y1', 'fwhm_x2', 'fwhm_y2', 'cen_x',
+    #          'cen_y']
+    # else: MCMC_labels = ['amplitude', 'fwhm_x1', 'fwhm_y1', 'cen_x', 'cen_y']
+    #
+    # print('> Working on data:')
+    # for filename in tqdm(filename_list):
+    #     try:
+    #         filename, pixel_cen, epixel_cen, xyCons  = sample_posteriors_task(filename)
+    #         out_filename_list.append(filename)
+    #         pixel_cen_list.append(pixel_cen)
+    #         epixel_cen_list.append(epixel_cen)
+    #         conexx_list.append(xyCons)
+    #     except:
+    #         print('> Skipping %s'%filename)
+    # out_filename_list = np.array(out_filename_list)
+    # pixel_cen_list = np.array(pixel_cen_list)
+    # epixel_cen_list = np.array(epixel_cen_list)
+    # conexx_list = np.array(conexx_list)
+    #
+    # d = {'conexx': conexx_list[:, 0],
+    #      'conexy': conexx_list[:, 1],
+    #      'pixel_at_conex_x': pixel_cen_list[:, 0],
+    #      'pixel_at_conex_y': pixel_cen_list[:, 1],
+    #      'epixel_at_conex_x': epixel_cen_list[:, 0],
+    #      'epixel_at_conex_y': epixel_cen_list[:, 1]}
+    #
+    # d['std_pixel_at_conex_x'] = np.nanmean(
+    #     [np.std(d['pixel_at_conex_x'][np.where(d['conexx'] == conexx)[0]]) for conexx in set(d['conexx'])])
+    #
+    # d['std_pixel_at_conex_y']= np.nanmean(
+    #     [np.std(d['pixel_at_conex_y'][np.where(d['conexy'] == conexy)[0]]) for conexy in set(d['conexy'])])
+    #
+    # sol_x = lsq_fit_dpdc(d, ['conexx', 'pixel_at_conex_x', 'std_pixel_at_conex_x'], showplot=verbose, verbose=verbose,
+    #                      path2savedir=self.path['MCMC_fit'] + 'plots/', ext='_x_')
+    # sol_y = lsq_fit_dpdc(d, ['conexy', 'pixel_at_conex_y', 'std_pixel_at_conex_y'], showplot=verbose, verbose=verbose,
+    #                      path2savedir=self.path['MCMC_fit'] + 'plots/', ext='_y_')
+    #
+    # dout = {'x': {'dpdc': [float(np.round(i,2)) for i in sol_x[0]],
+    #               'pc0': [float(np.round(i,2)) for i in sol_x[1]],
+    #               'conex': 0},
+    #         'y': {'dpdc': [float(np.round(i,2)) for i in sol_y[0]],
+    #               'pc0': [float(np.round(i,2)) for i in sol_y[1]],
+    #               'conex': 0}}
+    #
+    # data_dict[self.mcmc_config['mcmcmwcs_pos']].sol = dout
+    #
+    # self.mcmc_config['mcmcmwcs_pos'] = next((index for (index, d) in enumerate(data_dict) if wcscal in d.name),None)
+    # data_dict[self.mcmc_config['mcmcmwcs_pos']].pixel_ref = [float(dout['x']['pc0'][0]),float(dout['y']['pc0'][0])]
+    # data_dict[self.mcmc_config['mcmcmwcs_pos']].conex_ref = [float(dout['x']['conex']),float(dout['y']['conex'])]
+    # data_dict[self.mcmc_config['mcmcmwcs_pos']].dp_dcx = float(dout['x']['dpdc'][0])
+    # data_dict[self.mcmc_config['mcmcmwcs_pos']].dp_dcy = float(dout['y']['dpdc'][0])
 
     # with open(args.data_cfg, "w") as file:
     #     YAML.dump(data_dict, file)
