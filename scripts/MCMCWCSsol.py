@@ -765,9 +765,10 @@ class MCMCWCS:
             start_times.extend([np.round(i) for i in startt])
             print('>> Found %i dithers.' % len(startt))
 
+        h5_int_names = [int(i.split('/')[-1].split('.h5')[0]) for i in glob(self.paths['out'] + '*.h5')]
 
         self.mcmc_setup['start_times'] = start_times
-        self.mcmc_setup['h5_names'] = [str(int(min(self.mcmc_setup['start_times'], key=lambda x: abs(x - i))))+'.h5' for i in self.mcmc_setup['start_times']]
+        self.mcmc_setup['h5_names'] = [str(int(min(h5_int_names, key=lambda x: abs(x - i))))+'.h5' for i in self.mcmc_setup['start_times']]
         self.mcmc_setup['ntargets'] = len(start_times)
 
     def fetching_datas(self):
