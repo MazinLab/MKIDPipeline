@@ -720,7 +720,7 @@ class MCMCWCS:
         self.paths['pipe_cfg']=pipe_cfg
         self.paths['MCMC_fit']=self.paths['out'] + 'MCMC_fit/'
         self.mcmc_config={label: pipe['mcmcwcssol'][label] for label in pipe['mcmcwcssol'].keys()}
-
+        self.mcmc_config['ncpu']=pipe['ncpu']
 
         if not verbose:
             self.mcmc_config['verbose'] = pipe['mcmcwcssol']['verbose']
@@ -776,16 +776,16 @@ class MCMCWCS:
         elno_list = []
         data_names = []
 
-        num_of_chunks = 3 * self.mcmc_config['workers']
+        num_of_chunks = 3 * self.mcmc_config['ncpu']
         chunksize = self.mcmc_setup['ntargets'] // num_of_chunks
         if chunksize <= 0:
             chunksize = 1
 
         elno = 0
-        if self.mcmc_config['workers'] == 1:
+        if self.mcmc_config['ncpu'] == 1:
             workers_load = 10
         else:
-            workers_load = self.mcmc_config['workers']
+            workers_load = self.mcmc_config['ncpu']
         print('> Using %i workers to load a total of %i files ...' % (workers_load, self.mcmc_setup['ntargets']))
         with concurrent.futures.ProcessPoolExecutor(max_workers=workers_load) as executor:
             for filename, header, data in tqdm(executor.map(mcmcwcs.load_fits_task, self.mcmc_setup['start_times'], chunksize=chunksize)):
@@ -817,7 +817,7 @@ class MCMCWCS:
         print('> Fitting parameters')
         # ntargets = len(filename_list)
 
-        num_of_chunks = 3 * self.mcmc_config['workers']
+        num_of_chunks = 3 * self.mcmc_config['ncpu']
         chunksize = self.mcmc_setup['ntargets'] // num_of_chunks
         if chunksize <= 0:
             chunksize = 1
@@ -877,15 +877,15 @@ class MCMCWCS:
 
         config.dump_dataconfig(self.data, self.paths['data_cfg'])
 
-        if self.mcmc_config['workers'] > 1:
-            print('> workers %i,chunksize %i,ntargets %i' % (self.mcmc_config['workers'], chunksize, self.mcmc_setup['ntargets']))
-            with concurrent.futures.ProcessPoolExecutor(max_workers=self.mcmc_config['workers']) as executor:
-                for _ in tqdm(executor.map(mcmcwcs.mcmc_task, self.mcmc_setup['data_names'], datas, headers, repeat(1),
+        if self.mcmc_config['parallel_runs']:
+            print('> workers %i,chunksize %i,ntargets %i' % (self.mcmc_config['ncpu'], chunksize, self.mcmc_setup['ntargets']))
+            with concurrent.futures.ProcessPoolExecutor(max_workers=self.mcmc_config['ncpu']) as executor:
+                for _ in tqdm(executor.map(mcmcwcs.mcmc_task, self.mcmc_setup['data_names'], datas, headers, repeat(self.mcmc_config['mcmc_ncpu_multiplier']),
                                            chunksize=chunksize)):
                     pass
         else:
             for elno in tqdm(range(self.mcmc_setup['ntargets'])):
-                mcmcwcs.mcmc_task(self.mcmc_setup['data_names'][elno], datas[elno], headers[elno],10)
+                mcmcwcs.mcmc_task(self.mcmc_setup['data_names'][elno], datas[elno], headers[elno],self.mcmc_config['mcmc_ncpu_multiplier']*self.mcmc_config['ncpu'])
 
     def lsq_fit_dpdc(self,d,labels,path2savedir=None,filename='test.jpg',showplot=True,verbose=True,ext='_'):
         # np.random.seed(42)
@@ -1175,6 +1175,7 @@ if __name__ == '__main__':
 
     ############################################################## PARAMETERS FIT #################################################################
         mcmcwcs.fetching_mcmc_parameters(datas,headers)
+        sys.exit()
     #     print('> Fitting parameters')
     #     ntargets = len(filename_list)
     #
