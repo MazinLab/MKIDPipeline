@@ -886,7 +886,6 @@ class MCMCWCS:
         else:
             for elno in tqdm(range(self.mcmc_setup['ntargets'])):
                 mcmcwcs.mcmc_task(self.mcmc_setup['data_names'][elno], datas[elno], headers[elno],10)
-                sys.exit()
 
     def lsq_fit_dpdc(self,d,labels,path2savedir=None,filename='test.jpg',showplot=True,verbose=True,ext='_'):
         # np.random.seed(42)
@@ -918,7 +917,7 @@ class MCMCWCS:
     
         return([[np.round(w[0],3), np.round(np.sqrt(cov[0, 0]),3)],[np.round(w[1],3), np.round(np.sqrt(cov[1, 1]),3)]])
     
-    def getEquidistantPoints(self,p1, p2, parts):
+    def get_equidistant_points(self,p1, p2, parts):
         return zip(np.linspace(p1[0], p2[0], parts+1),
                    np.linspace(p1[1], p2[1], parts+1))
 
