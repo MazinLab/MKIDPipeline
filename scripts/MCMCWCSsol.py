@@ -30,7 +30,8 @@ from itertools import repeat
 from skimage.morphology.footprints import disk
 from skimage.morphology import dilation
 from varname import nameof
-
+import warnings
+warnings.filterwarnings("ignore")
 class ClickCoords:
     """
     Class for choosing approximate location in the image for each point source to use for the wcscal. Associates the
@@ -711,19 +712,18 @@ class MCMC_FIT:
 
 class MCMCWCS:
     def __init__(self, pipe_cfg, data_cfg,verbose):
-
         self.data = mkidcore.config.load(data_cfg)
-        self.pipe = mkidcore.config.load(pipe_cfg)
+        pipe = mkidcore.config.load(pipe_cfg)
 
-        self.path={label: self.pipe['paths'][label] for label in ['data','out']}
-        self.path['MCMC_fit']=self.path['out'] + 'MCMC_fit/'
-        self.mcmc_config={label: self.pipe['mcmcwcssol'][label] for label in ['nwalkers','steps','progress','workers',
-                                                                              'sat_spots','ref_sat_spot_im','ref_el',
-                                                                              'v_lim','factor', 'redo']}
+        self.paths={label: pipe['paths'][label] for label in ['data','out']}
+        self.paths['data_cfg']=data_cfg
+        self.paths['pipe_cfg']=pipe_cfg
+        self.paths['MCMC_fit']=self.paths['out'] + 'MCMC_fit/'
+        self.mcmc_config={label: pipe['mcmcwcssol'][label] for label in pipe['mcmcwcssol'].keys()}
 
 
         if not verbose:
-            self.mcmc_config['verbose'] = self.pipe['mcmcwcssol']['verbose']
+            self.mcmc_config['verbose'] = pipe['mcmcwcssol']['verbose']
         else:
             self.mcmc_config['verbose'] = verbose
 
@@ -740,35 +740,34 @@ class MCMCWCS:
         self.mcmc_setup={label:var for var,label in zip([data_names,data_list,wcscal],['data_names','data_list','wcscal'])}
 
     def make_dir(self):
-        if not os.path.exists(self.path['MCMC_fit']):
-            print('> Making %s' % self.path['MCMC_fit'])
-            os.makedirs(self.path['MCMC_fit'])
-            if not os.path.exists(self.path['MCMC_fit']+'/plots/'):
-                print('> Making %s' % self.path['MCMC_fit']+'plots/')
-                os.makedirs(self.path['MCMC_fit']+'plots/')
-                if not os.path.exists(self.path['MCMC_fit'] + '/plots/corners/'):
-                    print('> Making %s' % self.path['MCMC_fit']+'plots/corners/')
-                os.makedirs(self.path['MCMC_fit']+'plots/corners/')
-                if not os.path.exists(self.path['MCMC_fit'] + '/plots/debug/'):
-                    print('> Making %s' % self.path['MCMC_fit']+'plots/debug/')
-                os.makedirs(self.path['MCMC_fit']+'plots/debug/')
-                if not os.path.exists(self.path['MCMC_fit'] + '/plots/posterior/'):
-                    print('> Making %s' % self.path['MCMC_fit']+'plots/posterior/')
-                os.makedirs(self.path['MCMC_fit']+'plots/posterior/')
+        if not os.path.exists(self.paths['MCMC_fit']):
+            print('> Making %s' % self.paths['MCMC_fit'])
+            os.makedirs(self.paths['MCMC_fit'])
+            if not os.path.exists(self.paths['MCMC_fit']+'/plots/'):
+                print('> Making %s' % self.paths['MCMC_fit']+'plots/')
+                os.makedirs(self.paths['MCMC_fit']+'plots/')
+                if not os.path.exists(self.paths['MCMC_fit'] + '/plots/corners/'):
+                    print('> Making %s' % self.paths['MCMC_fit']+'plots/corners/')
+                os.makedirs(self.paths['MCMC_fit']+'plots/corners/')
+                if not os.path.exists(self.paths['MCMC_fit'] + '/plots/debug/'):
+                    print('> Making %s' % self.paths['MCMC_fit']+'plots/debug/')
+                os.makedirs(self.paths['MCMC_fit']+'plots/debug/')
+                if not os.path.exists(self.paths['MCMC_fit'] + '/plots/posterior/'):
+                    print('> Making %s' % self.paths['MCMC_fit']+'plots/posterior/')
+                os.makedirs(self.paths['MCMC_fit']+'plots/posterior/')
 
     def fetching_h5_names(self):
         start_times = []
         print('> Building list of start times from: %s' % self.mcmc_setup['data_names'])
         for name, data in zip(self.mcmc_setup['data_names'], self.mcmc_setup['data_list']):
             print('>> Looking for data associated to %s containing time %s,...' % (name, data))
-            startt, _, _ = mkidcore.utils.get_ditherdata_for_time(self.path['data'], data)
+            startt, _, _ = mkidcore.utils.get_ditherdata_for_time(self.paths['data'], data)
             start_times.extend([np.round(i) for i in startt])
             print('>> Found %i dithers.' % len(startt))
 
-        self.mcmc_setup['h5_int_names']= [int(i.split('/')[-1].split('.h5')[0]) for i in glob(self.path['out'] + '*.h5')]
+        self.mcmc_setup['h5_int_names']= [int(i.split('/')[-1].split('.h5')[0]) for i in glob(self.paths['out'] + '*.h5')]
         self.mcmc_setup['start_times'] = start_times
-        ntargets = len(start_times)
-        self.mcmc_setup['ntargets'] = ntargets
+        self.mcmc_setup['ntargets'] = len(start_times)
 
     def fetching_datas(self):
         datas = []
@@ -807,7 +806,7 @@ class MCMCWCS:
 
     def load_fits_task(self,start_time):
         filename = min(self.mcmc_setup['h5_int_names'], key=lambda x: abs(x - start_time))
-        pt = Photontable(self.path['out'] + '%i.h5' % (filename))
+        pt = Photontable(self.paths['out'] + '%i.h5' % (filename))
         hdul = pt.get_fits(wave_start=950, wave_stop=1100, start=pt.start_time + self.mcmc_config['start_offset'])
         header = hdul[0].header
         data = hdul[1].data
@@ -840,52 +839,54 @@ class MCMCWCS:
             self.mcmc_setup['conex_xy_ref'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['conex_ref'])
             self.mcmc_setup['slopes'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['slopes'])
 
-            pos_dict = {'amplitude': [pipe_dict['mcmcwcssol']['amplitude'][0], pipe_dict['mcmcwcssol']['amplitude'][1],
-                                      pipe_dict['mcmcwcssol']['amplitude'][2]],
-                        'length1': [pipe_dict['mcmcwcssol']['length'][0], pipe_dict['mcmcwcssol']['length'][1],
-                                    pipe_dict['mcmcwcssol']['length'][2]],
-                        'length2': [pipe_dict['mcmcwcssol']['length'][0], pipe_dict['mcmcwcssol']['length'][1],
-                                    pipe_dict['mcmcwcssol']['length'][2]],
-                        'angle1': [pipe_dict['mcmcwcssol']['angle1'][0], pipe_dict['mcmcwcssol']['angle1'][1],
-                                   pipe_dict['mcmcwcssol']['angle1'][2]],
-                        'angle2': [pipe_dict['mcmcwcssol']['angle2'][0], pipe_dict['mcmcwcssol']['angle2'][1],
-                                   pipe_dict['mcmcwcssol']['angle2'][2]],
-                        'fwhm_x1': [pipe_dict['mcmcwcssol']['fwhm_x'][0], pipe_dict['mcmcwcssol']['fwhm_x'][1],
-                                    pipe_dict['mcmcwcssol']['fwhm_x'][2]],
-                        'fwhm_y1': [pipe_dict['mcmcwcssol']['fwhm_y'][0], pipe_dict['mcmcwcssol']['fwhm_y'][1],
-                                    pipe_dict['mcmcwcssol']['fwhm_y'][2]],
-                        'fwhm_x2': [pipe_dict['mcmcwcssol']['fwhm_x'][0], pipe_dict['mcmcwcssol']['fwhm_x'][1],
-                                    pipe_dict['mcmcwcssol']['fwhm_x'][2]],
-                        'fwhm_y2': [pipe_dict['mcmcwcssol']['fwhm_y'][0], pipe_dict['mcmcwcssol']['fwhm_y'][1],
-                                    pipe_dict['mcmcwcssol']['fwhm_y'][2]]}
+            self.mcmc_setup['pos'] = {'amplitude': [self.mcmc_config['amplitude'][0], self.mcmc_config['amplitude'][1],
+                                      self.mcmc_config['amplitude'][2]],
+                        'length1': [self.mcmc_config['length'][0], self.mcmc_config['length'][1],
+                                    self.mcmc_config['length'][2]],
+                        'length2': [self.mcmc_config['length'][0], self.mcmc_config['length'][1],
+                                    self.mcmc_config['length'][2]],
+                        'angle1': [self.mcmc_config['angle1'][0], self.mcmc_config['angle1'][1],
+                                   self.mcmc_config['angle1'][2]],
+                        'angle2': [self.mcmc_config['angle2'][0], self.mcmc_config['angle2'][1],
+                                   self.mcmc_config['angle2'][2]],
+                        'fwhm_x1': [self.mcmc_config['fwhm_x'][0], self.mcmc_config['fwhm_x'][1],
+                                    self.mcmc_config['fwhm_x'][2]],
+                        'fwhm_y1': [self.mcmc_config['fwhm_y'][0], self.mcmc_config['fwhm_y'][1],
+                                    self.mcmc_config['fwhm_y'][2]],
+                        'fwhm_x2': [self.mcmc_config['fwhm_x'][0], self.mcmc_config['fwhm_x'][1],
+                                    self.mcmc_config['fwhm_x'][2]],
+                        'fwhm_y2': [self.mcmc_config['fwhm_y'][0], self.mcmc_config['fwhm_y'][1],
+                                    self.mcmc_config['fwhm_y'][2]]}
         else:
-            if redo or np.any([len(getattr(data_dict[self.mcmc_config['mcmcmwcs_pos']], label)) == 0 for label in
+            if self.mcmc_config['redo'] or np.any([len(self.data[self.mcmc_config['mcmcmwcs_pos']][label]) == 0 for label in
                                ['cor_spot_ref', 'conex_ref']]):
-                data_dict = get_satellite_spots_and_coronograph(self.mcmc_config['mcmcmwcs_pos'], data_dict, image_list, header_list,
-                                                                sat_spots)
+                mcmcwcs.get_satellite_spots_and_coronograph(datas[self.mcmc_config['ref_sat_spot_pos']],
+                                                            headers[self.mcmc_config['ref_sat_spot_pos']])
 
-            positions_ref = [np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].cor_spot_ref)]
-            coronograph_ref = np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].cor_spot_ref)
-            conex_xy_ref = np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].conex_ref)
-            slopes = np.float64(data_dict[self.mcmc_config['mcmcmwcs_pos']].slopes)
+            self.mcmc_setup['positions_ref'] = [np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['cor_spot_ref'])]
+            self.mcmc_setup['coronograph_ref'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['cor_spot_ref'])
+            self.mcmc_setup['conex_xy_ref'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['conex_ref'])
+            self.mcmc_setup['slopes'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['slopes'])
 
-            pos_dict = {'amplitude': [pipe_dict['mcmcwcssol']['amplitude'][0], pipe_dict['mcmcwcssol']['amplitude'][1],
+            self.mcmc_setup['pos']  = {'amplitude': [pipe_dict['mcmcwcssol']['amplitude'][0], pipe_dict['mcmcwcssol']['amplitude'][1],
                                       pipe_dict['mcmcwcssol']['amplitude'][2]],
                         'fwhm_x1': [pipe_dict['mcmcwcssol']['fwhm_x'][0], pipe_dict['mcmcwcssol']['fwhm_x'][1],
                                     pipe_dict['mcmcwcssol']['fwhm_x'][2]],
                         'fwhm_y1': [pipe_dict['mcmcwcssol']['fwhm_y'][0], pipe_dict['mcmcwcssol']['fwhm_y'][1],
                                     pipe_dict['mcmcwcssol']['fwhm_y'][2]]}
 
-        config.dump_dataconfig(data_dict, args.data_cfg)
+        config.dump_dataconfig(self.data, self.paths['data_cfg'])
 
-        if workers > 1:
-            print('> workers %i,chunksize %i,ntargets %i' % (workers, chunksize, ntargets))
-            with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
-                for _ in tqdm(executor.map(mcmc_task, filename_list, image_list, header_list, repeat(pos_dict),
-                                           chunksize=chunksize)): pass
+        if self.mcmc_config['workers'] > 1:
+            print('> workers %i,chunksize %i,ntargets %i' % (self.mcmc_config['workers'], chunksize, self.mcmc_setup['ntargets']))
+            with concurrent.futures.ProcessPoolExecutor(max_workers=self.mcmc_config['workers']) as executor:
+                for _ in tqdm(executor.map(mcmcwcs.mcmc_task, self.mcmc_setup['data_names'], datas, headers, repeat(1),
+                                           chunksize=chunksize)):
+                    pass
         else:
-            for elno in range(len(filename_list)): mcmc_task(filename_list[elno], image_list[elno], header_list[elno],
-                                                             pos_dict)
+            for elno in tqdm(range(self.mcmc_setup['ntargets'])):
+                mcmcwcs.mcmc_task(self.mcmc_setup['data_names'][elno], datas[elno], headers[elno],10)
+                sys.exit()
 
     def lsq_fit_dpdc(self,d,labels,path2savedir=None,filename='test.jpg',showplot=True,verbose=True,ext='_'):
         # np.random.seed(42)
@@ -921,24 +922,29 @@ class MCMCWCS:
         return zip(np.linspace(p1[0], p2[0], parts+1),
                    np.linspace(p1[1], p2[1], parts+1))
 
-    def mcmc_task(self,name,data,header,pos_dict):
+    def mcmc_task(self,name,data,header,ncpu):
         filename = "%i_MCMC_fit.h5"%name
-        pt = Photontable(self.path2out + '%i.h5' % (name))
+        pt = Photontable(self.paths['out'] + '%i.h5' % (name))
         xyCons = [header['E_CONEXX'],header['E_CONEXY']]
         cen_xy=np.round(CONEX2PIXEL(xyCons[0],
                                     xyCons[1],
-                                    slopes,
-                                    coronograph_ref,
-                                    conex_xy_ref),2)
+                                    self.mcmc_setup['slopes'],
+                                    self.mcmc_setup['coronograph_ref'],
+                                    self.mcmc_setup['conex_xy_ref']),2)
 
-        pos_dict['cen_x'] = [cen_xy[0], cen_xy[0] - 5, cen_xy[0] + 5]
-        pos_dict['cen_y'] = [cen_xy[1], cen_xy[1] - 5, cen_xy[1] + 5]
-        masked_img=create_mask(data,xyCons,slopes,positions_ref,conex_xy_ref,factor)
+        self.mcmc_setup['pos']['cen_x'] = [cen_xy[0], cen_xy[0] - 5, cen_xy[0] + 5]
+        self.mcmc_setup['pos']['cen_y'] = [cen_xy[1], cen_xy[1] - 5, cen_xy[1] + 5]
+
+        masked_img=create_mask(data,xyCons,self.mcmc_setup['slopes'],self.mcmc_setup['positions_ref'],
+                               self.mcmc_setup['conex_xy_ref'],self.mcmc_config['factor'])
         d=np.nanmedian(data[data>0])
 
-        mcmc=MCMC_FIT(path=self.path['MCMC_fit'], nwalkers=nwalkers, steps=steps, ndesired=100, ncpu=20, progress=progress, verbose=verbose,
-                      const=d, sat_spots=sat_spots , kwargs={'shape_xy': np.array(data.shape[::-1])-1, 'factor' : factor})
-        mcmc.run(filename, pos_dict, masked_img)
+        mcmc=MCMC_FIT(path=self.paths['MCMC_fit'], nwalkers=self.mcmc_config['nwalkers'], steps=self.mcmc_config['steps'],
+                      ndesired=100, ncpu=ncpu,
+                      progress=self.mcmc_config['progress'], verbose=self.mcmc_config['verbose'],
+                      const=d, sat_spots=self.mcmc_config['sat_spots'],
+                      kwargs={'shape_xy': np.array(data.shape[::-1])-1, 'factor': self.mcmc_config['factor']})
+        mcmc.run(filename, self.mcmc_setup['pos'], masked_img)
 
     def sample_posteriors_task(self,filename):
         with io.capture_output() as captured:
