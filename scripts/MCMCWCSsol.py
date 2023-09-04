@@ -1,15 +1,9 @@
-# import mkidpipeline.definitions as definitions
 import mkidcore
 import mkidcore.config
-# from mkidcore.corelog import getLogger
-# import mkidpipeline.pipeline as pipe
 import mkidpipeline.config as config
 
-# import mkidcore.config
-import mkidpipeline.steps as steps
 from mkidcore.instruments import CONEX2PIXEL
 from mkidpipeline.photontable import Photontable
-# import mkidpipeline.config as config
 
 import matplotlib,emcee, ruamel.yaml, sys, operator, os,  math,warnings,scipy, corner, argparse, concurrent.futures
 import numpy as np
@@ -29,7 +23,6 @@ from IPython.utils import io
 from itertools import repeat
 from skimage.morphology.footprints import disk
 from skimage.morphology import dilation
-from varname import nameof
 import warnings
 warnings.filterwarnings("ignore")
 class ClickCoords:
@@ -43,7 +36,6 @@ class ClickCoords:
         self.image = image
         self.n_satspots=n_satspots
         self.n_sources = n_satspots+1
-        # self.source_locs = source_locs
         self.counter = 0
         self.fig = plt.figure() if fig is None else fig
         self.cid1 = None
@@ -85,8 +77,6 @@ class ClickCoords:
             else:
                 plt.title('Select the the center of the star/coronograph')
             plt.draw()
-        # except IndexError:
-        #     pass
         return self.coords
 
     def __onkey__(self, event):
@@ -332,8 +322,6 @@ class SATSPOT_MODEL:
 
     def psf_spot_loc(self,cen_xy,length,dangle):
         out=[]
-
-        # for elno in range(len(angles_list)):
         half_length = length/2
         radian = (self.angle+dangle)/180*math.pi
         dx = half_length*math.cos(radian)
@@ -413,10 +401,6 @@ class SATSPOT_MODEL:
     def plot_image(self,data,title=None,cen_xy=None, satspot_xy=None, norm=None, fcr=[7,7],rows=1, v_lim=None,save_output=False, path2savedir='./',filename='test.jpg'):
         if len(data.shape)==2:
             data=np.array([data])
-        # if v_lim is None:
-        #     v_lim = np.array([[None, None]] * data.shape[0])
-        # elif len(v_lim) ==2:
-        #     v_lim = np.array([[v_lim[0], v_lim[1]]] * data.shape[0])
 
         cols=data.shape[0]//rows
         if title is not None and len(title)==1: title = title * data.shape[0]
@@ -440,8 +424,6 @@ class SATSPOT_MODEL:
         plt.tight_layout()
 
         if save_output:
-            # if not os.path.exists(path2savedir):
-            #     os.makedirs(path2savedir)
             fig.savefig(path2savedir+filename)
             plt.close('all')
         else: plt.show()
@@ -498,9 +480,6 @@ class MCMC_FIT:
         self.ini_pos = ini_pos
         self.sat_spots=sat_spots
         if self.verbose: self.ncpu=1
-
-        # if not os.path.exists(path):
-        #     os.makedirs(path)
 
     def get_id_from_key(self,key):
         if key in self.labels:
@@ -574,7 +553,6 @@ class MCMC_FIT:
         for sample in sampler.sample(pos, iterations=self.steps, progress=self.progress, store=True):
             # Only check convergence every check_acor steps
             if converged == False:
-                # print('VVVVVVVVVVVVVVVVVVVVVV')
                 if sampler.iteration % self.check_acor:
                     continue
 
@@ -590,7 +568,6 @@ class MCMC_FIT:
                 # Check convergence
                 converged = np.all(tau * self.Fconv < sampler.iteration)
                 converged &= np.all((np.abs(old_tau - tau) / tau) < self.conv_thr)
-                # print(index,tau * self.Fconv , sampler.iteration,tau * self.Fconv < sampler.iteration, (np.abs(old_tau - tau) / tau) , self.conv_thr, (np.abs(old_tau - tau) / tau) < self.conv_thr,converged)
                 if converged:
                     # Once converged, set the number of desired runs for further running the sampler
                     # until we have the desired number of post-convergence, iid samples
@@ -604,8 +581,6 @@ class MCMC_FIT:
                         print('Running {} iterations post-convergence'.format(n_post_convergence_runs))
                     sys.stdout.flush()
 
-                # elif index >= int(self.steps / self.check_acor):
-                #     break
                 old_tau = tau
 
             else:
@@ -639,8 +614,6 @@ class MCMC_FIT:
                 self.sampler, self.autocorr, self.converged, self.burnin, self.thin, self.tau = self.sampler_convergence(
                     sampler, pos)
 
-
-
     def sample_posteriors(self, filename, slopes, full_posterior=True, verbose=False, save_output=False):
         if self.ndim is None: self.ndim = len(self.labels)
 
@@ -664,18 +637,6 @@ class MCMC_FIT:
                 display(Math(txt))
             sol[self.labels[i]]=[mcmc_p[1], q[0], q[1]]
 
-        # pixel_at_Con = CONEX2PIXEL(0, 0, slopes, [sol['cen_x'][0], sol['cen_y'][0]], [conex_x, conex_y])
-        # if verbose:
-        #     txt = "\mathrm{{{3}}} = {0:.5f}_{{-{1:.5f}}}^{{{2:.5f}}}"
-        #     txt = txt.format(pixel_at_Con[0], sol['cen_x'][1], sol['cen_x'][2], 'x_{conex}')
-        #     display(Math(txt))
-        #     txt = "\mathrm{{{3}}} = {0:.5f}_{{-{1:.5f}}}^{{{2:.5f}}}"
-        #     txt = txt.format(pixel_at_Con[1], sol['cen_y'][1], sol['cen_y'][2], 'y_{conex}')
-        #     display(Math(txt))
-        #
-        # sol['pixel_x_at_Con_0']=[pixel_at_Con[0], sol['cen_x'][1], sol['cen_x'][2]]
-        # sol['pixel_y_at_Con_0']=[pixel_at_Con[1], sol['cen_y'][1], sol['cen_y'][2]]
-
         if verbose or save_output:
             fig, axes = plt.subplots(self.ndim, figsize=(10, 10), sharex=True)
 
@@ -688,9 +649,6 @@ class MCMC_FIT:
 
             axes[-1].set_xlabel("step number");
             if save_output:
-                # if not os.path.exists(self.path + '/plots/posterior/'):
-                #     # Create a new directory because it does not exist
-                #     os.makedirs(self.path + '/plots/posterior/')
                 fig.savefig(self.path + '/plots/posterior/%s' % filename.split('.h5')[0] + '.jpg')
 
             fig = corner.corner(flat_samples,
@@ -701,9 +659,6 @@ class MCMC_FIT:
 
             if not save_output: plt.show()
             else:
-                # if not os.path.exists(self.path + '/plots/corners/'):
-                #     # Create a new directory because it does not exist
-                #     os.makedirs(self.path + '/plots/corners/')
                 fig.savefig(self.path + '/plots/corners/%s'%filename.split('.h5')[0]+'.jpg')
                 plt.close('all')
         else: plt.close('all')
@@ -979,7 +934,6 @@ class MCMCWCS:
     def get_slope_and_conex(self,datas,headers):
         print('> Getting slope and conex postition from images.')
         N=int(self.mcmc_config['ref_el'])
-        # if len(data_dict[data_elno].slopes) == 0:
         if N != 2: selected_pos=self.mcmc_setup['sorted_data_pos'][::int(np.ceil( len(self.mcmc_setup['sorted_data_pos']) / N ))]
         else: selected_pos=[self.mcmc_setup['sorted_data_pos'][0],self.mcmc_setup['sorted_data_pos'][-1]]
         print('> Selected N reference = %i, closest number of equidistant element = %i' % (
@@ -1062,7 +1016,7 @@ class MCMCWCS:
             pixel_cen_list.append(pixel_cen)
             epixel_cen_list.append(epixel_cen)
             conexx_list.append(xyCons)
-        # out_filename_list = np.array(out_filename_list)
+
         pixel_cen_list = np.array(pixel_cen_list)
         epixel_cen_list = np.array(epixel_cen_list)
         conexx_list = np.array(conexx_list)
@@ -1096,8 +1050,6 @@ class MCMCWCS:
 
         self.data[self.mcmc_config['mcmcmwcs_pos']]['sol'] = dout
 
-        # self.mcmc_config['mcmcmwcs_pos'] = next((index for (index, d) in enumerate(self.data) if wcscal in d.name),
-        #                                         None)
         self.data[self.mcmc_config['mcmcmwcs_pos']]['pixel_ref'] = [float(dout['x']['pc0'][0]), float(dout['y']['pc0'][0])]
         self.data[self.mcmc_config['mcmcmwcs_pos']]['conex_ref'] = [float(dout['x']['conex']), float(dout['y']['conex'])]
         self.data[self.mcmc_config['mcmcmwcs_pos']]['dp_dcx'] = float(dout['x']['dpdc'][0])
