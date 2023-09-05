@@ -942,6 +942,7 @@ class MCMCWCS:
         conex_ref_list=[]
         coronograph_ref_list=[]
 
+        print(selected_pos)
         for elno in selected_pos:
             data=datas[elno]
             header=headers[elno]
