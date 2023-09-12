@@ -1740,6 +1740,21 @@ class MKIDOutputCollection:
                     yield o
 
     @property
+    def to_mcmcwcssol(self):
+        def input_observations(obs):
+            for o in obs:
+                if o.speccal:
+                    for x in o.speccal.obs:
+                        if x.wcscal:
+                            yield x
+        for out in self:
+            for o in out.data.obs:
+                if o.wcscal:
+                    yield o
+            for o in input_observations(out.data.obs):
+                yield o
+
+    @property
     def to_wcscal(self):
         def input_observations(obs):
             for o in obs:
