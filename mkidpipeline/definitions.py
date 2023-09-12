@@ -1566,7 +1566,7 @@ class MKIDOutputCollection:
     def mcmcwcssols(self):
         """
         Returns a set of all of the MKIDObservations affiliated with an output that have an associated
-        MKIDMCMCWCSSol. Does not search for nested MKIDWCSCalDescriptions except with the speccal
+        MKIDWCSCal. Does not search for nested MKIDWCSCalDescriptions except with the speccal
         """
         return set([o.wcscal for o in self.to_mcmcwcssol if o.wcscal])
 
