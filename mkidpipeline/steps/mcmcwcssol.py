@@ -1,7 +1,7 @@
 import mkidcore
 import mkidcore.config
 import mkidpipeline.config as config
-
+import mkidpipeline.config
 from mkidcore.instruments import CONEX2PIXEL
 from mkidpipeline.photontable import Photontable
 
@@ -25,6 +25,38 @@ from skimage.morphology.footprints import disk
 from skimage.morphology import dilation
 import warnings
 warnings.filterwarnings("ignore")
+
+class StepConfig(mkidpipeline.config.BaseStepConfig):
+    yaml_tag = u'!mcmcwcssol_cfg'
+    REQUIRED_KEYS = (('progress', False, 'Show progress bar in each single MCMC fit'),
+                     ('verbose', False, 'Activate verbose mode'),
+                     ('parallel_runs', True, 'Run MCMC fit in parallel or one at the time'),
+                     ('mcmc_ncpu_multiplier', 2, 'increase number of default cpus by this factor one parallel_runs is '
+                                                 'false, or assign this number of cpus to each parallel task so that'
+                                                 'the total number of cpus utilizes is always ncpu*mcmc_ncpu_multiplier'),
+                     ('nwalkers', 50, 'number of walker for each MCMC fit'),
+                     ('steps', 20000, 'total number of steps for the MCMC fit to run before stopping if convergence is '
+                                      'not found first'),
+                     ('redo', False, 'redo and overwrite precedent MCMCWCS solution'),
+                     ('sat_spots', True, 'Run the satellite spot fit. If false, fit the star.'),
+                     ('ref_sat_spot_pos', 0, 'Use this image as reference to guess satellite spot or star position'),
+                     ('ref_el', 3, 'number of equidistant images tu use to guess the slope of the dpdc relation'),
+                     ('factor', 1, 'facto for over-interpolate'),
+                     ('v_lim', [[0, 700], [0, 700], [0, 700], [0, 1]], 'list of color limit for plots'),
+                     ('length', [ 80, 75, 85 ], 'Length of the satellite spot arm: i.e. [value, min, max]'),
+                     ('amplitude', [500, 1, 1000], 'Amplitude of the satellite spot: i.e. [value, min, max]'),
+                     ('angle1', [ 45, 43, 47 ], 'Angle of the first pair of satellite spots vs to X: i.e. [value, min, max]'),
+                     ('angle2', [ 90, 88, 92 ], 'Angle of the second pair of satellite spots vs to the first: i.e. [value, min, max]'),
+                     ('fwhm_x', [ 7, 3, 20 ], 'X FWHM of the satellite spots: i.e. [value, min, max]'),
+                     ('fwhm_y', [ 7, 3, 20 ], 'Y FWHM of the satellite spots: i.e. [value, min, max]'))
+
+
+
+HEADER_KEYS = tuple()
+
+PROBLEM_FLAGS = ()
+
+
 class ClickCoords:
     """
     Class for choosing approximate location in the image for each point source to use for the wcscal. Associates the
@@ -1064,42 +1096,77 @@ class MCMCWCS:
         self.data[self.mcmc_config['mcmcmwcs_pos']]['dp_dcx'] = float(dout['x']['dpdc'][0])
         self.data[self.mcmc_config['mcmcmwcs_pos']]['dp_dcy'] = float(dout['y']['dpdc'][0])
 
-if __name__ == '__main__':
-    def parse():
-        '''
-        read in command line arguments
-        :return:
-        '''
-        parser = argparse.ArgumentParser(description='MKID Pipeline CLI')
-        parser.add_argument('-p', type=str, help='A pipeline config file', default='./pipe.yaml', dest='pipe_cfg')
-        parser.add_argument('-d', type=str, help='A input config file', default='./data.yaml', dest='data_cfg')
-        parser.add_argument('--make-dir', dest='make_paths', help='Create all needed directories', action='store_true')
-        parser.add_argument('--verbose', action='store_true', help='Verbose', dest='verbose')
-        return parser.parse_args()
+# if __name__ == '__main__':
+#     def parse():
+#         '''
+#         read in command line arguments
+#         :return:
+#         '''
+#         parser = argparse.ArgumentParser(description='MKID Pipeline CLI')
+#         parser.add_argument('-p', type=str, help='A pipeline config file', default='./pipe.yaml', dest='pipe_cfg')
+#         parser.add_argument('-d', type=str, help='A input config file', default='./data.yaml', dest='data_cfg')
+#         parser.add_argument('--make-dir', dest='make_paths', help='Create all needed directories', action='store_true')
+#         parser.add_argument('--verbose', action='store_true', help='Verbose', dest='verbose')
+#         return parser.parse_args()
+#
+#     ############################# VARIABLES DEFINITION ########################################
+#
+#     args = parse()
+#     config.configure_pipeline(args.pipe_cfg)
+#     YAML = ruamel.yaml.YAML()
+#     mcmcwcs=MCMCWCS(args.pipe_cfg, args.data_cfg, args.verbose)
+#
+#     if args.make_paths:
+#         mcmcwcs.make_dir()
+#
+#     #################################### LOADING DATA #################################################
+#     mcmcwcs.fetching_h5_names()
+#     datas, headers = mcmcwcs.fetching_datas()
+#
+#     ############################################################## PARAMETERS FIT #################################################################
+#     mcmcwcs.fetching_mcmc_parameters(datas,headers)
+#     w=np.where([mcmcwcs.paths['MCMC_fit']+i not in glob(mcmcwcs.paths['MCMC_fit']+'*.h5') for i in mcmcwcs.mcmc_setup['data_names']])[0]
+#     if mcmcwcs.mcmc_config['redo'] or len(w) > 0:
+#         mcmcwcs.fitting_paprameters([datas[i] for i in w.tolist()],[headers[i] for i in w.tolist()])
+#
+#     #################################################### SAMPLIG POSTERIOR/MAKING OUTPUT ###########################################################
+#     mcmcwcs.make_outputs(datas,headers)
+#
+#     #################################################### SAVE FINAL DATA YAML ###########################################################
+#     config.dump_dataconfig(mcmcwcs.data, mcmcwcs.paths['data_cfg'])
 
-    ############################# VARIABLES DEFINITION ########################################
+def fetch(solution_descriptors, config=None, ncpu=None):
+    try:
+        solution_descriptors = solution_descriptors.wcscals
+    except AttributeError:
+        pass
 
-    args = parse()
-    config.configure_pipeline(args.pipe_cfg)
-    YAML = ruamel.yaml.YAML()
-    mcmcwcs=MCMCWCS(args.pipe_cfg, args.data_cfg, args.verbose)
+    mcmcwcscfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(wcscal=StepConfig()), cfg=config, ncpu=ncpu,
+                                                       copy=True)
 
-    if args.make_paths:
-        mcmcwcs.make_dir()
+    for sd in solution_descriptors:
+        if os.path.exists(sd.path[:-4] + '.fits'):
+            continue
+        else:
+            config.configure_pipeline(args.pipe_cfg)
+            YAML = ruamel.yaml.YAML()
+            mcmcwcs=MCMCWCS(args.pipe_cfg, args.data_cfg, args.verbose)
 
-    #################################### LOADING DATA #################################################
-    mcmcwcs.fetching_h5_names()
-    datas, headers = mcmcwcs.fetching_datas()
+            # if args.make_paths:
+            #     mcmcwcs.make_dir()
+            #
+            # #################################### LOADING DATA #################################################
+            # mcmcwcs.fetching_h5_names()
+            # datas, headers = mcmcwcs.fetching_datas()
 
-    ############################################################## PARAMETERS FIT #################################################################
-    mcmcwcs.fetching_mcmc_parameters(datas,headers)
-    w=np.where([mcmcwcs.paths['MCMC_fit']+i not in glob(mcmcwcs.paths['MCMC_fit']+'*.h5') for i in mcmcwcs.mcmc_setup['data_names']])[0]
-    if mcmcwcs.mcmc_config['redo'] or len(w) > 0:
-        mcmcwcs.fitting_paprameters([datas[i] for i in w.tolist()],[headers[i] for i in w.tolist()])
-
-    #################################################### SAMPLIG POSTERIOR/MAKING OUTPUT ###########################################################
-    mcmcwcs.make_outputs(datas,headers)
-
-    #################################################### SAVE FINAL DATA YAML ###########################################################
-    config.dump_dataconfig(mcmcwcs.data, mcmcwcs.paths['data_cfg'])
-
+            ############################################################## PARAMETERS FIT #################################################################
+            # mcmcwcs.fetching_mcmc_parameters(datas,headers)
+            # w=np.where([mcmcwcs.paths['MCMC_fit']+i not in glob(mcmcwcs.paths['MCMC_fit']+'*.h5') for i in mcmcwcs.mcmc_setup['data_names']])[0]
+            # if mcmcwcs.mcmc_config['redo'] or len(w) > 0:
+            #     mcmcwcs.fitting_paprameters([datas[i] for i in w.tolist()],[headers[i] for i in w.tolist()])
+            #
+            # #################################################### SAMPLIG POSTERIOR/MAKING OUTPUT ###########################################################
+            # mcmcwcs.make_outputs(datas,headers)
+            #
+            # #################################################### SAVE FINAL DATA YAML ###########################################################
+            # config.dump_dataconfig(mcmcwcs.data, mcmcwcs.paths['data_cfg'])
