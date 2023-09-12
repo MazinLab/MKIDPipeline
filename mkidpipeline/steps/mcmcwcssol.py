@@ -1,4 +1,4 @@
-import mkidcore
+import mkidcore, os
 import mkidcore.config
 import mkidpipeline.config as config
 import mkidpipeline.config
@@ -24,6 +24,9 @@ from itertools import repeat
 from skimage.morphology.footprints import disk
 from skimage.morphology import dilation
 import warnings
+from mkidcore.corelog import getLogger
+import pathlib
+
 warnings.filterwarnings("ignore")
 
 class StepConfig(mkidpipeline.config.BaseStepConfig):
@@ -701,55 +704,68 @@ class MCMCWCS:
     '''
     module to evaluate input parameter for WCS solution using MCMC algorithms and bayesian fitting
     '''
-    def __init__(self, pipe_cfg, data_cfg,verbose):
+    # def __init__(self, pipe_cfg, data_cfg,verbose):
+    def __init__(self, pipe, obs,wcscal):
         '''
         :param pipe_cfg:
         :param data_cfg:
         :param verbose:
         '''
-        self.data = mkidcore.config.load(data_cfg)
-        pipe = mkidcore.config.load(pipe_cfg)
+        # self.data = mkidcore.config.load(data_cfg)
+        # pipe = mkidcore.config.load(pipe_cfg)
 
         self.paths={label: pipe['paths'][label] for label in ['data','out']}
-        self.paths['data_cfg']=data_cfg
-        self.paths['pipe_cfg']=pipe_cfg
+        # self.paths['data_cfg']=data_cfg
+        # self.paths['pipe_cfg']=pipe_cfg
         self.paths['MCMC_fit']=self.paths['out'] + 'MCMC_fit/'
         self.mcmc_config={label: pipe['mcmcwcssol'][label] for label in pipe['mcmcwcssol'].keys()}
         self.mcmc_config['ncpu']=pipe['ncpu']
 
-        if not verbose:
-            self.mcmc_config['verbose'] = pipe['mcmcwcssol']['verbose']
-        else:
-            self.mcmc_config['verbose'] = verbose
+        # if not verbose:
+        # self.mcmc_config['verbose'] = pipe['mcmcwcssol']['verbose']
+        # else:
+        #     self.mcmc_config['verbose'] = verbose
 
-        mcmcmwcs_pos = [index for (index, d) in enumerate(self.data) if '!MKIDMCMCWCSol' in d.tag.value][0]
-        data_names = self.data[mcmcmwcs_pos]['data'].split('+')
-        data_pos = [index for (index, d) in enumerate(self.data) for out_data in data_names if
-                          out_data in d['name']]
-        data_list = [self.data[mcmcmwcs_pos]['data'] for mcmcmwcs_pos in data_pos]
-        wcscal = self.data[mcmcmwcs_pos]['wcscal']
-        start_offset = self.data[mcmcmwcs_pos]['start_offset']
-        self.mcmc_config['mcmcmwcs_pos'] = mcmcmwcs_pos
-        self.mcmc_config['start_offset'] = start_offset
-
-        self.mcmc_setup={label:var for var,label in zip([data_names,data_list,wcscal],['data_names','data_list','wcscal'])}
+        # mcmcmwcs_pos = [index for (index, d) in enumerate(self.data) if '!MKIDMCMCWCSol' in d.tag.value][0]
+        # data_names = self.data[mcmcmwcs_pos]['data'].split('+')
+        # data_pos = [index for (index, d) in enumerate(self.data) for out_data in data_names if
+        #                   out_data in d['name']]
+        # data_list = [self.data[mcmcmwcs_pos]['data'] for mcmcmwcs_pos in data_pos]
+        # wcscal = self.data[mcmcmwcs_pos]['wcscal']
+        # start_offset = self.data[mcmcmwcs_pos]['start_offset']
+        # self.mcmc_config['mcmcmwcs_pos'] = mcmcmwcs_pos
+        # self.mcmc_config['start_offset'] = start_offset
+        data_names=set([o.name.split('_')[0] for o in obs])
+        # self.mcmc_setup={label:var for var,label in zip([data_names,data_list,wcscal],['data_names','data_list','wcscal'])}
+        self.mcmc_setup={label:var for var,label in zip([data_names,obs,wcscal],['data_names','data_list','wcscal'])}
 
     def make_dir(self):
-        if not os.path.exists(self.paths['MCMC_fit']):
-            print('> Making %s' % self.paths['MCMC_fit'])
-            os.makedirs(self.paths['MCMC_fit'])
-            if not os.path.exists(self.paths['MCMC_fit']+'/plots/'):
-                print('> Making %s' % self.paths['MCMC_fit']+'plots/')
-                os.makedirs(self.paths['MCMC_fit']+'plots/')
-                if not os.path.exists(self.paths['MCMC_fit'] + '/plots/corners/'):
-                    print('> Making %s' % self.paths['MCMC_fit']+'plots/corners/')
-                os.makedirs(self.paths['MCMC_fit']+'plots/corners/')
-                if not os.path.exists(self.paths['MCMC_fit'] + '/plots/debug/'):
-                    print('> Making %s' % self.paths['MCMC_fit']+'plots/debug/')
-                os.makedirs(self.paths['MCMC_fit']+'plots/debug/')
-                if not os.path.exists(self.paths['MCMC_fit'] + '/plots/posterior/'):
-                    print('> Making %s' % self.paths['MCMC_fit']+'plots/posterior/')
-                os.makedirs(self.paths['MCMC_fit']+'plots/posterior/')
+        paths=set([self.paths['MCMC_fit']+'plots/'+p for p in ['corners','debug','posterior']])
+
+        for p in filter(os.path.exists, paths):
+            getLogger(__name__).info(f'"{p}" exists, and will be used.')
+
+        for p in filter(lambda p: p and not os.path.exists(p), paths):
+            getLogger(__name__).info(f'Creating "{p}"')
+            pathlib.Path(p).mkdir(parents=True, exist_ok=True)
+
+        # if not os.path.exists(self.paths['MCMC_fit']):
+        #     print('> Making %s' % self.paths['MCMC_fit'])
+        #     getLogger(__name__).info(f' Making "{self.paths['MCMC_fit']}"')
+        #
+        #     os.makedirs(self.paths['MCMC_fit'])
+        #     if not os.path.exists(self.paths['MCMC_fit']+'/plots/'):
+        #         print('> Making %s' % self.paths['MCMC_fit']+'plots/')
+        #         os.makedirs(self.paths['MCMC_fit']+'plots/')
+        #         if not os.path.exists(self.paths['MCMC_fit'] + '/plots/corners/'):
+        #             print('> Making %s' % self.paths['MCMC_fit']+'plots/corners/')
+        #         os.makedirs(self.paths['MCMC_fit']+'plots/corners/')
+        #         if not os.path.exists(self.paths['MCMC_fit'] + '/plots/debug/'):
+        #             print('> Making %s' % self.paths['MCMC_fit']+'plots/debug/')
+        #         os.makedirs(self.paths['MCMC_fit']+'plots/debug/')
+        #         if not os.path.exists(self.paths['MCMC_fit'] + '/plots/posterior/'):
+        #             print('> Making %s' % self.paths['MCMC_fit']+'plots/posterior/')
+        #         os.makedirs(self.paths['MCMC_fit']+'plots/posterior/')
 
     def fetching_h5_names(self):
         start_times = []
@@ -1135,28 +1151,30 @@ class MCMCWCS:
 #     #################################################### SAVE FINAL DATA YAML ###########################################################
 #     config.dump_dataconfig(mcmcwcs.data, mcmcwcs.paths['data_cfg'])
 
-def fetch(solution_descriptors, config=None, ncpu=None):
+def fetch(obs, config=None, ncpu=None):
+    solution_descriptors = set([o.wcscal for o in obs if o.wcscal])
     try:
         solution_descriptors = solution_descriptors.wcscals
     except AttributeError:
         pass
 
-    mcmcwcscfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(wcscal=StepConfig()), cfg=config, ncpu=ncpu,
-                                                       copy=True)
+    mcmcwcscfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(wcscal=StepConfig()), cfg=config,
+                                                           ncpu=ncpu, copy=True)
 
     for sd in solution_descriptors:
         if os.path.exists(sd.path[:-4] + '.fits'):
             continue
         else:
-            config.configure_pipeline(args.pipe_cfg)
-            YAML = ruamel.yaml.YAML()
-            mcmcwcs=MCMCWCS(args.pipe_cfg, args.data_cfg, args.verbose)
+            # config.configure_pipeline(args.pipe_cfg)
+            # YAML = ruamel.yaml.YAML()
+            data=set([o for o in obs if o.wcscal.name==sd.name])
+            mcmcwcs=MCMCWCS(mcmcwcscfg,data,sd)
 
             # if args.make_paths:
-            #     mcmcwcs.make_dir()
-            #
+            mcmcwcs.make_dir()
+
             # #################################### LOADING DATA #################################################
-            # mcmcwcs.fetching_h5_names()
+            mcmcwcs.fetching_h5_names()
             # datas, headers = mcmcwcs.fetching_datas()
 
             ############################################################## PARAMETERS FIT #################################################################
