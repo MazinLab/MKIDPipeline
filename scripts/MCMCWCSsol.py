@@ -666,7 +666,15 @@ class MCMC_FIT:
         return(sol)
 
 class MCMCWCS:
+    '''
+    module to evaluate input parameter for WCS solution using MCMC algorithms and bayesian fitting
+    '''
     def __init__(self, pipe_cfg, data_cfg,verbose):
+        '''
+        :param pipe_cfg:
+        :param data_cfg:
+        :param verbose:
+        '''
         self.data = mkidcore.config.load(data_cfg)
         pipe = mkidcore.config.load(pipe_cfg)
 
@@ -755,7 +763,7 @@ class MCMCWCS:
                 elno_list.append(elno)
 
         sorted_data_pos = [x for _, x in sorted(zip(dist_list, elno_list))]
-        
+
         self.mcmc_setup['data_names']=data_names
         self.mcmc_setup['sorted_data_pos']=sorted_data_pos
         return(datas,headers)
@@ -864,8 +872,8 @@ class MCMCWCS:
             print("Least-squares estimates:")
             print("dp_dc = {0:.3f} ± {1:.3f}".format(w[0], np.sqrt(cov[0, 0])))
             print("pixel_at_conex_0 = {0:.3f} ± {1:.3f}".format(w[1], np.sqrt(cov[1, 1])))
-    
-    
+
+
         fig=plt.figure()
         plt.errorbar(x, y, yerr=yerr, fmt=".k", capsize=0)
         plt.plot(x0, np.dot(np.vander(x0, 2), [w[0],w[1]]), "-k", label="LSQ:\n"+"dpdc = {0:.3f} ± {1:.3f} \n".format(w[0], np.sqrt(cov[0, 0]))+"pc0 = {0:.3f} ± {1:.3f}".format(w[1], np.sqrt(cov[1, 1])))
@@ -873,12 +881,12 @@ class MCMCWCS:
         plt.xlabel("conex")
         plt.ylabel("pixel_at_conex");
         if path2savedir is not None: fig.savefig(path2savedir+'fit%s%s'%(ext,filename))
-    
+
         if showplot: plt.show()
         else: plt.close()
-    
+
         return([[np.round(w[0],3), np.round(np.sqrt(cov[0, 0]),3)],[np.round(w[1],3), np.round(np.sqrt(cov[1, 1]),3)]])
-    
+
     def get_equidistant_points(self,p1, p2, parts):
         return zip(np.linspace(p1[0], p2[0], parts+1),
                    np.linspace(p1[1], p2[1], parts+1))
@@ -1058,7 +1066,10 @@ class MCMCWCS:
 
 if __name__ == '__main__':
     def parse():
-        # read in command line arguments
+        '''
+        read in command line arguments
+        :return:
+        '''
         parser = argparse.ArgumentParser(description='MKID Pipeline CLI')
         parser.add_argument('-p', type=str, help='A pipeline config file', default='./pipe.yaml', dest='pipe_cfg')
         parser.add_argument('-d', type=str, help='A input config file', default='./data.yaml', dest='data_cfg')
