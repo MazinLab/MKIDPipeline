@@ -992,6 +992,13 @@ class MKIDMCMCWCSol(_Base, CalibMixin):
     def obs(self):
         return self.data
 
+    def associate(self, **kwargs):
+        """Pulls identifiers for associated datasets needed for MKIDWCSCal"""
+        if isinstance(self.data, str):
+            self.data = kwargs['dither'].get(self.data, self.data)
+        elif isinstance(self.data, (MKIDObservation, MKIDDither)):
+            self.data.associate(**kwargs)
+
 class MKIDObservingDataset:
     """Class that manages all of the data specified in the data configuration file"""
     def __init__(self, yml):
@@ -1008,25 +1015,29 @@ class MKIDObservingDataset:
         wcdict = {w.name: w for w in self.wavecals}
         fcdict = {f.name: f for f in self.flatcals}
         wcsdict = {w.name: w for w in self.wcscals}
+        mcmcwcsdict = {w.name: w for w in self.mcmcwcssol}
         scdict = {s.name: s for s in self.speccals}
         dithdict = {d.name: d for d in self.dithers}
 
         missing = defaultdict(lambda: set())
 
         for f in self.flatcals:
-            f.associate(wavecal=wcdict, flatcal=fcdict, wcscal=wcsdict, speccal=scdict, dither=dithdict)
+            f.associate(wavecal=wcdict, flatcal=fcdict, mcmcwcssol=mcmcwcsdict, wcscal=wcsdict, speccal=scdict, dither=dithdict)
 
         for f in self.wcscals:
-            f.associate(wavecal=wcdict, flatcal=fcdict, wcscal=wcsdict, speccal=scdict, dither=dithdict)
+            f.associate(wavecal=wcdict, flatcal=fcdict, mcmcwcssol=mcmcwcsdict, wcscal=wcsdict, speccal=scdict, dither=dithdict)
+
+        for f in self.mcmcwcssol:
+            f.associate(wavecal=wcdict, flatcal=fcdict, mcmcwcssol=mcmcwcsdict, wcscal=wcsdict, speccal=scdict, dither=dithdict)
 
         for f in self.speccals:
-            f.associate(wavecal=wcdict, flatcal=fcdict, wcscal=wcsdict, speccal=scdict, dither=dithdict)
+            f.associate(wavecal=wcdict, flatcal=fcdict, mcmcwcssol=mcmcwcsdict, wcscal=wcsdict, speccal=scdict, dither=dithdict)
 
         for f in self.dithers:
-            f.associate(wavecal=wcdict, flatcal=fcdict, wcscal=wcsdict, speccal=scdict, dither=dithdict)
+            f.associate(wavecal=wcdict, flatcal=fcdict, mcmcwcssol=mcmcwcsdict, wcscal=wcsdict, speccal=scdict, dither=dithdict)
 
         for o in self.all_observations:
-            o.associate(wavecal=wcdict, flatcal=fcdict, wcscal=wcsdict, speccal=scdict, dither=dithdict)
+            o.associate(wavecal=wcdict, flatcal=fcdict, mcmcwcssol=mcmcwcsdict, wcscal=wcsdict, speccal=scdict, dither=dithdict)
 
         try:
             for o in self.wavecalable:
@@ -1163,7 +1174,7 @@ class MKIDObservingDataset:
         MKIDDither, or MKIDSpeccal.
         """
         look_in = (MKIDObservation, MKIDDither, MKIDSpeccal)
-        return set(self._find_nested('mcmcwcssol', MKIDWCSCal, look_in))
+        return set(self._find_nested('mcmcwcssol', MKIDMCMCWCSol, look_in))
 
     @property
     def dithers(self):
