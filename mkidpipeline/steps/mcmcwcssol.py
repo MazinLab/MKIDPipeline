@@ -86,7 +86,7 @@ class ClickCoords:
     def get_coords(self):
         self.push_to_start()
         if self.n_satspots != 0: plt.title('Select the 4 satellite spots')
-        else: plt.title('Select the the center of the star/coronograph')
+        else: plt.title('Select the the center of the star/choronograph')
         plt.draw()
         self.cid1 = self.fig.canvas.mpl_connect('button_press_event', self.__onclick__)
         plt.show()
@@ -110,7 +110,7 @@ class ClickCoords:
             if self.counter < 4 and self.n_satspots != 0:
                 plt.title('Select the 4 satellite spots')
             else:
-                plt.title('Select the the center of the star/coronograph')
+                plt.title('Select the the center of the star/choronograph')
             plt.draw()
         return self.coords
 
@@ -734,7 +734,8 @@ class MCMCWCS:
     def fetching_fits(self):
         datas = []
         headers = []
-        dist_list = []
+        # dist_list = []
+        conex_list = []
         elno_list = []
         h5_names = []
 
@@ -743,14 +744,15 @@ class MCMCWCS:
 
         for pt in photontables:
             filename, header, data = self.load_fits(pt)
-            elno += 1
             h5_names.append(filename)
             headers.append(header)
             datas.append(data)
-            dist_list.append(np.sqrt((headers[0]['E_CONEXX'] - header['E_CONEXX']) ** 2 + (
-                    headers[0]['E_CONEXY'] - header['E_CONEXY']) ** 2))
+            conex_list.append([header['E_CONEXX'],header['E_CONEXY']])
+            # dist_list.append(np.sqrt((headers[0]['E_CONEXX'] - header['E_CONEXX']) ** 2 + (
+            #         headers[0]['E_CONEXY'] - header['E_CONEXY']) ** 2))
             elno_list.append(elno)
-
+            elno += 1
+        dist_list=np.sqrt((np.array(conex_list)[:,0]-min(conex_list)[0])**2+(np.array(conex_list)[:,1]-min(conex_list)[1])**2)
         sorted_data_pos = [x for _, x in sorted(zip(dist_list, elno_list))]
 
         self.mcmc_setup['h5_names']=h5_names
@@ -774,21 +776,25 @@ class MCMCWCS:
         if self.mcmc_config['redo'] or np.any([len(getattr(self.mcmc_setup['sd'],label)) == 0 for label in ['slopes']]):
             getLogger(__name__).info(f'redo = {redo}, or no slope values found.')
             self.get_slope_and_conex(fits,headers)
-        else:
-            self.mcmc_setup['slopes'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['slopes'])
-            self.mcmc_setup['conex_xy_ref'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['conex_ref'])
-
-        if self.mcmc_config['sat_spots']:
-            if self.mcmc_config['redo'] or np.any([len(self.data[self.mcmc_config['mcmcmwcs_pos']][label]) == 0 for label in
+        # else:
+        #     getLogger(__name__).info(f'redo = {redo}, or slope values found.')
+        #     self.mcmc_setup['slopes'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['slopes'])
+            # self.mcmc_setup['conex_xy_ref'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['conex_ref'])
+        sat_spots = self.mcmc_config['sat_spots']
+        if sat_spots:
+            getLogger(__name__).info(f'sat_spots = {sat_spots}.')
+            if self.mcmc_config['redo'] or np.any([len(getattr(self.mcmc_setup['sd'],label)) == 0 for label in
                                ['spot_ref1', 'spot_ref2', 'spot_ref3', 'spot_ref4', 'cor_spot_ref', 'conex_ref']]):
-                mcmcwcs.get_satellite_spots_and_coronograph(fits[self.mcmc_config['ref_sat_spot_pos']],
+                getLogger(__name__).info(
+                    f'redo = {redo}, or no values found for satellite spots, chronograph or conex.')
+                self.get_satellite_spots_and_choronograph(fits[self.mcmc_config['ref_sat_spot_pos']],
                                                             headers[self.mcmc_config['ref_sat_spot_pos']])
 
             self.mcmc_setup['positions_ref'] = [np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['spot_ref1']),
                              np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['spot_ref2']),
                              np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['spot_ref3']),
                              np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['spot_ref4'])]
-            self.mcmc_setup['coronograph_ref'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['cor_spot_ref'])
+            self.mcmc_setup['choronograph_ref'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['cor_spot_ref'])
             self.mcmc_setup['conex_xy_ref'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['conex_ref'])
             self.mcmc_setup['slopes'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['slopes'])
 
@@ -813,11 +819,11 @@ class MCMCWCS:
         else:
             if self.mcmc_config['redo'] or np.any([len(self.data[self.mcmc_config['mcmcmwcs_pos']][label]) == 0 for label in
                                ['cor_spot_ref', 'conex_ref']]):
-                mcmcwcs.get_satellite_spots_and_coronograph(fits[self.mcmc_config['ref_sat_spot_pos']],
+                self.get_satellite_spots_and_choronograph(fits[self.mcmc_config['ref_sat_spot_pos']],
                                                             headers[self.mcmc_config['ref_sat_spot_pos']])
 
             self.mcmc_setup['positions_ref'] = [np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['cor_spot_ref'])]
-            self.mcmc_setup['coronograph_ref'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['cor_spot_ref'])
+            self.mcmc_setup['choronograph_ref'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['cor_spot_ref'])
             self.mcmc_setup['conex_xy_ref'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['conex_ref'])
             self.mcmc_setup['slopes'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['slopes'])
 
@@ -889,7 +895,7 @@ class MCMCWCS:
         cen_xy=np.round(CONEX2PIXEL(xyCons[0],
                                     xyCons[1],
                                     self.mcmc_setup['slopes'],
-                                    self.mcmc_setup['coronograph_ref'],
+                                    self.mcmc_setup['choronograph_ref'],
                                     self.mcmc_setup['conex_xy_ref']),2)
 
         self.mcmc_setup['pos']['cen_x'] = [cen_xy[0], cen_xy[0] - 5, cen_xy[0] + 5]
@@ -940,25 +946,25 @@ class MCMCWCS:
         getLogger(__name__).info(f'Selected N reference = {N}, closest number of equidistant element = {len(selected_pos)}')
 
         conex_ref_list=[]
-        coronograph_ref_list=[]
+        choronograph_ref_list=[]
 
         for elno in selected_pos:
             data=fits[elno]
             header=headers[elno]
             coords = select_sources(data, n_satspots=0)
 
-            positions, coronograph = [coords[0], coords[0]]
+            positions, choronograph = [coords[0], coords[0]]
             conex_xy = [float(header['E_CONEXX']), float(header['E_CONEXY'])]
             conex_ref_list.append(conex_xy)
-            coronograph_ref_list.append(coronograph)
+            choronograph_ref_list.append(choronograph)
 
-        coronograph_ref_list=np.array(coronograph_ref_list)
+        choronograph_ref_list=np.array(choronograph_ref_list)
         conex_ref_list=np.array(conex_ref_list)
 
         self.mcmc_setup['guesses'] = {'conexx': conex_ref_list[:, 0],
              'conexy': conex_ref_list[:, 1],
-             'pixel_at_conex_x': coronograph_ref_list[:, 0],
-             'pixel_at_conex_y': coronograph_ref_list[:, 1],
+             'pixel_at_conex_x': choronograph_ref_list[:, 0],
+             'pixel_at_conex_y': choronograph_ref_list[:, 1],
              'std_pixel_at_conex_x':1,
              'std_pixel_at_conex_y':1}
 
@@ -973,30 +979,40 @@ class MCMCWCS:
 
         slopes = [float(np.round(sol_x[0][0],2)),float(np.round(sol_y[0][0],2))]
         self.mcmc_setup['sd'].slopes = slopes
-        getLogger(__name__).info(f'Selected the star/coronograph coordinates as {slopes}')
+        getLogger(__name__).info(f'dpdc slopes = {slopes}')
 
-        # self.data[self.mcmc_config['mcmcmwcs_pos']]['slopes'] =[float(np.round(x,2)) for x in slopes]
-
-    def get_satellite_spots_and_coronograph(self,data,header):
-        if self.pipe['mcmcwcssol']['sat_spots']:
-            print('> Getting satellite spots and coronograph postions from images.')
+    def get_satellite_spots_and_choronograph(self,data,header):
+        if self.mcmc_config['sat_spots']:
+            getLogger(__name__).info(f'Getting satellite spots and chronograph positions from images.')
             n_satspots=4
         else:
-            print('> Getting coronograph postions from images.')
+            getLogger(__name__).info(f'Getting chronograph positions from images.')
             n_satspots=0
 
         coords = select_sources(data, n_satspots=n_satspots)
-        positions_ref, coronograph_ref = [coords[:-1], coords[-1]]
+        positions_ref, choronograph_ref = [coords[:-1], coords[-1]]
         conex_xy_ref = [float(header['E_CONEXX']), float(header['E_CONEXY'])]
 
-        if self.pipe['mcmcwcssol']['sat_spots']:
-            self.data[self.mcmc_config['mcmcmwcs_pos']]['spot_ref1'] = [float(np.round(x, 2)) for x in positions_ref[0]]
-            self.data[self.mcmc_config['mcmcmwcs_pos']]['spot_ref2'] = [float(np.round(x, 2)) for x in positions_ref[1]]
-            self.data[self.mcmc_config['mcmcmwcs_pos']]['spot_ref3'] = [float(np.round(x, 2)) for x in positions_ref[2]]
-            self.data[self.mcmc_config['mcmcmwcs_pos']]['spot_ref4'] = [float(np.round(x, 2)) for x in positions_ref[3]]
+        if self.mcmc_config['sat_spots']:
+            spot_ref1 = [float(np.round(x, 2)) for x in positions_ref[0]]
+            spot_ref2 = [float(np.round(x, 2)) for x in positions_ref[1]]
+            spot_ref3 = [float(np.round(x, 2)) for x in positions_ref[2]]
+            spot_ref4 = [float(np.round(x, 2)) for x in positions_ref[3]]
+            self.mcmc_setup['sd'].spot_ref1 = spot_ref1
+            self.mcmc_setup['sd'].spot_ref2 = spot_ref2
+            self.mcmc_setup['sd'].spot_ref3 = spot_ref3
+            self.mcmc_setup['sd'].spot_ref4 = spot_ref4
+            getLogger(__name__).info(f'spot_ref1 coordinates = {spot_ref1}')
+            getLogger(__name__).info(f'spot_ref2 coordinates = {spot_ref2}')
+            getLogger(__name__).info(f'spot_ref3 coordinates = {spot_ref3}')
+            getLogger(__name__).info(f'spot_ref4 coordinates = {spot_ref4}')
 
-        self.data[self.mcmc_config['mcmcmwcs_pos']]['cor_spot_ref'] = [float(np.round(x, 2)) for x in coronograph_ref]
-        self.data[self.mcmc_config['mcmcmwcs_pos']]['conex_ref'] = [float(np.round(x, 2)) for x in conex_xy_ref]
+        cor_spot_ref = [float(np.round(x, 2)) for x in choronograph_ref]
+        conex_ref = [float(np.round(x, 2)) for x in conex_xy_ref]
+        self.mcmc_setup['sd'].cor_spot_ref = cor_spot_ref
+        self.mcmc_setup['sd'].conex_ref = conex_ref
+        getLogger(__name__).info(f'cor_spot_ref coordinates = {cor_spot_ref}')
+        getLogger(__name__).info(f'conex_ref coordinates = {conex_ref}')
 
     def make_outputs(self,fits,heders):
         print('> Working on outputs')
