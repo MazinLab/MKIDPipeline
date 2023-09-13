@@ -705,7 +705,7 @@ class MCMCWCS:
     module to evaluate input parameter for WCS solution using MCMC algorithms and bayesian fitting
     '''
     # def __init__(self, pipe_cfg, data_cfg,verbose):
-    def __init__(self, pipe, obs,wcscal):
+    def __init__(self, pipe, obs, wcscal):
         '''
         :param pipe_cfg:
         :param data_cfg:
@@ -735,9 +735,12 @@ class MCMCWCS:
         # start_offset = self.data[mcmcmwcs_pos]['start_offset']
         # self.mcmc_config['mcmcmwcs_pos'] = mcmcmwcs_pos
         # self.mcmc_config['start_offset'] = start_offset
-        data_names=set([o.name.split('_')[0] for o in obs])
+        h5_names=set([o.name.split('_')[0] for o in obs])
         # self.mcmc_setup={label:var for var,label in zip([data_names,data_list,wcscal],['data_names','data_list','wcscal'])}
-        self.mcmc_setup={label:var for var,label in zip([data_names,obs,wcscal],['data_names','data_list','wcscal'])}
+        self.mcmc_setup={label:var for var,label in zip([h5_names,obs,wcscal],['h5_names','data_list','wcscal'])}
+
+        # self.mcmc_setup['h5_names'] = [o.h5.split('/')[-1] for o in obs]
+        self.mcmc_setup['ntargets'] = len(self.mcmc_setup['data_list'])
 
     def make_dir(self):
         paths=set([self.paths['MCMC_fit']+'plots/'+p for p in ['corners','debug','posterior']])
@@ -767,20 +770,21 @@ class MCMCWCS:
         #             print('> Making %s' % self.paths['MCMC_fit']+'plots/posterior/')
         #         os.makedirs(self.paths['MCMC_fit']+'plots/posterior/')
 
-    def fetching_h5_names(self):
-        start_times = []
-        print('> Building list of start times from: %s' % self.mcmc_setup['data_names'])
-        for name, data in zip(self.mcmc_setup['data_names'], self.mcmc_setup['data_list']):
-            print('>> Looking for data associated to %s containing time %s,...' % (name, data))
-            startt, _, _ = mkidcore.utils.get_ditherdata_for_time(self.paths['data'], data)
-            start_times.extend([np.round(i) for i in startt])
-            print('>> Found %i dithers.' % len(startt))
-
-        h5_int_names = [int(i.split('/')[-1].split('.h5')[0]) for i in glob(self.paths['out'] + '*.h5')]
-
-        self.mcmc_setup['start_times'] = start_times
-        self.mcmc_setup['h5_names'] = [str(int(min(h5_int_names, key=lambda x: abs(x - i))))+'.h5' for i in self.mcmc_setup['start_times']]
-        self.mcmc_setup['ntargets'] = len(start_times)
+    # def fetching_h5_names(self):
+    #     start_times = []
+    #     print('> Building list of start times from: %s' % self.mcmc_setup['data_names'])
+    #
+    #     for name, data in zip(self.mcmc_setup['data_names'], self.mcmc_setup['data_list']):
+    #         print('>> Looking for data associated to %s containing time %s,...' % (name, data))
+    #         startt, _, _ = mkidcore.utils.get_ditherdata_for_time(self.paths['data'], data)
+    #         start_times.extend([np.round(i) for i in startt])
+    #         print('>> Found %i dithers.' % len(startt))
+    #
+    #     h5_int_names = [int(i.split('/')[-1].split('.h5')[0]) for i in glob(self.paths['out'] + '*.h5')]
+    #
+    #     self.mcmc_setup['start_times'] = start_times
+    #     self.mcmc_setup['h5_names'] = [str(int(min(h5_int_names, key=lambda x: abs(x - i))))+'.h5' for i in self.mcmc_setup['start_times']]
+    #     self.mcmc_setup['ntargets'] = len(start_times)
 
     def fetching_datas(self):
         datas = []
@@ -788,9 +792,9 @@ class MCMCWCS:
         dist_list = []
         elno_list = []
         data_names = []
-
+        ntargets=self.mcmc_setup['ntargets']
         num_of_chunks = 3 * self.mcmc_config['ncpu']
-        chunksize = self.mcmc_setup['ntargets'] // num_of_chunks
+        chunksize = ntargets // num_of_chunks
         if chunksize <= 0:
             chunksize = 1
 
@@ -799,27 +803,42 @@ class MCMCWCS:
             workers_load = 10
         else:
             workers_load = self.mcmc_config['ncpu']
-        print('> Using %i cpus to load a total of %i files ...' % (workers_load, self.mcmc_setup['ntargets']))
-        with concurrent.futures.ProcessPoolExecutor(max_workers=workers_load) as executor:
-            for filename, header, data in tqdm(executor.map(mcmcwcs.load_fits_task, self.mcmc_setup['h5_names'], chunksize=chunksize)):
-                elno += 1
-                data_names.append(filename)
-                headers.append(header)
-                datas.append(data)
-                dist_list.append(np.sqrt((headers[0]['E_CONEXX'] - header['E_CONEXX']) ** 2 + (
-                        headers[0]['E_CONEXY'] - header['E_CONEXY']) ** 2))
-                elno_list.append(elno)
+
+        getLogger(__name__).info(f'Using {workers_load} cpus to load a total of {ntargets} files ...')
+        photontables=[obs.photontable for obs in self.mcmc_setup['data_list']]
+        # with concurrent.futures.ProcessPoolExecutor(max_workers=workers_load) as executor:
+        #     for filename, header, data in executor.map(self.load_fits, photontables, chunksize=chunksize):
+        #         elno += 1
+        #         data_names.append(filename)
+        #         headers.append(header)
+        #         datas.append(data)
+        #         dist_list.append(np.sqrt((headers[0]['E_CONEXX'] - header['E_CONEXX']) ** 2 + (
+        #                 headers[0]['E_CONEXY'] - header['E_CONEXY']) ** 2))
+        #         elno_list.append(elno)
+
+        for pt in photontables:
+            filename, header, data = self.load_fits(pt)
+            elno += 1
+            data_names.append(filename)
+            headers.append(header)
+            datas.append(data)
+            dist_list.append(np.sqrt((headers[0]['E_CONEXX'] - header['E_CONEXX']) ** 2 + (
+                    headers[0]['E_CONEXY'] - header['E_CONEXY']) ** 2))
+            elno_list.append(elno)
 
         sorted_data_pos = [x for _, x in sorted(zip(dist_list, elno_list))]
 
         self.mcmc_setup['data_names']=data_names
         self.mcmc_setup['sorted_data_pos']=sorted_data_pos
+        getLogger(__name__).info(f'Done loading fits files')
         return(datas,headers)
 
 
-    def load_fits_task(self, filename):
-        pt = Photontable(self.paths['out'] + filename)
-        hdul = pt.get_fits(wave_start=950, wave_stop=1100, start=pt.start_time + self.mcmc_config['start_offset'])
+    def load_fits(self, pt):
+        # pt = Photontable(self.paths['out'] + filename)
+        filename=pt.filename.split('/')[-1]
+        getLogger(__name__).info(f'Loading "{pt.filename}" fits')
+        hdul = pt.get_fits()
         header = hdul[0].header
         data = hdul[1].data
         hdul.close()
@@ -1158,7 +1177,7 @@ def fetch(obs, config=None, ncpu=None):
     except AttributeError:
         pass
 
-    mcmcwcscfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(wcscal=StepConfig()), cfg=config,
+    mcmcwcs_stepcfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(wcscal=StepConfig()), cfg=config,
                                                            ncpu=ncpu, copy=True)
 
     for sd in solution_descriptors:
@@ -1168,17 +1187,17 @@ def fetch(obs, config=None, ncpu=None):
             # config.configure_pipeline(args.pipe_cfg)
             # YAML = ruamel.yaml.YAML()
             data=set([o for o in obs if o.wcscal.name==sd.name])
-            mcmcwcs=MCMCWCS(mcmcwcscfg,data,sd)
+            mcmcwcs=MCMCWCS(mcmcwcs_stepcfg,data,sd)
 
             # if args.make_paths:
             mcmcwcs.make_dir()
 
             # #################################### LOADING DATA #################################################
-            mcmcwcs.fetching_h5_names()
-            # datas, headers = mcmcwcs.fetching_datas()
+            # mcmcwcs.fetching_h5_names()
+            datas, headers = mcmcwcs.fetching_datas()
 
             ############################################################## PARAMETERS FIT #################################################################
-            # mcmcwcs.fetching_mcmc_parameters(datas,headers)
+            mcmcwcs.fetching_mcmc_parameters(datas,headers)
             # w=np.where([mcmcwcs.paths['MCMC_fit']+i not in glob(mcmcwcs.paths['MCMC_fit']+'*.h5') for i in mcmcwcs.mcmc_setup['data_names']])[0]
             # if mcmcwcs.mcmc_config['redo'] or len(w) > 0:
             #     mcmcwcs.fitting_paprameters([datas[i] for i in w.tolist()],[headers[i] for i in w.tolist()])
