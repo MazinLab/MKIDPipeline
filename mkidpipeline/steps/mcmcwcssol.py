@@ -844,9 +844,9 @@ class MCMCWCS:
         hdul.close()
         return (filename, header, data)
 
-    def fetching_mcmc_parameters(self, datas, headers):
+    def fetching_mcmc_parameters(self, fits, headers):
         if self.mcmc_config['redo'] or np.any([len(self.data[self.mcmc_config['mcmcmwcs_pos']][label]) == 0 for label in ['slopes']]):
-            mcmcwcs.get_slope_and_conex(datas,headers)
+            mcmcwcs.get_slope_and_conex(fits,headers)
         else:
             self.mcmc_setup['slopes'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['slopes'])
             self.mcmc_setup['conex_xy_ref'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['conex_ref'])
@@ -854,7 +854,7 @@ class MCMCWCS:
         if self.mcmc_config['sat_spots']:
             if self.mcmc_config['redo'] or np.any([len(self.data[self.mcmc_config['mcmcmwcs_pos']][label]) == 0 for label in
                                ['spot_ref1', 'spot_ref2', 'spot_ref3', 'spot_ref4', 'cor_spot_ref', 'conex_ref']]):
-                mcmcwcs.get_satellite_spots_and_coronograph(datas[self.mcmc_config['ref_sat_spot_pos']],
+                mcmcwcs.get_satellite_spots_and_coronograph(fits[self.mcmc_config['ref_sat_spot_pos']],
                                                             headers[self.mcmc_config['ref_sat_spot_pos']])
 
             self.mcmc_setup['positions_ref'] = [np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['spot_ref1']),
@@ -886,7 +886,7 @@ class MCMCWCS:
         else:
             if self.mcmc_config['redo'] or np.any([len(self.data[self.mcmc_config['mcmcmwcs_pos']][label]) == 0 for label in
                                ['cor_spot_ref', 'conex_ref']]):
-                mcmcwcs.get_satellite_spots_and_coronograph(datas[self.mcmc_config['ref_sat_spot_pos']],
+                mcmcwcs.get_satellite_spots_and_coronograph(fits[self.mcmc_config['ref_sat_spot_pos']],
                                                             headers[self.mcmc_config['ref_sat_spot_pos']])
 
             self.mcmc_setup['positions_ref'] = [np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['cor_spot_ref'])]
@@ -905,7 +905,7 @@ class MCMCWCS:
 
 
 
-    def fitting_paprameters(self,datas, headers):
+    def fitting_paprameters(self,fits, headers):
             print('> Fitting parameters')
 
             num_of_chunks = 3 * self.mcmc_config['ncpu']
@@ -916,13 +916,13 @@ class MCMCWCS:
             if self.mcmc_config['parallel_runs']:
                 print('> parallel runs %s, number of parallel runs %i, ncpu per target %i, ntargets %i, chunksize %i' % (self.mcmc_config['parallel_runs'], self.mcmc_config['ncpu'],self.mcmc_config['mcmc_ncpu_multiplier'], self.mcmc_setup['ntargets'], chunksize))
                 with concurrent.futures.ProcessPoolExecutor(max_workers=self.mcmc_config['ncpu']) as executor:
-                    for _ in tqdm(executor.map(mcmcwcs.mcmc_task, self.mcmc_setup['data_names'], datas, headers, repeat(self.mcmc_config['mcmc_ncpu_multiplier']),
+                    for _ in tqdm(executor.map(mcmcwcs.mcmc_task, self.mcmc_setup['data_names'], fits, headers, repeat(self.mcmc_config['mcmc_ncpu_multiplier']),
                                                chunksize=chunksize)):
                         pass
             else:
                 print('> parallel_runs %s, ncpu per target %i ,ntargets %i' % (self.mcmc_config['parallel_runs'], self.mcmc_config['mcmc_ncpu_multiplier']*self.mcmc_config['ncpu'], self.mcmc_setup['ntargets']))
                 for elno in tqdm(range(self.mcmc_setup['ntargets'])):
-                    mcmcwcs.mcmc_task(self.mcmc_setup['data_names'][elno], datas[elno], headers[elno],self.mcmc_config['mcmc_ncpu_multiplier']*self.mcmc_config['ncpu'])
+                    mcmcwcs.mcmc_task(self.mcmc_setup['data_names'][elno], fits[elno], headers[elno],self.mcmc_config['mcmc_ncpu_multiplier']*self.mcmc_config['ncpu'])
 
 
     def lsq_fit_dpdc(self,d,labels,path2savedir=None,filename='test.jpg',showplot=True,verbose=True,ext='_'):
@@ -1006,7 +1006,7 @@ class MCMCWCS:
 
         return(pixel_cen,epixel_cen,xyCons)
 
-    def get_slope_and_conex(self,datas,headers):
+    def get_slope_and_conex(self,fits,headers):
         print('> Getting slope and conex postition from images.')
         N=int(self.mcmc_config['ref_el'])
         if N != 2: selected_pos=self.mcmc_setup['sorted_data_pos'][::int(np.ceil( len(self.mcmc_setup['sorted_data_pos']) / N ))]
@@ -1019,7 +1019,7 @@ class MCMCWCS:
 
         print(selected_pos)
         for elno in selected_pos:
-            data=datas[elno]
+            data=fits[elno]
             header=headers[elno]
             coords = select_sources(data, n_satspots=0)
 
@@ -1071,7 +1071,7 @@ class MCMCWCS:
         self.data[self.mcmc_config['mcmcmwcs_pos']]['cor_spot_ref'] = [float(np.round(x, 2)) for x in coronograph_ref]
         self.data[self.mcmc_config['mcmcmwcs_pos']]['conex_ref'] = [float(np.round(x, 2)) for x in conex_xy_ref]
 
-    def make_outputs(self,datas,heders):
+    def make_outputs(self,fits,heders):
         print('> Working on outputs')
         print('> Looking for data in %s' % self.paths['MCMC_fit'])
 
@@ -1086,7 +1086,7 @@ class MCMCWCS:
             self.mcmc_setup['mcmc_labels'] = ['amplitude', 'fwhm_x1', 'fwhm_y1', 'cen_x', 'cen_y']
 
         print('> Working on data:')
-        for data,header,h5_name in tqdm(zip(datas,heders,self.mcmc_setup['data_names'])):
+        for data,header,h5_name in tqdm(zip(fits,heders,self.mcmc_setup['data_names'])):
             pixel_cen, epixel_cen, xyCons = mcmcwcs.sample_posteriors_task(data,header,h5_name,self.mcmc_config)
             # out_filename_list.append(filename)
             pixel_cen_list.append(pixel_cen)
@@ -1156,16 +1156,16 @@ class MCMCWCS:
 #
 #     #################################### LOADING DATA #################################################
 #     mcmcwcs.fetching_h5_names()
-#     datas, headers = mcmcwcs.fetching_fits()
+#     fits, headers = mcmcwcs.fetching_fits()
 #
 #     ############################################################## PARAMETERS FIT #################################################################
-#     mcmcwcs.fetching_mcmc_parameters(datas,headers)
+#     mcmcwcs.fetching_mcmc_parameters(fits,headers)
 #     w=np.where([mcmcwcs.paths['MCMC_fit']+i not in glob(mcmcwcs.paths['MCMC_fit']+'*.h5') for i in mcmcwcs.mcmc_setup['data_names']])[0]
 #     if mcmcwcs.mcmc_config['redo'] or len(w) > 0:
-#         mcmcwcs.fitting_paprameters([datas[i] for i in w.tolist()],[headers[i] for i in w.tolist()])
+#         mcmcwcs.fitting_paprameters([fits[i] for i in w.tolist()],[headers[i] for i in w.tolist()])
 #
 #     #################################################### SAMPLIG POSTERIOR/MAKING OUTPUT ###########################################################
-#     mcmcwcs.make_outputs(datas,headers)
+#     mcmcwcs.make_outputs(fits,headers)
 #
 #     #################################################### SAVE FINAL DATA YAML ###########################################################
 #     config.dump_dataconfig(mcmcwcs.data, mcmcwcs.paths['data_cfg'])
@@ -1200,10 +1200,10 @@ def fetch(obs, config=None, ncpu=None):
             mcmcwcs.fetching_mcmc_parameters(fits,headers)
             w=np.where([mcmcwcs.paths['MCMC_fit']+i not in glob(mcmcwcs.paths['MCMC_fit']+'*.h5') for i in mcmcwcs.mcmc_setup['data_names']])[0]
             # if mcmcwcs.mcmc_config['redo'] or len(w) > 0:
-            #     mcmcwcs.fitting_paprameters([datas[i] for i in w.tolist()],[headers[i] for i in w.tolist()])
+            #     mcmcwcs.fitting_paprameters([fits[i] for i in w.tolist()],[headers[i] for i in w.tolist()])
             #
             # #################################################### SAMPLIG POSTERIOR/MAKING OUTPUT ###########################################################
-            # mcmcwcs.make_outputs(datas,headers)
+            # mcmcwcs.make_outputs(fits,headers)
             #
             # #################################################### SAVE FINAL DATA YAML ###########################################################
             # config.dump_dataconfig(mcmcwcs.data, mcmcwcs.paths['data_cfg'])
