@@ -735,9 +735,9 @@ class MCMCWCS:
         # start_offset = self.data[mcmcmwcs_pos]['start_offset']
         # self.mcmc_config['mcmcmwcs_pos'] = mcmcmwcs_pos
         # self.mcmc_config['start_offset'] = start_offset
-        h5_names=set([o.name.split('_')[0] for o in obs])
+        data_names=set([o.name.split('_')[0] for o in obs])
         # self.mcmc_setup={label:var for var,label in zip([data_names,data_list,wcscal],['data_names','data_list','wcscal'])}
-        self.mcmc_setup={label:var for var,label in zip([h5_names,obs,wcscal],['h5_names','data_list','wcscal'])}
+        self.mcmc_setup={label:var for var,label in zip([data_names,obs,wcscal],['data_names','data_list','wcscal'])}
 
         # self.mcmc_setup['h5_names'] = [o.h5.split('/')[-1] for o in obs]
         self.mcmc_setup['ntargets'] = len(self.mcmc_setup['data_list'])
@@ -786,30 +786,30 @@ class MCMCWCS:
     #     self.mcmc_setup['h5_names'] = [str(int(min(h5_int_names, key=lambda x: abs(x - i))))+'.h5' for i in self.mcmc_setup['start_times']]
     #     self.mcmc_setup['ntargets'] = len(start_times)
 
-    def fetching_datas(self):
+    def fetching_fits(self):
         datas = []
         headers = []
         dist_list = []
         elno_list = []
-        data_names = []
-        ntargets=self.mcmc_setup['ntargets']
-        num_of_chunks = 3 * self.mcmc_config['ncpu']
-        chunksize = ntargets // num_of_chunks
-        if chunksize <= 0:
-            chunksize = 1
+        h5_names = []
+        # ntargets = self.mcmc_setup['ntargets']
+        # num_of_chunks = 3 * self.mcmc_config['ncpu']
+        # chunksize = ntargets // num_of_chunks
+        # if chunksize <= 0:
+        #     chunksize = 1
+        #
+        # if self.mcmc_config['ncpu'] == 1:
+        #     workers_load = 10
+        # else:
+        #     workers_load = self.mcmc_config['ncpu']
 
         elno = 0
-        if self.mcmc_config['ncpu'] == 1:
-            workers_load = 10
-        else:
-            workers_load = self.mcmc_config['ncpu']
-
-        getLogger(__name__).info(f'Using {workers_load} cpus to load a total of {ntargets} files ...')
-        photontables=[obs.photontable for obs in self.mcmc_setup['data_list']]
+        photontables = [obs.photontable for obs in self.mcmc_setup['data_list']]
+        # getLogger(__name__).info(f'Using {workers_load} cpus to load a total of {ntargets} files ...')
         # with concurrent.futures.ProcessPoolExecutor(max_workers=workers_load) as executor:
         #     for filename, header, data in executor.map(self.load_fits, photontables, chunksize=chunksize):
         #         elno += 1
-        #         data_names.append(filename)
+        #         h5_names.append(filename)
         #         headers.append(header)
         #         datas.append(data)
         #         dist_list.append(np.sqrt((headers[0]['E_CONEXX'] - header['E_CONEXX']) ** 2 + (
@@ -819,7 +819,7 @@ class MCMCWCS:
         for pt in photontables:
             filename, header, data = self.load_fits(pt)
             elno += 1
-            data_names.append(filename)
+            h5_names.append(filename)
             headers.append(header)
             datas.append(data)
             dist_list.append(np.sqrt((headers[0]['E_CONEXX'] - header['E_CONEXX']) ** 2 + (
@@ -828,7 +828,7 @@ class MCMCWCS:
 
         sorted_data_pos = [x for _, x in sorted(zip(dist_list, elno_list))]
 
-        self.mcmc_setup['data_names']=data_names
+        self.mcmc_setup['h5_names']=h5_names
         self.mcmc_setup['sorted_data_pos']=sorted_data_pos
         getLogger(__name__).info(f'Done loading fits files')
         return(datas,headers)
@@ -1156,7 +1156,7 @@ class MCMCWCS:
 #
 #     #################################### LOADING DATA #################################################
 #     mcmcwcs.fetching_h5_names()
-#     datas, headers = mcmcwcs.fetching_datas()
+#     datas, headers = mcmcwcs.fetching_fits()
 #
 #     ############################################################## PARAMETERS FIT #################################################################
 #     mcmcwcs.fetching_mcmc_parameters(datas,headers)
@@ -1194,11 +1194,11 @@ def fetch(obs, config=None, ncpu=None):
 
             # #################################### LOADING DATA #################################################
             # mcmcwcs.fetching_h5_names()
-            datas, headers = mcmcwcs.fetching_datas()
+            fits, headers = mcmcwcs.fetching_fits()
 
             ############################################################## PARAMETERS FIT #################################################################
-            mcmcwcs.fetching_mcmc_parameters(datas,headers)
-            # w=np.where([mcmcwcs.paths['MCMC_fit']+i not in glob(mcmcwcs.paths['MCMC_fit']+'*.h5') for i in mcmcwcs.mcmc_setup['data_names']])[0]
+            mcmcwcs.fetching_mcmc_parameters(fits,headers)
+            w=np.where([mcmcwcs.paths['MCMC_fit']+i not in glob(mcmcwcs.paths['MCMC_fit']+'*.h5') for i in mcmcwcs.mcmc_setup['data_names']])[0]
             # if mcmcwcs.mcmc_config['redo'] or len(w) > 0:
             #     mcmcwcs.fitting_paprameters([datas[i] for i in w.tolist()],[headers[i] for i in w.tolist()])
             #
