@@ -1589,7 +1589,7 @@ class MKIDOutputCollection:
         Returns a set of all of the MKIDObservations affiliated with an output that have an associated
         MKIDWCSCal. Does not search for nested MKIDWCSCalDescriptions except with the speccal
         """
-        return set([o for o in self.to_mcmcwcssol if o.mcmcwcssol])
+        return set([o.mcmcwcssol for o in self.to_mcmcwcssol if o.mcmcwcssol])
         # return set([o.wcscal for o in self.to_wcscal if o.wcscal])
 
     @property
@@ -1771,22 +1771,22 @@ class MKIDOutputCollection:
 
     @property
     def to_mcmcwcssol(self):
-        # def input_observations(obs):
-        #     for o in obs:
-        #         if o.speccal:
-        #             for x in o.speccal.obs:
-        #                 if x.wcscal:
-        #                     yield x
-        # for out in self:
-        #     for o in out.data.obs:
-        #         if o.wcscal:
-        #             yield o
-        #
-        #     for o in input_observations(out.data.obs):
-        #         yield o
+        def input_observations(obs):
+            for o in obs:
+                if o.speccal:
+                    for x in o.speccal.obs:
+                        if x.mcmcwcssol:
+                            yield x
         for out in self:
             for o in out.data.obs:
+                if o.mcmcwcssol:
+                    yield o
+
+            for o in input_observations(out.data.obs):
                 yield o
+        # for out in self:
+        #     for o in out.data.obs:
+        #         yield o
 
 
     @property
