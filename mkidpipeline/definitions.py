@@ -347,14 +347,15 @@ class MKIDObservation(MKIDTimerange):
     KEYS = MKIDTimerange.KEYS + (
         Key('wavecal', '', 'A MKIDWavedata name', str),
         Key('flatcal', '', 'A MKIDFlatdata name', str),
+        Key('mcmcwcssol', '', 'A MKIDWCSSol name', str),
         Key('wcscal', '', 'A MKIDWCSCal name', str),
         Key('speccal', '', 'A MKIDSpecdata nam', str),
     )
-    REQUIRED = MKIDTimerange.REQUIRED + ('wavecal', 'flatcal', 'wcscal', 'speccal')
+    REQUIRED = MKIDTimerange.REQUIRED + ('wavecal', 'flatcal', 'mcmcwcssol', 'wcscal', 'speccal')
 
     @classmethod
     def to_yaml(cls, representer, node):
-        return super().to_yaml(representer, node, use_underscore=('wavecal', 'flatcal', 'wcscal', 'speccal'))  # save as
+        return super().to_yaml(representer, node, use_underscore=('wavecal', 'flatcal', 'mcmcwcssol', 'wcscal', 'speccal'))  # save as
         # named references!
 
     @property
@@ -412,7 +413,7 @@ class MKIDObservation(MKIDTimerange):
 
     def associate(self, **kwargs):
         """Call with dicts for wavecal, flatcal, speccal, and wcscal"""
-        for k in ('wavecal', 'flatcal', 'speccal', 'wcscal'):
+        for k in ('wavecal', 'flatcal', 'speccal', 'wcscal','mcmcwcssol'):
             if k not in kwargs:
                 continue
             item = getattr(self, k)
@@ -1156,6 +1157,15 @@ class MKIDObservingDataset:
         return set(self._find_nested('wcscal', MKIDWCSCal, look_in))
 
     @property
+    def mcmcwcssol(self):
+        """
+        Returns a set of all of the MKIDWCSCalDescriptions that are associated with each MKIDObservation,
+        MKIDDither, or MKIDSpeccal.
+        """
+        look_in = (MKIDObservation, MKIDDither, MKIDSpeccal)
+        return set(self._find_nested('mcmcwcssol', MKIDWCSCal, look_in))
+
+    @property
     def dithers(self):
         """
         Returns a set of all of the MKIDDitherDescriptions that are associated with each MKIDDither,
@@ -1568,7 +1578,7 @@ class MKIDOutputCollection:
         Returns a set of all of the MKIDObservations affiliated with an output that have an associated
         MKIDWCSCal. Does not search for nested MKIDWCSCalDescriptions except with the speccal
         """
-        return set([o for o in self.to_mcmcwcssol if o.mcmc])
+        return set([o for o in self.to_mcmcwcssol if o.mcmcwcssol])
         # return set([o.wcscal for o in self.to_wcscal if o.wcscal])
 
     @property
