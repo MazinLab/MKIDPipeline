@@ -971,8 +971,8 @@ class MKIDMCMCWCSol(_Base, CalibMixin):
 
     KEYS = (
         Key(name='name', default='', comment='A name', dtype=str),
-        # Key('data', '', 'A data name', str),
-        # Key('wcscal', '', 'The wcscal name to update with he new solution in the data.yaml', str),
+        Key('data', '', 'A data name', str),
+        Key('wcscal', '', 'The wcscal name to update with he new solution in the data.yaml', str),
         Key('cor_spot_ref', [], 'X,Y guess for the chronograph', list),
         Key('conex_ref', [], 'X,Y conex for the chronograph guess', list),
         Key('spot_ref1', [], 'X,Y guess for the first satellite spot', list),
@@ -983,7 +983,7 @@ class MKIDMCMCWCSol(_Base, CalibMixin):
         # Key('start_offset', 0, 'An offset in seconds (>=0) from the start of the data timerange', int),
         # Key('sol', {}, 'The dpdc pixel solution at conex 0 with errors', dict),
     )
-    REQUIRED = ('name','cor_spot_ref','conex_ref') #,'data', 'wcscal'
+    REQUIRED = ('name', 'data', 'wcscal','cor_spot_ref','conex_ref')
 
     def __init__(self, *args, **kwargs):
         super(MKIDMCMCWCSol, self).__init__(*args, **kwargs)
