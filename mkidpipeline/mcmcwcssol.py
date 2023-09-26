@@ -153,12 +153,12 @@ class SATSPOT2PIXELREF:
     '''
 
     '''
-    def __init__(self,data_list,header_list=None,var_list=None,guess_list=[[77, 62], [134, 62], [77, 7], [134, 7]],conex_guess=[-0.1,-0.6],letter_list=['A', 'B', 'C', 'D'], slopes = [-63.09, 67.61], xyCons = [0, 0], dmax=3):
+    def __init__(self,data_list,header_list=None,var_list=None,guess_list=[[77, 62], [134, 62], [77, 7], [134, 7]],conex_guess=[-0.1,-0.6],letter_list=['A', 'B', 'C', 'D'], slope_guess = [-63.09, 67.61], xyCons = [0, 0], dmax=3):
         self.header_list=header_list
         self.data_list=data_list
         self.var_list=var_list
         self.letter_list=letter_list
-        self.slopes=np.array(slopes)
+        self.slope_guess=np.array(slope_guess)
         self.xCon, self.yCon =xyCons
         self.dmax=dmax
         self.guess_list=np.array(guess_list)
@@ -218,7 +218,7 @@ class SATSPOT2PIXELREF:
     def run(self, el, verbose=True,sat_spots=True):
         if self.header_list is not None:
             pixels_at_Con = np.array([CONEX2PIXEL(float(self.header_list[el]['E_CONEXX']),
-                                                  float(self.header_list[el]['E_CONEXY']),  self.slopes, ref_pix, ref_con) for
+                                                  float(self.header_list[el]['E_CONEXY']),  self.slope_guess, ref_pix, ref_con) for
                                       ref_pix, ref_con in zip(self.guess_list, [self.conex_guess] * 4)])  # Im assuming the CONEX2PIXEL has no errors
             x_init = pixels_at_Con[::, 0]
             y_init = pixels_at_Con[::, 1]
@@ -313,26 +313,26 @@ class SATSPOT2PIXELREF:
                 plt.show()
 
             if self.header_list is not None:
-                conex_ref= [float(self.header_list[el]['E_CONEXX']),
+                conex_guess= [float(self.header_list[el]['E_CONEXX']),
                                        float(self.header_list[el]['E_CONEXY'])]
-            else: conex_ref = [0,0]
+            else: conex_guess = [0,0]
             if sat_spots:
                 data_dict = {'el': el ,'SSPOT_XY': reference_points_dict,
-                             'conex_ref': conex_ref,
+                             'conex_guess': conex_guess,
                              'P': [float(round(p_x, 2)), float(round(p_y, 2)), float(round(ep_x, 2)),
                                    float(round(ep_y, 2))]}
             else:
                 data_dict = {'el': el,
-                             'conex_ref': conex_ref,
+                             'conex_guess': conex_guess,
                              'P': [float(round(p_x, 2)), float(round(p_y, 2)), float(round(ep_x, 2)),
                                    float(round(ep_y, 2))]}
 
             ref_pix = data_dict['P'][:2]
             eref_pix = data_dict['P'][2:]
-            ref_con = data_dict.conex_ref
+            ref_con = data_dict.conex_guess
 
 
-            pix_at_con_0= np.round(CONEX2PIXEL(self.xCon, self.yCon, self.slopes, ref_pix, ref_con),2)
+            pix_at_con_0= np.round(CONEX2PIXEL(self.xCon, self.yCon, self.slope_guess, ref_pix, ref_con),2)
             data_dict['pix_at_con_0'] = [pix_at_con_0[0],pix_at_con_0[1],eref_pix[0],eref_pix[1]]
 
             if verbose:
@@ -463,10 +463,10 @@ class SATSPOT_MODEL:
             plt.close('all')
         else: plt.show()
 
-def create_mask(data,xyCons,slopes,positions0,E_CONEXXY0,factor,normalize=False):
+def create_mask(data,xyCons,slope_guess,positions0,E_CONEXXY0,factor,normalize=False):
     satspot_positions = np.round(np.array([CONEX2PIXEL(xyCons[0],
                                               xyCons[1],
-                                              slopes,
+                                              slope_guess,
                                               ref_pix,
                                               ref_con) for ref_pix, ref_con in zip(positions0,
                                                                                     [E_CONEXXY0] * len(positions0))]),2)
@@ -651,7 +651,7 @@ class MCMC_FIT:
         getLogger(__name__).info(f'Done fitting {filename}')
 
 
-    def sample_posteriors(self, filename, slopes, full_posterior=True, verbose=False, save_output=False):
+    def sample_posteriors(self, filename, slope_guess, full_posterior=True, verbose=False, save_output=False):
         if self.ndim is None: self.ndim = len(self.labels)
 
         reader = emcee.backends.HDFBackend(self.path+filename)
@@ -774,7 +774,7 @@ class MCMCWCS:
     def fetching_mcmc_parameters(self, fits, headers):
         redo=self.mcmc_config['redo']
         getLogger(__name__).info(f'Fetching mcmc  parameters from yaml. redo = {redo}.')
-        if self.mcmc_config['redo'] or np.any([len(getattr(self.mcmc_setup['sd'],label)) == 0 for label in ['slopes']]):
+        if self.mcmc_config['redo'] or np.any([len(getattr(self.mcmc_setup['sd'],label)) == 0 for label in ['slope_guess']]):
             getLogger(__name__).info(f'no slope values found.')
             self.get_slope_and_conex(fits,headers)
 
@@ -782,15 +782,15 @@ class MCMCWCS:
         getLogger(__name__).info(f'Fetching mcmc  parameters from yaml. sat_spots = {sat_spots}.')
         if sat_spots:
             if self.mcmc_config['redo'] or np.any([len(getattr(self.mcmc_setup['sd'],label)) == 0 for label in
-                               ['spot_ref1', 'spot_ref2', 'spot_ref3', 'spot_ref4', 'cor_spot_ref', 'conex_ref']]):
+                               ['satspot_guess1', 'satspot_guess2', 'satspot_guess3', 'satspot_guess4', 'coronograph_guess', 'conex_guess']]):
                 getLogger(__name__).info(f'no values found for satellite spots, chronograph or conex.')
                 self.get_satellite_spots_and_choronograph(fits[self.mcmc_config['ref_sat_spot_pos']],
                                                             headers[self.mcmc_config['ref_sat_spot_pos']])
 
-            self.mcmc_setup['positions_ref'] = [np.float64(self.mcmc_setup['sd'].spot_ref1),
-                             np.float64(self.mcmc_setup['sd'].spot_ref2),
-                             np.float64(self.mcmc_setup['sd'].spot_ref3),
-                             np.float64(self.mcmc_setup['sd'].spot_ref4)]
+            self.mcmc_setup['positions_ref'] = [np.float64(self.mcmc_setup['sd'].satspot_guess1),
+                             np.float64(self.mcmc_setup['sd'].satspot_guess2),
+                             np.float64(self.mcmc_setup['sd'].satspot_guess3),
+                             np.float64(self.mcmc_setup['sd'].satspot_guess4)]
 
             self.mcmc_setup['pos'] = {'amplitude': [self.mcmc_config['amplitude'][0], self.mcmc_config['amplitude'][1],
                                       self.mcmc_config['amplitude'][2]],
@@ -813,12 +813,12 @@ class MCMCWCS:
 
         else:
             if self.mcmc_config['redo'] or np.any([len(getattr(self.mcmc_setup['sd'],label)) == 0 for label in
-                               ['cor_spot_ref', 'conex_ref']]):
+                               ['coronograph_guess', 'conex_guess']]):
                 getLogger(__name__).info(f'no values found for chronograph or conex.')
                 self.get_satellite_spots_and_choronograph(fits[self.mcmc_config['ref_sat_spot_pos']],
                                                             headers[self.mcmc_config['ref_sat_spot_pos']])
 
-            self.mcmc_setup['positions_ref'] = [np.float64(self.mcmc_setup['sd'].cor_spot_ref)]
+            self.mcmc_setup['positions_ref'] = [np.float64(self.mcmc_setup['sd'].coronograph_guess)]
 
             self.mcmc_setup['pos']  = {'amplitude': [self.mcmc_config['amplitude'][0], self.mcmc_config['amplitude'][1],
                                       self.mcmc_config['amplitude'][2]],
@@ -827,9 +827,9 @@ class MCMCWCS:
                         'fwhm_y1': [self.mcmc_config['fwhm_y'][0], self.mcmc_config['fwhm_y'][1],
                                     self.mcmc_config['fwhm_y'][2]]}
 
-        self.mcmc_setup['cor_spot_ref'] = np.float64(self.mcmc_setup['sd'].cor_spot_ref)
-        self.mcmc_setup['conex_ref'] = np.float64(self.mcmc_setup['sd'].conex_ref)
-        self.mcmc_setup['slopes'] = np.float64(self.mcmc_setup['sd'].slopes)
+        self.mcmc_setup['coronograph_guess'] = np.float64(self.mcmc_setup['sd'].coronograph_guess)
+        self.mcmc_setup['conex_guess'] = np.float64(self.mcmc_setup['sd'].conex_guess)
+        self.mcmc_setup['slope_guess'] = np.float64(self.mcmc_setup['sd'].slope_guess)
         getLogger(__name__).info(f'MCMC setup done.')
 
         # config.dump_dataconfig(self.data, self.paths['data_cfg'])
@@ -912,15 +912,15 @@ class MCMCWCS:
         xyCons = [header['E_CONEXX'],header['E_CONEXY']]
         cen_xy=np.round(CONEX2PIXEL(xyCons[0],
                                     xyCons[1],
-                                    self.mcmc_setup['slopes'],
-                                    self.mcmc_setup['cor_spot_ref'],
-                                    self.mcmc_setup['conex_ref']),2)
+                                    self.mcmc_setup['slope_guess'],
+                                    self.mcmc_setup['coronograph_guess'],
+                                    self.mcmc_setup['conex_guess']),2)
 
         self.mcmc_setup['pos']['cen_x'] = [cen_xy[0], cen_xy[0] - 5, cen_xy[0] + 5]
         self.mcmc_setup['pos']['cen_y'] = [cen_xy[1], cen_xy[1] - 5, cen_xy[1] + 5]
 
-        masked_img=create_mask(data,xyCons,self.mcmc_setup['slopes'],self.mcmc_setup['positions_ref'],
-                               self.mcmc_setup['conex_ref'],self.mcmc_config['factor'])
+        masked_img=create_mask(data,xyCons,self.mcmc_setup['slope_guess'],self.mcmc_setup['positions_ref'],
+                               self.mcmc_setup['conex_guess'],self.mcmc_config['factor'])
         d=np.nanmedian(data[data>0])
 
         mcmc=MCMC_FIT(path=self.paths['MCMC_fit'], nwalkers=self.mcmc_config['nwalkers'], steps=self.mcmc_config['steps'],
@@ -939,12 +939,12 @@ class MCMCWCS:
 
         xyCons=[float(header['E_CONEXX']), float(header['E_CONEXY'])]
         mcmc=MCMC_FIT(path=self.paths['MCMC_fit'], ncpu=self.mcmc_config['ncpu']*self.mcmc_config['mcmc_ncpu_multiplier'], progress=False, verbose=False,labels=self.mcmc_setup['mcmc_labels'])
-        s=mcmc.sample_posteriors(h5_name, self.mcmc_setup['slopes'], full_posterior=True, verbose=False,save_output=True)
+        s=mcmc.sample_posteriors(h5_name, self.mcmc_setup['slope_guess'], full_posterior=True, verbose=False,save_output=True)
         pixel_cen=[s['cen_x'][0],s['cen_y'][0]]
         epixel_cen=[np.mean(s['cen_x'][1:3]),np.mean(s['cen_y'][1:3])]
 
         sp=SATSPOT_MODEL(np.array(data.shape[::-1])-1,factor=mcmc_config['factor'])
-        masked_img=create_mask(data,xyCons,self.mcmc_setup['slopes'],self.mcmc_setup['positions_ref'],self.mcmc_setup['conex_ref'],self.mcmc_config['factor'])
+        masked_img=create_mask(data,xyCons,self.mcmc_setup['slope_guess'],self.mcmc_setup['positions_ref'],self.mcmc_setup['conex_guess'],self.mcmc_config['factor'])
         if mcmc_config['sat_spots']: sp.create_psf_image(s['amplitude'][0],[s['cen_x'][0],s['cen_y'][0]], [[s['fwhm_x1'][0], s['fwhm_y1'][0]]],lengths_list=[s['length1'][0],s['length2'][0]],angles_list=[s['angle1'][0],s['angle2'][0]],d=d,mask=masked_img,flux=np.nansum(masked_img),sat_spots=mcmc_config['sat_spots'])
         else: sp.create_psf_image(s['amplitude'][0],[s['cen_x'][0],s['cen_y'][0]], [[s['fwhm_x1'][0], s['fwhm_y1'][0]]],d=d,mask=masked_img,flux=np.nansum(masked_img),sat_spots=mcmc_config['sat_spots'])
         chi2_map = (masked_img - sp.psfs_img) ** 2 / (sp.psfs_img+0.00000001)
@@ -969,8 +969,8 @@ class MCMCWCS:
         else: selected_pos=[self.mcmc_setup['sorted_data_pos'][0],self.mcmc_setup['sorted_data_pos'][-1]]
         getLogger(__name__).info(f'Selected N reference = {N}, closest number of equidistant element = {len(selected_pos)}')
 
-        conex_ref_list=[]
-        cor_spot_ref_list=[]
+        conex_guess_list=[]
+        coronograph_guess_list=[]
 
         for elno in selected_pos:
             data=fits[elno]
@@ -979,16 +979,16 @@ class MCMCWCS:
 
             positions, choronograph = [coords[0], coords[0]]
             conex_xy = [float(header['E_CONEXX']), float(header['E_CONEXY'])]
-            conex_ref_list.append(conex_xy)
-            cor_spot_ref_list.append(choronograph)
+            conex_guess_list.append(conex_xy)
+            coronograph_guess_list.append(choronograph)
 
-        cor_spot_ref_list=np.array(cor_spot_ref_list)
-        conex_ref_list=np.array(conex_ref_list)
+        coronograph_guess_list=np.array(coronograph_guess_list)
+        conex_guess_list=np.array(conex_guess_list)
 
-        self.mcmc_setup['guesses'] = {'conexx': conex_ref_list[:, 0],
-             'conexy': conex_ref_list[:, 1],
-             'pixel_at_conex_x': cor_spot_ref_list[:, 0],
-             'pixel_at_conex_y': cor_spot_ref_list[:, 1],
+        self.mcmc_setup['guesses'] = {'conexx': conex_guess_list[:, 0],
+             'conexy': conex_guess_list[:, 1],
+             'pixel_at_conex_x': coronograph_guess_list[:, 0],
+             'pixel_at_conex_y': coronograph_guess_list[:, 1],
              'std_pixel_at_conex_x':1,
              'std_pixel_at_conex_y':1}
 
@@ -1001,9 +1001,9 @@ class MCMCWCS:
                                      verbose=self.mcmc_config['verbose'],
                                      path2savedir=self.paths['MCMC_fit'] + 'plots/', ext='_y_test_')
 
-        slopes = [float(np.round(sol_x[0][0],2)),float(np.round(sol_y[0][0],2))]
-        self.mcmc_setup['sd'].slopes = slopes
-        getLogger(__name__).info(f'dpdc slopes = {slopes}')
+        slope_guess = [float(np.round(sol_x[0][0],2)),float(np.round(sol_y[0][0],2))]
+        self.mcmc_setup['sd'].slope_guess = slope_guess
+        getLogger(__name__).info(f'dpdc slope_guess = {slope_guess}')
 
     def get_satellite_spots_and_choronograph(self,data,header):
         if self.mcmc_config['sat_spots']:
@@ -1014,29 +1014,29 @@ class MCMCWCS:
             n_satspots=0
 
         coords = select_sources(data, n_satspots=n_satspots)
-        positions_ref, cor_spot_ref = [coords[:-1], coords[-1]]
-        conex_ref = [float(header['E_CONEXX']), float(header['E_CONEXY'])]
+        positions_ref, coronograph_guess = [coords[:-1], coords[-1]]
+        conex_guess = [float(header['E_CONEXX']), float(header['E_CONEXY'])]
 
         if self.mcmc_config['sat_spots']:
-            spot_ref1 = [float(np.round(x, 2)) for x in positions_ref[0]]
-            spot_ref2 = [float(np.round(x, 2)) for x in positions_ref[1]]
-            spot_ref3 = [float(np.round(x, 2)) for x in positions_ref[2]]
-            spot_ref4 = [float(np.round(x, 2)) for x in positions_ref[3]]
-            self.mcmc_setup['sd'].spot_ref1 = spot_ref1
-            self.mcmc_setup['sd'].spot_ref2 = spot_ref2
-            self.mcmc_setup['sd'].spot_ref3 = spot_ref3
-            self.mcmc_setup['sd'].spot_ref4 = spot_ref4
-            getLogger(__name__).info(f'spot_ref1 coordinates = {spot_ref1}')
-            getLogger(__name__).info(f'spot_ref2 coordinates = {spot_ref2}')
-            getLogger(__name__).info(f'spot_ref3 coordinates = {spot_ref3}')
-            getLogger(__name__).info(f'spot_ref4 coordinates = {spot_ref4}')
+            satspot_guess1 = [float(np.round(x, 2)) for x in positions_ref[0]]
+            satspot_guess2 = [float(np.round(x, 2)) for x in positions_ref[1]]
+            satspot_guess3 = [float(np.round(x, 2)) for x in positions_ref[2]]
+            satspot_guess4 = [float(np.round(x, 2)) for x in positions_ref[3]]
+            self.mcmc_setup['sd'].satspot_guess1 = satspot_guess1
+            self.mcmc_setup['sd'].satspot_guess2 = satspot_guess2
+            self.mcmc_setup['sd'].satspot_guess3 = satspot_guess3
+            self.mcmc_setup['sd'].satspot_guess4 = satspot_guess4
+            getLogger(__name__).info(f'satspot_guess1 coordinates = {satspot_guess1}')
+            getLogger(__name__).info(f'satspot_guess2 coordinates = {satspot_guess2}')
+            getLogger(__name__).info(f'satspot_guess3 coordinates = {satspot_guess3}')
+            getLogger(__name__).info(f'satspot_guess4 coordinates = {satspot_guess4}')
 
-        cor_spot_ref = [float(np.round(x, 2)) for x in cor_spot_ref]
-        conex_ref = [float(np.round(x, 2)) for x in conex_ref]
-        self.mcmc_setup['sd'].cor_spot_ref = cor_spot_ref
-        self.mcmc_setup['sd'].conex_ref = conex_ref
-        getLogger(__name__).info(f'cor_spot_ref coordinates = {cor_spot_ref}')
-        getLogger(__name__).info(f'conex_ref coordinates = {conex_ref}')
+        coronograph_guess = [float(np.round(x, 2)) for x in coronograph_guess]
+        conex_guess = [float(np.round(x, 2)) for x in conex_guess]
+        self.mcmc_setup['sd'].coronograph_guess = coronograph_guess
+        self.mcmc_setup['sd'].conex_guess = conex_guess
+        getLogger(__name__).info(f'coronograph_guess coordinates = {coronograph_guess}')
+        getLogger(__name__).info(f'conex_guess coordinates = {conex_guess}')
 
     def make_outputs(self,fits,heders):
         # print('> Working on outputs')
@@ -1096,9 +1096,9 @@ class MCMCWCS:
         self.mcmc_setup['sol'] = dout
 
         self.mcmc_setup['sd'].pixel_ref = [float(dout['x']['pc0'][0]), float(dout['y']['pc0'][0])]
-        self.mcmc_setup['sd'].conex_ref = [float(dout['x']['conex']), float(dout['y']['conex'])]
+        self.mcmc_setup['sd'].conex_guess = [float(dout['x']['conex']), float(dout['y']['conex'])]
         self.mcmc_setup['sd'].dp_dcx = float(dout['x']['dpdc'][0])
-        self.mcmc_setup['sd'].dp_dc = float(dout['y']['dpdc'][0])
+        self.mcmc_setup['sd'].dp_dcy = float(dout['y']['dpdc'][0])
 
 def fetch(solution_descriptors, config=None, ncpu=None):
     mcmcwcs_stepcfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(wcscal=StepConfig()), cfg=config,
@@ -1137,4 +1137,4 @@ def fetch(solution_descriptors, config=None, ncpu=None):
             #
             # #################################################### SAVE FINAL DATA YAML ###########################################################
             # config.dump_dataconfig(mcmcwcs.data, mcmcwcs.paths['data_cfg'])
-    return(mcmcwcs.mcmc_setup['sd'].pixel_ref, mcmcwcs.mcmc_setup['sd'].conex_ref, mcmcwcs.mcmc_setup['sd'].dp_dcx, mcmcwcs.mcmc_setup['sd'].dp_dc)
+    return(mcmcwcs.mcmc_setup['sd'].pixel_ref, mcmcwcs.mcmc_setup['sd'].conex_guess, mcmcwcs.mcmc_setup['sd'].dp_dcx, mcmcwcs.mcmc_setup['sd'].dp_dcy)
