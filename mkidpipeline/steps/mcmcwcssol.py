@@ -313,23 +313,23 @@ class SATSPOT2PIXELREF:
                 plt.show()
 
             if self.header_list is not None:
-                conex_xy_ref= [float(self.header_list[el]['E_CONEXX']),
+                conex_ref= [float(self.header_list[el]['E_CONEXX']),
                                        float(self.header_list[el]['E_CONEXY'])]
-            else: conex_xy_ref = [0,0]
+            else: conex_ref = [0,0]
             if sat_spots:
                 data_dict = {'el': el ,'SSPOT_XY': reference_points_dict,
-                             'conex_xy_ref': conex_xy_ref,
+                             'conex_ref': conex_ref,
                              'P': [float(round(p_x, 2)), float(round(p_y, 2)), float(round(ep_x, 2)),
                                    float(round(ep_y, 2))]}
             else:
                 data_dict = {'el': el,
-                             'conex_xy_ref': conex_xy_ref,
+                             'conex_ref': conex_ref,
                              'P': [float(round(p_x, 2)), float(round(p_y, 2)), float(round(ep_x, 2)),
                                    float(round(ep_y, 2))]}
 
             ref_pix = data_dict['P'][:2]
             eref_pix = data_dict['P'][2:]
-            ref_con = data_dict['conex_xy_ref']
+            ref_con = data_dict.conex_ref
 
 
             pix_at_con_0= np.round(CONEX2PIXEL(self.xCon, self.yCon, self.slopes, ref_pix, ref_con),2)
@@ -626,7 +626,7 @@ class MCMC_FIT:
         return (sampler, autocorr, converged, burnin, thin, tau)
 
     def run(self, filename, pos_dict, masked_img):
-
+        getLogger(__name__).info(f'Running MCMC fit on {filename}')
         global data
         self.pos_dict=pos_dict
         self.labels=list(pos_dict.keys())
@@ -648,6 +648,8 @@ class MCMC_FIT:
                 sampler = emcee.EnsembleSampler(self.nwalkers, self.ndim, self.log_prob, moves=self.moves, backend=backend, pool=pool)
                 self.sampler, self.autocorr, self.converged, self.burnin, self.thin, self.tau = self.sampler_convergence(
                     sampler, pos)
+        getLogger(__name__).info(f'Done fitting {filename}')
+
 
     def sample_posteriors(self, filename, slopes, full_posterior=True, verbose=False, save_output=False):
         if self.ndim is None: self.ndim = len(self.labels)
@@ -719,7 +721,6 @@ class MCMCWCS:
         data_names=set([o.name.split('_')[0] for o in obs])
         self.mcmc_setup={label:var for var,label in zip([data_names,obs,sd],['data_names','data_list','sd'])}
 
-        self.mcmc_setup['ntargets'] = len(self.mcmc_setup['data_list'])
 
     def make_dir(self):
         paths=set([self.paths['MCMC_fit']+'plots/'+p for p in ['corners','debug','posterior']])
@@ -748,10 +749,9 @@ class MCMCWCS:
             headers.append(header)
             datas.append(data)
             conex_list.append([header['E_CONEXX'],header['E_CONEXY']])
-            # dist_list.append(np.sqrt((headers[0]['E_CONEXX'] - header['E_CONEXX']) ** 2 + (
-            #         headers[0]['E_CONEXY'] - header['E_CONEXY']) ** 2))
             elno_list.append(elno)
             elno += 1
+
         dist_list=np.sqrt((np.array(conex_list)[:,0]-min(conex_list)[0])**2+(np.array(conex_list)[:,1]-min(conex_list)[1])**2)
         sorted_data_pos = [x for _, x in sorted(zip(dist_list, elno_list))]
 
@@ -777,10 +777,7 @@ class MCMCWCS:
         if self.mcmc_config['redo'] or np.any([len(getattr(self.mcmc_setup['sd'],label)) == 0 for label in ['slopes']]):
             getLogger(__name__).info(f'no slope values found.')
             self.get_slope_and_conex(fits,headers)
-        # else:
-        #     getLogger(__name__).info(f'redo = {redo}, or slope values found.')
-        #     self.mcmc_setup['slopes'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['slopes'])
-            # self.mcmc_setup['conex_xy_ref'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['conex_ref'])
+
         sat_spots = self.mcmc_config['sat_spots']
         getLogger(__name__).info(f'Fetching mcmc  parameters from yaml. sat_spots = {sat_spots}.')
         if sat_spots:
@@ -790,13 +787,10 @@ class MCMCWCS:
                 self.get_satellite_spots_and_choronograph(fits[self.mcmc_config['ref_sat_spot_pos']],
                                                             headers[self.mcmc_config['ref_sat_spot_pos']])
 
-            # self.mcmc_setup['positions_ref'] = [np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['spot_ref1']),
-            #                  np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['spot_ref2']),
-            #                  np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['spot_ref3']),
-            #                  np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['spot_ref4'])]
-            # self.mcmc_setup['choronograph_ref'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['cor_spot_ref'])
-            # self.mcmc_setup['conex_xy_ref'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['conex_ref'])
-            # self.mcmc_setup['slopes'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['slopes'])
+            self.mcmc_setup['positions_ref'] = [np.float64(self.mcmc_setup['sd'].spot_ref1),
+                             np.float64(self.mcmc_setup['sd'].spot_ref2),
+                             np.float64(self.mcmc_setup['sd'].spot_ref3),
+                             np.float64(self.mcmc_setup['sd'].spot_ref4)]
 
             self.mcmc_setup['pos'] = {'amplitude': [self.mcmc_config['amplitude'][0], self.mcmc_config['amplitude'][1],
                                       self.mcmc_config['amplitude'][2]],
@@ -824,10 +818,7 @@ class MCMCWCS:
                 self.get_satellite_spots_and_choronograph(fits[self.mcmc_config['ref_sat_spot_pos']],
                                                             headers[self.mcmc_config['ref_sat_spot_pos']])
 
-            # self.mcmc_setup['positions_ref'] = [np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['cor_spot_ref'])]
-            # self.mcmc_setup['choronograph_ref'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['cor_spot_ref'])
-            # self.mcmc_setup['conex_xy_ref'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['conex_ref'])
-            # self.mcmc_setup['slopes'] = np.float64(self.data[self.mcmc_config['mcmcmwcs_pos']]['slopes'])
+            self.mcmc_setup['positions_ref'] = [np.float64(self.mcmc_setup['sd'].cor_spot_ref)]
 
             self.mcmc_setup['pos']  = {'amplitude': [self.mcmc_config['amplitude'][0], self.mcmc_config['amplitude'][1],
                                       self.mcmc_config['amplitude'][2]],
@@ -835,29 +826,53 @@ class MCMCWCS:
                                     self.mcmc_config['fwhm_x'][2]],
                         'fwhm_y1': [self.mcmc_config['fwhm_y'][0], self.mcmc_config['fwhm_y'][1],
                                     self.mcmc_config['fwhm_y'][2]]}
+
+        self.mcmc_setup['cor_spot_ref'] = np.float64(self.mcmc_setup['sd'].cor_spot_ref)
+        self.mcmc_setup['conex_ref'] = np.float64(self.mcmc_setup['sd'].conex_ref)
+        self.mcmc_setup['slopes'] = np.float64(self.mcmc_setup['sd'].slopes)
         getLogger(__name__).info(f'MCMC setup done.')
 
         # config.dump_dataconfig(self.data, self.paths['data_cfg'])
 
     def fitting_parameters(self,fits, headers):
-            print('> Fitting parameters')
+        redo = self.mcmc_config['redo']
+        path = self.paths['MCMC_fit']
+        w = np.where([path + i not in glob(path + '*.h5') for i in
+                      self.mcmc_setup['h5_names']])[0]
+
+        if redo or len(w) > 0:
+            getLogger(__name__).info(f'Starting MCMC Bayesian fitting. '
+                                     f'redo = {redo} or {len(w)} files missing in {path}.')
+            fits_sel = [fits[i] for i in w.tolist()]
+            headers_sel = [headers[i] for i in w.tolist()]
+            ntargets = len(fits_sel)
 
             num_of_chunks = 3 * self.mcmc_config['ncpu']
-            chunksize = self.mcmc_setup['ntargets'] // num_of_chunks
+            chunksize = ntargets // num_of_chunks
             if chunksize <= 0:
                 chunksize = 1
 
+            parallel_runs = self.mcmc_config['parallel_runs']
+            ncpu = self.mcmc_config['ncpu']
+            mcmc_ncpu_multiplier = self.mcmc_config['mcmc_ncpu_multiplier']
+            h5_names=[self.mcmc_setup['h5_names'][i] for i in w.tolist()]
+
             if self.mcmc_config['parallel_runs']:
-                print('> parallel runs %s, number of parallel runs %i, ncpu per target %i, ntargets %i, chunksize %i' % (self.mcmc_config['parallel_runs'], self.mcmc_config['ncpu'],self.mcmc_config['mcmc_ncpu_multiplier'], self.mcmc_setup['ntargets'], chunksize))
+                getLogger(__name__).info(f'parallel runs {parallel_runs}, number of parallel runs {ncpu}, '
+                                         f'ncpu per target {mcmc_ncpu_multiplier}, ntargets {ntargets}, '
+                                         f'chunksize {chunksize}.')
                 with concurrent.futures.ProcessPoolExecutor(max_workers=self.mcmc_config['ncpu']) as executor:
-                    for _ in tqdm(executor.map(self.mcmc_task, self.mcmc_setup['data_names'], fits, headers, repeat(self.mcmc_config['mcmc_ncpu_multiplier']),
-                                               chunksize=chunksize)):
+                    for _ in executor.map(self.mcmc, h5_names, fits_sel, headers_sel, repeat(self.mcmc_config['mcmc_ncpu_multiplier']),
+                                               chunksize=chunksize):
                         pass
             else:
-                print('> parallel_runs %s, ncpu per target %i ,ntargets %i' % (self.mcmc_config['parallel_runs'], self.mcmc_config['mcmc_ncpu_multiplier']*self.mcmc_config['ncpu'], self.mcmc_setup['ntargets']))
-                for elno in tqdm(range(self.mcmc_setup['ntargets'])):
-                    self.mcmc_task(self.mcmc_setup['data_names'][elno], fits[elno], headers[elno],self.mcmc_config['mcmc_ncpu_multiplier']*self.mcmc_config['ncpu'])
-
+                getLogger(__name__).info(f'parallel_runs {parallel_runs}, ncpu per target {mcmc_ncpu_multiplier*ncpu}, '
+                                         f' ntargets {ntargets}')
+                for elno in range(ntargets):
+                    self.mcmc(h5_names[elno], fits_sel[elno], headers_sel[elno],self.mcmc_config['mcmc_ncpu_multiplier']*self.mcmc_config['ncpu'])
+        else:
+            getLogger(__name__).info(f'Skipping MCMC Bayesian fitting, '
+                                         f'redo = {redo} or {len(w)} files missing in {path}.')
 
     def lsq_fit_dpdc(self,d,labels,path2savedir=None,filename='test.jpg',showplot=True,verbose=True,ext='_'):
         x = d[labels[0]]
@@ -892,20 +907,20 @@ class MCMCWCS:
         return zip(np.linspace(p1[0], p2[0], parts+1),
                    np.linspace(p1[1], p2[1], parts+1))
 
-    def mcmc_task(self,h5_name,data,header,ncpu):
+    def mcmc(self,h5_name,data,header,ncpu):
         filename = h5_name
         xyCons = [header['E_CONEXX'],header['E_CONEXY']]
         cen_xy=np.round(CONEX2PIXEL(xyCons[0],
                                     xyCons[1],
                                     self.mcmc_setup['slopes'],
-                                    self.mcmc_setup['choronograph_ref'],
-                                    self.mcmc_setup['conex_xy_ref']),2)
+                                    self.mcmc_setup['cor_spot_ref'],
+                                    self.mcmc_setup['conex_ref']),2)
 
         self.mcmc_setup['pos']['cen_x'] = [cen_xy[0], cen_xy[0] - 5, cen_xy[0] + 5]
         self.mcmc_setup['pos']['cen_y'] = [cen_xy[1], cen_xy[1] - 5, cen_xy[1] + 5]
 
         masked_img=create_mask(data,xyCons,self.mcmc_setup['slopes'],self.mcmc_setup['positions_ref'],
-                               self.mcmc_setup['conex_xy_ref'],self.mcmc_config['factor'])
+                               self.mcmc_setup['conex_ref'],self.mcmc_config['factor'])
         d=np.nanmedian(data[data>0])
 
         mcmc=MCMC_FIT(path=self.paths['MCMC_fit'], nwalkers=self.mcmc_config['nwalkers'], steps=self.mcmc_config['steps'],
@@ -915,28 +930,32 @@ class MCMCWCS:
                       kwargs={'shape_xy': np.array(data.shape[::-1])-1, 'factor': self.mcmc_config['factor']})
         mcmc.run(filename, self.mcmc_setup['pos'], masked_img)
 
-    def sample_posteriors_task(self,data,header,h5_name,mcmc_config):
-        with io.capture_output() as captured:
+    def sample_posteriors(self,data,header,h5_name,mcmc_config):
+        getLogger(__name__).info(f'Sampling posterior for {h5_name}')
 
-            d=np.nanmedian(data[data>0])
+        # with io.capture_output() as captured:
 
-            xyCons=[float(header['E_CONEXX']), float(header['E_CONEXY'])]
-            mcmc=MCMC_FIT(path=self.paths['MCMC_fit'], ncpu=self.mcmc_config['ncpu']*self.mcmc_config['mcmc_ncpu_multiplier'], progress=False, verbose=False,labels=self.mcmc_setup['mcmc_labels'])
-            s=mcmc.sample_posteriors(h5_name, self.mcmc_setup['slopes'], full_posterior=True, verbose=False,save_output=True)
-            pixel_cen=[s['cen_x'][0],s['cen_y'][0]]
-            epixel_cen=[np.mean(s['cen_x'][1:3]),np.mean(s['cen_y'][1:3])]
+        d=np.nanmedian(data[data>0])
 
-            sp=SATSPOT_MODEL(np.array(data.shape[::-1])-1,factor=mcmc_config['factor'])
-            masked_img=create_mask(data,xyCons,self.mcmc_setup['slopes'],self.mcmc_setup['positions_ref'],self.mcmc_setup['conex_xy_ref'],self.mcmc_config['factor'])
-            if mcmc_config['sat_spots']: sp.create_psf_image(s['amplitude'][0],[s['cen_x'][0],s['cen_y'][0]], [[s['fwhm_x1'][0], s['fwhm_y1'][0]]],lengths_list=[s['length1'][0],s['length2'][0]],angles_list=[s['angle1'][0],s['angle2'][0]],d=d,mask=masked_img,flux=np.nansum(masked_img),sat_spots=mcmc_config['sat_spots'])
-            else: sp.create_psf_image(s['amplitude'][0],[s['cen_x'][0],s['cen_y'][0]], [[s['fwhm_x1'][0], s['fwhm_y1'][0]]],d=d,mask=masked_img,flux=np.nansum(masked_img),sat_spots=mcmc_config['sat_spots'])
-            chi2_map = (masked_img - sp.psfs_img) ** 2 / (sp.psfs_img+0.00000001)
-            chi2_map[~np.isfinite(chi2_map)] = 0
-            data_list=np.array([masked_img,sp.psfs_img,chi2_map/np.nanmax(data)])
-            norm = [simple_norm(masked_img, stretch='sqrt', min_cut=mcmc_config['v_lim'][0][0], max_cut=mcmc_config['v_lim'][0][1]),simple_norm(sp.psfs_img, stretch='sqrt', min_cut=mcmc_config['v_lim'][1][0], max_cut=mcmc_config['v_lim'][1][1]),simple_norm(chi2_map/np.nanmax(data), stretch='sqrt', min_cut=mcmc_config['v_lim'][2][0], max_cut=mcmc_config['v_lim'][2][1])]
+        xyCons=[float(header['E_CONEXX']), float(header['E_CONEXY'])]
+        mcmc=MCMC_FIT(path=self.paths['MCMC_fit'], ncpu=self.mcmc_config['ncpu']*self.mcmc_config['mcmc_ncpu_multiplier'], progress=False, verbose=False,labels=self.mcmc_setup['mcmc_labels'])
+        s=mcmc.sample_posteriors(h5_name, self.mcmc_setup['slopes'], full_posterior=True, verbose=False,save_output=True)
+        pixel_cen=[s['cen_x'][0],s['cen_y'][0]]
+        epixel_cen=[np.mean(s['cen_x'][1:3]),np.mean(s['cen_y'][1:3])]
 
-            sp.plot_image(np.array(data_list),
-                      title=['MaskedData', 'Model', 'Chi2'], cen_xy=[s['cen_x'][0],s['cen_y'][0]], satspot_xy=sp.satspots_xy, norm=norm, rows=1, path2savedir=self.paths['MCMC_fit'] + 'plots/'+'debug/',filename="%s_MCMC_fit.jpg"%h5_name.split('.')[0],save_output=True)
+        sp=SATSPOT_MODEL(np.array(data.shape[::-1])-1,factor=mcmc_config['factor'])
+        masked_img=create_mask(data,xyCons,self.mcmc_setup['slopes'],self.mcmc_setup['positions_ref'],self.mcmc_setup['conex_ref'],self.mcmc_config['factor'])
+        if mcmc_config['sat_spots']: sp.create_psf_image(s['amplitude'][0],[s['cen_x'][0],s['cen_y'][0]], [[s['fwhm_x1'][0], s['fwhm_y1'][0]]],lengths_list=[s['length1'][0],s['length2'][0]],angles_list=[s['angle1'][0],s['angle2'][0]],d=d,mask=masked_img,flux=np.nansum(masked_img),sat_spots=mcmc_config['sat_spots'])
+        else: sp.create_psf_image(s['amplitude'][0],[s['cen_x'][0],s['cen_y'][0]], [[s['fwhm_x1'][0], s['fwhm_y1'][0]]],d=d,mask=masked_img,flux=np.nansum(masked_img),sat_spots=mcmc_config['sat_spots'])
+        chi2_map = (masked_img - sp.psfs_img) ** 2 / (sp.psfs_img+0.00000001)
+        chi2_map[~np.isfinite(chi2_map)] = 0
+        data_list=np.array([masked_img,sp.psfs_img,chi2_map/np.nanmax(data)])
+        norm = [simple_norm(masked_img, stretch='sqrt', min_cut=mcmc_config['v_lim'][0][0], max_cut=mcmc_config['v_lim'][0][1]),simple_norm(sp.psfs_img, stretch='sqrt', min_cut=mcmc_config['v_lim'][1][0], max_cut=mcmc_config['v_lim'][1][1]),simple_norm(chi2_map/np.nanmax(data), stretch='sqrt', min_cut=mcmc_config['v_lim'][2][0], max_cut=mcmc_config['v_lim'][2][1])]
+
+        sp.plot_image(np.array(data_list),
+                  title=['MaskedData', 'Model', 'Chi2'], cen_xy=[s['cen_x'][0],s['cen_y'][0]], satspot_xy=sp.satspots_xy, norm=norm, rows=1, path2savedir=self.paths['MCMC_fit'] + 'plots/'+'debug/',filename="%s_MCMC_fit.jpg"%h5_name.split('.')[0],save_output=True)
+
+        getLogger(__name__).info(f'Done sampling posterior for {h5_name}')
 
         return(pixel_cen,epixel_cen,xyCons)
 
@@ -951,7 +970,7 @@ class MCMCWCS:
         getLogger(__name__).info(f'Selected N reference = {N}, closest number of equidistant element = {len(selected_pos)}')
 
         conex_ref_list=[]
-        choronograph_ref_list=[]
+        cor_spot_ref_list=[]
 
         for elno in selected_pos:
             data=fits[elno]
@@ -961,15 +980,15 @@ class MCMCWCS:
             positions, choronograph = [coords[0], coords[0]]
             conex_xy = [float(header['E_CONEXX']), float(header['E_CONEXY'])]
             conex_ref_list.append(conex_xy)
-            choronograph_ref_list.append(choronograph)
+            cor_spot_ref_list.append(choronograph)
 
-        choronograph_ref_list=np.array(choronograph_ref_list)
+        cor_spot_ref_list=np.array(cor_spot_ref_list)
         conex_ref_list=np.array(conex_ref_list)
 
         self.mcmc_setup['guesses'] = {'conexx': conex_ref_list[:, 0],
              'conexy': conex_ref_list[:, 1],
-             'pixel_at_conex_x': choronograph_ref_list[:, 0],
-             'pixel_at_conex_y': choronograph_ref_list[:, 1],
+             'pixel_at_conex_x': cor_spot_ref_list[:, 0],
+             'pixel_at_conex_y': cor_spot_ref_list[:, 1],
              'std_pixel_at_conex_x':1,
              'std_pixel_at_conex_y':1}
 
@@ -995,8 +1014,8 @@ class MCMCWCS:
             n_satspots=0
 
         coords = select_sources(data, n_satspots=n_satspots)
-        positions_ref, choronograph_ref = [coords[:-1], coords[-1]]
-        conex_xy_ref = [float(header['E_CONEXX']), float(header['E_CONEXY'])]
+        positions_ref, cor_spot_ref = [coords[:-1], coords[-1]]
+        conex_ref = [float(header['E_CONEXX']), float(header['E_CONEXY'])]
 
         if self.mcmc_config['sat_spots']:
             spot_ref1 = [float(np.round(x, 2)) for x in positions_ref[0]]
@@ -1012,16 +1031,18 @@ class MCMCWCS:
             getLogger(__name__).info(f'spot_ref3 coordinates = {spot_ref3}')
             getLogger(__name__).info(f'spot_ref4 coordinates = {spot_ref4}')
 
-        cor_spot_ref = [float(np.round(x, 2)) for x in choronograph_ref]
-        conex_ref = [float(np.round(x, 2)) for x in conex_xy_ref]
+        cor_spot_ref = [float(np.round(x, 2)) for x in cor_spot_ref]
+        conex_ref = [float(np.round(x, 2)) for x in conex_ref]
         self.mcmc_setup['sd'].cor_spot_ref = cor_spot_ref
         self.mcmc_setup['sd'].conex_ref = conex_ref
         getLogger(__name__).info(f'cor_spot_ref coordinates = {cor_spot_ref}')
         getLogger(__name__).info(f'conex_ref coordinates = {conex_ref}')
 
     def make_outputs(self,fits,heders):
-        print('> Working on outputs')
-        print('> Looking for data in %s' % self.paths['MCMC_fit'])
+        # print('> Working on outputs')
+        # print('> Looking for data in %s' % self.paths['MCMC_fit'])
+        getLogger(__name__).info(f'Working on outputs')
+        getLogger(__name__).info(f'Looking for data in %s' % self.paths['MCMC_fit'])
 
         pixel_cen_list = []
         epixel_cen_list = []
@@ -1033,9 +1054,9 @@ class MCMCWCS:
         else:
             self.mcmc_setup['mcmc_labels'] = ['amplitude', 'fwhm_x1', 'fwhm_y1', 'cen_x', 'cen_y']
 
-        print('> Working on data:')
-        for data,header,h5_name in tqdm(zip(fits,heders,self.mcmc_setup['data_names'])):
-            pixel_cen, epixel_cen, xyCons = mcmcwcs.sample_posteriors_task(data,header,h5_name,self.mcmc_config)
+        # print('> Working on data:')
+        for data,header,h5_name in zip(fits,heders,self.mcmc_setup['h5_names']):
+            pixel_cen, epixel_cen, xyCons = self.sample_posteriors(data,header,h5_name,self.mcmc_config)
             # out_filename_list.append(filename)
             pixel_cen_list.append(pixel_cen)
             epixel_cen_list.append(epixel_cen)
@@ -1058,10 +1079,10 @@ class MCMCWCS:
         d['std_pixel_at_conex_y'] = np.nanmean(
             [np.std(d['pixel_at_conex_y'][np.where(d['conexy'] == conexy)[0]]) for conexy in set(d['conexy'])])
 
-        sol_x = mcmcwcs.lsq_fit_dpdc(d, ['conexx', 'pixel_at_conex_x', 'std_pixel_at_conex_x'], showplot=self.mcmc_config['verbose'],
+        sol_x = self.lsq_fit_dpdc(d, ['conexx', 'pixel_at_conex_x', 'std_pixel_at_conex_x'], showplot=self.mcmc_config['verbose'],
                              verbose=self.mcmc_config['verbose'],
                              path2savedir=self.paths['MCMC_fit'] + 'plots/', ext='_x_')
-        sol_y = mcmcwcs.lsq_fit_dpdc(d, ['conexy', 'pixel_at_conex_y', 'std_pixel_at_conex_y'], showplot=self.mcmc_config['verbose'],
+        sol_y = self.lsq_fit_dpdc(d, ['conexy', 'pixel_at_conex_y', 'std_pixel_at_conex_y'], showplot=self.mcmc_config['verbose'],
                              verbose=self.mcmc_config['verbose'],
                              path2savedir=self.paths['MCMC_fit'] + 'plots/', ext='_y_')
 
@@ -1072,12 +1093,12 @@ class MCMCWCS:
                       'pc0': [float(np.round(i, 2)) for i in sol_y[1]],
                       'conex': 0}}
 
-        self.data[self.mcmc_config['mcmcmwcs_pos']]['sol'] = dout
+        self.mcmc_setup['sol'] = dout
 
-        self.data[self.mcmc_config['mcmcmwcs_pos']]['pixel_ref'] = [float(dout['x']['pc0'][0]), float(dout['y']['pc0'][0])]
-        self.data[self.mcmc_config['mcmcmwcs_pos']]['conex_ref'] = [float(dout['x']['conex']), float(dout['y']['conex'])]
-        self.data[self.mcmc_config['mcmcmwcs_pos']]['dp_dcx'] = float(dout['x']['dpdc'][0])
-        self.data[self.mcmc_config['mcmcmwcs_pos']]['dp_dcy'] = float(dout['y']['dpdc'][0])
+        self.mcmc_setup['sd'].pixel_ref = [float(dout['x']['pc0'][0]), float(dout['y']['pc0'][0])]
+        self.mcmc_setup['sd'].conex_ref = [float(dout['x']['conex']), float(dout['y']['conex'])]
+        self.mcmc_setup['sd'].dp_dcx = float(dout['x']['dpdc'][0])
+        self.mcmc_setup['sd'].dp_dc = float(dout['y']['dpdc'][0])
 
 def fetch(solution_descriptors, config=None, ncpu=None):
     mcmcwcs_stepcfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(wcscal=StepConfig()), cfg=config,
@@ -1100,16 +1121,20 @@ def fetch(solution_descriptors, config=None, ncpu=None):
 
             ############################################################## PARAMETERS FIT #################################################################
             mcmcwcs.fetching_mcmc_parameters(fits,headers)
-            w=np.where([mcmcwcs.paths['MCMC_fit']+i not in glob(mcmcwcs.paths['MCMC_fit']+'*.h5') for i in mcmcwcs.mcmc_setup['h5_names']])[0]
-            redo = mcmcwcs.mcmc_config['redo']
-            path = mcmcwcs.paths['MCMC_fit']
-            if redo or len(w) > 0:
-                getLogger(__name__).info(f'redo = {redo} or {len(w)} files missing in {path}. '
-                                         f'Starting MCMC Bayesian fitting')
-                mcmcwcs.fitting_parameters([fits[i] for i in w.tolist()],[headers[i] for i in w.tolist()])
-            #
-            # #################################################### SAMPLIG POSTERIOR/MAKING OUTPUT ###########################################################
-            # mcmcwcs.make_outputs(fits,headers)
+            # w=np.where([mcmcwcs.paths['MCMC_fit']+i not in glob(mcmcwcs.paths['MCMC_fit']+'*.h5') for i in mcmcwcs.mcmc_setup['h5_names']])[0]
+            # redo = mcmcwcs.mcmc_config['redo']
+            # path = mcmcwcs.paths['MCMC_fit']
+            # if redo or len(w) > 0:
+            #     getLogger(__name__).info(f'Starting MCMC Bayesian fitting'
+            #                              f'redo = {redo} or {len(w)} files missing in {path}.')
+            mcmcwcs.fitting_parameters(fits,headers)
+            # else:
+            #     getLogger(__name__).info(f'Skipping MCMC Bayesian fitting'
+            #                              f'redo = {redo} or {len(w)} files missing in {path}.')
+
+        # #################################################### SAMPLIG POSTERIOR/MAKING OUTPUT ###########################################################
+            mcmcwcs.make_outputs(fits,headers)
             #
             # #################################################### SAVE FINAL DATA YAML ###########################################################
             # config.dump_dataconfig(mcmcwcs.data, mcmcwcs.paths['data_cfg'])
+    return(mcmcwcs.mcmc_setup['sd'].pixel_ref, mcmcwcs.mcmc_setup['sd'].conex_ref, mcmcwcs.mcmc_setup['sd'].dp_dcx, mcmcwcs.mcmc_setup['sd'].dp_dc)
