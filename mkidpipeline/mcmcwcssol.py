@@ -433,7 +433,7 @@ class SATSPOT_MODEL:
     def resampling_img(self,factor=1,order=0):
         self.psfs_img=scipy.ndimage.zoom(self.psfs_img, self.factor, order=order)
 
-    def plot_image(self,data,title=None,cen_xy=None, satspot_xy=None, norm=None, fcr=[7,7],rows=1, v_lim=None,save_output=False, path2savedir='./',filename='test.jpg'):
+    def plot_image(self,data,title=None,cen_xy=None, satspot_xy=None, norm=None, fcr=[7,7],rows=1, v_lim=None,save_output=False, path2savedir='./',filename='test.pdf'):
         if len(data.shape)==2:
             data=np.array([data])
 
@@ -713,9 +713,9 @@ class MCMCWCS:
         :param verbose:
         '''
 
-        self.paths={label: pipe['paths'][label] for label in ['data','out']}
-        self.paths['MCMC_fit']=self.paths['out'] + 'MCMC_fit/'
-        self.mcmc_config={label: pipe['mcmcwcssol'][label] for label in pipe['mcmcwcssol'].keys()}
+        self.paths={label: pipe['paths'][label] for label in ['data','out','database']}
+        self.paths['MCMC_fit']=self.paths['database'] + 'MCMC_fit/'
+        self.mcmc_config={label: pipe['wcscal']['mcmcwcssol'][label] for label in pipe['wcscal']['mcmcwcssol'].keys()}
         self.mcmc_config['ncpu']=pipe['ncpu']
 
         data_names=set([o.name.split('_')[0] for o in obs])
@@ -742,6 +742,34 @@ class MCMCWCS:
 
         elno = 0
         photontables = [obs.photontable for dither in self.mcmc_setup['data_list'] for obs in dither.obs]
+
+        # ntargets=len(photontables)
+        # num_of_chunks = 3 * self.mcmc_config['ncpu']
+        # chunksize = ntargets // num_of_chunks
+        # if chunksize <= 0:
+        #     chunksize = 1
+        #
+        # parallel_runs = self.mcmc_config['parallel_runs']
+        # ncpu = self.mcmc_config['ncpu']
+        # mcmc_ncpu_multiplier = self.mcmc_config['mcmc_ncpu_multiplier']
+        #
+        # getLogger(__name__).info(f'Making fits file from photontables')
+        #
+        # if self.mcmc_config['parallel_runs']:
+        #     getLogger(__name__).info(f'parallel runs: {parallel_runs}, {ncpu} parallel runs running, '
+        #                              f'{mcmc_ncpu_multiplier} cpu per target, {ntargets} fits to load, '
+        #                              f'chunksize: {chunksize}.')
+        #     with concurrent.futures.ProcessPoolExecutor(max_workers=self.mcmc_config['ncpu']) as executor:
+        #         for filename, header, data  in executor.map(self.load_fits, photontables,
+        #                               chunksize=chunksize):
+        #             h5_names.append(filename)
+        #             headers.append(header)
+        #             datas.append(data)
+        #             conex_list.append([header['E_CONEXX'], header['E_CONEXY']])
+        #             elno_list.append(elno)
+        #             elno += 1
+        # else:
+        #     getLogger(__name__).info(f'parallel_runs {parallel_runs}, {ntargets} fits to load')
 
         for pt in photontables:
             filename, header, data = self.load_fits(pt)
@@ -858,9 +886,9 @@ class MCMCWCS:
             h5_names=[self.mcmc_setup['h5_names'][i] for i in w.tolist()]
 
             if self.mcmc_config['parallel_runs']:
-                getLogger(__name__).info(f'parallel runs {parallel_runs}, number of parallel runs {ncpu}, '
-                                         f'ncpu per target {mcmc_ncpu_multiplier}, ntargets {ntargets}, '
-                                         f'chunksize {chunksize}.')
+                getLogger(__name__).info(f'parallel runs: {parallel_runs}, {ncpu} parallel runs running, '
+                                         f'{mcmc_ncpu_multiplier} cpu per target, {ntargets} targets, '
+                                         f'chunksize: {chunksize}.')
                 with concurrent.futures.ProcessPoolExecutor(max_workers=self.mcmc_config['ncpu']) as executor:
                     for _ in executor.map(self.mcmc, h5_names, fits_sel, headers_sel, repeat(self.mcmc_config['mcmc_ncpu_multiplier']),
                                                chunksize=chunksize):
@@ -874,7 +902,7 @@ class MCMCWCS:
             getLogger(__name__).info(f'Skipping MCMC Bayesian fitting, '
                                          f'redo = {redo} or {len(w)} files missing in {path}.')
 
-    def lsq_fit_dpdc(self,d,labels,path2savedir=None,filename='test.jpg',showplot=True,verbose=True,ext='_'):
+    def lsq_fit_dpdc(self,d,labels,ax,verbose=True,name=''):
         x = d[labels[0]]
         y= d[labels[1]]
         yerr = np.array([d[labels[2]]]*len(y))
@@ -890,16 +918,11 @@ class MCMCWCS:
             print("pixel_at_conex_0 = {0:.3f} ± {1:.3f}".format(w[1], np.sqrt(cov[1, 1])))
 
 
-        fig=plt.figure()
-        plt.errorbar(x, y, yerr=yerr, fmt=".k", capsize=0)
-        plt.plot(x0, np.dot(np.vander(x0, 2), [w[0],w[1]]), "-k", label="LSQ:\n"+"dpdc = {0:.3f} ± {1:.3f} \n".format(w[0], np.sqrt(cov[0, 0]))+"pc0 = {0:.3f} ± {1:.3f}".format(w[1], np.sqrt(cov[1, 1])))
-        plt.legend(fontsize=12)
-        plt.xlabel("conex")
-        plt.ylabel("pixel_at_conex");
-        if path2savedir is not None: fig.savefig(path2savedir+'fit%s%s'%(ext,filename))
-
-        if showplot: plt.show()
-        else: plt.close()
+        ax.errorbar(x, y, yerr=yerr, fmt=".k", capsize=0)
+        ax.plot(x0, np.dot(np.vander(x0, 2), [w[0],w[1]]), "-k", label="LSQ:\n"+"dpdc = {0:.3f} ± {1:.3f} \n".format(w[0], np.sqrt(cov[0, 0]))+"pc0 = {0:.3f} ± {1:.3f}".format(w[1], np.sqrt(cov[1, 1])))
+        ax.legend(fontsize=12)
+        ax.set_xlabel("conex%s"%name)
+        ax.set_ylabel("pixel_at_conex%s"%name)
 
         return([[np.round(w[0],3), np.round(np.sqrt(cov[0, 0]),3)],[np.round(w[1],3), np.round(np.sqrt(cov[1, 1]),3)]])
 
@@ -992,14 +1015,25 @@ class MCMCWCS:
              'std_pixel_at_conex_x':1,
              'std_pixel_at_conex_y':1}
 
-        sol_x = self.lsq_fit_dpdc(self.mcmc_setup['guesses'], ['conexx', 'pixel_at_conex_x', 'std_pixel_at_conex_x'],
-                                     showplot=self.mcmc_config['verbose'],
-                                     verbose=self.mcmc_config['verbose'],
-                                     path2savedir=self.paths['MCMC_fit'] + 'plots/', ext='_x_test_')
-        sol_y = self.lsq_fit_dpdc(self.mcmc_setup['guesses'], ['conexy', 'pixel_at_conex_y', 'std_pixel_at_conex_y'],
-                                     showplot=self.mcmc_config['verbose'],
-                                     verbose=self.mcmc_config['verbose'],
-                                     path2savedir=self.paths['MCMC_fit'] + 'plots/', ext='_y_test_')
+        fig,ax=plt.subplots(2,1,figsize=(7,10))
+        sol_x = self.lsq_fit_dpdc(self.mcmc_setup['guesses'],
+                                  ['conexx', 'pixel_at_conex_x', 'std_pixel_at_conex_x'],
+                                  ax[0],
+                                  verbose=self.mcmc_config['verbose'],name='_x')
+
+        sol_y = self.lsq_fit_dpdc(self.mcmc_setup['guesses'],
+                                  ['conexy', 'pixel_at_conex_y', 'std_pixel_at_conex_y'],
+                                  ax[1],
+                                  verbose=self.mcmc_config['verbose'],name='_y')
+
+        path = self.paths['MCMC_fit']+'/plots'
+        name = self.mcmc_setup['sd'].path.split('/')[-1].split('.npz')[0]
+        if self.paths['MCMC_fit'] is not None:
+            plt.savefig(f'{path}/{name}_pixel_at_conex_guess.pdf')
+            getLogger(__name__).info(f'Saving {path}/{name}_pixel_at_conex_guess.pdf')
+        if self.mcmc_config['verbose']: plt.show()
+        else: plt.close()
+
 
         slope_guess = [float(np.round(sol_x[0][0],2)),float(np.round(sol_y[0][0],2))]
         self.mcmc_setup['sd'].slope_guess = slope_guess
@@ -1079,12 +1113,22 @@ class MCMCWCS:
         d['std_pixel_at_conex_y'] = np.nanmean(
             [np.std(d['pixel_at_conex_y'][np.where(d['conexy'] == conexy)[0]]) for conexy in set(d['conexy'])])
 
-        sol_x = self.lsq_fit_dpdc(d, ['conexx', 'pixel_at_conex_x', 'std_pixel_at_conex_x'], showplot=self.mcmc_config['verbose'],
-                             verbose=self.mcmc_config['verbose'],
-                             path2savedir=self.paths['MCMC_fit'] + 'plots/', ext='_x_')
-        sol_y = self.lsq_fit_dpdc(d, ['conexy', 'pixel_at_conex_y', 'std_pixel_at_conex_y'], showplot=self.mcmc_config['verbose'],
-                             verbose=self.mcmc_config['verbose'],
-                             path2savedir=self.paths['MCMC_fit'] + 'plots/', ext='_y_')
+        fig,ax = plt.subplots(2,1,figsize=(7,10))
+        sol_x = self.lsq_fit_dpdc(d, ['conexx', 'pixel_at_conex_x', 'std_pixel_at_conex_x'],
+                                    ax[0],
+                                    verbose=self.mcmc_config['verbose'],name='_x')
+        sol_y = self.lsq_fit_dpdc(d, ['conexy', 'pixel_at_conex_y', 'std_pixel_at_conex_y'],
+                                    ax[1],
+                                    verbose=self.mcmc_config['verbose'],name='_y')
+
+        path=self.paths['database']
+        name=self.mcmc_setup['sd'].path.split('/')[-1].split('.npz')[0]
+        if self.paths['MCMC_fit'] is not None:
+            plt.savefig(f'{path}/{name}_pixel_at_conex.pdf')
+            getLogger(__name__).info(f'Saving {path}/{name}_pixel_at_conex.pdf')
+
+        if self.mcmc_config['verbose']: plt.show()
+        else: plt.close()
 
         dout = {'x': {'dpdc': [float(np.round(i, 2)) for i in sol_x[0]],
                       'pc0': [float(np.round(i, 2)) for i in sol_x[1]],
@@ -1095,46 +1139,29 @@ class MCMCWCS:
 
         self.mcmc_setup['sol'] = dout
 
-        self.mcmc_setup['sd'].pixel_ref = [float(dout['x']['pc0'][0]), float(dout['y']['pc0'][0])]
+        self.mcmc_setup['sd'].pixel_guess = [float(dout['x']['pc0'][0]), float(dout['y']['pc0'][0])]
         self.mcmc_setup['sd'].conex_guess = [float(dout['x']['conex']), float(dout['y']['conex'])]
         self.mcmc_setup['sd'].dp_dcx = float(dout['x']['dpdc'][0])
         self.mcmc_setup['sd'].dp_dcy = float(dout['y']['dpdc'][0])
 
-def fetch(solution_descriptors, config=None, ncpu=None):
+def run(sd, config=None, ncpu=None):
     mcmcwcs_stepcfg = mkidpipeline.config.PipelineConfigFactory(step_defaults=dict(wcscal=StepConfig()), cfg=config,
-                                                           ncpu=ncpu, copy=True)
+                                                                ncpu=ncpu, copy=True)
 
-    for sd in solution_descriptors:
-        # if os.path.exists(sd.path[:-4] + '.fits'):
-        #     continue
-        # else:
-            # config.configure_pipeline(args.pipe_cfg)
-            # YAML = ruamel.yaml.YAML()
-            mcmcwcs=MCMCWCS(mcmcwcs_stepcfg,set([sd.obs]),sd)
+    # for sd in solution_descriptors:
 
-            # if args.make_paths:
-            mcmcwcs.make_dir()
+    mcmcwcs=MCMCWCS(mcmcwcs_stepcfg, {sd.mcmcdata}, sd)
 
-            # #################################### LOADING DATA #################################################
-            # mcmcwcs.fetching_h5_names()
-            fits, headers = mcmcwcs.fetching_fits()
+    mcmcwcs.make_dir()
 
-            ############################################################## PARAMETERS FIT #################################################################
-            mcmcwcs.fetching_mcmc_parameters(fits,headers)
-            # w=np.where([mcmcwcs.paths['MCMC_fit']+i not in glob(mcmcwcs.paths['MCMC_fit']+'*.h5') for i in mcmcwcs.mcmc_setup['h5_names']])[0]
-            # redo = mcmcwcs.mcmc_config['redo']
-            # path = mcmcwcs.paths['MCMC_fit']
-            # if redo or len(w) > 0:
-            #     getLogger(__name__).info(f'Starting MCMC Bayesian fitting'
-            #                              f'redo = {redo} or {len(w)} files missing in {path}.')
-            mcmcwcs.fitting_parameters(fits,headers)
-            # else:
-            #     getLogger(__name__).info(f'Skipping MCMC Bayesian fitting'
-            #                              f'redo = {redo} or {len(w)} files missing in {path}.')
+    ##################################### LOADING DATA #################################################
+    fits, headers = mcmcwcs.fetching_fits()
 
-        # #################################################### SAMPLIG POSTERIOR/MAKING OUTPUT ###########################################################
-            mcmcwcs.make_outputs(fits,headers)
-            #
-            # #################################################### SAVE FINAL DATA YAML ###########################################################
-            # config.dump_dataconfig(mcmcwcs.data, mcmcwcs.paths['data_cfg'])
-    return(mcmcwcs.mcmc_setup['sd'].pixel_ref, mcmcwcs.mcmc_setup['sd'].conex_guess, mcmcwcs.mcmc_setup['sd'].dp_dcx, mcmcwcs.mcmc_setup['sd'].dp_dcy)
+    ############################################################## PARAMETERS FIT #################################################################
+    mcmcwcs.fetching_mcmc_parameters(fits,headers)
+    mcmcwcs.fitting_parameters(fits,headers)
+
+    #################################################### SAMPLIG POSTERIOR/MAKING OUTPUT ###########################################################
+    mcmcwcs.make_outputs(fits,headers)
+
+    return(mcmcwcs.mcmc_setup['sd'].dp_dcx, mcmcwcs.mcmc_setup['sd'].dp_dcy, mcmcwcs.mcmc_setup['sd'].pixel_guess, mcmcwcs.mcmc_setup['sd'].conex_guess)
