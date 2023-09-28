@@ -664,6 +664,15 @@ class MKIDWCSCal(_Base, CalibMixin):
         Key('source_locs', None, 'The RA/DEC coordinates of the sources in the image ', list),
         Key('dp_dcx', None, 'Change in pixels/change in CONEX position in x ', float),
         Key('dp_dcy', None, 'Change in pixels/change in CONEX position in y ', float),
+        Key('mcmc', False, 'Toggle MCMC fit on/off', bool),
+        Key('mcmcdata', None, 'Name of the observation dataset to run MCMC on', str),
+        Key('coronograph_guess', [], 'X,Y guess for the chronograph', list),
+        Key('conex_guess', [], 'X,Y conex for the chronograph guess', list),
+        Key('satspot_guess1', [], 'X,Y guess for the first satellite spot', list),
+        Key('satspot_guess2', [], 'X,Y guess for the second satellite spot', list),
+        Key('satspot_guess3', [], 'X,Y guess for the third satellite spot', list),
+        Key('satspot_guess4', [], 'X,Y guess for the fourth satellite spot', list),
+        Key('slope_guess', [], 'Chronograph position to conex slope guess', list),
     )
     REQUIRED = ('name',)
     STEPNAME = 'wcscal'
@@ -741,6 +750,15 @@ class MKIDWCSCal(_Base, CalibMixin):
             self.data = kwargs['dither'].get(self.data, self.data)
         elif isinstance(self.data, (MKIDObservation, MKIDDither)):
             self.data.associate(**kwargs)
+
+        if self.mcmcdata is not None:
+            if '+' in self.mcmcdata:
+                a = kwargs['dither'].get(self.mcmcdata.split('+')[0], self.mcmcdata.split('+')[0])
+                for key in self.mcmcdata.split('+')[1:]:
+                    a += kwargs['dither'].get(key, key)
+                self.mcmcdata = a
+            else:
+                self.mcmcdata = kwargs['dither'].get(self.mcmcdata, self.mcmcdata)
 
     def __str__(self):
         try:
@@ -972,18 +990,18 @@ class MKIDMCMCWCSol(_Base, CalibMixin):
     KEYS = (
         Key(name='name', default='', comment='A name', dtype=str),
         Key('data', '', 'A data name', str),
-        Key('wcscal', '', 'The wcscal name to update with he new solution in the data.yaml', str),
-        Key('cor_spot_ref', [], 'X,Y guess for the chronograph', list),
-        Key('conex_ref', [], 'X,Y conex for the chronograph guess', list),
-        Key('spot_ref1', [], 'X,Y guess for the first satellite spot', list),
-        Key('spot_ref2', [], 'X,Y guess for the second satellite spot', list),
-        Key('spot_ref3', [], 'X,Y guess for the third satellite spot', list),
-        Key('spot_ref4', [], 'X,Y guess for the fourth satellite spot', list),
-        Key('slopes', [], 'Chronograph position to conex slope guess', list),
+        # Key('wcscal', '', 'The wcscal name to update with he new solution in the data.yaml', str),
+        Key('coronograph_guess', [], 'X,Y guess for the chronograph', list),
+        Key('conex_guess', [], 'X,Y conex for the chronograph guess', list),
+        Key('satspot_guess1', [], 'X,Y guess for the first satellite spot', list),
+        Key('satspot_guess2', [], 'X,Y guess for the second satellite spot', list),
+        Key('satspot_guess3', [], 'X,Y guess for the third satellite spot', list),
+        Key('satspot_guess4', [], 'X,Y guess for the fourth satellite spot', list),
+        Key('slope_guess', [], 'Chronograph position to conex slope guess', list),
         # Key('start_offset', 0, 'An offset in seconds (>=0) from the start of the data timerange', int),
         # Key('sol', {}, 'The dpdc pixel solution at conex 0 with errors', dict),
     )
-    REQUIRED = ('name', 'data', 'wcscal','cor_spot_ref','conex_ref')
+    REQUIRED = ('name','data','coronograph_guess','conex_guess')
 
     def __init__(self, *args, **kwargs):
         super(MKIDMCMCWCSol, self).__init__(*args, **kwargs)
@@ -1291,36 +1309,6 @@ class MKIDObservingDataset:
                                          obs='Not implemented'))
         return s
 
-# class MKIDMcmc(_Base):
-#     """
-#
-#     """
-#     yaml_tag = '!MKIDMcmc'
-#
-#     KEYS = (
-#         Key(name='name', default='', comment='A name', dtype=str),
-#         Key('data', '', 'A data name', str),
-#         Key('wcscal', '', 'The wcscal name to update with he new solution in the data.yaml', str),
-#         Key('length', [80, 75, 85], 'Length of the satellite spot arm: i.e. [value, min, max]', list),
-#         Key('amplitude', [500, 1, 1000], 'Amplitude of the satellite spot: i.e. [value, min, max]', list),
-#         Key('angle1', [45, 44, 46], 'Angle of the first pair of satellite spots vs to X: i.e. [value, min, max]', list),
-#         Key('angle2', [90, 89, 91], 'Angle of the second pair of satellite spots vs to the first: i.e. [value, min, max]', list),
-#         Key('fwhm_x', [7, 3, 20], 'X FWHM of the satellite spots: i.e. [value, min, max]', list),
-#         Key('fwhm_y', [7, 3, 20], 'Y FWHM of the satellite spots: i.e. [value, min, max]', list),
-#         Key('cor_spot_ref', [], 'X,Y guess for the chronograph', list),
-#         Key('conex_ref', [], 'X,Y conex for the chronograph guess', list),
-#         Key('spot_ref1', [], 'X,Y guess for the first satellite spot', list),
-#         Key('spot_ref2', [], 'X,Y guess for the second satellite spot', list),
-#         Key('spot_ref3', [], 'X,Y guess for the third satellite spot', list),
-#         Key('spot_ref4', [], 'X,Y guess for the fourth satellite spot', list),
-#         Key('slopes', [], 'Chronograph position to conex slope guess', list),
-#         Key('start_offset', 0, 'An offset in seconds (>=0) from the start of the data timerange', int),
-#     )
-#     REQUIRED = ('name', 'data', 'kind','wcscal','lenght','amplitude','angle1','angle2','fwhm_x','fwhm_y','cor_spot_ref','conex_ref')
-#
-#     def __init__(self, *args, **kwargs):
-#         super().__init__(*args, **kwargs)
-
 
 class MKIDOutput(_Base):
     """
@@ -1590,7 +1578,6 @@ class MKIDOutputCollection:
         MKIDWCSCal. Does not search for nested MKIDWCSCalDescriptions except with the speccal
         """
         return set([o.mcmcwcssol for o in self.to_mcmcwcssol if o.mcmcwcssol])
-        # return set([o.wcscal for o in self.to_wcscal if o.wcscal])
 
     @property
     def wcscals(self):
@@ -1784,10 +1771,6 @@ class MKIDOutputCollection:
 
             for o in input_observations(out.data.obs):
                 yield o
-        # for out in self:
-        #     for o in out.data.obs:
-        #         yield o
-
 
     @property
     def to_wcscal(self):
