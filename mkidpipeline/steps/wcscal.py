@@ -18,6 +18,7 @@ from astropy.utils.exceptions import AstropyUserWarning
 import warnings
 import tkinter as tk
 from tkinter import messagebox
+from mkidpipeline import mcmcwcssol
 
 warnings.simplefilter('ignore', category=AstropyUserWarning)
 
@@ -471,7 +472,7 @@ def fetch(solution_descriptors, config=None, ncpu=None):
             ws.mainloop()
             tk.Tk().withdraw()
 
-            if sd.pixel_ref and sd.conex_ref:  # if pixel and conex ref specified in data definition then use those
+            if sd.pixel_ref and sd.conex_ref and not sd.mcmc:  # if pixel and conex ref specified in data definition then use those
                 pxref = sd.pixel_ref
                 cxref = sd.conex_ref
             else:  # else try to get values from photontable header
@@ -490,6 +491,9 @@ def fetch(solution_descriptors, config=None, ncpu=None):
                            conex_ref=cxref, guesses=np.array(wcscfg.wcscal.param_guesses), mux=sd.dp_dcx,
                            muy=sd.dp_dcy, fitsources=wcscfg.wcscal.fitsources)
 
+            if sd.mcmc:
+                dp_dconx, dp_dcony, pxref, cxref = mcmcwcssol.run(sd)
+
             hdul = fits.HDUList([fits.PrimaryHDU()])
             hdul[0].header['PLTSCL'] = (pltscl.to(u.deg).value, 'platescale in degree/pixel')
             hdul[0].header['E_DPDCX'] = (dp_dconx, 'pixel move per conex move in x')
@@ -504,15 +508,24 @@ def fetch(solution_descriptors, config=None, ncpu=None):
         else:
             pltscl = sd.data
             devang = wcscfg.instrument.device_orientation_deg
+
+            if sd.mcmc:
+                dp_dconx, dp_dcony, pxref, cxref = mcmcwcssol.run(sd)
+            else:
+                dp_dconx = sd.dp_dcx
+                dp_dcony = sd.dp_dcy
+                cxref = [sd.conex_ref[0], sd.conex_ref[1]]
+                pxref = [sd.pixel_ref[0],sd.pixel_ref[1]]
+
             hdul = fits.HDUList([fits.PrimaryHDU()])
             hdul[0].header['PLTSCL'] = (pltscl.to(u.deg).value, 'platescale in degree/pixel')
-            hdul[0].header['E_DPDCX'] = (sd.dp_dcx, 'pixel move per conex move in x')
-            hdul[0].header['E_DPDCY'] = (sd.dp_dcy, 'pixel move per conex move in y')
+            hdul[0].header['E_DPDCX'] = (dp_dconx, 'pixel move per conex move in x')
+            hdul[0].header['E_DPDCY'] = (dp_dcony, 'pixel move per conex move in y')
             hdul[0].header['DEVANG'] = (devang, 'device angle in degrees')
-            hdul[0].header['E_CXREFX'] = (sd.conex_ref[0], 'Conex reference position in X')
-            hdul[0].header['E_CXREFY'] = (sd.conex_ref[1], 'Conex reference position in Y')
-            hdul[0].header['E_PREFX'] = (sd.pixel_ref[0], 'Pixel reference position in X')
-            hdul[0].header['E_PREFY'] = (sd.pixel_ref[1], 'Pixel reference position in Y')
+            hdul[0].header['E_CXREFX'] = (cxref[0], 'Conex reference position in X')
+            hdul[0].header['E_CXREFY'] = (cxref[1], 'Conex reference position in Y')
+            hdul[0].header['E_PREFX'] = (pxref[0], 'Pixel reference position in X')
+            hdul[0].header['E_PREFY'] = (pxref[1], 'Pixel reference position in Y')
             hdul.writeto(sd.path[:-4] + '.fits')
             getLogger(__name__).info(f'Saved WCS Solution to {sd.path[:-4]}.fits')
 
