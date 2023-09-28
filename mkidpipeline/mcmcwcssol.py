@@ -26,6 +26,7 @@ from skimage.morphology import dilation
 import warnings
 from mkidcore.corelog import getLogger
 import pathlib
+import multiprocessing as mp
 
 warnings.filterwarnings("ignore")
 
@@ -735,53 +736,46 @@ class MCMCWCS:
     def fetching_fits(self):
         datas = []
         headers = []
-        # dist_list = []
         conex_list = []
         elno_list = []
         h5_names = []
 
-        elno = 0
+        # elno = 0
         photontables = [obs.photontable for dither in self.mcmc_setup['data_list'] for obs in dither.obs]
 
-        # ntargets=len(photontables)
-        # num_of_chunks = 3 * self.mcmc_config['ncpu']
-        # chunksize = ntargets // num_of_chunks
-        # if chunksize <= 0:
-        #     chunksize = 1
-        #
-        # parallel_runs = self.mcmc_config['parallel_runs']
-        # ncpu = self.mcmc_config['ncpu']
-        # mcmc_ncpu_multiplier = self.mcmc_config['mcmc_ncpu_multiplier']
-        #
-        # getLogger(__name__).info(f'Making fits file from photontables')
-        #
-        # if self.mcmc_config['parallel_runs']:
+        ncpu = self.mcmc_config['ncpu']
+        parallel_runs=self.mcmc_config['parallel_runs']
+        mcmc_ncpu_multiplier=self.mcmc_config['mcmc_ncpu_multiplier']
+        ntargets=len(photontables)
+        num_of_chunks = 3 * self.mcmc_config['ncpu']
+        chunksize = ntargets // num_of_chunks
+        if chunksize <= 0:
+            chunksize = 1
+        # if parallel_runs:
         #     getLogger(__name__).info(f'parallel runs: {parallel_runs}, {ncpu} parallel runs running, '
-        #                              f'{mcmc_ncpu_multiplier} cpu per target, {ntargets} fits to load, '
+        #                              f'{mcmc_ncpu_multiplier} cpu per target, {ntargets} targets, '
         #                              f'chunksize: {chunksize}.')
         #     with concurrent.futures.ProcessPoolExecutor(max_workers=self.mcmc_config['ncpu']) as executor:
-        #         for filename, header, data  in executor.map(self.load_fits, photontables,
-        #                               chunksize=chunksize):
-        #             h5_names.append(filename)
-        #             headers.append(header)
-        #             datas.append(data)
-        #             conex_list.append([header['E_CONEXX'], header['E_CONEXY']])
-        #             elno_list.append(elno)
-        #             elno += 1
+        #         for out in tqdm(executor.map(self.load_fits, photontables,chunksize=chunksize)):
+        #             h5_names.append(out['filename'])
+        #             headers.append(out['header'])
+        #             datas.append(out['data'])
+        #             conex_list.append([out['header']['E_CONEXX'], out['header']['E_CONEXY']])
+        #
         # else:
-        #     getLogger(__name__).info(f'parallel_runs {parallel_runs}, {ntargets} fits to load')
+        getLogger(__name__).info(f'{ntargets} fits to load')
 
         for pt in photontables:
-            filename, header, data = self.load_fits(pt)
-            h5_names.append(filename)
-            headers.append(header)
-            datas.append(data)
-            conex_list.append([header['E_CONEXX'],header['E_CONEXY']])
-            elno_list.append(elno)
-            elno += 1
+            out = self.load_fits(pt)
+            h5_names.append(out['filename'])
+            headers.append(out['header'])
+            datas.append(out['data'])
+            conex_list.append([out['header']['E_CONEXX'],out['header']['E_CONEXY']])
+            # elno_list.append(elno)
+            # elno += 1
 
         dist_list=np.sqrt((np.array(conex_list)[:,0]-min(conex_list)[0])**2+(np.array(conex_list)[:,1]-min(conex_list)[1])**2)
-        sorted_data_pos = [x for _, x in sorted(zip(dist_list, elno_list))]
+        sorted_data_pos = [x for _, x in sorted(zip(dist_list, range(len(h5_names))))]
 
         self.mcmc_setup['h5_names']=h5_names
         self.mcmc_setup['sorted_data_pos']=sorted_data_pos
@@ -790,14 +784,14 @@ class MCMCWCS:
 
 
     def load_fits(self, pt):
-        # pt = Photontable(self.paths['out'] + filename)
         filename=pt.filename.split('/')[-1]
         getLogger(__name__).info(f'Loading "{pt.filename}" fits')
         hdul = pt.get_fits()
         header = hdul[0].header
         data = hdul[1].data
         hdul.close()
-        return (filename, header, data)
+        # return (filename, header, data)
+        return {'filename':filename,'header':header,'data':data}
 
     def fetching_mcmc_parameters(self, fits, headers):
         redo=self.mcmc_config['redo']
