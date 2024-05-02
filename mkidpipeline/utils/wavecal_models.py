@@ -1062,6 +1062,8 @@ class XErrorsModel(object):
 
 
 class Quadratic(XErrorsModel):
+    MIN_POINTS = 3
+
     @staticmethod
     def fit_function(x, p):
         return p['c2'].value * x**2 + p['c1'].value * x + p['c0'].value
@@ -1104,6 +1106,8 @@ class Quadratic(XErrorsModel):
 
 
 class Linear(XErrorsModel):
+    MIN_POINTS = 2
+
     @staticmethod
     def fit_function(x, p):
         return p['c1'].value * x + p['c0'].value
