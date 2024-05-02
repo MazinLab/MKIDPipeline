@@ -559,7 +559,7 @@ class Calibrator(object):
                     model.min_x = model.x[arg_min] - 3 * np.sqrt(sigmas[arg_min])
                     model.max_x = model.x[arg_max] + 3 * np.sqrt(sigmas[arg_max])
                 # don't fit if there's not enough data
-                if len(variance) < 3:
+                if len(variance) < 2:
                     model.flag = wm.pixel_flags['few histograms']
                     message = "({}, {}) : {} data points is not enough to make a calibration"
                     log.debug(message.format(pixel[0], pixel[1], len(variance)))
@@ -578,6 +578,12 @@ class Calibrator(object):
                     # update the model if needed
                     if not isinstance(model, calibration_model):
                         model = self._update_calibration_model(calibration_model, pixel)
+                    # check that there are enough points for the model
+                    if len(variance) < model.MIN_POINTS:
+                        model.flag = wm.pixel_flags['few histograms']
+                        message = "({}, {}) : {} data points is not enough to make a calibration for {}"
+                        log.debug(message.format(pixel[0], pixel[1], len(variance), type(model).__name__))
+                        continue
                     guess = model.guess()
                     model.fit(guess)
                     tried_models.append(model.copy())
