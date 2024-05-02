@@ -252,8 +252,8 @@ class Photontable:
             return self.wavelength_bins(width=self.query_header('energy_resolution'),
                                         start=self.query_header('min_wavelength'),
                                         stop=self.query_header('max_wavelength'))
-
-        dl = InterpolatedUnivariateSpline(resdata['wave'], resdata['wave'] / resdata['r'], w=1 / resdata['r_err'])
+        k = int(np.min((len(resdata['wave']) - 1, 3)))
+        dl = InterpolatedUnivariateSpline(resdata['wave'], resdata['wave'] / resdata['r'], w=1 / resdata['r_err'], k=k)
         if min is None:
             min = self.query_header('min_wavelength')
             # min = resdata['wave'][0] - dl(resdata['wave'][0]) / 2
