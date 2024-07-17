@@ -3,12 +3,12 @@
 name: pipeline
 channels:
   - conda-forge
-  - http://ssb.stsci.edu/astroconda
-  - intel
+  # remove stsci channel because it contains stale version of drizzle that holds back python version
+  # conda no longer hosts the intel channel, but can can be reached through https://software.repos.intel.com/python/conda/ if necessary
   - defaults
 dependencies:
   #Key parts
-  - python>=3.6
+  - python>=3.10
   - hdf5>=1.10.4
   - pytables>=3.6
   - mkl
@@ -23,7 +23,7 @@ dependencies:
   - regions
   - photutils
   - ruamel.yaml==0.16.12
-  - drizzle
+  # -drizzle should be installed with pip after intalling the pipeline
   - statsmodels>=0.9
   - mpmath>=1.0
   - lmfit>=0.9.11
@@ -42,7 +42,7 @@ dependencies:
   - cython
   - yappi
   #Getting ipp requires the intel channel, it is not known if this is boosting performance
-  - ipp
+  #- ipp
   #Useful Utilities
   - vitables
 
