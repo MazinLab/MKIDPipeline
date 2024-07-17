@@ -80,7 +80,7 @@ class _Base:
             if k in self._keys:
                 required_type = self._keys[k].dtype
                 try:
-                    required_type[0]
+                    len(required_type)
                 except TypeError:
                     required_type = (required_type,)
 
