@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+
+# To run in command line, execute: mkidpipe --init
 import argparse
 import os
 import sys
@@ -34,7 +36,29 @@ def parse():
 
     return parser.parse_args()
 
+# Func to create a script run_mkidpipeline.py in the same output directory as out.yaml, pipe.yaml, data.yaml
+# run_mkidpipeline.py runs the data through the .yamls with python3 instead of command line 
+def create_run_mkidpipeline_script():
+    script_content = """
+# Run script for mkidpipeline
+# Execute in command line with: python3 run_mkidpipeline.py
+import subprocess
+def run_mkidpipe():
+    command = ['mkidpipe', '--make-dir', '--make-outputs']
 
+    try:
+        # Run the command
+        subprocess.run(command, check=True)
+        print("Command executed successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"An error occurred while running the command: {e}")
+
+if __name__ == '__main__':
+    run_mkidpipe()
+"""
+    with open('run_mkidpipeline.py', 'w') as f: 
+        f.write(script_content)
+    
 def init_pipeline(instrument='MEC'):
     defstr = lambda x: f"{x}_default.yaml" if os.path.exists(f"{x}.yaml") else f"{x}.yaml"
     default_pipe_config = pipe.generate_default_config(instrument=instrument)
@@ -50,6 +74,7 @@ def init_pipeline(instrument='MEC'):
     with open(defstr('out'), 'w') as f:
         config.yaml.dump(sample_out, f)
 
+    create_run_mkidpipeline_script() 
 
 def run_step(stepname, dataset):
     try:
