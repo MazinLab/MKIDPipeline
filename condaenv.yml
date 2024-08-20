@@ -21,7 +21,7 @@ dependencies:
   - scikit-learn
   - pyqt>=5.6
   - regions
-  - photutils
+  - photutils==1.2.0
   - ruamel.yaml==0.16.12
   # -drizzle should be installed with pip after intalling the pipeline
   - statsmodels>=0.9
