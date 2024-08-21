@@ -13,7 +13,7 @@ import mkidpipeline.steps as steps
 import mkidpipeline.samples
 
 
-def parse():
+def parser():
     # read in command line arguments
     parser = argparse.ArgumentParser(description="MKID Pipeline CLI")
     parser.add_argument(
@@ -75,7 +75,7 @@ def parse():
         default=pkg.resource_filename("mkidpipeline", "./config/logging.yaml"),
     )
 
-    return parser.parse_args()
+    return parser
 
 
 def init_pipeline(instrument="MEC"):
@@ -107,8 +107,7 @@ def run_step(stepname, dataset):
         pass
 
 
-def main():
-    args = parse()
+def main(args):
     getLogger(
         "mkidcore",
         setup=True,
@@ -168,4 +167,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    args = parser().parse_args()
+    main(args)

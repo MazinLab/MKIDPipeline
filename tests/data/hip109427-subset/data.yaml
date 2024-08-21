@@ -1,0 +1,58 @@
+- !MKIDWavecalDescription
+  name: wavecal0  # A name
+  data: # List of MKIDTimerange named like 950 nm
+  - !MKIDTimerange 
+    name: 850.0 nm  # A name
+    start: 1602040820.0 # The start unix time, float ok, rounded down for H5 creation.
+    stop: 1602040880.0 # A stop unit time, float ok. If not specified duration must be
+    header: # A dictionary of fits header key overrides.
+      laser: on  # !UNKNOWN MEC HEADER KEY!
+      other: fits_key # !UNKNOWN MEC HEADER KEY!
+  - !MKIDTimerange
+    name: 950.0 nm  # A name
+    start: 1602040895.0 # The start unix time, float ok, rounded down for H5 creation.
+    stop: 1602040955.0 # A stop unit time, float ok. If not specified duration must be
+    header: {} # A dictionary of fits header key overrides.
+  - !MKIDTimerange
+    name: 1.1 um  # A name
+    start: 1602040970.0 # The start unix time, float ok, rounded down for H5 creation.
+    stop: 1602041030.0 # A stop unit time, float ok. If not specified duration must be
+    header: {} # A dictionary of fits header key overrides.
+  - !MKIDTimerange
+    name: 1.25 um  # A name
+    start: 1602041040.0 # The start unix time, float ok, rounded down for H5 creation.
+    stop: 1602041100.0 # A stop unit time, float ok. If not specified duration must be
+    header: {} # A dictionary of fits header key overrides.
+  - !MKIDTimerange
+    name: 13750.0 Angstrom  # A name
+    start: 1602041110.0 # The start unix time, float ok, rounded down for H5 creation.
+    stop: 1602041170.0 # A stop unit time, float ok. If not specified duration must be
+    header: {} # A dictionary of fits header key overrides.
+- !MKIDFlatcalDescription
+  name: flatcal0  # A name
+  data: wavecal0 # An MKIDObservation (for a whitelight flat) or an MKIDWavedata (or name) for a lasercal flat
+  wavecal_duration: 50.0 # Number of seconds of the wavecal to use, float ok. Required if using wavecal
+  wavecal_offset: 2.1 # An offset in seconds (>=1) from the start of the wavecal timerange. Required if not ob
+  lincal: false # Apply lincal to h5s 
+  pixcal: true # Apply pixcal to data 
+  cosmiccal: false # Apply cosmiccal to data 
+- !MKIDWCSCalDescription
+  name: wcscal0  # A name
+  data: 10.4 mas # MKIDObservation, MKIDDither, or platescale (e.g. 10 mas)
+  pixel_ref: # The pixel position of the target centroid when on axis and the conex is at conex_ref
+  - 107
+  - 46
+  conex_ref: # The conex (x,y) position, [0, 1.0], when the target is at pixel_ref 
+  - -0.16
+  - -0.4
+  source_locs: [] # The RA/DEC coordinates of the sources in the image 
+- !MKIDDitherDescription
+  name: dither0  # A name
+  data: 1602047815.0 # A list of !sob composing the dither, a unix time that falls within the range of a dither log in paths.data, or a fully qualified legacy (starttimes, endtimes, xpos,ypos) dither file.
+  wavecal: wavecal0 # A MKIDWavedata or name of the same
+  flatcal: flatcal0 # A MKIDFlatdata or name of the same
+  wcscal: wcscal0 # A MKIDWCSCal or name of the same
+  speccal: '' # A MKIDSpecdata or name of the same
+  use: [] # Specify which dither obs to use, list or range specification string e.g. #,#-#,#,#
+  header: # A dictionary of fits header key overrides, to be applied to the observations
+    OBJECT: HIP 109427  # Object
