@@ -1,0 +1,130 @@
+- !MKIDOutput
+  name: out0  # A name
+  data: dither0 # An data name
+  kind: drizzle # drizzle - Use drizzlerimage - Generate a simple image (use photontable.get_fits)movie - Use movies to generate a gif animationtcube - use photontable.get_fitsscube - use photontable.get_fits
+  exclude_flags: # A list of pixel flag names to exclude
+  min_wave: 950.0 nm # Wavelength start for wavelength sensitive outputs
+  max_wave: 1375.0 nm # Wavelength stop for wavelength sensitive outputs, 
+  start_offset: 0 # start offset (s) into data (per frame if dithered)
+  units: photons # photons|photons/s. Drizzled data will always be in photons/s
+  use_weights: true # Use photon weights
+  adi_mode: false # Output compatible with ADI pipeline - do not apply any rotation to outputs (If True will overwrite derotate)
+  lincal: false # Apply and use lincal, slow
+  pixcal: true # Apply pixcal
+  cosmical: false # Determine cosmic ray hits, slow
+  flatcal: true # Apply flatcal
+  movie_runtime: 0.0 # Runtime of movie, defaults to realtime
+  timestep: 0.0 # Duration of time bins in output cubes with a temporal axis (None means no temporal axis)
+  wavestep: # Width of wavelength bins in output cubes with a wavelength axis (None means no wavelength axis)
+- !MKIDOutput
+  name: out1  # A name
+  data: dither0 # An data name
+  kind: image # drizzle - Use drizzlerimage - Generate a simple image (use photontable.get_fits)movie - Use movies to generate a gif animationtcube - use photontable.get_fitsscube - use photontable.get_fits
+  exclude_flags: # A list of pixel flag names to exclude
+  min_wave: 950.0 nm # Wavelength start for wavelength sensitive outputs
+  max_wave: 1375.0 nm # Wavelength stop for wavelength sensitive outputs, 
+  start_offset: 0 # start offset (s) into data (per frame if dithered)
+  units: photons # photons|photons/s. Drizzled data will always be in photons/s
+  use_weights: true # Use photon weights
+  adi_mode: false # Output compatible with ADI pipeline - do not apply any rotation to outputs (If True will overwrite derotate)
+  lincal: false # Apply and use lincal, slow
+  pixcal: true # Apply pixcal
+  cosmical: false # Determine cosmic ray hits, slow
+  flatcal: true # Apply flatcal
+  movie_runtime: 0.0 # Runtime of movie, defaults to realtime
+  timestep: 0.0 # Duration of time bins in output cubes with a temporal axis (None means no temporal axis)
+  wavestep: # Width of wavelength bins in output cubes with a wavelength axis (None means no wavelength axis)
+- !MKIDOutput
+  name: out2  # A name
+  data: dither0 # An data name
+  kind: drizzle # drizzle - Use drizzlerimage - Generate a simple image (use photontable.get_fits)movie - Use movies to generate a gif animationtcube - use photontable.get_fitsscube - use photontable.get_fits
+  exclude_flags: # A list of pixel flag names to exclude
+  min_wave: 950.0 nm # Wavelength start for wavelength sensitive outputs
+  max_wave: 1375.0 nm # Wavelength stop for wavelength sensitive outputs, 
+  start_offset: 0 # start offset (s) into data (per frame if dithered)
+  units: photons # photons|photons/s. Drizzled data will always be in photons/s
+  use_weights: true # Use photon weights
+  adi_mode: false # Output compatible with ADI pipeline - do not apply any rotation to outputs (If True will overwrite derotate)
+  lincal: false # Apply and use lincal, slow
+  pixcal: true # Apply pixcal
+  cosmical: false # Determine cosmic ray hits, slow
+  flatcal: true # Apply flatcal
+  movie_runtime: 0.0 # Runtime of movie, defaults to realtime
+  timestep: 1.0 # Duration of time bins in output cubes with a temporal axis (None means no temporal axis)
+  wavestep: 0.0 nm # Width of wavelength bins in output cubes with a wavelength axis (None means no wavelength axis)
+- !MKIDOutput
+  name: out3  # A name
+  data: dither0 # An data name
+  kind: tcube # drizzle - Use drizzlerimage - Generate a simple image (use photontable.get_fits)movie - Use movies to generate a gif animationtcube - use photontable.get_fitsscube - use photontable.get_fits
+  exclude_flags: # A list of pixel flag names to exclude
+  min_wave: 950.0 nm # Wavelength start for wavelength sensitive outputs
+  max_wave: 1375.0 nm # Wavelength stop for wavelength sensitive outputs, 
+  start_offset: 0 # start offset (s) into data (per frame if dithered)
+  units: photons # photons|photons/s. Drizzled data will always be in photons/s
+  use_weights: true # Use photon weights
+  adi_mode: false # Output compatible with ADI pipeline - do not apply any rotation to outputs (If True will overwrite derotate)
+  lincal: false # Apply and use lincal, slow
+  pixcal: true # Apply pixcal
+  cosmical: false # Determine cosmic ray hits, slow
+  flatcal: true # Apply flatcal
+  movie_runtime: 0.0 # Runtime of movie, defaults to realtime
+  timestep: 1.0 # Duration of time bins in output cubes with a temporal axis (None means no temporal axis)
+  wavestep: 0.0 nm # Width of wavelength bins in output cubes with a wavelength axis (None means no wavelength axis)
+- !MKIDOutput
+  name: out4  # A name
+  data: dither0 # An data name
+  kind: scube # drizzle - Use drizzlerimage - Generate a simple image (use photontable.get_fits)movie - Use movies to generate a gif animationtcube - use photontable.get_fitsscube - use photontable.get_fits
+  exclude_flags: # A list of pixel flag names to exclude
+  min_wave: 950.0 nm # Wavelength start for wavelength sensitive outputs
+  max_wave: 1375.0 nm # Wavelength stop for wavelength sensitive outputs, 
+  start_offset: 0 # start offset (s) into data (per frame if dithered)
+  units: photons # photons|photons/s. Drizzled data will always be in photons/s
+  use_weights: true # Use photon weights
+  adi_mode: false # Output compatible with ADI pipeline - do not apply any rotation to outputs (If True will overwrite derotate)
+  lincal: false # Apply and use lincal, slow
+  pixcal: true # Apply pixcal
+  cosmical: false # Determine cosmic ray hits, slow
+  flatcal: true # Apply flatcal
+  movie_runtime: 0.0 # Runtime of movie, defaults to realtime
+  timestep: 0.0 # Duration of time bins in output cubes with a temporal axis (None means no temporal axis)
+  wavestep: 100.0 nm # Width of wavelength bins in output cubes with a wavelength axis (None means no wavelength axis)
+- !MKIDOutput
+  name: out5  # A name
+  data: dither0 # An data name
+  kind: movie # drizzle - Use drizzlerimage - Generate a simple image (use photontable.get_fits)movie - Use movies to generate a gif animationtcube - use photontable.get_fitsscube - use photontable.get_fits
+  exclude_flags: # A list of pixel flag names to exclude
+  min_wave: 950.0 nm # Wavelength start for wavelength sensitive outputs
+  max_wave: 1375.0 nm # Wavelength stop for wavelength sensitive outputs, 
+  start_offset: 0 # start offset (s) into data (per frame if dithered)
+  units: photons # photons|photons/s. Drizzled data will always be in photons/s
+  use_weights: true # Use photon weights
+  adi_mode: false # Output compatible with ADI pipeline - do not apply any rotation to outputs (If True will overwrite derotate)
+  lincal: false # Apply and use lincal, slow
+  pixcal: true # Apply pixcal
+  cosmical: false # Determine cosmic ray hits, slow
+  flatcal: true # Apply flatcal
+  movie_runtime: 3.0 # Runtime of movie, defaults to realtime
+  timestep: 0.0 # Duration of time bins in output cubes with a temporal axis (None means no temporal axis)
+  wavestep: # Width of wavelength bins in output cubes with a wavelength axis (None means no wavelength axis)
+  movie_format: gif # User added key
+  movie_type: simple # User added key
+- !MKIDOutput
+  name: out6  # A name
+  data: dither0 # An data name
+  kind: movie # drizzle - Use drizzlerimage - Generate a simple image (use photontable.get_fits)movie - Use movies to generate a gif animationtcube - use photontable.get_fitsscube - use photontable.get_fits
+  exclude_flags: # A list of pixel flag names to exclude
+  min_wave: 950.0 nm # Wavelength start for wavelength sensitive outputs
+  max_wave: 1375.0 nm # Wavelength stop for wavelength sensitive outputs, 
+  start_offset: 0 # start offset (s) into data (per frame if dithered)
+  units: photons # photons|photons/s. Drizzled data will always be in photons/s
+  use_weights: true # Use photon weights
+  adi_mode: false # Output compatible with ADI pipeline - do not apply any rotation to outputs (If True will overwrite derotate)
+  lincal: false # Apply and use lincal, slow
+  pixcal: true # Apply pixcal
+  cosmical: false # Determine cosmic ray hits, slow
+  flatcal: true # Apply flatcal
+  movie_runtime: 3.0 # Runtime of movie, defaults to realtime
+  timestep: 0.0 # Duration of time bins in output cubes with a temporal axis (None means no temporal axis)
+  wavestep: # Width of wavelength bins in output cubes with a wavelength axis (None means no wavelength axis)
+  movie_format: mp4 # User added key
+  movie_type: both # User added key

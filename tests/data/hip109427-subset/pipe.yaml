@@ -1,0 +1,111 @@
+!pipe_cfg
+instrument: !InstrumentInfo
+  deadtime_us: 10
+  energy_bin_width_ev: 0.1
+  minimum_wavelength: 700
+  filter_cutoff_min: 950
+  maximum_wavelength: 1500
+  nominal_platescale_mas: 10.05
+  device_orientation_deg: -43.24
+  maximum_count_rate: 5000
+  name: MEC
+ncpu: 1  # number of cpus
+verbosity: 0 # level of verbosity
+flow: # Calibration steps to apply and order in which to do them
+- buildhdf
+- attachmeta
+- wavecal
+- cosmiccal
+- pixcal
+- flatcal
+- wcscal
+- speccal
+paths: !configdict
+  data: ./  # bin file parent folder, must contain YYYYMMDD/*.bin and YYYYMMDD/logs/
+  database: ./database # calibrations will be retrieved/stored here
+  out: ./out # root of output
+  tmp: ./scratch # use for data intensive temp files
+beammap: !bmap  # A Beammap to use, may be None to use the default for the instrument
+  file: ./mec.bmap
+  nrows: 146
+  ncols: 140
+buildhdf: !buildhdf_cfg
+  remake: false  # Remake H5 even if they exist
+  include_baseline: false # Include the baseline in H5 phase/wavelength column
+  chunkshape: 250 # HDF5 Chunkshape to use
+cosmiccal: !cosmiccal_cfg
+  wavecut:  # An optional range (min_nm, max_nm) to use for CR detection
+  method: threshold # What method to use to identify CR impacts (threshold|poisson)
+  region: # The number of microseconds before and after an event to filter
+  - 50
+  - 100
+drizzler: !drizzler_cfg
+  plots: summary  # Which plots to generate: none|summary
+  pixfrac: 0.5 # The drizzle algorithm pixel fraction
+  wcs_timestep: # Seconds between different WCS (eg orientations). If None, the the non-blurring minimum (1 pixel at furthest dither center) will be used
+  whitelight: false # If True will not expect an OBJECT, RA, or DEC in the header and will only use the CONEX position to calculate the WCS. Used for bench tests where data is not taken
+  save_steps: false # Save intermediate fits files where possible (only some modes)
+  usecache: false # Cache photontable for subsequent runs
+  ncpu: 1 # Number of CPUs to use
+  clearcache: false # Clear user cache on next run
+flatcal: !flatcal_cfg
+  rate_cutoff: 0  # Count Rate Cutoff in inverse seconds (number)
+  trim_chunks: 1 # number of Chunks to trim (integer)
+  chunk_time: 10 # duration of chunks used for weights (s)
+  nchunks: 6 # number of chunks to median combine
+  power: 1 # power of polynomial to fit, <3 advised
+  use_wavecal: true # Use a wavelength dependant correction for wavecaled data.
+  plots: summary # none|summary|all
+lincal: !lincal_cfg
+  dt: 1000  # time range over which to calculate the weights (us)
+movies: !movies_cfg
+  type: simple  # simple|upramp|both
+  colormap: viridis # Colormap to use
+  rate_cut: # Count (rate) cutoff, None=none
+  axes: true # Show the axes
+  wcs: true # Use the WCS solution
+  dpi: # Image writer DPI
+  mask_bad: true # Mask bad pixels
+  fps: 24 # framerate
+  smoothing: !configdict
+    n:  # Smooth over N frames
+    sigma: # >n-sigma outliers will be smoothed
+    power: # Power for Savitgy-Golay filter
+  inpaint_below: 0  # Counts below limit will be inpainted (0=off)
+  stretch: !configdict
+    name: linear  # linear | asinh | log | power[power=5] | powerdist | sinh | sqrt | squared
+    args: [] # see matplotlib docs
+    kwargs: {} # see matplotlib docs
+  title: true  # Display the title at the top of the animation
+  movie_format: gif # The format of the movie. Imagemagik if gif else ffmpeg
+pixcal: !pixcal_cfg
+  method: threshold  # method to use laplacian|median|threshold
+  step: 30 # Time interval for methods that need one
+  use_weight: false # Use photon weights
+  remake: false # Remake the calibration even if it exists
+  n_sigma: 5.0 # number of standard deviations above/below the expected value for which a pixel will be flagged as hot/cold
+  plots: none # none|last|all
+speccal: !speccal_cfg
+  photometry_type: aperture  # aperture | psf
+  plots: summary # summary | none
+  interpolation: linear #  linear | cubic | nearest
+  wvl_bin_edges: [] # list of wavelength bin edges to use for determining the solution (in nm). Defaults to nyquist sampling the energy resolution
+  fit_order: 1 # order of the univariate spline to fit the soectrophotometric repsonse curve -must be shorter than the length of the wvl_bin_edges if specified
+wavecal: !wavecal_cfg
+  plots: summary  # summary or all
+  histogram_models: # model types from wavecal_models.py to attempt to fit to the phase peak histograms
+  - GaussianAndExponential
+  bin_width: 2 # minimum bin width for the phase histogram. Larger widths will be used for low photon  count pixels (number)
+  histogram_fit_attempts: 3 # how many times should the code try to fit each histogram model before giving up
+  calibration_models: # model types from wavecal_models.py to attempt to fit to the phase-energy relationship
+  - Quadratic
+  - Linear
+  dt: 500 # ignore photons which arrive this many microseconds from another photon (number)
+  ncpu: 1 # Number of cores to use for fetching
+  parallel_prefetch: false # use shared memory to load ALL the photon data into ram
+wcscal: !wcscal_cfg
+  plot: none  # none|all|summary
+  interpolate: true # whether to inerpolate the image before PSF fitting. Recommended if an MKIDObservation is used or data is noisy
+  sigma_psf: 2.0 # standard deviation of the point spread functions to fit in the image 
+  param_guesses: # (optional) initial guesse for device angle fitting (in radians)
+  - -0.6
