@@ -4,53 +4,6 @@ Data reduction pipeline for Mazinlab MKID instruments - see also
 
 ## Installation 
 
-### Configure conda + mamba
-ask sudo user to run:
-
-```
-conda update -n base -c conda-forge -c defaults conda
-mamba update -n base -c conda-forge -c defaults mamba
-sudo chmod -R g+s /opt/miniconda3 # (if needed because of mamba cache permissions errors)
-```
-### Create .condarc file, create conda environments, and clone the repositories 
-Once your shell and conda + mamba are configured create ~/.condarc with these contents
-```shell
-#=============
-channels:
-  - conda-forge
-  - http://ssb.stsci.edu/astroconda
-  - intel
-  - defaults
-envs_dirs:
-  - /home/<yourusername>/.conda/envs
-  - /opt/anaconda3/envs
-pkg_dirs:
-  - /home/<yourusername>/.conda/pkgs
-  - /opt/anaconda3/pkgs
-pip_interop_enabled: true
-#=============
-```
-Then make a src directory in your home directory, clone the pipeline repository, and create a pipeline conda environemnt 
-```
-mkdir ~/src
-cd ~/src
-git clone https://github.com/mazinlab/mkidpipeline.git
-cd mkidpipeline
-git checkout <a branch, probably develop or master>
-cd ~
-#if the following command gives issues try running: conda clean -a
-mamba env create --name pipeline -f src/mkidpipeline/condaenv.yml
-conda activate pipeline
-pip install -e src/mkidpipeline
-```
-Next install the mkidcore repository which contains supplementary packages needed to run the pipeline such as logging, and
-flagging
-
-```
-cd ~/src
-conda activate pipeline # if not already activated
-pip install -e git+https://github.com/mazinlab/mkidcore.git@<whatever branch goes with mkidp>#egg=mkidcore
-```
 ## Pipeline Quick Start Guide
 
 Move to a directory you would like to play around in, activate your `pipeline` environment with
