@@ -13,7 +13,7 @@ import mkidpipeline.steps as steps
 import mkidpipeline.samples
 
 
-def parse():
+def parser():
     # read in command line arguments
     parser = argparse.ArgumentParser(description="MKID Pipeline CLI")
     parser.add_argument(
@@ -75,10 +75,10 @@ def parse():
         default=pkg.resource_filename("mkidpipeline", "./config/logging.yaml"),
     )
 
-    return parser.parse_args()
+    return parser
 
 
-def init_pipeline(instrument="MEC"):
+def init_pipeline(args, instrument="MEC"):
     defstr = (
         lambda x: f"{x}_default.yaml" if os.path.exists(f"{x}.yaml") else f"{x}.yaml"
     )
@@ -107,8 +107,7 @@ def run_step(stepname, dataset):
         pass
 
 
-def main():
-    args = parse()
+def main(args):
     getLogger(
         "mkidcore",
         setup=True,
@@ -124,8 +123,8 @@ def main():
     getLogger("mkidcore.metadata").setLevel("INFO")
 
     if args.instrument:
-        init_pipeline(instrument=args.instrument)
-        sys.exit(0)
+        init_pipeline(args, instrument=args.instrument)
+        return 0
 
     config.configure_pipeline(args.pipe_cfg)
     outputs = definitions.MKIDOutputCollection(args.out_cfg, datafile=args.data_cfg)
@@ -138,18 +137,18 @@ def main():
         getLogger("mkidpipeline").critical(
             f"Required paths missing:\n\t" + "\n\t".join(missing_paths)
         )
-        sys.exit(1)
+        return 1
 
     issue_report = outputs.validation_summary(null_success=True)
     if issue_report:
         getLogger("mkidpipeline").critical(issue_report)
-        sys.exit(1)
+        return 1
     else:
         getLogger("mkidpipeline").info("Validation of output and data successful!")
 
     if args.vet:
         getLogger("mkidpipeline").info("Vetting YAMLs complete. Done.")
-        sys.exit(0)
+        return 0
 
     if args.info:
         config.inspect_database(detailed=args.verbose)
@@ -165,7 +164,12 @@ def main():
             pipe.batch_applier(step, getattr(outputs, f"to_{step}"))
 
         steps.output.generate(outputs)
+    return 0
 
+# Shim for the new python script standard
+def mainmain():
+    args = parser().parse_args()
+    return main(args)
 
 if __name__ == "__main__":
-    main()
+    sys.exit(mainmain())
