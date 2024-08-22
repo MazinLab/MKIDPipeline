@@ -1,0 +1,53 @@
+on:
+  push:
+  pull_request:
+  merge_group:
+
+name: CI
+jobs:
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version:
+        - '3.9'
+        - '3.10'
+        - '3.11'
+        - '3.12'
+        allow-failure:
+        - false
+        include:
+        - python-version: '3.13-dev'
+          allow-failure: true
+    continue-on-error: ${{ matrix.allow-failure }}
+    name: 'test (${{ matrix.python-version }})'
+    steps:
+    - name: Check out source code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Set up PDM
+      uses: pdm-project/setup-pdm@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install libhdf5-dev libopenblas-dev
+        pip install codecov build
+        pdm install --dev
+    - name: Run tests
+      run: |
+        pdm run test
+    - name: Submit code coverage
+      run: |
+        codecov -t ${{ secrets.CODECOV_TOKEN }}
+
+  required: # group all required workflows into one to avoid reconfiguring this in Actions settings
+    needs:
+      - test
+    if: ${{ always() && !contains(needs.*.result, 'cancelled') }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: ${{ contains(needs.*.result, 'failure') && 'false' || 'true' }}

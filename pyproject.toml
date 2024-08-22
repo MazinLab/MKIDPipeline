@@ -1,0 +1,71 @@
+# Project metadata
+
+[tool.pdm.version]
+source = "scm"
+
+[project]
+dynamic = ["version"]
+
+name = "mkidpipeline"
+description = "Mazin Lab MKID Pipeline Utility"
+readme = "README.md"
+authors = [{name = "Mazin Lab contributors"}]
+license = { text = "BSD-2-clause" }
+
+requires-python = "~=3.9"
+dependencies = [
+  "mkidcore @ git+https://github.com/MazinLab/MKIDCore.git", # While everything is still a disaster
+  "setuptools>=72.2.0",
+
+  "numpy>=1.26",
+  "mpmath>=1.0.0",
+  "numexpr>=2.0.0",
+  "lmfit>=1.3.0",
+  "SharedArray>=3.0.0",
+
+  "astropy>=5.0",
+  "astroquery>=0.4.7",
+  "specutils>=1.0",
+  "photutils>=1.0,<1.13",
+  "scikit-image>=0.20.0",
+  "drizzle>=1.0",
+
+  "matplotlib>=3.5",
+  "cycler>=0.11",
+  "progressbar2>=4.0.0",
+
+  "psutil>=5.0.0",
+  "tables>=3.8.0",
+  "ruamel.yaml>0.18",
+]
+
+[project.scripts]
+"mkidpipe" = "mkidpipeline.mkidpipe:main"
+
+[build-system]
+requires = ["pdm-backend~=2.3.0", "setuptools>=72.2.0", "Cython>=3.0"]
+build-backend = "pdm.backend"
+
+[tool.pdm]
+# Remove this once we no longer support Python 3.8.
+ignore_package_warnings = ["sphinx*", "alabaster"]
+
+[tool.pdm.build]
+includes = ["mkidpipeline/"]
+
+source-includes = [
+  ".gitignore",
+  ".coveragerc",
+]
+
+# Development workflow configuration
+[tool.pdm.dev-dependencies]
+# This version requirement needs to be synchronized with the one in pyproject.toml above!
+test = [
+  "coverage",
+]
+
+[tool.pdm.scripts]
+test.composite = ["test-code"]
+# test-code.env = {PYTHONWARNINGS = "error"}
+test-code.cmd = "python -m coverage run -m unittest discover -t . -s tests -v"
