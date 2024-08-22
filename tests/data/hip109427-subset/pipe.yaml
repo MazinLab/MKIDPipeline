@@ -9,7 +9,7 @@ instrument: !InstrumentInfo
   device_orientation_deg: -43.24
   maximum_count_rate: 5000
   name: MEC
-ncpu: 1  # number of cpus
+ncpu: 128  # number of cpus
 verbosity: 0 # level of verbosity
 flow: # Calibration steps to apply and order in which to do them
 - buildhdf
@@ -22,7 +22,7 @@ flow: # Calibration steps to apply and order in which to do them
 - speccal
 paths: !configdict
   data: ./  # bin file parent folder, must contain YYYYMMDD/*.bin and YYYYMMDD/logs/
-  database: ./database # calibrations will be retrieved/stored here
+  database: ./ # calibrations will be retrieved/stored here
   out: ./out # root of output
   tmp: ./scratch # use for data intensive temp files
 beammap: !bmap  # A Beammap to use, may be None to use the default for the instrument
@@ -92,7 +92,7 @@ speccal: !speccal_cfg
   wvl_bin_edges: [] # list of wavelength bin edges to use for determining the solution (in nm). Defaults to nyquist sampling the energy resolution
   fit_order: 1 # order of the univariate spline to fit the soectrophotometric repsonse curve -must be shorter than the length of the wvl_bin_edges if specified
 wavecal: !wavecal_cfg
-  plots: summary  # summary or all
+  plot: summary  # summary or all
   histogram_models: # model types from wavecal_models.py to attempt to fit to the phase peak histograms
   - GaussianAndExponential
   bin_width: 2 # minimum bin width for the phase histogram. Larger widths will be used for low photon  count pixels (number)
@@ -101,7 +101,7 @@ wavecal: !wavecal_cfg
   - Quadratic
   - Linear
   dt: 500 # ignore photons which arrive this many microseconds from another photon (number)
-  ncpu: 1 # Number of cores to use for fetching
+  ncpu: 64 # Number of cores to use for fetching
   parallel_prefetch: false # use shared memory to load ALL the photon data into ram
 wcscal: !wcscal_cfg
   plot: none  # none|all|summary
