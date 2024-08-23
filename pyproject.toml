@@ -40,7 +40,7 @@ dependencies = [
 ]
 
 [project.scripts]
-"mkidpipe" = "mkidpipeline.mkidpipe:main"
+"mkidpipe" = "mkidpipeline.mkidpipe:mainmain"
 
 [build-system]
 requires = ["pdm-backend~=2.3.0", "setuptools>=72.2.0", "Cython>=3.0"]

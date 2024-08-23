@@ -62,7 +62,7 @@ class CosmicCleaner:
 
         if self.wave_range is None:
             getLogger(__name__).warning("Consider using a wavelength cut to speed removal.")
-            if self.method.lower() is "poisson":
+            if self.method.lower() == "poisson":
                 getLogger(__name__).warning("The Poisson method is not optimized for broadband data and may remove "
                                             "more time than desired!")
 
