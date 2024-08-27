@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.optimize.minpack import curve_fit
+from scipy.optimize import curve_fit
 import math
 from mkidpipeline.utils.resampling import rebin_2d
 
