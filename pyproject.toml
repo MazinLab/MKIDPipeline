@@ -12,7 +12,7 @@ readme = "README.md"
 authors = [{name = "Mazin Lab contributors"}]
 license = { text = "BSD-2-clause" }
 
-requires-python = "~=3.9"
+requires-python = "~=3.10"
 dependencies = [
   "mkidcore @ git+https://github.com/MazinLab/MKIDCore.git", # While everything is still a disaster
   "setuptools>=72.2.0",
@@ -26,7 +26,7 @@ dependencies = [
   "astropy>=5.0",
   "astroquery>=0.4.7",
   "specutils>=1.0",
-  "photutils>=1.0,<1.13",
+  "photutils>=1.13",
   "scikit-image>=0.20.0",
   "drizzle>=1.0",
 
