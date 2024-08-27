@@ -6,7 +6,8 @@ import numpy as np
 import multiprocessing as mp
 import time
 from distutils.spawn import find_executable
-import progressbar as pb
+import progressbar as pb  # EDIT - Change to using tqdm
+import tqdm
 import scipy
 
 import astropy.constants
@@ -891,7 +892,7 @@ class Calibrator(object):
     def _update_progress(self, number=None, initialize=False, finish=False, verbose=True):
         if verbose:
             if initialize:
-                percentage = pb.Percentage()
+                percentage = pb.Percentage()  # EDIT - Change to using tqdm
                 bar = pb.Bar()
                 timer = pb.Timer()
                 eta = pb.ETA()
