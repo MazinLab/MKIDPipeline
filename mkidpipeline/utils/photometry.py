@@ -6,20 +6,21 @@ Photometry utility functions
 import numpy as np
 from astropy.table import Table
 from photutils.detection import IRAFStarFinder
-from photutils.psf import IntegratedGaussianPRF, DAOGroup
+from photutils.psf import IntegratedGaussianPRF
+from photutils.detection import DAOStarFinder
 from photutils.background import MMMBackground, MADStdBackgroundRMS
 from astropy.modeling.fitting import LevMarLSQFitter
 from astropy.stats import gaussian_sigma_to_fwhm
 import scipy.ndimage as ndimage
-from photutils import aperture_photometry
-from photutils import CircularAperture
-from photutils import CircularAnnulus
-from photutils.psf import BasicPSFPhotometry
+from photutils.aperture import aperture_photometry
+from photutils.aperture import CircularAperture
+from photutils.aperture import CircularAnnulus
+from photutils.psf import PSFPhotometry
 from astropy.modeling import fitting
 from astropy.modeling.models import *
 from scipy.interpolate import griddata
 from astropy.io import fits
-from photutils.psf import IterativelySubtractedPSFPhotometry
+from photutils.psf import IterativePSFPhotometry
 from astropy.stats import gaussian_fwhm_to_sigma
 
 
@@ -116,7 +117,7 @@ def astropy_psf_photometry(img, aperture=3, guess_loc=None, filter=1,
     iraffind = IRAFStarFinder(threshold=threshold, fwhm=star_fwhm, minsep_fwhm=minsep_fwhm,
                               roundhi=5.0, roundlo=-5.0, sharplo=.5, sharphi=max_fwhm*2/star_fwhm,
                               brightest=n_brightest)
-    daogroup = DAOGroup(2.0 * star_fwhm)
+    daogroup = DAOStarFinder(2.0 * star_fwhm)
     mmm_bkg = MMMBackground()
     fitter = LevMarLSQFitter()
     psf_model = IntegratedGaussianPRF(sigma=star_fwhm*gaussian_fwhm_to_sigma)
@@ -124,11 +125,11 @@ def astropy_psf_photometry(img, aperture=3, guess_loc=None, filter=1,
     fitshape = 2*((nfwhm_win * star_fwhm) // 2) + 1
     if guess_loc:
         pos = Table(names=('x_0', 'y_0'), data=[[guess_loc[0]], [guess_loc[1]]])
-        photometry = BasicPSFPhotometry(group_maker=daogroup, bkg_estimator=mmm_bkg, psf_model=psf_model,
+        photometry = PSFPhotometry(group_maker=daogroup, bkg_estimator=mmm_bkg, psf_model=psf_model,
                                         fitter=fitter, fitshape=fitshape)
         res = photometry.do_photometry(image=image, init_guesses=pos)
     else:
-        photometry = BasicPSFPhotometry(finder=iraffind, group_maker=daogroup, bkg_estimator=mmm_bkg,
+        photometry = PSFPhotometry(finder=iraffind, group_maker=daogroup, bkg_estimator=mmm_bkg,
                                         psf_model=psf_model, fitter=fitter, fitshape=fitshape,
                                         aperture_radius=aperture)
         res = photometry.do_photometry(image)
@@ -376,11 +377,11 @@ def fit_sources(image, sigma_psf, guesses=None):
     iraffind = IRAFStarFinder(threshold=5.0 * std, fwhm=sigma_psf * gaussian_sigma_to_fwhm, minsep_fwhm=0.01,
                               # threshold=3.5
                               roundhi=5.0, roundlo=-5.0, sharplo=0.0, sharphi=2.0)
-    daogroup = DAOGroup(2.0 * sigma_psf * gaussian_sigma_to_fwhm)
+    daogroup = DAOStarFinder(2.0 * sigma_psf * gaussian_sigma_to_fwhm)
     mmm_bkg = MMMBackground()
     fitter = LevMarLSQFitter()
     psf_model = IntegratedGaussianPRF(sigma=sigma_psf)
-    photometry = IterativelySubtractedPSFPhotometry(finder=iraffind, group_maker=daogroup, bkg_estimator=mmm_bkg,
+    photometry = IterativePSFPhotometry(finder=iraffind, group_maker=daogroup, bkg_estimator=mmm_bkg,
                                                     psf_model=psf_model, fitter=fitter, niters=3,
                                                     fitshape=(11, 11), aperture_radius=2.0)
     if guesses is not None:
