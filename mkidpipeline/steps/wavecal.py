@@ -6,7 +6,6 @@ import numpy as np
 import multiprocessing as mp
 import time
 from distutils.spawn import find_executable
-import progressbar as pb  # EDIT - Change to using tqdm
 import tqdm
 import scipy
 
@@ -182,7 +181,6 @@ class Calibrator(object):
         # define attributes
         self.solution_name = solution_name  # solution name for saving
         self.progress = None  # will be replaced with progress bar
-        self.progress_iteration = None  # will be replaced with progress bar counter
         self._acquired = 0  # counter for number of pixel data sets acquired
         self._max_queue_size = 300  # max queue size for _parallel() method
         self._shared_tables = _shared_tables  # shared photon tables
@@ -892,20 +890,13 @@ class Calibrator(object):
     def _update_progress(self, number=None, initialize=False, finish=False, verbose=True):
         if verbose:
             if initialize:
-                percentage = pb.Percentage()  # EDIT - Change to using tqdm
-                bar = pb.Bar()
-                timer = pb.Timer()
-                eta = pb.ETA()
-                self.progress = pb.ProgressBar(widgets=[percentage, bar, '  (', timer, ') ', eta, ' '],
-                                               max_value=number).start()
-                self.progress_iteration = -1
+                self.progress = tqdm.tqdm(total = number)
             elif finish:
-                self.progress_iteration += 1
-                self.progress.update(self.progress_iteration)
-                self.progress.finish()
+                # Note that the updating convention has changed slightly. 1 is now added to the progress bar counter prior to each operation in the iterable rather than after each item finishes. I.e. the progress bar at "3" means that we are currently working on the 3rd item.
+                self.progress.update() 
+                self.progress.close()
             else:
-                self.progress_iteration += 1
-                self.progress.update(self.progress_iteration)
+                self.progress.update()
 
     def _setup(self, pixels, wavelengths):
         # check inputs
