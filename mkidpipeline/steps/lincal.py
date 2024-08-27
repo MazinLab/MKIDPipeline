@@ -9,7 +9,8 @@ is multiplied into the 'weight' column of the photontable.
 """
 import time
 import numpy as np
-from progressbar import ProgressBar, NullBar
+from progressbar import ProgressBar, NullBar # EDIT - To be replaced with tqdm
+import tqdm
 
 import mkidpipeline.definitions as definitions
 from mkidcore.corelog import getLogger
@@ -63,9 +64,9 @@ def apply(o: definitions.MKIDTimerange, config=None):
     lastpct = 0
 
     if cfg.get('lincal.ncpu') > 1:
-        bar = NullBar()
+        bar = NullBar()              # EDIT - Replace using tqdm
     else:
-        bar = ProgressBar(max_value=n_to_do)
+        bar = ProgressBar(max_value=n_to_do)      # EDIT - Replace using tqdm
 
 
     #Not ram intensive ~250MB peak
