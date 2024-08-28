@@ -12,7 +12,6 @@ import mkidpipeline.config as config
 import mkidpipeline.steps as steps
 import mkidpipeline.samples
 
-
 def parser():
     # read in command line arguments
     parser = argparse.ArgumentParser(description="MKID Pipeline CLI")
@@ -77,6 +76,27 @@ def parser():
 
     return parser
 
+# Func to create a script run_mkidpipeline.py in the same output directory as out.yaml, pipe.yaml, data.yaml
+# run_mkidpipeline.py runs the data through the .yamls with python3 instead of command line 
+
+def create_run_mkidpipeline_script():
+    script_content = """
+# Run script for mkidpipeline
+# Execute in command line with: python3 run_mkidpipeline.py
+import subprocess
+def run_mkidpipe():
+    command = ['mkidpipe', '--make-dir', '--make-outputs']
+    try:
+        # Run the command
+        subprocess.run(command, check=True)
+        print("Command executed successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"An error occurred while running the command: {e}")
+if __name__ == '__main__':
+    run_mkidpipe()
+"""
+    with open('run_mkidpipeline.py', 'w') as f: 
+        f.write(script_content)
 
 def init_pipeline(args, instrument="MEC"):
     defstr = (
@@ -85,7 +105,7 @@ def init_pipeline(args, instrument="MEC"):
     default_pipe_config = pipe.generate_default_config(instrument=instrument)
     with open(defstr("pipe"), "w") as f:
         config.yaml.dump(default_pipe_config, f)
-
+    create_run_mkidpipeline_script() 
     config.configure_pipeline(args.pipe_cfg)
 
     sample_data = mkidpipeline.samples.get_sample_data()
