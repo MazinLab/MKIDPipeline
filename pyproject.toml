@@ -39,6 +39,12 @@ dependencies = [
   "ruamel.yaml>0.18",
 ]
 
+[project.optional-dependencies]
+gui = [
+  "PyQt5",
+  "PySide2"
+]
+
 [project.scripts]
 "mkidpipe" = "mkidpipeline.mkidpipe:mainmain"
 
