@@ -42,7 +42,24 @@ jobs:
     - name: Submit code coverage
       run: |
         codecov -t ${{ secrets.CODECOV_TOKEN }}
+  publish-package:
+    name: upload release to PyPI
+    runs-on: ubuntu-latest
+    environment: publish-release
+    permissions:
+      # This permission is needed for private repositories.
+      contents: read
+      # IMPORTANT: this permission is mandatory for trusted publishing
+      id-token: write
+    steps:
+      - uses: actions/checkout@v3
 
+      - uses: pdm-project/setup-pdm@v3
+
+      - name: Publish package distributions to PyPI
+        if: ${{ github.repository == 'MazinLab/binney' && github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/v') && !contains(github.event.ref, 'dev') }}
+        run: pdm publish
+        
   required: # group all required workflows into one to avoid reconfiguring this in Actions settings
     needs:
       - test
@@ -50,3 +67,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: ${{ contains(needs.*.result, 'failure') && 'false' || 'true' }}
+
+    
+
+  
