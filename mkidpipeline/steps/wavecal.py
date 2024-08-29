@@ -1,4 +1,8 @@
 import os
+import time # EDIT
+time.sleep(5)
+print('\n\nWavecal.py is running.')
+time.sleep(5)
 import queue
 import warnings
 from logging import getLogger
@@ -889,6 +893,9 @@ class Calibrator(object):
 
     def _update_progress(self, number=None, initialize=False, finish=False, verbose=True):
         if verbose:
+            time.sleep(5)
+            print('\n\n\n\n\n\n', 'running   _update_progres() ', '\n\n\n\n\n\n') # EDIT
+            time.sleep(5)
             if initialize:
                 self.progress = tqdm.tqdm(total = number)
             elif finish:
