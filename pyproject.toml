@@ -64,6 +64,9 @@ source-includes = [
 test = [
   "coverage",
 ]
+docs = [
+    "pdoc>=14.6.1",
+]
 
 [tool.pdm.scripts]
 test.composite = ["test-code", "test-docs"]
