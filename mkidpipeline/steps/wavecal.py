@@ -5,13 +5,8 @@ from logging import getLogger
 import numpy as np
 import multiprocessing as mp
 import time
-<<<<<<< HEAD
-from distutils.spawn import find_executable
 import tqdm
-=======
 import shutil
-import progressbar as pb
->>>>>>> main
 import scipy
 
 import astropy.constants
