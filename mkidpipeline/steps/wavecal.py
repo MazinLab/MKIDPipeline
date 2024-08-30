@@ -5,8 +5,13 @@ from logging import getLogger
 import numpy as np
 import multiprocessing as mp
 import time
+<<<<<<< HEAD
 from distutils.spawn import find_executable
 import tqdm
+=======
+import shutil
+import progressbar as pb
+>>>>>>> main
 import scipy
 
 import astropy.constants
@@ -2333,9 +2338,9 @@ class Solution(object):
         """
         log.debug("making summary plot")
         # reversibly configure matplotlib rc if we can use latex
-        tex_installed = (find_executable('latex') is not None and
-                         find_executable('dvipng') is not None and
-                         find_executable('ghostscript') is not None)
+        tex_installed = (shutil.which('latex') is not None and
+                         shutil.which('dvipng') is not None and
+                         shutil.which('ghostscript') is not None)
         if not tex_installed:
             log.warning("latex not configured to work with matplotlib")
         use_latex = use_latex and tex_installed
