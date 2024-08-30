@@ -57,7 +57,7 @@ jobs:
       - uses: pdm-project/setup-pdm@v3
 
       - name: Publish package distributions to PyPI
-        if: ${{ github.repository == 'MazinLab/binney' && github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/v') && !contains(github.event.ref, 'dev') }}
+        if: ${{ github.repository == 'MazinLab/MKIDPipeline' && github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/v') && !contains(github.event.ref, 'dev') }}
         run: pdm publish
         
   required: # group all required workflows into one to avoid reconfiguring this in Actions settings
