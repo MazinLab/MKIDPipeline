@@ -65,7 +65,7 @@ def apply(o: definitions.MKIDTimerange, config=None):
     
     if cfg.get('lincal.ncpu') > 1:
         disable_bar = True
-        print('\nNo progress bar displayed due to multiple cpus used for lincal.\n')
+        getLogger(__name__).info('\nNo progress bar displayed due to multiple cpus used for lincal.\n')
 
     else:
         disable_bar = False
