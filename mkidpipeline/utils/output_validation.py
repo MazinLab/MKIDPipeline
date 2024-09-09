@@ -2,7 +2,7 @@ import mkidpipeline.definitions as definitions
 import mkidpipeline.config as config
 from astropy.io import fits
 from mkidcore.corelog import getLogger
-import pkg_resources as pkg
+from importlib import resources as rs
 import csv
 
 
@@ -31,7 +31,7 @@ def fits_keys(o):
     :param o:
     :return:
     """
-    with open(pkg.resource_filename('mkidcore', 'mec_keys.csv')) as f:
+    with open(rs.files('mkidcore').joinpath('mec_keys.csv')) as f:
         data = [row for row in csv.reader(f)]
     data = [{k.strip().lower().replace(' ', '_').replace('?', ''): v.strip() for k, v in zip(data[0], l)} for l in
             data[1:]]

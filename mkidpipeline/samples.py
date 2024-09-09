@@ -1,6 +1,5 @@
-import pkg_resources
+from importlib import resources as rs
 from collections import defaultdict
-
 import mkidpipeline.definitions as d
 import mkidpipeline.config as config
 
@@ -47,8 +46,7 @@ SAMPLEDATA = {'default': (
     # Speccal
     d.MKIDSpeccal(name=_namer('speccal'),
                   data=d.MKIDObservation(name=_namer('star'), start=1602049166, duration=10, wavecal='wavecal0',
-                                         spectrum=pkg_resources.resource_filename('mkidpipeline',
-                                                                                  'data/sample_spectrum.txt')),
+                                         spectrum=rs.files('mkidpipeline').joinpath('data/sample_spectrum.txt')),
                   aperture=('15h22m32.3', '30.32 deg', '200 mas')),
 
     # WCS cal
@@ -68,7 +66,7 @@ SAMPLEDATA = {'default': (
                  header=dict(OBJECT="HIP 109427"),
                  flatcal='flatcal0', speccal='', use='0,2,4-9', wcscal='wcscal0'),
     d.MKIDDither(name=_namer('dither'),
-                 data=pkg_resources.resource_filename('mkidpipeline', 'data/dither_sample.log'),
+                 data=rs.files('mkidpipeline').joinpath('data/dither_sample.log'),
                  wavecal='wavecal0', flatcal='flatcal0', speccal='', use=(1,),
                  wcscal='wcscal0'),
     d.MKIDDither(name=_namer('dither'), flatcal='', speccal='', wcscal='', wavecal='',
