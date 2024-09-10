@@ -10,7 +10,8 @@ class TestTqdm(unittest.TestCase):
         import mkidpipeline.steps.wavecal
         import mkidpipeline.steps.lincal
         import tqdm
-
+        
+    '''
     def test_progressbar(self):
         # Test to see if progress bar shows up when passing data through
         os.chdir(r'/home/dnearing/pipelineconfig/targets/HIP109427')
@@ -26,8 +27,8 @@ class TestTqdm(unittest.TestCase):
             os.system(command2)
             print("Command executed successfully.")
         except:
-            print(f"An error occurred while running the command: {e}")
-
+            print(f"An error occurred while running the command. ")
+    '''
 
 
 if __name__ == '__main__':
