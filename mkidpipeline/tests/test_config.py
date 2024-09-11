@@ -3,10 +3,10 @@ import mkidpipeline.samples
 import mkidpipeline.config as config
 import mkidpipeline.pipeline as pipe
 import mkidcore.corelog
-import pkg_resources as pkg
+from importlib import resources as rs
 
 mkidcore.corelog.getLogger('mkidcore', setup=True,
-                           configfile=pkg.resource_filename('mkidpipeline', './config/logging.yaml'))
+                           configfile=rs.files('mkidpipeline').joinpath('./config/logging.yaml'))
 
 data = mkidpipeline.samples.get_sample_data('default')
 config.dump_dataconfig(data)

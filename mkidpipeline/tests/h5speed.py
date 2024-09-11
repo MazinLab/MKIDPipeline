@@ -6,7 +6,7 @@ import numexpr
 import numpy as np
 import tables
 import time, timeit, copy, pickle, hashlib, re, collections, ast
-from pkg_resources import resource_filename
+from importlib import resources as rs
 import matplotlib.pyplot as plt
 import matplotlib
 
@@ -268,7 +268,7 @@ def report(timesort=False):
     matplotlib.use('Qt5Agg')
     plt.ion()
     pipe.logtoconsole()
-    pipe.configure_pipeline(resource_filename('mkidpipeline',  os.path.join('tests','h5speed_pipe.yml')))
+    pipe.configure_pipeline(rs.files('mkidpipeline').joinpath(os.path.join('tests', 'h5speed_pipe.yml')))
 
     results = SpeedResults('/scratch/baileyji/mec/speedtest/recovery.pickle')
     phot_per_RrID = results.determine_mean_photperRID()
@@ -365,8 +365,8 @@ if __name__ == '__main__':
 
     # from mkidpipeline.tests.h5speed import *
     pipe.logtoconsole(file='/scratch/baileyji/mec/speedtest/lastrun-pold.log')
-    pipe.configure_pipeline(resource_filename('mkidpipeline',  os.path.join('tests','h5speed_pipe.yml')))
-    d = pipe.load_data_description(resource_filename('mkidpipeline',  os.path.join('tests','h5speed_data.yml')))
+    pipe.configure_pipeline(rs.files('mkidpipeline').joinpath(os.path.join('tests', 'h5speed_pipe.yml')))
+    d = pipe.load_data_description(rs.files('mkidpipeline').joinpath(os.path.join('tests', 'h5speed_data.yml')))
 
     # Basic checks
     print(numexpr.get_vml_version())
