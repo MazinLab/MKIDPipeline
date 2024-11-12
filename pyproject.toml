@@ -14,7 +14,7 @@ license = { text = "BSD-2-clause" }
 
 requires-python = "~=3.10"
 dependencies = [
-  "mkidcore @ git+https://github.com/MazinLab/MKIDCore.git", # While everything is still a disaster
+  "mkidcore>=1.9,<2.0",
   "setuptools>=72.2.0",
 
   "numpy>=1.26",
@@ -37,6 +37,12 @@ dependencies = [
   "psutil>=5.0.0",
   "tables>=3.8.0",
   "ruamel.yaml>0.18",
+]
+
+[project.optional-dependencies]
+gui = [
+  "PyQt5",
+  "PySide2"
 ]
 
 [project.scripts]
@@ -64,8 +70,15 @@ source-includes = [
 test = [
   "coverage",
 ]
+docs = [
+    "pdoc>=14.6.1",
+]
 
 [tool.pdm.scripts]
-test.composite = ["test-code"]
+test.composite = ["test-code", "test-docs"]
 # test-code.env = {PYTHONWARNINGS = "error"}
 test-code.cmd = "python -m coverage run -m unittest discover -t . -s tests -v"
+test-docs.cmd = "pdoc mkidpipeline -o docs"
+
+document.cmd = "pdoc mkidpipeline -o docs"
+document-live.cmd = "pdoc mkidpipeline"
