@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
+from importlib import resources as rs
 import argparse
 import os
 import sys
-import pkg_resources as pkg
 from datetime import datetime
 
 import mkidpipeline.definitions as definitions
@@ -71,7 +71,7 @@ def parser():
         dest="logcfg",
         help="Run the pipeline on the outputs",
         type=str,
-        default=pkg.resource_filename("mkidpipeline", "./config/logging.yaml"),
+        default=rs.files('mkidpipeline').joinpath('./config/logging.yaml'),
     )
 
     return parser
