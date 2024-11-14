@@ -4,15 +4,51 @@ Data reduction pipeline for Mazinlab MKID instruments - see also
 
 ## Installation 
 
-## Pipeline Quick Start Guide
+## Pipeline Quick Start Guide: Installing MKIDPipeline and MKIDCore
 
-Move to a directory you would like to play around in, activate your `pipeline` environment with
+Start by cloning the github repository:
 
-`conda activate pipeline` 
+'git clone https://github.com/mazinlab/mkidpipeline.git'
 
-and run: 
+Create and enter an src directory: 
 
-`mkidpipe --init`
+'mkdir src'
+'cd src' 
+
+Then install the mkidpipeline. You can do this one of two ways, in preferred order: 
+1. 'pipx install -e ./MKIDPipeline' is an editable install and references the files in ./MKIDPipeline instead of copying them. Changes made in the repo will automatically reflect in your local version, except for changes to the pyproject.toml
+
+If there are changes to the pyproject.toml, execute: 'pipx upgrade mkidpipeline' to reflect them in your loca version 
+
+**This method does not work on dark or glados as of 11/24, it is only available on wheatley or your local server 
+2. 'pipx install git+https://github.com/mazinlab/mkidpipeline.git' or 'pipx install ./MKIDPipeline' clones the repo seperately from your local clone. For any changes made on the github, including pyproject.toml, you will need to execute: 'pipx upgrade mkidpipeline'
+
+After this, you should see a the subdirectory /mkidpipeline with associated files in your src directory.
+
+Navigate back to your src directory and execute the following: 
+'git clone https://github.com/mazinlab/mkidcore.git'
+
+## Installing PDM (optional)
+
+PDM is a development tool used to manage dependencies and run tests. If you are planning on making changes to the pipeline and/or want to run debugging tests, you will need to install pdm. These commands may take a few minutes. 
+
+'cd src/mkidpipeline'
+'pdm install --dev'
+'python -m pdm install --dev' 
+'cd src/mkidcore'
+'python - m pdm install -dev'
+'pdm add mkidcore'
+
+If you are having issues with pdm, try to pip uninstall and reinstall. If pdm is installed and it is not finding the command, try: 
+'python -m pdm install --dev' instead of 'pdm install --dev'
+
+The 'python -m' pre-fix ensures you're using the correct environment. You can also troubleshoot by doublechecking the filepath to your version of python 'which python' and installation of pdm 'python -m pip show pdm' match. 
+
+
+## Generating .yaml Files 
+
+Create a working directory and execute 
+`mkidpipe --init MEC` or `mkidpipe --init xkid` depending on the instrument data you are using 
 
 This will create three YAML config files (NB "_default" will be appended if the file already exists):
 1. `pipe.yaml` - The pipeline global configuration file.
