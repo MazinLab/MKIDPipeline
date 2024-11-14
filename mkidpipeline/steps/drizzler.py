@@ -30,7 +30,7 @@ from astropy.io import fits
 from astropy import wcs
 from astropy.coordinates import EarthLocation
 import astropy.units as u
-from drizzle import drizzle as stdrizzle
+#from drizzle import drizzle as stdrizzle
 import mkidcore.corelog
 import mkidcore.pixelflags
 import mkidcore.metadata
