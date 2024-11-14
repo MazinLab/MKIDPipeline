@@ -38,9 +38,8 @@ PDM is a development tool used to manage dependencies and run tests. If you are 
 
 `cd src/mkidpipeline` <br />
 `pdm install --dev` <br />
-`python -m pdm install --dev` <br />
 `cd src/mkidcore` <br />
-`python - m pdm install -dev` <br />
+`pdm install -dev` <br />
 `pdm add mkidcore` <br />
 
 **If you are having issues with pdm, try to pip uninstall and reinstall. If pdm is installed and it is not finding the command, try: <br />
