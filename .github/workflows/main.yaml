@@ -46,6 +46,7 @@ jobs:
     name: upload release to PyPI
     runs-on: ubuntu-latest
     environment: publish-release
+    if: ${{ github.repository == 'MazinLab/MKIDPipeline' && github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/v') && !contains(github.event.ref, 'dev') }}
     permissions:
       # This permission is needed for private repositories.
       contents: read
@@ -57,8 +58,6 @@ jobs:
       - uses: pdm-project/setup-pdm@v3
 
       - name: Publish package distributions to PyPI
-        if: ${{ github.repository == 'MazinLab/MKIDPipeline' && github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/v') && !contains(github.event.ref, 'dev') }}
-        run: pdm publish
         
   required: # group all required workflows into one to avoid reconfiguring this in Actions settings
     needs:
