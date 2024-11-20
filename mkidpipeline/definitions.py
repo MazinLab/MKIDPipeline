@@ -364,11 +364,11 @@ class MKIDObservation(MKIDTimerange):
         try:
             d.update(dict(E_CXREFX=self.wcscal.conex_ref[0], E_CXREFY=self.wcscal.conex_ref[1],
                           E_PREFX=self.wcscal.pixel_ref[0], E_PREFY=self.wcscal.pixel_ref[1],
-                          E_PLTSCL=self.wcscal.platescale if self.wcscal.platescale else self.photontable.query_header(
+                          E_PLTSCL=self.wcscal.platescale if self.wcscal.platescale is not None else self.photontable.query_header(
                               'E_PLTSCL'),
-                          E_DPDCX=self.wcscal.dp_dcx if self.wcscal.dp_dcx else self.photontable.query_header(
+                          E_DPDCX=self.wcscal.dp_dcx if self.wcscal.dp_dcx is not None else self.photontable.query_header(
                               'E_DPDCX'),
-                          E_DPDCY=self.wcscal.dp_dcy if self.wcscal.dp_dcy else self.photontable.query_header(
+                          E_DPDCY=self.wcscal.dp_dcy if self.wcscal.dp_dcy is not None else self.photontable.query_header(
                               'E_DPDCY')))
         except (AttributeError, KeyError) as error:
             pass
