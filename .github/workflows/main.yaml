@@ -58,6 +58,7 @@ jobs:
       - uses: pdm-project/setup-pdm@v3
 
       - name: Publish package distributions to PyPI
+        run: pdm publish
         
   required: # group all required workflows into one to avoid reconfiguring this in Actions settings
     needs:

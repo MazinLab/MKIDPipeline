@@ -269,8 +269,16 @@ class PartialLinearModel:
                                                          weights=1 / np.sqrt(variance), scale_covar=False,
                                                          nan_policy='propagate')
             # find the linear amplitude coefficients
-            amplitudes = self._reduced_model.eval(fit_result.params, x=x, y=y, variance=variance,
-                                                  return_amplitudes=True)
+            amplitudes = self._reduced_model.func(
+                **self._reduced_model.make_funcargs(
+                    fit_result.params, {
+                        'x': x,
+                        'y': y,
+                        'variance': variance,
+                        'return_amplitudes': True
+                    }
+                )
+            )
             # set the minimum amplitude to be 0 for the full fit
             for amplitude in amplitudes.values():
                 amplitude.set(min=0)
