@@ -1,6 +1,8 @@
 import os
 import copy
 import astropy
+from astropy.constants import h
+from astropy.constants import c
 import warnings
 import numpy as np
 import lmfit as lm
@@ -1104,7 +1106,7 @@ class Quadratic(XErrorsModel):
 
     def guess(self):
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore", np.RankWarning)
+            warnings.simplefilter("ignore", np.exceptions.RankWarning)
             poly = np.polyfit(self.x, self.y, 2)
         parameters = lm.Parameters()
         parameters.add('c0', value=poly[2])
@@ -1139,7 +1141,7 @@ class Linear(XErrorsModel):
 
     def guess(self):
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore", np.RankWarning)
+            warnings.simplefilter("ignore", np.exceptions.RankWarning)
             poly = np.polyfit(self.x, self.y, 1)
         parameters = lm.Parameters()
         parameters.add('c0', value=poly[1])
