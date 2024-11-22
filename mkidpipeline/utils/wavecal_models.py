@@ -1,6 +1,8 @@
 import os
 import copy
 import astropy
+from astropy.constants import h
+from astropy.constants import c
 import warnings
 import numpy as np
 import lmfit as lm
