@@ -897,7 +897,7 @@ class Photontable:
             if bin_edges is None:
                 try:
                     bin_edges = np.linspace(time_nfo['relstart'], time_nfo['relstart'] + time_nfo['duration'],
-                                            int(time_nfo['duration'] / bin_width) + 1)
+                                            int(time_nfo['duration'] // min(bin_width, time_nfo['duration'])) + 1)
                 except TypeError:
                     raise Warning('Either bin_width or bin_edges must be specified for get_fits')
 
