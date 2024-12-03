@@ -78,7 +78,7 @@ class DrizzleParams:
         """
         self.n_dithers = len(dither.obs)
         self.image_shape = dither.obs[0].beammap.shape
-        self.platescale = [v.platescale.to(u.deg).value if v.platescale else
+        self.platescale = [v.platescale.to(u.deg).value if v.platescale is not None else
                            dither.obs[0].photontable.query_header('E_PLTSCL') for v in dither.wcscal.values()][0]
         if isinstance(self.platescale, u.Quantity):
             self.platescale = self.platescale.to(u.deg).value
@@ -92,7 +92,10 @@ class DrizzleParams:
             self.coords = astropy.coordinates.SkyCoord(0, 0, unit=('hourangle', 'deg'))
         instrument = dither.obs[0].photontable.query_header('INSTRUME', last_if_series=True)
         default_tel = mkidcore.metadata.INSTRUMENT_KEY_MAP[instrument.lower()]['card']['TELESCOP'].value
-        self.telescope = dither.obs[0].photontable.query_header('TELESCOP', last_if_series=True) or default_tel
+        try:
+            self.telescope = dither.obs[0].photontable.query_header('TELESCOP', last_if_series=True) or default_tel
+        except KeyError:
+            self.telescope = default_tel
 
         self.canvas_shape = (None, None)
         self.dith_start_times = np.array([o.start for o in dither.obs])
@@ -372,7 +375,7 @@ class Drizzler(Canvas):
         Runs the drizzling code
         :param apply_weight: If True will weight each pixel by its weight from the photon table.
         """
-        tic = time.clock()
+        tic = time.time()
 
         nexp_time = len(self.timebins) - 1
         nwvls = len(self.wvl_bin_edges) - 1
@@ -440,7 +443,7 @@ class Drizzler(Canvas):
         self.cps[np.isnan(self.cps)] = 0
         expmap[np.isnan(expmap)] = 0
 
-        getLogger(__name__).debug(f'Image load done in {time.clock() - tic:.1f} s')
+        getLogger(__name__).debug(f'Image load done in {time.time() - tic:.1f} s')
 
         if nexp_time == 1 and self.time_bin_width == 0:
             counts = np.sum(self.cps * expmap, axis=0)
