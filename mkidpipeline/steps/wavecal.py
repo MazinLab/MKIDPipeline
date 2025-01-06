@@ -57,7 +57,7 @@ _loaded_solutions = {}  # storage for loaded wavelength solutions
 class StepConfig(mkidpipeline.config.BaseStepConfig):
     yaml_tag = u'!wavecal_cfg'
     REQUIRED_KEYS = (('plots', 'summary', 'summary or all'),
-                     ('histogram_models', ('GaussianAndExponential',), 'model types from wavecal_models.py to attempt'
+                     ('histogram_models', ('GaussianAndGaussian', 'GaussianAndGaussianExponential'), 'model types from wavecal_models.py to attempt'
                                                                        ' to fit to the phase peak histograms'),
                      ('bin_width', 2, 'minimum bin width for the phase histogram. Larger widths will be used for '
                                       'low photon  count pixels (number)'),
@@ -258,7 +258,6 @@ class Calibrator(object):
         try:
             log.info("Computing phase histograms")
             self._run("make_histograms", pixels=pixels, wavelengths=wavelengths, parallel=parallel, verbose=verbose)
-
             del self._shared_tables
             self._shared_tables = None
 
@@ -276,7 +275,6 @@ class Calibrator(object):
                 self.solution.plot_summary(save_name=save_name)
         except KeyboardInterrupt:
             log.info("Keyboard shutdown requested ... exiting")
-
     def fetch_obsfile(self, wavelength, background=False):
         """Return an obsfile for the specified laser wavelength. May return None for a background"""
         key = (wavelength, background)
@@ -387,7 +385,7 @@ class Calibrator(object):
             message = f"{pixel} : {error}" if wavelength is None else f"{pixel} : {wavelength} nm : {error}"
             log.error(message, exc_info=True)
             raise error
-
+        
     def fit_histograms(self, pixels=None, wavelengths=None, verbose=False):
         """
         Fit the phase pulse-height histograms to a model by fitting each specified in the
@@ -1310,7 +1308,7 @@ class Solution(object):
             calibration_function = self.calibration_function(pixel=pixel)
             models = self.histogram_models(wavelengths, pixel=pixel)
             for index, wavelength in enumerate(wavelengths):
-                if good[index]:
+                if good[index]: # and models[index].nhm is not None and models[index].phm is not None:
                     fwhm = (calibration_function(models[index].nhm) -
                             calibration_function(models[index].phm))
                     energy = calibration_function(models[index].signal_center.value)
@@ -1965,7 +1963,7 @@ class Solution(object):
                 r_wavelength = r_wavelength[r_wavelength <= maximum]
             # histogram data
             counts, edges = np.histogram(r_wavelength, bins=30, range=(0, 1.1 * max_r))
-            bin_widths = np.diff(edges)
+            bin_widths = np.diff(edges)/3
             centers = edges[:-1] + bin_widths[0] / 2.0
             bins = centers
             # calculate median
@@ -2108,6 +2106,8 @@ class Solution(object):
         try:
             data = np.array([self.cfg.beammap.resIDs, self.cfg.beammap.frequencies * 1e6]).T
         except TypeError:
+            print('beammap frequencies', self.cfg.beammap.frequencies)
+            print('beammap resIDs', self.cfg.beammap.resIDs)
             getLogger(__name__).error('The beammap does not have associated frequencies')
             data = np.array([[np.nan, np.nan]])
         # find the median r values for plotting
@@ -2236,7 +2236,7 @@ class Solution(object):
             label = r"R [E/$\Delta$E]"
         cax.get_yaxis().labelpad = 15
         cax.set_ylabel(label, rotation=270)
-        color_bar.draw_all()
+        #color_bar.draw_all()
 
         plt.tight_layout()
         if not_interactive:
@@ -2299,7 +2299,7 @@ class Solution(object):
                     image.set_clim(vmin=0, vmax=1)
                     ticks = np.linspace(0., 1, num=2)
                 color_bar.set_ticks(ticks)
-                color_bar.draw_all()
+                #color_bar.draw_all() #commented our because it created issues loading the plots, can add back in if needed 
                 plt.draw()
 
         indexer = Index(ax_slider, ax_prev, ax_next)
