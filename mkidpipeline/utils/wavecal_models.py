@@ -488,6 +488,7 @@ class PartialLinearModel:
 
 class GaussianAndExponential(PartialLinearModel):
     """Gaussian signal plus exponential background"""
+    independent_vars_defvals = {'x': None}
     @staticmethod
     def full_fit_function(x, signal_amplitude, signal_center, signal_sigma,
                           trigger_amplitude, trigger_tail):
@@ -1120,6 +1121,7 @@ class Linear(XErrorsModel):
 
     @staticmethod
     def fit_function(x, p):
+        #print(p['c1'].value, x)
         return p['c1'].value * x + p['c0'].value
 
     @staticmethod
