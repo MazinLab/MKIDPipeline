@@ -3,7 +3,7 @@
 name: pipeline
 channels:
   - conda-forge
-  - http://ssb.stsci.edu/astroconda
+ - http://ssb.stsci.edu/astroconda
   - intel
   - defaults
 dependencies:
