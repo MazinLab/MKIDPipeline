@@ -5,7 +5,6 @@ Data reduction pipeline for Mazinlab MKID instruments - see also
 ## Installation 
 
 ## Pipeline Quick Start Guide: Installing MKIDPipeline and MKIDCore
-
 Start by cloning the github repository: <br />
 
 `git clone https://github.com/mazinlab/mkidpipeline.git`  <br />
@@ -15,15 +14,28 @@ Create and enter an src directory: <br />
 `mkdir src` <br />
 `cd src` <br />
 
-Then install the mkidpipeline. You can do this one of two ways, in preferred order: 
-1. `pipx install -e ./MKIDPipeline` is an editable install and references the files in ./MKIDPipeline instead of copying them. Changes made in the repo will automatically reflect in your local version, except for changes to the pyproject.toml <br />
+Then install the mkidpipeline. You can do this one of three ways, in preferred order: 
+1. `cd mkidpipeline`<br />
+   `pdm install --dev`<br />
+
+    **to install mkidcore, clone the repo thene execute:
+   `cd mkidcore`<br />
+   `pdm install --dev`<br />
+   `pdm add mkidcore`<br />
+
+   To enter your pdm environment, i.e. when running the pipeline, execute:<br />
+   `pdm venv activate`<br />
+   A line will print to your terminal, starting with `source`. Copy and paste this in your command line and execute, this will put you in the pdm venv. To exit, `deactivate`.<br />
+   See next section for more info on pdm and debugging. 
+   
+2. `pipx install -e ./MKIDPipeline` is an editable install and references the files in ./MKIDPipeline instead of copying them. Changes made in the repo will automatically reflect in your local version, except for changes to the pyproject.toml <br />
 
 If there are changes to the pyproject.toml, execute: `pipx upgrade mkidpipeline` to reflect them in your local version <br />
 
 **This method does not work on dark or glados as of 11/24, it is only available on wheatley or your local server <br />
 
 
-2. `pipx install git+https://github.com/mazinlab/mkidpipeline.git` or `pipx install ./MKIDPipeline` clones the repo seperately from your local clone. <br />
+3. `pipx install git+https://github.com/mazinlab/mkidpipeline.git` or `pipx install ./MKIDPipeline` clones the repo seperately from your local clone. <br />
 
 For any changes made on the github, including pyproject.toml, you will need to execute: `pipx upgrade mkidpipeline` <br />
 
@@ -32,9 +44,9 @@ Now you should see a the subdirectory /mkidpipeline with associated files in you
 Navigate back to your src directory and execute the following: <br />
 `git clone https://github.com/mazinlab/mkidcore.git` <br />
 
-## Installing PDM (optional)
+## Installing PDM
 
-PDM is a development tool used to manage dependencies and run tests. If you are planning on making changes to the pipeline and/or want to run debugging tests, you will need to install pdm. These commands may take a few minutes. 
+PDM is a development tool used to manage dependencies and run tests. If you are planning on making changes to the pipeline and/or want to run debugging tests, you will need to install pdm. These commands may take a few minutes. If you installed the pipeline using step 1 then you have already completed this step. 
 
 `cd src/mkidpipeline` <br />
 `pdm install --dev` <br />
