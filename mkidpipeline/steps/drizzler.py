@@ -30,7 +30,8 @@ from astropy.io import fits
 from astropy import wcs
 from astropy.coordinates import EarthLocation
 import astropy.units as u
-#from drizzle import drizzle as stdrizzle
+import drizzle
+from drizzle import drizzle as stdrizzle
 import mkidcore.corelog
 import mkidcore.pixelflags
 import mkidcore.metadata
@@ -86,10 +87,14 @@ class DrizzleParams:
         self.pixfrac = pixfrac
         self.startt = startt
         # Get the SkyCoord type coordinates to use for center of sky grid that is drizzled onto
-        if not whitelight:
-            self.coords = mkidcore.metadata.skycoord_from_metadata(dither.obs[0].metadata_at(), force_simbad=simbad)
-        else:
-            self.coords = astropy.coordinates.SkyCoord(0, 0, unit=('hourangle', 'deg'))
+        self.coords = mkidcore.metadata.skycoord_from_metadata(dither.obs[0].metadata_at(), force_simbad=simbad) if not whitelight else astropy.coordinates.SkyCoord(0, 0, unit=('hourangle', 'deg'))
+        common_crval = [self.coords.ra.deg, self.coords.dec.deg]
+        for obs in dither.obs:
+            if not hasattr(obs, 'wcs') or obs.wcs is None:
+                # Set the wcs attribute if it does not exist or is None
+                obs.wcs = self.generate_wcs(obs)
+            for wcs_sol in obs.wcs:
+                wcs_sol.wcs.crval = common_crval
         instrument = dither.obs[0].photontable.query_header('INSTRUME', last_if_series=True)
         default_tel = mkidcore.metadata.INSTRUMENT_KEY_MAP[instrument.lower()]['card']['TELESCOP'].value
         try:
@@ -107,6 +112,22 @@ class DrizzleParams:
                      dither.obs[0].photontable.query_header('E_CXREFY')),
             conex_slopes=(dither.obs[0].photontable.query_header('E_DPDCX'),
                           dither.obs[0].photontable.query_header('E_DPDCY')))
+
+    def generate_wcs(self, obs):
+        """
+        Generate a WCS object for the given observation.
+        :param obs: MKIDObservation object
+        :return: WCS object
+        """
+        w = wcs.WCS(naxis=2)
+        w.wcs.pc = np.eye(2)
+        w.pixel_shape = obs.beammap.shape
+        w.wcs.crpix = np.array(obs.beammap.shape) / 2
+        w.wcs.crval = [self.coords.ra.deg, self.coords.dec.deg]
+        w.wcs.ctype = ["RA--TAN", "DEC-TAN"]
+        w.wcs.cdelt = [self.platescale, self.platescale]
+        w.wcs.cunit = ["deg", "deg"]
+        return [w]
 
     def non_blurring_timestep(self, allowable_pixel_smear=1, center=(0, 0), ref_pix=(0, 0), ref_con=(0, 0),
                               conex_slopes=(0, 0)):
@@ -265,7 +286,13 @@ class Canvas:
         """
         primary_header = self.header
         primary_header.update(self.wcs.to_header())
-        primary_header['EXPTIME'] = self.average_nonzero_exp_time
+        
+        # Check for NaN values and handle them
+        if np.isnan(self.average_nonzero_exp_time):
+            primary_header['EXPTIME'] = 0.0  # Assign a default value or handle appropriately
+        else:
+            primary_header['EXPTIME'] = self.average_nonzero_exp_time
+        
         science_header = primary_header.copy()
         science_header['WCSTIME'] = (self.drizzle_params.wcs_timestep, '')
         science_header['PIXFRAC'] = (self.drizzle_params.pixfrac, '')
@@ -277,7 +304,7 @@ class Canvas:
         bin_hdu = []
         if cube_type in ('both', 'time'):
             hdu = fits.TableHDU.from_columns(np.recarray(shape=time_bin_edges.shape, buf=time_bin_edges,
-                                                              dtype=np.dtype([('edges', time_bin_edges.dtype)])),
+                                                         dtype=np.dtype([('edges', time_bin_edges.dtype)])),
                                              name='CUBE_EDGES')
             hdu.header.append(fits.Card('UNIT', 's', comment='Bin unit'))
             bin_hdu.append(hdu)
@@ -288,6 +315,7 @@ class Canvas:
                                              name='CUBE_EDGES')
             hdu.header.append(fits.Card('UNIT', 'nm', comment='Bin unit'))
             bin_hdu.append(hdu)
+
         if self.rate:
             hdul = fits.HDUList([fits.PrimaryHDU(header=primary_header),
                                  fits.ImageHDU(name='cps', data=self.cps, header=science_header),
@@ -385,6 +413,10 @@ class Drizzler(Canvas):
         # TODO this looks like it might be backwards from docs in ra/dec of canvas shape
         self.cps = np.zeros((nexp_time * ndithers, nwvls) + self.canvas_shape[::-1])
         expmap = np.zeros((nexp_time * ndithers, nwvls) + self.canvas_shape[::-1])
+
+        # Extract the common reference value for crval from the first dither
+        first_dither_crval = self.dithers_data[0]['obs_wcs_seq'][0].wcs.crval
+
         for pos, dither_photons in enumerate(self.dithers_data):  # iterate over dithers
             dithhyper = np.zeros((nexp_time, nwvls) + self.canvas_shape[::-1], dtype=np.float32)
             dithexp = np.zeros((nexp_time, nwvls) + self.canvas_shape[::-1], dtype=np.float32)
@@ -393,10 +425,13 @@ class Drizzler(Canvas):
                 if wcs_i >= len(self.wcs_times) - 1 and len(self.wcs_times) != 1:
                     break
                 wcs_sol.pixel_shape = self.shape
+                # Set the crval to the common reference value from the first dither
+                wcs_sol.wcs.crval = first_dither_crval
+                # Print statement to show crval values
+                print(f'Dither {pos}, WCS {wcs_i}, crval: {wcs_sol.wcs.crval}')
                 # the sky grid ref and dither ref should match (crpix varies between dithers)
                 if not np.allclose(wcs_sol.wcs.crval, self.wcs.wcs.crval, rtol=1e-4):
-                    getLogger(__name__).critical('sky grid ref and dither ref do not match '
-                                                 '(crval varies between dithers)!')
+                    print('sky grid ref and dither ref do not match (crval varies between dithers)!')
                     raise RuntimeError('sky grid ref and dither ref do not match (crval varies between dithers)!')
 
                 if len(self.timebins) <= len(self.wcs_times):
@@ -443,7 +478,7 @@ class Drizzler(Canvas):
         self.cps[np.isnan(self.cps)] = 0
         expmap[np.isnan(expmap)] = 0
 
-        getLogger(__name__).debug(f'Image load done in {time.time() - tic:.1f} s')
+        print(f'Image load done in {time.time() - tic:.1f} s')
 
         if nexp_time == 1 and self.time_bin_width == 0:
             counts = np.sum(self.cps * expmap, axis=0)
@@ -480,7 +515,8 @@ class Drizzler(Canvas):
                             dither_photons['photon_pixels'][0][timespan_mask],
                             dither_photons['photon_pixels'][1][timespan_mask]))
 
-        bins = np.array([time_bins, wvl_bins, range(self.shape[1] + 1), range(self.shape[0] + 1)])
+        # bins = np.array([time_bins, wvl_bins, range(self.shape[1] + 1), range(self.shape[0] + 1)])
+        bins = [time_bins, wvl_bins, np.arange(self.shape[1] + 1), np.arange(self.shape[0] + 1)]
         hypercube, _ = np.histogramdd(sample.T, bins, weights=weights)
         return hypercube
 
