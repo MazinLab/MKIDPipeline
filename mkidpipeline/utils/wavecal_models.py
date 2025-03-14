@@ -522,7 +522,7 @@ class GaussianAndExponential(PartialLinearModel):
     def guess(self, index=0):
         parameters = lm.Parameters()
         if index == 0:
-            peaks, _ = find_peaks(self.y, height=self.y.sum() / len(self.x) / 2)
+            peaks, _ = find_peaks(self.y, height=self.y.sum() / len(self.x) / 2, distance=int(len(self.x)/6))
             if len(peaks) > 0:
                 signal_center = self.x[peaks[0]]
             else:
@@ -534,20 +534,22 @@ class GaussianAndExponential(PartialLinearModel):
             r_max = 200  # no R bigger than this at amplitude degrees
             signal_sigma = amplitude / (2.355 * r)
             sigma_min = amplitude / (2.355 * r_max)
-
-            trigger_tail = 0.2
+            if len(peaks) > 1:
+                trigger_tail = self.y[peaks[-1]]
+            else:
+                trigger_tail = 0.05
 
         elif index == 1:
             signal_center = (np.max(self.x) + np.min(self.x)) / 2
             signal_sigma = (np.max(self.x) - np.min(self.x)) / 10
             sigma_min = signal_sigma / 100
-            trigger_tail = 0.2
+            trigger_tail = 0.05
 
         else:
             signal_center = -100
             signal_sigma = 10
             sigma_min = 0.1
-            trigger_tail = 0.1
+            trigger_tail = 0.05
         parameters.add('signal_center', value=signal_center, min=np.min(self.x),
                        max=np.max(self.x))
         parameters.add('signal_sigma', value=signal_sigma, min=sigma_min, max=np.inf)
@@ -573,7 +575,7 @@ class GaussianAndGaussian(PartialLinearModel):
         if return_amplitudes:
             parameters = lm.Parameters()
             parameters.add('signal_amplitude', value=amplitudes[0])
-            parameters.add('background_amplitude', value=amplitudes[1])
+            parameters.add('background_amplitude', value=amplitudes[1], min=amplitudes[0])
             return parameters
 
         result = (amplitudes[0] * gaussian(x, signal_center, signal_sigma) +
@@ -679,9 +681,9 @@ class GaussianAndGaussianExponential(PartialLinearModel):
         amplitudes = find_amplitudes(x, y, model_functions, args, variance=variance)
         if return_amplitudes:
             parameters = lm.Parameters()
-            parameters.add('signal_amplitude', value=amplitudes[0])
-            parameters.add('background_amplitude', value=amplitudes[1])
-            parameters.add('trigger_amplitude', value=amplitudes[2])
+            parameters.add('signal_amplitude', value=amplitudes[0], max=amplitudes[1])
+            parameters.add('background_amplitude', value=amplitudes[1], min=amplitudes[0], max=amplitudes[1])
+            parameters.add('trigger_amplitude', value=amplitudes[2], min=amplitudes[1])
             return parameters
 
         result = (amplitudes[0] * gaussian(x, signal_center, signal_sigma) +
