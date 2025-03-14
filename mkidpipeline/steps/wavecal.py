@@ -556,12 +556,14 @@ class Calibrator(object):
                     arg_max = np.argmax(model.x)
                     model.min_x = model.x[arg_min] - 3 * np.sqrt(sigmas[arg_min])
                     model.max_x = model.x[arg_max] + 3 * np.sqrt(sigmas[arg_max])
+
                 # don't fit if there's not enough data
                 if len(variance) < 2:
                     model.flag = wm.pixel_flags['few histograms']
                     message = "({}, {}) : {} data points is not enough to make a calibration"
                     log.debug(message.format(pixel[0], pixel[1], len(variance)))
                     continue
+
                 diff = np.diff(phases)
                 sigma = np.sqrt(variance)
                 if (diff < -4 * (sigma[:-1] + sigma[1:])).any():
@@ -576,12 +578,14 @@ class Calibrator(object):
                     # update the model if needed
                     if not isinstance(model, calibration_model):
                         model = self._update_calibration_model(calibration_model, pixel)
+
                     # check that there are enough points for the model
                     if len(variance) < model.MIN_POINTS:
                         model.flag = wm.pixel_flags['few histograms']
                         message = "({}, {}) : {} data points is not enough to make a calibration for {}"
                         log.debug(message.format(pixel[0], pixel[1], len(variance), type(model).__name__))
                         continue
+
                     guess = model.guess()
                     model.fit(guess)
                     tried_models.append(model.copy())
@@ -1572,8 +1576,8 @@ class Solution(object):
                 flag += ['not_monotonic']
             elif model.flag == wm.pixel_flags['calibration convergence']:
                 flag += ['failed_convergence']
-            elif model.flag == wm.pixel_flags['calibration validation']:
-                flag += ['failed_validation']
+            # elif model.flag == wm.pixel_flags['calibration validation']:
+            #     flag += ['failed_validation']
 
         # Any histogram fitting issues?
         histogram_models = self.histogram_models(pixel=pixel, res_id=res_id)
@@ -1963,7 +1967,7 @@ class Solution(object):
                 r_wavelength = r_wavelength[r_wavelength <= maximum]
             # histogram data
             counts, edges = np.histogram(r_wavelength, bins=30, range=(0, 1.1 * max_r))
-            bin_widths = np.diff(edges)/3
+            bin_widths = np.diff(edges)/3 # smaller bin widths
             centers = edges[:-1] + bin_widths[0] / 2.0
             bins = centers
             # calculate median
@@ -2106,8 +2110,8 @@ class Solution(object):
         try:
             data = np.array([self.cfg.beammap.resIDs, self.cfg.beammap.frequencies * 1e6]).T
         except TypeError:
-            print('beammap frequencies', self.cfg.beammap.frequencies)
-            print('beammap resIDs', self.cfg.beammap.resIDs)
+            # print('beammap frequencies', self.cfg.beammap.frequencies)
+            # print('beammap resIDs', self.cfg.beammap.resIDs)
             getLogger(__name__).error('The beammap does not have associated frequencies')
             data = np.array([[np.nan, np.nan]])
         # find the median r values for plotting
@@ -2299,7 +2303,7 @@ class Solution(object):
                     image.set_clim(vmin=0, vmax=1)
                     ticks = np.linspace(0., 1, num=2)
                 color_bar.set_ticks(ticks)
-                #color_bar.draw_all() #commented our because it created issues loading the plots, can add back in if needed 
+                #color_bar.draw_all() #commented out because it created issues loading the plots, can add back in if needed 
                 plt.draw()
 
         indexer = Index(ax_slider, ax_prev, ax_next)
