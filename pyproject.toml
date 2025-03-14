@@ -1,8 +1,41 @@
 # Project metadata
 
+
+[tool.pdm]
+ignore_package_warnings = ["sphinx*", "alabaster"]
 [tool.pdm.version]
 source = "scm"
 
+[tool.pdm.build]
+includes = ["mkidpipeline/"]
+
+source-includes = [
+  ".gitignore",
+  ".coveragerc",
+]
+
+# Development workflow configuration
+
+[tool.pdm.dev-dependencies]
+# This version requirement needs to be synchronized with the one in pyproject.toml above!
+test = [
+  "coverage",
+]
+docs = [
+    "pdoc>=14.6.1",
+]
+dev = [
+    "pip>=24.3.1",
+]
+
+[tool.pdm.scripts]
+test.composite = ["test-code", "test-docs"]
+# test-code.env = {PYTHONWARNINGS = "error"}
+test-code.cmd = "python -m coverage run -m unittest discover -t . -s tests -v"
+test-docs.cmd = "pdoc mkidpipeline -o docs"
+
+document.cmd = "pdoc mkidpipeline -o docs"
+document-live.cmd = "pdoc mkidpipeline"
 [project]
 dynamic = ["version"]
 
@@ -52,33 +85,3 @@ gui = [
 requires = ["pdm-backend~=2.3.0", "setuptools>=72.2.0", "Cython>=3.0"]
 build-backend = "pdm.backend"
 
-[tool.pdm]
-# Remove this once we no longer support Python 3.8.
-ignore_package_warnings = ["sphinx*", "alabaster"]
-
-[tool.pdm.build]
-includes = ["mkidpipeline/"]
-
-source-includes = [
-  ".gitignore",
-  ".coveragerc",
-]
-
-# Development workflow configuration
-[tool.pdm.dev-dependencies]
-# This version requirement needs to be synchronized with the one in pyproject.toml above!
-test = [
-  "coverage",
-]
-docs = [
-    "pdoc>=14.6.1",
-]
-
-[tool.pdm.scripts]
-test.composite = ["test-code", "test-docs"]
-# test-code.env = {PYTHONWARNINGS = "error"}
-test-code.cmd = "python -m coverage run -m unittest discover -t . -s tests -v"
-test-docs.cmd = "pdoc mkidpipeline -o docs"
-
-document.cmd = "pdoc mkidpipeline -o docs"
-document-live.cmd = "pdoc mkidpipeline"
