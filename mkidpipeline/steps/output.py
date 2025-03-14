@@ -24,6 +24,7 @@ def generate(outputs: definitions.MKIDOutputCollection, remake=False, **output_k
             getLogger(__name__).info(f'Output {o.filename} for {o.name} already exists. Skipping')
             continue
         getLogger(__name__).info('Generating {}'.format(o.name))
+        
         if o.wants_image:
             # if we are putting out more than one image we need to give them unique file names
             if len(o.data.obs) > 1:
@@ -55,7 +56,7 @@ def generate(outputs: definitions.MKIDOutputCollection, remake=False, **output_k
                     kwargs['bin_width'] = bw_val
                 kwargs.pop('wvl_bin_width')
                 kwargs.pop('time_bin_width')
-                kwargs=dict(kwargs)
+                kwargs = dict(kwargs)
                 kwargs.update(output_kw)
                 pt.Photontable(obs.h5).get_fits(**kwargs).writeto(file, overwrite=True)
                 getLogger(__name__).info(f'Output {file} for {o.name} generated')
