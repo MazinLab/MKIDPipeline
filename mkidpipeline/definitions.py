@@ -352,6 +352,10 @@ class MKIDObservation(MKIDTimerange):
     )
     REQUIRED = MKIDTimerange.REQUIRED + ('wavecal', 'flatcal', 'wcscal', 'speccal')
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.wcs = None  # Initialize the wcs attribute
+
     @classmethod
     def to_yaml(cls, representer, node):
         return super().to_yaml(representer, node, use_underscore=('wavecal', 'flatcal', 'wcscal', 'speccal'))  # save as
@@ -1225,7 +1229,7 @@ class MKIDObservingDataset:
              "Single Obs:\n{obs}".format(wc=('\t-' + '\n\t-'.join([str(w).replace('\n', '\n\t')
                                                                    for w in
                                                                    self.wavecals])) if self.wavecals else '\tNone',
-                                         fc=('\t-' + '\n\t-'.join(
+                                         fc=('\t-' + '\n\t'.join(
                                              [str(f) for f in self.flatcals])) if self.flatcals else
                                          '\tNone',
                                          dithers='Not implemented',
