@@ -897,7 +897,7 @@ class Photontable:
             if bin_edges is None:
                 try:
                     bin_edges = np.linspace(time_nfo['relstart'], time_nfo['relstart'] + time_nfo['duration'],
-                                            int(time_nfo['duration'] / bin_width) + 1)
+                                            int(time_nfo['duration'] // min(bin_width, time_nfo['duration'])) + 1)
                 except TypeError:
                     raise Warning('Either bin_width or bin_edges must be specified for get_fits')
 
@@ -959,7 +959,7 @@ class Photontable:
 
         excluded = self.flags.bitmask(exclude_flags, unknown='ignore')
         pixcal_hdu = [fits.ImageHDU(data=self._flagArray, name='FLAGS'),
-                      fits.ImageHDU(data=(self._flagArray & excluded).astype(int), name='BAD'),
+                      fits.ImageHDU(data=(np.uint64(self._flagArray) & np.uint64(excluded)).astype(int), name='BAD'),
                       fits.TableHDU.from_columns(np.recarray(shape=flaglist.shape, buf=flaglist,
                                                              dtype=np.dtype([('flags', flaglist.dtype)])),
                                                  name='FLAG_NAMES')]

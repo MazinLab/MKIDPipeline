@@ -5,7 +5,9 @@ import skimage.transform as tf
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
-from photutils import DAOStarFinder, centroids, centroid_2dg
+from photutils import centroids
+from photutils.detection import DAOStarFinder
+from photutils.centroids import centroid_2dg
 from scipy.stats import chisquare
 from astropy import stats
 from mkidpipeline.definitions import MKIDDither
