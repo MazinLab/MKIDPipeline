@@ -91,15 +91,28 @@ def add_fwhm(guess):
 def find_amplitudes(x, y, model_functions, args, variance=None):
     if variance is None:
         variance = np.ones(y.shape)
-    # make coefficient matrix
+    
+    # Make coefficient matrix
     a = np.vstack([model(x, *args[index]) / np.sqrt(variance)
                    for index, model in enumerate(model_functions)]).T
-    # rescale y
+    # Rescale y
     b = y / np.sqrt(variance)
 
-    # solve for amplitudes enforcing positive values
+    # Check for invalid values in 'a' and 'b'
+    invalid_rows = np.any(np.isnan(a) | np.isinf(a), axis=1) | np.isnan(b) | np.isinf(b)
+    if np.any(invalid_rows):
+        print(f"Skipping {np.sum(invalid_rows)} invalid rows containing NaN or inf values.")
+        a = a[~invalid_rows]
+        b = b[~invalid_rows]
+
+    # If all rows are invalid, return an empty result
+    if a.size == 0 or b.size == 0:
+        print("All rows are invalid. Returning empty amplitudes.")
+        return np.zeros(len(model_functions))
+
+    # Solve for amplitudes enforcing positive values
     amplitudes, _ = opt.nnls(a, b)
-    amplitudes[amplitudes > 1e100] = 1e100  # prevent overflows
+    amplitudes[amplitudes > 1e100] = 1e100  # Prevent overflows
 
     return amplitudes
 
