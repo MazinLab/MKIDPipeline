@@ -12,6 +12,7 @@ from scipy.signal import find_peaks
 from inspect import signature
 from matplotlib import pyplot as plt
 from scipy.special import erfc, erfcx
+from sklearn.cluster import k_means
 
 import mkidcore.corelog as pipelinelog
 
@@ -74,7 +75,7 @@ def switch_centers(partial_linear_model):
     partial_linear_model.best_fit_result.params = new_parameters
     partial_linear_model.phm = new_parameters['positive_half_max'].value
     partial_linear_model.nhm = new_parameters['negative_half_max'].value
-    success = True if new_parameters['signal_sigma'] < new_parameters['background_center'] else False
+    success = True if new_parameters['signal_center'] < new_parameters['background_center'] else False
     return success
 
 
@@ -160,9 +161,9 @@ def gaussian(x, center, sigma):
     return np.exp(-((x - center) / sigma)**2 / 2)
 
 
-def exponential(x, rate):
-    """Exponential function with unit amplitude"""
-    return np.exp(rate * x)
+def exponential(x, rate, x_offset=0):
+    """Exponential function with unit amplitude and offset"""
+    return np.exp(rate * (x - x_offset))
 
 
 def plot_text(axes, flag, color):
@@ -466,8 +467,8 @@ class PartialLinearModel:
                               p['signal_center'] < min_phase)
         large_sigma = 2. * p['signal_sigma'] > np.max(self.x) - np.min(self.x)
         small_sigma = p['signal_sigma'] < 2
-        success = not (high_chi2 or no_errors or out_of_bounds_peak or large_sigma or
-                       small_sigma)
+        success = not (out_of_bounds_peak or large_sigma or
+                       small_sigma)  # high_chi2 or no_errors
         return success
 
     def guess(self, index=0):
@@ -504,25 +505,25 @@ class GaussianAndExponential(PartialLinearModel):
     independent_vars_defvals = {'x': None}
     @staticmethod
     def full_fit_function(x, signal_amplitude, signal_center, signal_sigma,
-                          trigger_amplitude, trigger_tail):
+                          trigger_amplitude, trigger_center, trigger_tail):
         result = (signal_amplitude * gaussian(x, signal_center, signal_sigma) +
-                  trigger_amplitude * exponential(x, trigger_tail))
+                  trigger_amplitude * exponential(x, trigger_tail, trigger_center))
         return result
 
     @staticmethod
-    def reduced_fit_function(x, y, signal_center, signal_sigma, trigger_tail,
+    def reduced_fit_function(x, y, signal_center, signal_sigma, trigger_center, trigger_tail,
                              variance=None, return_amplitudes=False):
         model_functions = [gaussian, exponential]
-        args = [[signal_center, signal_sigma], [trigger_tail]]
+        args = [[signal_center, signal_sigma], [trigger_tail, trigger_center]]
         amplitudes = find_amplitudes(x, y, model_functions, args, variance=variance)
         if return_amplitudes:
             parameters = lm.Parameters()
-            parameters.add('signal_amplitude', value=amplitudes[0])
-            parameters.add('trigger_amplitude', value=amplitudes[1])
+            parameters.add('signal_amplitude', value=amplitudes[0], min=0)
+            parameters.add('trigger_amplitude', value=amplitudes[1], min=0)
             return parameters
 
         result = (amplitudes[0] * gaussian(x, signal_center, signal_sigma) +
-                  amplitudes[1] * exponential(x, trigger_tail))
+                  amplitudes[1] * exponential(x, trigger_tail, trigger_center))
         return result
 
     def has_good_solution(self):
@@ -537,45 +538,56 @@ class GaussianAndExponential(PartialLinearModel):
                                                    p['signal_center'].value,
                                                    p['signal_sigma'].value)
         e = p['trigger_amplitude'].value * exponential(p['signal_center'].value,
-                                                       p['trigger_tail'].value)
+                                                       p['trigger_tail'].value,
+                                                       p['trigger_center'].value)
         swamped_peak = g < 2. * e
-        small_amplitude = g < self.y.sum() / 10. / len(self.x)
-        success = not (swamped_peak or small_amplitude)
+        #small_amplitude = g < self.y.sum() / 10. / len(self.x)
+        success = not swamped_peak  # or small_amplitude)
         return success
 
-    def guess(self, index=0):
+    def guess(self, index=0, phase_list=None):
         parameters = lm.Parameters()
         if index == 0:
-            peaks, _ = find_peaks(self.y, height=self.y.sum() / len(self.x) / 2)
-            if len(peaks) > 0:
-                signal_center = self.x[peaks[0]]
+            if phase_list is not None:
+                center, labels, _ = k_means(phase_list.reshape(-1, 1), 2, random_state=0)
+                signal_center = np.sort(center.flatten())[0]
+                cluster = phase_list[np.argwhere(labels == 0).flatten()]
+                signal_sigma = np.std(cluster)
+                sigma_min = signal_sigma / 10
             else:
-                phase_smoothed = np.convolve(self.y, np.ones(10) / 10.0, mode='same')
-                signal_center = self.x[np.argmax(phase_smoothed)]
+                peaks, _ = find_peaks(self.y, height=self.y.sum() / len(self.x) / 2, distance=int(len(self.x)/6))
+    
+                if len(peaks) > 0:
+                    signal_center = self.x[peaks[0]]
+                else:
+                    phase_smoothed = np.convolve(self.y, np.ones(10) / 10.0, mode='same')
+                    signal_center = self.x[np.argmax(phase_smoothed)]
+                amplitude = 90
+                r = 4  # typical R at amplitude degrees
+                r_max = 200  # no R bigger than this at amplitude degrees
+                sigma_min = amplitude / (2.355 * r_max)
+                signal_sigma = amplitude / (2.355 * r)
 
-            amplitude = 90
-            r = 4  # typical R at amplitude degrees
-            r_max = 200  # no R bigger than this at amplitude degrees
-            signal_sigma = amplitude / (2.355 * r)
-            sigma_min = amplitude / (2.355 * r_max)
-
-            trigger_tail = 0.2
+            trigger_tail = 0.05
 
         elif index == 1:
             signal_center = (np.max(self.x) + np.min(self.x)) / 2
             signal_sigma = (np.max(self.x) - np.min(self.x)) / 10
             sigma_min = signal_sigma / 100
-            trigger_tail = 0.2
+            trigger_tail = 0.05
 
         else:
-            signal_center = -100
+            signal_center = -150
             signal_sigma = 10
             sigma_min = 0.1
-            trigger_tail = 0.1
-        parameters.add('signal_center', value=signal_center, min=np.min(self.x),
-                       max=np.max(self.x))
-        parameters.add('signal_sigma', value=signal_sigma, min=sigma_min, max=np.inf)
-        parameters.add('trigger_tail', value=trigger_tail, min=0, max=np.inf)
+            trigger_tail = 0.05
+
+        parameters.add('signal_center', value=signal_center, min=np.min(self.x), max=np.max(self.x))
+        parameters.add('signal_sigma', value=signal_sigma, min=sigma_min, max=(np.max(self.x)-np.min(self.x)))
+        # signal - background must be < 0
+        parameters.add('delta', value=signal_center, max=0)
+        parameters.add('trigger_center', expr='signal_center-delta', max=0)
+        parameters.add('trigger_tail', value=trigger_tail, min=0, max=0.5)
         return parameters
 
 
@@ -596,8 +608,8 @@ class GaussianAndGaussian(PartialLinearModel):
         amplitudes = find_amplitudes(x, y, model_functions, args, variance=variance)
         if return_amplitudes:
             parameters = lm.Parameters()
-            parameters.add('signal_amplitude', value=amplitudes[0])
-            parameters.add('background_amplitude', value=amplitudes[1])
+            parameters.add('signal_amplitude', value=amplitudes[0], min=0)
+            parameters.add('background_amplitude', value=amplitudes[1], min=0)
             return parameters
 
         result = (amplitudes[0] * gaussian(x, signal_center, signal_sigma) +
@@ -624,37 +636,48 @@ class GaussianAndGaussian(PartialLinearModel):
                                                         p['background_center'].value,
                                                         p['background_sigma'].value)
         swamped_peak = g < 2. * g2
-        large_background_sigma = p['background_sigma'] > 2 * p['signal_sigma']
-        small_amplitude = g < self.y.sum() / 10. / len(self.x)
-        success = not (swamped_peak or large_background_sigma or small_amplitude)
+        #large_background_sigma = p['background_sigma'] > 2 * p['signal_sigma']
+        #small_amplitude = g < self.y.sum() / 10. / len(self.x)
+        success = not swamped_peak  # or large_background_sigma or small_amplitude)
 
         return success
 
-    def guess(self, index=0):
+    def guess(self, index=0, phase_list=None):
         parameters = lm.Parameters()
         if index == 0:
-            peaks, _ = find_peaks(self.y, height=self.y.sum() / len(self.x) / 2)
-            if len(peaks) > 0:
-                signal_center = self.x[peaks[0]]
+            if phase_list is not None:
+                center, labels, _ = k_means(phase_list.reshape(-1, 1), 2, random_state=0)
+                centers = np.sort(center.flatten())
+                signal_center = centers[0]
+                cluster = [phase_list[np.argwhere(labels == i).flatten()] for i in range(2)]
+                signal_sigma = np.std(cluster[0])
+                sigma_min = signal_sigma / 10
+                background_center = centers[1]
+                background_sigma = np.std(cluster[1])
+                background_sigma_min = background_sigma / 10
             else:
-                phase_smoothed = np.convolve(self.y, np.ones(10) / 10.0, mode='same')
-                signal_center = self.x[np.argmax(phase_smoothed)]
+                peaks, _ = find_peaks(self.y, height=self.y.sum() / len(self.x) / 2)
+                if len(peaks) > 0:
+                    signal_center = self.x[peaks[0]]
+                else:
+                    phase_smoothed = np.convolve(self.y, np.ones(10) / 10.0, mode='same')
+                    signal_center = self.x[np.argmax(phase_smoothed)]
 
-            amplitude = 90
-            r = 4  # typical R at amplitude degrees
-            r_max = 200  # no R bigger than this at amplitude degrees
-            signal_sigma = amplitude / (2.355 * r)
-            sigma_min = amplitude / (2.355 * r_max)
+                amplitude = 90
+                r = 4  # typical R at amplitude degrees
+                r_max = 200  # no R bigger than this at amplitude degrees
+                signal_sigma = amplitude / (2.355 * r)
+                sigma_min = amplitude / (2.355 * r_max)
 
-            amplitude = 20
-            r = 5
-            r_max = 10
-            if len(peaks) > 1:
-                background_center = self.x[peaks[1]]
-            else:
-                background_center = np.min([-30, np.max(self.x)])
-            background_sigma = amplitude / (2.355 * r)
-            background_sigma_min = amplitude / (2.355 * r_max)
+                amplitude = 20
+                r = 5
+                r_max = 10
+                if len(peaks) > 1:
+                    background_center = self.x[peaks[1]]
+                else:
+                    background_center = np.min([-30, np.max(self.x)])
+                background_sigma = amplitude / (2.355 * r)
+                background_sigma_min = amplitude / (2.355 * r_max)
 
         elif index == 1:
             signal_center = (np.max(self.x) + np.min(self.x)) / 2
@@ -665,19 +688,19 @@ class GaussianAndGaussian(PartialLinearModel):
             background_sigma_min = background_sigma / 100
 
         else:
-            signal_center = np.min([-100, np.max(self.x)])
+            signal_center = -150
             signal_sigma = 10
             sigma_min = 0.1
             background_center = np.min([-40, np.max(self.x)])
             background_sigma = 20
             background_sigma_min = 2
-        parameters.add('signal_center', value=signal_center, min=np.min(self.x),
-                       max=np.max(self.x))
-        parameters.add('signal_sigma', value=signal_sigma, min=sigma_min, max=np.inf)
-        parameters.add('background_center', value=background_center, min=-np.inf, max=0)
-        parameters.add('background_sigma', value=background_sigma,
-                       min=background_sigma_min, max=np.inf)
 
+        parameters.add('signal_center', value=signal_center, min=np.min(self.x), max=np.max(self.x))
+        parameters.add('signal_sigma', value=signal_sigma, min=sigma_min, max=(np.max(self.x)-np.min(self.x)))
+        # signal - background must be < 0
+        parameters.add('delta', value=signal_center - background_center, min=signal_center, max=0)
+        parameters.add('background_center', expr='signal_center-delta')
+        parameters.add('background_sigma', value=background_sigma, min=background_sigma_min, max=(np.max(self.x)-np.min(self.x)))
         return parameters
 
 
@@ -686,31 +709,29 @@ class GaussianAndGaussianExponential(PartialLinearModel):
     @staticmethod
     def full_fit_function(x, signal_amplitude, signal_center, signal_sigma,
                           background_amplitude, background_center, background_sigma,
-                          trigger_amplitude, trigger_tail):
+                          trigger_amplitude, trigger_center, trigger_tail):
         result = (signal_amplitude * gaussian(x, signal_center, signal_sigma) +
-                  background_amplitude * gaussian(x, background_center,
-                                                  background_sigma) +
-                  trigger_amplitude * exponential(x, trigger_tail))
+                  background_amplitude * gaussian(x, background_center, background_sigma) +
+                  trigger_amplitude * exponential(x, trigger_tail, trigger_center))
         return result
 
     @staticmethod
     def reduced_fit_function(x, y, signal_center, signal_sigma, background_center,
-                             background_sigma, trigger_tail, variance=None,
+                             background_sigma, trigger_center, trigger_tail, variance=None,
                              return_amplitudes=False):
         model_functions = [gaussian, gaussian, exponential]
-        args = [[signal_center, signal_sigma], [background_center, background_sigma],
-                [trigger_tail]]
+        args = [[signal_center, signal_sigma], [background_center, background_sigma], [trigger_tail, trigger_center]]
         amplitudes = find_amplitudes(x, y, model_functions, args, variance=variance)
         if return_amplitudes:
             parameters = lm.Parameters()
-            parameters.add('signal_amplitude', value=amplitudes[0])
-            parameters.add('background_amplitude', value=amplitudes[1])
-            parameters.add('trigger_amplitude', value=amplitudes[2])
+            parameters.add('signal_amplitude', value=amplitudes[0], min=0)
+            parameters.add('background_amplitude', value=amplitudes[1], min=0)
+            parameters.add('trigger_amplitude', value=amplitudes[2], min=0)
             return parameters
 
         result = (amplitudes[0] * gaussian(x, signal_center, signal_sigma) +
                   amplitudes[1] * gaussian(x, background_center, background_sigma) +
-                  amplitudes[2] * exponential(x, trigger_tail))
+                  amplitudes[2] * exponential(x, trigger_tail, trigger_center))
         return result
 
     def has_good_solution(self):
@@ -730,44 +751,57 @@ class GaussianAndGaussianExponential(PartialLinearModel):
                                                    p['signal_center'].value,
                                                    p['signal_sigma'].value)
         e = p['trigger_amplitude'].value * exponential(p['signal_center'].value,
-                                                       p['trigger_tail'].value)
+                                                       p['trigger_tail'].value,
+                                                       p['trigger_center'].value)
         g2 = p['background_amplitude'].value * gaussian(p['signal_center'].value,
                                                         p['background_center'].value,
                                                         p['background_sigma'].value)
         swamped_peak = g < 2. * (g2 + e)
-        large_background_sigma = p['background_sigma'] > 2 * p['signal_sigma']
-        small_amplitude = g < self.y.sum() / 10. / len(self.x)
-        success = not (swamped_peak or large_background_sigma or small_amplitude)
+        #large_background_sigma = p['background_sigma'] > 2 * p['signal_sigma']
+        #small_amplitude = g < self.y.sum() / 10. / len(self.x)
+        success = not swamped_peak  # or large_background_sigma or small_amplitude)
 
         return success
 
-    def guess(self, index=0):
+    def guess(self, index=0, phase_list=None):
         parameters = lm.Parameters()
         if index == 0:
-            peaks, _ = find_peaks(self.y, height=self.y.sum() / len(self.x) / 2)
-            if len(peaks) > 0:
-                signal_center = self.x[peaks[0]]
+            if phase_list is not None:
+                center, labels, _ = k_means(phase_list.reshape(-1, 1), 2, random_state=0)
+                centers = np.sort(center.flatten())
+                signal_center = centers[0]
+                cluster = [phase_list[np.argwhere(labels == i).flatten()] for i in range(2)]
+                signal_sigma = np.std(cluster[0])
+                sigma_min = signal_sigma / 10
+                background_center = centers[1]
+                background_sigma = np.std(cluster[1])
+                background_sigma_min = background_sigma / 10
+
             else:
-                phase_smoothed = np.convolve(self.y, np.ones(10) / 10.0, mode='same')
-                signal_center = self.x[np.argmax(phase_smoothed)]
+                peaks, _ = find_peaks(self.y, height=self.y.sum() / len(self.x) / 2)
+                if len(peaks) > 0:
+                    signal_center = self.x[peaks[0]]
+                else:
+                    phase_smoothed = np.convolve(self.y, np.ones(10) / 10.0, mode='same')
+                    signal_center = self.x[np.argmax(phase_smoothed)]
+    
+                amplitude = 90
+                r = 4  # typical R at amplitude degrees
+                r_max = 200  # no R bigger than this at amplitude degrees
+                signal_sigma = amplitude / (2.355 * r)
+                sigma_min = amplitude / (2.355 * r_max)
+    
+                amplitude = 20
+                r = 5
+                r_max = 10
+                if len(peaks) > 1:
+                    background_center = self.x[peaks[1]]
+                else:
+                    background_center = np.min([-30, np.max(self.x)])
+                background_sigma = amplitude / (2.355 * r)
+                background_sigma_min = amplitude / (2.355 * r_max)
 
-            amplitude = 90
-            r = 4  # typical R at amplitude degrees
-            r_max = 200  # no R bigger than this at amplitude degrees
-            signal_sigma = amplitude / (2.355 * r)
-            sigma_min = amplitude / (2.355 * r_max)
-
-            amplitude = 20
-            r = 5
-            r_max = 10
-            if len(peaks) > 1:
-                background_center = self.x[peaks[1]]
-            else:
-                background_center = np.min([-30, np.max(self.x)])
-            background_sigma = amplitude / (2.355 * r)
-            background_sigma_min = amplitude / (2.355 * r_max)
-
-            trigger_tail = 0.2
+            trigger_tail = 0.05
 
         elif index == 1:
             signal_center = (np.max(self.x) + np.min(self.x)) / 2
@@ -776,30 +810,33 @@ class GaussianAndGaussianExponential(PartialLinearModel):
             background_center = np.min([2 * signal_center / 3, np.max(self.x)])
             background_sigma = 2 * signal_sigma
             background_sigma_min = background_sigma / 100
-            trigger_tail = 0.2
+            trigger_tail = 0.05
 
         else:
-            signal_center = np.min([-100, np.max(self.x)])
+            signal_center = -150
             signal_sigma = 10
             sigma_min = 0.1
             background_center = np.min([-40, np.max(self.x)])
             background_sigma = 20
             background_sigma_min = 2
-            trigger_tail = 0.1
-        parameters.add('signal_center', value=signal_center, min=np.min(self.x),
-                       max=np.max(self.x))
-        parameters.add('signal_sigma', value=signal_sigma, min=sigma_min, max=np.inf)
-        parameters.add('background_center', value=background_center, min=np.min(self.x),
-                       max=0)
-        parameters.add('background_sigma', value=background_sigma,
-                       min=background_sigma_min, max=np.inf)
-        parameters.add('trigger_tail', value=trigger_tail, min=0, max=np.inf)
+            trigger_tail = 0.05
+        parameters.add('signal_center', value=signal_center, min=np.min(self.x), max=np.max(self.x))
+        parameters.add('signal_sigma', value=signal_sigma, min=sigma_min, max=(np.max(self.x)-np.min(self.x)))
+        # signal - background must be < 0
+        parameters.add('delta1', value=signal_center - background_center, min=signal_center, max=0)
+        parameters.add('background_center', expr='signal_center-delta1')
+        parameters.add('background_center', value=background_center, min=np.min(self.x))
+        parameters.add('background_sigma', value=background_sigma, min=background_sigma_min, max=(np.max(self.x)-np.min(self.x)))
+        # signal - background must be < 0
+        parameters.add('delta2', value=signal_center, max=0)
+        parameters.add('trigger_center', expr='signal_center-delta2', max=0)
+        parameters.add('trigger_tail', value=trigger_tail, min=0, max=0.5)
         return parameters
 
 
 class SkewedGaussianAndGaussianExponential(PartialLinearModel):
     """Gaussian signal plus gaussian background. Do not use. Doesn't compute energy
-     resolution correctly"""
+     resolution correctly. clustering not implemented"""
     @staticmethod
     def full_fit_function(x, signal_amplitude, signal_center, signal_sigma, signal_gamma,
                           background_amplitude, background_center, background_sigma,
@@ -808,7 +845,7 @@ class SkewedGaussianAndGaussianExponential(PartialLinearModel):
                                                      signal_gamma) +
                   background_amplitude * gaussian(x, background_center,
                                                   background_sigma) +
-                  trigger_amplitude * exponential(x, trigger_tail))
+                  trigger_amplitude * exponential(x, trigger_tail, signal_center))
         return result
 
     @staticmethod
@@ -828,7 +865,7 @@ class SkewedGaussianAndGaussianExponential(PartialLinearModel):
 
         result = (amplitudes[0] * gaussian(x, signal_center, signal_sigma) +
                   amplitudes[1] * gaussian(x, background_center, background_sigma) +
-                  amplitudes[2] * exponential(x, trigger_tail))
+                  amplitudes[2] * exponential(x, trigger_tail, signal_center))
         return result
 
     def has_good_solution(self):
@@ -848,7 +885,8 @@ class SkewedGaussianAndGaussianExponential(PartialLinearModel):
                                                    p['signal_center'].value,
                                                    p['signal_sigma'].value)
         e = p['trigger_amplitude'].value * exponential(p['signal_center'].value,
-                                                       p['trigger_tail'].value)
+                                                       p['trigger_tail'].value,
+                                                       p['signal_center'].value)
         g2 = p['background_amplitude'].value * gaussian(p['signal_center'].value,
                                                         p['background_center'].value,
                                                         p['background_sigma'].value)
@@ -907,14 +945,11 @@ class SkewedGaussianAndGaussianExponential(PartialLinearModel):
             background_sigma = 20
             background_sigma_min = 2
             trigger_tail = 0.05
-        parameters.add('signal_center', value=signal_center, min=np.min(self.x),
-                       max=np.max(self.x))
-        parameters.add('signal_sigma', value=signal_sigma, min=sigma_min, max=np.inf)
+        parameters.add('signal_center', value=signal_center, min=np.min(self.x), max=np.max(self.x))
+        parameters.add('signal_sigma', value=signal_sigma, min=sigma_min, max=90)
         parameters.add('signal_gamma', value=signal_gamma, min=0)
-        parameters.add('background_center', value=background_center, min=np.min(self.x),
-                       max=0)
-        parameters.add('background_sigma', value=background_sigma,
-                       min=background_sigma_min, max=np.inf)
+        parameters.add('background_center', value=background_center, min=np.min(self.x), max=0)
+        parameters.add('background_sigma', value=background_sigma, min=background_sigma_min, max=90)
         parameters.add('trigger_tail', value=trigger_tail, min=0, max=np.inf)
         return parameters
 
@@ -987,7 +1022,7 @@ class XErrorsModel(object):
             variance = np.ones(self.y.shape)
             scale = False
         arguments = (self.x, self.y, variance, self.fit_function, self.dfdx)
-        fit_result = lm.minimize(self.chi_squared, guess, args=arguments, scale_covar=scale)
+        fit_result = lm.minimize(self.chi_squared, guess, args=arguments, scale_covar=scale, nan_policy='propagate')
 
         # save the data in best_fit_result if it is better than previous fits
         used_last_fit = (self.best_fit_result is None or fit_result.chisqr < self.best_fit_result.chisqr)
@@ -1123,9 +1158,14 @@ class Quadratic(XErrorsModel):
             warnings.simplefilter("ignore", np.exceptions.RankWarning)
             poly = np.polyfit(self.x, self.y, 2)
         parameters = lm.Parameters()
-        parameters.add('c0', value=poly[2])
-        parameters.add('c1', value=poly[1])
+        s = np.max(2 * poly[0] * self.x + poly[1])  # largest slope
+        v = np.min(self.y)
         parameters.add('c2', value=poly[0])
+        parameters.add('s', value=s, max=0)  # slope must be negative
+        parameters.add('c1', expr=f's-2*c2*{self.max_x}')  # write coefs in terms of constraints
+        parameters.add('v', value=v, min=0)  # lowest energy must be positive
+        parameters.add('c0', expr=f'v-c2*{self.max_x}**2-c1*{self.max_x}')  # write coefs in terms of constraints
+        
         return parameters
 
 
@@ -1149,16 +1189,22 @@ class Linear(XErrorsModel):
             return success
         p = self.best_fit_result.params
         positive_slope = p['c1'] > 0
-        negative_energy = (self.max_x > -p['c0'].value / p['c1'].value and
-                           not positive_slope)
-        success = not (positive_slope or negative_energy)
+        #negative_energy = (self.max_x > -p['c0'].value / p['c1'].value and
+                           #not positive_slope)
+        success = not positive_slope  # or negative_energy)
         return success
 
     def guess(self):
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore", np.exceptions.RankWarning)
-            poly = np.polyfit(self.x, self.y, 1)
-        parameters = lm.Parameters()
-        parameters.add('c0', value=poly[1])
-        parameters.add('c1', value=poly[0])
+            warnings.simplefilter("ignore", np.RankWarning)
+            parameters = lm.Parameters()
+            try:
+                poly = np.polyfit(self.x, self.y, 1)
+                v = poly[0] * self.max_x + poly[1]  # the energy of the smallest abs phase
+                parameters.add('c1', value=poly[0], max=0)  # slope must be negative
+                parameters.add('v', value=v, min=0)  # forces lowest energy to be positive
+                parameters.add('c0', expr=f'v-c1*{self.max_x}')  # rewrite coefs in terms of constraints
+            except ValueError:
+                parameters.add('c1', value=poly[0], max=0)  # slope must be negative
+                parameters.add('c0', value=poly[1])  # rewrite coefs in terms of constraints
         return parameters

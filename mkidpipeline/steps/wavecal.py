@@ -5,7 +5,7 @@ from logging import getLogger
 import numpy as np
 import multiprocessing as mp
 import time
-import shutil
+from distutils.spawn import find_executable
 import progressbar as pb
 import scipy
 
@@ -177,6 +177,7 @@ class Calibrator(object):
     """
     def __init__(self, configuration, solution_name='solution.npz', _shared_tables=None, main=True):
         # save configuration
+        self.phase_list = None
         self.cfg = Configuration(configuration) if not isinstance(configuration, Configuration) else configuration
         # define attributes
         self.solution_name = solution_name  # solution name for saving
@@ -258,6 +259,7 @@ class Calibrator(object):
         try:
             log.info("Computing phase histograms")
             self._run("make_histograms", pixels=pixels, wavelengths=wavelengths, parallel=parallel, verbose=verbose)
+
             del self._shared_tables
             self._shared_tables = None
 
@@ -275,6 +277,7 @@ class Calibrator(object):
                 self.solution.plot_summary(save_name=save_name)
         except KeyboardInterrupt:
             log.info("Keyboard shutdown requested ... exiting")
+
     def fetch_obsfile(self, wavelength, background=False):
         """Return an obsfile for the specified laser wavelength. May return None for a background"""
         key = (wavelength, background)
@@ -359,6 +362,7 @@ class Calibrator(object):
                     # remove photons with positive peak heights
                     phase_list = photon_list['wavelength']
                     phase_list = phase_list[phase_list < 0]
+                    self.phase_list = phase_list
                     if phase_list.size == 0:
                         model.flag = wm.pixel_flags['positive cut']
                         message = ("({}, {}) : {} nm : all the photons were removed "
@@ -385,7 +389,7 @@ class Calibrator(object):
             message = f"{pixel} : {error}" if wavelength is None else f"{pixel} : {wavelength} nm : {error}"
             log.error(message, exc_info=True)
             raise error
-        
+
     def fit_histograms(self, pixels=None, wavelengths=None, verbose=False):
         """
         Fit the phase pulse-height histograms to a model by fitting each specified in the
@@ -454,7 +458,7 @@ class Calibrator(object):
                                 continue
                         # try a guess based on the model if the computed guess didn't work
                         for fit_index in range(self.cfg.histogram_fit_attempts):
-                            guess = model.guess(fit_index)
+                            guess = model.guess(fit_index, phase_list=self.phase_list)
                             model.fit(guess)
                             if model.has_good_solution():
                                 tried_models.append(model.copy())
@@ -540,13 +544,23 @@ class Calibrator(object):
                 histogram_models = self.solution.histogram_models(wavelengths, pixel)
                 good = self.solution.has_good_histogram_solutions(wavelengths, pixel)
                 phases, variance, energies, sigmas = [], [], [], []
-                for index, wavelength in enumerate(wavelengths):
-                    if good[index]:
-                        histogram_model = histogram_models[index]
-                        phases.append(histogram_model.signal_center.value)
-                        variance.append(histogram_model.signal_center_standard_error**2)
-                        energies.append(SPEED_OF_LIGHT_NMS * PLANK_CONSTANT_EVS / wavelength)
-                        sigmas.append(histogram_model.signal_sigma.value)
+                try:
+                    for index, wavelength in enumerate(wavelengths):
+                        if good[index]:
+                            histogram_model = histogram_models[index]
+                            phases.append(histogram_model.signal_center.value)
+                            variance.append(histogram_model.signal_center_standard_error**2)
+                            energies.append(SPEED_OF_LIGHT_NMS * PLANK_CONSTANT_EVS / wavelength)
+                            sigmas.append(histogram_model.signal_sigma.value)
+                except RuntimeError:
+                    phases, variance, energies, sigmas = [], [], [], []
+                    for index, wavelength in enumerate(wavelengths):
+                        if good[index]:
+                            histogram_model = histogram_models[index]
+                            phases.append(histogram_model.signal_center.value)
+                            variance.append(1)
+                            energies.append(SPEED_OF_LIGHT_NMS * PLANK_CONSTANT_EVS / wavelength)
+                            sigmas.append(histogram_model.signal_sigma.value)
                 # give data to model
                 if variance:
                     model.x = np.array(phases)
@@ -721,6 +735,7 @@ class Calibrator(object):
         variance = np.sqrt(counts ** 2 + 0.25) - 0.5
         if bkgd_counts is not None:
             counts -= bkgd_counts
+            counts[counts < 0] = 0
             variance += np.sqrt(bkgd_counts ** 2 + 0.25) - 0.5
         return centers, counts, variance
 
@@ -771,7 +786,7 @@ class Calibrator(object):
         histogram_models = self.solution.histogram_models(pixel=pixel)
         parameters = self.solution.histogram_parameters(pixel=pixel)
         model = histogram_models[wavelength_index]
-        guess = model.guess()
+        guess = model.guess(phase_list=self.phase_list)
         # get index of closest shorter wavelength good solution
         shorter_index = None
         for index, good in enumerate(good_solutions[:wavelength_index]):
@@ -1308,11 +1323,14 @@ class Solution(object):
             calibration_function = self.calibration_function(pixel=pixel)
             models = self.histogram_models(wavelengths, pixel=pixel)
             for index, wavelength in enumerate(wavelengths):
-                if good[index]: # and models[index].nhm is not None and models[index].phm is not None:
+                if good[index]:
                     fwhm = (calibration_function(models[index].nhm) -
                             calibration_function(models[index].phm))
                     energy = calibration_function(models[index].signal_center.value)
-                    resolving_powers[index] = energy / fwhm
+                    if fwhm == 0:
+                        resolving_powers[index] = np.nan
+                    else:
+                        resolving_powers[index] = energy / fwhm
                 else:
                     resolving_powers[index] = np.nan
         else:
@@ -1758,7 +1776,7 @@ class Solution(object):
         model.y = old_model.y
         model.variance = old_model.variance
         if guess is None:
-            guess = model.guess()
+            guess = model.guess(phase_list=self.phase_list)
         model.fit(guess)
         self.set_histogram_models(model, wavelengths=wavelength, pixel=pixel)
 
@@ -1963,7 +1981,7 @@ class Solution(object):
                 r_wavelength = r_wavelength[r_wavelength <= maximum]
             # histogram data
             counts, edges = np.histogram(r_wavelength, bins=30, range=(0, 1.1 * max_r))
-            bin_widths = np.diff(edges)/3
+            bin_widths = np.diff(edges)
             centers = edges[:-1] + bin_widths[0] / 2.0
             bins = centers
             # calculate median
